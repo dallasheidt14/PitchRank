@@ -86,9 +86,9 @@ RANKING_CONFIG = {
 
 # Matching Configuration
 MATCHING_CONFIG = {
-    'fuzzy_threshold': 0.7,
+    'fuzzy_threshold': 0.75,
     'auto_approve_threshold': 0.9,
-    'review_threshold': 0.85,
+    'review_threshold': 0.75,
     'max_age_diff': 2
 }
 
