@@ -1,0 +1,12 @@
+[project]
+name = "pitchrank"
+version = "2.0.0"
+description = "Youth soccer ranking system with cross-age and cross-state support"
+authors = [
+    {name = "Dallas Heidt", email = "dallasheidt14@gmail.com"},
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
