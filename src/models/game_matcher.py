@@ -1,9 +1,10 @@
 """Game matching system with fuzzy matching and alias support"""
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
 from difflib import SequenceMatcher
 import logging
 import uuid
+from dataclasses import dataclass
 
 from supabase import Client
 from config.settings import MATCHING_CONFIG
@@ -12,6 +13,22 @@ logger = logging.getLogger(__name__)
 
 # UUID namespace for deterministic game UIDs
 GAME_UID_NAMESPACE = uuid.UUID('6ba7b810-9dad-11d1-80b4-00c04fd430c8')  # Standard DNS namespace
+
+
+@dataclass
+class MatchResult:
+    """Structured match result for team matching"""
+    master_team_id: str
+    confidence: float
+    provider_team_name: str
+    details: Dict[str, Any]
+
+
+class MatchingThresholds:
+    """Enforced matching thresholds"""
+    AUTO_LINK = 0.90      # Automatically link
+    MANUAL_REVIEW = 0.75  # Queue for review  
+    BLOCK = 0.75          # Reject below this
 
 
 class GameHistoryMatcher:
@@ -28,120 +45,146 @@ class GameHistoryMatcher:
     def generate_game_uid(
         provider: str,
         game_date: str,
-        home_team_id: str,
-        away_team_id: str,
-        home_score: Optional[int],
-        away_score: Optional[int]
+        team1_id: str,
+        team2_id: str
     ) -> str:
         """
-        Generate deterministic UUID for a game.
+        Generate deterministic game UID using sorted team IDs (no scores).
         
-        Same game data will always produce the same UUID, preventing duplicates.
+        Same game will produce the same UID regardless of which team's perspective
+        or the scores. Format: {provider}:{date}:{sorted_team1}:{sorted_team2}
         
         Args:
             provider: Provider code (e.g., 'gotsport')
             game_date: Game date in YYYY-MM-DD format
-            home_team_id: Home team provider ID
-            away_team_id: Away team provider ID
-            home_score: Home team score (None if unknown)
-            away_score: Away team score (None if unknown)
+            team1_id: First team provider ID
+            team2_id: Second team provider ID
         
         Returns:
-            UUID string
+            Game UID string (e.g., 'gotsport:2025-06-01:3841:4719')
         """
-        # Normalize scores to string (handle None)
-        home_score_str = str(home_score) if home_score is not None else 'null'
-        away_score_str = str(away_score) if away_score is not None else 'null'
+        # Sort team IDs so order doesn't matter
+        sorted_teams = sorted([str(team1_id), str(team2_id)])
         
-        # Create deterministic string
-        uid_string = f"{provider}|{game_date}|{home_team_id}|{away_team_id}|{home_score_str}|{away_score_str}"
+        # Create deterministic UID without scores
+        game_uid = f"{provider}:{game_date}:{sorted_teams[0]}:{sorted_teams[1]}"
         
-        # Generate UUID5 (deterministic)
-        game_uid = uuid.uuid5(GAME_UID_NAMESPACE, uid_string)
-        
-        return str(game_uid)
+        return game_uid
 
     def match_game_history(self, game_data: Dict) -> Dict:
         """
         Match a game history record to master teams.
         
+        Handles both source format (team_id/opponent_id) and transformed format (home_team_id/away_team_id).
+        If transformed format is already provided, use it directly.
+        
         Returns:
             Dict with game record ready for insertion including:
-            - team_id_master: matched team ID
-            - opponent_id_master: matched opponent ID
+            - home_team_master_id: matched home team ID
+            - away_team_master_id: matched away team ID
             - match_status: 'matched', 'partial', or 'failed'
-            - team_match_method: how team was matched
-            - opponent_match_method: how opponent was matched
-            - team_match_confidence: confidence score for team match
-            - opponent_match_confidence: confidence score for opponent match
         """
         # Get provider ID
         provider_id = self._get_provider_id(game_data.get('provider'))
         
-        # Match team
-        team_match = self._match_team(
-            provider_id=provider_id,
-            provider_team_id=game_data.get('team_id'),
-            team_name=game_data.get('team_name'),
-            age_group=game_data.get('age_group'),
-            gender=game_data.get('gender')
-        )
-        
-        # Match opponent
-        opponent_match = self._match_team(
-            provider_id=provider_id,
-            provider_team_id=game_data.get('opponent_id'),
-            team_name=game_data.get('opponent_name'),
-            age_group=game_data.get('age_group'),  # Usually same age group
-            gender=game_data.get('gender')
-        )
+        # Check if game is already transformed (has home_team_id/away_team_id)
+        if 'home_team_id' in game_data and 'away_team_id' in game_data:
+            # Already transformed - use directly
+            home_provider_id = game_data.get('home_provider_id') or game_data.get('home_team_id', '')
+            away_provider_id = game_data.get('away_provider_id') or game_data.get('away_team_id', '')
+            
+            # Match home team
+            home_match = self._match_team(
+                provider_id=provider_id,
+                provider_team_id=home_provider_id,
+                team_name=game_data.get('home_team_name'),
+                age_group=game_data.get('age_group'),
+                gender=game_data.get('gender')
+            )
+            
+            # Match away team
+            away_match = self._match_team(
+                provider_id=provider_id,
+                provider_team_id=away_provider_id,
+                team_name=game_data.get('away_team_name'),
+                age_group=game_data.get('age_group'),
+                gender=game_data.get('gender')
+            )
+            
+            home_team_master_id = home_match.get('team_id')
+            away_team_master_id = away_match.get('team_id')
+            home_score = game_data.get('home_score')
+            away_score = game_data.get('away_score')
+            
+        else:
+            # Source format - transform and match
+            # Match team
+            team_match = self._match_team(
+                provider_id=provider_id,
+                provider_team_id=game_data.get('team_id'),
+                team_name=game_data.get('team_name'),
+                age_group=game_data.get('age_group'),
+                gender=game_data.get('gender')
+            )
+            
+            # Match opponent
+            opponent_match = self._match_team(
+                provider_id=provider_id,
+                provider_team_id=game_data.get('opponent_id'),
+                team_name=game_data.get('opponent_name'),
+                age_group=game_data.get('age_group'),
+                gender=game_data.get('gender')
+            )
+            
+            # Determine home/away teams based on home_away flag
+            home_away = game_data.get('home_away', 'H').upper()
+            
+            if home_away == 'H':
+                # team_id is home, opponent_id is away
+                home_team_master_id = team_match.get('team_id')
+                away_team_master_id = opponent_match.get('team_id')
+                home_provider_id = game_data.get('team_id', '')
+                away_provider_id = game_data.get('opponent_id', '')
+                home_score = game_data.get('goals_for')
+                away_score = game_data.get('goals_against')
+            else:
+                # team_id is away, opponent_id is home
+                home_team_master_id = opponent_match.get('team_id')
+                away_team_master_id = team_match.get('team_id')
+                home_provider_id = game_data.get('opponent_id', '')
+                away_provider_id = game_data.get('team_id', '')
+                home_score = game_data.get('goals_against')
+                away_score = game_data.get('goals_for')
         
         # Determine overall match status
-        if team_match['matched'] and opponent_match['matched']:
+        if home_team_master_id and away_team_master_id:
             match_status = 'matched'
-        elif team_match['matched'] or opponent_match['matched']:
+        elif home_team_master_id or away_team_master_id:
             match_status = 'partial'
         else:
             match_status = 'failed'
         
-        # Determine home/away teams based on home_away flag
-        home_away = game_data.get('home_away', 'H').upper()
-        
-        if home_away == 'H':
-            # Team is home, opponent is away
-            home_team_id = team_match.get('team_id')
-            away_team_id = opponent_match.get('team_id')
-            home_provider_id = game_data.get('team_id', '')
-            away_provider_id = game_data.get('opponent_id', '')
-            home_score = game_data.get('goals_for')
-            away_score = game_data.get('goals_against')
+        # Game UID should already be set by _validate_games, but generate if missing
+        if not game_data.get('game_uid'):
+            provider_code = game_data.get('provider', '')
+            home_id = home_provider_id if 'home_provider_id' in game_data else (game_data.get('home_team_id') or '')
+            away_id = away_provider_id if 'away_provider_id' in game_data else (game_data.get('away_team_id') or '')
+            game_uid = self.generate_game_uid(
+                provider=provider_code,
+                game_date=game_data.get('game_date', ''),
+                team1_id=home_id,
+                team2_id=away_id
+            )
         else:
-            # Team is away, opponent is home
-            home_team_id = opponent_match.get('team_id')
-            away_team_id = team_match.get('team_id')
-            home_provider_id = game_data.get('opponent_id', '')
-            away_provider_id = game_data.get('team_id', '')
-            home_score = game_data.get('goals_against')
-            away_score = game_data.get('goals_for')
-        
-        # Generate deterministic game UID
-        provider_code = game_data.get('provider', '')
-        game_uid = self.generate_game_uid(
-            provider=provider_code,
-            game_date=game_data.get('game_date', ''),
-            home_team_id=home_provider_id,
-            away_team_id=away_provider_id,
-            home_score=home_score,
-            away_score=away_score
-        )
+            game_uid = game_data.get('game_uid')
         
         # Build game record for new schema
         game_record = {
             'game_uid': game_uid,
-            'home_team_master_id': home_team_id,
-            'away_team_master_id': away_team_id,
-            'home_provider_id': home_provider_id,
-            'away_provider_id': away_provider_id,
+            'home_team_master_id': home_team_master_id,
+            'away_team_master_id': away_team_master_id,
+            'home_provider_id': home_provider_id if 'home_provider_id' in game_data else (game_data.get('home_team_id') or ''),
+            'away_provider_id': away_provider_id if 'away_provider_id' in game_data else (game_data.get('away_team_id') or ''),
             'home_score': home_score,
             'away_score': away_score,
             'result': game_data.get('result'),
@@ -169,24 +212,36 @@ class GameHistoryMatcher:
     ) -> Dict:
         """
         Match a team using provider ID, alias map, and fuzzy matching.
+        Now prioritizes DIRECT ID matching first.
         
         Returns:
             Dict with:
             - matched: bool
             - team_id: str if matched
-            - method: str ('provider_id', 'alias', 'fuzzy', None)
+            - method: str ('direct_id', 'provider_id', 'alias', 'fuzzy', None)
             - confidence: float (0.0-1.0)
         """
-        # Strategy 1: Direct provider ID match
+        # Strategy 1: Direct provider ID match (NEW - highest priority)
         if provider_team_id:
             alias_match = self._match_by_provider_id(provider_id, provider_team_id)
             if alias_match:
-                return {
-                    'matched': True,
-                    'team_id': alias_match['team_id_master'],
-                    'method': 'provider_id',
-                    'confidence': 1.0
-                }
+                # Check if this is a direct_id match type
+                match_type = alias_match.get('match_method', 'provider_id')
+                if match_type == 'direct_id':
+                    return {
+                        'matched': True,
+                        'team_id': alias_match['team_id_master'],
+                        'method': 'direct_id',
+                        'confidence': 1.0
+                    }
+                else:
+                    # Legacy provider_id match
+                    return {
+                        'matched': True,
+                        'team_id': alias_match['team_id_master'],
+                        'method': 'provider_id',
+                        'confidence': 1.0
+                    }
         
         # Strategy 2: Check existing alias map
         if provider_team_id or team_name:
@@ -265,10 +320,10 @@ class GameHistoryMatcher:
         }
 
     def _match_by_provider_id(self, provider_id: str, provider_team_id: str) -> Optional[Dict]:
-        """Match by exact provider ID in alias map"""
+        """Match by exact provider ID in alias map (direct ID matching)"""
         try:
             result = self.db.table('team_alias_map').select(
-                'team_id_master, review_status'
+                'team_id_master, review_status, match_method'
             ).eq('provider_id', provider_id).eq(
                 'provider_team_id', provider_team_id
             ).eq('review_status', 'approved').single().execute()
@@ -367,6 +422,50 @@ class GameHistoryMatcher:
         
         # Use SequenceMatcher for similarity
         return SequenceMatcher(None, str1, str2).ratio()
+    
+    def _normalize_team_name(self, name: str) -> str:
+        """Normalize team name for comparison"""
+        # Convert to lowercase
+        name = name.lower().strip()
+        
+        # Remove common suffixes
+        suffixes = ['fc', 'sc', 'soccer club', 'football club', 'academy', 'ac']
+        for suffix in suffixes:
+            if name.endswith(suffix):
+                name = name[:-len(suffix)].strip()
+        
+        # Remove extra spaces
+        name = ' '.join(name.split())
+        
+        return name
+    
+    def _calculate_match_score(self, provider_team: Dict, candidate: Dict) -> float:
+        """Calculate match score with multiple weighted factors"""
+        
+        # Normalize team names
+        provider_name = self._normalize_team_name(provider_team.get('team_name', ''))
+        candidate_name = self._normalize_team_name(candidate.get('team_name', ''))
+        
+        # Name similarity (60% weight)
+        name_score = self._calculate_similarity(provider_name, candidate_name) * 0.6
+        
+        # Location match (20% weight)
+        location_score = 0.0
+        provider_state = provider_team.get('state_code') or provider_team.get('state', '')
+        candidate_state = candidate.get('state_code') or candidate.get('state', '')
+        if provider_state and candidate_state:
+            if provider_state.upper() == candidate_state.upper():
+                location_score = 0.2
+        
+        # Age group match (20% weight)
+        age_score = 0.0
+        provider_age = str(provider_team.get('age_group', '')).lower()
+        candidate_age = str(candidate.get('age_group', '')).lower()
+        if provider_age and candidate_age:
+            if provider_age == candidate_age:
+                age_score = 0.2
+        
+        return name_score + location_score + age_score
 
     def _create_alias(
         self,
