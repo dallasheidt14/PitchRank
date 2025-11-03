@@ -3,11 +3,15 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from difflib import SequenceMatcher
 import logging
+import uuid
 
 from supabase import Client
 from config.settings import MATCHING_CONFIG
 
 logger = logging.getLogger(__name__)
+
+# UUID namespace for deterministic game UIDs
+GAME_UID_NAMESPACE = uuid.UUID('6ba7b810-9dad-11d1-80b4-00c04fd430c8')  # Standard DNS namespace
 
 
 class GameHistoryMatcher:
@@ -19,6 +23,43 @@ class GameHistoryMatcher:
         self.auto_approve_threshold = MATCHING_CONFIG['auto_approve_threshold']
         self.review_threshold = MATCHING_CONFIG['review_threshold']
         self.max_age_diff = MATCHING_CONFIG['max_age_diff']
+    
+    @staticmethod
+    def generate_game_uid(
+        provider: str,
+        game_date: str,
+        home_team_id: str,
+        away_team_id: str,
+        home_score: Optional[int],
+        away_score: Optional[int]
+    ) -> str:
+        """
+        Generate deterministic UUID for a game.
+        
+        Same game data will always produce the same UUID, preventing duplicates.
+        
+        Args:
+            provider: Provider code (e.g., 'gotsport')
+            game_date: Game date in YYYY-MM-DD format
+            home_team_id: Home team provider ID
+            away_team_id: Away team provider ID
+            home_score: Home team score (None if unknown)
+            away_score: Away team score (None if unknown)
+        
+        Returns:
+            UUID string
+        """
+        # Normalize scores to string (handle None)
+        home_score_str = str(home_score) if home_score is not None else 'null'
+        away_score_str = str(away_score) if away_score is not None else 'null'
+        
+        # Create deterministic string
+        uid_string = f"{provider}|{game_date}|{home_team_id}|{away_team_id}|{home_score_str}|{away_score_str}"
+        
+        # Generate UUID5 (deterministic)
+        game_uid = uuid.uuid5(GAME_UID_NAMESPACE, uid_string)
+        
+        return str(game_uid)
 
     def match_game_history(self, game_data: Dict) -> Dict:
         """
@@ -83,8 +124,20 @@ class GameHistoryMatcher:
             home_score = game_data.get('goals_against')
             away_score = game_data.get('goals_for')
         
+        # Generate deterministic game UID
+        provider_code = game_data.get('provider', '')
+        game_uid = self.generate_game_uid(
+            provider=provider_code,
+            game_date=game_data.get('game_date', ''),
+            home_team_id=home_provider_id,
+            away_team_id=away_provider_id,
+            home_score=home_score,
+            away_score=away_score
+        )
+        
         # Build game record for new schema
         game_record = {
+            'game_uid': game_uid,
             'home_team_master_id': home_team_id,
             'away_team_master_id': away_team_id,
             'home_provider_id': home_provider_id,
@@ -152,7 +205,7 @@ class GameHistoryMatcher:
             if fuzzy_match:
                 confidence = fuzzy_match['confidence']
                 
-                # Auto-approve high confidence matches
+                # Auto-approve high confidence matches (0.9+)
                 if confidence >= self.auto_approve_threshold:
                     # Create alias automatically
                     self._create_alias(
@@ -163,7 +216,8 @@ class GameHistoryMatcher:
                         match_method='fuzzy_auto',
                         confidence=confidence,
                         age_group=age_group,
-                        gender=gender
+                        gender=gender,
+                        review_status='approved'
                     )
                     return {
                         'matched': True,
@@ -172,7 +226,7 @@ class GameHistoryMatcher:
                         'confidence': confidence
                     }
                 
-                # Flag for review if above review threshold
+                # Flag for review if between 0.75-0.9
                 elif confidence >= self.review_threshold:
                     self._create_alias(
                         provider_id=provider_id,
@@ -186,9 +240,19 @@ class GameHistoryMatcher:
                         review_status='pending'
                     )
                     return {
-                        'matched': True,  # Provisional match
-                        'team_id': fuzzy_match['team_id'],
+                        'matched': False,  # Not matched until reviewed
+                        'team_id': None,
                         'method': 'fuzzy_review',
+                        'confidence': confidence
+                    }
+                
+                # Reject matches below 0.75 (don't create alias)
+                else:
+                    logger.debug(f"Match rejected: confidence {confidence} below threshold {self.review_threshold}")
+                    return {
+                        'matched': False,
+                        'team_id': None,
+                        'method': None,
                         'confidence': confidence
                     }
         
@@ -267,7 +331,7 @@ class GameHistoryMatcher:
         try:
             # Get candidate teams
             result = self.db.table('teams').select(
-                'id, team_name, age_group, gender'
+                'team_id_master, team_name, age_group, gender'
             ).eq('age_group', age_group).eq('gender', gender).execute()
             
             best_match = None
@@ -280,7 +344,7 @@ class GameHistoryMatcher:
                 if score > best_score and score >= self.fuzzy_threshold:
                     best_score = score
                     best_match = {
-                        'team_id': team['id'],
+                        'team_id': team['team_id_master'],
                         'team_name': team['team_name'],
                         'confidence': score
                     }
