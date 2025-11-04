@@ -6,6 +6,7 @@ import argparse
 import csv
 import logging
 import sys
+import uuid
 from pathlib import Path
 from datetime import datetime
 import json
@@ -49,15 +50,15 @@ class TeamImporter:
         with open(csv_file, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                # Map CSV columns to our team structure
+                # Map CSV columns to our team structure (handle various column name formats)
                 team = {
-                    'provider_team_id': row.get('team_id') or row.get('id') or row.get('Team_ID', ''),
-                    'team_name': row.get('team_name') or row.get('name') or row.get('Team_Name', ''),
+                    'provider_team_id': row.get('team_id') or row.get('Team_ID') or row.get('id', ''),
+                    'team_name': row.get('Team_Name') or row.get('Team Name') or row.get('team_name') or row.get('name', ''),
                     'age_group': row.get('age_group') or row.get('Age_Group', '').lower(),
-                    'gender': row.get('gender') or row.get('Gender', ''),
-                    'state_code': row.get('state_code') or row.get('State_Code', ''),
-                    'state': row.get('state') or row.get('State', ''),
-                    'club_name': row.get('club_name') or row.get('Club_Name', ''),
+                    'gender': row.get('Gender') or row.get('gender', ''),
+                    'state_code': row.get('State_Code') or row.get('state_code', ''),
+                    'state': row.get('State') or row.get('state', ''),
+                    'club_name': row.get('Club') or row.get('club_name') or row.get('Club_Name', ''),
                     'provider_id': self.provider_code
                 }
                 
@@ -107,74 +108,100 @@ class TeamImporter:
         try:
             logger.info("Starting team import with direct ID mappings")
             inserted_count = 0
+            updated_count = 0
             alias_count = 0
             
             for team in valid_teams:
-                # Check if team already exists by provider_team_id
-                existing_team = self.supabase.table('teams').select('*').eq(
-                    'provider_id', self.provider_id
-                ).eq(
-                    'provider_team_id', team['provider_team_id']
-                ).maybe_single().execute()
-                
-                if existing_team.data:
-                    master_team_id = existing_team.data['team_id_master']
-                    logger.info(f"Found existing team: {team['team_name']} (ID: {master_team_id})")
-                else:
-                    # Insert new team
-                    import uuid
-                    team_id_master = str(uuid.uuid4())
+                # Check if team already exists
+                try:
+                    existing_team = self.supabase.table('teams').select('team_id_master').eq(
+                        'provider_id', self.provider_id
+                    ).eq(
+                        'provider_team_id', team['provider_team_id']
+                    ).limit(1).execute()
                     
-                    team_record = {
-                        'team_id_master': team_id_master,
-                        'provider_team_id': team['provider_team_id'],
-                        'provider_id': self.provider_id,
-                        'team_name': team['team_name'],
-                        'club_name': team.get('club_name'),
-                        'state': team.get('state'),
-                        'state_code': team.get('state_code'),
-                        'age_group': team.get('age_group', '').lower(),
-                        'gender': team.get('gender', ''),
-                        'created_at': datetime.now().isoformat()
-                    }
-                    
-                    result = self.supabase.table('teams').insert(team_record).execute()
-                    if result.data:
-                        master_team_id = result.data[0]['team_id_master']
-                        inserted_count += 1
-                        logger.info(f"Created new team: {team['team_name']} (ID: {master_team_id})")
+                    if existing_team.data and len(existing_team.data) > 0:
+                        master_team_id = existing_team.data[0]['team_id_master']
+                        updated_count += 1
+                        if updated_count % 100 == 0:
+                            logger.info(f"Processed {updated_count} existing teams...")
                     else:
-                        logger.warning(f"Failed to insert team: {team['team_name']}")
+                        # Team doesn't exist, create it
+                        team_id_master = str(uuid.uuid4())
+                        
+                        team_record = {
+                            'team_id_master': team_id_master,
+                            'provider_team_id': team['provider_team_id'],
+                            'provider_id': self.provider_id,
+                            'team_name': team['team_name'],
+                            'club_name': team.get('club_name'),
+                            'state': team.get('state'),
+                            'state_code': team.get('state_code'),
+                            'age_group': team.get('age_group', '').lower(),
+                            'gender': team.get('gender', ''),
+                            'created_at': datetime.now().isoformat()
+                        }
+                        
+                        result = self.supabase.table('teams').insert(team_record).execute()
+                        if result.data:
+                            master_team_id = result.data[0]['team_id_master']
+                            inserted_count += 1
+                            logger.info(f"Created new team: {team['team_name']} (ID: {master_team_id})")
+                        else:
+                            logger.warning(f"Failed to insert team: {team['team_name']}")
+                            continue
+                except Exception as e:
+                    # If check fails, try to insert anyway (might be a query issue)
+                    error_str = str(e).lower()
+                    if 'unique' in error_str or 'duplicate' in error_str or 'already exists' in error_str:
+                        # Team exists, try to get it
+                        try:
+                            existing_team = self.supabase.table('teams').select('team_id_master').eq(
+                                'provider_id', self.provider_id
+                            ).eq(
+                                'provider_team_id', team['provider_team_id']
+                            ).limit(1).execute()
+                            if existing_team.data:
+                                master_team_id = existing_team.data[0]['team_id_master']
+                                logger.debug(f"Team already exists (fallback): {team['team_name']} (ID: {master_team_id})")
+                            else:
+                                logger.warning(f"Could not determine if team exists: {team['team_name']}, skipping")
+                                continue
+                        except Exception as e2:
+                            logger.warning(f"Error checking/inserting team {team['team_name']}: {e2}, skipping")
+                            continue
+                    else:
+                        logger.warning(f"Error checking team {team['team_name']}: {e}, skipping")
                         continue
                 
                 # CRITICAL: Create direct ID mapping
-                existing_mapping = self.supabase.table('team_alias_map').select('*').eq(
-                    'provider_id', self.provider_id
-                ).eq(
-                    'provider_team_id', team['provider_team_id']
-                ).maybe_single().execute()
+                alias_record = {
+                    'provider_id': self.provider_id,
+                    'provider_team_id': team['provider_team_id'],
+                    'team_id_master': master_team_id,
+                    'match_confidence': 1.0,  # Perfect confidence for direct ID match
+                    'match_method': 'direct_id',  # New match type!
+                    'review_status': 'approved',
+                    'created_at': datetime.now().isoformat()
+                }
                 
-                if not existing_mapping.data:
-                    alias_record = {
-                        'provider_id': self.provider_id,
-                        'provider_team_id': team['provider_team_id'],
-                        'team_id_master': master_team_id,
-                        'match_confidence': 1.0,  # Perfect confidence for direct ID match
-                        'match_method': 'direct_id',  # New match type!
-                        'review_status': 'approved',
-                        'created_at': datetime.now().isoformat()
-                    }
-                    
+                try:
                     result = self.supabase.table('team_alias_map').insert(alias_record).execute()
                     if result.data:
                         alias_count += 1
                         logger.info(f"Created direct ID mapping: {self.provider_code}:{team['provider_team_id']} -> {master_team_id}")
-                else:
-                    logger.info(f"Mapping already exists for {self.provider_code}:{team['provider_team_id']}")
+                except Exception as e:
+                    # Check if it's a unique constraint violation (mapping already exists)
+                    error_str = str(e).lower()
+                    if 'unique' in error_str or 'duplicate' in error_str or 'already exists' in error_str:
+                        logger.info(f"Mapping already exists for {self.provider_code}:{team['provider_team_id']}")
+                    else:
+                        logger.warning(f"Failed to create mapping for {self.provider_code}:{team['provider_team_id']}: {e}")
             
-            logger.info(f"Successfully imported {len(valid_teams)} teams with direct ID mappings")
+            logger.info(f"Successfully processed {len(valid_teams)} teams with direct ID mappings")
             console.print(f"\n[green]Import completed:[/green]")
-            console.print(f"  Teams inserted/updated: {inserted_count}")
+            console.print(f"  Teams inserted: {inserted_count}")
+            console.print(f"  Teams already existed: {updated_count}")
             console.print(f"  Direct ID mappings created: {alias_count}")
             
         except Exception as e:
