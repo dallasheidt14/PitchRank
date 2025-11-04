@@ -2,6 +2,16 @@
 -- Adds immutability flags and corrections table for game data integrity
 
 -- =====================================================
+-- ADD GAME_UID COLUMN IF IT DOESN'T EXIST
+-- =====================================================
+
+-- Add game_uid column if not exists
+ALTER TABLE games ADD COLUMN IF NOT EXISTS game_uid VARCHAR(255);
+
+-- Create unique index on game_uid
+CREATE UNIQUE INDEX IF NOT EXISTS idx_games_uid_unique ON games(game_uid) WHERE game_uid IS NOT NULL;
+
+-- =====================================================
 -- ADD IMMUTABILITY COLUMNS TO GAMES TABLE
 -- =====================================================
 
@@ -20,7 +30,7 @@ CREATE INDEX IF NOT EXISTS idx_games_import_id ON games(original_import_id) WHER
 
 CREATE TABLE IF NOT EXISTS game_corrections (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    original_game_uid UUID NOT NULL REFERENCES games(game_uid),
+    original_game_uid VARCHAR(255) NOT NULL,
     correction_type TEXT NOT NULL CHECK (correction_type IN ('score', 'date', 'teams', 'cancelled', 'other')),
     original_values JSONB NOT NULL,
     corrected_values JSONB NOT NULL,
@@ -132,4 +142,3 @@ BEGIN
     WHERE id = correction_id;
 END;
 $$ LANGUAGE plpgsql;
-

@@ -83,11 +83,17 @@ CREATE TABLE IF NOT EXISTS games (
     scraped_at TIMESTAMPTZ,
     
     -- For tracking imports
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    
-    -- Prevent duplicates
-    UNIQUE(provider_id, home_provider_id, away_provider_id, game_date, 
-           COALESCE(home_score::text, 'null'), COALESCE(away_score::text, 'null'))
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Add unique constraint for games separately
+CREATE UNIQUE INDEX IF NOT EXISTS idx_games_unique ON games(
+    provider_id, 
+    home_provider_id, 
+    away_provider_id, 
+    game_date,
+    COALESCE(home_score, -1),
+    COALESCE(away_score, -1)
 );
 
 -- Indexes for game queries

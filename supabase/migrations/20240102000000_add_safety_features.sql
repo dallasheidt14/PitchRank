@@ -78,11 +78,10 @@ SELECT
     a.provider_id,
     p.name as provider_name,
     a.provider_team_id,
-    a.team_name,
     a.team_id_master,
     t.team_name as matched_team_name,
-    a.age_group,
-    a.gender,
+    t.age_group,
+    t.gender,
     a.match_method,
     a.match_confidence,
     a.created_at,
@@ -170,4 +169,3 @@ BEGIN
     RETURN COALESCE(last_date, '1970-01-01'::TIMESTAMPTZ);
 END;
 $$ LANGUAGE plpgsql;
-
