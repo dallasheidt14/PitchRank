@@ -89,7 +89,15 @@ MATCHING_CONFIG = {
     'fuzzy_threshold': 0.75,
     'auto_approve_threshold': 0.9,
     'review_threshold': 0.75,
-    'max_age_diff': 2
+    'max_age_diff': 2,
+    'weights': {
+        'team': 0.65,
+        'club': 0.25,
+        'age': 0.05,
+        'location': 0.05
+    },
+    'club_boost_identical': 0.05,
+    'club_min_similarity': 0.8
 }
 
 # ETL Configuration
