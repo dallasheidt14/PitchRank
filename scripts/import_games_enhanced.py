@@ -4,6 +4,7 @@ Enhanced game import script with all architectural improvements
 """
 import asyncio
 import argparse
+import csv
 import json
 import logging
 import random
@@ -53,6 +54,111 @@ def stream_games_jsonl(file_path: Path, batch_size: int = 1000) -> Generator[Lis
             yield batch
 
 
+def stream_games_csv(file_path: Path, batch_size: int = 1000) -> Generator[List[Dict], None, None]:
+    """Stream games from CSV file in batches"""
+    batch = []
+    with open(file_path, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row_num, row in enumerate(reader, 1):
+            try:
+                # Map CSV columns to game data format
+                game = {
+                    'provider': row.get('provider', '').strip(),
+                    'team_id': row.get('team_id') or row.get('team_id_source', ''),
+                    'team_id_source': row.get('team_id_source', ''),
+                    'team_name': row.get('team_name', '').strip(),
+                    'club_name': row.get('club_name') or row.get('team_club_name', '').strip(),
+                    'opponent_id': row.get('opponent_id') or row.get('opponent_id_source', ''),
+                    'opponent_id_source': row.get('opponent_id_source', ''),
+                    'opponent_name': row.get('opponent_name', '').strip(),
+                    'opponent_club_name': row.get('opponent_club_name', '').strip(),
+                    'age_group': row.get('age_group', '').strip(),
+                    'gender': row.get('gender', '').strip(),
+                    'state': row.get('state', '').strip(),
+                    'competition': row.get('competition', '').strip(),
+                    'division_name': row.get('division_name', '').strip(),
+                    'event_name': row.get('event_name', '').strip(),
+                    'venue': row.get('venue', '').strip(),
+                    'game_date': row.get('game_date', '').strip(),
+                    'home_away': row.get('home_away', '').strip(),
+                    'goals_for': row.get('goals_for', ''),
+                    'goals_against': row.get('goals_against', ''),
+                    'result': row.get('result', '').strip(),
+                    'source_url': row.get('source_url', '').strip(),
+                    'scraped_at': row.get('scraped_at', '').strip()
+                }
+                
+                # Convert numeric fields
+                try:
+                    if game['goals_for']:
+                        game['goals_for'] = float(game['goals_for']) if '.' in str(game['goals_for']) else int(game['goals_for'])
+                    if game['goals_against']:
+                        game['goals_against'] = float(game['goals_against']) if '.' in str(game['goals_against']) else int(game['goals_against'])
+                except (ValueError, TypeError):
+                    pass  # Keep as string if conversion fails
+                
+                batch.append(game)
+                
+                if len(batch) >= batch_size:
+                    yield batch
+                    batch = []
+            except Exception as e:
+                logger.warning(f"Error processing CSV row {row_num}: {e}")
+                continue
+        if batch:
+            yield batch
+
+
+def load_games_csv(file_path: Path) -> List[Dict]:
+    """Load all games from CSV file into memory"""
+    games = []
+    with open(file_path, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row_num, row in enumerate(reader, 1):
+            try:
+                # Map CSV columns to game data format
+                game = {
+                    'provider': row.get('provider', '').strip(),
+                    'team_id': row.get('team_id') or row.get('team_id_source', ''),
+                    'team_id_source': row.get('team_id_source', ''),
+                    'team_name': row.get('team_name', '').strip(),
+                    'club_name': row.get('club_name') or row.get('team_club_name', '').strip(),
+                    'opponent_id': row.get('opponent_id') or row.get('opponent_id_source', ''),
+                    'opponent_id_source': row.get('opponent_id_source', ''),
+                    'opponent_name': row.get('opponent_name', '').strip(),
+                    'opponent_club_name': row.get('opponent_club_name', '').strip(),
+                    'age_group': row.get('age_group', '').strip(),
+                    'gender': row.get('gender', '').strip(),
+                    'state': row.get('state', '').strip(),
+                    'competition': row.get('competition', '').strip(),
+                    'division_name': row.get('division_name', '').strip(),
+                    'event_name': row.get('event_name', '').strip(),
+                    'venue': row.get('venue', '').strip(),
+                    'game_date': row.get('game_date', '').strip(),
+                    'home_away': row.get('home_away', '').strip(),
+                    'goals_for': row.get('goals_for', ''),
+                    'goals_against': row.get('goals_against', ''),
+                    'result': row.get('result', '').strip(),
+                    'source_url': row.get('source_url', '').strip(),
+                    'scraped_at': row.get('scraped_at', '').strip()
+                }
+                
+                # Convert numeric fields
+                try:
+                    if game['goals_for']:
+                        game['goals_for'] = float(game['goals_for']) if '.' in str(game['goals_for']) else int(game['goals_for'])
+                    if game['goals_against']:
+                        game['goals_against'] = float(game['goals_against']) if '.' in str(game['goals_against']) else int(game['goals_against'])
+                except (ValueError, TypeError):
+                    pass  # Keep as string if conversion fails
+                
+                games.append(game)
+            except Exception as e:
+                logger.warning(f"Error processing CSV row {row_num}: {e}")
+                continue
+    return games
+
+
 def log_checkpoint(batch_num: int, games_processed: int, elapsed_time: float, provider: str):
     """Log checkpoint to file"""
     log_dir = Path("logs")
@@ -86,7 +192,7 @@ async def import_batch_with_retry(
 
 async def main():
     parser = argparse.ArgumentParser(description='Import games with enhanced pipeline')
-    parser.add_argument('file', help='JSON file containing games data')
+    parser.add_argument('file', help='JSON/JSONL/CSV file containing games data')
     parser.add_argument('provider', help='Provider ID (gotsport, tgs, usclub)')
     parser.add_argument('--dry-run', action='store_true', help='Run without committing')
     parser.add_argument('--batch-size', type=int, default=2000, help='Batch size for streaming and inserts (default: 2000)')
@@ -116,7 +222,22 @@ async def main():
     
     # Load games data (streaming or in-memory)
     try:
-        if use_streaming and file_path.suffix in ['.jsonl', '.ndjson']:
+        if file_path.suffix == '.csv':
+            # CSV file handling
+            console.print(f"[bold]Loading games from CSV: {args.file}[/bold]")
+            if use_streaming and file_size_mb > 50:
+                # Streaming mode for large CSV files
+                console.print(f"[cyan]Streaming CSV file ({file_size_mb:.1f} MB)...[/cyan]")
+                games_batches = list(stream_games_csv(file_path, args.batch_size))
+                total_games = sum(len(batch) for batch in games_batches)
+                console.print(f"[green]Streaming ready: {len(games_batches)} batches, {total_games:,} games[/green]")
+                games = None  # Will process batches directly
+            else:
+                # In-memory mode for small CSV files
+                games = load_games_csv(file_path)
+                console.print(f"[green]Loaded {len(games):,} games from CSV[/green]")
+                games_batches = None
+        elif use_streaming and file_path.suffix in ['.jsonl', '.ndjson']:
             # Streaming mode for JSONL files
             console.print(f"[bold]Streaming games from {args.file}[/bold]")
             games_batches = list(stream_games_jsonl(file_path, args.batch_size))
