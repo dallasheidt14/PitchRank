@@ -145,7 +145,7 @@ python test_connection.py
 
 1. **Explore Sample Data**: Run `python scripts/create_sample_data.py` to generate test data
 2. **Import Real Teams**: Use `python scripts/import_master_teams.py` with your CSV files
-3. **Import Game History**: Use `python scripts/import_game_history_enhanced.py` with game data
+3. **Import Game History**: Use `python scripts/import_games_enhanced.py <file> <provider>` with game data
 4. **Review Aliases**: Use `python scripts/review_aliases.py` to review team matches
 5. **Calculate Rankings**: Implement ranking algorithms (to be added)
 

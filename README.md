@@ -277,11 +277,6 @@ ORDER BY game_count DESC
 LIMIT 20;
 ```
 
-### Import Game History (Legacy)
-
-```bash
-python scripts/import_game_history_enhanced.py data/raw/games.json
-```
 
 ### Create Sample Data
 

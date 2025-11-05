@@ -4,6 +4,7 @@ from datetime import datetime
 from difflib import SequenceMatcher
 import logging
 import uuid
+import string
 from dataclasses import dataclass
 
 from supabase import Client
@@ -99,7 +100,8 @@ class GameHistoryMatcher:
                 provider_team_id=home_provider_id,
                 team_name=game_data.get('home_team_name'),
                 age_group=game_data.get('age_group'),
-                gender=game_data.get('gender')
+                gender=game_data.get('gender'),
+                club_name=game_data.get('home_club_name') or game_data.get('club_name')
             )
             
             # Match away team
@@ -108,7 +110,8 @@ class GameHistoryMatcher:
                 provider_team_id=away_provider_id,
                 team_name=game_data.get('away_team_name'),
                 age_group=game_data.get('age_group'),
-                gender=game_data.get('gender')
+                gender=game_data.get('gender'),
+                club_name=game_data.get('away_club_name') or game_data.get('opponent_club_name')
             )
             
             home_team_master_id = home_match.get('team_id')
@@ -124,7 +127,8 @@ class GameHistoryMatcher:
                 provider_team_id=game_data.get('team_id'),
                 team_name=game_data.get('team_name'),
                 age_group=game_data.get('age_group'),
-                gender=game_data.get('gender')
+                gender=game_data.get('gender'),
+                club_name=game_data.get('club_name') or game_data.get('team_club_name')
             )
             
             # Match opponent
@@ -133,7 +137,8 @@ class GameHistoryMatcher:
                 provider_team_id=game_data.get('opponent_id'),
                 team_name=game_data.get('opponent_name'),
                 age_group=game_data.get('age_group'),
-                gender=game_data.get('gender')
+                gender=game_data.get('gender'),
+                club_name=game_data.get('opponent_club_name')
             )
             
             # Determine home/away teams based on home_away flag
@@ -208,7 +213,8 @@ class GameHistoryMatcher:
         provider_team_id: Optional[str],
         team_name: Optional[str],
         age_group: Optional[str],
-        gender: Optional[str]
+        gender: Optional[str],
+        club_name: Optional[str] = None
     ) -> Dict:
         """
         Match a team using provider ID, alias map, and fuzzy matching.
@@ -256,7 +262,7 @@ class GameHistoryMatcher:
         
         # Strategy 3: Fuzzy match against master teams
         if team_name and age_group and gender:
-            fuzzy_match = self._fuzzy_match_team(team_name, age_group, gender)
+            fuzzy_match = self._fuzzy_match_team(team_name, age_group, gender, club_name)
             if fuzzy_match:
                 confidence = fuzzy_match['confidence']
                 
@@ -380,28 +386,44 @@ class GameHistoryMatcher:
         self,
         team_name: str,
         age_group: str,
-        gender: str
+        gender: str,
+        club_name: Optional[str] = None
     ) -> Optional[Dict]:
-        """Fuzzy match team name against master teams"""
+        """Fuzzy match team name against master teams with club name weighting"""
         try:
-            # Get candidate teams
+            # Get candidate teams including club_name
             result = self.db.table('teams').select(
-                'team_id_master, team_name, age_group, gender'
+                'team_id_master, team_name, club_name, age_group, gender, state_code'
             ).eq('age_group', age_group).eq('gender', gender).execute()
             
             best_match = None
             best_score = 0.0
             
+            # Prepare provider team dict for scoring
+            provider_team = {
+                'team_name': team_name,
+                'club_name': club_name,
+                'age_group': age_group,
+                'state_code': None  # Will be extracted from game data if available
+            }
+            
             for team in result.data:
-                # Calculate similarity
-                score = self._calculate_similarity(team_name, team['team_name'])
+                # Use weighted scoring which includes club name
+                candidate = {
+                    'team_name': team.get('team_name', ''),
+                    'club_name': team.get('club_name'),
+                    'age_group': team.get('age_group', ''),
+                    'state_code': team.get('state_code')
+                }
+                
+                score = self._calculate_match_score(provider_team, candidate)
                 
                 if score > best_score and score >= self.fuzzy_threshold:
                     best_score = score
                     best_match = {
                         'team_id': team['team_id_master'],
                         'team_name': team['team_name'],
-                        'confidence': score
+                        'confidence': round(score, 3)
                     }
             
             return best_match
@@ -411,10 +433,10 @@ class GameHistoryMatcher:
             return None
 
     def _calculate_similarity(self, str1: str, str2: str) -> float:
-        """Calculate string similarity using SequenceMatcher"""
-        # Normalize strings
-        str1 = str1.lower().strip()
-        str2 = str2.lower().strip()
+        """Calculate string similarity using SequenceMatcher with normalization"""
+        # Always normalize both inputs before comparison
+        str1 = self._normalize_team_name(str1)
+        str2 = self._normalize_team_name(str2)
         
         # Direct match
         if str1 == str2:
@@ -424,48 +446,101 @@ class GameHistoryMatcher:
         return SequenceMatcher(None, str1, str2).ratio()
     
     def _normalize_team_name(self, name: str) -> str:
-        """Normalize team name for comparison"""
+        """Normalize team name for comparison with expanded suffixes and abbreviation expansion"""
+        if not name:
+            return ''
+        
         # Convert to lowercase
         name = name.lower().strip()
         
-        # Remove common suffixes
-        suffixes = ['fc', 'sc', 'soccer club', 'football club', 'academy', 'ac']
+        # Remove punctuation
+        name = name.translate(str.maketrans('', '', string.punctuation))
+        
+        # Expand common abbreviations (only full word matches to avoid expanding within words)
+        abbreviations = {
+            'ys': 'youth soccer',
+            'fc': 'football club',
+            'sc': 'soccer club',
+            'sa': 'soccer academy',
+            'ac': 'academy'
+        }
+        
+        # Replace abbreviations with full forms (only if word matches exactly)
+        words = name.split()
+        expanded_words = []
+        for word in words:
+            if word in abbreviations:
+                expanded_words.append(abbreviations[word])
+            else:
+                expanded_words.append(word)
+        name = ' '.join(expanded_words)
+        
+        # Remove common suffixes (now expanded)
+        suffixes = ['fc', 'sc', 'sa', 'ys', 'academy', 'soccer club', 'football club', 'youth soccer']
+        # Sort by length (longest first) to match longer suffixes first
+        suffixes.sort(key=len, reverse=True)
         for suffix in suffixes:
             if name.endswith(suffix):
                 name = name[:-len(suffix)].strip()
+                break
         
-        # Remove extra spaces
+        # Compress whitespace and remove extra spaces
         name = ' '.join(name.split())
         
         return name
     
     def _calculate_match_score(self, provider_team: Dict, candidate: Dict) -> float:
-        """Calculate match score with multiple weighted factors"""
+        """Calculate match score with multiple weighted factors including club name"""
         
-        # Normalize team names
-        provider_name = self._normalize_team_name(provider_team.get('team_name', ''))
-        candidate_name = self._normalize_team_name(candidate.get('team_name', ''))
+        # Get weights from config with defaults
+        weights = MATCHING_CONFIG.get('weights', {
+            'team': 0.65,
+            'club': 0.25,
+            'age': 0.05,
+            'location': 0.05
+        })
         
-        # Name similarity (60% weight)
-        name_score = self._calculate_similarity(provider_name, candidate_name) * 0.6
+        # Team name similarity
+        provider_name = provider_team.get('team_name', '')
+        candidate_name = candidate.get('team_name', '')
+        team_score = self._calculate_similarity(provider_name, candidate_name) * weights['team']
         
-        # Location match (20% weight)
+        # Club name similarity (25% weight)
+        club_score = 0.0
+        provider_club = provider_team.get('club_name')
+        candidate_club = candidate.get('club_name')
+        
+        if provider_club and candidate_club:
+            # Both club names present - calculate similarity
+            club_similarity = self._calculate_similarity(provider_club, candidate_club)
+            club_score = club_similarity * weights['club']
+            
+            # Boost for identical clubs (after normalization)
+            if club_similarity == 1.0:
+                club_boost = MATCHING_CONFIG.get('club_boost_identical', 0.05)
+                club_score += club_boost
+        # If either club missing, ignore club weighting (no penalty)
+        
+        # Location match (5% weight)
         location_score = 0.0
         provider_state = provider_team.get('state_code') or provider_team.get('state', '')
         candidate_state = candidate.get('state_code') or candidate.get('state', '')
         if provider_state and candidate_state:
             if provider_state.upper() == candidate_state.upper():
-                location_score = 0.2
+                location_score = weights['location']
         
-        # Age group match (20% weight)
+        # Age group match (5% weight)
         age_score = 0.0
         provider_age = str(provider_team.get('age_group', '')).lower()
         candidate_age = str(candidate.get('age_group', '')).lower()
         if provider_age and candidate_age:
             if provider_age == candidate_age:
-                age_score = 0.2
+                age_score = weights['age']
         
-        return name_score + location_score + age_score
+        final_score = team_score + club_score + location_score + age_score
+        
+        # Cap at 1.0 (in case boost pushes it over)
+        return min(final_score, 1.0)
 
     def _create_alias(
         self,

@@ -58,12 +58,13 @@ class ImportMetrics:
 class EnhancedETLPipeline:
     """Enhanced ETL pipeline with bulk operations, validation, and metrics tracking"""
     
-    def __init__(self, supabase: Client, provider_code: str, dry_run: bool = False):
+    def __init__(self, supabase: Client, provider_code: str, dry_run: bool = False, skip_validation: bool = False):
         self.supabase = supabase
         self.provider_code = provider_code
         self.dry_run = dry_run
+        self.skip_validation = skip_validation
         self.metrics = ImportMetrics()
-        self.batch_size = 1000
+        self.batch_size = 2000  # Default increased from 1000
         self.validator = EnhancedDataValidator()
         self.matcher = GameHistoryMatcher(supabase)
         self.build_id = BUILD_ID
@@ -92,8 +93,12 @@ class EnhancedETLPipeline:
         start_time = datetime.now()
         
         try:
-            # Step 1: Validate all games
-            valid_games, invalid_games = await self._validate_games(games)
+            # Step 1: Validate all games (or skip if flag is set)
+            if self.skip_validation:
+                # Skip validation but still do schema coercion/transformation
+                valid_games, invalid_games = await self._validate_games_skip_validation(games)
+            else:
+                valid_games, invalid_games = await self._validate_games(games)
             self.metrics.games_processed = len(games)
             self.metrics.games_quarantined = len(invalid_games)
             
@@ -236,6 +241,79 @@ class EnhancedETLPipeline:
             f"Validation complete: {len(valid)} unique games, "
             f"{duplicates_skipped} duplicates skipped, "
             f"{len(invalid)} invalid"
+        )
+        
+        return valid, invalid
+    
+    async def _validate_games_skip_validation(self, games: List[Dict]) -> Tuple[List[Dict], List[Dict]]:
+        """
+        Skip validation but still do schema coercion/transformation and deduplication.
+        
+        This is used when --skip-validation flag is set (after pre-validating with --validate-only).
+        """
+        valid = []
+        invalid = []  # Empty since we skip validation
+        seen_games = {}  # game_key -> first occurrence
+        duplicates_skipped = 0
+        date_mismatches = 0
+        
+        for game in games:
+            # Skip validation check, but still do deduplication and transformation
+            
+            # Create game key for deduplication BEFORE transformation
+            provider_code = game.get('provider', self.provider_code)
+            game_date = game.get('game_date', '')
+            team1_id = str(game.get('team_id', ''))
+            team2_id = str(game.get('opponent_id', ''))
+            
+            # Sort team IDs for consistent key (order doesn't matter)
+            sorted_teams = sorted([team1_id, team2_id])
+            game_key = f"{provider_code}:{game_date}:{sorted_teams[0]}:{sorted_teams[1]}"
+            
+            # Check if we've seen this game before
+            if game_key in seen_games:
+                # Duplicate found - validate dates match
+                existing_game = seen_games[game_key]
+                existing_date = existing_game.get('game_date', '')
+                current_date = game_date
+                
+                if existing_date != current_date:
+                    logger.warning(
+                        f"Date mismatch for game {game_key}: "
+                        f"existing={existing_date}, current={current_date}"
+                    )
+                    date_mismatches += 1
+                
+                duplicates_skipped += 1
+                logger.debug(f"Skipping duplicate game: {game_key}")
+                continue
+            
+            # Transform from perspective-based to neutral format
+            transformed_game = self._transform_game_perspective(game)
+            
+            # Generate game_uid for the transformed game
+            from src.models.game_matcher import GameHistoryMatcher
+            game_uid = GameHistoryMatcher.generate_game_uid(
+                provider=provider_code,
+                game_date=game_date,
+                team1_id=sorted_teams[0],
+                team2_id=sorted_teams[1]
+            )
+            transformed_game['game_uid'] = game_uid
+            
+            # First occurrence - store it
+            seen_games[game_key] = transformed_game
+            valid.append(transformed_game)
+        
+        # Update metrics
+        self.metrics.duplicates_skipped = duplicates_skipped
+        if date_mismatches > 0:
+            logger.warning(f"Found {date_mismatches} games with date mismatches between perspectives")
+            self.metrics.errors.append(f"{date_mismatches} games had date mismatches")
+        
+        logger.info(
+            f"Processing complete (validation skipped): {len(valid)} unique games, "
+            f"{duplicates_skipped} duplicates skipped"
         )
         
         return valid, invalid
