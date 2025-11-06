@@ -65,7 +65,10 @@ class GameHistoryMatcher:
             Game UID string (e.g., 'gotsport:2025-06-01:3841:4719')
         """
         # Sort team IDs so order doesn't matter
-        sorted_teams = sorted([str(team1_id), str(team2_id)])
+        # Ensure team IDs are strings and remove any .0 from float conversion
+        team1_str = str(int(float(str(team1_id)))) if team1_id else ''
+        team2_str = str(int(float(str(team2_id)))) if team2_id else ''
+        sorted_teams = sorted([team1_str, team2_str])
         
         # Create deterministic UID without scores
         game_uid = f"{provider}:{game_date}:{sorted_teams[0]}:{sorted_teams[1]}"
