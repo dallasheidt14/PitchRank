@@ -348,14 +348,18 @@ class EnhancedETLPipeline:
             home_score = goals_against
             away_score = goals_for
         
+        # Ensure scores are integers (not floats) - database expects INTEGER type
+        home_score_int = int(home_score) if home_score is not None and home_score != '' else None
+        away_score_int = int(away_score) if away_score is not None and away_score != '' else None
+        
         # Create transformed game record
         transformed = game.copy()
         transformed['home_team_id'] = home_team_id
         transformed['away_team_id'] = away_team_id
         transformed['home_provider_id'] = home_team_id  # For provider ID lookup
         transformed['away_provider_id'] = away_team_id
-        transformed['home_score'] = home_score
-        transformed['away_score'] = away_score
+        transformed['home_score'] = home_score_int
+        transformed['away_score'] = away_score_int
         
         # Keep original fields for reference
         transformed['_source_team_id'] = team_id
@@ -403,14 +407,20 @@ class EnhancedETLPipeline:
         insert_records = []
         for game in game_records:
             # Ensure all required fields are present
+            # Convert scores to integers (database expects INTEGER, not FLOAT)
+            home_score = game.get('home_score')
+            away_score = game.get('away_score')
+            home_score_int = int(home_score) if home_score is not None and home_score != '' else None
+            away_score_int = int(away_score) if away_score is not None and away_score != '' else None
+            
             record = {
                 'game_uid': game.get('game_uid'),
                 'home_team_master_id': game.get('home_team_master_id'),
                 'away_team_master_id': game.get('away_team_master_id'),
                 'home_provider_id': game.get('home_provider_id', ''),
                 'away_provider_id': game.get('away_provider_id', ''),
-                'home_score': game.get('home_score'),
-                'away_score': game.get('away_score'),
+                'home_score': home_score_int,
+                'away_score': away_score_int,
                 'result': game.get('result'),
                 'game_date': game.get('game_date'),
                 'competition': game.get('competition'),
