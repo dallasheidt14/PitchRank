@@ -42,8 +42,9 @@ class MatchReviewer:
         ))
         
         # Get pending matches (confidence 0.75-0.9)
+        # Join with teams table to get matched team details
         query = self.supabase.table('team_alias_map').select(
-            '*, teams(team_name, club_name, state_code)'
+            '*, teams!team_id_master(team_name, club_name, state_code, age_group, gender)'
         ).eq('review_status', 'pending').gte(
             'match_confidence', 0.75
         ).lt('match_confidence', 0.9).order('match_confidence', desc=True)
@@ -75,13 +76,14 @@ class MatchReviewer:
         
         # Display match information
         table = Table(title="Match Information", show_header=True, header_style="bold cyan")
-        table.add_column("Field", style="cyan", width=20)
-        table.add_column("Value", width=40)
+        table.add_column("Field", style="cyan", width=25)
+        table.add_column("Value", width=45)
         
+        # Provider team info (from team_alias_map)
         table.add_row("Provider Team ID", match.get('provider_team_id', 'N/A'))
-        table.add_row("Provider Team Name", match.get('team_name', 'N/A'))
-        table.add_row("Age Group", match.get('age_group', 'N/A'))
-        table.add_row("Gender", match.get('gender', 'N/A'))
+        table.add_row("Provider Team Name", match.get('team_name', 'N/A')[:40])
+        table.add_row("Provider Age Group", match.get('age_group', 'N/A'))
+        table.add_row("Provider Gender", match.get('gender', 'N/A'))
         
         # Get matched team info (teams is a list or single object from Supabase)
         matched_team = match.get('teams', {})
@@ -90,18 +92,27 @@ class MatchReviewer:
         elif not isinstance(matched_team, dict):
             matched_team = {}
         
+        # Show matched team details
         matched_team_name = matched_team.get('team_name', 'N/A') if matched_team else 'N/A'
         matched_club = matched_team.get('club_name', 'N/A') if matched_team else 'N/A'
         matched_state = matched_team.get('state_code', 'N/A') if matched_team else 'N/A'
+        matched_age = matched_team.get('age_group', 'N/A') if matched_team else 'N/A'
+        matched_gender = matched_team.get('gender', 'N/A') if matched_team else 'N/A'
         
-        table.add_row("Matched Team", matched_team_name)
-        table.add_row("Club", matched_club)
-        table.add_row("State", matched_state)
+        table.add_row("", "")  # Separator
+        table.add_row("[bold]Matched Team[/bold]", "[bold]" + matched_team_name[:40] + "[/bold]")
+        table.add_row("Matched Club", matched_club[:40])
+        table.add_row("Matched State", matched_state)
+        table.add_row("Matched Age Group", matched_age)
+        table.add_row("Matched Gender", matched_gender)
         
+        # Match details
+        table.add_row("", "")  # Separator
         confidence = match.get('match_confidence', 0)
         confidence_color = 'green' if confidence >= 0.85 else 'yellow' if confidence >= 0.80 else 'red'
-        table.add_row("Confidence", f"[{confidence_color}]{confidence:.2f}[/{confidence_color}]")
+        table.add_row("Confidence Score", f"[{confidence_color}]{confidence:.2f}[/{confidence_color}]")
         table.add_row("Match Method", match.get('match_method', 'N/A'))
+        table.add_row("Master Team ID", str(match.get('team_id_master', 'N/A'))[:40])
         
         console.print(table)
         
@@ -129,24 +140,28 @@ class MatchReviewer:
     def _approve_match(self, alias_id: str):
         """Approve a match"""
         try:
-            self.supabase.table('team_alias_map').update({
-                'review_status': 'approved',
-                'reviewed_by': os.getenv('USER', 'admin'),
-                'reviewed_at': datetime.now().isoformat()
-            }).eq('id', alias_id).execute()
+            # team_alias_map only has review_status column (no reviewed_by or reviewed_at)
+            update_data = {
+                'review_status': 'approved'
+            }
+            
+            self.supabase.table('team_alias_map').update(update_data).eq('id', alias_id).execute()
         except Exception as e:
             console.print(f"[red]Error approving match: {e}[/red]")
+            raise
     
     def _reject_match(self, alias_id: str, reason: str = ""):
         """Reject a match"""
         try:
-            self.supabase.table('team_alias_map').update({
-                'review_status': 'rejected',
-                'reviewed_by': os.getenv('USER', 'admin'),
-                'reviewed_at': datetime.now().isoformat()
-            }).eq('id', alias_id).execute()
+            # team_alias_map only has review_status column (no reviewed_by or reviewed_at)
+            update_data = {
+                'review_status': 'rejected'
+            }
+            
+            self.supabase.table('team_alias_map').update(update_data).eq('id', alias_id).execute()
         except Exception as e:
             console.print(f"[red]Error rejecting match: {e}[/red]")
+            raise
     
     def _print_summary(self):
         """Print review summary"""
