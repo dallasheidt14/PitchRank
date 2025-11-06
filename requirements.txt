@@ -22,3 +22,7 @@ click>=8.1.0
 rich>=13.5.0
 tqdm>=4.66.0
 
+# Machine Learning (for rankings ML layer)
+xgboost>=2.0.0
+scikit-learn>=1.3.0
+

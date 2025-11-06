@@ -67,10 +67,67 @@ AGE_GROUPS = {
     'u18': {'birth_year': 2008, 'anchor_score': 1.00}
 }
 
-# Ranking Configuration
+# Ranking Configuration (aligned with v53e V53EConfig)
 RANKING_CONFIG = {
-    'window_days': int(os.getenv("RANKING_WINDOW_DAYS", 365)),
-    'max_games': int(os.getenv("MAX_GAMES_PER_TEAM", 30)),
+    # Layer 1
+    'window_days': int(os.getenv("RANKING_WINDOW_DAYS", 365)),  # V53EConfig.WINDOW_DAYS
+    'inactive_hide_days': int(os.getenv("INACTIVE_HIDE_DAYS", 180)),  # V53EConfig.INACTIVE_HIDE_DAYS
+    
+    # Layer 2
+    'max_games': int(os.getenv("MAX_GAMES_PER_TEAM", 30)),  # V53EConfig.MAX_GAMES_FOR_RANK
+    'goal_diff_cap': int(os.getenv("GOAL_DIFF_CAP", 6)),  # V53EConfig.GOAL_DIFF_CAP
+    'outlier_guard_zscore': float(os.getenv("OUTLIER_GUARD_ZSCORE", 2.5)),  # V53EConfig.OUTLIER_GUARD_ZSCORE
+    
+    # Layer 3 (recency)
+    'recent_k': int(os.getenv("RECENT_K", 15)),  # V53EConfig.RECENT_K
+    'recent_share': float(os.getenv("RECENT_SHARE", 0.65)),  # V53EConfig.RECENT_SHARE
+    'dampen_tail_start': int(os.getenv("DAMPEN_TAIL_START", 26)),  # V53EConfig.DAMPEN_TAIL_START
+    'dampen_tail_end': int(os.getenv("DAMPEN_TAIL_END", 30)),  # V53EConfig.DAMPEN_TAIL_END
+    'dampen_tail_start_weight': float(os.getenv("DAMPEN_TAIL_START_WEIGHT", 0.8)),  # V53EConfig.DAMPEN_TAIL_START_WEIGHT
+    'dampen_tail_end_weight': float(os.getenv("DAMPEN_TAIL_END_WEIGHT", 0.4)),  # V53EConfig.DAMPEN_TAIL_END_WEIGHT
+    
+    # Layer 4 (defense ridge)
+    'ridge_ga': float(os.getenv("RIDGE_GA", 0.25)),  # V53EConfig.RIDGE_GA
+    
+    # Layer 5 (Adaptive K)
+    'adaptive_k_alpha': float(os.getenv("ADAPTIVE_K_ALPHA", 0.5)),  # V53EConfig.ADAPTIVE_K_ALPHA
+    'adaptive_k_beta': float(os.getenv("ADAPTIVE_K_BETA", 0.6)),  # V53EConfig.ADAPTIVE_K_BETA
+    'team_outlier_guard_zscore': float(os.getenv("TEAM_OUTLIER_GUARD_ZSCORE", 2.5)),  # V53EConfig.TEAM_OUTLIER_GUARD_ZSCORE
+    
+    # Layer 6 (Performance)
+    'performance_k': float(os.getenv("PERFORMANCE_K", 0.15)),  # V53EConfig.PERFORMANCE_K
+    'performance_decay_rate': float(os.getenv("PERFORMANCE_DECAY_RATE", 0.08)),  # V53EConfig.PERFORMANCE_DECAY_RATE
+    'performance_threshold': float(os.getenv("PERFORMANCE_THRESHOLD", 2.0)),  # V53EConfig.PERFORMANCE_THRESHOLD
+    'performance_goal_scale': float(os.getenv("PERFORMANCE_GOAL_SCALE", 5.0)),  # V53EConfig.PERFORMANCE_GOAL_SCALE
+    
+    # Layer 7 (Bayesian shrink)
+    'shrink_tau': float(os.getenv("SHRINK_TAU", 8.0)),  # V53EConfig.SHRINK_TAU
+    
+    # Layer 8 (SOS)
+    'unranked_sos_base': float(os.getenv("UNRANKED_SOS_BASE", 0.35)),  # V53EConfig.UNRANKED_SOS_BASE
+    'sos_repeat_cap': int(os.getenv("SOS_REPEAT_CAP", 4)),  # V53EConfig.SOS_REPEAT_CAP
+    'sos_iterations': int(os.getenv("SOS_ITERATIONS", 3)),  # V53EConfig.SOS_ITERATIONS
+    'sos_transitivity_lambda': float(os.getenv("SOS_TRANSITIVITY_LAMBDA", 0.25)),  # V53EConfig.SOS_TRANSITIVITY_LAMBDA
+    
+    # Layer 10 weights
+    'off_weight': float(os.getenv("OFF_WEIGHT", 0.25)),  # V53EConfig.OFF_WEIGHT
+    'def_weight': float(os.getenv("DEF_WEIGHT", 0.25)),  # V53EConfig.DEF_WEIGHT
+    'sos_weight': float(os.getenv("SOS_WEIGHT", 0.50)),  # V53EConfig.SOS_WEIGHT
+    
+    # Provisional
+    'min_games_for_ranking': int(os.getenv("MIN_GAMES_FOR_RANKING", 5)),  # V53EConfig.MIN_GAMES_PROVISIONAL
+    
+    # Context multipliers
+    'tournament_ko_mult': float(os.getenv("TOURNAMENT_KO_MULT", 1.10)),  # V53EConfig.TOURNAMENT_KO_MULT
+    'semis_finals_mult': float(os.getenv("SEMIS_FINALS_MULT", 1.05)),  # V53EConfig.SEMIS_FINALS_MULT
+    
+    # Cross-age anchors
+    'anchor_percentile': float(os.getenv("ANCHOR_PERCENTILE", 0.98)),  # V53EConfig.ANCHOR_PERCENTILE
+    
+    # Normalization mode
+    'norm_mode': os.getenv("NORM_MODE", "percentile"),  # V53EConfig.NORM_MODE
+    
+    # Legacy fields (for backward compatibility)
     'recent_games': 15,
     'middle_games': 10,
     'oldest_games': 5,
@@ -81,7 +138,6 @@ RANKING_CONFIG = {
     'win_points': 1.0,
     'draw_points': 0.35,
     'loss_points': 0.0,
-    'min_games_for_ranking': 5
 }
 
 # Matching Configuration
@@ -107,6 +163,55 @@ ETL_CONFIG = {
     'retry_delay': 5,
     'incremental_days': 7,
     'validation_enabled': True
+}
+
+# ML Layer Configuration (Layer 13)
+ML_CONFIG = {
+    'enabled': os.getenv("ML_LAYER_ENABLED", "true").lower() == "true",
+    'alpha': float(os.getenv("ML_ALPHA", 0.12)),  # Blend weight for ML adjustment
+    'recency_decay_lambda': float(os.getenv("ML_RECENCY_DECAY_LAMBDA", 0.06)),
+    'min_team_games_for_residual': int(os.getenv("ML_MIN_TEAM_GAMES", 6)),
+    'residual_clip_goals': float(os.getenv("ML_RESIDUAL_CLIP", 3.5)),
+    'norm_mode': os.getenv("ML_NORM_MODE", "percentile"),  # "percentile" or "zscore"
+    'lookback_days': int(os.getenv("ML_LOOKBACK_DAYS", 365)),
+    'xgb_params': {
+        'n_estimators': int(os.getenv("ML_XGB_N_ESTIMATORS", 220)),
+        'max_depth': int(os.getenv("ML_XGB_MAX_DEPTH", 5)),
+        'learning_rate': float(os.getenv("ML_XGB_LEARNING_RATE", 0.08)),
+        'subsample': float(os.getenv("ML_XGB_SUBSAMPLE", 0.9)),
+        'colsample_bytree': float(os.getenv("ML_XGB_COLSAMPLE_BYTREE", 0.9)),
+        'reg_lambda': float(os.getenv("ML_XGB_REG_LAMBDA", 1.0)),
+        'n_jobs': int(os.getenv("ML_XGB_N_JOBS", -1)),
+        'random_state': 42,
+    },
+    'rf_params': {
+        'n_estimators': int(os.getenv("ML_RF_N_ESTIMATORS", 240)),
+        'max_depth': int(os.getenv("ML_RF_MAX_DEPTH", 18)),
+        'min_samples_leaf': int(os.getenv("ML_RF_MIN_SAMPLES_LEAF", 2)),
+        'n_jobs': int(os.getenv("ML_RF_N_JOBS", -1)),
+        'random_state': 42,
+    },
+}
+
+# Data Adapter Configuration (Supabase ↔ v53e mapping)
+DATA_ADAPTER_CONFIG = {
+    'games_table': 'games',
+    'teams_table': 'teams',
+    'column_mappings': {
+        # Supabase → v53e
+        'game_date': 'date',
+        'home_team_master_id': 'team_id',  # for home perspective
+        'away_team_master_id': 'opp_id',    # for home perspective
+        'home_score': 'gf',
+        'away_score': 'ga',
+        'age_group': 'age',  # converted via age_group_to_age()
+        'gender': 'gender',  # kept as-is
+    },
+    'age_group_conversion': {
+        # Maps 'u10' → '10', 'u11' → '11', etc.
+        'enabled': True,
+    },
+    'perspective_based': True,  # Each game appears twice (home/away perspectives)
 }
 
 # Cache Configuration
