@@ -93,10 +93,17 @@ def stream_games_csv(file_path: Path, batch_size: int = 1000, limit: Optional[in
                 
                 # Convert numeric fields
                 try:
+                    # Convert team IDs to strings (remove .0 if present from float conversion)
+                    if game['team_id']:
+                        game['team_id'] = str(int(float(game['team_id']))) if game['team_id'] else ''
+                    if game['opponent_id']:
+                        game['opponent_id'] = str(int(float(game['opponent_id']))) if game['opponent_id'] else ''
+                    
+                    # Convert scores to integers
                     if game['goals_for']:
-                        game['goals_for'] = float(game['goals_for']) if '.' in str(game['goals_for']) else int(game['goals_for'])
+                        game['goals_for'] = int(float(game['goals_for'])) if game['goals_for'] else None
                     if game['goals_against']:
-                        game['goals_against'] = float(game['goals_against']) if '.' in str(game['goals_against']) else int(game['goals_against'])
+                        game['goals_against'] = int(float(game['goals_against'])) if game['goals_against'] else None
                 except (ValueError, TypeError):
                     pass  # Keep as string if conversion fails
                 
@@ -153,10 +160,17 @@ def load_games_csv(file_path: Path, limit: Optional[int] = None) -> List[Dict]:
                 
                 # Convert numeric fields
                 try:
+                    # Convert team IDs to strings (remove .0 if present from float conversion)
+                    if game['team_id']:
+                        game['team_id'] = str(int(float(game['team_id']))) if game['team_id'] else ''
+                    if game['opponent_id']:
+                        game['opponent_id'] = str(int(float(game['opponent_id']))) if game['opponent_id'] else ''
+                    
+                    # Convert scores to integers
                     if game['goals_for']:
-                        game['goals_for'] = float(game['goals_for']) if '.' in str(game['goals_for']) else int(game['goals_for'])
+                        game['goals_for'] = int(float(game['goals_for'])) if game['goals_for'] else None
                     if game['goals_against']:
-                        game['goals_against'] = float(game['goals_against']) if '.' in str(game['goals_against']) else int(game['goals_against'])
+                        game['goals_against'] = int(float(game['goals_against'])) if game['goals_against'] else None
                 except (ValueError, TypeError):
                     pass  # Keep as string if conversion fails
                 
