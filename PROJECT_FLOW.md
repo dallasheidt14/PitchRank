@@ -4,13 +4,13 @@ Complete workflow documentation for the PitchRank youth soccer rankings system.
 
 ## 📊 Overview
 
-PitchRank processes game data from multiple providers (GotSport, TGS, US Club Soccer) to calculate team rankings and strength of schedule metrics. The system handles millions of games with efficient streaming, parallel processing, and intelligent team matching.
+PitchRank processes game data from multiple providers (GotSport, TGS, US Club Soccer) to calculate team rankings and strength of schedule metrics. The system uses a sophisticated v53e rankings engine with an optional ML predictive adjustment layer (Layer 13) for enhanced accuracy.
 
 ## 🔄 Complete Data Flow
 
-### Phase 1: Data Collection & Import
+### Phase 1: Data Collection & Import ✅ COMPLETE
 
-#### 1.1 Master Team List Import
+#### 1.1 Master Team List Import ✅ DONE
 
 **Script:** `scripts/import_teams_enhanced.py`
 
@@ -25,7 +25,7 @@ PitchRank processes game data from multiple providers (GotSport, TGS, US Club So
 
 **Example:**
 ```bash
-python scripts/import_teams_enhanced.py data/master_teams.csv gotsport
+python scripts/import_teams_enhanced.py data/master/all_teams_master.csv gotsport
 ```
 
 **Output:**
@@ -33,71 +33,83 @@ python scripts/import_teams_enhanced.py data/master_teams.csv gotsport
 - Direct ID mappings in `team_alias_map` table
 - Team validation errors in `quarantine_teams` (if any)
 
-#### 1.2 Game History Import
+**Status:** ✅ Complete - Master teams imported
+
+---
+
+#### 1.2 Game History Import 🔄 **CURRENT STEP**
 
 **Script:** `scripts/import_games_enhanced.py`
 
 **Purpose:** Import game history with validation, matching, and deduplication
 
-**Process:**
+**Your Current File:**
+```
+C:\PitchRank\data\master\all_games_master.csv
+```
 
-1. **File Loading (Auto-Optimized)**
-   - Small files (<50MB): Load all into memory
-   - Large files (>50MB): Auto-enable streaming
-   - JSONL/NDJSON: Always streamed line-by-line
-   - Standard JSON: Loaded all at once (or streamed if >500MB)
+**File Stats:**
+- Size: ~435 MB
+- Total games: 1,291,252
+- Valid games: 1,225,075 (94.9%)
+- Invalid games: 66,177 (5.1%) - mostly missing scores (future/cancelled games)
 
-2. **Pre-Validation (Optional)**
-   ```bash
-   python scripts/import_games_enhanced.py data/games.json gotsport --validate-only
-   ```
-   - Validates all games without importing
-   - Shows validation summary and errors
-   - Useful for checking data quality before import
+**Recommended Import Process:**
 
-3. **Dry Run (Optional)**
-   ```bash
-   python scripts/import_games_enhanced.py data/games.json gotsport --dry-run
-   ```
-   - Simulates import without committing
-   - Shows what would be imported, matched, quarantined
-   - Useful for testing before actual import
+**Step 1: Validate Your Data** ✅ DONE
+```bash
+python scripts/import_games_enhanced.py data/master/all_games_master.csv gotsport --validate-only
+```
+**Result:** 94.9% valid rate - excellent!
 
-4. **Actual Import**
-   ```bash
-   # Standard import
-   python scripts/import_games_enhanced.py data/games.json gotsport
-   
-   # Large file with optimizations
-   python scripts/import_games_enhanced.py data/games.jsonl gotsport \
-     --stream \
-     --batch-size 2000 \
-     --concurrency 4 \
-     --checkpoint \
-     --skip-validation  # If pre-validated
-   ```
+**Step 2: Test with Small Sample** ✅ DONE
+```bash
+python scripts/import_games_enhanced.py data/master/all_games_master.csv gotsport --dry-run --limit 1000
+```
+**Result:** 844 games accepted, 151 quarantined (as expected)
+
+**Step 3: Full Import (Ready to Run)**
+```bash
+# Full import with optimizations for large file
+python scripts/import_games_enhanced.py data/master/all_games_master.csv gotsport \
+  --stream \
+  --batch-size 2000 \
+  --concurrency 4 \
+  --checkpoint
+```
+
+**Expected Results:**
+- ~1,018,000 valid games imported
+- ~182,000 invalid games quarantined (missing scores)
+- Processing time: ~15-20 hours with optimizations
+- Memory usage: <1GB (streaming mode)
 
 **Import Process Steps:**
 
-1. **Validation** (unless `--skip-validation`)
-   - Validate game data (required fields, date format, scores, etc.)
-   - Transform perspective-based games (each game appears twice) to neutral format
-   - Deduplicate perspective-based duplicates
+1. **File Loading (Auto-Optimized)**
+   - Your file: 435 MB → Auto-enables streaming
+   - CSV format: Streamed line-by-line
+   - Batch size: 2000 games per batch
+
+2. **Validation**
+   - Validates game data (required fields, date format, scores, etc.)
+   - Transforms perspective-based games (each game appears twice) to neutral format
+   - Deduplicates perspective-based duplicates
    - Invalid games → `quarantine_games` table
 
-2. **Duplicate Detection**
+3. **Duplicate Detection**
    - Check for existing games using `game_uid` (deterministic UUID)
    - Skip games already in database (immutability)
    - Track duplicates found and skipped
 
-3. **Team Matching**
+4. **Team Matching**
    - For each game, match home and away teams:
      - **Direct ID Match** (fastest): Check `team_alias_map` for `match_method='direct_id'`
      - **Fuzzy Match** (if no direct match):
        - Query master teams by age_group and gender
        - Calculate weighted similarity score:
          - Team name: 65% weight
-         - Club name: 25% weight (new!)
+         - Club name: 25% weight ✨ NEW
          - Age group: 5% weight
          - Location: 5% weight
        - Apply normalization (remove punctuation, expand abbreviations, etc.)
@@ -106,23 +118,22 @@ python scripts/import_teams_enhanced.py data/master_teams.csv gotsport
          - 0.75-0.90: Manual review → `team_match_review_queue`
          - <0.75: Reject → no alias created
 
-4. **Game Insertion**
-   - Batch insert valid games (default: 2000 per batch)
+5. **Game Insertion**
+   - Batch insert valid games (2000 per batch)
    - Create team aliases for matches
    - Track metrics (games processed, accepted, quarantined, duplicates, matches)
 
-5. **Metrics Tracking**
+6. **Metrics Tracking**
    - Store detailed metrics in `build_logs` table
    - Track processing time, memory usage, error counts
-   - Log progress checkpoints (if `--checkpoint` enabled)
+   - Log progress checkpoints (every 10 batches)
 
 **Performance Optimizations:**
-
-- **Streaming**: For large files, processes in batches without loading entire file
-- **Concurrency**: Processes multiple batches in parallel (default: 4 concurrent)
-- **Batch Size**: Configurable batch size (default: 2000, can increase to 5000)
-- **Retry Logic**: Automatic retry with exponential backoff (1.0s, 2.5s) + jitter
-- **Error Handling**: Continues on batch failures, reports partial success
+- ✅ **Streaming**: Processes 435 MB file without loading into memory
+- ✅ **Concurrency**: 4 parallel batches (configurable)
+- ✅ **Batch Size**: 2000 games per batch (increased from 1000)
+- ✅ **Retry Logic**: Automatic retry with exponential backoff + jitter
+- ✅ **Error Handling**: Continues on batch failures, reports partial success
 
 **Output:**
 - Games inserted into `games` table
@@ -131,7 +142,11 @@ python scripts/import_teams_enhanced.py data/master_teams.csv gotsport
 - Invalid games in `quarantine_games`
 - Build logs in `build_logs` table
 
-### Phase 2: Team Matching Review
+**Status:** 🔄 **CURRENT STEP** - Ready to run full import
+
+---
+
+### Phase 2: Team Matching Review ⏳ PENDING
 
 #### 2.1 Review Pending Matches
 
@@ -156,35 +171,81 @@ python scripts/review_matches.py
 - Rejected matches → removed from queue
 - Updated match statistics
 
-### Phase 3: Ranking Calculation
+**Status:** ⏳ Pending - Run after game import completes
+
+---
+
+### Phase 3: Ranking Calculation ✨ NEW
 
 #### 3.1 Calculate Team Rankings
 
-**Script:** (To be implemented)
+**Script:** `scripts/calculate_rankings.py`
 
-**Purpose:** Calculate team rankings based on game results
+**Purpose:** Calculate team rankings using v53e engine with optional ML enhancement
 
 **Process:**
-1. Query games from last 365 days (rolling window)
-2. Calculate power scores for each team:
-   - Win/loss record
-   - Strength of schedule (opponent quality)
-   - Goal differential
-   - Recent form (weight recent games more)
-3. Rank teams by age group and gender
-4. Store rankings in `current_rankings` table
 
-**Algorithm:**
-- Power Score = Base Score + Win Bonus + SOS Bonus + Goal Differential
-- Base Score by age group (U10=1000, U11=1100, ..., U18=1800)
-- Win Bonus = Opponent Power Score * 0.1
-- SOS Bonus = Average Opponent Power Score * 0.05
-- Goal Differential = (Goals For - Goals Against) * 2
+**Option A: v53e Only (Deterministic)**
+```bash
+python scripts/calculate_rankings.py --lookback-days 365
+```
+
+**Option B: v53e + ML Layer (Enhanced)**
+```bash
+python scripts/calculate_rankings.py --ml --lookback-days 365
+```
+
+**Option C: With Filters**
+```bash
+python scripts/calculate_rankings.py --ml \
+  --provider gotsport \
+  --age-group u10 \
+  --gender Male \
+  --lookback-days 365
+```
+
+**Rankings Engine (v53e):**
+- **Layer 1**: Window filter (365-day rolling window)
+- **Layer 2**: Outlier guard + goal diff cap
+- **Layer 3**: Recency weighting (recent games weighted more)
+- **Layer 4**: Defense ridge regression
+- **Layer 5**: Adaptive K (strength-based weighting)
+- **Layer 6**: Performance layer (goal margin analysis)
+- **Layer 7**: Bayesian shrinkage
+- **Layer 8**: Strength of Schedule (iterative transitivity)
+- **Layer 10**: Core PowerScore (OFF + DEF + SOS weights)
+- **Layer 11**: Provisional multiplier + ranking
+
+**ML Layer (Layer 13) - Optional:**
+- Uses XGBoost or RandomForest to predict goal margins
+- Calculates residuals (actual - predicted) with recency weighting
+- Normalizes residuals within cohorts (age, gender)
+- Blends into PowerScore: `powerscore_ml = powerscore_adj + alpha * ml_norm`
+- Default alpha: 0.12 (12% ML adjustment)
+
+**Data Flow:**
+1. Fetch games from Supabase (via `data_adapter.py`)
+2. Convert Supabase format → v53e format:
+   - `game_date` → `date`
+   - `home_team_master_id` → `team_id` (perspective-based)
+   - `age_group` ('u10') → `age` ('10')
+   - Each game appears twice (home/away perspectives)
+3. Run v53e `compute_rankings()` function
+4. Apply ML predictive adjustment (if `--ml` flag)
+5. Convert back to Supabase format
+6. Save to `current_rankings` table
 
 **Output:**
-- Rankings in `current_rankings` table
-- Power scores by age group and gender
-- Historical ranking snapshots (optional)
+- Rankings in `current_rankings` table:
+  - `team_id` (UUID)
+  - `national_power_score` (float)
+  - `national_rank` (integer)
+  - `games_played`, `wins`, `losses`, `draws`
+  - `win_percentage`, `strength_of_schedule`
+
+**Status:** ✨ Ready - Run after game import completes
+
+---
 
 #### 3.2 Calculate State Rankings
 
@@ -195,11 +256,11 @@ python scripts/review_matches.py
 **Process:**
 1. Query `current_rankings` filtered by state
 2. Re-rank teams within each state
-3. Store state rankings (can be derived from national rankings)
+3. Update `state_rank` column in `current_rankings` table
 
-**Output:**
-- State rankings view/table
-- Teams ranked within their state
+**Status:** ⏳ Pending - Future enhancement
+
+---
 
 ### Phase 4: Data Maintenance
 
@@ -210,24 +271,34 @@ python scripts/review_matches.py
 2. **Import Games**: Import new games using `import_games_enhanced.py`
 3. **Review Matches**: Review any new fuzzy matches
 4. **Recalculate Rankings**: Update rankings with new games
+   ```bash
+   python scripts/calculate_rankings.py --ml
+   ```
 5. **Update State Rankings**: Recalculate state rankings
+
+**Status:** ⏳ Pending - Future automation
+
+---
 
 #### 4.2 Data Validation
 
-**Script:** `scripts/pre_import_checklist.py`
+**Script:** `scripts/analyze_validation_errors.py` ✨ NEW
 
-**Purpose:** Verify database is ready for imports
-
-**Checks:**
-- Required tables exist
-- Indexes are present
-- Triggers are enabled
-- Permissions are correct
+**Purpose:** Analyze validation errors to understand data quality issues
 
 **Example:**
 ```bash
-python scripts/pre_import_checklist.py
+python scripts/analyze_validation_errors.py data/master/all_games_master.csv --limit 1000
 ```
+
+**Output:**
+- Error type breakdown
+- Error frequency statistics
+- Example games with errors
+
+**Status:** ✅ Available
+
+---
 
 #### 4.3 Review Quarantined Data
 
@@ -237,31 +308,38 @@ python scripts/pre_import_checklist.py
 3. Fix issues and re-import
 4. Clean up quarantined records
 
+**Status:** ⏳ Pending - Run after import
+
+---
+
 ## 📁 Data Structures
 
 ### Key Tables
 
-1. **`teams`**: Master team list
+1. **`teams`**: Master team list ✅
    - `team_id_master` (UUID, primary key)
    - `team_name`, `club_name`, `age_group`, `gender`, `state_code`
    - `provider_id`, `provider_team_id` (for provider-specific teams)
 
-2. **`games`**: Game history
+2. **`games`**: Game history 🔄 **IMPORTING**
    - `game_uid` (deterministic UUID, primary key)
-   - `home_team_id_master`, `away_team_id_master`
+   - `home_team_master_id`, `away_team_master_id`
    - `home_score`, `away_score`, `game_date`
    - `provider_id`, `is_immutable` (prevents duplicate imports)
 
-3. **`team_alias_map`**: Team matching mappings
+3. **`team_alias_map`**: Team matching mappings ✅
    - Maps provider team IDs to master team IDs
    - `match_method`: `direct_id`, `fuzzy_auto`, `fuzzy_review`
    - `match_confidence`: 0.0-1.0
 
-4. **`current_rankings`**: Current team rankings
-   - `team_id_master`, `power_score`, `rank`, `age_group`, `gender`
-   - `state_rank` (optional)
+4. **`current_rankings`**: Current team rankings ⏳ **PENDING**
+   - `team_id_master`, `national_power_score`, `national_rank`
+   - `age_group`, `gender` (derived from teams table)
+   - `state_rank` (optional, future)
+   - `games_played`, `wins`, `losses`, `draws`
+   - `win_percentage`, `strength_of_schedule`
 
-5. **`team_match_review_queue`**: Pending matches for review
+5. **`team_match_review_queue`**: Pending matches for review ⏳ **PENDING**
    - Provider team, master team, confidence score
    - Status: `pending`, `approved`, `rejected`
 
@@ -273,73 +351,148 @@ python scripts/pre_import_checklist.py
    - `build_id`, `stage`, `metrics` (JSONB)
    - `started_at`, `completed_at`, `status`
 
+---
+
 ## 🔧 Configuration
 
-### Matching Configuration (`config/settings.py`)
+### Ranking Configuration (`config/settings.py`)
 
+**v53e Engine Parameters:**
 ```python
-MATCHING_CONFIG = {
-    'fuzzy_threshold': 0.75,        # Minimum score to consider match
-    'auto_approve_threshold': 0.9,  # Auto-approve matches above this
-    'review_threshold': 0.75,      # Queue for review above this
-    'max_age_diff': 2,              # Max age group difference
-    'weights': {
-        'team': 0.65,               # Team name similarity weight
-        'club': 0.25,               # Club name similarity weight
-        'age': 0.05,                # Age group match weight
-        'location': 0.05             # Location match weight
-    },
-    'club_boost_identical': 0.05,   # Boost for identical clubs
-    'club_min_similarity': 0.8     # Minimum club similarity
+RANKING_CONFIG = {
+    'window_days': 365,              # Rolling window
+    'max_games': 30,                 # Max games per team
+    'recent_k': 15,                  # Recent games count
+    'recent_share': 0.65,            # Weight for recent games
+    'off_weight': 0.25,              # Offense weight
+    'def_weight': 0.25,              # Defense weight
+    'sos_weight': 0.50,              # Strength of Schedule weight
+    'min_games_for_ranking': 5,      # Minimum games required
+    # ... all v53e parameters aligned
 }
 ```
 
-### Import Configuration
+### ML Layer Configuration
 
-**Default Batch Size:** 2000 (increased from 1000)
+```python
+ML_CONFIG = {
+    'enabled': True,                  # Enable ML layer
+    'alpha': 0.12,                    # Blend weight (5-20% recommended)
+    'recency_decay_lambda': 0.06,    # Recency decay rate
+    'min_team_games_for_residual': 6, # Min games for ML adjustment
+    'residual_clip_goals': 3.5,       # Outlier guardrail
+    'norm_mode': 'percentile',        # Normalization mode
+    # XGBoost/RandomForest parameters
+}
+```
 
-**Default Concurrency:** 4 (can be adjusted based on database load)
+### Matching Configuration
 
-**Streaming Threshold:** 50MB (auto-enables streaming)
+```python
+MATCHING_CONFIG = {
+    'fuzzy_threshold': 0.75,          # Minimum score to consider
+    'auto_approve_threshold': 0.9,   # Auto-approve matches
+    'review_threshold': 0.75,        # Queue for review
+    'weights': {
+        'team': 0.65,                 # Team name similarity
+        'club': 0.25,                 # Club name similarity ✨ NEW
+        'age': 0.05,                  # Age group match
+        'location': 0.05              # Location match
+    },
+    'club_boost_identical': 0.05,     # Boost for identical clubs
+}
+```
 
-## 🚀 Performance Tips
+### Data Adapter Configuration
 
-### For Large Files (100K+ games)
+```python
+DATA_ADAPTER_CONFIG = {
+    'games_table': 'games',
+    'teams_table': 'teams',
+    'column_mappings': {
+        'game_date': 'date',
+        'home_team_master_id': 'team_id',
+        'away_team_master_id': 'opp_id',
+        'home_score': 'gf',
+        'away_score': 'ga',
+        'age_group': 'age',  # 'u10' → '10'
+        'gender': 'gender',
+    },
+    'perspective_based': True,  # Each game appears twice
+}
+```
 
-1. **Use JSONL format** (one JSON object per line)
-   - Enables true streaming
-   - Reduces memory usage
+---
 
-2. **Enable streaming and concurrency**
+## 🚀 Current Status & Next Steps
+
+### ✅ Completed
+
+1. **Master Team List Import** ✅
+   - Teams imported to `teams` table
+   - Direct ID mappings created
+
+2. **Game Import Script** ✅
+   - CSV support added
+   - Streaming for large files
+   - Concurrency support
+   - Validation error analysis
+
+3. **Rankings Engine** ✅
+   - v53e engine integrated
+   - ML layer (Layer 13) integrated
+   - Data adapter for Supabase alignment
+   - Rankings calculation script
+
+### 🔄 Current Step: Game History Import
+
+**Your Status:**
+- ✅ Master teams imported
+- ✅ Game file ready: `data/master/all_games_master.csv`
+- ✅ Validation completed (94.9% valid)
+- ✅ Sample test completed (1000 games)
+- 🔄 **Ready for full import**
+
+**Next Action:**
+```bash
+# Run full import (will take 15-20 hours)
+python scripts/import_games_enhanced.py data/master/all_games_master.csv gotsport \
+  --stream \
+  --batch-size 2000 \
+  --concurrency 4 \
+  --checkpoint
+```
+
+**What to Expect:**
+- Processing time: ~15-20 hours
+- Memory usage: <1GB (streaming)
+- Progress checkpoints: Every 10 batches
+- Final metrics: Games imported, matches created, errors
+
+### ⏳ After Import Completes
+
+1. **Review Team Matches** (if any pending)
    ```bash
-   python scripts/import_games_enhanced.py data/games.jsonl gotsport \
-     --stream \
-     --batch-size 2000 \
-     --concurrency 4
+   python scripts/review_matches.py
    ```
 
-3. **Use checkpointing for long runs**
+2. **Calculate Rankings**
    ```bash
-   --checkpoint  # Logs progress every 10 batches
-   ```
-
-4. **Pre-validate then skip validation**
-   ```bash
-   # Step 1: Validate
-   python scripts/import_games_enhanced.py data/games.jsonl gotsport --validate-only
+   # v53e only
+   python scripts/calculate_rankings.py
    
-   # Step 2: Import without validation
-   python scripts/import_games_enhanced.py data/games.jsonl gotsport \
-     --skip-validation \
-     --stream \
-     --concurrency 4
+   # With ML enhancement
+   python scripts/calculate_rankings.py --ml
    ```
 
-### For Small Files (<10K games)
+3. **Verify Rankings**
+   ```sql
+   SELECT * FROM current_rankings 
+   ORDER BY national_power_score DESC 
+   LIMIT 20;
+   ```
 
-- Standard import is fine
-- No need for streaming or concurrency
-- Default batch size (2000) is sufficient
+---
 
 ## 📊 Example Workflow
 
@@ -349,32 +502,33 @@ MATCHING_CONFIG = {
 # 1. Pre-import checklist
 python scripts/pre_import_checklist.py
 
-# 2. Import master teams
-python scripts/import_teams_enhanced.py data/master_teams.csv gotsport
+# 2. Import master teams (if not done)
+python scripts/import_teams_enhanced.py data/master/all_teams_master.csv gotsport
 
 # 3. Validate game data
-python scripts/import_games_enhanced.py data/games.jsonl gotsport --validate-only
+python scripts/import_games_enhanced.py data/master/all_games_master.csv gotsport --validate-only
 
-# 4. Dry run import
-python scripts/import_games_enhanced.py data/games.jsonl gotsport --dry-run
+# 4. Test with sample
+python scripts/import_games_enhanced.py data/master/all_games_master.csv gotsport --dry-run --limit 1000
 
-# 5. Actual import (with optimizations)
-python scripts/import_games_enhanced.py data/games.jsonl gotsport \
+# 5. Full import (CURRENT STEP)
+python scripts/import_games_enhanced.py data/master/all_games_master.csv gotsport \
   --stream \
   --batch-size 2000 \
   --concurrency 4 \
-  --checkpoint \
-  --skip-validation
+  --checkpoint
 
-# 6. Review pending matches
+# 6. Review pending matches (after import)
 python scripts/review_matches.py
 
-# 7. Verify team mappings
-python scripts/verify_team_mappings.py gotsport
+# 7. Calculate rankings
+python scripts/calculate_rankings.py --ml
 
-# 8. Check build logs
-python check_progress.py  # Or query build_logs table
+# 8. Verify rankings
+python check_progress.py  # Or query current_rankings table
 ```
+
+---
 
 ## 🔍 Monitoring & Debugging
 
@@ -418,15 +572,35 @@ LIMIT 20;
 
 ```sql
 -- Invalid games
+SELECT reason_code, COUNT(*) 
+FROM quarantine_games 
+GROUP BY reason_code
+ORDER BY COUNT(*) DESC;
+
+-- Sample invalid games
 SELECT * FROM quarantine_games 
 ORDER BY created_at DESC
 LIMIT 20;
+```
 
--- Invalid teams
-SELECT * FROM quarantine_teams 
-ORDER BY created_at DESC
+### Check Rankings
+
+```sql
+-- Top teams by PowerScore
+SELECT 
+    t.team_name,
+    t.age_group,
+    t.gender,
+    r.national_rank,
+    r.national_power_score,
+    r.games_played
+FROM current_rankings r
+JOIN teams t ON r.team_id = t.team_id_master
+ORDER BY r.national_power_score DESC
 LIMIT 20;
 ```
+
+---
 
 ## 🎯 Key Features
 
@@ -434,7 +608,7 @@ LIMIT 20;
 
 - **Direct ID Matching**: Fastest method, uses provider team IDs
 - **Fuzzy Matching**: Advanced similarity scoring with normalization
-- **Club Name Weighting**: Improves accuracy for teams from same club
+- **Club Name Weighting**: ✨ NEW - Improves accuracy for teams from same club
 - **Abbreviation Expansion**: Handles "FC", "SC", "YS", etc.
 - **Manual Review Queue**: For ambiguous matches
 
@@ -442,9 +616,17 @@ LIMIT 20;
 
 - **Streaming**: Processes large files without loading into memory
 - **Parallel Processing**: Concurrent batch processing with semaphore control
-- **Batch Inserts**: Efficient bulk database operations
-- **Retry Logic**: Automatic retry with exponential backoff
+- **Batch Inserts**: Efficient bulk database operations (2000 per batch)
+- **Retry Logic**: Automatic retry with exponential backoff + jitter
 - **Progress Tracking**: Checkpoint logging for long imports
+
+### Rankings Engine
+
+- **v53e Engine**: 11-layer deterministic ranking system
+- **ML Layer (Optional)**: XGBoost/RandomForest predictive adjustment
+- **Supabase Integration**: Automatic data fetching and conversion
+- **Age Group Support**: U10-U18 with cross-age normalization
+- **State Rankings**: (Future) State-level ranking derivation
 
 ### Data Quality
 
@@ -453,17 +635,19 @@ LIMIT 20;
 - **Quarantine System**: Invalid data stored for review
 - **Error Tracking**: Detailed error reporting and metrics
 
+---
+
 ## 📝 Next Steps
 
-1. **Ranking Calculation**: Implement ranking algorithms
-2. **State Rankings**: Derive state-level rankings
-3. **API Endpoints**: Create REST API for rankings
-4. **Frontend**: Build web interface for viewing rankings
-5. **Weekly Automation**: Automated weekly updates
-6. **Analytics**: Advanced analytics and reporting
+1. **Ranking Calculation**: ✅ Ready - Run after game import
+2. **State Rankings**: ⏳ Future - Derive state-level rankings
+3. **API Endpoints**: ⏳ Future - Create REST API for rankings
+4. **Frontend**: ⏳ Future - Build web interface for viewing rankings
+5. **Weekly Automation**: ⏳ Future - Automated weekly updates
+6. **Analytics**: ⏳ Future - Advanced analytics and reporting
 
 ---
 
-**Last Updated:** 2024-01-15
-**Version:** 2.0.0
-
+**Last Updated:** 2024-11-06
+**Version:** 2.1.0
+**Current Step:** Phase 1.2 - Game History Import 🔄
