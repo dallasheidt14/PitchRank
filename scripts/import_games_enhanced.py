@@ -54,12 +54,15 @@ def stream_games_jsonl(file_path: Path, batch_size: int = 1000) -> Generator[Lis
             yield batch
 
 
-def stream_games_csv(file_path: Path, batch_size: int = 1000) -> Generator[List[Dict], None, None]:
+def stream_games_csv(file_path: Path, batch_size: int = 1000, limit: Optional[int] = None) -> Generator[List[Dict], None, None]:
     """Stream games from CSV file in batches"""
     batch = []
+    processed = 0
     with open(file_path, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row_num, row in enumerate(reader, 1):
+            if limit and processed >= limit:
+                break
             try:
                 # Map CSV columns to game data format
                 game = {
@@ -98,10 +101,13 @@ def stream_games_csv(file_path: Path, batch_size: int = 1000) -> Generator[List[
                     pass  # Keep as string if conversion fails
                 
                 batch.append(game)
+                processed += 1
                 
                 if len(batch) >= batch_size:
                     yield batch
                     batch = []
+                    if limit and processed >= limit:
+                        break
             except Exception as e:
                 logger.warning(f"Error processing CSV row {row_num}: {e}")
                 continue
@@ -109,12 +115,14 @@ def stream_games_csv(file_path: Path, batch_size: int = 1000) -> Generator[List[
             yield batch
 
 
-def load_games_csv(file_path: Path) -> List[Dict]:
+def load_games_csv(file_path: Path, limit: Optional[int] = None) -> List[Dict]:
     """Load all games from CSV file into memory"""
     games = []
     with open(file_path, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row_num, row in enumerate(reader, 1):
+            if limit and len(games) >= limit:
+                break
             try:
                 # Map CSV columns to game data format
                 game = {
@@ -201,6 +209,7 @@ async def main():
     parser.add_argument('--concurrency', type=int, default=4, help='Number of concurrent batches (default: 4)')
     parser.add_argument('--checkpoint', action='store_true', help='Enable progress checkpointing')
     parser.add_argument('--skip-validation', action='store_true', help='Skip validation during import')
+    parser.add_argument('--limit', type=int, default=None, help='Limit number of games to process (for testing)')
     
     args = parser.parse_args()
     
@@ -228,19 +237,36 @@ async def main():
             if use_streaming and file_size_mb > 50:
                 # Streaming mode for large CSV files
                 console.print(f"[cyan]Streaming CSV file ({file_size_mb:.1f} MB)...[/cyan]")
-                games_batches = list(stream_games_csv(file_path, args.batch_size))
+                if args.limit:
+                    console.print(f"[yellow]Limiting to first {args.limit:,} games for testing[/yellow]")
+                games_batches = list(stream_games_csv(file_path, args.batch_size, args.limit))
                 total_games = sum(len(batch) for batch in games_batches)
                 console.print(f"[green]Streaming ready: {len(games_batches)} batches, {total_games:,} games[/green]")
                 games = None  # Will process batches directly
             else:
                 # In-memory mode for small CSV files
-                games = load_games_csv(file_path)
+                if args.limit:
+                    console.print(f"[yellow]Limiting to first {args.limit:,} games for testing[/yellow]")
+                games = load_games_csv(file_path, args.limit)
                 console.print(f"[green]Loaded {len(games):,} games from CSV[/green]")
                 games_batches = None
         elif use_streaming and file_path.suffix in ['.jsonl', '.ndjson']:
             # Streaming mode for JSONL files
             console.print(f"[bold]Streaming games from {args.file}[/bold]")
+            if args.limit:
+                console.print(f"[yellow]Limiting to first {args.limit:,} games for testing[/yellow]")
             games_batches = list(stream_games_jsonl(file_path, args.batch_size))
+            # Apply limit if specified
+            if args.limit:
+                limited_batches = []
+                total = 0
+                for batch in games_batches:
+                    if total >= args.limit:
+                        break
+                    remaining = args.limit - total
+                    limited_batches.append(batch[:remaining])
+                    total += len(batch[:remaining])
+                games_batches = limited_batches
             total_games = sum(len(batch) for batch in games_batches)
             console.print(f"[green]Streaming ready: {len(games_batches)} batches, {total_games:,} games[/green]")
             games = None  # Will process batches directly
