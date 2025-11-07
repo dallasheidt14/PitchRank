@@ -37,3 +37,7 @@ print(f"  Direct ID mappings: {mapping_count:,}")
 print(f"  Remaining: {remaining:,} teams")
 print(f"\nStatus: {'✅ Complete' if team_count >= expected else '⏳ In Progress' if team_count > 0 else '❌ Not Started'}")
 
+
+
+
+

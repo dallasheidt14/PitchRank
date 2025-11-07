@@ -6,6 +6,7 @@
 # Data files
 data/raw/
 data/processed/
+data/cache/
 *.csv
 *.xlsx
 

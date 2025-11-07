@@ -70,9 +70,12 @@ def check_progress():
             logs_table.add_column("Games Processed", style="green", justify="right", width=15)
             logs_table.add_column("Games Accepted", style="green", justify="right", width=15)
             
+            active_import = None
             for log in build_logs.data:
                 metrics = log.get('metrics', {}) or {}
                 started = log.get('started_at', 'N/A')
+                completed = log.get('completed_at')
+                
                 if started and started != 'N/A':
                     try:
                         started_dt = datetime.fromisoformat(started.replace('Z', '+00:00'))
@@ -80,16 +83,44 @@ def check_progress():
                     except:
                         pass
                 
-                status = log.get('status', 'unknown')
-                status_color = 'green' if status == 'completed' else 'yellow' if status == 'in_progress' else 'red'
+                # Determine status based on completed_at field
+                if completed is None:
+                    status = 'in_progress'
+                    status_color = 'yellow'
+                    if active_import is None:
+                        active_import = log
+                else:
+                    status = 'completed'
+                    status_color = 'green'
                 
                 logs_table.add_row(
                     str(log.get('build_id', 'N/A'))[:20],
                     started,
                     f"[{status_color}]{status}[/{status_color}]",
-                    str(metrics.get('games_processed', 0)),
-                    str(metrics.get('games_accepted', 0))
+                    str(metrics.get('games_processed', log.get('records_processed', 0))),
+                    str(metrics.get('games_accepted', log.get('records_succeeded', 0)))
                 )
+            
+            # Show active import details if found
+            if active_import:
+                console.print(f"\n[bold yellow]⚠️  Active Import Detected![/bold yellow]")
+                metrics = active_import.get('metrics', {}) or {}
+                started = active_import.get('started_at', 'N/A')
+                if started and started != 'N/A':
+                    try:
+                        from datetime import timezone
+                        started_dt = datetime.fromisoformat(started.replace('Z', '+00:00'))
+                        now = datetime.now(timezone.utc) if started_dt.tzinfo else datetime.now()
+                        elapsed = (now - started_dt).total_seconds()
+                        hours = int(elapsed // 3600)
+                        minutes = int((elapsed % 3600) // 60)
+                        console.print(f"  Build ID: [cyan]{active_import.get('build_id', 'N/A')}[/cyan]")
+                        console.print(f"  Started: [yellow]{started_dt.strftime('%Y-%m-%d %H:%M:%S')}[/yellow]")
+                        console.print(f"  Running for: [yellow]{hours}h {minutes}m[/yellow]")
+                        console.print(f"  Games processed so far: [green]{metrics.get('games_processed', active_import.get('records_processed', 0)):,}[/green]")
+                        console.print(f"  Games accepted so far: [green]{metrics.get('games_accepted', active_import.get('records_succeeded', 0)):,}[/green]")
+                    except Exception as e:
+                        console.print(f"  [yellow]Could not calculate elapsed time: {e}[/yellow]")
             
             console.print(logs_table)
         else:
