@@ -168,8 +168,20 @@ async def apply_predictive_adjustment(
         ).astype(int)
         return out
     
-    # 3) Fit model and compute residuals
-    feats = _fit_and_residualize(feats, cfg)
+    # 3) Fit model and compute residuals (with ML leakage protection)
+    # 30-day time-based split to prevent leakage
+    if "date" in feats.columns and len(feats) > 0:
+        cutoff_date = feats["date"].max() - pd.Timedelta(days=30)
+        train_feats = feats[feats["date"] < cutoff_date].copy()
+        
+        # Fall back to full feats if no training data
+        if train_feats.empty or len(train_feats) < 10:
+            train_feats = feats.copy()
+    else:
+        # No date column or empty feats - use full feats
+        train_feats = feats.copy()
+    
+    feats = _fit_and_residualize(feats, train_feats, cfg)
     
     # 4) Aggregate residuals by (team, age, gender) with recency decay
     team_resid = _aggregate_team_residuals(feats, cfg)
@@ -280,19 +292,22 @@ def _build_features(games: pd.DataFrame, power_map: Dict[str, float], cfg: Layer
     return f.reset_index(drop=True)
 
 
-def _fit_and_residualize(feats: pd.DataFrame, cfg: Layer13Config) -> pd.DataFrame:
-    """Fit ML model and calculate residuals"""
-    X = feats[["team_power", "opp_power", "power_diff", "age_gap", "cross_gender"]].astype(float).values
-    y = feats["goal_margin"].astype(float).values
+def _fit_and_residualize(feats: pd.DataFrame, train_feats: pd.DataFrame, cfg: Layer13Config) -> pd.DataFrame:
+    """Fit ML model on training data and calculate residuals on full feats"""
+    # Fit model on training data only (to prevent leakage)
+    X_train = train_feats[["team_power", "opp_power", "power_diff", "age_gap", "cross_gender"]].astype(float).values
+    y_train = train_feats["goal_margin"].astype(float).values
     
     if _HAS_XGB:
         model = XGBRegressor(**cfg.xgb_params)
-        model.fit(X, y)
-        y_pred = model.predict(X)
+        model.fit(X_train, y_train)
     else:
         model = RandomForestRegressor(**cfg.rf_params)
-        model.fit(X, y)
-        y_pred = model.predict(X)
+        model.fit(X_train, y_train)
+    
+    # Compute residuals on full feats DataFrame (for all games)
+    X_full = feats[["team_power", "opp_power", "power_diff", "age_gap", "cross_gender"]].astype(float).values
+    y_pred = model.predict(X_full)
     
     out = feats.copy()
     out["pred_margin"] = y_pred.astype(float)
