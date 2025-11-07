@@ -344,8 +344,9 @@ def compute_rankings(
     )
 
     team = team.merge(anchors, on=["age", "gender"], how="left")
-    team["anchor"].replace({0.0: np.nan}, inplace=True)
-    team["anchor"].fillna(team["power_presos"].median(), inplace=True)
+    # Fix pandas FutureWarning: use assignment instead of inplace
+    team["anchor"] = team["anchor"].replace({0.0: np.nan})
+    team["anchor"] = team["anchor"].fillna(team["power_presos"].median())
     
     # Cross-age scaling matrix: smooth anchors across ages using linear regression
     # Compute median power by age/gender for regression
