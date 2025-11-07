@@ -59,13 +59,13 @@ async def fetch_games_for_rankings(
         today = pd.Timestamp.utcnow().normalize()
     
     cutoff = today - pd.Timedelta(days=lookback_days)
-    cutoff_iso = cutoff.isoformat()
+    cutoff_date_str = cutoff.strftime('%Y-%m-%d')
     
     # Fetch games
     query = supabase_client.table('games').select(
         'id, game_uid, game_date, home_team_master_id, away_team_master_id, '
         'home_score, away_score, provider_id'
-    ).gte('game_date', cutoff_iso.strftime('%Y-%m-%d')).limit(1000000)
+    ).gte('game_date', cutoff_date_str).limit(1000000)
     
     if provider_filter:
         # Get provider ID
