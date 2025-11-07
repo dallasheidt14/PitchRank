@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional, List
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import LinearRegression
 
 
 # =========================
@@ -50,7 +51,7 @@ class V53EConfig:
     UNRANKED_SOS_BASE: float = 0.35
     SOS_REPEAT_CAP: int = 4
     SOS_ITERATIONS: int = 3
-    SOS_TRANSITIVITY_LAMBDA: float = 0.25
+    SOS_TRANSITIVITY_LAMBDA: float = 0.15  # Lowered from 0.25 for stability
 
     # Layer 10 weights
     OFF_WEIGHT: float = 0.25
@@ -183,7 +184,13 @@ def compute_rankings(
       }
     """
     cfg = cfg or V53EConfig()
-    _require_columns(games_df, REQUIRED_COLUMNS)
+    
+    # Error handling: check for required columns
+    try:
+        _require_columns(games_df, REQUIRED_COLUMNS)
+    except ValueError:
+        # Return empty DataFrames if columns are missing
+        return {"teams": pd.DataFrame(), "games_used": pd.DataFrame()}
 
     g = games_df.copy()
     g["date"] = pd.to_datetime(g["date"], errors="coerce")
@@ -246,19 +253,39 @@ def compute_rankings(
     g["w_game"] = g["w_base"] * g["w_context"]
 
     # -------------------------
-    # OFF/SAD aggregation
+    # OFF/SAD aggregation (vectorized)
     # -------------------------
-    def agg_team(df: pd.DataFrame) -> pd.Series:
-        w = df["w_game"].values
-        s = w.sum()
-        if s <= 0:
-            off, sad = 0.0, 0.0
-        else:
-            off = float(np.average(df["gf"].values, weights=w))
-            sad = float(np.average(df["ga"].values, weights=w))
-        return pd.Series({"off_raw": off, "sad_raw": sad, "gp": len(df), "last_game": df["date"].max()})
-
-    team = g.groupby(["team_id", "age", "gender"], as_index=False).apply(agg_team).reset_index(drop=True)
+    # Vectorized aggregation: compute weighted averages and simple aggregations
+    g["gf_weighted"] = g["gf"] * g["w_game"]
+    g["ga_weighted"] = g["ga"] * g["w_game"]
+    
+    # Aggregate using vectorized operations
+    team = g.groupby(["team_id", "age", "gender"], as_index=False).agg({
+        "gf_weighted": "sum",
+        "ga_weighted": "sum",
+        "w_game": "sum",  # w_sum for weighted average calculation
+        "date": "max",    # last_game
+    }).rename(columns={"date": "last_game"})
+    
+    # Calculate weighted averages (vectorized)
+    w_sum = team["w_game"]
+    team["off_raw"] = np.where(
+        w_sum > 0,
+        team["gf_weighted"] / w_sum,
+        0.0
+    ).astype(float)
+    team["sad_raw"] = np.where(
+        w_sum > 0,
+        team["ga_weighted"] / w_sum,
+        0.0
+    ).astype(float)
+    
+    # Add gp (game count) using vectorized count
+    gp_counts = g.groupby(["team_id", "age", "gender"], as_index=False).size().rename(columns={"size": "gp"})
+    team = team.merge(gp_counts, on=["team_id", "age", "gender"], how="left")
+    
+    # Drop intermediate columns
+    team = team.drop(columns=["gf_weighted", "ga_weighted", "w_game"])
 
     # -------------------------
     # Layer 4: ridge defense
@@ -319,6 +346,62 @@ def compute_rankings(
     team = team.merge(anchors, on=["age", "gender"], how="left")
     team["anchor"].replace({0.0: np.nan}, inplace=True)
     team["anchor"].fillna(team["power_presos"].median(), inplace=True)
+    
+    # Cross-age scaling matrix: smooth anchors across ages using linear regression
+    # Compute median power by age/gender for regression
+    median_power = team.groupby(["age", "gender"])["power_presos"].median().reset_index()
+    median_power = median_power.merge(anchors, on=["age", "gender"], how="left")
+    
+    if len(median_power) > 2:  # Need at least 3 points for regression
+        # Prepare features: age (numeric) and gender (binary)
+        median_power["age_numeric"] = pd.to_numeric(median_power["age"], errors="coerce")
+        median_power["gender_numeric"] = (median_power["gender"].astype(str).str.lower() == "male").astype(int)
+        
+        # Remove rows with missing age
+        median_power_clean = median_power.dropna(subset=["age_numeric", "anchor"])
+        
+        if len(median_power_clean) > 2:
+            # Fit linear regression: anchor ~ age + gender
+            X = median_power_clean[["age_numeric", "gender_numeric"]].values
+            y = median_power_clean["anchor"].values
+            
+            model = LinearRegression()
+            model.fit(X, y)
+            
+            # Predict smoothed anchors for all age/gender combinations
+            team["age_numeric"] = pd.to_numeric(team["age"], errors="coerce")
+            team["gender_numeric"] = (team["gender"].astype(str).str.lower() == "male").astype(int)
+            
+            # Predict smoothed anchor values
+            team_clean = team.dropna(subset=["age_numeric"])
+            if len(team_clean) > 0:
+                X_team = team_clean[["age_numeric", "gender_numeric"]].values
+                team.loc[team_clean.index, "anchor"] = model.predict(X_team)
+            
+            # Gender-specific normalization: fit per-gender regression for better slope calibration
+            # This ensures gender-specific slope calibration and avoids over-smoothing across gender boundaries
+            for gender_val, gender_sub in median_power_clean.groupby("gender_numeric"):
+                if len(gender_sub) > 1:  # Need at least 2 points for regression
+                    # Fit per-gender regression: anchor ~ age
+                    X_gender = gender_sub["age_numeric"].values.reshape(-1, 1)
+                    y_gender = gender_sub["anchor"].values
+                    
+                    model_gender = LinearRegression()
+                    model_gender.fit(X_gender, y_gender)
+                    
+                    # Apply gender-specific adjustment to teams
+                    team_gender_mask = (team_clean["gender_numeric"] == gender_val)
+                    if team_gender_mask.any():
+                        team_gender = team_clean[team_gender_mask]
+                        X_team_gender = team_gender["age_numeric"].values.reshape(-1, 1)
+                        # Blend: 70% global model, 30% gender-specific (to avoid over-fitting)
+                        global_pred = model.predict(team_gender[["age_numeric", "gender_numeric"]].values)
+                        gender_pred = model_gender.predict(X_team_gender)
+                        team.loc[team_gender.index, "anchor"] = 0.7 * global_pred + 0.3 * gender_pred.flatten()
+            
+            # Clean up temporary columns
+            team = team.drop(columns=["age_numeric", "gender_numeric"])
+    
     team["abs_strength"] = (team["power_presos"] / team["anchor"]).clip(0.0, 1.5)
 
     strength_map = dict(zip(team["team_id"], team["abs_strength"]))
@@ -370,6 +453,8 @@ def compute_rankings(
             (1 - cfg.SOS_TRANSITIVITY_LAMBDA) * merged["sos_direct"]
             + cfg.SOS_TRANSITIVITY_LAMBDA * merged["sos_trans"]
         )
+        # SOS stability guard: clip values between 0.0 and 1.0
+        merged["sos"] = merged["sos"].clip(0.0, 1.0)
         sos_curr = merged[["team_id", "sos"]]
 
     team = team.merge(sos_curr, on="team_id", how="left").fillna({"sos": 0.5})

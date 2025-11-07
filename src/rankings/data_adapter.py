@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import re
 from typing import Dict, Optional, List
 from datetime import datetime, timedelta
 
@@ -15,19 +16,24 @@ def age_group_to_age(age_group: str) -> str:
     
     # Remove 'u' prefix if present
     if age_group.startswith('u'):
-        return age_group[1:]
+        age_group = age_group[1:]
     
-    # If already numeric, return as-is
-    if age_group.isdigit():
-        return age_group
-    
-    # Try to extract number
-    import re
+    # Try to extract number and convert to clean integer string
     match = re.search(r'\d+', age_group)
     if match:
-        return match.group()
+        # Convert to int then back to string to ensure clean integer (e.g., "12.0" -> "12")
+        try:
+            age_num = int(float(match.group()))
+            return str(age_num)
+        except (ValueError, TypeError):
+            return match.group()
     
-    return age_group
+    # If already numeric, convert to clean integer string
+    try:
+        age_num = int(float(age_group))
+        return str(age_num)
+    except (ValueError, TypeError):
+        return age_group
 
 
 async def fetch_games_for_rankings(
@@ -104,6 +110,8 @@ async def fetch_games_for_rankings(
     
     teams_df = pd.DataFrame(teams_data)
     teams_df['age'] = teams_df['age_group'].apply(age_group_to_age)
+    # Normalize gender values
+    teams_df["gender"] = teams_df["gender"].astype(str).str.lower().str.strip()
     
     # Create team lookup dicts
     team_age_map = dict(zip(teams_df['team_id_master'], teams_df['age']))
@@ -196,6 +204,8 @@ def supabase_to_v53e_format(
     # Prepare team lookup
     teams_df = teams_df.copy()
     teams_df['age'] = teams_df['age_group'].apply(age_group_to_age)
+    # Normalize gender values
+    teams_df["gender"] = teams_df["gender"].astype(str).str.lower().str.strip()
     team_age_map = dict(zip(teams_df['team_id_master'], teams_df['age']))
     team_gender_map = dict(zip(teams_df['team_id_master'], teams_df['gender']))
     
