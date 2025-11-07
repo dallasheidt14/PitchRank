@@ -106,7 +106,7 @@ async def compute_rankings_with_ml(
     if teams_base.empty:
         return {
             "teams": teams_base,
-            "games_used": games_used or pd.DataFrame()
+            "games_used": games_used if not getattr(games_used, "empty", True) else pd.DataFrame()
         }
     
     # 3) Apply ML predictive adjustment
@@ -142,7 +142,7 @@ async def compute_rankings_with_ml(
     
     return {
         "teams": teams_with_ml,
-        "games_used": games_used or pd.DataFrame()
+        "games_used": games_used if not getattr(games_used, "empty", True) else pd.DataFrame()
     }
 
 
