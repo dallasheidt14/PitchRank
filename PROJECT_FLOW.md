@@ -68,21 +68,23 @@ python scripts/import_games_enhanced.py data/master/all_games_master.csv gotspor
 ```
 **Result:** 844 games accepted, 151 quarantined (as expected)
 
-**Step 3: Full Import (Ready to Run)**
+**Step 3: Full Import (Optimized)**
 ```bash
-# Full import with optimizations for large file
+# Optimized import settings (5-7x faster)
 python scripts/import_games_enhanced.py data/master/all_games_master.csv gotsport \
   --stream \
-  --batch-size 2000 \
-  --concurrency 4 \
+  --batch-size 5000 \
+  --concurrency 12 \
+  --skip-validation \
   --checkpoint
 ```
 
 **Expected Results:**
 - ~1,018,000 valid games imported
 - ~182,000 invalid games quarantined (missing scores)
-- Processing time: ~15-20 hours with optimizations
+- Processing time: ~12-24 hours with optimizations (was 5 days)
 - Memory usage: <1GB (streaming mode)
+- **Duplicate Protection**: Automatically skips already-imported games (safe to restart)
 
 **Import Process Steps:**
 
@@ -130,10 +132,13 @@ python scripts/import_games_enhanced.py data/master/all_games_master.csv gotspor
 
 **Performance Optimizations:**
 - ✅ **Streaming**: Processes 435 MB file without loading into memory
-- ✅ **Concurrency**: 4 parallel batches (configurable)
-- ✅ **Batch Size**: 2000 games per batch (increased from 1000)
+- ✅ **Concurrency**: 12 parallel batches (optimized from 4)
+- ✅ **Batch Size**: 5000 games per batch (optimized from 2000)
+- ✅ **Skip Validation**: Enabled for faster imports (if data already validated)
+- ✅ **Duplicate Checking**: Optimized batch size (2000 UIDs per query)
 - ✅ **Retry Logic**: Automatic retry with exponential backoff + jitter
 - ✅ **Error Handling**: Continues on batch failures, reports partial success
+- ✅ **Safe Restart**: Automatically skips already-imported games (no duplicates)
 
 **Output:**
 - Games inserted into `games` table
@@ -142,7 +147,7 @@ python scripts/import_games_enhanced.py data/master/all_games_master.csv gotspor
 - Invalid games in `quarantine_games`
 - Build logs in `build_logs` table
 
-**Status:** 🔄 **CURRENT STEP** - Ready to run full import
+**Status:** 🔄 **IN PROGRESS** - Optimized import running (~12-24 hours)
 
 ---
 
@@ -262,25 +267,94 @@ python scripts/calculate_rankings.py --ml \
 
 ---
 
-### Phase 4: Data Maintenance
+### Phase 4: Weekly Automation ✅ COMPLETE
 
-#### 4.1 Weekly Updates
+#### 4.1 Weekly Update Pipeline
+
+**Script:** `scripts/weekly/update.py`
+
+**Purpose:** Automated weekly pipeline for scraping, importing, and recalculating rankings
 
 **Process:**
-1. **Scrape New Games**: Run provider scrapers to get new games
-2. **Import Games**: Import new games using `import_games_enhanced.py`
-3. **Review Matches**: Review any new fuzzy matches
-4. **Recalculate Rankings**: Update rankings with new games
-   ```bash
-   python scripts/calculate_rankings.py --ml
-   ```
-5. **Update State Rankings**: Recalculate state rankings
+1. **Scrape New Games**: Scrape games from GotSport API (only new games since last scrape)
+2. **Import Games**: Import scraped games to database
+3. **Recalculate Rankings**: Update rankings with new games
 
-**Status:** ⏳ Pending - Future automation
+**Full Weekly Update:**
+```bash
+python scripts/weekly/update.py --provider gotsport
+```
+
+**Options:**
+```bash
+# Skip scraping (use existing file)
+python scripts/weekly/update.py --skip-scrape --games-file data/raw/scraped_games.jsonl
+
+# Import only
+python scripts/weekly/update.py --skip-scrape --skip-rankings --games-file data/new_games.jsonl
+
+# Rankings only
+python scripts/weekly/update.py --skip-scrape --skip-import
+
+# v53e only (no ML)
+python scripts/weekly/update.py --no-ml
+```
+
+**Scheduling (Windows Task Scheduler):**
+- Run every Monday at 2 AM
+- See `scripts/weekly/README.md` for setup instructions
+
+**Status:** ✅ Complete - Ready for weekly automation
 
 ---
 
-#### 4.2 Data Validation
+#### 4.2 Game Scraping
+
+**Script:** `scripts/scrape_games.py`
+
+**Purpose:** Scrape new games from GotSport API
+
+**Process:**
+1. Get teams that need scraping (not scraped in last 7 days)
+2. For each team, fetch games since last scrape date
+3. Save scraped games to JSONL file
+4. Log scrape activity to `team_scrape_log`
+
+**Example:**
+```bash
+# Scrape all teams
+python scripts/scrape_games.py --provider gotsport
+
+# Scrape with output file
+python scripts/scrape_games.py --provider gotsport --output data/raw/scraped_games.jsonl
+
+# Test with limited teams
+python scripts/scrape_games.py --provider gotsport --limit-teams 10
+```
+
+**GotSport Scraper (`src/scrapers/gotsport.py`):**
+- Uses GotSport API: `https://system.gotsport.com/api/v1/teams/{team_id}/matches?past=true`
+- Supports ZenRows proxy (via `ZENROWS_API_KEY` env var)
+- Incremental scraping: Only fetches games since last scrape date
+- Rate limiting: Configurable delays (default 1.5-2.5s)
+- Club name extraction: Fetches club names from team details API
+
+**Configuration:**
+- `ZENROWS_API_KEY`: Optional proxy API key
+- `GOTSPORT_DELAY_MIN`: Min delay between requests (default: 1.5s)
+- `GOTSPORT_DELAY_MAX`: Max delay between requests (default: 2.5s)
+- `GOTSPORT_MAX_RETRIES`: Max retry attempts (default: 3)
+
+**Output:**
+- JSONL file with scraped games
+- `team_scrape_log` entries updated
+- `teams.last_scraped_at` updated
+
+**Status:** ✅ Complete - GotSport scraper implemented
+
+---
+
+#### 4.3 Data Validation & Review
 
 **Script:** `scripts/analyze_validation_errors.py` ✨ NEW
 
@@ -511,11 +585,12 @@ python scripts/import_games_enhanced.py data/master/all_games_master.csv gotspor
 # 4. Test with sample
 python scripts/import_games_enhanced.py data/master/all_games_master.csv gotsport --dry-run --limit 1000
 
-# 5. Full import (CURRENT STEP)
+# 5. Full import (Optimized)
 python scripts/import_games_enhanced.py data/master/all_games_master.csv gotsport \
   --stream \
-  --batch-size 2000 \
-  --concurrency 4 \
+  --batch-size 5000 \
+  --concurrency 12 \
+  --skip-validation \
   --checkpoint
 
 # 6. Review pending matches (after import)
@@ -524,8 +599,11 @@ python scripts/review_matches.py
 # 7. Calculate rankings
 python scripts/calculate_rankings.py --ml
 
-# 8. Verify rankings
-python check_progress.py  # Or query current_rankings table
+# 8. Check import progress
+python scripts/check_import_progress.py
+
+# 9. View rankings details
+python scripts/show_rankings_details.py
 ```
 
 ---
@@ -539,7 +617,7 @@ python check_progress.py  # Or query current_rankings table
 cat logs/import_progress.log
 
 # Or query build_logs
-python check_progress.py
+python scripts/check_import_progress.py
 ```
 
 ### Review Metrics

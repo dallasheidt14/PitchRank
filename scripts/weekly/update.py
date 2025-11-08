@@ -46,22 +46,49 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def scrape_games(provider: str, games_file: str = None):
+async def scrape_games(provider: str, games_file: str = None, output_file: str = None):
     """
-    Step 1: Scrape new games
+    Step 1: Scrape new games from GotSport
     
-    For now, this assumes games are provided via CSV file.
-    When scrapers are implemented, this will scrape from providers.
+    If games_file is provided, use that instead of scraping.
+    Otherwise, scrape from GotSport and save to file.
     """
     console.print(Panel.fit("[bold cyan]Step 1: Scraping New Games[/bold cyan]", style="cyan"))
     
     if games_file:
-        console.print(f"[yellow]Using games file: {games_file}[/yellow]")
-        console.print("[dim]Note: When scrapers are implemented, this will scrape from providers[/dim]")
+        console.print(f"[yellow]Using provided games file: {games_file}[/yellow]")
         return games_file
-    else:
-        console.print("[yellow]No games file provided. Skipping scrape step.[/yellow]")
-        console.print("[dim]To scrape games, provide --games-file or implement scrapers[/dim]")
+    
+    # Scrape from GotSport
+    try:
+        console.print(f"[green]Scraping games from {provider}...[/green]")
+        
+        # Call scrape script via subprocess
+        script_path = Path(__file__).parent.parent / "scrape_games.py"
+        if not output_file:
+            output_file = f"data/raw/scraped_games_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl"
+        
+        cmd = [
+            sys.executable,
+            str(script_path),
+            '--provider', provider,
+            '--output', output_file
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            console.print(f"[green]✅ Games scraped successfully to {output_file}[/green]")
+            return output_file
+        else:
+            console.print(f"[red]❌ Scraping failed with return code {result.returncode}[/red]")
+            if result.stderr:
+                logger.error(f"Scrape stderr: {result.stderr}")
+            return None
+        
+    except Exception as e:
+        console.print(f"[red]❌ Error scraping games: {e}[/red]")
+        logger.error(f"Scrape error: {e}", exc_info=True)
         return None
 
 
@@ -168,8 +195,10 @@ async def weekly_update(
     
     # Step 1: Scrape
     if not skip_scrape:
-        games_file = await scrape_games(provider, games_file)
-        results['scrape'] = games_file is not None
+        scraped_file = await scrape_games(provider, games_file)
+        if scraped_file:
+            games_file = scraped_file  # Use scraped file for import
+        results['scrape'] = scraped_file is not None
     else:
         console.print("[yellow]⏭️  Skipping scrape step[/yellow]")
     
