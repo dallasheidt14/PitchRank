@@ -17,7 +17,7 @@ class BaseScraper(BaseProvider, ETLPipeline):
         ETLPipeline.__init__(self, supabase_client, provider_code)
         
     def extract(self, context) -> List[Dict]:
-        """Extract games from provider"""
+        """Extract games from provider and convert to dict format"""
         teams = self._get_teams_to_scrape()
         all_games = []
         
@@ -26,16 +26,20 @@ class BaseScraper(BaseProvider, ETLPipeline):
                 # Get last scrape date
                 last_scrape = self._get_last_scrape_date(team['team_id_master'])
                 
-                # Scrape new games
+                # Scrape new games (returns GameData objects)
                 games = self.scrape_team_games(
                     team['provider_team_id'],
                     since_date=last_scrape
                 )
                 
+                # Convert GameData to dict format for import
+                for game in games:
+                    game_dict = self._game_data_to_dict(game, team['provider_team_id'])
+                    if game_dict:
+                        all_games.append(game_dict)
+                
                 # Log scrape
                 self._log_team_scrape(team['team_id_master'], len(games))
-                
-                all_games.extend(games)
                 
             except Exception as e:
                 logger.error(f"Error scraping team {team['provider_team_id']}: {e}")
@@ -43,8 +47,29 @@ class BaseScraper(BaseProvider, ETLPipeline):
                     'team_id': team['provider_team_id'],
                     'error': str(e)
                 })
-                
+        
         return all_games
+    
+    def _game_data_to_dict(self, game: GameData, team_id: str) -> Dict:
+        """Convert GameData to import format dictionary"""
+        return {
+            'provider': self.provider_code,
+            'team_id': str(team_id),
+            'team_id_source': str(team_id),
+            'opponent_id': str(game.opponent_id) if game.opponent_id else '',
+            'opponent_id_source': str(game.opponent_id) if game.opponent_id else '',
+            'team_name': game.team_name or '',
+            'opponent_name': game.opponent_name or '',
+            'game_date': game.game_date,
+            'home_away': game.home_away,
+            'goals_for': game.goals_for,
+            'goals_against': game.goals_against,
+            'result': game.result or 'U',
+            'competition': game.competition or '',
+            'venue': game.venue or '',
+            'source_url': game.meta.get('source_url', '') if game.meta else '',
+            'scraped_at': game.meta.get('scraped_at', datetime.now().isoformat()) if game.meta else datetime.now().isoformat()
+        }
         
     def _get_teams_to_scrape(self) -> List[Dict]:
         """Get teams that need scraping (not scraped in last 7 days)"""
