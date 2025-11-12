@@ -33,12 +33,21 @@ export function RankingsFilter() {
   }, [currentRegion, currentAgeGroup, currentGender]);
 
   // Auto-navigate when filters change (debounced)
+  // Only navigate if the current pathname doesn't match the selected filters
   useEffect(() => {
+    const targetPath = `/rankings/${region}/${ageGroup}/${gender}`;
+    const currentPath = pathname;
+    
+    // Prevent navigation if we're already on the target route
+    if (currentPath === targetPath) {
+      return;
+    }
+    
     const timeout = setTimeout(() => {
-      router.replace(`/rankings/${region}/${ageGroup}/${gender}`);
+      router.replace(targetPath);
     }, 250);
     return () => clearTimeout(timeout);
-  }, [region, ageGroup, gender, router]);
+  }, [region, ageGroup, gender, router, pathname]);
 
   return (
     <Card className="w-full max-w-3xl mx-auto mb-6">
