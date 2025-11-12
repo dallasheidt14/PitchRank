@@ -33,10 +33,16 @@ type SortDirection = 'asc' | 'desc';
 export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) {
   const [sortField, setSortField] = useState<SortField>('rank');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  
+  // Convert gender from URL format (lowercase) to API format (capitalized)
+  const genderForAPI = gender 
+    ? (gender.charAt(0).toUpperCase() + gender.slice(1).toLowerCase()) as 'Male' | 'Female'
+    : undefined;
+  
   const { data: rankings, isLoading, isError } = useRankings(
     region === 'national' ? null : region,
     ageGroup,
-    gender as 'Male' | 'Female' | undefined
+    genderForAPI
   );
   const prefetchTeam = usePrefetchTeam();
 
@@ -196,7 +202,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                     return (
                       <TableRow
                         key={team.team_id_master}
-                        className="cursor-pointer hover:bg-accent/50"
+                        className="hover:bg-accent/50"
                       >
                         <TableCell>
                           <div className="flex items-center gap-2">
@@ -223,7 +229,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                           <Link
                             href={`/teams/${team.team_id_master}`}
                             onMouseEnter={() => prefetchTeam(team.team_id_master)}
-                            className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded"
+                            className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block"
                             aria-label={`View ${team.team_name} team details`}
                           >
                             {team.team_name}
