@@ -39,13 +39,6 @@ export function Navigation() {
             Home
           </Link>
           <Link
-            href="/movers"
-            className="text-sm font-medium transition-colors duration-300 hover:text-primary"
-            aria-label="Recent movers page"
-          >
-            Movers
-          </Link>
-          <Link
             href="/compare"
             className="text-sm font-medium transition-colors duration-300 hover:text-primary"
             aria-label="Compare teams page"
