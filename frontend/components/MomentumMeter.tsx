@@ -71,30 +71,36 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
 
   // Animate score change
   useEffect(() => {
-    if (momentumData) {
-      const targetScore = momentumData.score;
-      const duration = 1000; // 1 second animation
-      const startTime = Date.now();
-      const startScore = animatedScore;
+    if (!momentumData) return;
+    
+    const targetScore = momentumData.score;
+    const duration = 1000; // 1 second animation
+    const startTime = Date.now();
+    const startScore = animatedScore;
 
-      const animate = () => {
-        const elapsed = Date.now() - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-        // Ease-out animation
-        const easeOut = 1 - Math.pow(1 - progress, 3);
-        const currentScore = startScore + (targetScore - startScore) * easeOut;
-        
-        setAnimatedScore(currentScore);
+    const animate = () => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      // Ease-out animation
+      const easeOut = 1 - Math.pow(1 - progress, 3);
+      const currentScore = startScore + (targetScore - startScore) * easeOut;
+      
+      setAnimatedScore(currentScore);
 
-        if (progress < 1) {
-          requestAnimationFrame(animate);
-        } else {
-          setAnimatedScore(targetScore);
-        }
-      };
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        setAnimatedScore(targetScore);
+      }
+    };
 
+    // Only start animation if target score is different
+    if (Math.abs(targetScore - animatedScore) > 0.1) {
       requestAnimationFrame(animate);
+    } else {
+      setAnimatedScore(targetScore);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [momentumData?.score]);
 
   const momentumLabel = useMemo(() => {
