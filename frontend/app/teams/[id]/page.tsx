@@ -5,7 +5,7 @@ import { TeamHeader } from '@/components/TeamHeader';
 import { TeamTrajectoryChart } from '@/components/TeamTrajectoryChart';
 import { GameHistoryTable } from '@/components/GameHistoryTable';
 import { MomentumMeter } from '@/components/MomentumMeter';
-import { use } from 'react';
+import { use, Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -28,8 +28,7 @@ interface TeamPageProps {
   }>;
 }
 
-export default function TeamPage({ params }: TeamPageProps) {
-  const { id } = use(params);
+function BackToRankingsButton() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -43,6 +42,24 @@ export default function TeamPage({ params }: TeamPageProps) {
   };
 
   return (
+    <div className="mb-4">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={handleBackToRankings}
+        className="flex items-center gap-2"
+      >
+        <ArrowLeft size={16} />
+        Back to Rankings
+      </Button>
+    </div>
+  );
+}
+
+export default function TeamPage({ params }: TeamPageProps) {
+  const { id } = use(params);
+
+  return (
     <div className="container mx-auto py-8 px-4">
       <PageHeader
         title="Team Details"
@@ -51,17 +68,9 @@ export default function TeamPage({ params }: TeamPageProps) {
         backHref="/"
       />
       
-      <div className="mb-4">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleBackToRankings}
-          className="flex items-center gap-2"
-        >
-          <ArrowLeft size={16} />
-          Back to Rankings
-        </Button>
-      </div>
+      <Suspense fallback={<div className="mb-4 h-9" />}>
+        <BackToRankingsButton />
+      </Suspense>
       
       <div className="space-y-6">
         <TeamHeader teamId={id} />
