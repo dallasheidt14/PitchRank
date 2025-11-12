@@ -116,12 +116,12 @@ export default function Home() {
             <CardDescription>Navigate to key sections</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
-            <Link href="/rankings/national/u10/Male">
+            <Link href="/rankings/national/u10/male">
               <Button variant="outline" className="w-full justify-start">
                 U10 Male Rankings
               </Button>
             </Link>
-            <Link href="/rankings/national/u11/Female">
+            <Link href="/rankings/national/u11/female">
               <Button variant="outline" className="w-full justify-start">
                 U11 Female Rankings
               </Button>
