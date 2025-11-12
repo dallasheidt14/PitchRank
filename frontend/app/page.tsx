@@ -34,15 +34,31 @@ export default function Home() {
 
   return (
     <div className="container mx-auto py-8 px-4">
-      <div className="flex flex-col items-center mb-8">
-        <Image
-          src="/logos/pitchrank-wordmark.svg"
-          alt="PitchRank Wordmark"
-          width={480}
-          height={150}
-          priority
-          className="mx-auto my-6"
-        />
+      <div className="flex flex-col items-center mb-8 w-full">
+        <div className="w-full max-w-3xl px-4 flex justify-center">
+          {/* Light mode: use light logo */}
+          <div className="dark:hidden">
+            <Image
+              src="/logos/pitchrank-logo-light.png"
+              alt="PitchRank"
+              width={500}
+              height={125}
+              priority
+              className="w-full h-auto max-w-[500px]"
+            />
+          </div>
+          {/* Dark mode: use dark logo */}
+          <div className="hidden dark:block">
+            <Image
+              src="/logos/pitchrank-logo-dark.png"
+              alt="PitchRank"
+              width={500}
+              height={125}
+              priority
+              className="w-full h-auto max-w-[500px]"
+            />
+          </div>
+        </div>
       </div>
       <PageHeader
         title="Welcome to PitchRank"
