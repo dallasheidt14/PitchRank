@@ -116,26 +116,26 @@ export default function Home() {
             <CardDescription>Navigate to key sections</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
-            <Link href="/rankings/national/u10/male">
-              <Button variant="outline" className="w-full justify-start">
+            <Button variant="outline" className="w-full justify-start" asChild>
+              <Link href="/rankings/national/u10/male">
                 U10 Male Rankings
-              </Button>
-            </Link>
-            <Link href="/rankings/national/u11/female">
-              <Button variant="outline" className="w-full justify-start">
+              </Link>
+            </Button>
+            <Button variant="outline" className="w-full justify-start" asChild>
+              <Link href="/rankings/national/u11/female">
                 U11 Female Rankings
-              </Button>
-            </Link>
-            <Link href="/compare">
-              <Button variant="outline" className="w-full justify-start">
+              </Link>
+            </Button>
+            <Button variant="outline" className="w-full justify-start" asChild>
+              <Link href="/compare">
                 Compare Teams
-              </Button>
-            </Link>
-            <Link href="/methodology">
-              <Button variant="outline" className="w-full justify-start">
+              </Link>
+            </Button>
+            <Button variant="outline" className="w-full justify-start" asChild>
+              <Link href="/methodology">
                 Methodology
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           </CardContent>
         </Card>
       </div>
