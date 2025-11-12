@@ -7,6 +7,9 @@ import { GameHistoryTable } from '@/components/GameHistoryTable';
 import { MomentumMeter } from '@/components/MomentumMeter';
 import { use } from 'react';
 import dynamic from 'next/dynamic';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { ArrowLeft } from 'lucide-react';
 
 // Lazy-load charts for better performance
 const LazyTeamTrajectoryChart = dynamic(
@@ -19,9 +22,6 @@ const LazyMomentumMeter = dynamic(
   { ssr: true, loading: () => <div className="h-48 animate-pulse bg-muted rounded-lg" /> }
 );
 
-// Revalidate every hour for ISR caching
-export const revalidate = 3600;
-
 interface TeamPageProps {
   params: Promise<{
     id: string;
@@ -30,6 +30,17 @@ interface TeamPageProps {
 
 export default function TeamPage({ params }: TeamPageProps) {
   const { id } = use(params);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  // Extract filter parameters from query string, with defaults
+  const region = searchParams.get('region') || 'national';
+  const ageGroup = searchParams.get('ageGroup') || 'u12';
+  const gender = searchParams.get('gender') || 'male';
+
+  const handleBackToRankings = () => {
+    router.push(`/rankings/${region}/${ageGroup}/${gender}`);
+  };
 
   return (
     <div className="container mx-auto py-8 px-4">
@@ -39,6 +50,18 @@ export default function TeamPage({ params }: TeamPageProps) {
         showBackButton
         backHref="/"
       />
+      
+      <div className="mb-4">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleBackToRankings}
+          className="flex items-center gap-2"
+        >
+          <ArrowLeft size={16} />
+          Back to Rankings
+        </Button>
+      </div>
       
       <div className="space-y-6">
         <TeamHeader teamId={id} />
