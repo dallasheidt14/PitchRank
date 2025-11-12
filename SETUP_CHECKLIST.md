@@ -52,27 +52,63 @@ This will guide you through all steps automatically.
 
 ### 3. Database Setup
 
-- [ ] Install Supabase CLI
-  - Windows (Scoop): `scoop install supabase`
+#### Option A: Production Supabase (Cloud)
+
+- [ ] Configure environment
+  ```bash
+  python configure_env.py
+  ```
+  - Or create `.env` file manually with:
+    - `SUPABASE_URL`
+    - `SUPABASE_KEY`
+    - `SUPABASE_SERVICE_ROLE_KEY`
+
+#### Option B: Local Supabase (Development - Recommended for Testing)
+
+**Prerequisites:**
+- [ ] Docker Desktop installed and running
+- [ ] Supabase CLI installed:
+  - Windows (Scoop): `scoop bucket add supabase https://github.com/supabase/scoop-bucket.git && scoop install supabase`
   - Mac (Homebrew): `brew install supabase/tap/supabase`
-  - Or: `npm install -g supabase`
-- [ ] Initialize Supabase
+  - Linux: See https://github.com/supabase/cli#install-the-cli
+
+**Setup Steps:**
+- [ ] Initialize Supabase project
   ```bash
   supabase init
   ```
-- [ ] Link project
+- [ ] Start local Supabase (requires Docker Desktop running)
+  ```bash
+  supabase start
+  ```
+  - Note the output showing `SUPABASE_URL`, `SUPABASE_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`
+- [ ] Create `.env.local` file with local credentials:
+  ```bash
+  USE_LOCAL_SUPABASE=true
+  SUPABASE_URL=http://localhost:54321
+  SUPABASE_KEY=<from_supabase_start_output>
+  SUPABASE_SERVICE_ROLE_KEY=<from_supabase_start_output>
+  ```
+- [ ] (Optional) Link to production to pull schema
   ```bash
   supabase link --project-ref pfkrhmprwxtghtpinrot
+  supabase db pull
   ```
-- [ ] Apply migrations
+- [ ] Apply migrations to local database
   ```bash
-  supabase db push
+  supabase db reset
   ```
   
-  Or run setup helper:
-  ```bash
-  python scripts/setup_supabase.py
-  ```
+**Benefits of Local Development:**
+- No SSL/TLS errors (local HTTP)
+- Faster imports (no network latency)
+- Free to test (no API limits)
+- Full database access via Supabase Studio (http://localhost:54323)
+
+**Switching Between Local and Production:**
+- Use `.env.local` with `USE_LOCAL_SUPABASE=true` for local development
+- Use `.env` (production credentials) for production imports
+- The code automatically detects `USE_LOCAL_SUPABASE` environment variable
 
 ### 4. Verification
 
@@ -90,7 +126,7 @@ This will guide you through all steps automatically.
   ```
 - [ ] Import sample teams (if CSV available)
   ```bash
-  python scripts/import_master_teams.py --path data/samples --provider sample
+  python scripts/import_teams_enhanced.py data/samples/all_teams_master.csv sample
   ```
 
 ## Verification Commands
@@ -144,7 +180,7 @@ python test_connection.py
 ## Next Steps After Setup
 
 1. **Explore Sample Data**: Run `python scripts/create_sample_data.py` to generate test data
-2. **Import Real Teams**: Use `python scripts/import_master_teams.py` with your CSV files
+2. **Import Real Teams**: Use `python scripts/import_teams_enhanced.py` with your CSV files
 3. **Import Game History**: Use `python scripts/import_games_enhanced.py <file> <provider>` with game data
 4. **Review Aliases**: Use `python scripts/review_aliases.py` to review team matches
 5. **Calculate Rankings**: Implement ranking algorithms (to be added)

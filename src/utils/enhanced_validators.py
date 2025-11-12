@@ -1,6 +1,6 @@
 """Enhanced data validation for PitchRank imports"""
 from typing import Dict, List, Tuple, Any, Optional
-from datetime import datetime
+from datetime import datetime, date
 import re
 import sys
 from pathlib import Path
@@ -9,6 +9,36 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from config.settings import AGE_GROUPS
+
+
+def parse_game_date(date_str: str) -> date:
+    """
+    Parse game date from multiple formats (handles GotSport CSVs and standard formats).
+    
+    Supported formats:
+    - YYYY-MM-DD (ISO format)
+    - M/D/YYYY (US format, e.g., 7/13/2025)
+    - M/D/YY (US format with 2-digit year, e.g., 7/13/25)
+    
+    Args:
+        date_str: Date string in any supported format
+        
+    Returns:
+        date object parsed from the date string
+        
+    Raises:
+        ValueError: If date string doesn't match any supported format
+    """
+    date_str = str(date_str).strip()
+    formats = ["%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"]
+    
+    for fmt in formats:
+        try:
+            return datetime.strptime(date_str, fmt).date()
+        except ValueError:
+            continue
+    
+    raise ValueError(f"Invalid date format: {date_str}")
 
 
 class EnhancedDataValidator:
@@ -133,21 +163,32 @@ class EnhancedDataValidator:
                 errors.append(f"Team and opponent cannot be the same: '{team_id}'")
             
             # Validate scores
-            try:
-                goals_for_int = int(goals_for)
-                goals_against_int = int(goals_against)
-                
-                if goals_for_int < 0:
-                    errors.append(f"goals_for cannot be negative: {goals_for_int}")
-                if goals_against_int < 0:
-                    errors.append(f"goals_against cannot be negative: {goals_against_int}")
-                
-                if goals_for_int > 50:
-                    errors.append(f"Unusually high goals_for detected: {goals_for_int} (verify data accuracy)")
-                if goals_against_int > 50:
-                    errors.append(f"Unusually high goals_against detected: {goals_against_int} (verify data accuracy)")
-            except (ValueError, TypeError):
-                errors.append(f"Scores must be integers: goals_for={goals_for}, goals_against={goals_against}")
+            # Handle None, empty string, and string 'None' cases
+            if goals_for is None or goals_for == '' or str(goals_for).strip().lower() == 'none':
+                # Null scores are allowed (unknown result)
+                pass
+            else:
+                try:
+                    goals_for_int = int(float(goals_for))
+                    if goals_for_int < 0:
+                        errors.append(f"goals_for cannot be negative: {goals_for_int}")
+                    if goals_for_int > 50:
+                        errors.append(f"Unusually high goals_for detected: {goals_for_int} (verify data accuracy)")
+                except (ValueError, TypeError):
+                    errors.append(f"Scores must be integers: goals_for={goals_for}")
+            
+            if goals_against is None or goals_against == '' or str(goals_against).strip().lower() == 'none':
+                # Null scores are allowed (unknown result)
+                pass
+            else:
+                try:
+                    goals_against_int = int(float(goals_against))
+                    if goals_against_int < 0:
+                        errors.append(f"goals_against cannot be negative: {goals_against_int}")
+                    if goals_against_int > 50:
+                        errors.append(f"Unusually high goals_against detected: {goals_against_int} (verify data accuracy)")
+                except (ValueError, TypeError):
+                    errors.append(f"Scores must be integers: goals_against={goals_against}")
         
         elif has_transformed_format:
             # Transformed format validation (legacy support)
@@ -212,18 +253,18 @@ class EnhancedDataValidator:
         # Validate date (common for both formats)
         try:
             game_date_str = str(game['game_date']).strip()
-            game_date = datetime.strptime(game_date_str, '%Y-%m-%d')
+            game_date = parse_game_date(game_date_str)
             
             # Check date is reasonable (not too far in past or future)
             if game_date.year < 2000:
                 errors.append(f"Game date too far in past: {game_date_str} (year must be >= 2000)")
-            elif game_date > datetime.now():
+            elif game_date > datetime.now().date():
                 # Allow up to 1 day in the future for scheduled games
-                if (game_date - datetime.now()).days > 1:
+                if (game_date - datetime.now().date()).days > 1:
                     errors.append(f"Game date too far in future: {game_date_str} (must be within 1 day of today)")
                     
         except ValueError as e:
-            errors.append(f"Invalid date format: '{game_date_str}' (use YYYY-MM-DD format)")
+            errors.append(f"Invalid date format: '{game_date_str}' - {str(e)}")
         
         # Validate age group and gender if provided
         if 'age_group' in game and game.get('age_group'):

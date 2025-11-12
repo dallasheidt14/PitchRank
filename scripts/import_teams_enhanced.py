@@ -22,7 +22,19 @@ from src.utils.enhanced_validators import EnhancedDataValidator
 
 logger = logging.getLogger(__name__)
 console = Console()
-load_dotenv()
+# Load environment variables - check for local Supabase first
+use_local = os.getenv('USE_LOCAL_SUPABASE', 'false').lower() == 'true'
+if use_local:
+    # Load .env.local if using local Supabase
+    env_local = Path('.env.local')
+    if env_local.exists():
+        load_dotenv(env_local, override=True)
+        logger.info("Loaded .env.local for local Supabase")
+    else:
+        logger.warning(".env.local not found, falling back to .env")
+        load_dotenv()
+else:
+    load_dotenv()
 
 
 class TeamImporter:
