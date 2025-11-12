@@ -1,8 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { PageHeader } from '@/components/PageHeader';
 import { RankingsFilter } from '@/components/RankingsFilter';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -64,8 +62,6 @@ function MiniSparkline({ teamId }: { teamId: string }) {
 }
 
 export default function RankingsPage() {
-  const router = useRouter();
-  
   // Default filters
   const defaultRegion = 'national';
   const defaultAgeGroup = 'u12';
@@ -88,13 +84,6 @@ export default function RankingsPage() {
     genderForAPI
   );
   const prefetchTeam = usePrefetchTeam();
-
-  // Navigate to filtered URL when filters change
-  useEffect(() => {
-    if (region !== defaultRegion || ageGroup !== defaultAgeGroup || gender !== defaultGender) {
-      router.replace(`/rankings/${region}/${ageGroup}/${gender}`);
-    }
-  }, [region, ageGroup, gender, router]);
 
   // Calculate delta for each team (national rank change)
   const rankingsWithDelta = useMemo(() => {
