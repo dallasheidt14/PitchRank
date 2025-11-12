@@ -117,13 +117,8 @@ export default function Home() {
           </CardHeader>
           <CardContent className="space-y-2">
             <Button variant="outline" className="w-full justify-start" asChild>
-              <Link href="/rankings/national/u10/male">
-                U10 Male Rankings
-              </Link>
-            </Button>
-            <Button variant="outline" className="w-full justify-start" asChild>
-              <Link href="/rankings/national/u11/female">
-                U11 Female Rankings
+              <Link href="/rankings">
+                View Rankings
               </Link>
             </Button>
             <Button variant="outline" className="w-full justify-start" asChild>
