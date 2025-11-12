@@ -129,7 +129,7 @@ export function GameHistoryTable({ teamId, limit = 10 }: GameHistoryTableProps) 
                       <Link
                         href={`/teams/${opponentId}`}
                         onMouseEnter={() => prefetchTeam(opponentId)}
-                        className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded"
+                        className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block"
                         aria-label={`View ${opponent} team details`}
                       >
                         {opponent}

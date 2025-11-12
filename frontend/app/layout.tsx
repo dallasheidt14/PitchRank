@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://pitchrank.com"),
-  title: "PitchRank",
+  title: "PitchRank — Youth Soccer Rankings",
   description: "Data-powered youth soccer team rankings and performance analytics.",
   icons: {
     icon: "/logos/favicon.ico",
