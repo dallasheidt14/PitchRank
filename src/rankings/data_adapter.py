@@ -91,10 +91,10 @@ async def fetch_games_for_rankings(
     if not team_ids:
         return pd.DataFrame()
     
-    # Fetch teams in batches (Supabase has limit)
+    # Fetch teams in batches (Supabase has URI length limit - UUIDs are long)
     teams_data = []
     team_ids_list = list(team_ids)
-    batch_size = 1000
+    batch_size = 100  # Reduced from 1000 to avoid URI too long errors
     
     for i in range(0, len(team_ids_list), batch_size):
         batch = team_ids_list[i:i + batch_size]

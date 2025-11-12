@@ -29,7 +29,7 @@ from rich.panel import Panel
 from rich import box
 from rich.progress import track
 
-from src.utils.enhanced_validators import EnhancedDataValidator
+from src.utils.enhanced_validators import EnhancedDataValidator, parse_game_date
 from src.etl.enhanced_pipeline import EnhancedETLPipeline
 
 console = Console()
@@ -205,8 +205,8 @@ def analyze_data_statistics(file_path: Path, limit: Optional[int] = None) -> Dic
                 stats['unique_clubs'].add(game['club_name'])
             if game.get('game_date'):
                 try:
-                    date_obj = datetime.strptime(game['game_date'], '%Y-%m-%d')
-                    stats['dates'].append(date_obj)
+                    date_obj = parse_game_date(game['game_date'])
+                    stats['dates'].append(datetime.combine(date_obj, datetime.min.time()))
                 except (ValueError, TypeError):
                     pass
             if game.get('age_group'):

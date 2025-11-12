@@ -28,9 +28,19 @@ for dir_path in [RAW_DATA_DIR, PROCESSED_DATA_DIR, SAMPLES_DIR, MAPPINGS_DIR, CA
     dir_path.mkdir(parents=True, exist_ok=True)
 
 # Database
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+# Environment detection: local vs production
+USE_LOCAL_SUPABASE = os.getenv("USE_LOCAL_SUPABASE", "false").lower() == "true"
+
+if USE_LOCAL_SUPABASE:
+    # Local Supabase instance (for development/testing)
+    SUPABASE_URL = os.getenv("SUPABASE_URL", "http://localhost:54321")
+    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+    SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+else:
+    # Production Supabase instance
+    SUPABASE_URL = os.getenv("SUPABASE_URL")
+    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+    SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 # Providers
 PROVIDERS = {

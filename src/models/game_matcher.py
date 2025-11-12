@@ -5,6 +5,7 @@ from difflib import SequenceMatcher
 import logging
 import uuid
 import string
+import time
 from dataclasses import dataclass
 
 from supabase import Client
@@ -34,13 +35,21 @@ class MatchingThresholds:
 
 class GameHistoryMatcher:
     """Match game history records to master teams using fuzzy matching and aliases"""
-
-    def __init__(self, supabase: Client):
+    
+    def __init__(self, supabase: Client, provider_id: Optional[str] = None, alias_cache: Optional[Dict] = None):
         self.db = supabase
         self.fuzzy_threshold = MATCHING_CONFIG['fuzzy_threshold']
         self.auto_approve_threshold = MATCHING_CONFIG['auto_approve_threshold']
         self.review_threshold = MATCHING_CONFIG['review_threshold']
         self.max_age_diff = MATCHING_CONFIG['max_age_diff']
+        self._provider_id_cache: Dict[str, str] = {}  # Cache provider_id by code
+        self.alias_cache = alias_cache or {}  # Cache for alias map lookups
+        if provider_id:
+            # Cache the provider_id if provided (for the provider_code used in this pipeline)
+            # We'll need to know the code, but for now just store it as a fallback
+            self._cached_provider_id = provider_id
+        else:
+            self._cached_provider_id = None
     
     @staticmethod
     def generate_game_uid(
@@ -66,8 +75,17 @@ class GameHistoryMatcher:
         """
         # Sort team IDs so order doesn't matter
         # Ensure team IDs are strings and remove any .0 from float conversion
-        team1_str = str(int(float(str(team1_id)))) if team1_id else ''
-        team2_str = str(int(float(str(team2_id)))) if team2_id else ''
+        # Normalize team IDs to strings (handle None, empty, and string 'None' cases)
+        def normalize_team_id(team_id):
+            if not team_id or team_id == '' or str(team_id).strip().lower() == 'none':
+                return ''
+            try:
+                return str(int(float(str(team_id))))
+            except (ValueError, TypeError):
+                return str(team_id).strip()
+        
+        team1_str = normalize_team_id(team1_id)
+        team2_str = normalize_team_id(team2_id)
         sorted_teams = sorted([team1_str, team2_str])
         
         # Create deterministic UID without scores
@@ -94,8 +112,18 @@ class GameHistoryMatcher:
         # Check if game is already transformed (has home_team_id/away_team_id)
         if 'home_team_id' in game_data and 'away_team_id' in game_data:
             # Already transformed - use directly
-            home_provider_id = game_data.get('home_provider_id') or game_data.get('home_team_id', '')
-            away_provider_id = game_data.get('away_provider_id') or game_data.get('away_team_id', '')
+            # Convert to strings (may be floats from CSV)
+            home_provider_id_raw = game_data.get('home_provider_id') or game_data.get('home_team_id', '')
+            away_provider_id_raw = game_data.get('away_provider_id') or game_data.get('away_team_id', '')
+            # Convert floats to int strings (e.g., 544491.0 -> "544491")
+            try:
+                home_provider_id = str(int(float(home_provider_id_raw))) if home_provider_id_raw and str(home_provider_id_raw).strip() else ''
+            except (ValueError, TypeError):
+                home_provider_id = str(home_provider_id_raw).strip() if home_provider_id_raw else ''
+            try:
+                away_provider_id = str(int(float(away_provider_id_raw))) if away_provider_id_raw and str(away_provider_id_raw).strip() else ''
+            except (ValueError, TypeError):
+                away_provider_id = str(away_provider_id_raw).strip() if away_provider_id_raw else ''
             
             # Match home team
             home_match = self._match_team(
@@ -147,20 +175,34 @@ class GameHistoryMatcher:
             # Determine home/away teams based on home_away flag
             home_away = game_data.get('home_away', 'H').upper()
             
+            # Extract team_id and opponent_id, converting floats to strings if needed
+            team_id_raw = game_data.get('team_id', '')
+            opponent_id_raw = game_data.get('opponent_id', '')
+            
+            # Convert floats to int strings (CSV may have 544491.0 -> "544491")
+            try:
+                team_id = str(int(float(team_id_raw))) if team_id_raw and str(team_id_raw).strip() else ''
+            except (ValueError, TypeError):
+                team_id = str(team_id_raw).strip() if team_id_raw else ''
+            try:
+                opponent_id = str(int(float(opponent_id_raw))) if opponent_id_raw and str(opponent_id_raw).strip() else ''
+            except (ValueError, TypeError):
+                opponent_id = str(opponent_id_raw).strip() if opponent_id_raw else ''
+            
             if home_away == 'H':
                 # team_id is home, opponent_id is away
                 home_team_master_id = team_match.get('team_id')
                 away_team_master_id = opponent_match.get('team_id')
-                home_provider_id = game_data.get('team_id', '')
-                away_provider_id = game_data.get('opponent_id', '')
+                home_provider_id = team_id
+                away_provider_id = opponent_id
                 home_score = game_data.get('goals_for')
                 away_score = game_data.get('goals_against')
             else:
                 # team_id is away, opponent_id is home
                 home_team_master_id = opponent_match.get('team_id')
                 away_team_master_id = team_match.get('team_id')
-                home_provider_id = game_data.get('opponent_id', '')
-                away_provider_id = game_data.get('team_id', '')
+                home_provider_id = opponent_id
+                away_provider_id = team_id
                 home_score = game_data.get('goals_against')
                 away_score = game_data.get('goals_for')
         
@@ -175,24 +217,37 @@ class GameHistoryMatcher:
         # Game UID should already be set by _validate_games, but generate if missing
         if not game_data.get('game_uid'):
             provider_code = game_data.get('provider', '')
-            home_id = home_provider_id if 'home_provider_id' in game_data else (game_data.get('home_team_id') or '')
-            away_id = away_provider_id if 'away_provider_id' in game_data else (game_data.get('away_team_id') or '')
+            # Use the home_provider_id and away_provider_id we already determined
             game_uid = self.generate_game_uid(
                 provider=provider_code,
                 game_date=game_data.get('game_date', ''),
-                team1_id=home_id,
-                team2_id=away_id
+                team1_id=home_provider_id,
+                team2_id=away_provider_id
             )
         else:
             game_uid = game_data.get('game_uid')
         
         # Build game record for new schema
+        # Ensure provider IDs are strings (they should already be from conversion above)
+        # Handle edge case where they might still be floats from transformed format
+        try:
+            home_provider_id_final = str(int(float(home_provider_id))) if home_provider_id and str(home_provider_id).strip() else ''
+        except (ValueError, TypeError):
+            home_provider_id_final = str(home_provider_id).strip() if home_provider_id else ''
+        try:
+            away_provider_id_final = str(int(float(away_provider_id))) if away_provider_id and str(away_provider_id).strip() else ''
+        except (ValueError, TypeError):
+            away_provider_id_final = str(away_provider_id).strip() if away_provider_id else ''
+        
         game_record = {
             'game_uid': game_uid,
             'home_team_master_id': home_team_master_id,
             'away_team_master_id': away_team_master_id,
-            'home_provider_id': home_provider_id if 'home_provider_id' in game_data else (game_data.get('home_team_id') or ''),
-            'away_provider_id': away_provider_id if 'away_provider_id' in game_data else (game_data.get('away_team_id') or ''),
+            'home_provider_id': home_provider_id_final,
+            'away_provider_id': away_provider_id_final,
+            # Include original team_id/opponent_id for fallback in _bulk_insert_games
+            'team_id': game_data.get('team_id', ''),
+            'opponent_id': game_data.get('opponent_id', ''),
             'home_score': home_score,
             'away_score': away_score,
             'result': game_data.get('result'),
@@ -292,16 +347,19 @@ class GameHistoryMatcher:
                 
                 # Flag for review if between 0.75-0.9
                 elif confidence >= self.review_threshold:
-                    self._create_alias(
+                    # Insert into review queue instead of creating alias
+                    self._create_review_queue_entry(
                         provider_id=provider_id,
                         provider_team_id=provider_team_id,
-                        team_name=team_name,
-                        team_id_master=fuzzy_match['team_id'],
-                        match_method='fuzzy_review',
-                        confidence=confidence,
-                        age_group=age_group,
-                        gender=gender,
-                        review_status='pending'
+                        provider_team_name=team_name,
+                        suggested_master_team_id=fuzzy_match['team_id'],
+                        confidence_score=confidence,
+                        match_details={
+                            'age_group': age_group,
+                            'gender': gender,
+                            'club_name': club_name,
+                            'match_method': 'fuzzy'
+                        }
                     )
                     return {
                         'matched': False,  # Not matched until reviewed
@@ -321,6 +379,8 @@ class GameHistoryMatcher:
                     }
         
         # No match found
+        if not team_name or not age_group or not gender:
+            logger.debug(f"Cannot fuzzy match: missing required fields (team_name={bool(team_name)}, age_group={bool(age_group)}, gender={bool(gender)})")
         return {
             'matched': False,
             'team_id': None,
@@ -329,18 +389,56 @@ class GameHistoryMatcher:
         }
 
     def _match_by_provider_id(self, provider_id: str, provider_team_id: str) -> Optional[Dict]:
-        """Match by exact provider ID in alias map (direct ID matching)"""
+        """Match by exact provider ID - only checks team_alias_map (canonical source)"""
+        if not provider_team_id:
+            return None
+        
+        team_id_str = str(provider_team_id)
+        
+        # Check cache first (if available)
+        if self.alias_cache and team_id_str in self.alias_cache:
+            cached = self.alias_cache[team_id_str]
+            # Prefer direct_id matches
+            if cached.get('match_method') == 'direct_id':
+                return {
+                    'team_id_master': cached['team_id_master'],
+                    'review_status': cached.get('review_status', 'approved'),
+                    'match_method': 'direct_id'
+                }
+            # Fallback to any cached match
+            return {
+                'team_id_master': cached['team_id_master'],
+                'review_status': cached.get('review_status', 'approved'),
+                'match_method': cached.get('match_method')
+            }
+        
+        # Tier 1: Direct ID match (from team importer)
         try:
             result = self.db.table('team_alias_map').select(
                 'team_id_master, review_status, match_method'
             ).eq('provider_id', provider_id).eq(
-                'provider_team_id', provider_team_id
+                'provider_team_id', team_id_str
+            ).eq('match_method', 'direct_id').eq(
+                'review_status', 'approved'
+            ).single().execute()
+            
+            if result.data:
+                return result.data
+        except Exception as e:
+            logger.debug(f"No direct_id match found: {e}")
+        
+        # Tier 2: Any approved alias map entry (fallback)
+        try:
+            result = self.db.table('team_alias_map').select(
+                'team_id_master, review_status, match_method'
+            ).eq('provider_id', provider_id).eq(
+                'provider_team_id', team_id_str
             ).eq('review_status', 'approved').single().execute()
             
             if result.data:
                 return result.data
         except Exception as e:
-            logger.debug(f"No provider ID match found: {e}")
+            logger.debug(f"No alias map match found: {e}")
         return None
 
     def _match_by_alias(
@@ -598,17 +696,80 @@ class GameHistoryMatcher:
         except Exception as e:
             logger.error(f"Error creating alias: {e}")
 
+    def _create_review_queue_entry(
+        self,
+        provider_id: str,
+        provider_team_id: Optional[str],
+        provider_team_name: str,
+        suggested_master_team_id: str,
+        confidence_score: float,
+        match_details: Dict
+    ):
+        """Insert match into team_match_review_queue for manual review"""
+        try:
+            # Get provider code (team_match_review_queue uses VARCHAR provider_id)
+            provider_result = self.db.table('providers').select('code').eq('id', provider_id).single().execute()
+            provider_code = provider_result.data['code'] if provider_result.data else None
+            
+            if not provider_code:
+                logger.warning(f"Could not find provider code for {provider_id}")
+                return
+            
+            review_entry = {
+                'provider_id': provider_code,  # VARCHAR code, not UUID
+                'provider_team_id': str(provider_team_id) if provider_team_id else None,
+                'provider_team_name': provider_team_name,
+                'suggested_master_team_id': suggested_master_team_id,
+                'confidence_score': float(confidence_score),
+                'match_details': match_details,
+                'status': 'pending'
+            }
+            
+            # Check if entry already exists
+            existing = self.db.table('team_match_review_queue').select('id').eq(
+                'provider_id', provider_code
+            ).eq('provider_team_id', str(provider_team_id)).eq('status', 'pending').execute()
+            
+            if not existing.data:
+                self.db.table('team_match_review_queue').insert(review_entry).execute()
+                logger.info(f"Created review queue entry for {provider_team_name} (confidence: {confidence_score:.2f})")
+        except Exception as e:
+            logger.error(f"Error creating review queue entry: {e}")
+
     def _get_provider_id(self, provider_code: Optional[str]) -> str:
-        """Get provider UUID from code"""
+        """Get provider UUID from code with retry logic and caching"""
         if not provider_code:
             raise ValueError("Provider code is required")
         
-        try:
-            result = self.db.table('providers').select('id').eq(
-                'code', provider_code
-            ).single().execute()
-            return result.data['id']
-        except Exception as e:
-            logger.error(f"Provider not found: {provider_code}")
-            raise ValueError(f"Provider not found: {provider_code}") from e
+        # Check cache first
+        if provider_code in self._provider_id_cache:
+            return self._provider_id_cache[provider_code]
+        
+        # Use cached provider_id if available (from initialization)
+        if self._cached_provider_id and provider_code:
+            self._provider_id_cache[provider_code] = self._cached_provider_id
+            return self._cached_provider_id
+        
+        # Retry logic with exponential backoff
+        max_retries = 3
+        retry_delay = 0.5
+        
+        for attempt in range(max_retries):
+            try:
+                result = self.db.table('providers').select('id').eq(
+                    'code', provider_code
+                ).single().execute()
+                provider_id = result.data['id']
+                # Cache it
+                self._provider_id_cache[provider_code] = provider_id
+                return provider_id
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    wait_time = retry_delay * (2 ** attempt)
+                    logger.warning(f"Provider lookup failed (attempt {attempt + 1}/{max_retries}), retrying in {wait_time}s: {e}")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"Provider not found after {max_retries} attempts: {provider_code}")
+                    raise ValueError(f"Provider not found: {provider_code}") from e
 

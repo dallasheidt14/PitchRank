@@ -33,7 +33,22 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 console = Console()
-load_dotenv()
+# Load environment variables - prioritize .env.local if it exists
+env_local = Path('.env.local')
+if env_local.exists():
+    load_dotenv(env_local, override=True)
+    logger.info("Loaded .env.local")
+else:
+    load_dotenv()
+    logger.info("Loaded .env")
+
+# Also check USE_LOCAL_SUPABASE flag for local development
+use_local = os.getenv('USE_LOCAL_SUPABASE', 'false').lower() == 'true'
+if use_local:
+    env_local = Path('.env.local')
+    if env_local.exists():
+        load_dotenv(env_local, override=True)
+        logger.info("Loaded .env.local for local Supabase")
 
 
 def stream_games_jsonl(file_path: Path, batch_size: int = 1000) -> Generator[List[Dict], None, None]:
@@ -217,7 +232,7 @@ async def main():
     parser.add_argument('file', help='JSON/JSONL/CSV file containing games data')
     parser.add_argument('provider', help='Provider ID (gotsport, tgs, usclub)')
     parser.add_argument('--dry-run', action='store_true', help='Run without committing')
-    parser.add_argument('--batch-size', type=int, default=2000, help='Batch size for streaming and inserts (default: 2000)')
+    parser.add_argument('--batch-size', type=int, default=5000, help='Batch size for streaming and inserts (default: 5000, optimal: 5000-10000)')
     parser.add_argument('--validate-only', action='store_true', help='Only validate, don\'t import')
     parser.add_argument('--stream', action='store_true', help='Force streaming mode (auto-enabled for large files)')
     parser.add_argument('--concurrency', type=int, default=4, help='Number of concurrent batches (default: 4)')

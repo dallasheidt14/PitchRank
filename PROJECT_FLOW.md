@@ -70,19 +70,18 @@ python scripts/import_games_enhanced.py data/master/all_games_master.csv gotspor
 
 **Step 3: Full Import (Optimized)**
 ```bash
-# Optimized import settings (5-7x faster)
+# Stable import settings (proven reliable)
 python scripts/import_games_enhanced.py data/master/all_games_master.csv gotsport \
   --stream \
-  --batch-size 5000 \
-  --concurrency 12 \
-  --skip-validation \
+  --batch-size 2000 \
+  --concurrency 4 \
   --checkpoint
 ```
 
 **Expected Results:**
 - ~1,018,000 valid games imported
 - ~182,000 invalid games quarantined (missing scores)
-- Processing time: ~12-24 hours with optimizations (was 5 days)
+- Processing time: ~15-20 hours (stable, reliable settings)
 - Memory usage: <1GB (streaming mode)
 - **Duplicate Protection**: Automatically skips already-imported games (safe to restart)
 
@@ -132,13 +131,14 @@ python scripts/import_games_enhanced.py data/master/all_games_master.csv gotspor
 
 **Performance Optimizations:**
 - ✅ **Streaming**: Processes 435 MB file without loading into memory
-- ✅ **Concurrency**: 12 parallel batches (optimized from 4)
-- ✅ **Batch Size**: 5000 games per batch (optimized from 2000)
-- ✅ **Skip Validation**: Enabled for faster imports (if data already validated)
+- ✅ **Concurrency**: 4 parallel batches (stable, reliable)
+- ✅ **Batch Size**: 2000 games per batch (proven stable)
+- ✅ **Validation**: Enabled for data quality (ensures valid games)
 - ✅ **Duplicate Checking**: Optimized batch size (2000 UIDs per query)
-- ✅ **Retry Logic**: Automatic retry with exponential backoff + jitter
+- ✅ **Retry Logic**: Automatic retry with exponential backoff for network/SSL errors
 - ✅ **Error Handling**: Continues on batch failures, reports partial success
 - ✅ **Safe Restart**: Automatically skips already-imported games (no duplicates)
+- ✅ **Provider ID Matching**: Checks teams table first, then alias map, then fuzzy matching
 
 **Output:**
 - Games inserted into `games` table
@@ -147,7 +147,7 @@ python scripts/import_games_enhanced.py data/master/all_games_master.csv gotspor
 - Invalid games in `quarantine_games`
 - Build logs in `build_logs` table
 
-**Status:** 🔄 **IN PROGRESS** - Optimized import running (~12-24 hours)
+**Status:** 🔄 **IN PROGRESS** - Import running (~15-20 hours with stable settings)
 
 ---
 
@@ -585,12 +585,11 @@ python scripts/import_games_enhanced.py data/master/all_games_master.csv gotspor
 # 4. Test with sample
 python scripts/import_games_enhanced.py data/master/all_games_master.csv gotsport --dry-run --limit 1000
 
-# 5. Full import (Optimized)
+# 5. Full import (Stable settings)
 python scripts/import_games_enhanced.py data/master/all_games_master.csv gotsport \
   --stream \
-  --batch-size 5000 \
-  --concurrency 12 \
-  --skip-validation \
+  --batch-size 2000 \
+  --concurrency 4 \
   --checkpoint
 
 # 6. Review pending matches (after import)
@@ -605,6 +604,55 @@ python scripts/check_import_progress.py
 # 9. View rankings details
 python scripts/show_rankings_details.py
 ```
+
+---
+
+## 🏠 Local Development Setup
+
+### Using Local Supabase (Recommended for Testing)
+
+Local Supabase eliminates SSL/TLS errors and provides faster imports for development/testing.
+
+**Setup:**
+```bash
+# 1. Ensure Docker Desktop is running
+# 2. Start local Supabase
+supabase start
+
+# 3. Note the output credentials and create .env.local:
+USE_LOCAL_SUPABASE=true
+SUPABASE_URL=http://localhost:54321
+SUPABASE_KEY=<from_output>
+SUPABASE_SERVICE_ROLE_KEY=<from_output>
+
+# 4. (Optional) Pull production schema
+supabase link --project-ref pfkrhmprwxtghtpinrot
+supabase db pull
+supabase db reset  # Apply migrations
+
+# 5. Test import locally
+python scripts/import_games_enhanced.py data/master/all_games_master.csv gotsport \
+  --stream \
+  --batch-size 2000 \
+  --concurrency 4 \
+  --dry-run \
+  --limit 1000
+```
+
+**Benefits:**
+- ✅ No SSL/TLS errors (local HTTP)
+- ✅ Faster imports (no network latency)
+- ✅ Free testing (no API limits)
+- ✅ Full database access via Supabase Studio (http://localhost:54323)
+
+**Switching Environments:**
+- Local: Use `.env.local` with `USE_LOCAL_SUPABASE=true`
+- Production: Use `.env` (production credentials)
+- Code automatically detects `USE_LOCAL_SUPABASE` environment variable
+
+**Access Local Supabase Studio:**
+- URL: http://localhost:54323
+- View tables, run queries, inspect data
 
 ---
 
@@ -695,8 +743,13 @@ LIMIT 20;
 - **Streaming**: Processes large files without loading into memory
 - **Parallel Processing**: Concurrent batch processing with semaphore control
 - **Batch Inserts**: Efficient bulk database operations (2000 per batch)
-- **Retry Logic**: Automatic retry with exponential backoff + jitter
+- **Retry Logic**: Enhanced SSL error handling with adaptive batch sizing
+  - 5 retries for SSL/network errors (increased from 3)
+  - Exponential backoff with jitter to avoid retry collisions
+  - Automatic batch size reduction on repeated SSL errors
+  - Gradual batch size restoration after successful inserts
 - **Progress Tracking**: Checkpoint logging for long imports
+- **Local Development**: Use local Supabase to avoid SSL errors entirely
 
 ### Rankings Engine
 

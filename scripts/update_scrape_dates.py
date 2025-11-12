@@ -21,6 +21,13 @@ import logging
 console = Console()
 load_dotenv()
 
+# Load .env.local if it exists
+env_local = Path('.env.local')
+if env_local.exists():
+    load_dotenv(env_local, override=True)
+else:
+    load_dotenv()
+
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
@@ -55,13 +62,27 @@ def update_scrape_dates(import_date: str, provider: str = 'gotsport', confirm: b
     
     provider_id = provider_result.data[0]['id']
     
-    # Get all teams for this provider
+    # Get all teams for this provider (handle pagination)
     console.print(f"[cyan]Fetching teams for provider '{provider}'...[/cyan]")
-    teams_result = supabase.table('teams').select('team_id_master, provider_team_id, team_name').eq(
-        'provider_id', provider_id
-    ).execute()
+    teams = []
+    offset = 0
+    page_size = 1000
     
-    teams = teams_result.data
+    while True:
+        teams_result = supabase.table('teams').select('team_id_master, provider_team_id, team_name').eq(
+            'provider_id', provider_id
+        ).range(offset, offset + page_size - 1).execute()
+        
+        if not teams_result.data:
+            break
+        
+        teams.extend(teams_result.data)
+        offset += page_size
+        
+        if len(teams_result.data) < page_size:
+            break
+        
+        console.print(f"[dim]Fetched {len(teams)} teams so far...[/dim]")
     console.print(f"[green]Found {len(teams)} teams[/green]\n")
     
     if not teams:
@@ -87,6 +108,7 @@ def update_scrape_dates(import_date: str, provider: str = 'gotsport', confirm: b
         # This is MUCH faster than individual updates!
         console.print(f"[dim]Updating {len(team_ids)} teams in one query...[/dim]")
         
+        # Update ALL teams for this provider (not just NULL ones)
         result = supabase.table('teams').update({
             'last_scraped_at': import_iso
         }).eq('provider_id', provider_id).execute()

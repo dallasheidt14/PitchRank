@@ -72,7 +72,8 @@ async def scrape_games(provider: str, games_file: str = None, output_file: str =
             sys.executable,
             str(script_path),
             '--provider', provider,
-            '--output', output_file
+            '--output', output_file,
+            '--auto-import'  # Automatically import after scraping
         ]
         
         result = subprocess.run(cmd, capture_output=True, text=True)

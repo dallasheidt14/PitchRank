@@ -59,3 +59,7 @@ secrets/
 *.pem
 *.key
 
+# Large binaries/installers
+psql/
+*.exe
+

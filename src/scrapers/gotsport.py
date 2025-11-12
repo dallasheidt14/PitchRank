@@ -1,11 +1,22 @@
 """GotSport scraper implementation using API"""
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from urllib3.exceptions import SSLError as Urllib3SSLError
+from requests.exceptions import SSLError as RequestsSSLError
 from typing import List, Optional, Dict
 from datetime import datetime, date, timedelta
 import logging
 import time
 import random
 import os
+
+try:
+    import certifi
+    CERTIFI_AVAILABLE = True
+except ImportError:
+    CERTIFI_AVAILABLE = False
+    certifi = None
 
 from src.scrapers.base import BaseScraper
 from src.base import GameData
@@ -34,8 +45,55 @@ class GotSportScraper(BaseScraper):
         self.use_zenrows = bool(self.zenrows_api_key)
         
         # Session setup
-        self.session = requests.Session()
-        self.session.headers.update({
+        self.session = self._init_http_session()
+        
+        # Club name cache
+        self.club_cache: Dict[str, str] = {}
+        
+        logger.info(f"Initialized GotSportScraper (ZenRows: {'enabled' if self.use_zenrows else 'disabled'})")
+    
+    def _init_http_session(self) -> requests.Session:
+        """
+        Initialize HTTP session with optimized connection pool for concurrent scraping
+        
+        SSL improvements:
+        - Uses certifi for up-to-date certificates
+        - Configures urllib3 SSL context for better stability
+        - Connection pool recycling to avoid stale SSL connections
+        
+        Returns:
+            Configured requests.Session with HTTPAdapter supporting up to 100 concurrent connections
+        """
+        session = requests.Session()
+        
+        # SSL configuration: use certifi if available for better certificate handling
+        verify_ssl = True
+        if CERTIFI_AVAILABLE:
+            verify_ssl = certifi.where()
+            logger.debug(f"Using certifi certificates: {verify_ssl}")
+        
+        # Configure HTTPAdapter with larger connection pool and SSL improvements
+        adapter = HTTPAdapter(
+            pool_connections=100,   # number of connection pools
+            pool_maxsize=100,       # total concurrent connections
+            max_retries=Retry(
+                total=3,
+                backoff_factor=0.3,
+                status_forcelist=[500, 502, 503, 504],  # Retry on server errors
+                # Retry on SSL errors (will be caught and retried)
+                allowed_methods=["GET", "HEAD"]
+            )
+        )
+        
+        # Mount adapter for both HTTPS and HTTP
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        
+        # Set SSL verification (use certifi if available)
+        session.verify = verify_ssl
+        
+        # Set headers
+        session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
             'Accept': 'application/json, text/plain, */*',
             'Accept-Language': 'en-US,en;q=0.9',
@@ -44,10 +102,7 @@ class GotSportScraper(BaseScraper):
             'Connection': 'keep-alive',
         })
         
-        # Club name cache
-        self.club_cache: Dict[str, str] = {}
-        
-        logger.info(f"Initialized GotSportScraper (ZenRows: {'enabled' if self.use_zenrows else 'disabled'})")
+        return session
     
     def scrape_team_games(self, team_id: str, since_date: Optional[datetime] = None) -> List[GameData]:
         """
@@ -68,20 +123,28 @@ class GotSportScraper(BaseScraper):
             return []
         
         # For incremental scraping: use last scrape date if available
-        # For first-time scraping: use 12-month baseline
+        # For first-time scraping: use October 17, 2025 baseline
         if since_date:
             # Use the last scrape date (incremental update)
             since_date_obj = since_date.date() if isinstance(since_date, datetime) else since_date
             logger.debug(f"Incremental scrape: fetching games since {since_date_obj}")
         else:
-            # First-time scrape: use 12-month baseline
-            cutoff_date = date.today() - timedelta(days=365)
-            since_date_obj = cutoff_date
-            logger.debug(f"First-time scrape: fetching games since {since_date_obj} (12-month baseline)")
+            # First-time scrape: use October 17, 2025 baseline
+            since_date_obj = date(2025, 10, 17)
+            logger.debug(f"First-time scrape: fetching games since {since_date_obj} (Oct 17, 2025 baseline)")
         
         # API endpoint
         api_url = f"{self.BASE_URL}/teams/{normalized_team_id}/matches"
         params = {'past': 'true'}
+        
+        # Try to add date filtering at API level (if supported)
+        # Common parameter names: since_date, from_date, date_from, since
+        # Format: YYYY-MM-DD or ISO format
+        if since_date_obj:
+            since_date_str = since_date_obj.strftime('%Y-%m-%d')
+            # Try common date parameter names (API may ignore if not supported)
+            params['since_date'] = since_date_str
+            params['from_date'] = since_date_str
         
         # Fetch club name first
         club_name = self._extract_club_name(normalized_team_id)
@@ -111,8 +174,23 @@ class GotSportScraper(BaseScraper):
                     
                     logger.info(f"API returned {len(matches)} matches for team {normalized_team_id}")
                     
-                    # Parse matches
+                    # OPTIMIZATION: Parse matches with early exit
+                    # Since matches are sorted newest first, we can stop parsing once we hit a date before our cutoff
                     for match in matches[:30]:  # Cap to 30 most recent
+                        # Quick date check before full parsing (early exit optimization)
+                        match_date_str = match.get('match_date', '')
+                        if match_date_str:
+                            try:
+                                game_date = datetime.fromisoformat(match_date_str.replace('Z', '+00:00')).date()
+                                # If this game is before our cutoff, stop parsing (all remaining will be older)
+                                if game_date < since_date_obj:
+                                    logger.debug(f"Reached date cutoff at {game_date}, stopping parse for team {normalized_team_id}")
+                                    break
+                            except (ValueError, TypeError):
+                                # If date parsing fails, continue to full parse (will be filtered there)
+                                pass
+                        
+                        # Full parse (includes date filtering as backup)
                         game = self._parse_api_match(match, normalized_team_id, since_date_obj, club_name)
                         if game:
                             games.append(game)
@@ -137,6 +215,34 @@ class GotSportScraper(BaseScraper):
                     logger.error(f"API failed after {self.max_retries} attempts: {e}")
                     raise
                     
+            except (RequestsSSLError, Urllib3SSLError) as e:
+                # SSL-specific error handling with exponential backoff
+                ssl_error_msg = str(e).lower()
+                if 'bad record mac' in ssl_error_msg or 'sslv3_alert' in ssl_error_msg:
+                    # Common SSL errors that can be retried
+                    if attempt < self.max_retries - 1:
+                        # Exponential backoff for SSL errors (longer wait)
+                        wait_time = self.retry_delay * (2 ** attempt) + random.uniform(0, 1.0)
+                        logger.warning(f"SSL error (attempt {attempt + 1}/{self.max_retries}): {e}, retrying in {wait_time:.1f}s...")
+                        time.sleep(wait_time)
+                        # Close the session to force new connection
+                        self.session.close()
+                        self.session = self._init_http_session()
+                        continue
+                    else:
+                        logger.error(f"SSL error persisted after {self.max_retries} attempts: {e}")
+                        raise
+                else:
+                    # Other SSL errors - still retry but log differently
+                    if attempt < self.max_retries - 1:
+                        wait_time = self.retry_delay * (1.5 ** attempt)
+                        logger.warning(f"SSL error (attempt {attempt + 1}/{self.max_retries}): {e}, retrying in {wait_time:.1f}s...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error(f"SSL error failed after {self.max_retries} attempts: {e}")
+                        raise
+                        
             except requests.exceptions.RequestException as e:
                 if attempt < self.max_retries - 1:
                     logger.warning(f"Request attempt {attempt + 1} failed: {e}, retrying...")
@@ -168,7 +274,7 @@ class GotSportScraper(BaseScraper):
             url_with_params = f"{url}?" + "&".join([f"{k}={v}" for k, v in params.items()])
             zenrows_params['url'] = url_with_params
         
-        return requests.get(zenrows_url, params=zenrows_params, timeout=self.timeout)
+        return self.session.get(zenrows_url, params=zenrows_params, timeout=self.timeout)
     
     def _extract_club_name(self, team_id: int) -> str:
         """Extract club name from team details API"""

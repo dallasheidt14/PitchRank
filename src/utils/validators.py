@@ -4,6 +4,7 @@ from datetime import datetime
 import re
 
 from src.base import BaseValidator
+from src.utils.enhanced_validators import parse_game_date
 
 class GameValidator(BaseValidator):
     """Validate game data"""
@@ -21,8 +22,8 @@ class GameValidator(BaseValidator):
         # Validate date format
         if 'game_date' in data:
             try:
-                datetime.strptime(data['game_date'], '%Y-%m-%d')
-            except:
+                parse_game_date(data['game_date'])
+            except ValueError:
                 errors.append(f"Invalid date format: {data['game_date']}")
                 
         # Validate scores
