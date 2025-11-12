@@ -39,6 +39,13 @@ export function Navigation() {
             Home
           </Link>
           <Link
+            href="/rankings/national/u12/male"
+            className="text-sm font-medium transition-colors duration-300 hover:text-primary"
+            aria-label="Rankings page"
+          >
+            Rankings
+          </Link>
+          <Link
             href="/compare"
             className="text-sm font-medium transition-colors duration-300 hover:text-primary"
             aria-label="Compare teams page"
