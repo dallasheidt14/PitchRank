@@ -35,6 +35,11 @@ export function RankingsFilter() {
   // Auto-navigate when filters change (debounced)
   // Only navigate if the current pathname doesn't match the selected filters
   useEffect(() => {
+    // Don't navigate if we're not on a rankings route
+    if (!pathname.startsWith('/rankings/')) {
+      return;
+    }
+    
     const targetPath = `/rankings/${region}/${ageGroup}/${gender}`;
     const currentPath = pathname;
     
