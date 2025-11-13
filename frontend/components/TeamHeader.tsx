@@ -22,13 +22,14 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
   
   // Debug logging
   useEffect(() => {
+    console.log('[TeamHeader] Component props:', { teamId });
     console.log('[TeamHeader] React Query state:', {
-      teamId,
       isLoading: teamLoading,
       isError: teamError,
       error: teamErrorObj,
       hasTeam: !!team,
       team: team ? { name: team.team_name, id: team.team_id_master } : null,
+      queryKey: ['team', teamId],
     });
   }, [teamId, teamLoading, teamError, teamErrorObj, team]);
   

@@ -54,7 +54,27 @@ export const api = {
       hasTeamName: !!data.team_name,
       keys: Object.keys(data),
     });
-    return data as Team;
+    
+    // Ensure all required Team fields exist
+    const teamData: Team = {
+      id: data.id,
+      team_id_master: data.team_id_master,
+      provider_team_id: data.provider_team_id,
+      provider_id: data.provider_id,
+      team_name: data.team_name,
+      club_name: data.club_name,
+      state: data.state,
+      state_code: data.state_code,
+      age_group: data.age_group,
+      birth_year: data.birth_year,
+      gender: data.gender as 'Male' | 'Female',
+      created_at: data.created_at,
+      updated_at: data.updated_at,
+      last_scraped_at: data.last_scraped_at,
+    };
+    
+    console.log('[api.getTeam] Returning team data:', teamData.team_name);
+    return teamData;
   },
 
   /**
