@@ -215,6 +215,11 @@ export function GlobalSearch() {
                       {team.national_rank && (
                         <span> • Rank #{team.national_rank}</span>
                       )}
+                      {team.age_group && team.gender && (
+                        <span className={team.club_name || team.state_code || team.national_rank ? ' • ' : ''}>
+                          {team.age_group.toUpperCase()} {team.gender}
+                        </span>
+                      )}
                     </div>
                   </button>
                 ))}
