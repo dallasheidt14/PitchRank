@@ -111,7 +111,8 @@ export function ComparePanel() {
 
   const maxPowerScore = useMemo(() => {
     if (!allRankings || allRankings.length === 0) return 100;
-    return Math.max(...allRankings.map(r => r.national_power_score));
+    const scores = allRankings.map(r => r.national_power_score ?? 0).filter(s => s > 0);
+    return scores.length > 0 ? Math.max(...scores) : 100;
   }, [allRankings]);
 
   const handleTeam1Change = (id: string | null, team: RankingRow | null) => {
@@ -252,7 +253,7 @@ export function ComparePanel() {
                         <div className="flex justify-between mb-1">
                           <span className="text-muted-foreground">Power Score:</span>
                           <span className="font-semibold">
-                            {team1Data.national_power_score.toFixed(1)}
+                            {(team1Data.national_power_score ?? 0).toFixed(1)}
                           </span>
                         </div>
                         <PercentileBar
@@ -330,7 +331,7 @@ export function ComparePanel() {
                         <div className="flex justify-between mb-1">
                           <span className="text-muted-foreground">Power Score:</span>
                           <span className="font-semibold">
-                            {team2Data.national_power_score.toFixed(1)}
+                            {(team2Data.national_power_score ?? 0).toFixed(1)}
                           </span>
                         </div>
                         <PercentileBar
