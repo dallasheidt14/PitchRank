@@ -81,7 +81,10 @@ export function ComparePanel() {
   // Calculate percentiles for all metrics
   const percentiles = useMemo(() => {
     if (!team1Data || !team2Data || !allRankings || allRankings.length === 0) {
-      return { team1: {}, team2: {} };
+      return { 
+        team1: { powerScore: 0, winPercentage: 0, gamesPlayed: 0 },
+        team2: { powerScore: 0, winPercentage: 0, gamesPlayed: 0 },
+      };
     }
 
     const powerScores = allRankings.map(r => r.national_power_score);
@@ -255,7 +258,7 @@ export function ComparePanel() {
                         <PercentileBar
                           value={team1Data.national_power_score ?? 0}
                           maxValue={maxPowerScore}
-                          percentile={percentiles.team1.powerScore}
+                          percentile={percentiles.team1.powerScore ?? 0}
                         />
                       </div>
                       
@@ -272,7 +275,7 @@ export function ComparePanel() {
                           <PercentileBar
                             value={team1Data.win_percentage ?? 0}
                             maxValue={100}
-                            percentile={percentiles.team1.winPercentage}
+                            percentile={percentiles.team1.winPercentage ?? 0}
                           />
                         )}
                       </div>
@@ -333,7 +336,7 @@ export function ComparePanel() {
                         <PercentileBar
                           value={team2Data.national_power_score ?? 0}
                           maxValue={maxPowerScore}
-                          percentile={percentiles.team2.powerScore}
+                          percentile={percentiles.team2.powerScore ?? 0}
                         />
                       </div>
                       
@@ -350,7 +353,7 @@ export function ComparePanel() {
                           <PercentileBar
                             value={team2Data.win_percentage ?? 0}
                             maxValue={100}
-                            percentile={percentiles.team2.winPercentage}
+                            percentile={percentiles.team2.winPercentage ?? 0}
                           />
                         )}
                       </div>
