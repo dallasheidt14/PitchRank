@@ -71,7 +71,9 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
     );
   }
 
-  if (teamError || !team) {
+  // Only show error if we're done loading and have no team data
+  // If team data exists, render it even if there was a previous error
+  if (!teamLoading && !team) {
     return (
       <Card>
         <CardContent className="pt-6">
@@ -82,6 +84,12 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                 Error: {teamErrorObj instanceof Error ? teamErrorObj.message : JSON.stringify(teamErrorObj)}
                 <br />
                 Team ID: {teamId}
+                <br />
+                Has Team: {team ? 'Yes' : 'No'}
+                <br />
+                Is Error: {teamError ? 'Yes' : 'No'}
+                <br />
+                Is Loading: {teamLoading ? 'Yes' : 'No'}
               </p>
             )}
           </div>
