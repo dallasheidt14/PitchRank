@@ -79,12 +79,15 @@ export function useTeamTrajectory(id: string, periodDays: number = 30) {
  * Get games for a specific team
  * @param id - team_id_master UUID
  * @param limit - Maximum number of games to return (default: 50)
- * @returns React Query hook result with games data
+ * @returns React Query hook result with games data and lastScrapedAt date
  */
 export function useTeamGames(id: string, limit: number = 50) {
-  return useQuery<GameWithTeams[]>({
+  return useQuery<{ games: GameWithTeams[]; lastScrapedAt: string | null }>({
     queryKey: ['team-games', id, limit],
-    queryFn: () => api.getTeamGames(id, limit),
+    queryFn: async () => {
+      const result = await api.getTeamGames(id, limit);
+      return result;
+    },
     enabled: !!id,
     staleTime: 2 * 60 * 1000, // 2 minutes - games update more frequently
     gcTime: 15 * 60 * 1000, // Keep in cache for 15 minutes
