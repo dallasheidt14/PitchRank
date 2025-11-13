@@ -22,25 +22,9 @@ import type { Team, RankingWithTeam, TeamTrajectory, GameWithTeams } from './typ
  * - Example: Prefetch team data when hovering over a team link
  */
 
-/**
- * Get rankings filtered by region, age group, and gender
- * @param region - State code (2 letters) or null/undefined for national rankings
- * @param ageGroup - Age group filter (e.g., 'u10', 'u11')
- * @param gender - Gender filter ('Male' or 'Female')
- * @returns React Query hook result with rankings data
- */
-export function useRankings(
-  region?: string | null,
-  ageGroup?: string,
-  gender?: 'Male' | 'Female'
-) {
-  return useQuery<RankingWithTeam[]>({
-    queryKey: ['rankings', region, ageGroup, gender],
-    queryFn: () => api.getRankings(region, ageGroup, gender),
-    staleTime: 5 * 60 * 1000, // 5 minutes - rankings update weekly
-    gcTime: 30 * 60 * 1000, // Keep in cache for 30 minutes
-  });
-}
+// useRankings has been moved to @/hooks/useRankings
+// Re-export for backward compatibility during migration
+export { useRankings } from '@/hooks/useRankings';
 
 /**
  * Get a single team by team_id_master UUID

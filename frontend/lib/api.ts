@@ -14,45 +14,8 @@ import type {
  */
 
 export const api = {
-  /**
-   * Get rankings filtered by region (state_code), age group, and gender
-   * @param region - State code (2 letters) or null/undefined for national rankings
-   * @param ageGroup - Age group filter (e.g., 'u10', 'u11')
-   * @param gender - Gender filter ('Male' or 'Female')
-   * @returns Array of rankings with team details
-   */
-  async getRankings(
-    region?: string | null,
-    ageGroup?: string,
-    gender?: 'Male' | 'Female'
-  ): Promise<RankingWithTeam[]> {
-    // Use the rankings_by_age_gender view which joins teams and current_rankings
-    let query = supabase
-      .from('rankings_by_age_gender')
-      .select('*')
-      .order('national_rank', { ascending: true, nullsFirst: false });
-
-    if (region) {
-      query = query.eq('state_code', region);
-    }
-
-    if (ageGroup) {
-      query = query.eq('age_group', ageGroup);
-    }
-
-    if (gender) {
-      query = query.eq('gender', gender);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error('Error fetching rankings:', error);
-      throw error;
-    }
-
-    return (data || []) as RankingWithTeam[];
-  },
+  // getRankings has been removed - use useRankings hook from @/hooks/useRankings instead
+  // This function is deprecated and will be removed in a future version
 
   /**
    * Get a single team by team_id_master UUID
