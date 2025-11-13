@@ -140,7 +140,9 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
             {teamRanking && (
               <div className="text-right">
                 <div className="text-4xl font-bold">
-                  {teamRanking.national_power_score.toFixed(1)}
+                  {teamRanking.national_power_score != null 
+                    ? teamRanking.national_power_score.toFixed(1) 
+                    : '—'}
                 </div>
                 <div className="text-sm text-muted-foreground">Power Score</div>
               </div>
@@ -169,7 +171,7 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
             <div>
               <div className="text-sm text-muted-foreground mb-1">Win %</div>
               <div className="text-2xl font-semibold">
-                {teamRanking?.win_percentage !== null && teamRanking?.win_percentage !== undefined
+                {teamRanking?.win_percentage != null
                   ? `${teamRanking.win_percentage.toFixed(1)}%`
                   : '—'}
               </div>
@@ -193,7 +195,7 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                 <div>
                   <span className="text-muted-foreground">Strength of Schedule: </span>
                   <span className="font-medium">
-                    {teamRanking.strength_of_schedule !== null
+                    {teamRanking.strength_of_schedule != null
                       ? teamRanking.strength_of_schedule.toFixed(2)
                       : '—'}
                   </span>
