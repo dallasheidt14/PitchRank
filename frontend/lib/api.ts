@@ -156,9 +156,14 @@ export const api = {
    * Get games for a specific team
    * @param id - team_id_master UUID
    * @param limit - Maximum number of games to return (default: 50)
-   * @returns Array of games with team names
+   * @returns Object with games array and lastScrapedAt date
    */
-  async getTeamGames(id: string, limit: number = 50): Promise<GameWithTeams[]> {
+  async getTeamGames(id: string, limit: number = 50): Promise<{
+    games: GameWithTeams[];
+    lastScrapedAt: string | null;
+  }> {
+    console.log('[api.getTeamGames] Fetching games for team:', id, 'limit:', limit);
+    
     // Get games where team is either home or away
     const { data: games, error: gamesError } = await supabase
       .from('games')
@@ -168,13 +173,29 @@ export const api = {
       .limit(limit);
 
     if (gamesError) {
-      console.error('Error fetching team games:', gamesError);
+      console.error('[api.getTeamGames] Error fetching team games:', gamesError);
       throw gamesError;
     }
 
+    console.log('[api.getTeamGames] Raw games data:', {
+      gamesCount: games?.length ?? 0,
+      hasGames: !!games && games.length > 0,
+      firstGame: games?.[0] ? { id: games[0].id, date: games[0].game_date } : null,
+    });
+
     if (!games || games.length === 0) {
-      return [];
+      console.log('[api.getTeamGames] No games found for team:', id);
+      return { games: [], lastScrapedAt: null };
     }
+
+    // Find the most recent scraped_at date
+    const mostRecentScrapedAt = games.reduce((latest, game) => {
+      if (!game.scraped_at) return latest;
+      if (!latest) return game.scraped_at;
+      return new Date(game.scraped_at) > new Date(latest) 
+        ? game.scraped_at 
+        : latest;
+    }, null as string | null);
 
     // Get team names for home and away teams
     const teamIds = new Set<string>();
@@ -201,7 +222,7 @@ export const api = {
     });
 
     // Enrich games with team names and club names
-    return games.map((game: Game) => ({
+    const enrichedGames = games.map((game: Game) => ({
       ...game,
       home_team_name: game.home_team_master_id
         ? teamNameMap.get(game.home_team_master_id)
@@ -216,6 +237,18 @@ export const api = {
         ? teamClubMap.get(game.away_team_master_id)
         : undefined,
     })) as GameWithTeams[];
+
+    const result = {
+      games: enrichedGames,
+      lastScrapedAt: mostRecentScrapedAt,
+    };
+    
+    console.log('[api.getTeamGames] Returning enriched games:', {
+      gamesCount: result.games.length,
+      lastScrapedAt: result.lastScrapedAt,
+    });
+    
+    return result;
   },
 
   /**
