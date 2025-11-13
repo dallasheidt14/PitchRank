@@ -41,6 +41,11 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
       return;
     }
     
+    // On /rankings page (home), don't sync from URL - let user control filters
+    if (pathname === '/rankings') {
+      return;
+    }
+    
     // Only sync if URL params actually changed
     if (
       currentRegion !== region ||
@@ -51,11 +56,11 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
       setAgeGroup(currentAgeGroup);
       setGender(currentGender);
     }
-  }, [currentRegion, currentAgeGroup, currentGender, region, ageGroup, gender]);
+  }, [currentRegion, currentAgeGroup, currentGender, region, ageGroup, gender, pathname]);
 
   // Handle filter changes
   useEffect(() => {
-    // If on home rankings page, use callback
+    // If on home rankings page, use callback immediately
     if (pathname === '/rankings' && onFilterChange) {
       onFilterChange(region, ageGroup, gender);
       return;
@@ -77,19 +82,12 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
     // Mark that we're navigating internally
     isNavigatingRef.current = true;
     
-    const timeout = setTimeout(() => {
-      router.replace(targetPath);
-      // Reset navigation flag after a short delay to allow URL to update
-      setTimeout(() => {
-        isNavigatingRef.current = false;
-      }, 100);
-    }, 250);
+    router.replace(targetPath);
     
-    return () => {
-      clearTimeout(timeout);
-      // Reset flag if effect is cleaned up
+    // Reset navigation flag after a short delay to allow URL to update
+    setTimeout(() => {
       isNavigatingRef.current = false;
-    };
+    }, 100);
   }, [region, ageGroup, gender, router, pathname, onFilterChange]);
 
   return (
