@@ -173,6 +173,122 @@ export const api = {
         : undefined,
     })) as GameWithTeams[];
   },
+
+  /**
+   * Get common opponents between two teams
+   * @param team1Id - First team's team_id_master UUID
+   * @param team2Id - Second team's team_id_master UUID
+   * @returns Array of common opponents with game results
+   */
+  async getCommonOpponents(team1Id: string, team2Id: string): Promise<Array<{
+    opponent_id: string;
+    opponent_name: string;
+    team1_result: 'W' | 'L' | 'D' | null;
+    team2_result: 'W' | 'L' | 'D' | null;
+    team1_score: number | null;
+    team2_score: number | null;
+    opponent_score_team1: number | null;
+    opponent_score_team2: number | null;
+    game_date: string;
+  }>> {
+    // Get all games for team1
+    const { data: team1Games, error: team1Error } = await supabase
+      .from('games')
+      .select('*')
+      .or(`home_team_master_id.eq.${team1Id},away_team_master_id.eq.${team1Id}`)
+      .order('game_date', { ascending: false });
+
+    if (team1Error) {
+      console.error('Error fetching team1 games:', team1Error);
+      throw team1Error;
+    }
+
+    // Get all games for team2
+    const { data: team2Games, error: team2Error } = await supabase
+      .from('games')
+      .select('*')
+      .or(`home_team_master_id.eq.${team2Id},away_team_master_id.eq.${team2Id}`)
+      .order('game_date', { ascending: false });
+
+    if (team2Error) {
+      console.error('Error fetching team2 games:', team2Error);
+      throw team2Error;
+    }
+
+    // Find common opponents
+    const team1Opponents = new Map<string, Game>();
+    (team1Games as Game[]).forEach((game) => {
+      const opponentId = game.home_team_master_id === team1Id 
+        ? game.away_team_master_id 
+        : game.home_team_master_id;
+      if (opponentId && opponentId !== team2Id) {
+        if (!team1Opponents.has(opponentId)) {
+          team1Opponents.set(opponentId, game);
+        }
+      }
+    });
+
+    const team2Opponents = new Map<string, Game>();
+    (team2Games as Game[]).forEach((game) => {
+      const opponentId = game.home_team_master_id === team2Id 
+        ? game.away_team_master_id 
+        : game.home_team_master_id;
+      if (opponentId && opponentId !== team1Id) {
+        if (!team2Opponents.has(opponentId)) {
+          team2Opponents.set(opponentId, game);
+        }
+      }
+    });
+
+    // Find intersection
+    const commonOpponentIds = Array.from(team1Opponents.keys()).filter(id => 
+      team2Opponents.has(id)
+    );
+
+    // Get team names
+    const { data: teams } = await supabase
+      .from('teams')
+      .select('team_id_master, team_name')
+      .in('team_id_master', commonOpponentIds);
+
+    const teamMap = new Map<string, string>();
+    teams?.forEach((team: { team_id_master: string; team_name: string }) => {
+      teamMap.set(team.team_id_master, team.team_name);
+    });
+
+    // Build result
+    return commonOpponentIds.map(opponentId => {
+      const team1Game = team1Opponents.get(opponentId)!;
+      const team2Game = team2Opponents.get(opponentId)!;
+      
+      const team1IsHome = team1Game.home_team_master_id === team1Id;
+      const team2IsHome = team2Game.home_team_master_id === team2Id;
+      
+      const team1Score = team1IsHome ? team1Game.home_score : team1Game.away_score;
+      const team1OpponentScore = team1IsHome ? team1Game.away_score : team1Game.home_score;
+      const team2Score = team2IsHome ? team2Game.home_score : team2Game.away_score;
+      const team2OpponentScore = team2IsHome ? team2Game.away_score : team2Game.home_score;
+
+      const getResult = (teamScore: number | null, oppScore: number | null): 'W' | 'L' | 'D' | null => {
+        if (teamScore === null || oppScore === null) return null;
+        if (teamScore > oppScore) return 'W';
+        if (teamScore < oppScore) return 'L';
+        return 'D';
+      };
+
+      return {
+        opponent_id: opponentId,
+        opponent_name: teamMap.get(opponentId) || 'Unknown',
+        team1_result: getResult(team1Score, team1OpponentScore),
+        team2_result: getResult(team2Score, team2OpponentScore),
+        team1_score: team1Score,
+        team2_score: team2Score,
+        opponent_score_team1: team1OpponentScore,
+        opponent_score_team2: team2OpponentScore,
+        game_date: team1Game.game_date,
+      };
+    });
+  },
 };
 
 /**

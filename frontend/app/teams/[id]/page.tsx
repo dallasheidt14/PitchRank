@@ -1,5 +1,7 @@
 import { TeamPageShell } from '@/components/TeamPageShell';
+import { TeamPageSkeleton } from '@/components/skeletons/TeamPageSkeleton';
 import { createClient } from '@supabase/supabase-js';
+import { Suspense } from 'react';
 import type { Metadata } from 'next';
 
 interface TeamPageProps {
@@ -7,6 +9,9 @@ interface TeamPageProps {
     id: string;
   };
 }
+
+// ISR: Revalidate every hour
+export const revalidate = 3600;
 
 export async function generateMetadata({ params }: TeamPageProps): Promise<Metadata> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -35,5 +40,9 @@ export async function generateMetadata({ params }: TeamPageProps): Promise<Metad
 }
 
 export default function Page({ params }: TeamPageProps) {
-  return <TeamPageShell id={params.id} />;
+  return (
+    <Suspense fallback={<TeamPageSkeleton />}>
+      <TeamPageShell id={params.id} />
+    </Suspense>
+  );
 }
