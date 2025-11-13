@@ -10,12 +10,12 @@ export function useTeamSearch() {
   return useQuery<RankingRow[]>({
     queryKey: ['team-search'],
     queryFn: async () => {
-      // Fetch all teams from teams table (includes teams without rankings)
+      // Fetch ALL teams from master teams table (no limit - get everything)
       const { data, error } = await supabase
         .from('teams')
         .select('team_id_master, team_name, club_name, state_code, age_group, gender')
-        .order('team_name', { ascending: true })
-        .limit(50000); // Higher limit to include all teams
+        .order('team_name', { ascending: true });
+      // No limit - fetch all teams from master list
 
       if (error) {
         console.error('Error fetching teams for search:', error);
