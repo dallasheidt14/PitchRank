@@ -110,10 +110,11 @@ export function ComparePanel() {
   }, [team1Data, team2Data, allRankings]);
 
   const maxPowerScore = useMemo(() => {
-    if (!allRankings || allRankings.length === 0) return 100;
-    const scores = allRankings.map(r => r.national_power_score ?? 0).filter(s => s > 0);
-    return scores.length > 0 ? Math.max(...scores) : 100;
-  }, [allRankings]);
+    return Math.max(
+      team1Data?.national_power_score ?? 0,
+      team2Data?.national_power_score ?? 0
+    );
+  }, [team1Data, team2Data]);
 
   const handleTeam1Change = (id: string | null, team: RankingRow | null) => {
     setTeam1Id(id);
@@ -259,7 +260,7 @@ export function ComparePanel() {
                         <PercentileBar
                           value={team1Data.national_power_score ?? 0}
                           maxValue={maxPowerScore}
-                          percentile={percentiles.team1.powerScore ?? 0}
+                          percentile={percentiles?.team1?.powerScore ?? 0}
                         />
                       </div>
                       
@@ -276,7 +277,7 @@ export function ComparePanel() {
                           <PercentileBar
                             value={team1Data.win_percentage ?? 0}
                             maxValue={100}
-                            percentile={percentiles.team1.winPercentage ?? 0}
+                            percentile={percentiles?.team1?.winPercentage ?? 0}
                           />
                         )}
                       </div>
@@ -337,7 +338,7 @@ export function ComparePanel() {
                         <PercentileBar
                           value={team2Data.national_power_score ?? 0}
                           maxValue={maxPowerScore}
-                          percentile={percentiles.team2.powerScore ?? 0}
+                          percentile={percentiles?.team2?.powerScore ?? 0}
                         />
                       </div>
                       
@@ -354,7 +355,7 @@ export function ComparePanel() {
                           <PercentileBar
                             value={team2Data.win_percentage ?? 0}
                             maxValue={100}
-                            percentile={percentiles.team2.winPercentage ?? 0}
+                            percentile={percentiles?.team2?.winPercentage ?? 0}
                           />
                         )}
                       </div>
