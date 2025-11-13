@@ -5,7 +5,7 @@ from urllib3.util.retry import Retry
 from urllib3.exceptions import SSLError as Urllib3SSLError
 from requests.exceptions import SSLError as RequestsSSLError
 from typing import List, Optional, Dict
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 import logging
 import time
 import random
@@ -181,7 +181,15 @@ class GotSportScraper(BaseScraper):
                         match_date_str = match.get('match_date', '')
                         if match_date_str:
                             try:
-                                game_date = datetime.fromisoformat(match_date_str.replace('Z', '+00:00')).date()
+                                # Parse date in UTC to avoid timezone conversion issues
+                                if 'T' in match_date_str:
+                                    dt = datetime.fromisoformat(match_date_str.replace('Z', '+00:00'))
+                                    if dt.tzinfo is not None:
+                                        game_date = dt.astimezone(timezone.utc).date()
+                                    else:
+                                        game_date = dt.date()
+                                else:
+                                    game_date = datetime.strptime(match_date_str, '%Y-%m-%d').date()
                                 # If this game is before our cutoff, stop parsing (all remaining will be older)
                                 if game_date < since_date_obj:
                                     logger.debug(f"Reached date cutoff at {game_date}, stopping parse for team {normalized_team_id}")
@@ -325,9 +333,23 @@ class GotSportScraper(BaseScraper):
                 return None
             
             try:
-                game_date = datetime.fromisoformat(match_date.replace('Z', '+00:00')).date()
-            except (ValueError, TypeError):
-                logger.warning(f"Invalid date format: {match_date}")
+                # Parse the date string - handle both ISO format with timezone and date-only format
+                # IMPORTANT: Extract date in UTC to avoid timezone conversion issues
+                if 'T' in match_date:
+                    # ISO format with time: "2025-11-07T00:00:00Z" or "2025-11-07T00:00:00+00:00"
+                    # Parse as UTC and extract date without timezone conversion
+                    dt = datetime.fromisoformat(match_date.replace('Z', '+00:00'))
+                    # Use UTC date directly (don't convert to local timezone)
+                    # If timezone-aware, convert to UTC first, then get date
+                    if dt.tzinfo is not None:
+                        game_date = dt.astimezone(timezone.utc).date()
+                    else:
+                        game_date = dt.date()
+                else:
+                    # Date-only format: "2025-11-07"
+                    game_date = datetime.strptime(match_date, '%Y-%m-%d').date()
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Invalid date format: {match_date}, error: {e}")
                 return None
             
             # Apply date filter
