@@ -48,6 +48,12 @@ export const api = {
     }
 
     console.log('[api.getTeam] Successfully fetched team:', data.team_name);
+    console.log('[api.getTeam] Team data structure:', {
+      hasId: !!data.id,
+      hasTeamIdMaster: !!data.team_id_master,
+      hasTeamName: !!data.team_name,
+      keys: Object.keys(data),
+    });
     return data as Team;
   },
 

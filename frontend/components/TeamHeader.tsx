@@ -20,6 +20,18 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
   const { data: team, isLoading: teamLoading, isError: teamError, error: teamErrorObj } = useTeam(teamId);
   const [watched, setWatched] = useState(false);
   
+  // Debug logging
+  useEffect(() => {
+    console.log('[TeamHeader] React Query state:', {
+      teamId,
+      isLoading: teamLoading,
+      isError: teamError,
+      error: teamErrorObj,
+      hasTeam: !!team,
+      team: team ? { name: team.team_name, id: team.team_id_master } : null,
+    });
+  }, [teamId, teamLoading, teamError, teamErrorObj, team]);
+  
   // Get ranking for this team
   const { data: rankings } = useRankings(
     team?.state_code || null,
