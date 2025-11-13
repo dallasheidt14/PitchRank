@@ -21,7 +21,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install supabase python-dotenv pandas requests
+          # Install core dependencies
+          pip install supabase python-dotenv pandas requests rich certifi numpy
       
       - name: Process missing games
         env:
@@ -29,7 +30,10 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         run: |
-          python scripts/process_missing_games.py --limit 10
+          # Set Python path to include project root
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          # Run with explicit error output
+          python scripts/process_missing_games.py --limit 10 || exit 1
       
       - name: Report results
         if: always()
