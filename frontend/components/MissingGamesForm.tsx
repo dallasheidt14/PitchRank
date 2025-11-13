@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { useScrapeRequestNotifications, trackScrapeRequest } from '@/hooks/useScrapeRequestNotifications';
 
 interface MissingGamesFormProps {
   teamId: string;
@@ -27,6 +28,9 @@ export function MissingGamesForm({ teamId, teamName }: MissingGamesFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [lastSubmission, setLastSubmission] = useState<Date | null>(null);
+
+  // Set up real-time notifications for completed scrape requests
+  useScrapeRequestNotifications();
 
   // Debug: Log component render
   useEffect(() => {
@@ -97,7 +101,11 @@ export function MissingGamesForm({ teamId, teamName }: MissingGamesFormProps) {
         throw new Error(data.error || 'Failed to submit request');
       }
 
-      // Success
+      // Success - track the request ID for notifications
+      if (data.requestId) {
+        trackScrapeRequest(data.requestId);
+      }
+
       setSuccess(true);
       setLastSubmission(new Date());
       setError(null);
