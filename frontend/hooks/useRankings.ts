@@ -43,10 +43,12 @@ export function useRankings(
         return (data || []) as RankingRow[];
       } else {
         // State rankings = filtered national from state_rankings_view
+        // Normalize state_code to uppercase for case-insensitive matching
+        const normalizedRegion = region?.toUpperCase();
         let query = supabase
           .from('state_rankings_view')
           .select('*')
-          .eq('state_code', region);
+          .eq('state_code', normalizedRegion);
 
         if (ageGroup) {
           query = query.eq('age_group', ageGroup);

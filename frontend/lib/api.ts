@@ -27,7 +27,7 @@ export const api = {
       .from('teams')
       .select('*')
       .eq('team_id_master', id)
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.error('Error fetching team:', error);
