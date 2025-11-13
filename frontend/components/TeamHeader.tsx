@@ -37,12 +37,28 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
   const { data: rankings } = useRankings(
     team?.state_code || null,
     team?.age_group,
-    team?.gender
+    team?.gender as 'Male' | 'Female' | null | undefined
   );
   
   const teamRanking = useMemo(() => {
     if (!rankings || !team) return null;
-    return rankings.find(r => r.team_id_master === team.team_id_master);
+    const found = rankings.find(r => r.team_id_master === team.team_id_master);
+    console.log('[TeamHeader] Finding team ranking:', {
+      teamId: team.team_id_master,
+      teamName: team.team_name,
+      rankingsCount: rankings?.length,
+      found: found ? { 
+        national_rank: found.national_rank,
+        national_power_score: found.national_power_score,
+        power_score: found.power_score 
+      } : null,
+      searchParams: {
+        state_code: team?.state_code,
+        age_group: team?.age_group,
+        gender: team?.gender
+      }
+    });
+    return found || null;
   }, [rankings, team]);
 
   // Check if team is watched
@@ -137,16 +153,16 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                 </Badge>
               </div>
             </div>
-            {teamRanking && (
-              <div className="text-right">
-                <div className="text-4xl font-bold">
-                  {teamRanking.national_power_score != null 
-                    ? teamRanking.national_power_score.toFixed(1) 
-                    : '—'}
-                </div>
-                <div className="text-sm text-muted-foreground">Power Score</div>
+            <div className="text-right">
+              <div className="text-4xl font-bold">
+                {teamRanking 
+                  ? (teamRanking.national_power_score ?? teamRanking.power_score ?? null) != null
+                    ? (teamRanking.national_power_score ?? teamRanking.power_score ?? 0).toFixed(1)
+                    : '—'
+                  : '—'}
               </div>
-            )}
+              <div className="text-sm text-muted-foreground">Power Score</div>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t">
