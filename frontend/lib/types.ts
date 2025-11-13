@@ -107,5 +107,7 @@ export interface TeamTrajectory {
 export interface GameWithTeams extends Game {
   home_team_name?: string;
   away_team_name?: string;
+  home_team_club_name?: string | null;
+  away_team_club_name?: string | null;
 }
 
