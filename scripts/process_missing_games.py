@@ -5,8 +5,6 @@ Process Missing Games Requests
 This script processes user-initiated scrape requests from the scrape_requests table.
 It queries for pending requests, scrapes the requested games, and imports them.
 
-IMPORTANT: This is a documentation/planning file. Implementation is not included.
-
 Usage:
     python scripts/process_missing_games.py [--provider gotsport] [--limit 10] [--dry-run]
 
@@ -60,6 +58,7 @@ Scheduling:
     This script can be run:
     - Manually: python scripts/process_missing_games.py
     - As a scheduled task (cron, Windows Task Scheduler, etc.)
+    - Via webhook (see setup_webhook_processor.md)
     - As part of a larger automation pipeline
 
 Example Implementation Outline:
@@ -95,4 +94,3 @@ Notes:
     - Consider batching multiple requests if they're for the same team/date
     - Add retry logic for transient failures
     - Consider notification system when requests complete
-
