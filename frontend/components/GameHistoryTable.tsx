@@ -22,10 +22,12 @@ interface GameHistoryTableProps {
 }
 
 /**
- * GameHistoryTable component - displays recent games for a team
+ * GameHistoryTable component - displays all games for a team
  */
-export function GameHistoryTable({ teamId, limit = 10 }: GameHistoryTableProps) {
-  const { data: games, isLoading, isError } = useTeamGames(teamId, limit);
+export function GameHistoryTable({ teamId, limit }: GameHistoryTableProps) {
+  // Use a very large number to fetch all games when no limit is specified
+  const gamesLimit = limit ?? 10000;
+  const { data: games, isLoading, isError } = useTeamGames(teamId, gamesLimit);
   const prefetchTeam = usePrefetchTeam();
 
   const getResult = (game: GameWithTeams, teamId: string) => {
@@ -65,8 +67,10 @@ export function GameHistoryTable({ teamId, limit = 10 }: GameHistoryTableProps) 
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Recent Games</CardTitle>
-          <CardDescription>Latest match results</CardDescription>
+          <CardTitle>Game History</CardTitle>
+          <CardDescription>
+            {limit ? `Latest ${limit} match results` : 'All match results'}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <TableSkeleton rows={5} />
@@ -79,8 +83,10 @@ export function GameHistoryTable({ teamId, limit = 10 }: GameHistoryTableProps) 
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Recent Games</CardTitle>
-          <CardDescription>Latest match results</CardDescription>
+          <CardTitle>Game History</CardTitle>
+          <CardDescription>
+            {limit ? `Latest ${limit} match results` : 'All match results'}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-center py-8 text-muted-foreground">
@@ -94,8 +100,10 @@ export function GameHistoryTable({ teamId, limit = 10 }: GameHistoryTableProps) 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Recent Games</CardTitle>
-        <CardDescription>Latest {limit} match results</CardDescription>
+        <CardTitle>Game History</CardTitle>
+        <CardDescription>
+          {limit ? `Latest ${limit} match results` : 'All match results'}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <Table>

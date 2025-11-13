@@ -69,7 +69,7 @@ export function TeamPageShell({ id }: TeamPageShellProps) {
         <TeamHeader teamId={id} />
         
         <div className="grid gap-6 md:grid-cols-2">
-          <GameHistoryTable teamId={id} limit={10} />
+          <GameHistoryTable teamId={id} />
           <LazyMomentumMeter teamId={id} />
         </div>
         
