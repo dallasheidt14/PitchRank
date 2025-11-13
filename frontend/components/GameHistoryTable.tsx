@@ -38,8 +38,9 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
   const { data: team } = useTeam(teamId);
   const displayTeamName = teamName || team?.team_name || 'this team';
   
-  const games = data?.games;
-  const lastScrapedAt = data?.lastScrapedAt;
+  // TypeScript type assertion to ensure correct type inference
+  const games = (data as { games: GameWithTeams[]; lastScrapedAt: string | null } | undefined)?.games;
+  const lastScrapedAt = (data as { games: GameWithTeams[]; lastScrapedAt: string | null } | undefined)?.lastScrapedAt ?? null;
 
   const getResult = (game: GameWithTeams, teamId: string) => {
     const isHome = game.home_team_master_id === teamId;
