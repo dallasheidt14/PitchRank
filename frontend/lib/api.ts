@@ -185,7 +185,7 @@ export const api = {
 
     const { data: teams, error: teamsError } = await supabase
       .from('teams')
-      .select('team_id_master, team_name')
+      .select('team_id_master, team_name, club_name')
       .in('team_id_master', Array.from(teamIds));
 
     if (teamsError) {
@@ -193,19 +193,27 @@ export const api = {
       // Continue without team names rather than failing
     }
 
-    const teamMap = new Map<string, string>();
-    teams?.forEach((team: { team_id_master: string; team_name: string }) => {
-      teamMap.set(team.team_id_master, team.team_name);
+    const teamNameMap = new Map<string, string>();
+    const teamClubMap = new Map<string, string | null>();
+    teams?.forEach((team: { team_id_master: string; team_name: string; club_name: string | null }) => {
+      teamNameMap.set(team.team_id_master, team.team_name);
+      teamClubMap.set(team.team_id_master, team.club_name);
     });
 
-    // Enrich games with team names
+    // Enrich games with team names and club names
     return games.map((game: Game) => ({
       ...game,
       home_team_name: game.home_team_master_id
-        ? teamMap.get(game.home_team_master_id)
+        ? teamNameMap.get(game.home_team_master_id)
         : undefined,
       away_team_name: game.away_team_master_id
-        ? teamMap.get(game.away_team_master_id)
+        ? teamNameMap.get(game.away_team_master_id)
+        : undefined,
+      home_team_club_name: game.home_team_master_id
+        ? teamClubMap.get(game.home_team_master_id)
+        : undefined,
+      away_team_club_name: game.away_team_master_id
+        ? teamClubMap.get(game.away_team_master_id)
         : undefined,
     })) as GameWithTeams[];
   },

@@ -51,6 +51,11 @@ export function GameHistoryTable({ teamId, limit }: GameHistoryTableProps) {
     return isHome ? game.away_team_name : game.home_team_name;
   };
 
+  const getOpponentClub = (game: GameWithTeams, teamId: string) => {
+    const isHome = game.home_team_master_id === teamId;
+    return isHome ? game.away_team_club_name : game.home_team_club_name;
+  };
+
   const getOpponentId = (game: GameWithTeams, teamId: string) => {
     const isHome = game.home_team_master_id === teamId;
     return isHome ? game.away_team_master_id : game.home_team_master_id;
@@ -120,6 +125,7 @@ export function GameHistoryTable({ teamId, limit }: GameHistoryTableProps) {
             {games.map((game) => {
               const result = getResult(game, teamId);
               const opponent = getOpponent(game, teamId);
+              const opponentClub = getOpponentClub(game, teamId);
               const opponentId = getOpponentId(game, teamId);
               const score = getScore(game, teamId);
 
@@ -134,14 +140,21 @@ export function GameHistoryTable({ teamId, limit }: GameHistoryTableProps) {
                   </TableCell>
                   <TableCell>
                     {opponentId && opponent ? (
-                      <Link
-                        href={`/teams/${opponentId}`}
-                        onMouseEnter={() => prefetchTeam(opponentId)}
-                        className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block"
-                        aria-label={`View ${opponent} team details`}
-                      >
-                        {opponent}
-                      </Link>
+                      <div className="flex flex-col">
+                        <Link
+                          href={`/teams/${opponentId}`}
+                          onMouseEnter={() => prefetchTeam(opponentId)}
+                          className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block"
+                          aria-label={`View ${opponent} team details`}
+                        >
+                          {opponent}
+                        </Link>
+                        {opponentClub && (
+                          <span className="text-xs text-muted-foreground mt-0.5">
+                            {opponentClub}
+                          </span>
+                        )}
+                      </div>
                     ) : (
                       <span className="text-muted-foreground">{opponent || 'Unknown'}</span>
                     )}
