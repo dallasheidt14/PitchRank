@@ -90,14 +90,14 @@ export function ComparePanel() {
 
     return {
       team1: {
-        powerScore: calculatePercentile(team1Data.national_power_score, powerScores),
+        powerScore: calculatePercentile(team1Data.national_power_score ?? 0, powerScores),
         winPercentage: team1Data.win_percentage 
           ? calculatePercentile(team1Data.win_percentage, winPercentages)
           : 0,
         gamesPlayed: calculatePercentile(team1Data.games_played, gamesPlayed),
       },
       team2: {
-        powerScore: calculatePercentile(team2Data.national_power_score, powerScores),
+        powerScore: calculatePercentile(team2Data.national_power_score ?? 0, powerScores),
         winPercentage: team2Data.win_percentage
           ? calculatePercentile(team2Data.win_percentage, winPercentages)
           : 0,
@@ -133,8 +133,8 @@ export function ComparePanel() {
   const comparisonData = team1Data && team2Data ? [
     {
       metric: 'Power Score',
-      team1: team1Data.national_power_score,
-      team2: team2Data.national_power_score,
+      team1: team1Data.national_power_score ?? 0,
+      team2: team2Data.national_power_score ?? 0,
     },
     {
       metric: 'Win %',
@@ -253,7 +253,7 @@ export function ComparePanel() {
                           </span>
                         </div>
                         <PercentileBar
-                          value={team1Data.national_power_score}
+                          value={team1Data.national_power_score ?? 0}
                           maxValue={maxPowerScore}
                           percentile={percentiles.team1.powerScore}
                         />
@@ -270,7 +270,7 @@ export function ComparePanel() {
                         </div>
                         {team1Data.win_percentage !== null && (
                           <PercentileBar
-                            value={team1Data.win_percentage}
+                            value={team1Data.win_percentage ?? 0}
                             maxValue={100}
                             percentile={percentiles.team1.winPercentage}
                           />
@@ -331,7 +331,7 @@ export function ComparePanel() {
                           </span>
                         </div>
                         <PercentileBar
-                          value={team2Data.national_power_score}
+                          value={team2Data.national_power_score ?? 0}
                           maxValue={maxPowerScore}
                           percentile={percentiles.team2.powerScore}
                         />
@@ -348,7 +348,7 @@ export function ComparePanel() {
                         </div>
                         {team2Data.win_percentage !== null && (
                           <PercentileBar
-                            value={team2Data.win_percentage}
+                            value={team2Data.win_percentage ?? 0}
                             maxValue={100}
                             percentile={percentiles.team2.winPercentage}
                           />
