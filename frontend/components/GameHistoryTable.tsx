@@ -2,6 +2,8 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { TableSkeleton } from '@/components/ui/skeletons';
+import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
+import { LastUpdated } from '@/components/ui/LastUpdated';
 import {
   Table,
   TableBody,
@@ -10,25 +12,34 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useTeamGames } from '@/lib/hooks';
+import { useTeamGames, useTeam } from '@/lib/hooks';
 // Using native Date formatting instead of date-fns
 import Link from 'next/link';
 import { usePrefetchTeam } from '@/lib/hooks';
 import type { GameWithTeams } from '@/lib/types';
+import { MissingGamesForm } from '@/components/MissingGamesForm';
 
 interface GameHistoryTableProps {
   teamId: string;
   limit?: number;
+  teamName?: string;
 }
 
 /**
  * GameHistoryTable component - displays all games for a team
  */
-export function GameHistoryTable({ teamId, limit }: GameHistoryTableProps) {
+export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTableProps) {
   // Use a very large number to fetch all games when no limit is specified
   const gamesLimit = limit ?? 10000;
-  const { data: games, isLoading, isError } = useTeamGames(teamId, gamesLimit);
+  const { data, isLoading, isError, error, refetch } = useTeamGames(teamId, gamesLimit);
   const prefetchTeam = usePrefetchTeam();
+  
+  // Fetch team name if not provided (React Query will reuse cached data from TeamHeader)
+  const { data: team } = useTeam(teamId);
+  const displayTeamName = teamName || team?.team_name || 'this team';
+  
+  const games = data?.games;
+  const lastScrapedAt = data?.lastScrapedAt;
 
   const getResult = (game: GameWithTeams, teamId: string) => {
     const isHome = game.home_team_master_id === teamId;
@@ -72,10 +83,17 @@ export function GameHistoryTable({ teamId, limit }: GameHistoryTableProps) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Game History</CardTitle>
-          <CardDescription>
-            {limit ? `Latest ${limit} match results` : 'All match results'}
-          </CardDescription>
+          <div className="flex items-start justify-between">
+            <div>
+              <CardTitle>Game History</CardTitle>
+              <CardDescription>
+                {limit ? `Latest ${limit} match results` : 'All match results'}
+              </CardDescription>
+            </div>
+            <div className="flex flex-col items-end gap-2">
+              <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <TableSkeleton rows={5} />
@@ -84,14 +102,48 @@ export function GameHistoryTable({ teamId, limit }: GameHistoryTableProps) {
     );
   }
 
-  if (isError || !games || games.length === 0) {
+  if (isError) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Game History</CardTitle>
-          <CardDescription>
-            {limit ? `Latest ${limit} match results` : 'All match results'}
-          </CardDescription>
+          <div className="flex items-start justify-between">
+            <div>
+              <CardTitle>Game History</CardTitle>
+              <CardDescription>
+                {limit ? `Latest ${limit} match results` : 'All match results'}
+              </CardDescription>
+            </div>
+            <div className="flex flex-col items-end gap-2">
+              <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <ErrorDisplay error={error} retry={refetch} fallback={
+            <div className="text-center py-8 text-muted-foreground">
+              <p>No game history available</p>
+            </div>
+          } />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!games || games.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <div className="flex items-start justify-between">
+            <div>
+              <CardTitle>Game History</CardTitle>
+              <CardDescription>
+                {limit ? `Latest ${limit} match results` : 'All match results'}
+              </CardDescription>
+            </div>
+            <div className="flex flex-col items-end gap-2">
+              <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="text-center py-8 text-muted-foreground">
@@ -105,10 +157,18 @@ export function GameHistoryTable({ teamId, limit }: GameHistoryTableProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Game History</CardTitle>
-        <CardDescription>
-          {limit ? `Latest ${limit} match results` : 'All match results'}
-        </CardDescription>
+        <div className="flex items-start justify-between">
+          <div>
+            <CardTitle>Game History</CardTitle>
+            <CardDescription>
+              {limit ? `Latest ${limit} match results` : 'All match results'}
+            </CardDescription>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            <LastUpdated date={lastScrapedAt} label="Data updated" />
+            <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
+          </div>
+        </div>
       </CardHeader>
       <CardContent>
         <Table>
