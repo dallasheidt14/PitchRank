@@ -7,6 +7,7 @@ import { GameHistoryTable } from '@/components/GameHistoryTable';
 import { MomentumMeter } from '@/components/MomentumMeter';
 import dynamic from 'next/dynamic';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { Suspense } from 'react';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
 
@@ -34,8 +35,28 @@ function BackToRankingsButton() {
   const ageGroup = searchParams.get('ageGroup') || 'u12';
   const gender = searchParams.get('gender') || 'male';
 
+  // Validate and sanitize parameters
+  const validAgeGroups = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18'];
+  const validGenders = ['male', 'female'];
+  
+  const sanitizedAgeGroup = validAgeGroups.includes(ageGroup.toLowerCase()) 
+    ? ageGroup.toLowerCase() 
+    : 'u12';
+  const sanitizedGender = validGenders.includes(gender.toLowerCase())
+    ? gender.toLowerCase()
+    : 'male';
+  const sanitizedRegion = region.toLowerCase() === 'national' 
+    ? 'national' 
+    : region.toLowerCase().slice(0, 2); // Ensure state codes are 2 letters
+
   const handleBackToRankings = () => {
-    router.push(`/rankings/${region}/${ageGroup}/${gender}`);
+    try {
+      router.push(`/rankings/${sanitizedRegion}/${sanitizedAgeGroup}/${sanitizedGender}`);
+    } catch (error) {
+      console.error('Error navigating to rankings:', error);
+      // Fallback to default rankings page
+      router.push('/rankings/national/u12/male');
+    }
   };
 
   return (
@@ -63,7 +84,9 @@ export function TeamPageShell({ id }: TeamPageShellProps) {
         backHref="/"
       />
       
-      <BackToRankingsButton />
+      <Suspense fallback={<div className="mb-4 h-9" />}>
+        <BackToRankingsButton />
+      </Suspense>
       
       <div className="space-y-6">
         <TeamHeader teamId={id} />
