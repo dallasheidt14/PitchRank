@@ -23,6 +23,8 @@ export const api = {
    * @returns Team object
    */
   async getTeam(id: string): Promise<Team> {
+    console.log('[api.getTeam] Fetching team with id:', id);
+    
     const { data, error } = await supabase
       .from('teams')
       .select('*')
@@ -30,14 +32,22 @@ export const api = {
       .maybeSingle();
 
     if (error) {
-      console.error('Error fetching team:', error);
+      console.error('[api.getTeam] Supabase error:', error);
+      console.error('[api.getTeam] Error details:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+      });
       throw error;
     }
 
     if (!data) {
+      console.warn('[api.getTeam] No team found with id:', id);
       throw new Error(`Team with id ${id} not found`);
     }
 
+    console.log('[api.getTeam] Successfully fetched team:', data.team_name);
     return data as Team;
   },
 
