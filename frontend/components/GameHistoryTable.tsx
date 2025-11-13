@@ -39,10 +39,11 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
   const { data: team } = useTeam(teamId);
   const displayTeamName = teamName || team?.team_name || 'this team';
   
-  // Extract games and lastScrapedAt from data
-  // Handle both the correct type and potential undefined/null cases
-  const games: GameWithTeams[] | undefined = data?.games;
-  const lastScrapedAt: string | null = data?.lastScrapedAt ?? null;
+  // Extract games and lastScrapedAt from data with proper typing
+  type TeamGamesData = { games: GameWithTeams[]; lastScrapedAt: string | null };
+  const gamesData = data as TeamGamesData | undefined;
+  const games: GameWithTeams[] | undefined = gamesData?.games;
+  const lastScrapedAt: string | null = gamesData?.lastScrapedAt ?? null;
 
   // Debug logging
   useEffect(() => {
