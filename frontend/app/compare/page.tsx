@@ -1,5 +1,7 @@
+import { Suspense } from 'react';
 import { PageHeader } from '@/components/PageHeader';
 import { ComparePanel } from '@/components/ComparePanel';
+import { CardSkeleton } from '@/components/ui/skeletons';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
@@ -18,7 +20,9 @@ export default function ComparePage() {
       />
       
       <div className="max-w-6xl mx-auto">
-        <ComparePanel />
+        <Suspense fallback={<CardSkeleton />}>
+          <ComparePanel />
+        </Suspense>
       </div>
     </div>
   );

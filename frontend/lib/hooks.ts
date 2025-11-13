@@ -89,3 +89,19 @@ export function usePrefetchTeam() {
   };
 }
 
+/**
+ * Get common opponents between two teams
+ * @param team1Id - First team's team_id_master UUID
+ * @param team2Id - Second team's team_id_master UUID
+ * @returns React Query hook result with common opponents data
+ */
+export function useCommonOpponents(team1Id: string | null, team2Id: string | null) {
+  return useQuery({
+    queryKey: ['common-opponents', team1Id, team2Id],
+    queryFn: () => api.getCommonOpponents(team1Id!, team2Id!),
+    enabled: !!team1Id && !!team2Id && team1Id !== team2Id,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    gcTime: 30 * 60 * 1000, // Keep in cache for 30 minutes
+  });
+}
+

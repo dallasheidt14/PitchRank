@@ -1,8 +1,10 @@
 'use client';
 
+import { Suspense } from 'react';
 import { PageHeader } from '@/components/PageHeader';
 import { RankingsFilter } from '@/components/RankingsFilter';
 import { RankingsTable } from '@/components/RankingsTable';
+import { RankingsTableSkeleton } from '@/components/skeletons/RankingsTableSkeleton';
 
 // Revalidate every hour for ISR caching
 export const revalidate = 3600;
@@ -36,11 +38,13 @@ export default function RankingsPage({ params }: RankingsPageProps) {
       <div className="space-y-6">
         <RankingsFilter />
         
-        <RankingsTable
-          region={region === 'national' ? null : region}
-          ageGroup={ageGroup}
-          gender={genderForAPI}
-        />
+        <Suspense fallback={<RankingsTableSkeleton />}>
+          <RankingsTable
+            region={region === 'national' ? null : region}
+            ageGroup={ageGroup}
+            gender={genderForAPI}
+          />
+        </Suspense>
       </div>
     </div>
   );

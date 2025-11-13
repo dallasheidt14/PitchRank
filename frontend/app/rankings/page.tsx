@@ -1,19 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { PageHeader } from '@/components/PageHeader';
 import { RankingsFilter } from '@/components/RankingsFilter';
 import { RankingsTable } from '@/components/RankingsTable';
+import { RankingsTableSkeleton } from '@/components/skeletons/RankingsTableSkeleton';
 
 export default function RankingsPage() {
-  // Default filters
-  const defaultRegion = 'national';
-  const defaultAgeGroup = 'u12';
-  const defaultGender = 'male';
-  
-  const [region, setRegion] = useState(defaultRegion);
-  const [ageGroup, setAgeGroup] = useState(defaultAgeGroup);
-  const [gender, setGender] = useState(defaultGender);
+  // Default filters - these will be updated by RankingsFilter component
+  const [region, setRegion] = useState('national');
+  const [ageGroup, setAgeGroup] = useState('u12');
+  const [gender, setGender] = useState('male');
 
   // Convert gender from URL format (lowercase) to API format (capitalized)
   const genderForAPI = gender 
@@ -30,13 +27,21 @@ export default function RankingsPage() {
       />
       
       <div className="space-y-6">
-        <RankingsFilter />
-        
-        <RankingsTable
-          region={region === 'national' ? null : region}
-          ageGroup={ageGroup}
-          gender={genderForAPI}
+        <RankingsFilter 
+          onFilterChange={(r, a, g) => {
+            setRegion(r);
+            setAgeGroup(a);
+            setGender(g);
+          }}
         />
+        
+        <Suspense fallback={<RankingsTableSkeleton />}>
+          <RankingsTable
+            region={region === 'national' ? null : region}
+            ageGroup={ageGroup}
+            gender={genderForAPI}
+          />
+        </Suspense>
       </div>
     </div>
   );

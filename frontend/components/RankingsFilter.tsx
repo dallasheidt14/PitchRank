@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -12,9 +12,16 @@ import {
 } from "@/components/ui/select";
 import { US_STATES } from "@/lib/constants";
 
-export function RankingsFilter() {
+interface RankingsFilterProps {
+  onFilterChange?: (region: string, ageGroup: string, gender: string) => void;
+}
+
+export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
   const router = useRouter();
   const pathname = usePathname();
+  
+  // Track if we're navigating internally to prevent infinite loops
+  const isNavigatingRef = useRef(false);
 
   // Extract current URL parts → /rankings/[region]/[ageGroup]/[gender]
   const pathParts = pathname.split("/").filter(Boolean);
@@ -27,16 +34,34 @@ export function RankingsFilter() {
   const [gender, setGender] = useState(currentGender);
 
   // Keep dropdowns in sync with the URL when user navigates via links
+  // Skip sync if we're the ones causing the navigation (prevents infinite loop)
   useEffect(() => {
-    setRegion(currentRegion);
-    setAgeGroup(currentAgeGroup);
-    setGender(currentGender);
-  }, [currentRegion, currentAgeGroup, currentGender]);
+    // Don't sync state if we're navigating internally
+    if (isNavigatingRef.current) {
+      return;
+    }
+    
+    // Only sync if URL params actually changed
+    if (
+      currentRegion !== region ||
+      currentAgeGroup !== ageGroup ||
+      currentGender !== gender
+    ) {
+      setRegion(currentRegion);
+      setAgeGroup(currentAgeGroup);
+      setGender(currentGender);
+    }
+  }, [currentRegion, currentAgeGroup, currentGender, region, ageGroup, gender]);
 
-  // Auto-navigate when filters change (debounced)
-  // Only navigate if the current pathname doesn't match the selected filters
+  // Handle filter changes
   useEffect(() => {
-    // Don't navigate if we're not on a rankings route
+    // If on home rankings page, use callback
+    if (pathname === '/rankings' && onFilterChange) {
+      onFilterChange(region, ageGroup, gender);
+      return;
+    }
+
+    // Otherwise, navigate to filtered route
     if (!pathname.startsWith('/rankings/')) {
       return;
     }
@@ -49,11 +74,23 @@ export function RankingsFilter() {
       return;
     }
     
+    // Mark that we're navigating internally
+    isNavigatingRef.current = true;
+    
     const timeout = setTimeout(() => {
       router.replace(targetPath);
+      // Reset navigation flag after a short delay to allow URL to update
+      setTimeout(() => {
+        isNavigatingRef.current = false;
+      }, 100);
     }, 250);
-    return () => clearTimeout(timeout);
-  }, [region, ageGroup, gender, router, pathname]);
+    
+    return () => {
+      clearTimeout(timeout);
+      // Reset flag if effect is cleaned up
+      isNavigatingRef.current = false;
+    };
+  }, [region, ageGroup, gender, router, pathname, onFilterChange]);
 
   return (
     <Card className="w-full max-w-3xl mx-auto mb-6">

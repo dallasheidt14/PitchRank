@@ -1,25 +1,50 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { useRankings } from '@/lib/hooks';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { RankingWithTeam } from '@/lib/types';
+import type { RankingRow } from '@/types/RankingRow';
 
 interface TeamSelectorProps {
   label: string;
   value: string | null;
-  onChange: (teamId: string | null, team: RankingWithTeam | null) => void;
+  onChange: (teamId: string | null, team: RankingRow | null) => void;
   excludeTeamId?: string;
 }
 
 /**
- * TeamSelector component - autocomplete team selector using rankings data
+ * Highlight matching text in a string
+ */
+function highlightMatch(text: string, query: string): React.ReactNode {
+  if (!query) return text;
+  
+  const parts = text.split(new RegExp(`(${query})`, 'gi'));
+  return (
+    <>
+      {parts.map((part, index) => 
+        part.toLowerCase() === query.toLowerCase() ? (
+          <mark key={index} className="bg-yellow-200 dark:bg-yellow-900 px-1 rounded">
+            {part}
+          </mark>
+        ) : (
+          part
+        )
+      )}
+    </>
+  );
+}
+
+/**
+ * TeamSelector component - enhanced autocomplete team selector with keyboard navigation
  */
 export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSelectorProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   
   // Fetch all rankings for autocomplete (no filters)
   const { data: allRankings, isLoading } = useRankings();
@@ -43,11 +68,51 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
       .slice(0, 10); // Limit to 10 results
   }, [allRankings, searchQuery, excludeTeamId]);
 
-  const handleSelect = (team: RankingWithTeam) => {
+  // Reset selected index when filtered teams change
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [filteredTeams.length]);
+
+  const handleSelect = (team: RankingRow) => {
     onChange(team.team_id_master, team);
     setSearchQuery(team.team_name);
     setIsOpen(false);
+    setSelectedIndex(0);
   };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!isOpen || filteredTeams.length === 0) return;
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setSelectedIndex((prev) => (prev + 1) % filteredTeams.length);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setSelectedIndex((prev) => (prev - 1 + filteredTeams.length) % filteredTeams.length);
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (filteredTeams[selectedIndex]) {
+          handleSelect(filteredTeams[selectedIndex]);
+        }
+        break;
+      case 'Escape':
+        setIsOpen(false);
+        break;
+    }
+  };
+
+  // Scroll selected item into view
+  useEffect(() => {
+    if (listRef.current && selectedIndex >= 0) {
+      const selectedElement = listRef.current.children[selectedIndex] as HTMLElement;
+      if (selectedElement) {
+        selectedElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+  }, [selectedIndex]);
 
   return (
     <div className="relative">
@@ -56,6 +121,7 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
       </label>
       <div className="relative">
         <Input
+          ref={inputRef}
           id={`team-selector-${label}`}
           type="text"
           placeholder="Search for a team..."
@@ -66,14 +132,15 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
           }}
           onFocus={() => setIsOpen(true)}
           onBlur={() => setTimeout(() => setIsOpen(false), 200)}
+          onKeyDown={handleKeyDown}
           className="w-full transition-colors duration-300"
           aria-label={`Search and select ${label.toLowerCase()}`}
           aria-autocomplete="list"
           aria-expanded={isOpen && filteredTeams.length > 0}
         />
         {isOpen && searchQuery && filteredTeams.length > 0 && (
-          <Card className="absolute z-50 w-full mt-1 max-h-60 overflow-y-auto">
-            <CardContent className="p-2">
+          <Card className="absolute z-50 w-full mt-1 max-h-60 overflow-y-auto shadow-lg">
+            <CardContent className="p-2" ref={listRef}>
               {isLoading ? (
                 <div className="space-y-2">
                   <Skeleton className="h-10 w-full" />
@@ -81,19 +148,27 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
                 </div>
               ) : (
                 <div className="space-y-1">
-                  {filteredTeams.map((team) => (
+                  {filteredTeams.map((team, index) => (
                     <button
                       key={team.team_id_master}
                       onClick={() => handleSelect(team)}
-                      className="w-full text-left p-2 rounded-md hover:bg-accent transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary"
+                      className={`w-full text-left p-2 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary ${
+                        index === selectedIndex
+                          ? 'bg-accent font-semibold'
+                          : 'hover:bg-accent/50'
+                      }`}
                       aria-label={`Select ${team.team_name}`}
                     >
-                      <div className="font-medium">{team.team_name}</div>
+                      <div className="font-medium">
+                        {highlightMatch(team.team_name, searchQuery)}
+                      </div>
                       <div className="text-xs text-muted-foreground">
-                        {team.club_name && <span>{team.club_name}</span>}
+                        {team.club_name && (
+                          <span>{highlightMatch(team.club_name, searchQuery)}</span>
+                        )}
                         {team.state_code && (
                           <span className={team.club_name ? ' • ' : ''}>
-                            {team.state_code}
+                            {team.state_code.toUpperCase()}
                           </span>
                         )}
                         {team.national_rank && (
@@ -116,4 +191,3 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
     </div>
   );
 }
-
