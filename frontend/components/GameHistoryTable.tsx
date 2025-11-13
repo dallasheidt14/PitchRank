@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { TableSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
@@ -38,9 +39,23 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
   const { data: team } = useTeam(teamId);
   const displayTeamName = teamName || team?.team_name || 'this team';
   
-  // TypeScript type assertion to ensure correct type inference
-  const games = (data as { games: GameWithTeams[]; lastScrapedAt: string | null } | undefined)?.games;
-  const lastScrapedAt = (data as { games: GameWithTeams[]; lastScrapedAt: string | null } | undefined)?.lastScrapedAt ?? null;
+  // Extract games and lastScrapedAt from data
+  // Handle both the correct type and potential undefined/null cases
+  const games: GameWithTeams[] | undefined = data?.games;
+  const lastScrapedAt: string | null = data?.lastScrapedAt ?? null;
+
+  // Debug logging
+  useEffect(() => {
+    console.log('[GameHistoryTable] Data state:', {
+      hasData: !!data,
+      dataType: typeof data,
+      gamesLength: games?.length,
+      isLoading,
+      isError,
+      error: error?.message,
+      teamId,
+    });
+  }, [data, games, isLoading, isError, error, teamId]);
 
   const getResult = (game: GameWithTeams, teamId: string) => {
     const isHome = game.home_team_master_id === teamId;
