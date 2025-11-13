@@ -21,22 +21,32 @@ export async function generateMetadata({ params }: TeamPageProps): Promise<Metad
     return { title: 'Team | PitchRank' };
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  try {
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-  const { data: team } = await supabase
-    .from('teams')
-    .select('team_name, club_name, state_code')
-    .eq('team_id_master', params.id)
-    .maybeSingle();
+    const { data: team, error } = await supabase
+      .from('teams')
+      .select('team_name, club_name, state_code')
+      .eq('team_id_master', params.id)
+      .maybeSingle();
 
-  if (!team) {
-    return { title: 'Team Not Found | PitchRank' };
+    if (error) {
+      console.error('Error fetching team metadata:', error);
+      return { title: 'Team | PitchRank' };
+    }
+
+    if (!team) {
+      return { title: 'Team Not Found | PitchRank' };
+    }
+
+    return {
+      title: `${team.team_name}${team.state_code ? ` (${team.state_code})` : ''} | PitchRank`,
+      description: `View rankings, trajectory, momentum, and full profile for ${team.team_name}${team.club_name ? ` from ${team.club_name}` : ''}.`,
+    };
+  } catch (error) {
+    console.error('Error in generateMetadata:', error);
+    return { title: 'Team | PitchRank' };
   }
-
-  return {
-    title: `${team.team_name}${team.state_code ? ` (${team.state_code})` : ''} | PitchRank`,
-    description: `View rankings, trajectory, momentum, and full profile for ${team.team_name}${team.club_name ? ` from ${team.club_name}` : ''}.`,
-  };
 }
 
 export default function Page({ params }: TeamPageProps) {
