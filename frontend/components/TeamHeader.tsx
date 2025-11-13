@@ -98,6 +98,11 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
     );
   }
 
+  // TypeScript guard: if we reach here and loading is done, team must exist
+  if (!team) {
+    return null; // Should not happen, but satisfies TypeScript
+  }
+
   return (
     <Card>
       <CardContent className="pt-6">
