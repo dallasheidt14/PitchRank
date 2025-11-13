@@ -5,7 +5,6 @@ import { TeamHeader } from '@/components/TeamHeader';
 import { TeamTrajectoryChart } from '@/components/TeamTrajectoryChart';
 import { GameHistoryTable } from '@/components/GameHistoryTable';
 import { MomentumMeter } from '@/components/MomentumMeter';
-import { Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -64,9 +63,7 @@ export function TeamPageShell({ id }: TeamPageShellProps) {
         backHref="/"
       />
       
-      <Suspense fallback={<div className="mb-4 h-9" />}>
-        <BackToRankingsButton />
-      </Suspense>
+      <BackToRankingsButton />
       
       <div className="space-y-6">
         <TeamHeader teamId={id} />
