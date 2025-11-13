@@ -5,9 +5,9 @@ import { Suspense } from 'react';
 import type { Metadata } from 'next';
 
 interface TeamPageProps {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 }
 
 // ISR: Revalidate every hour
@@ -23,11 +23,14 @@ export async function generateMetadata({ params }: TeamPageProps): Promise<Metad
 
   try {
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    
+    // In Next.js 15, params might be a Promise - await it if needed
+    const resolvedParams = await params;
 
     const { data: team, error } = await supabase
       .from('teams')
       .select('team_name, club_name, state_code')
-      .eq('team_id_master', params.id)
+      .eq('team_id_master', resolvedParams.id)
       .maybeSingle();
 
     if (error) {
@@ -49,10 +52,13 @@ export async function generateMetadata({ params }: TeamPageProps): Promise<Metad
   }
 }
 
-export default function Page({ params }: TeamPageProps) {
+export default async function Page({ params }: TeamPageProps) {
+  // In Next.js 16, params is a Promise - await it
+  const resolvedParams = await params;
+  
   return (
     <Suspense fallback={<TeamPageSkeleton />}>
-      <TeamPageShell id={params.id} />
+      <TeamPageShell id={resolvedParams.id} />
     </Suspense>
   );
 }
