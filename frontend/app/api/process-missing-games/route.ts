@@ -10,10 +10,12 @@ import { createClient } from '@supabase/supabase-js';
  *    {
  *      "crons": [{
  *        "path": "/api/process-missing-games",
- *        "schedule": "*/5 * * * *"
+ *        "schedule": "every 5 minutes"
  *      }]
  *    }
  * 2. Or use Vercel Dashboard → Settings → Cron Jobs
+ * 
+ * Note: Processing is handled by GitHub Actions workflow, not this endpoint
  */
 export async function GET(request: NextRequest) {
   try {
