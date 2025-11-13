@@ -32,13 +32,31 @@ export { useRankings } from '@/hooks/useRankings';
  * @returns React Query hook result with team data
  */
 export function useTeam(id: string) {
-  return useQuery<Team>({
+  console.log('[useTeam] Hook called with id:', id);
+  const query = useQuery<Team>({
     queryKey: ['team', id],
-    queryFn: () => api.getTeam(id),
+    queryFn: async () => {
+      console.log('[useTeam] Query function executing with id:', id);
+      const result = await api.getTeam(id);
+      console.log('[useTeam] Query function returned:', result?.team_name);
+      return result;
+    },
     enabled: !!id, // Only run query if id is provided
     staleTime: 10 * 60 * 1000, // 10 minutes
     gcTime: 60 * 60 * 1000, // Keep in cache for 1 hour
+    retry: 1, // Retry once on failure
   });
+  
+  console.log('[useTeam] Query state:', {
+    id,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    data: query.data ? { name: query.data.team_name } : null,
+    queryKey: ['team', id],
+  });
+  
+  return query;
 }
 
 /**
