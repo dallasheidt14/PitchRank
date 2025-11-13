@@ -17,7 +17,7 @@ interface TeamHeaderProps {
  * TeamHeader component - displays team information header
  */
 export function TeamHeader({ teamId }: TeamHeaderProps) {
-  const { data: team, isLoading: teamLoading, isError: teamError } = useTeam(teamId);
+  const { data: team, isLoading: teamLoading, isError: teamError, error: teamErrorObj } = useTeam(teamId);
   const [watched, setWatched] = useState(false);
   
   // Get ranking for this team
@@ -64,7 +64,14 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
       <Card>
         <CardContent className="pt-6">
           <div className="rounded-lg bg-destructive/10 p-4 text-destructive">
-            <p className="text-sm">Failed to load team information.</p>
+            <p className="text-sm font-semibold mb-2">Failed to load team information.</p>
+            {process.env.NODE_ENV === 'development' && teamErrorObj && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Error: {teamErrorObj instanceof Error ? teamErrorObj.message : JSON.stringify(teamErrorObj)}
+                <br />
+                Team ID: {teamId}
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
