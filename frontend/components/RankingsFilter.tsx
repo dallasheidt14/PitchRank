@@ -10,6 +10,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
+import { US_STATES } from "@/lib/constants";
 
 export function RankingsFilter() {
   const router = useRouter();
@@ -66,56 +67,11 @@ export function RankingsFilter() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="national">National</SelectItem>
-              <SelectItem value="al">Alabama</SelectItem>
-              <SelectItem value="ak">Alaska</SelectItem>
-              <SelectItem value="az">Arizona</SelectItem>
-              <SelectItem value="ar">Arkansas</SelectItem>
-              <SelectItem value="ca">California</SelectItem>
-              <SelectItem value="co">Colorado</SelectItem>
-              <SelectItem value="ct">Connecticut</SelectItem>
-              <SelectItem value="de">Delaware</SelectItem>
-              <SelectItem value="fl">Florida</SelectItem>
-              <SelectItem value="ga">Georgia</SelectItem>
-              <SelectItem value="hi">Hawaii</SelectItem>
-              <SelectItem value="id">Idaho</SelectItem>
-              <SelectItem value="il">Illinois</SelectItem>
-              <SelectItem value="in">Indiana</SelectItem>
-              <SelectItem value="ia">Iowa</SelectItem>
-              <SelectItem value="ks">Kansas</SelectItem>
-              <SelectItem value="ky">Kentucky</SelectItem>
-              <SelectItem value="la">Louisiana</SelectItem>
-              <SelectItem value="me">Maine</SelectItem>
-              <SelectItem value="md">Maryland</SelectItem>
-              <SelectItem value="ma">Massachusetts</SelectItem>
-              <SelectItem value="mi">Michigan</SelectItem>
-              <SelectItem value="mn">Minnesota</SelectItem>
-              <SelectItem value="ms">Mississippi</SelectItem>
-              <SelectItem value="mo">Missouri</SelectItem>
-              <SelectItem value="mt">Montana</SelectItem>
-              <SelectItem value="ne">Nebraska</SelectItem>
-              <SelectItem value="nv">Nevada</SelectItem>
-              <SelectItem value="nh">New Hampshire</SelectItem>
-              <SelectItem value="nj">New Jersey</SelectItem>
-              <SelectItem value="nm">New Mexico</SelectItem>
-              <SelectItem value="ny">New York</SelectItem>
-              <SelectItem value="nc">North Carolina</SelectItem>
-              <SelectItem value="nd">North Dakota</SelectItem>
-              <SelectItem value="oh">Ohio</SelectItem>
-              <SelectItem value="ok">Oklahoma</SelectItem>
-              <SelectItem value="or">Oregon</SelectItem>
-              <SelectItem value="pa">Pennsylvania</SelectItem>
-              <SelectItem value="ri">Rhode Island</SelectItem>
-              <SelectItem value="sc">South Carolina</SelectItem>
-              <SelectItem value="sd">South Dakota</SelectItem>
-              <SelectItem value="tn">Tennessee</SelectItem>
-              <SelectItem value="tx">Texas</SelectItem>
-              <SelectItem value="ut">Utah</SelectItem>
-              <SelectItem value="vt">Vermont</SelectItem>
-              <SelectItem value="va">Virginia</SelectItem>
-              <SelectItem value="wa">Washington</SelectItem>
-              <SelectItem value="wv">West Virginia</SelectItem>
-              <SelectItem value="wi">Wisconsin</SelectItem>
-              <SelectItem value="wy">Wyoming</SelectItem>
+              {US_STATES.map(({ code, name }) => (
+                <SelectItem key={code} value={code}>
+                  {name}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
