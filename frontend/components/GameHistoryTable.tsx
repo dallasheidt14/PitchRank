@@ -58,19 +58,29 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
     });
   }, [data, games, isLoading, isError, error, teamId]);
 
+  /**
+   * Get color class for result based on ML over/underperformance
+   * @param was_overperformed - true = overperformed (green), false = underperformed (red), null = neutral (gray)
+   */
+  const resultColor = (was_overperformed?: boolean | null): string => {
+    if (was_overperformed === true) return "text-green-600 dark:text-green-400 font-bold";
+    if (was_overperformed === false) return "text-red-600 dark:text-red-400 font-bold";
+    return "text-gray-700 dark:text-gray-300"; // neutral
+  };
+
   const getResult = (game: GameWithTeams, teamId: string) => {
     const isHome = game.home_team_master_id === teamId;
     const teamScore = isHome ? game.home_score : game.away_score;
     const opponentScore = isHome ? game.away_score : game.home_score;
 
-    if (teamScore === null || opponentScore === null) return { text: '—', class: '' };
+    if (teamScore === null || opponentScore === null) return { text: '—' };
 
     if (teamScore > opponentScore) {
-      return { text: 'W', class: 'text-green-600 dark:text-green-400 font-semibold' };
+      return { text: 'W' };
     } else if (teamScore < opponentScore) {
-      return { text: 'L', class: 'text-red-600 dark:text-red-400 font-semibold' };
+      return { text: 'L' };
     } else {
-      return { text: 'D', class: 'text-yellow-600 dark:text-yellow-400 font-semibold' };
+      return { text: 'D' };
     }
   };
 
@@ -237,7 +247,9 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                     )}
                   </TableCell>
                   <TableCell className="text-center">
-                    <span className={result.class}>{result.text}</span>
+                    <span className={resultColor(game.was_overperformed)}>
+                      {result.text}
+                    </span>
                   </TableCell>
                   <TableCell className="text-right font-mono">
                     {score.team !== null && score.opponent !== null

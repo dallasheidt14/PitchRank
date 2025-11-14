@@ -6,11 +6,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { RankingsTableSkeleton } from '@/components/skeletons/RankingsTableSkeleton';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { useRankings } from '@/hooks/useRankings';
-import { useTeamTrajectory } from '@/lib/hooks';
 import { usePrefetchTeam } from '@/lib/hooks';
 import Link from 'next/link';
 import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
-import { LineChart, Line, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { formatPowerScore, formatSOSIndex } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
@@ -24,44 +22,7 @@ interface RankingsTableProps {
 type SortField = 'rank' | 'team' | 'powerScore' | 'winPercentage' | 'gamesPlayed' | 'sos' | 'sosRank';
 type SortDirection = 'asc' | 'desc';
 
-interface RankingWithDelta extends RankingRow {
-  delta: number;
-}
-
 const ROW_HEIGHT = 60; // Estimated row height in pixels
-
-/**
- * Mini sparkline component for trajectory visualization
- */
-function MiniSparkline({ teamId }: { teamId: string }) {
-  const { data: trajectory } = useTeamTrajectory(teamId, 30);
-  
-  const sparklineData = useMemo(() => {
-    if (!trajectory || trajectory.length === 0) return [];
-    return trajectory.slice(-6).map((point) => ({
-      value: point.win_percentage,
-    }));
-  }, [trajectory]);
-
-  if (!sparklineData || sparklineData.length === 0) {
-    return <span className="text-xs text-muted-foreground">—</span>;
-  }
-
-  return (
-    <ResponsiveContainer width={60} height={20}>
-      <LineChart data={sparklineData}>
-        <Line
-          type="monotone"
-          dataKey="value"
-          stroke="hsl(var(--chart-1))"
-          strokeWidth={2}
-          dot={false}
-        />
-        <RechartsTooltip content={() => null} />
-      </LineChart>
-    </ResponsiveContainer>
-  );
-}
 
 /**
  * Get border color class for top teams
@@ -85,32 +46,35 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   const { data: rankings, isLoading, isError, error, refetch } = useRankings(region, ageGroup, gender);
   const prefetchTeam = usePrefetchTeam();
 
-  // Calculate delta for each team (national rank change)
-  const rankingsWithDelta = useMemo(() => {
-    if (!rankings || rankings.length < 2) return [];
-    
-    return rankings.map((team, index) => {
-      const previousRank = index > 0 ? rankings[index - 1].national_rank : null;
-      const delta = previousRank && team.national_rank
-        ? previousRank - team.national_rank
-        : 0;
-      return { ...team, delta } as RankingWithDelta;
-    });
+  // Optimized SOS Rank calculation per cohort
+  const sortedBySOS = useMemo(() => {
+    if (!rankings) return [];
+    return [...rankings]
+      .filter(t => typeof t.sos_norm === "number")
+      .sort((a, b) => (b.sos_norm ?? 0) - (a.sos_norm ?? 0));
   }, [rankings]);
+
+  const sosRanks = useMemo(() => {
+    const map: Record<string, number> = {};
+    sortedBySOS.forEach((t, i) => {
+      map[t.team_id_master] = i + 1;
+    });
+    return map;
+  }, [sortedBySOS]);
 
   // Sort rankings based on selected field
   const sortedRankings = useMemo(() => {
-    if (!rankingsWithDelta) return [];
+    if (!rankings) return [];
 
-    const sorted = [...rankingsWithDelta].sort((a, b) => {
+    const sorted = [...rankings].sort((a, b) => {
       let aValue: number | string;
       let bValue: number | string;
 
       switch (sortField) {
         case 'rank':
-          // Use state_rank if region is set, otherwise national_rank
-          aValue = region ? (a.state_rank ?? Infinity) : (a.national_rank ?? Infinity);
-          bValue = region ? (b.state_rank ?? Infinity) : (b.national_rank ?? Infinity);
+          // Use rank_in_state_final if region is set, otherwise rank_in_cohort_final
+          aValue = region ? (a.rank_in_state_final ?? Infinity) : (a.rank_in_cohort_final ?? Infinity);
+          bValue = region ? (b.rank_in_state_final ?? Infinity) : (b.rank_in_cohort_final ?? Infinity);
           break;
         case 'team':
           aValue = a.team_name.toLowerCase();
@@ -135,13 +99,8 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
           bValue = b.sos_norm ?? 0;
           break;
         case 'sosRank':
-          if (region) {
-            aValue = a.state_sos_rank ?? Infinity;
-            bValue = b.state_sos_rank ?? Infinity;
-          } else {
-            aValue = a.national_sos_rank ?? Infinity;
-            bValue = b.national_sos_rank ?? Infinity;
-          }
+          aValue = sosRanks[a.team_id_master] ?? Infinity;
+          bValue = sosRanks[b.team_id_master] ?? Infinity;
           break;
         default:
           return 0;
@@ -159,7 +118,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     });
 
     return sorted;
-  }, [rankingsWithDelta, sortField, sortDirection, region]);
+  }, [rankings, sortField, sortDirection, region, sosRanks]);
 
   // Virtualizer for rendering only visible rows
   const virtualizer = useVirtualizer({
@@ -235,7 +194,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
       ? totalHeight - (virtualItems[virtualItems.length - 1]?.end ?? 0)
       : 0;
 
-  const columnCount = region ? 8 : 9;
+  const columnCount = region ? 7 : 8;
 
   return (
     <Card>
@@ -251,18 +210,13 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
         ) : (
           <div className="rounded-md border overflow-hidden">
             {/* Table Header */}
-            <div className="grid border-b bg-muted/50 sticky top-0 z-10" style={{ gridTemplateColumns: region ? '80px 2fr 1fr 1fr 1fr 1fr 1fr 1fr' : '80px 2fr 100px 1fr 1fr 1fr 1fr 1fr 1fr' }}>
+            <div className="grid border-b bg-muted/50 sticky top-0 z-10" style={{ gridTemplateColumns: region ? '80px 2fr 1fr 1fr 1fr 1fr 1fr' : '80px 2fr 1fr 1fr 1fr 1fr 1fr 1fr' }}>
               <div className="px-4 py-3 font-medium">
                 <SortButton field="rank" label="Rank" />
               </div>
               <div className="px-4 py-3 font-medium">
                 <SortButton field="team" label="Team" />
               </div>
-              {!region && (
-                <div className="px-4 py-3 font-medium text-center">
-                  Δ (National)
-                </div>
-              )}
               <div className="px-4 py-3 font-medium text-right">
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -282,7 +236,16 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                 <SortButton field="gamesPlayed" label="Games" />
               </div>
               <div className="px-4 py-3 font-medium text-right">
-                <SortButton field="sosRank" label="SOS Rank" />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div>
+                      <SortButton field="sosRank" label="SOS Rank (Cohort)" />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>SOS Rank is computed within this age and gender cohort using sos_norm.</p>
+                  </TooltipContent>
+                </Tooltip>
               </div>
               <div className="px-4 py-3 font-medium text-right">
                 <Tooltip>
@@ -295,9 +258,6 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                     <p>Strength of Schedule normalized within each age group and gender (0 = softest schedule, 100 = toughest).</p>
                   </TooltipContent>
                 </Tooltip>
-              </div>
-              <div className="px-4 py-3 font-medium text-center">
-                Trajectory
               </div>
             </div>
 
@@ -319,7 +279,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                 )}
                 {virtualItems.map((virtualRow) => {
                   const team = sortedRankings[virtualRow.index];
-                  const displayRank = region ? team.state_rank : team.national_rank;
+                  const displayRank = region ? team.rank_in_state_final : team.rank_in_cohort_final;
                   const borderClass = getRankBorderClass(displayRank ?? null);
 
                   return (
@@ -335,7 +295,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                         ${borderClass}
                       `}
                       style={{
-                        gridTemplateColumns: region ? '80px 2fr 1fr 1fr 1fr 1fr 1fr 1fr' : '80px 2fr 100px 1fr 1fr 1fr 1fr 1fr 1fr',
+                        gridTemplateColumns: region ? '80px 2fr 1fr 1fr 1fr 1fr 1fr' : '80px 2fr 1fr 1fr 1fr 1fr 1fr 1fr',
                         position: 'absolute',
                         top: 0,
                         left: 0,
@@ -344,8 +304,15 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                         transform: `translateY(${virtualRow.start}px)`,
                       }}
                     >
+                      {/* Temporary verification logging (first row only) */}
+                      {virtualRow.index === 0 && console.log("SOS DEBUG:", {
+                        team: team.team_name,
+                        sos_norm: team.sos_norm,
+                        sosIndex: formatSOSIndex(team.sos_norm),
+                        sosRank: sosRanks[team.team_id_master]
+                      })}
                       <div className="px-4 py-3 font-semibold flex items-center">
-                        {region ? (team.state_rank ?? '—') : (team.national_rank ?? '—')}
+                        {region ? (team.rank_in_state_final ?? '—') : (team.rank_in_cohort_final ?? '—')}
                       </div>
                       <div className="px-4 py-3">
                         <Link
@@ -365,27 +332,6 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                           )}
                         </div>
                       </div>
-                      {!region && (
-                        <div className="px-4 py-3 text-center flex items-center justify-center">
-                          {team.delta !== 0 && (
-                            <div
-                              className={`inline-flex items-center gap-1 text-sm font-semibold ${
-                                team.delta > 0
-                                  ? 'text-green-600 dark:text-green-400'
-                                  : 'text-red-600 dark:text-red-400'
-                              }`}
-                            >
-                              {team.delta > 0 ? (
-                                <ArrowUp className="h-4 w-4" />
-                              ) : (
-                                <ArrowDown className="h-4 w-4" />
-                              )}
-                              {Math.abs(team.delta)}
-                            </div>
-                          )}
-                          {team.delta === 0 && <span className="text-xs text-muted-foreground">—</span>}
-                        </div>
-                      )}
                       <div className="px-4 py-3 text-right font-semibold flex items-center justify-end">
                         {formatPowerScore(team.power_score_final)}
                       </div>
@@ -399,15 +345,12 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                       </div>
                       <div className="px-4 py-3 text-right flex items-center justify-end">
                         {(() => {
-                          const sosRank = region ? team.state_sos_rank : team.national_sos_rank;
-                          return sosRank != null ? `#${sosRank}` : '—';
+                          const sosRank = sosRanks[team.team_id_master];
+                          return sosRank ? `#${sosRank}` : '—';
                         })()}
                       </div>
                       <div className="px-4 py-3 text-right flex items-center justify-end">
                         {formatSOSIndex(team.sos_norm)}
-                      </div>
-                      <div className="px-4 py-3 text-center flex items-center justify-center">
-                        <MiniSparkline teamId={team.team_id_master} />
                       </div>
                     </div>
                   );

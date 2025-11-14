@@ -51,9 +51,9 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
       teamName: team.team_name,
       rankingsCount: rankings?.length,
       found: found ? { 
-        national_rank: found.national_rank,
+        rank_in_cohort_final: found.rank_in_cohort_final,
+        rank_in_state_final: found.rank_in_state_final,
         power_score_final: found.power_score_final,
-        national_power_score: found.national_power_score
       } : null,
       searchParams: {
         state_code: team?.state_code,
@@ -158,17 +158,17 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 pt-4 border-t">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pt-4 border-t">
             <div>
               <div className="text-sm text-muted-foreground mb-1">National Rank</div>
               <div className="text-2xl font-semibold">
-                {teamRanking?.national_rank ? `#${teamRanking.national_rank}` : '—'}
+                {teamRanking?.rank_in_cohort_final ? `#${teamRanking.rank_in_cohort_final}` : '—'}
               </div>
             </div>
             <div>
               <div className="text-sm text-muted-foreground mb-1">State Rank</div>
               <div className="text-2xl font-semibold">
-                {teamRanking?.state_rank ? `#${teamRanking.state_rank}` : '—'}
+                {teamRanking?.rank_in_state_final ? `#${teamRanking.rank_in_state_final}` : '—'}
               </div>
             </div>
             <div>
@@ -185,18 +185,6 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                   : '—'}
               </div>
             </div>
-            <div>
-              <div className="text-sm text-muted-foreground mb-1">National SOS Rank</div>
-              <div className="text-2xl font-semibold">
-                {teamRanking?.national_sos_rank ? `#${teamRanking.national_sos_rank}` : '—'}
-              </div>
-            </div>
-            <div>
-              <div className="text-sm text-muted-foreground mb-1">State SOS Rank</div>
-              <div className="text-2xl font-semibold">
-                {teamRanking?.state_sos_rank ? `#${teamRanking.state_sos_rank}` : '—'}
-              </div>
-            </div>
           </div>
 
           {teamRanking && (
@@ -209,10 +197,12 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                     {teamRanking.draws > 0 && `-${teamRanking.draws}`}
                   </span>
                 </div>
-                <div>
-                  <span className="text-muted-foreground">Goals For: </span>
-                  <span className="font-medium">{teamRanking.games_played > 0 ? (teamRanking.wins + teamRanking.draws * 0.5) : 0}</span>
-                </div>
+                {teamRanking.goals_for != null && (
+                  <div>
+                    <span className="text-muted-foreground">Goals For: </span>
+                    <span className="font-medium">{teamRanking.goals_for}</span>
+                  </div>
+                )}
                 <div>
                   <Tooltip>
                     <TooltipTrigger asChild>
