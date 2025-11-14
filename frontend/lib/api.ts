@@ -148,24 +148,31 @@ export const api = {
 
     // Merge ranking data if available (match TeamWithRanking contract)
     // Note: rank_in_state_final is NOT in rankings_view, only state_rankings_view
+    // Ensure age is always set (from rankingData or converted from team.age_group)
+    const age = rankingData?.age ?? (team.age_group ? normalizeAgeGroup(team.age_group) : null);
+    const gender = rankingData?.gender ?? (team.gender === 'Male' ? 'M' : team.gender === 'Female' ? 'F' : 'M') as 'M' | 'F' | 'B' | 'G';
+    
+    // Create TeamWithRanking without deprecated fields (state_code, age_group are never)
     const teamWithRanking: TeamWithRanking = {
-      ...team,
-      ...(rankingData && {
-        state: rankingData.state ?? team.state,
-        age: rankingData.age ?? (team.age_group ? normalizeAgeGroup(team.age_group) : null),
-        gender: rankingData.gender ?? (team.gender === 'Male' ? 'M' : team.gender === 'Female' ? 'F' : 'M') as 'M' | 'F' | 'B' | 'G',
-        power_score_final: rankingData.power_score_final ?? null,
-        sos_norm: rankingData.sos_norm ?? null,
-        offense_norm: rankingData.offense_norm ?? null,
-        defense_norm: rankingData.defense_norm ?? null,
-        games_played: rankingData.games_played ?? 0,
-        wins: rankingData.wins ?? 0,
-        losses: rankingData.losses ?? 0,
-        draws: rankingData.draws ?? 0,
-        win_percentage: rankingData.win_percentage ?? null,
-        rank_in_cohort_final: rankingData.rank_in_cohort_final ?? null,
-        // rank_in_state_final comes from state view, not this call
-      }),
+      team_id_master: team.team_id_master,
+      team_name: team.team_name,
+      club_name: team.club_name,
+      state: rankingData?.state ?? team.state,
+      age: age,
+      gender: gender,
+      // Ranking fields (default to null if no ranking data)
+      power_score_final: rankingData?.power_score_final ?? null,
+      sos_norm: rankingData?.sos_norm ?? null,
+      offense_norm: rankingData?.offense_norm ?? null,
+      defense_norm: rankingData?.defense_norm ?? null,
+      rank_in_cohort_final: rankingData?.rank_in_cohort_final ?? null,
+      // Record fields (default to 0 if no ranking data)
+      games_played: rankingData?.games_played ?? 0,
+      wins: rankingData?.wins ?? 0,
+      losses: rankingData?.losses ?? 0,
+      draws: rankingData?.draws ?? 0,
+      win_percentage: rankingData?.win_percentage ?? null,
+      // rank_in_state_final comes from state view, not this call
     };
     
     console.log('[api.getTeam] Returning team data:', teamWithRanking.team_name);
