@@ -176,8 +176,8 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
                             {team.state_code.toUpperCase()}
                           </span>
                         )}
-                        {team.national_rank && (
-                          <span> • Rank #{team.national_rank}</span>
+                        {team.rank_in_cohort_final && (
+                          <span> • Rank #{team.rank_in_cohort_final}</span>
                         )}
                       </div>
                     </button>

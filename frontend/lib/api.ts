@@ -129,22 +129,19 @@ export const api = {
     const teamWithRanking: TeamWithRanking = {
       ...team,
       ...(rankingData && {
-        national_rank: rankingData.national_rank,
-        state_rank: rankingData.state_rank ?? null,
-        national_sos_rank: rankingData.national_sos_rank,
-        state_sos_rank: rankingData.state_sos_rank ?? null,
-        national_power_score: rankingData.national_power_score,
+        rank_in_cohort_final: rankingData.rank_in_cohort_final ?? null,
+        rank_in_state_final: rankingData.rank_in_state_final ?? null,
         global_power_score: rankingData.global_power_score,
         power_score_final: rankingData.power_score_final,
         games_played: rankingData.games_played,
         wins: rankingData.wins,
         losses: rankingData.losses,
         draws: rankingData.draws,
+        goals_for: rankingData.goals_for,
         win_percentage: rankingData.win_percentage,
         strength_of_schedule: rankingData.strength_of_schedule,
         sos: rankingData.sos ?? rankingData.strength_of_schedule ?? null,
         sos_norm: rankingData.sos_norm ?? null,
-        sos_rank: rankingData.state_sos_rank ?? rankingData.national_sos_rank ?? null,
       }),
     };
     
