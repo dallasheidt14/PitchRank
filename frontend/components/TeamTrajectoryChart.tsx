@@ -2,6 +2,7 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChartSkeleton } from '@/components/ui/skeletons';
+import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import {
   LineChart,
   Line,
@@ -24,7 +25,7 @@ interface TeamTrajectoryChartProps {
  * TeamTrajectoryChart component - displays team performance over time using Recharts
  */
 export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
-  const { data: trajectory, isLoading, isError } = useTeamTrajectory(teamId, 30);
+  const { data: trajectory, isLoading, isError, error, refetch } = useTeamTrajectory(teamId, 30);
 
   const chartData = useMemo(() => {
     if (!trajectory || trajectory.length === 0) return [];
@@ -55,7 +56,25 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
     );
   }
 
-  if (isError || !trajectory || trajectory.length === 0) {
+  if (isError) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Performance Trajectory</CardTitle>
+          <CardDescription>Team performance over time</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ErrorDisplay error={error} retry={refetch} fallback={
+            <div className="h-64 flex items-center justify-center text-muted-foreground">
+              <p>No trajectory data available</p>
+            </div>
+          } />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!trajectory || trajectory.length === 0) {
     return (
       <Card>
         <CardHeader>

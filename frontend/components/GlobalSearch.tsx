@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import Fuse from 'fuse.js';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+import { InlineLoader } from '@/components/ui/LoadingStates';
+import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { Search, X } from 'lucide-react';
 import { useTeamSearch } from '@/hooks/useTeamSearch';
 import type { RankingRow } from '@/types/RankingRow';
@@ -43,7 +44,7 @@ export function GlobalSearch() {
   const listRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   
-  const { data: allTeams, isLoading } = useTeamSearch();
+  const { data: allTeams, isLoading, isError, error, refetch } = useTeamSearch();
 
   // Configure Fuse.js for fuzzy search
   const fuse = useMemo(() => {
@@ -179,10 +180,9 @@ export function GlobalSearch() {
         <Card className="absolute z-50 w-full mt-1 max-h-80 overflow-y-auto shadow-lg">
           <CardContent className="p-2">
             {isLoading ? (
-              <div className="space-y-2">
-                <Skeleton className="h-12 w-full" />
-                <Skeleton className="h-12 w-full" />
-              </div>
+              <InlineLoader text="Searching teams..." />
+            ) : isError ? (
+              <ErrorDisplay error={error} retry={refetch} compact />
             ) : searchResults.length === 0 ? (
               <div className="p-4 text-center text-sm text-muted-foreground">
                 No teams found matching &quot;{searchQuery}&quot;

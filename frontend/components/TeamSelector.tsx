@@ -5,6 +5,8 @@ import { Input } from '@/components/ui/input';
 import { useRankings } from '@/lib/hooks';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
+import { InlineLoader } from '@/components/ui/LoadingStates';
 import type { RankingRow } from '@/types/RankingRow';
 
 interface TeamSelectorProps {
@@ -47,7 +49,7 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
   const listRef = useRef<HTMLDivElement>(null);
   
   // Fetch all rankings for autocomplete (no filters)
-  const { data: allRankings, isLoading } = useRankings();
+  const { data: allRankings, isLoading, isError, error, refetch } = useRankings();
 
   const selectedTeam = useMemo(() => {
     if (!value || !allRankings) return null;
@@ -138,13 +140,16 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
           aria-autocomplete="list"
           aria-expanded={isOpen && filteredTeams.length > 0}
         />
-        {isOpen && searchQuery && filteredTeams.length > 0 && (
+        {isOpen && searchQuery && (
           <Card className="absolute z-50 w-full mt-1 max-h-60 overflow-y-auto shadow-lg">
             <CardContent className="p-2" ref={listRef}>
               {isLoading ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-10 w-full" />
-                  <Skeleton className="h-10 w-full" />
+                <InlineLoader text="Loading teams..." />
+              ) : isError ? (
+                <ErrorDisplay error={error} retry={refetch} compact />
+              ) : filteredTeams.length === 0 ? (
+                <div className="p-4 text-center text-sm text-muted-foreground">
+                  No teams found matching &quot;{searchQuery}&quot;
                 </div>
               ) : (
                 <div className="space-y-1">

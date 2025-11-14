@@ -2,6 +2,7 @@
 
 import { Card, CardContent } from '@/components/ui/card';
 import { TeamCardSkeleton } from '@/components/ui/skeletons';
+import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { useTeam, useRankings } from '@/lib/hooks';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -17,7 +18,7 @@ interface TeamHeaderProps {
  * TeamHeader component - displays team information header
  */
 export function TeamHeader({ teamId }: TeamHeaderProps) {
-  const { data: team, isLoading: teamLoading, isError: teamError, error: teamErrorObj } = useTeam(teamId);
+  const { data: team, isLoading: teamLoading, isError: teamError, error: teamErrorObj, refetch: refetchTeam } = useTeam(teamId);
   const [watched, setWatched] = useState(false);
   
   // Debug logging
@@ -94,22 +95,7 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
     return (
       <Card>
         <CardContent className="pt-6">
-          <div className="rounded-lg bg-destructive/10 p-4 text-destructive">
-            <p className="text-sm font-semibold mb-2">Failed to load team information.</p>
-            {process.env.NODE_ENV === 'development' && teamErrorObj && (
-              <p className="text-xs text-muted-foreground mt-2">
-                Error: {teamErrorObj instanceof Error ? teamErrorObj.message : JSON.stringify(teamErrorObj)}
-                <br />
-                Team ID: {teamId}
-                <br />
-                Has Team: {team ? 'Yes' : 'No'}
-                <br />
-                Is Error: {teamError ? 'Yes' : 'No'}
-                <br />
-                Is Loading: {teamLoading ? 'Yes' : 'No'}
-              </p>
-            )}
-          </div>
+          <ErrorDisplay error={teamErrorObj || new Error('Failed to load team information')} retry={refetchTeam} />
         </CardContent>
       </Card>
     );

@@ -3,6 +3,8 @@
 import { useState, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CardSkeleton, ChartSkeleton } from '@/components/ui/skeletons';
+import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
+import { InlineLoader } from '@/components/ui/LoadingStates';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { TeamSelector } from './TeamSelector';
@@ -65,14 +67,14 @@ export function ComparePanel() {
   const [team1Data, setTeam1Data] = useState<RankingRow | null>(null);
   const [team2Data, setTeam2Data] = useState<RankingRow | null>(null);
 
-  const { data: team1Details } = useTeam(team1Id || '');
-  const { data: team2Details } = useTeam(team2Id || '');
-  const { data: team1Trajectory } = useTeamTrajectory(team1Id || '', 30);
-  const { data: team2Trajectory } = useTeamTrajectory(team2Id || '', 30);
-  const { data: commonOpponents } = useCommonOpponents(team1Id, team2Id);
+  const { data: team1Details, isLoading: team1Loading, isError: team1Error, error: team1ErrorObj, refetch: refetchTeam1 } = useTeam(team1Id || '');
+  const { data: team2Details, isLoading: team2Loading, isError: team2Error, error: team2ErrorObj, refetch: refetchTeam2 } = useTeam(team2Id || '');
+  const { data: team1Trajectory, isLoading: trajectory1Loading, isError: trajectory1Error, error: trajectory1ErrorObj, refetch: refetchTrajectory1 } = useTeamTrajectory(team1Id || '', 30);
+  const { data: team2Trajectory, isLoading: trajectory2Loading, isError: trajectory2Error, error: trajectory2ErrorObj, refetch: refetchTrajectory2 } = useTeamTrajectory(team2Id || '', 30);
+  const { data: commonOpponents, isLoading: opponentsLoading, isError: opponentsError, error: opponentsErrorObj, refetch: refetchOpponents } = useCommonOpponents(team1Id, team2Id);
   
   // Get rankings for percentile calculation
-  const { data: allRankings } = useRankings(
+  const { data: allRankings, isLoading: rankingsLoading, isError: rankingsError, error: rankingsErrorObj, refetch: refetchRankings } = useRankings(
     team1Data?.state_code || null,
     team1Data?.age_group,
     team1Data?.gender
@@ -178,6 +180,14 @@ export function ComparePanel() {
     return data;
   }, [team1Trajectory, team2Trajectory]);
 
+  // Show loading state when teams are being fetched
+  const isLoadingData = (team1Id && (team1Loading || team2Loading)) || 
+                        (team1Id && team2Id && (trajectory1Loading || trajectory2Loading || opponentsLoading || rankingsLoading));
+
+  // Check for errors
+  const hasErrors = (team1Id && (team1Error || team2Error)) ||
+                    (team1Id && team2Id && (trajectory1Error || trajectory2Error || opponentsError || rankingsError));
+
   return (
     <Card>
       <CardHeader>
@@ -216,7 +226,38 @@ export function ComparePanel() {
             />
           </div>
 
-          {team1Data && team2Data && (
+          {/* Show loading state */}
+          {isLoadingData && (
+            <div className="flex justify-center py-8">
+              <InlineLoader text="Loading team data..." />
+            </div>
+          )}
+
+          {/* Show errors */}
+          {hasErrors && !isLoadingData && (
+            <div className="space-y-4">
+              {team1Id && team1Error && (
+                <ErrorDisplay error={team1ErrorObj} retry={refetchTeam1} compact />
+              )}
+              {team2Id && team2Error && (
+                <ErrorDisplay error={team2ErrorObj} retry={refetchTeam2} compact />
+              )}
+              {team1Id && team2Id && trajectory1Error && (
+                <ErrorDisplay error={trajectory1ErrorObj} retry={refetchTrajectory1} compact />
+              )}
+              {team1Id && team2Id && trajectory2Error && (
+                <ErrorDisplay error={trajectory2ErrorObj} retry={refetchTrajectory2} compact />
+              )}
+              {team1Id && team2Id && opponentsError && (
+                <ErrorDisplay error={opponentsErrorObj} retry={refetchOpponents} compact />
+              )}
+              {team1Id && team2Id && rankingsError && (
+                <ErrorDisplay error={rankingsErrorObj} retry={refetchRankings} compact />
+              )}
+            </div>
+          )}
+
+          {team1Data && team2Data && !isLoadingData && (
             <>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
                 <Card>
