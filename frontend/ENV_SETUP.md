@@ -1,6 +1,0 @@
-SUPABASE_URL=https://pfkrhmprwxtghtpinrot.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBma3JobXByd3h0Z2h0cGlucm90Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTc0NDc4NCwiZXhwIjoyMDc3MzIwNzg0fQ.UvuJZ4lNmKC1WjuhGmXB0era5Nyd5Dw_qVegXyPjohE
-
-DATABASE_URL=postgresql://postgres.pfkrhmprwxtghtpinrot:zZswTuqgc4xvwNaU@aws-1-us-west-1.pooler.supabase.com:5432/postgres
-
-

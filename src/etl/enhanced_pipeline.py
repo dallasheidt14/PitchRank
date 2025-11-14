@@ -4,6 +4,7 @@ from typing import List, Tuple, Optional, Dict, Any
 from datetime import datetime
 import logging
 from dataclasses import dataclass, field
+import copy
 import json
 import sys
 import time
@@ -225,7 +226,8 @@ class EnhancedETLPipeline:
             provider_code: Optional provider code override
             
         Returns:
-            ImportMetrics object with detailed statistics
+            ImportMetrics object with detailed statistics for THIS BATCH ONLY
+            (to avoid double-counting when batches run concurrently)
         """
         start_time = datetime.now()
         
@@ -233,13 +235,28 @@ class EnhancedETLPipeline:
         if not hasattr(self, '_import_start_time'):
             self._import_start_time = start_time
         
+        # Create batch-specific metrics to avoid double-counting in concurrent batches
+        # We'll still update self.metrics for overall tracking, but return batch_metrics
+        batch_metrics = ImportMetrics()
+        
         try:
             # Step 1: Validate all games (or skip if flag is set)
+            # Store current duplicates_skipped before validation to calculate batch-specific value
+            prev_duplicates_skipped = self.metrics.duplicates_skipped
+            
             if self.skip_validation:
                 # Skip validation but still do schema coercion/transformation
                 valid_games, invalid_games = await self._validate_games_skip_validation(games)
             else:
                 valid_games, invalid_games = await self._validate_games(games)
+            
+            # Track batch-specific metrics
+            batch_metrics.games_processed = len(games)
+            batch_metrics.games_quarantined = len(invalid_games)
+            # Calculate batch-specific duplicates_skipped (validation method sets it, so get the delta)
+            batch_metrics.duplicates_skipped = self.metrics.duplicates_skipped - prev_duplicates_skipped
+            
+            # Also update shared metrics for logging (but aggregation will use batch_metrics)
             self.metrics.games_processed += len(games)  # ACCUMULATE
             self.metrics.games_quarantined += len(invalid_games)  # ACCUMULATE
             
@@ -249,7 +266,8 @@ class EnhancedETLPipeline:
             
             # Step 2: Check for duplicates
             existing_uids = await self._check_duplicates(valid_games)
-            self.metrics.duplicates_found += len(existing_uids)  # ACCUMULATE
+            batch_metrics.duplicates_found = len(existing_uids)
+            self.metrics.duplicates_found += len(existing_uids)  # ACCUMULATE for logging
             
             # Filter out duplicates (enforce immutability)
             new_games = [g for g in valid_games if g.get('game_uid') not in existing_uids]
@@ -269,20 +287,27 @@ class EnhancedETLPipeline:
                     if match_status == 'matched':
                         game_records.append(matched_game)
                         matched_count += 1
-                        self.metrics.teams_matched += 2  # Home and away
+                        batch_metrics.teams_matched += 2  # Home and away
+                        self.metrics.teams_matched += 2  # Also update shared for logging
                     elif match_status == 'partial':
                         game_records.append(matched_game)
                         partial_count += 1
-                        self.metrics.teams_matched += 1
+                        batch_metrics.teams_matched += 1
+                        self.metrics.teams_matched += 1  # Also update shared for logging
                     else:
                         failed_count += 1
                         # Don't increment teams_matched for failed matches
                 except Exception as e:
                     failed_count += 1
                     logger.warning(f"Error matching game: {e}")
+                    batch_metrics.errors.append(f"Match error: {str(e)}")
                     self.metrics.errors.append(f"Match error: {str(e)}")
             
-            # Store counts in metrics for debugging
+            # Store counts in batch metrics for debugging
+            batch_metrics.matched_games_count = matched_count
+            batch_metrics.partial_games_count = partial_count
+            batch_metrics.failed_games_count = failed_count
+            # Also update shared metrics
             self.metrics.matched_games_count = matched_count
             self.metrics.partial_games_count = partial_count
             self.metrics.failed_games_count = failed_count
@@ -294,6 +319,7 @@ class EnhancedETLPipeline:
             skipped_count = len(game_records) - len(valid_game_records)
             
             if skipped_count > 0:
+                batch_metrics.skipped_empty_scores = skipped_count
                 self.metrics.skipped_empty_scores += skipped_count
                 logger.warning(f"Skipped {skipped_count} games with invalid or missing scores")
             
@@ -301,10 +327,12 @@ class EnhancedETLPipeline:
             if valid_game_records and not self.dry_run:
                 logger.info(f"Attempting to insert {len(valid_game_records)} matched games...")
                 inserted_count = await self._bulk_insert_games(valid_game_records)
-                self.metrics.games_accepted += inserted_count  # ACCUMULATE, don't overwrite!
-                logger.info(f"Inserted {inserted_count} games successfully (total accepted: {self.metrics.games_accepted:,})")
+                batch_metrics.games_accepted = inserted_count  # Batch-specific count
+                self.metrics.games_accepted += inserted_count  # Also update shared for logging
+                logger.info(f"Inserted {inserted_count} games successfully (batch accepted: {inserted_count})")
             elif self.dry_run:
-                self.metrics.games_accepted += len(valid_game_records)  # ACCUMULATE for dry run too
+                batch_metrics.games_accepted = len(valid_game_records)
+                self.metrics.games_accepted += len(valid_game_records)  # Also update shared for logging
                 logger.info("Dry run mode - games not inserted")
             elif not valid_game_records:
                 logger.warning(f"No game records to insert after matching and score validation (matched: {matched_count}, partial: {partial_count}, failed: {failed_count}, skipped scores: {skipped_count})")
@@ -313,9 +341,8 @@ class EnhancedETLPipeline:
             await self._process_team_matching_stats()
             
             # Step 7: Calculate processing time
-            self.metrics.processing_time_seconds = (
-                datetime.now() - start_time
-            ).total_seconds()
+            batch_metrics.processing_time_seconds = (datetime.now() - start_time).total_seconds()
+            self.metrics.processing_time_seconds += batch_metrics.processing_time_seconds  # Accumulate for logging
             
             # Step 8: Log build metrics and progress updates
             self._batch_count += 1
@@ -355,17 +382,20 @@ class EnhancedETLPipeline:
             if self.dry_run:
                 logger.info("Dry run completed - no changes committed")
             else:
-                logger.info(f"Import completed: {self.metrics.games_accepted} games imported")
+                logger.info(f"Batch completed: {batch_metrics.games_accepted} games imported")
             
-            return self.metrics
+            # Return batch-specific metrics (not shared self.metrics) to avoid double-counting
+            return batch_metrics
             
         except Exception as e:
+            batch_metrics.errors.append(str(e))
             self.metrics.errors.append(str(e))
             logger.error(f"Import failed: {e}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             await self._log_build_metrics()  # Log partial metrics
-            raise
+            # Return batch metrics even on error so aggregation can track failures
+            return batch_metrics
             
     async def _validate_games(self, games: List[Dict]) -> Tuple[List[Dict], List[Dict]]:
         """
