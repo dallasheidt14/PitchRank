@@ -22,9 +22,9 @@ export default function Home() {
     // For demo purposes, simulate rank changes by comparing with previous position
     // In a real app, this would come from historical ranking data
     return rankings.slice(0, 20).map((team, index) => {
-      const previousRank = index > 0 ? rankings[index - 1].rank_in_cohort_final : null;
-      const rankChange = previousRank && team.rank_in_cohort_final
-        ? previousRank - team.rank_in_cohort_final
+      const previousRank = index > 0 ? rankings[index - 1].national_rank : null;
+      const rankChange = previousRank && team.national_rank
+        ? previousRank - team.national_rank
         : 0;
       return { ...team, rankChange };
     }).filter(team => Math.abs(team.rankChange) > 0)
@@ -76,7 +76,7 @@ export default function Home() {
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-sm truncate">{team.team_name}</div>
                       <div className="text-xs text-muted-foreground">
-                        Rank #{team.rank_in_cohort_final}
+                        Rank #{team.national_rank}
                       </div>
                     </div>
                     <div className={`flex items-center gap-1 text-xs font-semibold ${

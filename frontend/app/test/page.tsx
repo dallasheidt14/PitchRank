@@ -74,8 +74,8 @@ export default function TestPage() {
                       </div>
                     </div>
                     <div className="text-right ml-4">
-                      {ranking.rank_in_cohort_final && (
-                        <div className="font-semibold">#{ranking.rank_in_cohort_final}</div>
+                      {ranking.national_rank && (
+                        <div className="font-semibold">#{ranking.national_rank}</div>
                       )}
                       <div className="text-xs text-muted-foreground">
                         Score: {formatPowerScore(ranking.power_score_final)}
