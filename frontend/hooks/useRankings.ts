@@ -1,18 +1,19 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
+import { normalizeAgeGroup } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
 
 /**
  * Get rankings filtered by region, age group, and gender
  * @param region - State code (2 letters) or null/undefined for national rankings
- * @param ageGroup - Age group filter (e.g., 'u10', 'u11')
- * @param gender - Gender filter ('Male' or 'Female')
+ * @param ageGroup - Age group filter (e.g., 'u10', 'u11') - will be normalized to integer
+ * @param gender - Gender filter ('M', 'F', 'B', 'G')
  * @returns React Query hook result with rankings data
  */
 export function useRankings(
   region?: string | null,
   ageGroup?: string,
-  gender?: 'Male' | 'Female' | null
+  gender?: 'M' | 'F' | 'B' | 'G' | null
 ) {
   return useQuery<RankingRow[]>({
     queryKey: ['rankings', region, ageGroup, gender],
@@ -24,7 +25,11 @@ export function useRankings(
           .select('*');
 
         if (ageGroup) {
-          query = query.eq('age_group', ageGroup);
+          // Normalize age group to integer
+          const normalizedAge = normalizeAgeGroup(ageGroup);
+          if (normalizedAge !== null) {
+            query = query.eq('age', normalizedAge);
+          }
         }
 
         if (gender) {
@@ -43,22 +48,26 @@ export function useRankings(
         return (data || []) as RankingRow[];
       } else {
         // State rankings = filtered national from state_rankings_view
-        // Normalize state_code to uppercase for case-insensitive matching
+        // Normalize state to uppercase for case-insensitive matching
         const normalizedRegion = region?.toUpperCase();
         let query = supabase
           .from('state_rankings_view')
           .select('*')
-          .eq('state_code', normalizedRegion);
+          .eq('state', normalizedRegion);
 
         if (ageGroup) {
-          query = query.eq('age_group', ageGroup);
+          // Normalize age group to integer
+          const normalizedAge = normalizeAgeGroup(ageGroup);
+          if (normalizedAge !== null) {
+            query = query.eq('age', normalizedAge);
+          }
         }
 
         if (gender) {
           query = query.eq('gender', gender);
         }
 
-        query = query.order('power_score', { ascending: false });
+        query = query.order('power_score_final', { ascending: false });
 
         const { data, error } = await query;
 

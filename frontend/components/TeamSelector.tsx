@@ -65,7 +65,7 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
         team.team_id_master !== excludeTeamId &&
         (team.team_name.toLowerCase().includes(query) ||
          team.club_name?.toLowerCase().includes(query) ||
-         team.state_code?.toLowerCase().includes(query))
+         team.state?.toLowerCase().includes(query))
       )
       .slice(0, 10); // Limit to 10 results
   }, [allRankings, searchQuery, excludeTeamId]);
@@ -171,13 +171,13 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
                         {team.club_name && (
                           <span>{highlightMatch(team.club_name, searchQuery)}</span>
                         )}
-                        {team.state_code && (
+                        {team.state && (
                           <span className={team.club_name ? ' • ' : ''}>
-                            {team.state_code.toUpperCase()}
+                            {team.state.toUpperCase()}
                           </span>
                         )}
-                        {team.national_rank && (
-                          <span> • Rank #{team.national_rank}</span>
+                        {team.rank_in_cohort_final && (
+                          <span> • Rank #{team.rank_in_cohort_final}</span>
                         )}
                       </div>
                     </button>
