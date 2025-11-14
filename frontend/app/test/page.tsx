@@ -3,6 +3,7 @@
 import { useRankings } from '@/lib/hooks';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { formatPowerScore } from '@/lib/utils';
 
 // Force dynamic rendering to prevent build-time errors when env vars aren't set
 export const dynamic = 'force-dynamic';
@@ -77,7 +78,7 @@ export default function TestPage() {
                         <div className="font-semibold">#{ranking.national_rank}</div>
                       )}
                       <div className="text-xs text-muted-foreground">
-                        Score: {ranking.power_score_final.toFixed(2)}
+                        Score: {formatPowerScore(ranking.power_score_final)}
                       </div>
                     </div>
                   </div>

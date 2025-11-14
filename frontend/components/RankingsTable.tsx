@@ -11,6 +11,8 @@ import { usePrefetchTeam } from '@/lib/hooks';
 import Link from 'next/link';
 import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { formatPowerScore, formatSOSIndex } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
 
 interface RankingsTableProps {
@@ -128,8 +130,9 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
           bValue = b.games_played;
           break;
         case 'sos':
-          aValue = a.strength_of_schedule ?? 0;
-          bValue = b.strength_of_schedule ?? 0;
+          // Use sos_norm for sorting (normalized within cohort)
+          aValue = a.sos_norm ?? 0;
+          bValue = b.sos_norm ?? 0;
           break;
         case 'sosRank':
           if (region) {
@@ -261,7 +264,16 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                 </div>
               )}
               <div className="px-4 py-3 font-medium text-right">
-                <SortButton field="powerScore" label="Power Score" />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div>
+                      <SortButton field="powerScore" label="PowerScore (ML Adjusted)" />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>A machine-learning-enhanced ranking score that measures overall team strength based on offense, defense, schedule difficulty, and predictive performance patterns.</p>
+                  </TooltipContent>
+                </Tooltip>
               </div>
               <div className="px-4 py-3 font-medium text-right">
                 <SortButton field="winPercentage" label="Win %" />
@@ -273,7 +285,16 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                 <SortButton field="sosRank" label="SOS Rank" />
               </div>
               <div className="px-4 py-3 font-medium text-right">
-                <SortButton field="sos" label="SOS" />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div>
+                      <SortButton field="sos" label="SOS Index" />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Strength of Schedule normalized within each age group and gender (0 = softest schedule, 100 = toughest).</p>
+                  </TooltipContent>
+                </Tooltip>
               </div>
               <div className="px-4 py-3 font-medium text-center">
                 Trajectory
@@ -366,7 +387,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                         </div>
                       )}
                       <div className="px-4 py-3 text-right font-semibold flex items-center justify-end">
-                        {team.power_score_final.toFixed(1)}
+                        {formatPowerScore(team.power_score_final)}
                       </div>
                       <div className="px-4 py-3 text-right flex items-center justify-end">
                         {team.win_percentage !== null
@@ -383,9 +404,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                         })()}
                       </div>
                       <div className="px-4 py-3 text-right flex items-center justify-end">
-                        {team.strength_of_schedule !== null
-                          ? Number(team.strength_of_schedule).toFixed(3)
-                          : '—'}
+                        {formatSOSIndex(team.sos_norm)}
                       </div>
                       <div className="px-4 py-3 text-center flex items-center justify-center">
                         <MiniSparkline teamId={team.team_id_master} />
