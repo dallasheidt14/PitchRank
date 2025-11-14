@@ -384,7 +384,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                       </div>
                       <div className="px-4 py-3 text-right flex items-center justify-end">
                         {team.strength_of_schedule !== null
-                          ? team.strength_of_schedule.toFixed(3)
+                          ? Number(team.strength_of_schedule).toFixed(3)
                           : '—'}
                       </div>
                       <div className="px-4 py-3 text-center flex items-center justify-center">
