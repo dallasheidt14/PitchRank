@@ -210,7 +210,7 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                   <span className="text-muted-foreground">Strength of Schedule: </span>
                   <span className="font-medium">
                     {teamRanking.strength_of_schedule != null
-                      ? teamRanking.strength_of_schedule.toFixed(2)
+                      ? Number(teamRanking.strength_of_schedule).toFixed(2)
                       : '—'}
                   </span>
                 </div>
