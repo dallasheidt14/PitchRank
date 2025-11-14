@@ -31,6 +31,7 @@ export function useTeamSearch() {
         age_group: team.age_group,
         gender: team.gender as 'Male' | 'Female',
         national_rank: null,
+        national_sos_rank: null,
         national_power_score: 0, // Default for sorting
         global_power_score: null,
         games_played: 0,
@@ -39,6 +40,8 @@ export function useTeamSearch() {
         draws: 0,
         win_percentage: null,
         strength_of_schedule: null,
+        state_rank: null,
+        state_sos_rank: null,
       })) as RankingRow[];
     },
     staleTime: 10 * 60 * 1000, // 10 minutes - team list doesn't change often

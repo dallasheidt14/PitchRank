@@ -23,10 +23,15 @@ SELECT
     r.losses,
     r.draws,
     r.win_percentage,
-    r.strength_of_schedule
+    r.strength_of_schedule,
+    row_number() over (
+        partition by t.age_group, t.gender
+        order by r.strength_of_schedule desc
+    ) as national_sos_rank
 FROM current_rankings r
 JOIN teams t ON r.team_id = t.team_id_master
-WHERE r.national_power_score IS NOT NULL;
+WHERE r.national_power_score IS NOT NULL
+  AND r.strength_of_schedule IS NOT NULL;
 
 COMMENT ON VIEW rankings_view IS 'National rankings view with dynamically calculated national_rank based on power_score. Respects RLS policies.';
 

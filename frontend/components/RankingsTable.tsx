@@ -19,7 +19,7 @@ interface RankingsTableProps {
   gender: 'Male' | 'Female' | null;
 }
 
-type SortField = 'rank' | 'team' | 'powerScore' | 'winPercentage' | 'gamesPlayed';
+type SortField = 'rank' | 'team' | 'powerScore' | 'winPercentage' | 'gamesPlayed' | 'sos' | 'sosRank';
 type SortDirection = 'asc' | 'desc';
 
 interface RankingWithDelta extends RankingRow {
@@ -127,6 +127,19 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
           aValue = a.games_played;
           bValue = b.games_played;
           break;
+        case 'sos':
+          aValue = a.strength_of_schedule ?? 0;
+          bValue = b.strength_of_schedule ?? 0;
+          break;
+        case 'sosRank':
+          if (region) {
+            aValue = a.state_sos_rank ?? Infinity;
+            bValue = b.state_sos_rank ?? Infinity;
+          } else {
+            aValue = a.national_sos_rank ?? Infinity;
+            bValue = b.national_sos_rank ?? Infinity;
+          }
+          break;
         default:
           return 0;
       }
@@ -219,7 +232,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
       ? totalHeight - (virtualItems[virtualItems.length - 1]?.end ?? 0)
       : 0;
 
-  const columnCount = region ? 6 : 7;
+  const columnCount = region ? 8 : 9;
 
   return (
     <Card>
@@ -235,7 +248,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
         ) : (
           <div className="rounded-md border overflow-hidden">
             {/* Table Header */}
-            <div className="grid border-b bg-muted/50 sticky top-0 z-10" style={{ gridTemplateColumns: region ? '80px 2fr 1fr 1fr 1fr 1fr' : '80px 2fr 100px 1fr 1fr 1fr 1fr' }}>
+            <div className="grid border-b bg-muted/50 sticky top-0 z-10" style={{ gridTemplateColumns: region ? '80px 2fr 1fr 1fr 1fr 1fr 1fr 1fr' : '80px 2fr 100px 1fr 1fr 1fr 1fr 1fr 1fr' }}>
               <div className="px-4 py-3 font-medium">
                 <SortButton field="rank" label="Rank" />
               </div>
@@ -255,6 +268,12 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
               </div>
               <div className="px-4 py-3 font-medium text-right">
                 <SortButton field="gamesPlayed" label="Games" />
+              </div>
+              <div className="px-4 py-3 font-medium text-right">
+                <SortButton field="sosRank" label="SOS Rank" />
+              </div>
+              <div className="px-4 py-3 font-medium text-right">
+                <SortButton field="sos" label="SOS" />
               </div>
               <div className="px-4 py-3 font-medium text-center">
                 Trajectory
@@ -295,7 +314,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                         ${borderClass}
                       `}
                       style={{
-                        gridTemplateColumns: region ? '80px 2fr 1fr 1fr 1fr 1fr' : '80px 2fr 100px 1fr 1fr 1fr 1fr',
+                        gridTemplateColumns: region ? '80px 2fr 1fr 1fr 1fr 1fr 1fr 1fr' : '80px 2fr 100px 1fr 1fr 1fr 1fr 1fr 1fr',
                         position: 'absolute',
                         top: 0,
                         left: 0,
@@ -356,6 +375,17 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                       </div>
                       <div className="px-4 py-3 text-right flex items-center justify-end">
                         {team.games_played}
+                      </div>
+                      <div className="px-4 py-3 text-right flex items-center justify-end">
+                        {(() => {
+                          const sosRank = region ? team.state_sos_rank : team.national_sos_rank;
+                          return sosRank != null ? `#${sosRank}` : '—';
+                        })()}
+                      </div>
+                      <div className="px-4 py-3 text-right flex items-center justify-end">
+                        {team.strength_of_schedule !== null
+                          ? team.strength_of_schedule.toFixed(3)
+                          : '—'}
                       </div>
                       <div className="px-4 py-3 text-center flex items-center justify-center">
                         <MiniSparkline teamId={team.team_id_master} />
