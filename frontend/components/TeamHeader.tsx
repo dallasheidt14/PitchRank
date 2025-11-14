@@ -3,7 +3,7 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { TeamCardSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
-import { useTeam, useRankings } from '@/lib/hooks';
+import { useTeam } from '@/lib/hooks';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -36,33 +36,35 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
     });
   }, [teamId, teamLoading, teamError, teamErrorObj, team]);
   
-  // Get ranking for this team
-  const { data: rankings } = useRankings(
-    team?.state_code || null,
-    team?.age_group,
-    team?.gender as 'Male' | 'Female' | null | undefined
-  );
-  
+  // Team data from api.getTeam already includes ranking data (TeamWithRanking)
+  // Use it directly instead of looking it up in rankings list
   const teamRanking = useMemo(() => {
-    if (!rankings || !team) return null;
-    const found = rankings.find(r => r.team_id_master === team.team_id_master);
-    console.log('[TeamHeader] Finding team ranking:', {
+    if (!team) {
+      console.log('[TeamHeader] No team data');
+      return null;
+    }
+    
+    // Check if team has ranking fields (TeamWithRanking type)
+    const hasRankingData = 'rank_in_cohort_final' in team || 'power_score_final' in team;
+    
+    console.log('[TeamHeader] Team ranking data:', {
       teamId: team.team_id_master,
       teamName: team.team_name,
-      rankingsCount: rankings?.length,
-      found: found ? { 
-        rank_in_cohort_final: found.rank_in_cohort_final,
-        rank_in_state_final: found.rank_in_state_final,
-        power_score_final: found.power_score_final,
-      } : null,
-      searchParams: {
-        state_code: team?.state_code,
-        age_group: team?.age_group,
-        gender: team?.gender
-      }
+      hasRankingData,
+      rank_in_cohort_final: (team as any).rank_in_cohort_final,
+      rank_in_state_final: (team as any).rank_in_state_final,
+      win_percentage: (team as any).win_percentage,
+      wins: (team as any).wins,
+      losses: (team as any).losses,
+      draws: (team as any).draws,
+      games_played: (team as any).games_played,
+      power_score_final: (team as any).power_score_final,
+      allKeys: Object.keys(team),
     });
-    return found || null;
-  }, [rankings, team]);
+    
+    // Return team itself if it has ranking data, otherwise null
+    return hasRankingData ? (team as any) : null;
+  }, [team]);
 
   // Check if team is watched
   useEffect(() => {
@@ -180,9 +182,15 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
             <div>
               <div className="text-sm text-muted-foreground mb-1">Win %</div>
               <div className="text-2xl font-semibold">
-                {teamRanking?.win_percentage != null
-                  ? `${teamRanking.win_percentage.toFixed(1)}%`
-                  : '—'}
+                {(() => {
+                  if (!teamRanking) return '—';
+                  // Calculate win_percentage if not provided
+                  let winPct = teamRanking.win_percentage;
+                  if (winPct == null && teamRanking.games_played > 0) {
+                    winPct = ((teamRanking.wins + teamRanking.draws * 0.5) / teamRanking.games_played) * 100;
+                  }
+                  return winPct != null ? `${winPct.toFixed(1)}%` : '—';
+                })()}
               </div>
             </div>
           </div>
@@ -193,8 +201,8 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                 <div>
                   <span className="text-muted-foreground">Record: </span>
                   <span className="font-medium">
-                    {teamRanking.wins}-{teamRanking.losses}
-                    {teamRanking.draws > 0 && `-${teamRanking.draws}`}
+                    {teamRanking.wins ?? 0}-{teamRanking.losses ?? 0}
+                    {(teamRanking.draws ?? 0) > 0 && `-${teamRanking.draws}`}
                   </span>
                 </div>
                 {teamRanking.goals_for != null && (

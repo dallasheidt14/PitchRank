@@ -106,6 +106,21 @@ export const api = {
       hasRanking: !!rankingData,
       keys: Object.keys(teamData),
     });
+    if (rankingData) {
+      console.log('[api.getTeam] Ranking data received:', {
+        rank_in_cohort_final: rankingData.rank_in_cohort_final,
+        rank_in_state_final: rankingData.rank_in_state_final,
+        win_percentage: rankingData.win_percentage,
+        wins: rankingData.wins,
+        losses: rankingData.losses,
+        draws: rankingData.draws,
+        games_played: rankingData.games_played,
+        power_score_final: rankingData.power_score_final,
+        allKeys: Object.keys(rankingData),
+      });
+    } else {
+      console.warn('[api.getTeam] No ranking data found for team:', teamData.team_name);
+    }
     
     // Ensure all required Team fields exist
     const team: Team = {
