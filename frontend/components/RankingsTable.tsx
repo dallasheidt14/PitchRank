@@ -46,6 +46,21 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   const { data: rankings, isLoading, isError, error, refetch } = useRankings(region, ageGroup, gender);
   const prefetchTeam = usePrefetchTeam();
 
+  // Debug: Log first ranking to see what data we're getting
+  if (rankings && rankings.length > 0) {
+    console.log('[RankingsTable] First ranking data:', {
+      team_name: rankings[0].team_name,
+      rank_in_cohort_final: rankings[0].rank_in_cohort_final,
+      rank_in_state_final: rankings[0].rank_in_state_final,
+      win_percentage: rankings[0].win_percentage,
+      wins: rankings[0].wins,
+      losses: rankings[0].losses,
+      draws: rankings[0].draws,
+      games_played: rankings[0].games_played,
+      allKeys: Object.keys(rankings[0]),
+    });
+  }
+
   // Optimized SOS Rank calculation per cohort
   const sortedBySOS = useMemo(() => {
     if (!rankings) return [];
@@ -137,13 +152,14 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     }
   };
 
-  const SortButton = ({ field, label }: { field: SortField; label: string }) => {
+  const SortButton = ({ field, label }: { field: SortField; label: string | React.ReactNode }) => {
     const isActive = sortField === field;
+    const labelText = typeof label === 'string' ? label : 'Sort';
     return (
       <button
         onClick={() => handleSort(field)}
         className="flex items-center gap-1 hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded"
-        aria-label={`Sort by ${label}`}
+        aria-label={`Sort by ${labelText}`}
       >
         {label}
         {isActive ? (
@@ -209,148 +225,162 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
           </p>
         ) : (
           <div className="rounded-md border overflow-hidden">
-            {/* Table Header */}
-            <div className="grid border-b bg-muted/50 sticky top-0 z-10" style={{ gridTemplateColumns: region ? '80px 2fr 1fr 1fr 1fr 1fr 1fr' : '80px 2fr 1fr 1fr 1fr 1fr 1fr 1fr' }}>
-              <div className="px-4 py-3 font-medium">
-                <SortButton field="rank" label="Rank" />
-              </div>
-              <div className="px-4 py-3 font-medium">
-                <SortButton field="team" label="Team" />
-              </div>
-              <div className="px-4 py-3 font-medium text-right">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div>
-                      <SortButton field="powerScore" label="PowerScore (ML Adjusted)" />
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>A machine-learning-enhanced ranking score that measures overall team strength based on offense, defense, schedule difficulty, and predictive performance patterns.</p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-              <div className="px-4 py-3 font-medium text-right">
-                <SortButton field="winPercentage" label="Win %" />
-              </div>
-              <div className="px-4 py-3 font-medium text-right">
-                <SortButton field="gamesPlayed" label="Games" />
-              </div>
-              <div className="px-4 py-3 font-medium text-right">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div>
-                      <SortButton field="sosRank" label="SOS Rank (Cohort)" />
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>SOS Rank is computed within this age and gender cohort using sos_norm.</p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-              <div className="px-4 py-3 font-medium text-right">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div>
-                      <SortButton field="sos" label="SOS Index" />
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Strength of Schedule normalized within each age group and gender (0 = softest schedule, 100 = toughest).</p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-            </div>
-
-            {/* Virtualized Table Body */}
-            <div
-              ref={parentRef}
-              className="overflow-auto"
-              style={{ height: '600px' }}
-            >
-              <div
-                style={{
-                  height: `${totalHeight}px`,
-                  width: '100%',
-                  position: 'relative',
-                }}
-              >
-                {paddingTop > 0 && (
-                  <div style={{ height: `${paddingTop}px` }} />
-                )}
-                {virtualItems.map((virtualRow) => {
-                  const team = sortedRankings[virtualRow.index];
-                  const displayRank = region ? team.rank_in_state_final : team.rank_in_cohort_final;
-                  const borderClass = getRankBorderClass(displayRank ?? null);
-
-                  return (
-                    <div
-                      key={team.team_id_master}
-                      data-index={virtualRow.index}
-                      ref={virtualizer.measureElement}
-                      className={`
-                        grid border-b group cursor-pointer
-                        hover:bg-accent/70 hover:shadow-md
-                        transition-all duration-200 ease-in-out
-                        hover:scale-[1.01] hover:z-10
-                        ${borderClass}
-                      `}
-                      style={{
-                        gridTemplateColumns: region ? '80px 2fr 1fr 1fr 1fr 1fr 1fr' : '80px 2fr 1fr 1fr 1fr 1fr 1fr 1fr',
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        width: '100%',
-                        height: `${virtualRow.size}px`,
-                        transform: `translateY(${virtualRow.start}px)`,
-                      }}
-                    >
-                      <div className="px-4 py-3 font-semibold flex items-center">
-                        {region ? (team.rank_in_state_final ?? '—') : (team.rank_in_cohort_final ?? '—')}
-                      </div>
-                      <div className="px-4 py-3">
-                        <Link
-                          href={`/teams/${team.team_id_master}?region=${region || 'national'}&ageGroup=${ageGroup}&gender=${gender?.toLowerCase() || 'male'}`}
-                          onMouseEnter={() => prefetchTeam(team.team_id_master)}
-                          className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block"
-                          aria-label={`View ${team.team_name} team details`}
-                        >
-                          {team.team_name}
-                        </Link>
-                        <div className="text-sm text-muted-foreground">
-                          {team.club_name && <span>{team.club_name}</span>}
-                          {team.state_code && (
-                            <span className={team.club_name ? ' • ' : ''}>
-                              {team.state_code}
-                            </span>
-                          )}
+            {/* Mobile: Horizontal scroll wrapper */}
+            <div className="overflow-x-auto -mx-4 sm:mx-0">
+              <div className="inline-block min-w-full align-middle" style={{ minWidth: region ? '800px' : '900px' }}>
+                {/* Table Header */}
+                <div className="grid border-b bg-muted/50 sticky top-0 z-10" style={{ gridTemplateColumns: region ? '60px 2fr 1fr 0.9fr 0.8fr 0.9fr 1fr' : '60px 2fr 1fr 0.9fr 0.8fr 0.9fr 1fr 1fr' }}>
+                  <div className="px-2 sm:px-4 py-2 sm:py-3 font-medium text-xs sm:text-sm">
+                    <SortButton field="rank" label="Rank" />
+                  </div>
+                  <div className="px-2 sm:px-4 py-2 sm:py-3 font-medium text-xs sm:text-sm">
+                    <SortButton field="team" label="Team" />
+                  </div>
+                  <div className="px-2 sm:px-4 py-2 sm:py-3 font-medium text-right text-xs sm:text-sm">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div>
+                          <SortButton field="powerScore" label={<><span className="hidden sm:inline">PowerScore (ML Adjusted)</span><span className="sm:hidden">PS</span></>} />
                         </div>
-                      </div>
-                      <div className="px-4 py-3 text-right font-semibold flex items-center justify-end">
-                        {formatPowerScore(team.power_score_final)}
-                      </div>
-                      <div className="px-4 py-3 text-right flex items-center justify-end">
-                        {team.win_percentage !== null
-                          ? `${team.win_percentage.toFixed(1)}%`
-                          : '—'}
-                      </div>
-                      <div className="px-4 py-3 text-right flex items-center justify-end">
-                        {team.games_played}
-                      </div>
-                      <div className="px-4 py-3 text-right flex items-center justify-end">
-                        {(() => {
-                          const sosRank = sosRanks[team.team_id_master];
-                          return sosRank ? `#${sosRank}` : '—';
-                        })()}
-                      </div>
-                      <div className="px-4 py-3 text-right flex items-center justify-end">
-                        {formatSOSIndex(team.sos_norm)}
-                      </div>
-                    </div>
-                  );
-                })}
-                {paddingBottom > 0 && (
-                  <div style={{ height: `${paddingBottom}px` }} />
-                )}
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>A machine-learning-enhanced ranking score that measures overall team strength based on offense, defense, schedule difficulty, and predictive performance patterns.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <div className="px-2 sm:px-4 py-2 sm:py-3 font-medium text-right text-xs sm:text-sm">
+                    <SortButton field="winPercentage" label="Win %" />
+                  </div>
+                  <div className="px-2 sm:px-4 py-2 sm:py-3 font-medium text-right text-xs sm:text-sm">
+                    <SortButton field="gamesPlayed" label="Games" />
+                  </div>
+                  <div className="px-2 sm:px-4 py-2 sm:py-3 font-medium text-right text-xs sm:text-sm">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div>
+                          <SortButton field="sosRank" label={<><span className="hidden sm:inline">SOS Rank</span><span className="sm:hidden">SOS R</span></>} />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>SOS Rank is computed within this age and gender cohort using sos_norm.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <div className="px-2 sm:px-4 py-2 sm:py-3 font-medium text-right text-xs sm:text-sm">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div>
+                          <SortButton field="sos" label="SOS" />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Strength of Schedule normalized within each age group and gender (0 = softest schedule, 100 = toughest).</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                </div>
+
+                {/* Virtualized Table Body */}
+                <div
+                  ref={parentRef}
+                  className="overflow-auto"
+                  style={{ height: '600px' }}
+                >
+                  <div
+                    style={{
+                      height: `${totalHeight}px`,
+                      width: '100%',
+                      position: 'relative',
+                    }}
+                  >
+                    {paddingTop > 0 && (
+                      <div style={{ height: `${paddingTop}px` }} />
+                    )}
+                    {virtualItems.map((virtualRow) => {
+                      const team = sortedRankings[virtualRow.index];
+                      const displayRank = region ? team.rank_in_state_final : team.rank_in_cohort_final;
+                      const borderClass = getRankBorderClass(displayRank ?? null);
+
+                      return (
+                        <div
+                          key={team.team_id_master}
+                          data-index={virtualRow.index}
+                          ref={virtualizer.measureElement}
+                          className={`
+                            grid border-b group cursor-pointer
+                            hover:bg-accent/70 hover:shadow-md
+                            transition-all duration-200 ease-in-out
+                            hover:scale-[1.01] hover:z-10
+                            ${borderClass}
+                          `}
+                          style={{
+                            gridTemplateColumns: region ? '60px 2fr 1fr 0.9fr 0.8fr 0.9fr 1fr' : '60px 2fr 1fr 0.9fr 0.8fr 0.9fr 1fr 1fr',
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            height: `${virtualRow.size}px`,
+                            transform: `translateY(${virtualRow.start}px)`,
+                            minHeight: '60px',
+                          }}
+                        >
+                          <div className="px-2 sm:px-4 py-2 sm:py-3 font-semibold flex items-center text-xs sm:text-base">
+                            {(() => {
+                              const rank = region ? team.rank_in_state_final : team.rank_in_cohort_final;
+                              return rank != null ? `#${rank}` : '—';
+                            })()}
+                          </div>
+                          <div className="px-2 sm:px-4 py-2 sm:py-3 min-w-0">
+                            <Link
+                              href={`/teams/${team.team_id_master}?region=${region || 'national'}&ageGroup=${ageGroup}&gender=${gender?.toLowerCase() || 'male'}`}
+                              onMouseEnter={() => prefetchTeam(team.team_id_master)}
+                              className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block text-xs sm:text-sm truncate block"
+                              aria-label={`View ${team.team_name} team details`}
+                            >
+                              {team.team_name}
+                            </Link>
+                            <div className="text-xs sm:text-sm text-muted-foreground truncate">
+                              {team.club_name && <span>{team.club_name}</span>}
+                              {team.state_code && (
+                                <span className={team.club_name ? ' • ' : ''}>
+                                  {team.state_code}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="px-2 sm:px-4 py-2 sm:py-3 text-right font-semibold flex items-center justify-end text-xs sm:text-sm">
+                            {formatPowerScore(team.power_score_final)}
+                          </div>
+                          <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm">
+                            {(() => {
+                              // Calculate win_percentage if not provided
+                              let winPct = team.win_percentage;
+                              if (winPct == null && team.games_played > 0) {
+                                winPct = ((team.wins + team.draws * 0.5) / team.games_played) * 100;
+                              }
+                              return winPct != null ? `${winPct.toFixed(1)}%` : '—';
+                            })()}
+                          </div>
+                          <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm">
+                            {team.games_played}
+                          </div>
+                          <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm">
+                            {(() => {
+                              const sosRank = sosRanks[team.team_id_master];
+                              return sosRank ? `#${sosRank}` : '—';
+                            })()}
+                          </div>
+                          <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm">
+                            {formatSOSIndex(team.sos_norm)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  {paddingBottom > 0 && (
+                    <div style={{ height: `${paddingBottom}px` }} />
+                  )}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
