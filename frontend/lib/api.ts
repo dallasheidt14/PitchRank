@@ -108,8 +108,10 @@ export const api = {
     });
     if (rankingData) {
       console.log('[api.getTeam] Ranking data received:', {
-        rank_in_cohort_final: rankingData.rank_in_cohort_final,
-        rank_in_state_final: rankingData.rank_in_state_final,
+        national_rank: rankingData.national_rank,
+        state_rank: rankingData.state_rank,
+        national_sos_rank: rankingData.national_sos_rank,
+        state_sos_rank: rankingData.state_sos_rank,
         win_percentage: rankingData.win_percentage,
         wins: rankingData.wins,
         losses: rankingData.losses,
@@ -140,23 +142,23 @@ export const api = {
       last_scraped_at: teamData.last_scraped_at,
     };
 
-    // Merge ranking data if available
+    // Merge ranking data if available (match TeamWithRanking contract)
     const teamWithRanking: TeamWithRanking = {
       ...team,
       ...(rankingData && {
-        rank_in_cohort_final: rankingData.rank_in_cohort_final ?? null,
-        rank_in_state_final: rankingData.rank_in_state_final ?? null,
-        global_power_score: rankingData.global_power_score,
-        power_score_final: rankingData.power_score_final,
-        games_played: rankingData.games_played,
-        wins: rankingData.wins,
-        losses: rankingData.losses,
-        draws: rankingData.draws,
-        goals_for: rankingData.goals_for,
-        win_percentage: rankingData.win_percentage,
-        strength_of_schedule: rankingData.strength_of_schedule,
-        sos: rankingData.sos ?? rankingData.strength_of_schedule ?? null,
+        national_rank: rankingData.national_rank ?? null,
+        state_rank: rankingData.state_rank ?? null,
+        national_sos_rank: rankingData.national_sos_rank ?? null,
+        state_sos_rank: rankingData.state_sos_rank ?? null,
+        power_score_final: rankingData.power_score_final ?? null,
         sos_norm: rankingData.sos_norm ?? null,
+        games_played: rankingData.games_played ?? 0,
+        wins: rankingData.wins ?? 0,
+        losses: rankingData.losses ?? 0,
+        draws: rankingData.draws ?? 0,
+        goals_for: rankingData.goals_for,
+        win_percentage: rankingData.win_percentage ?? null,
+        last_game_date: rankingData.last_game_date ?? null,
       }),
     };
     

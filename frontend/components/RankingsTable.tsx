@@ -50,8 +50,10 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   if (rankings && rankings.length > 0) {
     console.log('[RankingsTable] First ranking data:', {
       team_name: rankings[0].team_name,
-      rank_in_cohort_final: rankings[0].rank_in_cohort_final,
-      rank_in_state_final: rankings[0].rank_in_state_final,
+      national_rank: rankings[0].national_rank,
+      state_rank: rankings[0].state_rank,
+      national_sos_rank: rankings[0].national_sos_rank,
+      state_sos_rank: rankings[0].state_sos_rank,
       win_percentage: rankings[0].win_percentage,
       wins: rankings[0].wins,
       losses: rankings[0].losses,
@@ -87,9 +89,9 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
 
       switch (sortField) {
         case 'rank':
-          // Use rank_in_state_final if region is set, otherwise rank_in_cohort_final
-          aValue = region ? (a.rank_in_state_final ?? Infinity) : (a.rank_in_cohort_final ?? Infinity);
-          bValue = region ? (b.rank_in_state_final ?? Infinity) : (b.rank_in_cohort_final ?? Infinity);
+          // Use state_rank if region is set, otherwise national_rank
+          aValue = region ? (a.state_rank ?? Infinity) : (a.national_rank ?? Infinity);
+          bValue = region ? (b.state_rank ?? Infinity) : (b.national_rank ?? Infinity);
           break;
         case 'team':
           aValue = a.team_name.toLowerCase();
@@ -298,7 +300,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                     )}
                     {virtualItems.map((virtualRow) => {
                       const team = sortedRankings[virtualRow.index];
-                      const displayRank = region ? team.rank_in_state_final : team.rank_in_cohort_final;
+                      const displayRank = region ? team.state_rank : team.national_rank;
                       const borderClass = getRankBorderClass(displayRank ?? null);
 
                       return (
@@ -326,7 +328,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                         >
                           <div className="px-2 sm:px-4 py-2 sm:py-3 font-semibold flex items-center text-xs sm:text-base">
                             {(() => {
-                              const rank = region ? team.rank_in_state_final : team.rank_in_cohort_final;
+                              const rank = region ? team.state_rank : team.national_rank;
                               return rank != null ? `#${rank}` : '—';
                             })()}
                           </div>

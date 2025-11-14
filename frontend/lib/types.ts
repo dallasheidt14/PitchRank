@@ -43,41 +43,38 @@ export interface Game {
 export interface Ranking {
   team_id: string; // UUID - references teams.team_id_master
   team_id_master?: string;
-  // New correct fields
-  rank_in_cohort_final?: number | null; // National rank (cohort rank across entire country)
-  rank_in_state_final?: number | null; // State rank (cohort rank filtered by state)
-  // Deprecated fields (kept for backward compatibility during migration)
-  /** @deprecated Use rank_in_cohort_final instead */
-  national_rank?: number | null;
-  /** @deprecated Use rank_in_state_final instead */
-  state_rank?: number | null;
-  /** @deprecated SOS ranks are computed client-side per cohort, not provided by backend */
-  national_sos_rank?: number | null;
-  /** @deprecated SOS ranks are computed client-side per cohort, not provided by backend */
-  state_sos_rank?: number | null;
-  /** @deprecated Use power_score_final instead */
-  national_power_score?: number;
-  global_power_score: number | null;
-  power_score_final: number; // ML-adjusted power score (ML > global > adj > national)
-  games_played: number;
+  // Correct ranking fields (backend contract)
+  national_rank: number | null;
+  state_rank: number | null;
+  national_sos_rank: number | null;
+  state_sos_rank: number | null;
+  power_score_final: number | null; // ML-adjusted power score (ML > global > adj > national)
+  sos_norm: number | null; // Normalized SOS (percentile/z-score within cohort)
+  // Record
   wins: number;
   losses: number;
   draws: number;
-  goals_for: number;
-  goals_against: number;
+  games_played: number;
   win_percentage: number | null;
-  points_per_game: number | null;
-  strength_of_schedule: number | null;
-  sos?: number | null; // Raw SOS value (0.0-1.0)
-  sos_norm?: number | null; // Normalized SOS (percentile/z-score within cohort)
-  sos_rank?: number | null; // Alias for state_sos_rank or national_sos_rank (deprecated)
+  goals_for?: number;
+  goals_against?: number;
   last_game_date: string | null; // ISO date string
-  last_calculated: string;
+  last_calculated?: string;
+  // Deprecated fields (do not use)
+  /** @deprecated Use power_score_final instead */
+  national_power_score?: never;
+  /** @deprecated Use sos_norm instead */
+  strength_of_schedule?: never;
+  /** @deprecated Use sos_norm instead */
+  sos?: never;
+  /** @deprecated Use sos_norm instead */
+  sos_rank?: never;
+  global_power_score?: number | null; // Kept for backward compatibility but prefer power_score_final
 }
 
 /**
  * Ranking with team details (from rankings_view / state_rankings_view)
- * This matches the exact columns returned by the rankings views
+ * This matches the exact columns returned by the rankings views (RankingRow contract)
  */
 export interface RankingWithTeam {
   team_id_master: string;
@@ -86,38 +83,67 @@ export interface RankingWithTeam {
   state_code: string | null;
   age_group: string;
   gender: 'Male' | 'Female';
-  // New correct fields
-  rank_in_cohort_final?: number | null; // National rank (cohort rank across entire country)
-  rank_in_state_final?: number | null; // State rank (cohort rank filtered by state)
-  // Deprecated fields (kept for backward compatibility during migration)
-  /** @deprecated Use rank_in_cohort_final instead */
-  national_rank?: number | null;
-  /** @deprecated Use rank_in_state_final instead */
-  state_rank?: number | null;
-  /** @deprecated SOS ranks are computed client-side per cohort, not provided by backend */
-  national_sos_rank?: number | null;
-  /** @deprecated SOS ranks are computed client-side per cohort, not provided by backend */
-  state_sos_rank?: number | null;
-  /** @deprecated Use power_score_final instead */
-  national_power_score?: number;
-  global_power_score: number | null;
-  power_score_final: number; // ML-adjusted power score (ML > global > adj > national)
-  games_played: number;
+  // Scores (backend contract)
+  power_score_final: number;
+  sos_norm: number;
+  // Ranks (backend contract)
+  national_rank: number | null;
+  state_rank: number | null;
+  national_sos_rank: number | null;
+  state_sos_rank: number | null;
+  // Record
   wins: number;
   losses: number;
   draws: number;
-  goals_for?: number; // Goals for (if available from backend)
+  games_played: number;
   win_percentage: number | null;
-  strength_of_schedule: number | null;
-  sos?: number | null; // Raw SOS value (0.0-1.0)
-  sos_norm?: number | null; // Normalized SOS (percentile/z-score within cohort)
+  goals_for?: number;
+  // Deprecated fields (do not use)
+  /** @deprecated Use power_score_final instead */
+  national_power_score?: never;
+  /** @deprecated Use sos_norm instead */
+  strength_of_schedule?: never;
+  /** @deprecated Use sos_norm instead */
+  sos?: never;
+  /** @deprecated Use sos_norm instead */
+  sos_rank?: never;
 }
 
 /**
- * Team with ranking data merged
+ * Team with ranking data merged (TeamWithRanking contract)
  * Used when fetching a team with its current ranking information
+ * This is the authoritative shape for team detail pages
  */
-export type TeamWithRanking = Team & Partial<RankingWithTeam>;
+export interface TeamWithRanking {
+  team_id_master: string;
+  team_name: string;
+  club_name: string | null;
+  state_code: string | null;
+  age_group: string;
+  gender: 'Male' | 'Female';
+  // Correct Ranking Fields (backend contract)
+  national_rank: number | null;
+  state_rank: number | null;
+  power_score_final: number | null; // ML Adjusted, final score
+  sos_norm: number | null; // normalized 0–1 SOS index
+  national_sos_rank: number | null;
+  state_sos_rank: number | null;
+  // Record
+  wins: number;
+  losses: number;
+  draws: number;
+  games_played: number;
+  win_percentage: number | null; // backend should calculate
+  last_game_date: string | null;
+  goals_for?: number;
+  // Deprecated fields (do not use)
+  /** @deprecated Use power_score_final instead */
+  power_score?: never;
+  /** @deprecated Use power_score_final instead */
+  national_power_score?: never;
+  /** @deprecated Use sos_norm instead */
+  strength_of_schedule?: never;
+}
 
 /**
  * Team trajectory data - performance over time

@@ -278,14 +278,14 @@ export function ComparePanel() {
                       <div className="flex justify-between items-center">
                         <span className="text-muted-foreground">National Rank:</span>
                         <span className="font-semibold">
-                          {team1Data.rank_in_cohort_final ? `#${team1Data.rank_in_cohort_final}` : '—'}
+                          {team1Data.national_rank ? `#${team1Data.national_rank}` : '—'}
                         </span>
                       </div>
-                      {team1Data.state_code && team1Data.rank_in_state_final && (
+                      {team1Data.state_code && team1Data.state_rank && (
                         <div className="flex justify-between items-center">
                           <span className="text-muted-foreground">State Rank:</span>
                           <span className="font-semibold">
-                            #{team1Data.rank_in_state_final} ({team1Data.state_code.toUpperCase()})
+                            #{team1Data.state_rank} ({team1Data.state_code.toUpperCase()})
                           </span>
                         </div>
                       )}
@@ -356,14 +356,14 @@ export function ComparePanel() {
                       <div className="flex justify-between items-center">
                         <span className="text-muted-foreground">National Rank:</span>
                         <span className="font-semibold">
-                          {team2Data.rank_in_cohort_final ? `#${team2Data.rank_in_cohort_final}` : '—'}
+                          {team2Data.national_rank ? `#${team2Data.national_rank}` : '—'}
                         </span>
                       </div>
-                      {team2Data.state_code && team2Data.rank_in_state_final && (
+                      {team2Data.state_code && team2Data.state_rank && (
                         <div className="flex justify-between items-center">
                           <span className="text-muted-foreground">State Rank:</span>
                           <span className="font-semibold">
-                            #{team2Data.rank_in_state_final} ({team2Data.state_code.toUpperCase()})
+                            #{team2Data.state_rank} ({team2Data.state_code.toUpperCase()})
                           </span>
                         </div>
                       )}

@@ -32,7 +32,7 @@ export function HomeLeaderboard() {
     const watchedTeams = getWatchedTeams();
     const topTeam = rankings[0];
     
-    if (topTeam && topTeam.rank_in_cohort_final === 1 && watchedTeams.includes(topTeam.team_id_master)) {
+    if (topTeam && topTeam.national_rank === 1 && watchedTeams.includes(topTeam.team_id_master)) {
       // Check if we've already triggered confetti for this team in this session
       const sessionKey = `confetti_${topTeam.team_id_master}`;
       const lastConfettiTeamId = sessionStorage.getItem('lastConfettiTeamId');
@@ -68,9 +68,9 @@ export function HomeLeaderboard() {
               </p>
             ) : (
               topTeams.map((team, index) => {
-                const previousRank = index > 0 ? topTeams[index - 1].rank_in_cohort_final : null;
-                const rankChange = previousRank && team.rank_in_cohort_final
-                  ? previousRank - team.rank_in_cohort_final
+                const previousRank = index > 0 ? topTeams[index - 1].national_rank : null;
+                const rankChange = previousRank && team.national_rank
+                  ? previousRank - team.national_rank
                   : 0;
 
                 return (
@@ -84,7 +84,7 @@ export function HomeLeaderboard() {
                   >
                     <div className="flex items-center gap-4 flex-1 min-w-0">
                       <div className="flex-shrink-0 w-8 text-center font-semibold">
-                        {team.rank_in_cohort_final || '—'}
+                        {team.national_rank || '—'}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="font-medium truncate">{team.team_name}</div>

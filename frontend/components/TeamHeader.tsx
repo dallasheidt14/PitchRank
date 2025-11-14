@@ -45,20 +45,23 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
     }
     
     // Check if team has ranking fields (TeamWithRanking type)
-    const hasRankingData = 'rank_in_cohort_final' in team || 'power_score_final' in team;
+    const hasRankingData = 'national_rank' in team || 'power_score_final' in team;
     
     console.log('[TeamHeader] Team ranking data:', {
       teamId: team.team_id_master,
       teamName: team.team_name,
       hasRankingData,
-      rank_in_cohort_final: (team as any).rank_in_cohort_final,
-      rank_in_state_final: (team as any).rank_in_state_final,
+      national_rank: (team as any).national_rank,
+      state_rank: (team as any).state_rank,
+      national_sos_rank: (team as any).national_sos_rank,
+      state_sos_rank: (team as any).state_sos_rank,
       win_percentage: (team as any).win_percentage,
       wins: (team as any).wins,
       losses: (team as any).losses,
       draws: (team as any).draws,
       games_played: (team as any).games_played,
       power_score_final: (team as any).power_score_final,
+      sos_norm: (team as any).sos_norm,
       allKeys: Object.keys(team),
     });
     
@@ -164,15 +167,31 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
             <div>
               <div className="text-sm text-muted-foreground mb-1">National Rank</div>
               <div className="text-2xl font-semibold">
-                {teamRanking?.rank_in_cohort_final ? `#${teamRanking.rank_in_cohort_final}` : '—'}
+                {teamRanking?.national_rank ? `#${teamRanking.national_rank}` : '—'}
               </div>
             </div>
             <div>
               <div className="text-sm text-muted-foreground mb-1">State Rank</div>
               <div className="text-2xl font-semibold">
-                {teamRanking?.rank_in_state_final ? `#${teamRanking.rank_in_state_final}` : '—'}
+                {teamRanking?.state_rank ? `#${teamRanking.state_rank}` : '—'}
               </div>
             </div>
+            {teamRanking?.national_sos_rank && (
+              <div>
+                <div className="text-sm text-muted-foreground mb-1">National SOS Rank</div>
+                <div className="text-2xl font-semibold">
+                  #{teamRanking.national_sos_rank}
+                </div>
+              </div>
+            )}
+            {teamRanking?.state_sos_rank && teamRanking?.state_code && (
+              <div>
+                <div className="text-sm text-muted-foreground mb-1">State SOS Rank</div>
+                <div className="text-2xl font-semibold">
+                  #{teamRanking.state_sos_rank}
+                </div>
+              </div>
+            )}
             <div>
               <div className="text-sm text-muted-foreground mb-1">Games Played</div>
               <div className="text-2xl font-semibold">
@@ -182,15 +201,7 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
             <div>
               <div className="text-sm text-muted-foreground mb-1">Win %</div>
               <div className="text-2xl font-semibold">
-                {(() => {
-                  if (!teamRanking) return '—';
-                  // Calculate win_percentage if not provided
-                  let winPct = teamRanking.win_percentage;
-                  if (winPct == null && teamRanking.games_played > 0) {
-                    winPct = ((teamRanking.wins + teamRanking.draws * 0.5) / teamRanking.games_played) * 100;
-                  }
-                  return winPct != null ? `${winPct.toFixed(1)}%` : '—';
-                })()}
+                {teamRanking?.win_percentage != null ? `${teamRanking.win_percentage.toFixed(1)}%` : '—'}
               </div>
             </div>
           </div>
@@ -234,3 +245,4 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
     </Card>
   );
 }
+
