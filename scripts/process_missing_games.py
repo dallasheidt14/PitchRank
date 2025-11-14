@@ -282,12 +282,27 @@ class MissingGamesProcessor:
             
             logger.info(f"Running import script: {' '.join(cmd)}")
             
-            # Run the import script
+            # Prepare environment variables for subprocess
+            # The import script expects SUPABASE_SERVICE_ROLE_KEY, but we might have SUPABASE_SERVICE_KEY
+            env = os.environ.copy()
+            
+            # Map SUPABASE_SERVICE_KEY to SUPABASE_SERVICE_ROLE_KEY if needed
+            if 'SUPABASE_SERVICE_KEY' in env and 'SUPABASE_SERVICE_ROLE_KEY' not in env:
+                env['SUPABASE_SERVICE_ROLE_KEY'] = env['SUPABASE_SERVICE_KEY']
+            
+            # Ensure SUPABASE_URL is available
+            if 'SUPABASE_URL' not in env:
+                # Try NEXT_PUBLIC_SUPABASE_URL as fallback
+                if 'NEXT_PUBLIC_SUPABASE_URL' in env:
+                    env['SUPABASE_URL'] = env['NEXT_PUBLIC_SUPABASE_URL']
+            
+            # Run the import script with environment variables
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                cwd=Path(__file__).parent.parent  # Run from project root
+                cwd=Path(__file__).parent.parent,  # Run from project root
+                env=env  # Pass environment variables explicitly
             )
             
             if result.returncode != 0:
