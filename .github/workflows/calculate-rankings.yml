@@ -1,0 +1,40 @@
+name: Calculate Rankings
+
+on:
+  workflow_dispatch: # Allow manual trigger from GitHub Actions tab
+
+jobs:
+  calculate-rankings:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Install core dependencies for rankings calculation
+          pip install supabase python-dotenv pandas requests rich certifi numpy
+      
+      - name: Calculate Rankings
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        run: |
+          # Set Python path to include project root
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          # Run rankings calculation with ML layer and force rebuild
+          python scripts/calculate_rankings.py --ml --force-rebuild || exit 1
+      
+      - name: Report results
+        if: always()
+        run: |
+          echo "Rankings calculation completed. Check logs above for details."
+
