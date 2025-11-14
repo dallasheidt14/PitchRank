@@ -67,15 +67,15 @@ export default function TestPage() {
                         {ranking.club_name && (
                           <span>{ranking.club_name} • </span>
                         )}
-                        {ranking.age_group.toUpperCase()} {ranking.gender}
-                        {ranking.state_code && (
-                          <span> • {ranking.state_code}</span>
+                        U{ranking.age} {ranking.gender === 'M' ? 'Boys' : ranking.gender === 'F' ? 'Girls' : ranking.gender}
+                        {ranking.state && (
+                          <span> • {ranking.state}</span>
                         )}
                       </div>
                     </div>
                     <div className="text-right ml-4">
-                      {ranking.national_rank && (
-                        <div className="font-semibold">#{ranking.national_rank}</div>
+                      {ranking.rank_in_cohort_final && (
+                        <div className="font-semibold">#{ranking.rank_in_cohort_final}</div>
                       )}
                       <div className="text-xs text-muted-foreground">
                         Score: {formatPowerScore(ranking.power_score_final)}

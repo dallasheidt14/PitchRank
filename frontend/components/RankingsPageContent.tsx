@@ -13,10 +13,9 @@ interface RankingsPageContentProps {
 }
 
 export function RankingsPageContent({ region, ageGroup, gender }: RankingsPageContentProps) {
+  // Convert gender from URL format (lowercase) to API format (single letter)
   const genderForAPI = gender
-    ? (gender.charAt(0).toUpperCase() + gender.slice(1).toLowerCase()) as
-        | 'Male'
-        | 'Female'
+    ? (gender === 'male' ? 'M' : gender === 'female' ? 'F' : null) as 'M' | 'F' | 'B' | 'G' | null
     : null;
 
   return (
