@@ -12,6 +12,8 @@ export interface RankingRow {
   gender: 'Male' | 'Female';
   national_rank: number | null;
   state_rank?: number | null; // Optional, only present in state rankings
+  national_sos_rank: number | null;
+  state_sos_rank?: number | null;
   national_power_score: number;
   global_power_score: number | null;
   games_played: number;

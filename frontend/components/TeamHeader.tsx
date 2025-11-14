@@ -151,7 +151,7 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 pt-4 border-t">
             <div>
               <div className="text-sm text-muted-foreground mb-1">National Rank</div>
               <div className="text-2xl font-semibold">
@@ -176,6 +176,18 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                 {teamRanking?.win_percentage != null
                   ? `${teamRanking.win_percentage.toFixed(1)}%`
                   : '—'}
+              </div>
+            </div>
+            <div>
+              <div className="text-sm text-muted-foreground mb-1">National SOS Rank</div>
+              <div className="text-2xl font-semibold">
+                {teamRanking?.national_sos_rank ? `#${teamRanking.national_sos_rank}` : '—'}
+              </div>
+            </div>
+            <div>
+              <div className="text-sm text-muted-foreground mb-1">State SOS Rank</div>
+              <div className="text-2xl font-semibold">
+                {teamRanking?.state_sos_rank ? `#${teamRanking.state_sos_rank}` : '—'}
               </div>
             </div>
           </div>

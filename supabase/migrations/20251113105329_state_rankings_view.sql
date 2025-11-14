@@ -24,11 +24,20 @@ SELECT
     row_number() over (
         partition by t.age_group, t.gender, t.state_code
         order by r.national_power_score desc
-    ) as state_rank
+    ) as state_rank,
+    row_number() over (
+        partition by t.age_group, t.gender
+        order by r.strength_of_schedule desc
+    ) as national_sos_rank,
+    row_number() over (
+        partition by t.age_group, t.gender, t.state_code
+        order by r.strength_of_schedule desc
+    ) as state_sos_rank
 FROM current_rankings r
 JOIN teams t ON r.team_id = t.team_id_master
 WHERE t.state_code IS NOT NULL
-  AND r.national_power_score IS NOT NULL;
+  AND r.national_power_score IS NOT NULL
+  AND r.strength_of_schedule IS NOT NULL;
 
 COMMENT ON VIEW state_rankings_view IS 'State rankings view: National rankings filtered by state_code, with dynamically calculated state_rank. Respects RLS policies.';
 
