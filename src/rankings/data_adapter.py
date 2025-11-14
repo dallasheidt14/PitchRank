@@ -5,35 +5,34 @@ import pandas as pd
 import re
 from typing import Dict, Optional, List
 from datetime import datetime, timedelta
+import logging
+
+logger = logging.getLogger(__name__)
 
 
-def age_group_to_age(age_group: str) -> str:
-    """Convert age_group format ('u10', 'u11') to age format ('10', '11')"""
-    if not age_group:
-        return ''
-    
-    age_group = str(age_group).strip().lower()
-    
-    # Remove 'u' prefix if present
-    if age_group.startswith('u'):
-        age_group = age_group[1:]
-    
-    # Try to extract number and convert to clean integer string
-    match = re.search(r'\d+', age_group)
-    if match:
-        # Convert to int then back to string to ensure clean integer (e.g., "12.0" -> "12")
-        try:
-            age_num = int(float(match.group()))
-            return str(age_num)
-        except (ValueError, TypeError):
-            return match.group()
-    
-    # If already numeric, convert to clean integer string
+# --------------------------------------------------------------------
+#  Safe numeric conversion
+# --------------------------------------------------------------------
+def safe_int(val):
+    """Convert numeric values safely, handling floats and empty strings."""
     try:
-        age_num = int(float(age_group))
-        return str(age_num)
+        if pd.isna(val) or val == "":
+            return None
+        return int(float(val))
     except (ValueError, TypeError):
-        return age_group
+        return None
+
+
+# --------------------------------------------------------------------
+#  Normalize Age Group -> Age
+# --------------------------------------------------------------------
+def age_group_to_age(age_group: str) -> str:
+    """Normalize 'U12', 'u11', '11.0' → '12', '11'"""
+    if not age_group:
+        return ""
+    s = str(age_group).strip().lower().lstrip("u")
+    match = re.search(r"\d+", s)
+    return str(int(float(match.group()))) if match else ""
 
 
 async def fetch_games_for_rankings(
@@ -61,27 +60,64 @@ async def fetch_games_for_rankings(
     cutoff = today - pd.Timedelta(days=lookback_days)
     cutoff_date_str = cutoff.strftime('%Y-%m-%d')
     
-    # Fetch games
-    query = supabase_client.table('games').select(
+    # Fetch games with pagination (Supabase defaults to 1000 rows per query)
+    base_query = supabase_client.table('games').select(
         'id, game_uid, game_date, home_team_master_id, away_team_master_id, '
         'home_score, away_score, provider_id'
-    ).gte('game_date', cutoff_date_str).limit(1000000)
+    ).gte('game_date', cutoff_date_str).order('game_date', desc=False)  # Order for consistent pagination
     
     if provider_filter:
         # Get provider ID
-        provider_result = supabase_client.table('providers').select('id').eq(
-            'code', provider_filter
-        ).single().execute()
-        if provider_result.data:
-            query = query.eq('provider_id', provider_result.data['id'])
+        try:
+            provider_result = supabase_client.table('providers').select('id').eq(
+                'code', provider_filter
+            ).single().execute()
+            if getattr(provider_result, 'data', None):
+                base_query = base_query.eq('provider_id', provider_result.data['id'])
+        except Exception as e:
+            logger.warning(f"⚠️  Failed to fetch provider filter '{provider_filter}': {e}")
+            # Continue without provider filter
     
-    games_result = query.execute()
-    games_data = games_result.data if games_result.data else []
+    # Paginate to fetch all games (Supabase max is 1000 per query)
+    games_data = []
+    page_size = 1000
+    offset = 0
+    max_games = 1000000  # Safety limit
+    
+    logger.info(f"📥 Fetching games from Supabase (cutoff: {cutoff_date_str})...")
+    
+    while len(games_data) < max_games:
+        query = base_query.range(offset, offset + page_size - 1)
+        try:
+            games_result = query.execute()
+        except Exception as e:
+            # If query times out, log and break
+            logger.warning(f"⚠️  Query timeout at offset {offset}, fetched {len(games_data):,} games so far: {e}")
+            break
+        
+        if not games_result.data:
+            break
+        
+        games_data.extend(games_result.data)
+        
+        # If we got fewer than page_size, we've reached the end
+        if len(games_result.data) < page_size:
+            break
+        
+        offset += page_size
+        
+        # Progress indicator for large fetches (every 10k games)
+        if len(games_data) % 10000 == 0:
+            logger.info(f"  ✓ Fetched {len(games_data):,} games...")
+    
+    logger.info(f"✅ Fetched {len(games_data):,} total games from database")
     
     if not games_data:
+        logger.warning("⚠️  No games found in database")
         return pd.DataFrame()
     
     games_df = pd.DataFrame(games_data)
+    logger.info(f"📊 Processing {len(games_df):,} games...")
     
     # Fetch teams for age_group and gender
     team_ids = set()
@@ -89,7 +125,10 @@ async def fetch_games_for_rankings(
     team_ids.update(games_df['away_team_master_id'].dropna().tolist())
     
     if not team_ids:
+        logger.warning("⚠️  No team IDs found in games")
         return pd.DataFrame()
+    
+    logger.info(f"👥 Fetching metadata for {len(team_ids):,} unique teams...")
     
     # Fetch teams in batches (Supabase has URI length limit - UUIDs are long)
     teams_data = []
@@ -98,20 +137,42 @@ async def fetch_games_for_rankings(
     
     for i in range(0, len(team_ids_list), batch_size):
         batch = team_ids_list[i:i + batch_size]
-        teams_result = supabase_client.table('teams').select(
-            'team_id_master, age_group, gender'
-        ).in_('team_id_master', batch).execute()
+        try:
+            teams_result = supabase_client.table('teams').select(
+                'team_id_master, age_group, gender'
+            ).in_('team_id_master', batch).execute()
+            
+            if getattr(teams_result, 'data', None):
+                teams_data.extend(teams_result.data)
+        except Exception as e:
+            logger.warning(f"⚠️  Team metadata batch failed ({i}-{i+batch_size}): {e}")
+            continue
         
-        if teams_result.data:
-            teams_data.extend(teams_result.data)
+        # Progress indicator for team fetching
+        if (i + batch_size) % 1000 == 0 or (i + batch_size) >= len(team_ids_list):
+            logger.info(f"  ✓ Fetched metadata for {len(teams_data):,} teams...")
     
     if not teams_data:
+        logger.warning("⚠️  No team metadata found")
         return pd.DataFrame()
     
     teams_df = pd.DataFrame(teams_data)
     teams_df['age'] = teams_df['age_group'].apply(age_group_to_age)
     # Normalize gender values
-    teams_df["gender"] = teams_df["gender"].astype(str).str.lower().str.strip()
+    teams_df["gender"] = (
+        teams_df["gender"]
+        .astype(str)
+        .str.lower()
+        .str.strip()
+        .replace({
+            "boys": "male",
+            "boy": "male",
+            "girls": "female",
+            "girl": "female",
+        })
+    )
+    
+    logger.info(f"🔄 Converting {len(games_df):,} games to v53e format (perspective-based)...")
     
     # Create team lookup dicts
     team_age_map = dict(zip(teams_df['team_id_master'], teams_df['age']))
@@ -119,6 +180,7 @@ async def fetch_games_for_rankings(
     
     # Convert to v53e format (perspective-based: each game appears twice)
     v53e_rows = []
+    processed_count = 0
     
     for _, game in games_df.iterrows():
         game_id = str(game.get('game_uid') or game.get('id', ''))
@@ -152,8 +214,8 @@ async def fetch_games_for_rankings(
             'gender': home_gender,
             'opp_age': away_age,
             'opp_gender': away_gender,
-            'gf': int(home_score) if pd.notna(home_score) else None,
-            'ga': int(away_score) if pd.notna(away_score) else None,
+            'gf': safe_int(home_score),
+            'ga': safe_int(away_score),
         })
         
         # Away perspective
@@ -166,20 +228,34 @@ async def fetch_games_for_rankings(
             'gender': away_gender,
             'opp_age': home_age,
             'opp_gender': home_gender,
-            'gf': int(away_score) if pd.notna(away_score) else None,
-            'ga': int(home_score) if pd.notna(home_score) else None,
+            'gf': safe_int(away_score),
+            'ga': safe_int(home_score),
         })
+        
+        processed_count += 1
+        # Progress indicator every 50k games
+        if processed_count % 50000 == 0:
+            logger.info(f"  ✓ Processed {processed_count:,} games ({len(v53e_rows):,} rows)...")
     
     if not v53e_rows:
+        logger.warning("⚠️  No valid games after conversion")
         return pd.DataFrame()
     
     v53e_df = pd.DataFrame(v53e_rows)
+    logger.info(f"📋 Created {len(v53e_df):,} perspective rows from {processed_count:,} games")
     
     # Filter out rows with missing scores
+    before_filter = len(v53e_df)
     v53e_df = v53e_df.dropna(subset=['gf', 'ga'])
+    after_filter = len(v53e_df)
+    
+    if before_filter != after_filter:
+        logger.info(f"🔍 Filtered out {before_filter - after_filter:,} rows with missing scores")
     
     # Ensure date is datetime
     v53e_df['date'] = pd.to_datetime(v53e_df['date'])
+    
+    logger.info(f"✅ Final v53e dataset: {len(v53e_df):,} rows ready for rankings")
     
     return v53e_df
 
@@ -205,7 +281,18 @@ def supabase_to_v53e_format(
     teams_df = teams_df.copy()
     teams_df['age'] = teams_df['age_group'].apply(age_group_to_age)
     # Normalize gender values
-    teams_df["gender"] = teams_df["gender"].astype(str).str.lower().str.strip()
+    teams_df["gender"] = (
+        teams_df["gender"]
+        .astype(str)
+        .str.lower()
+        .str.strip()
+        .replace({
+            "boys": "male",
+            "boy": "male",
+            "girls": "female",
+            "girl": "female",
+        })
+    )
     team_age_map = dict(zip(teams_df['team_id_master'], teams_df['age']))
     team_gender_map = dict(zip(teams_df['team_id_master'], teams_df['gender']))
     
@@ -241,8 +328,8 @@ def supabase_to_v53e_format(
             'gender': home_gender,
             'opp_age': away_age,
             'opp_gender': away_gender,
-            'gf': int(home_score) if pd.notna(home_score) else None,
-            'ga': int(away_score) if pd.notna(away_score) else None,
+            'gf': safe_int(home_score),
+            'ga': safe_int(away_score),
         })
         
         # Away perspective
@@ -255,8 +342,8 @@ def supabase_to_v53e_format(
             'gender': away_gender,
             'opp_age': home_age,
             'opp_gender': home_gender,
-            'gf': int(away_score) if pd.notna(away_score) else None,
-            'ga': int(home_score) if pd.notna(home_score) else None,
+            'gf': safe_int(away_score),
+            'ga': safe_int(home_score),
         })
     
     if not v53e_rows:
@@ -280,6 +367,7 @@ def v53e_to_supabase_format(teams_df: pd.DataFrame) -> pd.DataFrame:
         DataFrame ready for current_rankings table
     """
     if teams_df.empty:
+        logger.warning("⚠️ Empty rankings DataFrame — nothing to convert.")
         return pd.DataFrame()
     
     # Map v53e columns to Supabase columns
@@ -288,24 +376,274 @@ def v53e_to_supabase_format(teams_df: pd.DataFrame) -> pd.DataFrame:
     # Ensure team_id is UUID string
     rankings_df['team_id'] = rankings_df['team_id'].astype(str)
     
-    # Map PowerScore columns
+    # Map PowerScore columns and clip to valid bounds
     if 'powerscore_ml' in rankings_df.columns:
-        rankings_df['national_power_score'] = rankings_df['powerscore_ml']
+        col = 'powerscore_ml'
     elif 'powerscore_adj' in rankings_df.columns:
-        rankings_df['national_power_score'] = rankings_df['powerscore_adj']
+        col = 'powerscore_adj'
     elif 'powerscore_core' in rankings_df.columns:
-        rankings_df['national_power_score'] = rankings_df['powerscore_core']
+        col = 'powerscore_core'
+    else:
+        logger.warning("⚠️ No PowerScore column found during export.")
+        col = None
+    
+    if col:
+        rankings_df['national_power_score'] = rankings_df[col].clip(0.0, 1.0)
     else:
         rankings_df['national_power_score'] = 0.0
     
-    # Map rank
+    # Map rank with proper defaults and dtype
     if 'rank_in_cohort_ml' in rankings_df.columns:
         rankings_df['national_rank'] = rankings_df['rank_in_cohort_ml']
     elif 'rank_in_cohort' in rankings_df.columns:
         rankings_df['national_rank'] = rankings_df['rank_in_cohort']
     else:
-        rankings_df['national_rank'] = None
+        rankings_df['national_rank'] = 0
     
-    # Keep other columns as needed
+    # Ensure rank is int and fill nulls
+    rankings_df['national_rank'] = rankings_df['national_rank'].fillna(0).astype(int)
+    
+    logger.info(f"🧾 Prepared {len(rankings_df):,} records for Supabase upload.")
+    
     return rankings_df
+
+
+def v53e_to_rankings_full_format(
+    teams_df: pd.DataFrame,
+    teams_metadata_df: Optional[pd.DataFrame] = None
+) -> pd.DataFrame:
+    """
+    Convert v53e + Layer 13 teams output to Supabase rankings_full format
+    
+    This function maps ALL fields from the ranking engine to the comprehensive
+    rankings_full table, preserving all v53E and ML layer outputs.
+    
+    Args:
+        teams_df: DataFrame from v53e compute_rankings() + Layer 13 ML adjustment
+        teams_metadata_df: Optional DataFrame with team metadata (team_id_master, age_group, gender, state_code)
+                          If not provided, will extract from teams_df if available
+    
+    Returns:
+        DataFrame ready for rankings_full table with all fields mapped
+    """
+    if teams_df.empty:
+        logger.warning("⚠️ Empty rankings DataFrame — nothing to convert.")
+        return pd.DataFrame()
+    
+    # Start with a copy
+    rankings_df = teams_df.copy()
+    
+    # Ensure team_id is UUID string
+    rankings_df['team_id'] = rankings_df['team_id'].astype(str)
+    
+    # Map team identity fields
+    # If teams_metadata_df is provided, merge it; otherwise try to extract from teams_df
+    # NOTE: Don't merge gender from metadata - v53e always provides it and it's the source of truth
+    if teams_metadata_df is not None and not teams_metadata_df.empty:
+        # Merge team metadata (age_group, state_code only - NOT gender)
+        teams_metadata_df = teams_metadata_df.copy()
+        teams_metadata_df['team_id_master'] = teams_metadata_df['team_id_master'].astype(str)
+        rankings_df = rankings_df.merge(
+            teams_metadata_df[['team_id_master', 'age_group', 'state_code']],  # Exclude gender
+            left_on='team_id',
+            right_on='team_id_master',
+            how='left'
+        )
+        # Drop duplicate column if it exists
+        if 'team_id_master' in rankings_df.columns and 'team_id' in rankings_df.columns:
+            rankings_df = rankings_df.drop(columns=['team_id_master'])
+    
+    # Map age_group from age if not present
+    if 'age_group' not in rankings_df.columns and 'age' in rankings_df.columns:
+        rankings_df['age_group'] = rankings_df['age'].apply(lambda x: f"u{int(float(x))}" if pd.notna(x) and str(x).strip() else None)
+    
+    # Normalize gender to match database format (Male/Female)
+    # CRITICAL: gender is NOT NULL in rankings_full, so ensure it's always populated
+    if 'gender' in rankings_df.columns:
+        rankings_df['gender'] = (
+            rankings_df['gender']
+            .astype(str)
+            .str.strip()
+            .str.title()
+            .replace({
+                'Male': 'Male',
+                'Female': 'Female',
+                'Boys': 'Male',
+                'Girls': 'Female',
+                'Boy': 'Male',
+                'Girl': 'Female',
+                'Nan': None,  # Handle NaN string
+                'None': None,
+            })
+        )
+        # Replace invalid values with None, then fill with a default
+        rankings_df['gender'] = rankings_df['gender'].replace(['', 'Nan', 'None', 'Null'], None)
+        # If still NULL after normalization, use 'Unknown' as fallback (or skip record)
+        # But ideally this shouldn't happen since v53e always provides gender
+        if rankings_df['gender'].isna().any():
+            logger.warning(f"⚠️ Found {rankings_df['gender'].isna().sum()} teams with NULL gender. Using 'Unknown' as fallback.")
+            rankings_df['gender'] = rankings_df['gender'].fillna('Unknown')
+    else:
+        # If gender column doesn't exist at all, create it (shouldn't happen with v53e)
+        logger.warning("⚠️ Gender column missing from teams_df. Creating with 'Unknown' default.")
+        rankings_df['gender'] = 'Unknown'
+    
+    # Map status field (from v53e)
+    if 'status' in rankings_df.columns:
+        rankings_df['status'] = rankings_df['status'].astype(str)
+    else:
+        rankings_df['status'] = None
+    
+    # Map last_game timestamp
+    if 'last_game' in rankings_df.columns:
+        rankings_df['last_game'] = pd.to_datetime(rankings_df['last_game'], errors='coerce')
+    else:
+        rankings_df['last_game'] = None
+    
+    # Map game statistics (these may need to be calculated from games if not present)
+    # For now, use what's available in teams_df
+    if 'gp' in rankings_df.columns:
+        rankings_df['games_played'] = rankings_df['gp'].fillna(0).astype(int)
+    elif 'games_played' not in rankings_df.columns:
+        rankings_df['games_played'] = 0
+    
+    # Wins/losses/draws may not be in v53e output - will need to calculate from games
+    # For now, set defaults
+    for col in ['wins', 'losses', 'draws', 'goals_for', 'goals_against']:
+        if col not in rankings_df.columns:
+            rankings_df[col] = 0
+    
+    # Calculate win_percentage if we have wins and games_played
+    if 'wins' in rankings_df.columns and 'games_played' in rankings_df.columns:
+        rankings_df['win_percentage'] = (
+            rankings_df.apply(
+                lambda row: (row['wins'] / row['games_played'] * 100) 
+                if row['games_played'] > 0 else None,
+                axis=1
+            )
+        )
+    else:
+        rankings_df['win_percentage'] = None
+    
+    # Map Offense/Defense metrics (v53E Layers 2-5, 7, 9)
+    for col in ['off_raw', 'sad_raw', 'off_shrunk', 'sad_shrunk', 'def_shrunk', 'off_norm', 'def_norm']:
+        if col not in rankings_df.columns:
+            rankings_df[col] = None
+    
+    # Map Strength of Schedule (v53E Layer 8)
+    if 'sos' in rankings_df.columns:
+        rankings_df['sos'] = rankings_df['sos'].astype(float)
+        rankings_df['strength_of_schedule'] = rankings_df['sos']  # Alias for backward compatibility
+    else:
+        rankings_df['sos'] = None
+        rankings_df['strength_of_schedule'] = None
+    
+    if 'sos_norm' in rankings_df.columns:
+        rankings_df['sos_norm'] = rankings_df['sos_norm'].astype(float)
+    else:
+        rankings_df['sos_norm'] = None
+    
+    # Map Power Score layers (v53E Layer 10)
+    for col in ['power_presos', 'anchor', 'abs_strength', 'powerscore_core', 'provisional_mult', 'powerscore_adj']:
+        if col not in rankings_df.columns:
+            rankings_df[col] = None
+        else:
+            rankings_df[col] = rankings_df[col].astype(float)
+    
+    # Map Performance metrics (v53E Layer 6)
+    for col in ['perf_raw', 'perf_centered']:
+        if col not in rankings_df.columns:
+            rankings_df[col] = None
+        else:
+            rankings_df[col] = rankings_df[col].astype(float)
+    
+    # Map ML Layer fields (Layer 13)
+    for col in ['ml_overperf', 'ml_norm', 'powerscore_ml']:
+        if col not in rankings_df.columns:
+            rankings_df[col] = None
+        else:
+            rankings_df[col] = rankings_df[col].astype(float)
+    
+    if 'rank_in_cohort_ml' in rankings_df.columns:
+        rankings_df['rank_in_cohort_ml'] = rankings_df['rank_in_cohort_ml'].fillna(0).astype(int)
+    else:
+        rankings_df['rank_in_cohort_ml'] = None
+    
+    # Map Ranking fields
+    if 'rank_in_cohort' in rankings_df.columns:
+        rankings_df['rank_in_cohort'] = rankings_df['rank_in_cohort'].fillna(0).astype(int)
+    else:
+        rankings_df['rank_in_cohort'] = None
+    
+    # National/state/global ranks will be computed in views, but store rank_in_cohort values
+    # Set these to None initially - they'll be computed dynamically in views
+    rankings_df['national_rank'] = None
+    rankings_df['state_rank'] = None
+    rankings_df['global_rank'] = None
+    
+    # Map Rank change tracking (from calculator.py)
+    for col in ['rank_change_7d', 'rank_change_30d']:
+        if col not in rankings_df.columns:
+            rankings_df[col] = None
+        else:
+            rankings_df[col] = rankings_df[col].fillna(0).astype(int)
+    
+    # Map Final power scores
+    # Determine primary power score: ML > adj > core
+    if 'powerscore_ml' in rankings_df.columns and rankings_df['powerscore_ml'].notna().any():
+        rankings_df['national_power_score'] = rankings_df['powerscore_ml'].clip(0.0, 1.0)
+    elif 'powerscore_adj' in rankings_df.columns:
+        rankings_df['national_power_score'] = rankings_df['powerscore_adj'].clip(0.0, 1.0)
+    elif 'powerscore_core' in rankings_df.columns:
+        rankings_df['national_power_score'] = rankings_df['powerscore_core'].clip(0.0, 1.0)
+    else:
+        rankings_df['national_power_score'] = 0.0
+    
+    # Global power score (may not be computed yet)
+    if 'global_power_score' not in rankings_df.columns:
+        rankings_df['global_power_score'] = None
+    
+    # Calculate power_score_final with fallback
+    rankings_df['power_score_final'] = rankings_df.apply(
+        lambda row: (
+            row['powerscore_ml'] if pd.notna(row.get('powerscore_ml')) else
+            row['global_power_score'] if pd.notna(row.get('global_power_score')) else
+            row['powerscore_adj'] if pd.notna(row.get('powerscore_adj')) else
+            row['national_power_score']
+        ),
+        axis=1
+    ).clip(0.0, 1.0)
+    
+    # Rename team_id to match database column name
+    rankings_df = rankings_df.rename(columns={'team_id': 'team_id'})
+    # Ensure team_id column exists (it should already be there)
+    
+    # Select only columns that exist in rankings_full table
+    # This ensures we don't include extra columns that might cause issues
+    expected_columns = [
+        'team_id', 'age_group', 'gender', 'state_code',
+        'status', 'last_game', 'last_calculated',
+        'games_played', 'wins', 'losses', 'draws', 'goals_for', 'goals_against', 'win_percentage',
+        'off_raw', 'sad_raw', 'off_shrunk', 'sad_shrunk', 'def_shrunk', 'off_norm', 'def_norm',
+        'sos', 'sos_norm', 'strength_of_schedule',
+        'power_presos', 'anchor', 'abs_strength', 'powerscore_core', 'provisional_mult', 'powerscore_adj',
+        'perf_raw', 'perf_centered',
+        'ml_overperf', 'ml_norm', 'powerscore_ml', 'rank_in_cohort_ml',
+        'rank_in_cohort', 'national_rank', 'state_rank', 'global_rank',
+        'rank_change_7d', 'rank_change_30d',
+        'national_power_score', 'global_power_score', 'power_score_final'
+    ]
+    
+    # Create result DataFrame with all expected columns
+    result_df = pd.DataFrame(index=rankings_df.index)
+    for col in expected_columns:
+        if col in rankings_df.columns:
+            result_df[col] = rankings_df[col]
+        else:
+            result_df[col] = None
+    
+    logger.info(f"🧾 Prepared {len(result_df):,} records for rankings_full table upload.")
+    logger.info(f"   Fields populated: {sum(result_df[col].notna().any() for col in result_df.columns)}/{len(result_df.columns)}")
+    
+    return result_df
 

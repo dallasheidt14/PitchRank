@@ -112,7 +112,7 @@ export function HomeLeaderboard() {
                       )}
                       <div className="text-right">
                         <div className="font-semibold">
-                          {team.national_power_score.toFixed(1)}
+                          {team.power_score_final.toFixed(1)}
                         </div>
                         <div className="text-xs text-muted-foreground">Power Score</div>
                       </div>

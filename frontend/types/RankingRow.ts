@@ -16,13 +16,16 @@ export interface RankingRow {
   state_sos_rank?: number | null;
   national_power_score: number;
   global_power_score: number | null;
+  power_score_final: number; // ML-adjusted power score (ML > global > adj > national)
   games_played: number;
   wins: number;
   losses: number;
   draws: number;
   win_percentage: number | null;
   strength_of_schedule: number | null;
+  sos?: number | null; // Raw SOS value (0.0-1.0)
+  sos_norm?: number | null; // Normalized SOS (percentile/z-score within cohort)
   // Additional fields that may be used for display
-  power_score?: number; // Alias for national_power_score in state rankings
+  power_score?: number; // Alias for power_score_final in state rankings (backward compatibility)
 }
 

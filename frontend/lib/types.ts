@@ -42,9 +42,14 @@ export interface Game {
 
 export interface Ranking {
   team_id: string; // UUID - references teams.team_id_master
+  team_id_master?: string;
   national_rank: number | null;
-  national_power_score: number;
   state_rank: number | null;
+  national_sos_rank: number | null;
+  state_sos_rank: number | null;
+  national_power_score: number;
+  global_power_score: number | null;
+  power_score_final: number; // ML-adjusted power score (ML > global > adj > national)
   games_played: number;
   wins: number;
   losses: number;
@@ -54,14 +59,16 @@ export interface Ranking {
   win_percentage: number | null;
   points_per_game: number | null;
   strength_of_schedule: number | null;
-  global_power_score: number | null;
+  sos?: number | null; // Raw SOS value (0.0-1.0)
+  sos_norm?: number | null; // Normalized SOS (percentile/z-score within cohort)
+  sos_rank?: number | null; // Alias for state_sos_rank or national_sos_rank
   last_game_date: string | null; // ISO date string
   last_calculated: string;
 }
 
 /**
- * Ranking with team details (from rankings_by_age_gender view)
- * This matches the exact columns returned by the rankings_by_age_gender view
+ * Ranking with team details (from rankings_view / state_rankings_view)
+ * This matches the exact columns returned by the rankings views
  */
 export interface RankingWithTeam {
   team_id_master: string;
@@ -76,13 +83,22 @@ export interface RankingWithTeam {
   state_sos_rank: number | null;
   national_power_score: number;
   global_power_score: number | null;
+  power_score_final: number; // ML-adjusted power score (ML > global > adj > national)
   games_played: number;
   wins: number;
   losses: number;
   draws: number;
   win_percentage: number | null;
   strength_of_schedule: number | null;
+  sos?: number | null; // Raw SOS value (0.0-1.0)
+  sos_norm?: number | null; // Normalized SOS (percentile/z-score within cohort)
 }
+
+/**
+ * Team with ranking data merged
+ * Used when fetching a team with its current ranking information
+ */
+export type TeamWithRanking = Team & Partial<RankingWithTeam>;
 
 /**
  * Team trajectory data - performance over time

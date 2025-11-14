@@ -115,9 +115,9 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
           bValue = b.team_name.toLowerCase();
           break;
         case 'powerScore':
-          // Use power_score if available (state rankings), otherwise national_power_score
-          aValue = a.power_score ?? a.national_power_score;
-          bValue = b.power_score ?? b.national_power_score;
+          // Use power_score_final (ML-adjusted score)
+          aValue = a.power_score_final;
+          bValue = b.power_score_final;
           break;
         case 'winPercentage':
           aValue = a.win_percentage ?? 0;
@@ -366,7 +366,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                         </div>
                       )}
                       <div className="px-4 py-3 text-right font-semibold flex items-center justify-end">
-                        {(team.power_score ?? team.national_power_score).toFixed(1)}
+                        {team.power_score_final.toFixed(1)}
                       </div>
                       <div className="px-4 py-3 text-right flex items-center justify-end">
                         {team.win_percentage !== null

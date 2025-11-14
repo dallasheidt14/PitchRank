@@ -89,20 +89,20 @@ export function ComparePanel() {
       };
     }
 
-    const powerScores = allRankings.map(r => r.national_power_score);
+    const powerScores = allRankings.map(r => r.power_score_final);
     const winPercentages = allRankings.map(r => r.win_percentage ?? 0).filter(v => v > 0);
     const gamesPlayed = allRankings.map(r => r.games_played);
 
     return {
       team1: {
-        powerScore: calculatePercentile(team1Data.national_power_score ?? 0, powerScores),
+        powerScore: calculatePercentile(team1Data.power_score_final ?? 0, powerScores),
         winPercentage: team1Data.win_percentage 
           ? calculatePercentile(team1Data.win_percentage, winPercentages)
           : 0,
         gamesPlayed: calculatePercentile(team1Data.games_played, gamesPlayed),
       },
       team2: {
-        powerScore: calculatePercentile(team2Data.national_power_score ?? 0, powerScores),
+        powerScore: calculatePercentile(team2Data.power_score_final ?? 0, powerScores),
         winPercentage: team2Data.win_percentage
           ? calculatePercentile(team2Data.win_percentage, winPercentages)
           : 0,
@@ -113,8 +113,8 @@ export function ComparePanel() {
 
   const maxPowerScore = useMemo(() => {
     return Math.max(
-      team1Data?.national_power_score ?? 0,
-      team2Data?.national_power_score ?? 0
+      team1Data?.power_score_final ?? 0,
+      team2Data?.power_score_final ?? 0
     );
   }, [team1Data, team2Data]);
 
@@ -140,8 +140,8 @@ export function ComparePanel() {
   const comparisonData = team1Data && team2Data ? [
     {
       metric: 'Power Score',
-      team1: team1Data.national_power_score ?? 0,
-      team2: team2Data.national_power_score ?? 0,
+      team1: team1Data.power_score_final ?? 0,
+      team2: team2Data.power_score_final ?? 0,
     },
     {
       metric: 'Win %',
@@ -295,11 +295,11 @@ export function ComparePanel() {
                         <div className="flex justify-between mb-1">
                           <span className="text-muted-foreground">Power Score:</span>
                           <span className="font-semibold">
-                            {(team1Data.national_power_score ?? 0).toFixed(1)}
+                            {(team1Data.power_score_final ?? 0).toFixed(1)}
                           </span>
                         </div>
                         <PercentileBar
-                          value={team1Data.national_power_score ?? 0}
+                          value={team1Data.power_score_final ?? 0}
                           maxValue={maxPowerScore}
                           percentile={percentiles?.team1?.powerScore ?? 0}
                         />
@@ -373,11 +373,11 @@ export function ComparePanel() {
                         <div className="flex justify-between mb-1">
                           <span className="text-muted-foreground">Power Score:</span>
                           <span className="font-semibold">
-                            {(team2Data.national_power_score ?? 0).toFixed(1)}
+                            {(team2Data.power_score_final ?? 0).toFixed(1)}
                           </span>
                         </div>
                         <PercentileBar
-                          value={team2Data.national_power_score ?? 0}
+                          value={team2Data.power_score_final ?? 0}
                           maxValue={maxPowerScore}
                           percentile={percentiles?.team2?.powerScore ?? 0}
                         />

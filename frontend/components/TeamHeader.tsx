@@ -50,8 +50,8 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
       rankingsCount: rankings?.length,
       found: found ? { 
         national_rank: found.national_rank,
-        national_power_score: found.national_power_score,
-        power_score: found.power_score 
+        power_score_final: found.power_score_final,
+        national_power_score: found.national_power_score
       } : null,
       searchParams: {
         state_code: team?.state_code,
@@ -142,8 +142,8 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
             <div className="text-right">
               <div className="text-4xl font-bold">
                 {teamRanking 
-                  ? (teamRanking.national_power_score ?? teamRanking.power_score ?? null) != null
-                    ? (teamRanking.national_power_score ?? teamRanking.power_score ?? 0).toFixed(1)
+                  ? teamRanking.power_score_final != null
+                    ? teamRanking.power_score_final.toFixed(1)
                     : '—'
                   : '—'}
               </div>

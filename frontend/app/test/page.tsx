@@ -77,7 +77,7 @@ export default function TestPage() {
                         <div className="font-semibold">#{ranking.national_rank}</div>
                       )}
                       <div className="text-xs text-muted-foreground">
-                        Score: {ranking.national_power_score.toFixed(2)}
+                        Score: {ranking.power_score_final.toFixed(2)}
                       </div>
                     </div>
                   </div>

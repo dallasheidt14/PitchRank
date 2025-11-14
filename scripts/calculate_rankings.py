@@ -21,7 +21,7 @@ from rich.panel import Panel
 from src.rankings.calculator import compute_rankings_with_ml, compute_rankings_v53e_only
 from src.etl.v53e import V53EConfig
 from src.rankings.layer13_predictive_adjustment import Layer13Config
-from src.rankings.data_adapter import v53e_to_supabase_format
+from src.rankings.data_adapter import v53e_to_supabase_format, v53e_to_rankings_full_format
 import logging
 
 # Configure logging for progress visibility
@@ -41,8 +41,14 @@ else:
     load_dotenv()
 
 
-async def save_rankings_to_supabase(supabase_client, teams_df):
-    """Save rankings to current_rankings table
+async def save_rankings_to_supabase(supabase_client, teams_df, use_rankings_full=True, maintain_backward_compat=True):
+    """Save rankings to rankings_full table (and optionally current_rankings for backward compatibility)
+    
+    Args:
+        supabase_client: Supabase client instance
+        teams_df: DataFrame from v53e + Layer 13 output
+        use_rankings_full: If True, save to rankings_full table (default: True)
+        maintain_backward_compat: If True, also save to current_rankings table (default: True)
     
     Returns:
         int: Number of records saved (0 if empty or error)
@@ -51,109 +57,246 @@ async def save_rankings_to_supabase(supabase_client, teams_df):
         console.print("[yellow]No rankings to save[/yellow]")
         return 0
     
-    # Convert to Supabase format
-    rankings_df = v53e_to_supabase_format(teams_df)
+    # Fetch team metadata (age_group, gender, state_code) for rankings_full
+    team_ids = teams_df['team_id'].astype(str).unique().tolist()
+    teams_metadata_df = None
+    if use_rankings_full and team_ids:
+        console.print("[dim]Fetching team metadata for rankings_full...[/dim]")
+        teams_meta_data = []
+        batch_size = 150  # Avoid Supabase URL length limits
+        for i in range(0, len(team_ids), batch_size):
+            batch = team_ids[i:i+batch_size]
+            try:
+                teams_result = supabase_client.table('teams').select(
+                    'team_id_master, age_group, gender, state_code'
+                ).in_('team_id_master', batch).execute()
+                if teams_result.data:
+                    teams_meta_data.extend(teams_result.data)
+            except Exception as e:
+                logger.warning(f"Team metadata batch failed ({i}-{i+batch_size}): {e}")
+                continue
+        
+        if teams_meta_data:
+            teams_metadata_df = pd.DataFrame(teams_meta_data)
+            console.print(f"[dim]Fetched metadata for {len(teams_metadata_df)} teams[/dim]")
     
-    if rankings_df.empty:
-        console.print("[yellow]No rankings to save after conversion[/yellow]")
+    total_saved = 0
+    
+    # Save to rankings_full table
+    if use_rankings_full:
+        try:
+            # Convert to rankings_full format
+            rankings_full_df = v53e_to_rankings_full_format(teams_df, teams_metadata_df)
+            
+            if rankings_full_df.empty:
+                console.print("[yellow]No rankings to save after conversion to rankings_full format[/yellow]")
+            else:
+                # Set last_calculated timestamp
+                rankings_full_df['last_calculated'] = pd.Timestamp.now()
+                
+                # Convert DataFrame to records (handle NaN values)
+                records_full = rankings_full_df.replace({pd.NA: None, pd.NaT: None}).to_dict('records')
+                
+                # Clean up records: convert numpy types to Python native types
+                import numpy as np
+                for record in records_full:
+                    for key, value in record.items():
+                        if isinstance(value, (np.integer, np.int64)):
+                            record[key] = int(value)
+                        elif isinstance(value, (np.floating, np.float64)):
+                            record[key] = float(value) if pd.notna(value) else None
+                        elif isinstance(value, pd.Timestamp):
+                            record[key] = value.isoformat() if pd.notna(value) else None
+                        elif pd.isna(value):
+                            record[key] = None
+                
+                # Save to rankings_full table
+                saved_full = await _save_batch_with_retry(
+                    supabase_client, 
+                    'rankings_full', 
+                    records_full,
+                    table_name_display="rankings_full"
+                )
+                total_saved += saved_full
+        except Exception as e:
+            console.print(f"[yellow]Warning: Failed to save to rankings_full: {e}[/yellow]")
+            console.print("[yellow]Falling back to current_rankings only[/yellow]")
+            use_rankings_full = False
+    
+    # Save to current_rankings for backward compatibility
+    if maintain_backward_compat:
+        try:
+            # Convert to current_rankings format
+            rankings_df = v53e_to_supabase_format(teams_df)
+            
+            if rankings_df.empty:
+                console.print("[yellow]No rankings to save after conversion to current_rankings format[/yellow]")
+            else:
+                # Merge SOS from original teams_df
+                if 'sos' in teams_df.columns:
+                    sos_map = dict(zip(teams_df['team_id'].astype(str), teams_df['sos']))
+                    rankings_df['sos'] = rankings_df['team_id'].astype(str).map(sos_map)
+                
+                # Prepare records for current_rankings
+                records_current = []
+                for _, row in rankings_df.iterrows():
+                    try:
+                        record = {
+                            'team_id': str(row['team_id']),
+                            'national_power_score': float(row.get('national_power_score', 0.0)),
+                        }
+                        
+                        # Handle national_rank (may be None)
+                        if pd.notna(row.get('national_rank')):
+                            record['national_rank'] = int(row.get('national_rank'))
+                        else:
+                            record['national_rank'] = None
+                        
+                        # Optional fields
+                        record['games_played'] = int(row.get('gp', 0)) if pd.notna(row.get('gp')) else 0
+                        record['wins'] = int(row.get('wins', 0)) if pd.notna(row.get('wins')) else 0
+                        record['losses'] = int(row.get('losses', 0)) if pd.notna(row.get('losses')) else 0
+                        record['draws'] = int(row.get('draws', 0)) if pd.notna(row.get('draws')) else 0
+                        record['goals_for'] = int(row.get('goals_for', 0)) if pd.notna(row.get('goals_for')) else 0
+                        record['goals_against'] = int(row.get('goals_against', 0)) if pd.notna(row.get('goals_against')) else 0
+                        
+                        # Calculate win percentage
+                        if record['games_played'] > 0:
+                            record['win_percentage'] = float(record['wins'] / record['games_played'])
+                        else:
+                            record['win_percentage'] = None
+                        
+                        # Add Strength of Schedule (SOS)
+                        if 'sos' in row and pd.notna(row.get('sos')):
+                            record['strength_of_schedule'] = float(row['sos'])
+                        else:
+                            record['strength_of_schedule'] = None
+                        
+                        records_current.append(record)
+                    except Exception as e:
+                        console.print(f"[yellow]Warning: Skipping row due to error: {e}[/yellow]")
+                        continue
+                
+                # Save to current_rankings
+                if records_current:
+                    saved_current = await _save_batch_with_retry(
+                        supabase_client,
+                        'current_rankings',
+                        records_current,
+                        table_name_display="current_rankings"
+                    )
+                    total_saved += saved_current
+        except Exception as e:
+            console.print(f"[yellow]Warning: Failed to save to current_rankings: {e}[/yellow]")
+    
+    return total_saved
+
+
+async def _save_batch_with_retry(supabase_client, table_name, records, table_name_display=None):
+    """Helper function to save records in batches with retry logic"""
+    if not records:
         return 0
     
-    # Merge SOS from original teams_df (v53e_to_supabase_format may not preserve it)
-    if 'sos' in teams_df.columns:
-        # Create a mapping of team_id to sos
-        sos_map = dict(zip(teams_df['team_id'].astype(str), teams_df['sos']))
-        rankings_df['sos'] = rankings_df['team_id'].astype(str).map(sos_map)
+    table_display = table_name_display or table_name
+    import time
+    max_retries = 3
+    retry_delay = 2  # seconds
     
-    # Prepare records for upsert
-    records = []
-    for _, row in rankings_df.iterrows():
+    try:
+        # Use upsert (insert with conflict resolution)
+        # First, try to delete all existing rankings
         try:
-            record = {
-                'team_id': str(row['team_id']),
-                'national_power_score': float(row.get('national_power_score', 0.0)),
-            }
-            
-            # Handle national_rank (may be None)
-            if pd.notna(row.get('national_rank')):
-                record['national_rank'] = int(row.get('national_rank'))
-            else:
-                record['national_rank'] = None
-            
-            # Optional fields (may not exist in v53e output)
-            record['games_played'] = int(row.get('gp', 0)) if pd.notna(row.get('gp')) else 0
-            record['wins'] = int(row.get('wins', 0)) if pd.notna(row.get('wins')) else 0
-            record['losses'] = int(row.get('losses', 0)) if pd.notna(row.get('losses')) else 0
-            record['draws'] = int(row.get('draws', 0)) if pd.notna(row.get('draws')) else 0
-            record['goals_for'] = int(row.get('goals_for', 0)) if pd.notna(row.get('goals_for')) else 0
-            record['goals_against'] = int(row.get('goals_against', 0)) if pd.notna(row.get('goals_against')) else 0
-            
-            # Calculate win percentage
-            if record['games_played'] > 0:
-                record['win_percentage'] = float(record['wins'] / record['games_played'])
-            else:
-                record['win_percentage'] = None
-            
-            # Add Strength of Schedule (SOS)
-            if 'sos' in row and pd.notna(row.get('sos')):
-                record['strength_of_schedule'] = float(row['sos'])
-            else:
-                record['strength_of_schedule'] = None
-            
-            records.append(record)
-        except Exception as e:
-            console.print(f"[yellow]Warning: Skipping row due to error: {e}[/yellow]")
-            continue
-    
-    # Upsert to current_rankings
-    if records:
-        import time
-        max_retries = 3
-        retry_delay = 2  # seconds
+            supabase_client.table(table_name).delete().neq('team_id', '00000000-0000-0000-0000-000000000000').execute()
+        except:
+            pass  # If delete fails, continue with insert
         
-        try:
-            # Use upsert (insert with conflict resolution)
-            # First, try to delete all existing rankings
-            try:
-                supabase_client.table('current_rankings').delete().neq('team_id', '00000000-0000-0000-0000-000000000000').execute()
-            except:
-                pass  # If delete fails, continue with insert
+        # Insert new rankings in batches with retry logic
+        batch_size = 1000
+        total_inserted = 0
+        failed_batches = []
+        
+        for i in range(0, len(records), batch_size):
+            batch = records[i:i + batch_size]
+            batch_num = (i // batch_size) + 1
+            total_batches = (len(records) + batch_size - 1) // batch_size
             
-            # Insert new rankings in batches with retry logic
-            batch_size = 1000
-            total_inserted = 0
-            for i in range(0, len(records), batch_size):
-                batch = records[i:i + batch_size]
-                batch_num = (i // batch_size) + 1
-                total_batches = (len(records) + batch_size - 1) // batch_size
-                
-                # Retry logic for SSL/network errors
+            # Small delay between batches to avoid overwhelming the server
+            if batch_num > 1:
+                time.sleep(0.5)  # 500ms delay between batches
+            
+            # Retry logic for SSL/network errors
+            batch_retry_delay = retry_delay  # Reset delay for each batch
+            batch_saved = False
+            
+            for attempt in range(max_retries):
+                try:
+                    result = supabase_client.table(table_name).insert(batch).execute()
+                    if result.data:
+                        total_inserted += len(result.data)
+                    console.print(f"[dim]Batch {batch_num}/{total_batches} ({table_display}): {len(batch)} records saved[/dim]")
+                    batch_saved = True
+                    break  # Success, exit retry loop
+                except Exception as e:
+                    error_msg = str(e)
+                    # Check for various connection/network errors
+                    is_network_error = (
+                        'SSL' in error_msg or 
+                        'bad record' in error_msg.lower() or 
+                        'ReadError' in error_msg or
+                        'WinError 10054' in error_msg or
+                        'connection' in error_msg.lower() and ('closed' in error_msg.lower() or 'reset' in error_msg.lower() or 'forcibly' in error_msg.lower()) or
+                        'forcibly closed' in error_msg.lower() or
+                        'remote host' in error_msg.lower()
+                    )
+                    
+                    if attempt < max_retries - 1 and is_network_error:
+                        console.print(f"[yellow]Network error on batch {batch_num} ({table_display}), attempt {attempt + 1}/{max_retries}. Retrying in {batch_retry_delay}s...[/yellow]")
+                        time.sleep(batch_retry_delay)
+                        batch_retry_delay *= 2  # Exponential backoff for this batch
+                        # Recreate client connection if needed
+                        try:
+                            # Force a small delay to let connection reset
+                            time.sleep(1)
+                        except:
+                            pass
+                    elif attempt < max_retries - 1:
+                        # Non-network error, but retry anyway
+                        console.print(f"[yellow]Error on batch {batch_num} ({table_display}), attempt {attempt + 1}/{max_retries}. Retrying in {batch_retry_delay}s...[/yellow]")
+                        time.sleep(batch_retry_delay)
+                        batch_retry_delay *= 2
+                    else:
+                        # Last attempt failed
+                        console.print(f"[red]Failed to save batch {batch_num} ({table_display}) after {max_retries} attempts: {e}[/red]")
+                        failed_batches.append((batch_num, batch))
+                        break  # Continue with next batch instead of raising
+            
+            if not batch_saved:
+                console.print(f"[yellow]Skipping batch {batch_num} ({table_display}), will retry later[/yellow]")
+        
+        # Retry failed batches
+        if failed_batches:
+            console.print(f"[yellow]Retrying {len(failed_batches)} failed batches ({table_display})...[/yellow]")
+            for batch_num, batch in failed_batches:
+                batch_retry_delay = retry_delay
                 for attempt in range(max_retries):
                     try:
-                        result = supabase_client.table('current_rankings').insert(batch).execute()
+                        result = supabase_client.table(table_name).insert(batch).execute()
                         if result.data:
                             total_inserted += len(result.data)
-                        console.print(f"[dim]Batch {batch_num}/{total_batches}: {len(batch)} records saved[/dim]")
-                        break  # Success, exit retry loop
+                        console.print(f"[green]Batch {batch_num} ({table_display}) saved on retry[/green]")
+                        break
                     except Exception as e:
                         if attempt < max_retries - 1:
-                            error_msg = str(e)
-                            if 'SSL' in error_msg or 'bad record' in error_msg or 'ReadError' in error_msg:
-                                console.print(f"[yellow]SSL/Network error on batch {batch_num}, attempt {attempt + 1}/{max_retries}. Retrying in {retry_delay}s...[/yellow]")
-                                time.sleep(retry_delay)
-                                retry_delay *= 2  # Exponential backoff
-                            else:
-                                # Non-retryable error
-                                raise
+                            time.sleep(batch_retry_delay)
+                            batch_retry_delay *= 2
                         else:
-                            # Last attempt failed
-                            console.print(f"[red]Failed to save batch {batch_num} after {max_retries} attempts: {e}[/red]")
-                            raise
-            
-            console.print(f"[green]Saved {total_inserted} rankings to current_rankings table[/green]")
-            return total_inserted
-        except Exception as e:
-            console.print(f"[red]Error saving rankings: {e}[/red]")
-            raise
+                            console.print(f"[red]Batch {batch_num} ({table_display}) failed after all retries: {e}[/red]")
+        
+        console.print(f"[green]Saved {total_inserted} rankings to {table_display} table[/green]")
+        return total_inserted
+    except Exception as e:
+        console.print(f"[red]Error saving rankings to {table_display}: {e}[/red]")
+        raise
 
 
 async def main():
