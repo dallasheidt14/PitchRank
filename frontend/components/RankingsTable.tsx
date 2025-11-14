@@ -16,7 +16,7 @@ import type { RankingRow } from '@/types/RankingRow';
 interface RankingsTableProps {
   region: string | null; // null = national
   ageGroup: string;
-  gender: 'Male' | 'Female' | null;
+  gender: 'M' | 'F' | 'B' | 'G' | null;
 }
 
 type SortField = 'rank' | 'team' | 'powerScore' | 'winPercentage' | 'gamesPlayed' | 'sos' | 'sosRank';
@@ -185,7 +185,8 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
       parts.push(`Age: ${ageGroup.toUpperCase()}`);
     }
     if (gender) {
-      parts.push(gender === 'Male' ? 'Boys' : gender === 'Female' ? 'Girls' : gender);
+      const genderLabel = gender === 'M' ? 'Boys' : gender === 'F' ? 'Girls' : gender === 'B' ? 'Boys' : gender === 'G' ? 'Girls' : gender;
+      parts.push(genderLabel);
     }
     return parts.join(' • ');
   }, [region, ageGroup, gender]);

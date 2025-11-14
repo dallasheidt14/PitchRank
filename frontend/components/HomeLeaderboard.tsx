@@ -18,7 +18,7 @@ import { formatPowerScore } from '@/lib/utils';
  * Triggers confetti when a watched team reaches #1
  */
 export function HomeLeaderboard() {
-  const { data: rankings, isLoading, isError, error, refetch } = useRankings(null, 'u12', 'Male');
+  const { data: rankings, isLoading, isError, error, refetch } = useRankings(null, 'u12', 'M');
   const prefetchTeam = usePrefetchTeam();
   const confettiTriggeredRef = useRef<Set<string>>(new Set());
 
