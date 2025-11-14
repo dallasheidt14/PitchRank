@@ -5,6 +5,7 @@ import type {
   RankingWithTeam,
   TeamTrajectory,
   GameWithTeams,
+  TeamWithRanking,
 } from './types';
 
 /**
@@ -14,67 +15,141 @@ import type {
  */
 
 export const api = {
-  // getRankings has been removed - use useRankings hook from @/hooks/useRankings instead
-  // This function is deprecated and will be removed in a future version
+  /**
+   * Get rankings filtered by region, age group, and gender
+   * @param region - State code (2 letters) or null/undefined for national rankings
+   * @param ageGroup - Age group filter (e.g., 'u10', 'u11')
+   * @param gender - Gender filter ('Male' or 'Female')
+   * @returns Array of RankingWithTeam objects
+   */
+  async getRankings(
+    region?: string | null,
+    ageGroup?: string,
+    gender?: 'Male' | 'Female' | null
+  ): Promise<RankingWithTeam[]> {
+    const table = region ? 'state_rankings_view' : 'rankings_view';
+    let query = supabase.from(table).select('*');
+
+    if (ageGroup) {
+      query = query.eq('age_group', ageGroup);
+    }
+
+    if (gender) {
+      query = query.eq('gender', gender);
+    }
+
+    if (region) {
+      query = query.eq('state_code', region.toUpperCase());
+    }
+
+    // Sort by ML-adjusted score
+    query = query.order('power_score_final', { ascending: false });
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error(`Error fetching rankings from ${table}:`, error);
+      throw error;
+    }
+
+    return (data || []) as RankingWithTeam[];
+  },
 
   /**
-   * Get a single team by team_id_master UUID
+   * Get a single team by team_id_master UUID with ranking data
    * @param id - team_id_master UUID
-   * @returns Team object
+   * @returns TeamWithRanking object (Team + Ranking data from rankings_view)
    */
-  async getTeam(id: string): Promise<Team> {
+  async getTeam(id: string): Promise<TeamWithRanking> {
     console.log('[api.getTeam] Fetching team with id:', id);
     
-    const { data, error } = await supabase
+    // Fetch team data
+    const { data: teamData, error: teamError } = await supabase
       .from('teams')
       .select('*')
       .eq('team_id_master', id)
       .maybeSingle();
 
-    if (error) {
-      console.error('[api.getTeam] Supabase error:', error);
+    if (teamError) {
+      console.error('[api.getTeam] Supabase error:', teamError);
       console.error('[api.getTeam] Error details:', {
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-        code: error.code,
+        message: teamError.message,
+        details: teamError.details,
+        hint: teamError.hint,
+        code: teamError.code,
       });
-      throw error;
+      throw teamError;
     }
 
-    if (!data) {
+    if (!teamData) {
       console.warn('[api.getTeam] No team found with id:', id);
       throw new Error(`Team with id ${id} not found`);
     }
 
-    console.log('[api.getTeam] Successfully fetched team:', data.team_name);
+    // Fetch ranking data from rankings_view
+    const { data: rankingData, error: rankingError } = await supabase
+      .from('rankings_view')
+      .select('*')
+      .eq('team_id_master', id)
+      .maybeSingle();
+
+    if (rankingError) {
+      console.warn('[api.getTeam] Error fetching ranking data:', rankingError);
+      // Continue without ranking data rather than failing
+    }
+
+    console.log('[api.getTeam] Successfully fetched team:', teamData.team_name);
     console.log('[api.getTeam] Team data structure:', {
-      hasId: !!data.id,
-      hasTeamIdMaster: !!data.team_id_master,
-      hasTeamName: !!data.team_name,
-      keys: Object.keys(data),
+      hasId: !!teamData.id,
+      hasTeamIdMaster: !!teamData.team_id_master,
+      hasTeamName: !!teamData.team_name,
+      hasRanking: !!rankingData,
+      keys: Object.keys(teamData),
     });
     
     // Ensure all required Team fields exist
-    const teamData: Team = {
-      id: data.id,
-      team_id_master: data.team_id_master,
-      provider_team_id: data.provider_team_id,
-      provider_id: data.provider_id,
-      team_name: data.team_name,
-      club_name: data.club_name,
-      state: data.state,
-      state_code: data.state_code,
-      age_group: data.age_group,
-      birth_year: data.birth_year,
-      gender: data.gender as 'Male' | 'Female',
-      created_at: data.created_at,
-      updated_at: data.updated_at,
-      last_scraped_at: data.last_scraped_at,
+    const team: Team = {
+      id: teamData.id,
+      team_id_master: teamData.team_id_master,
+      provider_team_id: teamData.provider_team_id,
+      provider_id: teamData.provider_id,
+      team_name: teamData.team_name,
+      club_name: teamData.club_name,
+      state: teamData.state,
+      state_code: teamData.state_code,
+      age_group: teamData.age_group,
+      birth_year: teamData.birth_year,
+      gender: teamData.gender as 'Male' | 'Female',
+      created_at: teamData.created_at,
+      updated_at: teamData.updated_at,
+      last_scraped_at: teamData.last_scraped_at,
+    };
+
+    // Merge ranking data if available
+    const teamWithRanking: TeamWithRanking = {
+      ...team,
+      ...(rankingData && {
+        national_rank: rankingData.national_rank,
+        state_rank: rankingData.state_rank ?? null,
+        national_sos_rank: rankingData.national_sos_rank,
+        state_sos_rank: rankingData.state_sos_rank ?? null,
+        national_power_score: rankingData.national_power_score,
+        global_power_score: rankingData.global_power_score,
+        power_score_final: rankingData.power_score_final,
+        games_played: rankingData.games_played,
+        wins: rankingData.wins,
+        losses: rankingData.losses,
+        draws: rankingData.draws,
+        win_percentage: rankingData.win_percentage,
+        strength_of_schedule: rankingData.strength_of_schedule,
+        sos: rankingData.sos ?? rankingData.strength_of_schedule ?? null,
+        sos_norm: rankingData.sos_norm ?? null,
+        sos_rank: rankingData.state_sos_rank ?? rankingData.national_sos_rank ?? null,
+      }),
     };
     
-    console.log('[api.getTeam] Returning team data:', teamData.team_name);
-    return teamData;
+    console.log('[api.getTeam] Returning team data:', teamWithRanking.team_name);
+    return teamWithRanking;
   },
 
   /**

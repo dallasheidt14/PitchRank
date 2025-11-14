@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
-import type { Team, RankingWithTeam, TeamTrajectory, GameWithTeams } from './types';
+import type { Team, RankingWithTeam, TeamTrajectory, GameWithTeams, TeamWithRanking } from './types';
 
 /**
  * React Query hooks for data fetching
@@ -27,13 +27,13 @@ import type { Team, RankingWithTeam, TeamTrajectory, GameWithTeams } from './typ
 export { useRankings } from '@/hooks/useRankings';
 
 /**
- * Get a single team by team_id_master UUID
+ * Get a single team by team_id_master UUID with ranking data
  * @param id - team_id_master UUID
- * @returns React Query hook result with team data
+ * @returns React Query hook result with TeamWithRanking data
  */
 export function useTeam(id: string) {
   console.log('[useTeam] Hook called with id:', id);
-  const query = useQuery<Team>({
+  const query = useQuery<TeamWithRanking>({
     queryKey: ['team', id],
     queryFn: async () => {
       console.log('[useTeam] Query function executing with id:', id);

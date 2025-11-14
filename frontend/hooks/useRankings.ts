@@ -31,7 +31,7 @@ export function useRankings(
           query = query.eq('gender', gender);
         }
 
-        query = query.order('national_rank', { ascending: true });
+        query = query.order('power_score_final', { ascending: false });
 
         const { data, error } = await query;
 
