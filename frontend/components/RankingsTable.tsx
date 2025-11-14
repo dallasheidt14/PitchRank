@@ -4,6 +4,7 @@ import { useMemo, useState, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { RankingsTableSkeleton } from '@/components/skeletons/RankingsTableSkeleton';
+import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { useRankings } from '@/hooks/useRankings';
 import { useTeamTrajectory } from '@/lib/hooks';
 import { usePrefetchTeam } from '@/lib/hooks';
@@ -79,7 +80,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const parentRef = useRef<HTMLDivElement>(null);
 
-  const { data: rankings, isLoading, isError } = useRankings(region, ageGroup, gender);
+  const { data: rankings, isLoading, isError, error, refetch } = useRankings(region, ageGroup, gender);
   const prefetchTeam = usePrefetchTeam();
 
   // Calculate delta for each team (national rank change)
@@ -199,7 +200,15 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   }, [region, ageGroup, gender]);
 
   if (isLoading) return <RankingsTableSkeleton />;
-  if (isError) return <div className="text-red-500">Failed to load rankings.</div>;
+  if (isError) {
+    return (
+      <Card>
+        <CardContent className="pt-6">
+          <ErrorDisplay error={error} retry={refetch} />
+        </CardContent>
+      </Card>
+    );
+  }
   if (!rankings?.length) return <div>No teams available.</div>;
 
   const virtualItems = virtualizer.getVirtualItems();

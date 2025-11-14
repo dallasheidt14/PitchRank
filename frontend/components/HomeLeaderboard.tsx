@@ -2,6 +2,7 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ListSkeleton } from '@/components/ui/skeletons';
+import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { useRankings } from '@/lib/hooks';
 import Link from 'next/link';
 import { ArrowUp, ArrowDown } from 'lucide-react';
@@ -16,7 +17,7 @@ import { launchConfetti } from '@/components/ui/confetti';
  * Triggers confetti when a watched team reaches #1
  */
 export function HomeLeaderboard() {
-  const { data: rankings, isLoading, isError } = useRankings(null, 'u12', 'Male');
+  const { data: rankings, isLoading, isError, error, refetch } = useRankings(null, 'u12', 'Male');
   const prefetchTeam = usePrefetchTeam();
   const confettiTriggeredRef = useRef<Set<string>>(new Set());
 
@@ -55,9 +56,7 @@ export function HomeLeaderboard() {
         {isLoading && <ListSkeleton items={5} />}
 
         {isError && (
-          <div className="rounded-lg bg-destructive/10 p-4 text-destructive">
-            <p className="text-sm">Failed to load rankings. Please try again later.</p>
-          </div>
+          <ErrorDisplay error={error} retry={refetch} />
         )}
 
         {!isLoading && !isError && (

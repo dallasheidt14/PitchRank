@@ -489,12 +489,17 @@ def main():
                 time.sleep(60)  # Wait longer on error
     else:
         # Single run
-        stats = processor.process_all(limit=args.limit)
-        
-        # Exit with appropriate code
-        if stats['failed'] > 0:
+        try:
+            stats = processor.process_all(limit=args.limit)
+            
+            # Exit with success code even if some requests failed
+            # Individual request failures are logged but don't indicate script failure
+            # Only exit with error code if there was a critical error preventing processing
+            sys.exit(0)
+        except Exception as e:
+            logger.error(f"Critical error during processing: {e}")
+            logger.debug(traceback.format_exc())
             sys.exit(1)
-        sys.exit(0)
 
 
 if __name__ == '__main__':

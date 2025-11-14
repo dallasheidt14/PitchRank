@@ -2,6 +2,7 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChartSkeleton } from '@/components/ui/skeletons';
+import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import {
   RadialBarChart,
   RadialBar,
@@ -41,7 +42,7 @@ function interpolateMomentumColor(score: number): string {
  * MomentumMeter component - displays team momentum using RadialBarChart with animations
  */
 export function MomentumMeter({ teamId }: MomentumMeterProps) {
-  const { data: trajectory, isLoading, isError } = useTeamTrajectory(teamId, 30);
+  const { data: trajectory, isLoading, isError, error, refetch } = useTeamTrajectory(teamId, 30);
   const [animatedScore, setAnimatedScore] = useState(0);
 
   const momentumData = useMemo(() => {
@@ -136,7 +137,25 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
     );
   }
 
-  if (isError || !momentumData || !chartData) {
+  if (isError) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Momentum</CardTitle>
+          <CardDescription>Team performance trend</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ErrorDisplay error={error} retry={refetch} fallback={
+            <div className="h-48 flex items-center justify-center text-muted-foreground">
+              <p>Insufficient data to calculate momentum</p>
+            </div>
+          } />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!momentumData || !chartData) {
     return (
       <Card>
         <CardHeader>
