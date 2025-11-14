@@ -75,30 +75,42 @@ export interface Ranking {
 /**
  * Ranking with team details (from rankings_view / state_rankings_view)
  * This matches the exact columns returned by the rankings views (RankingRow contract)
+ * Matches canonical backend contract
  */
 export interface RankingWithTeam {
   team_id_master: string;
   team_name: string;
   club_name: string | null;
-  state_code: string | null;
-  age_group: string;
-  gender: 'Male' | 'Female';
+  state: string | null; // alias for state_code
+  age: number; // INTEGER age group number (e.g., 11)
+  gender: 'M' | 'F' | 'B' | 'G'; // Backend returns single letter codes
   // Scores (backend contract)
   power_score_final: number;
   sos_norm: number;
+  offense_norm: number | null;
+  defense_norm: number | null;
   // Ranks (backend contract)
-  national_rank: number | null;
-  state_rank: number | null;
-  national_sos_rank: number | null;
-  state_sos_rank: number | null;
+  rank_in_cohort_final: number; // National rank within age/gender cohort
+  rank_in_state_final?: number; // State rank - ONLY in state_rankings_view
   // Record
   wins: number;
   losses: number;
   draws: number;
   games_played: number;
   win_percentage: number | null;
-  goals_for?: number;
   // Deprecated fields (do not use)
+  /** @deprecated Use state instead */
+  state_code?: never;
+  /** @deprecated Use age instead */
+  age_group?: never;
+  /** @deprecated Use rank_in_cohort_final instead */
+  national_rank?: never;
+  /** @deprecated Use rank_in_state_final instead */
+  state_rank?: never;
+  /** @deprecated Use sos_norm instead */
+  national_sos_rank?: never;
+  /** @deprecated Use sos_norm instead */
+  state_sos_rank?: never;
   /** @deprecated Use power_score_final instead */
   national_power_score?: never;
   /** @deprecated Use sos_norm instead */
@@ -113,36 +125,51 @@ export interface RankingWithTeam {
  * Team with ranking data merged (TeamWithRanking contract)
  * Used when fetching a team with its current ranking information
  * This is the authoritative shape for team detail pages
+ * Matches canonical backend contract
  */
 export interface TeamWithRanking {
   team_id_master: string;
   team_name: string;
   club_name: string | null;
-  state_code: string | null;
-  age_group: string;
-  gender: 'Male' | 'Female';
+  state: string | null; // alias for state_code
+  age: number | null; // INTEGER age group number (e.g., 11)
+  gender: 'M' | 'F' | 'B' | 'G'; // Backend returns single letter codes
   // Correct Ranking Fields (backend contract)
-  national_rank: number | null;
-  state_rank: number | null;
+  rank_in_cohort_final: number | null; // National rank within age/gender cohort
+  rank_in_state_final?: number | null; // State rank - may not exist from rankings_view
   power_score_final: number | null; // ML Adjusted, final score
   sos_norm: number | null; // normalized 0–1 SOS index
-  national_sos_rank: number | null;
-  state_sos_rank: number | null;
+  offense_norm: number | null;
+  defense_norm: number | null;
   // Record
   wins: number;
   losses: number;
   draws: number;
   games_played: number;
   win_percentage: number | null; // backend should calculate
-  last_game_date: string | null;
-  goals_for?: number;
   // Deprecated fields (do not use)
+  /** @deprecated Use state instead */
+  state_code?: never;
+  /** @deprecated Use age instead */
+  age_group?: never;
+  /** @deprecated Use rank_in_cohort_final instead */
+  national_rank?: never;
+  /** @deprecated Use rank_in_state_final instead */
+  state_rank?: never;
+  /** @deprecated Use sos_norm instead */
+  national_sos_rank?: never;
+  /** @deprecated Use sos_norm instead */
+  state_sos_rank?: never;
   /** @deprecated Use power_score_final instead */
   power_score?: never;
   /** @deprecated Use power_score_final instead */
   national_power_score?: never;
   /** @deprecated Use sos_norm instead */
   strength_of_schedule?: never;
+  /** @deprecated Not in new views */
+  last_game_date?: never;
+  /** @deprecated Not in new views */
+  goals_for?: never;
 }
 
 /**

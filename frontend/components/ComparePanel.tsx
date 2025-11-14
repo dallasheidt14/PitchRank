@@ -8,7 +8,8 @@ import { InlineLoader } from '@/components/ui/LoadingStates';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { TeamSelector } from './TeamSelector';
-import { useTeam, useRankings, useTeamTrajectory, useCommonOpponents } from '@/lib/hooks';
+import { PredictedMatchCard } from './PredictedMatchCard';
+import { useTeam, useRankings, useTeamTrajectory, useCommonOpponents, usePredictive } from '@/lib/hooks';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend, LineChart, Line } from 'recharts';
 import { ArrowLeftRight, TrendingUp, TrendingDown } from 'lucide-react';
 import { formatPowerScore } from '@/lib/utils';
@@ -74,10 +75,15 @@ export function ComparePanel() {
   const { data: team2Trajectory, isLoading: trajectory2Loading, isError: trajectory2Error, error: trajectory2ErrorObj, refetch: refetchTrajectory2 } = useTeamTrajectory(team2Id || '', 30);
   const { data: commonOpponents, isLoading: opponentsLoading, isError: opponentsError, error: opponentsErrorObj, refetch: refetchOpponents } = useCommonOpponents(team1Id, team2Id);
   
+  // Fetch predictive data in parallel (non-blocking)
+  // Use team_id_master from state (team1Id/team2Id are already team_id_master UUIDs)
+  const { data: team1Predictive } = usePredictive(team1Id);
+  const { data: team2Predictive } = usePredictive(team2Id);
+  
   // Get rankings for percentile calculation
   const { data: allRankings, isLoading: rankingsLoading, isError: rankingsError, error: rankingsErrorObj, refetch: refetchRankings } = useRankings(
-    team1Data?.state_code || null,
-    team1Data?.age_group,
+    team1Data?.state || null,
+    team1Data?.age != null ? `u${team1Data.age}` : team1Data?.age_group,
     team1Data?.gender
   );
 
@@ -266,9 +272,9 @@ export function ComparePanel() {
                     <CardTitle className="text-lg">{team1Data.team_name}</CardTitle>
                     <CardDescription>
                       {team1Data.club_name && <span>{team1Data.club_name}</span>}
-                      {team1Data.state_code && (
+                      {team1Data.state && (
                         <span className={team1Data.club_name ? ' • ' : ''}>
-                          {team1Data.state_code}
+                          {team1Data.state}
                         </span>
                       )}
                     </CardDescription>
@@ -278,14 +284,14 @@ export function ComparePanel() {
                       <div className="flex justify-between items-center">
                         <span className="text-muted-foreground">National Rank:</span>
                         <span className="font-semibold">
-                          {team1Data.national_rank ? `#${team1Data.national_rank}` : '—'}
+                          {team1Data.rank_in_cohort_final ? `#${team1Data.rank_in_cohort_final}` : '—'}
                         </span>
                       </div>
-                      {team1Data.state_code && team1Data.state_rank && (
+                      {team1Data.state && team1Data.rank_in_state_final && (
                         <div className="flex justify-between items-center">
                           <span className="text-muted-foreground">State Rank:</span>
                           <span className="font-semibold">
-                            #{team1Data.state_rank} ({team1Data.state_code.toUpperCase()})
+                            #{team1Data.rank_in_state_final} ({team1Data.state.toUpperCase()})
                           </span>
                         </div>
                       )}
@@ -344,9 +350,9 @@ export function ComparePanel() {
                     <CardTitle className="text-lg">{team2Data.team_name}</CardTitle>
                     <CardDescription>
                       {team2Data.club_name && <span>{team2Data.club_name}</span>}
-                      {team2Data.state_code && (
+                      {team2Data.state && (
                         <span className={team2Data.club_name ? ' • ' : ''}>
-                          {team2Data.state_code}
+                          {team2Data.state}
                         </span>
                       )}
                     </CardDescription>
@@ -356,14 +362,14 @@ export function ComparePanel() {
                       <div className="flex justify-between items-center">
                         <span className="text-muted-foreground">National Rank:</span>
                         <span className="font-semibold">
-                          {team2Data.national_rank ? `#${team2Data.national_rank}` : '—'}
+                          {team2Data.rank_in_cohort_final ? `#${team2Data.rank_in_cohort_final}` : '—'}
                         </span>
                       </div>
-                      {team2Data.state_code && team2Data.state_rank && (
+                      {team2Data.state && team2Data.rank_in_state_final && (
                         <div className="flex justify-between items-center">
                           <span className="text-muted-foreground">State Rank:</span>
                           <span className="font-semibold">
-                            #{team2Data.state_rank} ({team2Data.state_code.toUpperCase()})
+                            #{team2Data.rank_in_state_final} ({team2Data.state.toUpperCase()})
                           </span>
                         </div>
                       )}
@@ -417,6 +423,16 @@ export function ComparePanel() {
                   </CardContent>
                 </Card>
               </div>
+
+              {/* Predicted Match Result */}
+              {team1Data && team2Data && (
+                <PredictedMatchCard
+                  teamA={team1Predictive || null}
+                  teamB={team2Predictive || null}
+                  teamAName={team1Data.team_name}
+                  teamBName={team2Data.team_name}
+                />
+              )}
 
               {/* Trajectory Comparison */}
               {trajectoryData.length > 0 && (

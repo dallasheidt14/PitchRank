@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient';
+import { normalizeAgeGroup } from './utils';
 import type {
   Team,
   Game,
@@ -7,6 +8,7 @@ import type {
   GameWithTeams,
   TeamWithRanking,
 } from './types';
+import type { TeamPredictive } from '@/types/TeamPredictive';
 
 /**
  * API functions for interacting with Supabase
@@ -18,20 +20,24 @@ export const api = {
   /**
    * Get rankings filtered by region, age group, and gender
    * @param region - State code (2 letters) or null/undefined for national rankings
-   * @param ageGroup - Age group filter (e.g., 'u10', 'u11')
-   * @param gender - Gender filter ('Male' or 'Female')
+   * @param ageGroup - Age group filter (e.g., 'u10', 'u11') - will be normalized to integer
+   * @param gender - Gender filter ('M', 'F', 'B', 'G')
    * @returns Array of RankingWithTeam objects
    */
   async getRankings(
     region?: string | null,
     ageGroup?: string,
-    gender?: 'Male' | 'Female' | null
+    gender?: 'M' | 'F' | 'B' | 'G' | null
   ): Promise<RankingWithTeam[]> {
     const table = region ? 'state_rankings_view' : 'rankings_view';
     let query = supabase.from(table).select('*');
 
     if (ageGroup) {
-      query = query.eq('age_group', ageGroup);
+      // Normalize age group to integer
+      const normalizedAge = normalizeAgeGroup(ageGroup);
+      if (normalizedAge !== null) {
+        query = query.eq('age', normalizedAge);
+      }
     }
 
     if (gender) {
@@ -39,7 +45,7 @@ export const api = {
     }
 
     if (region) {
-      query = query.eq('state_code', region.toUpperCase());
+      query = query.eq('state', region.toUpperCase());
     }
 
     // Sort by ML-adjusted score
@@ -86,10 +92,10 @@ export const api = {
       throw new Error(`Team with id ${id} not found`);
     }
 
-    // Fetch ranking data from rankings_view
+    // Fetch ranking data from rankings_view with explicit field list
     const { data: rankingData, error: rankingError } = await supabase
       .from('rankings_view')
-      .select('*')
+      .select('team_id_master, state, age, gender, power_score_final, sos_norm, offense_norm, defense_norm, games_played, wins, losses, draws, win_percentage, rank_in_cohort_final')
       .eq('team_id_master', id)
       .maybeSingle();
 
@@ -108,16 +114,14 @@ export const api = {
     });
     if (rankingData) {
       console.log('[api.getTeam] Ranking data received:', {
-        national_rank: rankingData.national_rank,
-        state_rank: rankingData.state_rank,
-        national_sos_rank: rankingData.national_sos_rank,
-        state_sos_rank: rankingData.state_sos_rank,
+        rank_in_cohort_final: rankingData.rank_in_cohort_final,
         win_percentage: rankingData.win_percentage,
         wins: rankingData.wins,
         losses: rankingData.losses,
         draws: rankingData.draws,
         games_played: rankingData.games_played,
         power_score_final: rankingData.power_score_final,
+        sos_norm: rankingData.sos_norm,
         allKeys: Object.keys(rankingData),
       });
     } else {
@@ -143,22 +147,24 @@ export const api = {
     };
 
     // Merge ranking data if available (match TeamWithRanking contract)
+    // Note: rank_in_state_final is NOT in rankings_view, only state_rankings_view
     const teamWithRanking: TeamWithRanking = {
       ...team,
       ...(rankingData && {
-        national_rank: rankingData.national_rank ?? null,
-        state_rank: rankingData.state_rank ?? null,
-        national_sos_rank: rankingData.national_sos_rank ?? null,
-        state_sos_rank: rankingData.state_sos_rank ?? null,
+        state: rankingData.state ?? team.state,
+        age: rankingData.age ?? (team.age_group ? normalizeAgeGroup(team.age_group) : null),
+        gender: rankingData.gender ?? (team.gender === 'Male' ? 'M' : team.gender === 'Female' ? 'F' : 'M') as 'M' | 'F' | 'B' | 'G',
         power_score_final: rankingData.power_score_final ?? null,
         sos_norm: rankingData.sos_norm ?? null,
+        offense_norm: rankingData.offense_norm ?? null,
+        defense_norm: rankingData.defense_norm ?? null,
         games_played: rankingData.games_played ?? 0,
         wins: rankingData.wins ?? 0,
         losses: rankingData.losses ?? 0,
         draws: rankingData.draws ?? 0,
-        goals_for: rankingData.goals_for,
         win_percentage: rankingData.win_percentage ?? null,
-        last_game_date: rankingData.last_game_date ?? null,
+        rank_in_cohort_final: rankingData.rank_in_cohort_final ?? null,
+        // rank_in_state_final comes from state view, not this call
       }),
     };
     
@@ -454,6 +460,30 @@ export const api = {
         game_date: team1Game.game_date,
       };
     });
+  },
+
+  /**
+   * Get predictive match result data for a team
+   * @param teamId - team_id_master UUID
+   * @returns TeamPredictive object or null if not available
+   */
+  async getPredictive(teamId: string): Promise<TeamPredictive | null> {
+    const { data, error } = await supabase
+      .from('team_predictive_view')
+      .select('*')
+      .eq('team_id_master', teamId)
+      .maybeSingle();
+
+    if (error) {
+      // Gracefully handle errors (view may not exist in staging/local)
+      console.warn('[api.getPredictive] Error fetching predictive data:', error);
+      return null;
+    }
+
+    // Return null if no data (prevents ComparePanel crash)
+    if (!data) return null;
+
+    return data as TeamPredictive;
   },
 };
 

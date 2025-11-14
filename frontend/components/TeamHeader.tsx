@@ -45,16 +45,14 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
     }
     
     // Check if team has ranking fields (TeamWithRanking type)
-    const hasRankingData = 'national_rank' in team || 'power_score_final' in team;
+    const hasRankingData = 'rank_in_cohort_final' in team || 'power_score_final' in team;
     
     console.log('[TeamHeader] Team ranking data:', {
       teamId: team.team_id_master,
       teamName: team.team_name,
       hasRankingData,
-      national_rank: (team as any).national_rank,
-      state_rank: (team as any).state_rank,
-      national_sos_rank: (team as any).national_sos_rank,
-      state_sos_rank: (team as any).state_sos_rank,
+      rank_in_cohort_final: (team as any).rank_in_cohort_final,
+      rank_in_state_final: (team as any).rank_in_state_final,
       win_percentage: (team as any).win_percentage,
       wins: (team as any).wins,
       losses: (team as any).losses,
@@ -136,13 +134,13 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                 {team.club_name && (
                   <span className="text-lg">{team.club_name}</span>
                 )}
-                {team.state_code && (
+                {team.state && (
                   <Badge variant="outline" className="ml-2">
-                    {team.state_code}
+                    {team.state}
                   </Badge>
                 )}
                 <Badge variant="outline">
-                  {team.age_group.toUpperCase()} {team.gender}
+                  {team.age != null ? `U${team.age}` : (team as any).age_group?.toUpperCase() || 'N/A'} {team.gender === 'M' ? 'Boys' : team.gender === 'F' ? 'Girls' : team.gender === 'B' ? 'Boys' : team.gender === 'G' ? 'Girls' : team.gender}
                 </Badge>
               </div>
             </div>
@@ -167,28 +165,14 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
             <div>
               <div className="text-sm text-muted-foreground mb-1">National Rank</div>
               <div className="text-2xl font-semibold">
-                {teamRanking?.national_rank ? `#${teamRanking.national_rank}` : '—'}
+                {teamRanking?.rank_in_cohort_final ? `#${teamRanking.rank_in_cohort_final}` : '—'}
               </div>
             </div>
-            <div>
-              <div className="text-sm text-muted-foreground mb-1">State Rank</div>
-              <div className="text-2xl font-semibold">
-                {teamRanking?.state_rank ? `#${teamRanking.state_rank}` : '—'}
-              </div>
-            </div>
-            {teamRanking?.national_sos_rank && (
+            {teamRanking?.rank_in_state_final && (
               <div>
-                <div className="text-sm text-muted-foreground mb-1">National SOS Rank</div>
+                <div className="text-sm text-muted-foreground mb-1">State Rank</div>
                 <div className="text-2xl font-semibold">
-                  #{teamRanking.national_sos_rank}
-                </div>
-              </div>
-            )}
-            {teamRanking?.state_sos_rank && teamRanking?.state_code && (
-              <div>
-                <div className="text-sm text-muted-foreground mb-1">State SOS Rank</div>
-                <div className="text-2xl font-semibold">
-                  #{teamRanking.state_sos_rank}
+                  #{teamRanking.rank_in_state_final}
                 </div>
               </div>
             )}
@@ -216,12 +200,6 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                     {(teamRanking.draws ?? 0) > 0 && `-${teamRanking.draws}`}
                   </span>
                 </div>
-                {teamRanking.goals_for != null && (
-                  <div>
-                    <span className="text-muted-foreground">Goals For: </span>
-                    <span className="font-medium">{teamRanking.goals_for}</span>
-                  </div>
-                )}
                 <div>
                   <Tooltip>
                     <TooltipTrigger asChild>

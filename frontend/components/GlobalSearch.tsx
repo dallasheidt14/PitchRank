@@ -54,7 +54,7 @@ export function GlobalSearch() {
       keys: [
         { name: 'team_name', weight: 0.7 },
         { name: 'club_name', weight: 0.2 },
-        { name: 'state_code', weight: 0.1 },
+        { name: 'state', weight: 0.1 },
       ],
       threshold: 0.3, // Lower = stricter matching
       includeScore: true,
@@ -207,17 +207,17 @@ export function GlobalSearch() {
                       {team.club_name && (
                         <span>{highlightMatch(team.club_name, searchQuery)}</span>
                       )}
-                      {team.state_code && (
+                      {team.state && (
                         <span className={team.club_name ? ' • ' : ''}>
-                          {team.state_code.toUpperCase()}
+                          {team.state.toUpperCase()}
                         </span>
                       )}
-                      {team.national_rank && (
-                        <span> • Rank #{team.national_rank}</span>
+                      {team.rank_in_cohort_final && (
+                        <span> • Rank #{team.rank_in_cohort_final}</span>
                       )}
-                      {team.age_group && team.gender && (
-                        <span className={team.club_name || team.state_code || team.national_rank ? ' • ' : ''}>
-                          {team.age_group.toUpperCase()} {team.gender}
+                      {team.age != null && team.gender && (
+                        <span className={team.club_name || team.state || team.rank_in_cohort_final ? ' • ' : ''}>
+                          U{team.age} {team.gender === 'M' ? 'Boys' : team.gender === 'F' ? 'Girls' : team.gender}
                         </span>
                       )}
                     </div>
