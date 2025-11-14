@@ -304,13 +304,6 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                         transform: `translateY(${virtualRow.start}px)`,
                       }}
                     >
-                      {/* Temporary verification logging (first row only) */}
-                      {virtualRow.index === 0 && console.log("SOS DEBUG:", {
-                        team: team.team_name,
-                        sos_norm: team.sos_norm,
-                        sosIndex: formatSOSIndex(team.sos_norm),
-                        sosRank: sosRanks[team.team_id_master]
-                      })}
                       <div className="px-4 py-3 font-semibold flex items-center">
                         {region ? (team.rank_in_state_final ?? '—') : (team.rank_in_cohort_final ?? '—')}
                       </div>
