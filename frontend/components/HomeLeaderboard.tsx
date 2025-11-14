@@ -10,6 +10,7 @@ import { usePrefetchTeam } from '@/lib/hooks';
 import { useEffect, useRef } from 'react';
 import { getWatchedTeams } from '@/lib/watchlist';
 import { launchConfetti } from '@/components/ui/confetti';
+import { formatPowerScore } from '@/lib/utils';
 
 /**
  * HomeLeaderboard component - displays featured rankings on the home page
@@ -112,9 +113,9 @@ export function HomeLeaderboard() {
                       )}
                       <div className="text-right">
                         <div className="font-semibold">
-                          {team.power_score_final.toFixed(1)}
+                          {formatPowerScore(team.power_score_final)}
                         </div>
-                        <div className="text-xs text-muted-foreground">Power Score</div>
+                        <div className="text-xs text-muted-foreground">PowerScore (ML Adjusted)</div>
                       </div>
                     </div>
                   </Link>

@@ -6,9 +6,11 @@ import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { useTeam, useRankings } from '@/lib/hooks';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useMemo, useState, useEffect } from 'react';
 import { Star } from 'lucide-react';
 import { addToWatchlist, removeFromWatchlist, isWatched } from '@/lib/watchlist';
+import { formatPowerScore, formatSOSIndex } from '@/lib/utils';
 
 interface TeamHeaderProps {
   teamId: string;
@@ -140,14 +142,19 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
               </div>
             </div>
             <div className="text-right">
-              <div className="text-4xl font-bold">
-                {teamRanking 
-                  ? teamRanking.power_score_final != null
-                    ? teamRanking.power_score_final.toFixed(1)
-                    : '—'
-                  : '—'}
-              </div>
-              <div className="text-sm text-muted-foreground">Power Score</div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <div className="text-4xl font-bold">
+                      {formatPowerScore(teamRanking?.power_score_final)}
+                    </div>
+                    <div className="text-sm text-muted-foreground">PowerScore (ML Adjusted)</div>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>A machine-learning-enhanced ranking score that measures overall team strength based on offense, defense, schedule difficulty, and predictive performance patterns.</p>
+                </TooltipContent>
+              </Tooltip>
             </div>
           </div>
 
@@ -207,12 +214,19 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                   <span className="font-medium">{teamRanking.games_played > 0 ? (teamRanking.wins + teamRanking.draws * 0.5) : 0}</span>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">Strength of Schedule: </span>
-                  <span className="font-medium">
-                    {teamRanking.strength_of_schedule != null
-                      ? Number(teamRanking.strength_of_schedule).toFixed(2)
-                      : '—'}
-                  </span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <span className="text-muted-foreground">SOS Index: </span>
+                        <span className="font-medium">
+                          {formatSOSIndex(teamRanking.sos_norm)}
+                        </span>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Strength of Schedule normalized within each age group and gender (0 = softest schedule, 100 = toughest).</p>
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
             </div>

@@ -11,6 +11,7 @@ import { TeamSelector } from './TeamSelector';
 import { useTeam, useRankings, useTeamTrajectory, useCommonOpponents } from '@/lib/hooks';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend, LineChart, Line } from 'recharts';
 import { ArrowLeftRight, TrendingUp, TrendingDown } from 'lucide-react';
+import { formatPowerScore } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
 
 /**
@@ -139,7 +140,7 @@ export function ComparePanel() {
 
   const comparisonData = team1Data && team2Data ? [
     {
-      metric: 'Power Score',
+      metric: 'PowerScore (ML Adjusted)',
       team1: team1Data.power_score_final ?? 0,
       team2: team2Data.power_score_final ?? 0,
     },
@@ -293,9 +294,9 @@ export function ComparePanel() {
                     <div className="space-y-3 pt-2 border-t">
                       <div>
                         <div className="flex justify-between mb-1">
-                          <span className="text-muted-foreground">Power Score:</span>
+                          <span className="text-muted-foreground">PowerScore (ML Adjusted):</span>
                           <span className="font-semibold">
-                            {(team1Data.power_score_final ?? 0).toFixed(1)}
+                            {formatPowerScore(team1Data.power_score_final)}
                           </span>
                         </div>
                         <PercentileBar
@@ -371,9 +372,9 @@ export function ComparePanel() {
                     <div className="space-y-3 pt-2 border-t">
                       <div>
                         <div className="flex justify-between mb-1">
-                          <span className="text-muted-foreground">Power Score:</span>
+                          <span className="text-muted-foreground">PowerScore (ML Adjusted):</span>
                           <span className="font-semibold">
-                            {(team2Data.power_score_final ?? 0).toFixed(1)}
+                            {formatPowerScore(team2Data.power_score_final)}
                           </span>
                         </div>
                         <PercentileBar
