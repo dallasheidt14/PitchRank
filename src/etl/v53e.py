@@ -3,9 +3,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, Optional, List
+import logging
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
+
+logger = logging.getLogger(__name__)
 
 
 # =========================
@@ -403,6 +406,51 @@ def compute_rankings(
             # Clean up temporary columns
             team = team.drop(columns=["age_numeric", "gender_numeric"])
     
+    # Enforce monotonic positive slope for anchor normalization (older = stronger)
+    logger.info("🔧 Enforcing positive age slope for anchors (older = stronger)")
+    
+    # Check if anchors decrease with age (negative slope) and fix per gender
+    for gender_val in team["gender"].unique():
+        gender_mask = team["gender"] == gender_val
+        gender_team = team[gender_mask].copy()
+        
+        if len(gender_team) < 2:
+            continue
+        
+        # Get age-anchor pairs
+        gender_team["age_numeric"] = pd.to_numeric(gender_team["age"], errors="coerce")
+        age_anchor = gender_team.groupby("age_numeric")["anchor"].mean().sort_index()
+        
+        if len(age_anchor) < 2:
+            continue
+        
+        # Check if slope is negative (younger ages have higher anchors)
+        min_age = age_anchor.index.min()
+        max_age = age_anchor.index.max()
+        min_age_anchor = age_anchor[min_age]
+        max_age_anchor = age_anchor[max_age]
+        
+        if max_age_anchor < min_age_anchor:
+            # Negative slope detected - flip and re-scale
+            logger.info(f"  Detected negative slope for {gender_val}: flipping anchors")
+            # Flip: new_anchor = max - (old - min) = max + min - old
+            anchor_min = gender_team["anchor"].min()
+            anchor_max = gender_team["anchor"].max()
+            team.loc[gender_mask, "anchor"] = anchor_max + anchor_min - team.loc[gender_mask, "anchor"]
+        
+        # Re-scale anchors linearly by age to ensure smooth 0.4–1.0 range per gender
+        gender_team = team[gender_mask].copy()
+        gender_team["age_numeric"] = pd.to_numeric(gender_team["age"], errors="coerce")
+        age_min = gender_team["age_numeric"].min()
+        age_max = gender_team["age_numeric"].max()
+        
+        if age_max > age_min:
+            # Linear scaling: anchor = 0.4 + 0.6 * (age - age_min) / (age_max - age_min)
+            age_normalized = (gender_team["age_numeric"] - age_min) / (age_max - age_min)
+            team.loc[gender_mask, "anchor"] = 0.4 + 0.6 * age_normalized
+    
+    logger.info("✅ Anchor slope corrected and re-scaled to [0.4, 1.0] range")
+    
     team["abs_strength"] = (team["power_presos"] / team["anchor"]).clip(0.0, 1.5)
 
     strength_map = dict(zip(team["team_id"], team["abs_strength"]))
@@ -514,6 +562,38 @@ def compute_rankings(
         lambda gp: _provisional_multiplier(int(gp), cfg.MIN_GAMES_PROVISIONAL)
     )
     team["powerscore_adj"] = team["powerscore_core"] * team["provisional_mult"]
+
+    # Apply anchor-based normalization across ages (hierarchical capping)
+    if "anchor" in team.columns and team["anchor"].notna().any():
+        anchor_ref = team.groupby("gender")["anchor"].transform("max")
+        # avoid divide-by-zero
+        anchor_ref = anchor_ref.replace(0, np.nan)
+        team["powerscore_adj"] = (
+            team["powerscore_adj"] * team["anchor"] / anchor_ref
+        ).clip(0.0, 1.0)
+        
+        # Diagnostic: Log anchor scaling results
+        logger.info("⚖️ Anchor scaling diagnostic:")
+        anchor_summary = team.groupby(["age", "gender"])["anchor"].mean().round(3)
+        powerscore_max = team.groupby(["age", "gender"])["powerscore_adj"].max().round(3)
+        
+        logger.info("  Anchor values (mean per age/gender):")
+        for (age, gender), anchor_val in anchor_summary.items():
+            logger.info(f"    {age} {gender}: anchor={anchor_val:.3f}")
+        
+        logger.info("  PowerScore max (per age/gender) after anchor scaling:")
+        for (age, gender), ps_max in powerscore_max.items():
+            logger.info(f"    {age} {gender}: max_powerscore_adj={ps_max:.3f}")
+        
+        # Check max anchor per gender (explicitly show which age/gender provides the reference)
+        max_anchor_per_gender = team.groupby("gender")["anchor"].max()
+        logger.info("  Max anchor per gender (reference for scaling):")
+        for gender, max_anchor in max_anchor_per_gender.items():
+            # Find which age group has this max anchor
+            max_anchor_age = team[team["anchor"] == max_anchor]["age"].iloc[0] if len(team[team["anchor"] == max_anchor]) > 0 else "unknown"
+            logger.info(f"    {gender}: max_anchor={max_anchor:.3f} (from {max_anchor_age})")
+    else:
+        logger.warning("⚠️ Anchor column missing or invalid — skipped anchor normalization step.")
 
     # -------------------------
     # Layer 11: Rank & status

@@ -118,6 +118,8 @@ async def apply_predictive_adjustment(
         out["ml_overperf"] = 0.0
         out["ml_norm"] = 0.0
         out["powerscore_ml"] = out.get("powerscore_adj", out.get("powerscore_core", 0.0))
+        # Clamp PowerScore within [0.0, 1.0] to preserve normalization bounds
+        out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
         out["rank_in_cohort_ml"] = (
             out.groupby(list(cfg.cohort_key_cols))["powerscore_ml"]
                .rank(ascending=False, method="min")
@@ -147,6 +149,8 @@ async def apply_predictive_adjustment(
         out["ml_overperf"] = 0.0
         out["ml_norm"] = 0.0
         out["powerscore_ml"] = out.get("powerscore_adj", out.get("powerscore_core", 0.0))
+        # Clamp PowerScore within [0.0, 1.0] to preserve normalization bounds
+        out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
         out["rank_in_cohort_ml"] = (
             out.groupby(list(cfg.cohort_key_cols))["powerscore_ml"]
                .rank(ascending=False, method="min")
@@ -162,6 +166,8 @@ async def apply_predictive_adjustment(
         out["ml_overperf"] = 0.0
         out["ml_norm"] = 0.0
         out["powerscore_ml"] = out[base_power_col]
+        # Clamp PowerScore within [0.0, 1.0] to preserve normalization bounds
+        out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
         out["rank_in_cohort_ml"] = (
             out.groupby(list(cfg.cohort_key_cols))["powerscore_ml"]
                .rank(ascending=False, method="min")
@@ -198,6 +204,8 @@ async def apply_predictive_adjustment(
     
     # 6) Blend into PowerScore and rerank
     out["powerscore_ml"] = out[base_power_col] + cfg.alpha * out["ml_norm"]
+    # Clamp PowerScore within [0.0, 1.0] to preserve normalization bounds
+    out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
     out["rank_in_cohort_ml"] = (
         out.groupby(list(cfg.cohort_key_cols))["powerscore_ml"]
            .rank(ascending=False, method="min")
