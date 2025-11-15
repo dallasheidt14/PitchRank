@@ -21,11 +21,19 @@ export function Navigation() {
           onClick={() => setMobileMenuOpen(false)}
         >
           <Image
-            src="/logos/pitchrank-wordmark.svg"
+            src="/logos/pitchrank-logo-white.svg"
             alt="PitchRank"
             width={140}
             height={32}
-            className="h-6 sm:h-8 w-auto dark:invert dark:hue-rotate-180"
+            className="h-6 sm:h-8 w-auto dark:hidden"
+            priority
+          />
+          <Image
+            src="/logos/pitchrank-logo-black.svg"
+            alt="PitchRank"
+            width={140}
+            height={32}
+            className="h-6 sm:h-8 w-auto hidden dark:block"
             priority
           />
           <span className="sr-only">PitchRank Home</span>
