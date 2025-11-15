@@ -632,7 +632,9 @@ def compute_rankings(
                 .rename("sos_trans").reset_index()
             )
             merged = direct.merge(trans, on="team_id", how="outer")
-            merged["sos"] = merged["sos"].fillna(0.5)
+            # Fill NaN values in sos_direct and sos_trans before computing
+            merged["sos_direct"] = merged["sos_direct"].fillna(0.5)
+            merged["sos_trans"] = merged["sos_trans"].fillna(0.5)
             merged["sos"] = (
                 (1 - cfg.SOS_TRANSITIVITY_LAMBDA) * merged["sos_direct"]
                 + cfg.SOS_TRANSITIVITY_LAMBDA * merged["sos_trans"]
