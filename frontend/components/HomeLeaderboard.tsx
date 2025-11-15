@@ -11,6 +11,7 @@ import { useEffect, useRef } from 'react';
 import { getWatchedTeams } from '@/lib/watchlist';
 import { launchConfetti } from '@/components/ui/confetti';
 import { formatPowerScore } from '@/lib/utils';
+import { getErrorMessage } from '@/lib/errors';
 
 /**
  * HomeLeaderboard component - displays featured rankings on the home page
@@ -72,7 +73,7 @@ export function HomeLeaderboard() {
                 </p>
                 {error && (
                   <p className="text-xs text-red-500 mt-2">
-                    Error: {error instanceof Error ? error.message : String(error)}
+                    Error: {getErrorMessage(error)}
                   </p>
                 )}
               </div>
