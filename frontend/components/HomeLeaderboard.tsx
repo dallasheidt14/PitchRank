@@ -18,12 +18,33 @@ import { formatPowerScore } from '@/lib/utils';
  * Triggers confetti when a watched team reaches #1
  */
 export function HomeLeaderboard() {
+  console.log('[HomeLeaderboard] Component rendering');
   const { data: rankings, isLoading, isError, error, refetch } = useRankings(null, 'u12', 'M');
+  console.log('[HomeLeaderboard] Rankings state:', {
+    isLoading,
+    isError,
+    hasError: !!error,
+    rankingsCount: rankings?.length || 0,
+    errorMessage: error instanceof Error ? error.message : String(error),
+  });
   const prefetchTeam = usePrefetchTeam();
   const confettiTriggeredRef = useRef<Set<string>>(new Set());
 
   // Get top 10 teams
   const topTeams = rankings?.slice(0, 10) || [];
+
+  // Debug: Log when rankings data changes
+  useEffect(() => {
+    console.log('[HomeLeaderboard] Rankings data changed:', {
+      rankingsLength: rankings?.length || 0,
+      topTeamsLength: topTeams.length,
+      firstTeam: topTeams[0] ? {
+        team_id_master: topTeams[0].team_id_master,
+        team_name: topTeams[0].team_name,
+        rank_in_cohort_final: topTeams[0].rank_in_cohort_final,
+      } : null,
+    });
+  }, [rankings, topTeams]);
 
   // Check for watched teams reaching #1 and trigger confetti
   useEffect(() => {
@@ -63,9 +84,19 @@ export function HomeLeaderboard() {
         {!isLoading && !isError && (
           <div className="space-y-2">
             {topTeams.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">
-                No rankings data available
-              </p>
+              <div className="text-sm text-muted-foreground text-center py-8">
+                <p>No rankings data available</p>
+                <p className="text-xs mt-2">
+                  Rankings count: {rankings?.length || 0} | 
+                  Loading: {isLoading ? 'Yes' : 'No'} | 
+                  Error: {isError ? 'Yes' : 'No'}
+                </p>
+                {error && (
+                  <p className="text-xs text-red-500 mt-2">
+                    Error: {error instanceof Error ? error.message : String(error)}
+                  </p>
+                )}
+              </div>
             ) : (
               topTeams.map((team, index) => {
                 const previousRank = index > 0 ? topTeams[index - 1].rank_in_cohort_final : null;

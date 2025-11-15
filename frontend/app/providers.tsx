@@ -14,7 +14,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
             // above 0 to avoid refetching immediately on the client
             staleTime: 60 * 1000, // 1 minute
             refetchOnWindowFocus: false,
-            refetchOnMount: false, // Prevent unnecessary refetches
+            refetchOnMount: true, // Allow refetch on mount to get fresh data
             // Note: Request deduplication is automatic in React Query v5 based on query keys
             // Only retry network errors, not other errors
             retry: (failureCount, error) => {

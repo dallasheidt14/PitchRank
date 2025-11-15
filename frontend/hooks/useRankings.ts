@@ -15,9 +15,18 @@ export function useRankings(
   ageGroup?: string,
   gender?: 'M' | 'F' | 'B' | 'G' | null
 ) {
-  return useQuery<RankingRow[]>({
+  console.log('[useRankings] Hook called with:', { region, ageGroup, gender });
+  console.log('[useRankings] Environment check:', {
+    hasSupabaseUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+    hasAnonKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  });
+  
+  const queryResult = useQuery<RankingRow[]>({
     queryKey: ['rankings', region, ageGroup, gender],
+    enabled: true, // Explicitly enable the query
     queryFn: async () => {
+      console.log('[useRankings] Query function executing with:', { region, ageGroup, gender });
+      
       if (!region) {
         // National rankings = return full slice from rankings_view
         let query = supabase
@@ -38,12 +47,44 @@ export function useRankings(
 
         query = query.order('power_score_final', { ascending: false });
 
+        console.log('[useRankings] Executing query with filters:', {
+          ageFilter: normalizedAge,
+          genderFilter: gender,
+          queryString: query.toString(),
+        });
+
         const { data, error } = await query;
 
         if (error) {
-          console.error('Error fetching national rankings:', error);
+          console.error('[useRankings] Error fetching national rankings:', error);
+          console.error('[useRankings] Error details:', {
+            message: error.message,
+            details: error.details,
+            hint: error.hint,
+            code: error.code,
+          });
           throw error;
         }
+
+        console.log('[useRankings] Raw response:', {
+          dataType: typeof data,
+          isArray: Array.isArray(data),
+          count: data?.length || 0,
+          rawData: data,
+        });
+
+        console.log('[useRankings] National rankings fetched:', {
+          count: data?.length || 0,
+          hasData: !!data && data.length > 0,
+          sample: data?.[0] ? {
+            team_id_master: data[0].team_id_master,
+            team_name: data[0].team_name,
+            age: data[0].age,
+            gender: data[0].gender,
+            power_score_final: data[0].power_score_final,
+            allKeys: Object.keys(data[0]),
+          } : null,
+        });
 
         return (data || []) as RankingRow[];
       } else {
@@ -72,9 +113,29 @@ export function useRankings(
         const { data, error } = await query;
 
         if (error) {
-          console.error('Error fetching state rankings:', error);
+          console.error('[useRankings] Error fetching state rankings:', error);
+          console.error('[useRankings] Error details:', {
+            message: error.message,
+            details: error.details,
+            hint: error.hint,
+            code: error.code,
+            region: normalizedRegion,
+          });
           throw error;
         }
+
+        console.log('[useRankings] State rankings fetched:', {
+          region: normalizedRegion,
+          count: data?.length || 0,
+          hasData: !!data && data.length > 0,
+          sample: data?.[0] ? {
+            team_id_master: data[0].team_id_master,
+            team_name: data[0].team_name,
+            age: data[0].age,
+            gender: data[0].gender,
+            power_score_final: data[0].power_score_final,
+          } : null,
+        });
 
         return (data || []) as RankingRow[];
       }
@@ -82,5 +143,15 @@ export function useRankings(
     staleTime: 5 * 60 * 1000, // 5 minutes - rankings update weekly
     gcTime: 30 * 60 * 1000, // Keep in cache for 30 minutes
   });
+  
+  console.log('[useRankings] Query result:', {
+    isLoading: queryResult.isLoading,
+    isError: queryResult.isError,
+    error: queryResult.error,
+    dataLength: queryResult.data?.length || 0,
+    hasData: !!queryResult.data && queryResult.data.length > 0,
+  });
+  
+  return queryResult;
 }
 

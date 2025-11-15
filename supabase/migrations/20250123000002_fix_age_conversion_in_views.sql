@@ -1,21 +1,10 @@
--- Fix rankings_view and state_rankings_view to use canonical contract
--- This migration completely rewrites both views to:
--- 1. Use rankings_full as primary data source
--- 2. Expose only canonical fields (no legacy fields)
--- 3. Use precomputed rank_in_cohort_final from rankings_full (not recomputed)
--- 4. Compute rank_in_state_final live in state view
--- 5. Fallback to current_rankings ONLY for record stats (games_played, wins, losses, draws, win_percentage)
+-- Fix age conversion in rankings_view
+-- Convert TEXT age_group (e.g., "u12") to INTEGER age (e.g., 12)
+-- This allows frontend queries to filter by integer age values
 
--- =====================================================
--- Step 1: Drop existing views
--- =====================================================
-
+-- Drop and recreate rankings_view with proper age conversion
 DROP VIEW IF EXISTS state_rankings_view CASCADE;
 DROP VIEW IF EXISTS rankings_view CASCADE;
-
--- =====================================================
--- Step 2: Create rankings_view with canonical fields
--- =====================================================
 
 CREATE VIEW rankings_view
 WITH (security_invoker = true)
@@ -58,12 +47,9 @@ JOIN teams t ON rf.team_id = t.team_id_master
 LEFT JOIN current_rankings cr ON cr.team_id = t.team_id_master
 WHERE rf.power_score_final IS NOT NULL;
 
-COMMENT ON VIEW rankings_view IS 'National rankings view using rankings_full as primary source. Exposes only canonical fields: power_score_final, sos_norm, offense_norm, defense_norm, rank_in_cohort_final. Falls back to current_rankings only for record stats. Respects RLS policies.';
+COMMENT ON VIEW rankings_view IS 'National rankings view using rankings_full as primary source. Converts TEXT age_group to INTEGER age for frontend filtering. Exposes only canonical fields.';
 
--- =====================================================
--- Step 3: Create state_rankings_view with canonical fields
--- =====================================================
-
+-- Recreate state_rankings_view (it uses age from rankings_view, so it will automatically get INTEGER)
 CREATE VIEW state_rankings_view
 WITH (security_invoker = true)
 AS
@@ -101,12 +87,9 @@ SELECT
 FROM rankings_view rv
 WHERE rv.state IS NOT NULL;
 
-COMMENT ON VIEW state_rankings_view IS 'State rankings view: National rankings filtered by state, with dynamically calculated rank_in_state_final. Exposes only canonical fields. Respects RLS policies.';
+COMMENT ON VIEW state_rankings_view IS 'State rankings view: National rankings filtered by state, with dynamically calculated rank_in_state_final. Uses INTEGER age from base view.';
 
--- =====================================================
--- Step 4: Grant SELECT permissions
--- =====================================================
-
+-- Grant permissions
 GRANT SELECT ON rankings_view TO authenticated;
 GRANT SELECT ON rankings_view TO anon;
 GRANT SELECT ON state_rankings_view TO authenticated;

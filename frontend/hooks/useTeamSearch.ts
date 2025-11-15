@@ -20,9 +20,24 @@ export function useTeamSearch() {
       // No limit - fetch all teams from master list
 
       if (error) {
-        console.error('Error fetching teams for search:', error);
+        console.error('[useTeamSearch] Error fetching teams:', error);
+        console.error('[useTeamSearch] Error details:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+        });
         throw error;
       }
+
+      console.log('[useTeamSearch] Teams fetched:', {
+        count: data?.length || 0,
+        hasData: !!data && data.length > 0,
+        sample: data?.[0] ? {
+          team_id_master: data[0].team_id_master,
+          team_name: data[0].team_name,
+        } : null,
+      });
 
       // Transform to RankingRow format (with default/null values for ranking fields)
       return (data || []).map(team => {

@@ -4,6 +4,7 @@ import { useRankings } from '@/lib/hooks';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatPowerScore } from '@/lib/utils';
+import { useEffect } from 'react';
 
 // Force dynamic rendering to prevent build-time errors when env vars aren't set
 export const dynamic = 'force-dynamic';
@@ -17,6 +18,31 @@ export default function TestPage() {
   // Fetch rankings (national, all age groups, all genders)
   // This will return teams with their ranking information
   const { data: rankings, isLoading, isError, error } = useRankings();
+  
+  // Also test a direct Supabase query
+  useEffect(() => {
+    const testDirectQuery = async () => {
+      const { createClient } = await import('@supabase/supabase-js');
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+      );
+      
+      console.log('[TestPage] Testing direct Supabase query...');
+      const { data, error } = await supabase
+        .from('rankings_view')
+        .select('*')
+        .limit(5);
+      
+      console.log('[TestPage] Direct query result:', {
+        error,
+        dataCount: data?.length || 0,
+        sample: data?.[0],
+      });
+    };
+    
+    testDirectQuery();
+  }, []);
 
   return (
     <div className="container mx-auto py-8 px-4">
