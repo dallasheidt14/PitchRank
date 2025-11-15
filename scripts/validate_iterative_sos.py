@@ -19,7 +19,10 @@ import logging
 import argparse
 import pandas as pd
 import numpy as np
+import asyncio
 from pathlib import Path
+from dotenv import load_dotenv
+from supabase import create_client, Client
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -27,6 +30,9 @@ sys.path.insert(0, str(project_root))
 
 from src.etl.v53e import compute_rankings, V53EConfig
 from src.rankings.data_adapter import fetch_games_for_rankings
+
+# Load environment variables
+load_dotenv()
 
 # Setup logging
 logging.basicConfig(
@@ -172,7 +178,7 @@ def compare_legacy_vs_iterative(games_df: pd.DataFrame, age_filter=None, gender_
     print(top_changes.to_string(index=False))
 
 
-def main():
+async def main():
     parser = argparse.ArgumentParser(description="Validate iterative SOS implementation")
     parser.add_argument("--age", type=int, help="Filter by age group")
     parser.add_argument("--gender", type=str, help="Filter by gender (male/female)")
@@ -180,9 +186,22 @@ def main():
     parser.add_argument("--lookback-days", type=int, default=365, help="Lookback window in days")
     args = parser.parse_args()
 
+    # Initialize Supabase client
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
+
+    if not supabase_url or not supabase_key:
+        logger.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment")
+        return 1
+
+    supabase: Client = create_client(supabase_url, supabase_key)
+
     # Fetch games
     logger.info("Fetching games from database...")
-    games_df = fetch_games_for_rankings(lookback_days=args.lookback_days)
+    games_df = await fetch_games_for_rankings(
+        supabase,
+        lookback_days=args.lookback_days
+    )
 
     if games_df.empty:
         logger.error("No games found. Exiting.")
@@ -207,4 +226,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(asyncio.run(main()))
