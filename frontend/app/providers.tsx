@@ -6,8 +6,8 @@ import { isNetworkError } from '@/lib/errors';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
-    () =>
-      new QueryClient({
+    () => {
+      const client = new QueryClient({
         defaultOptions: {
           queries: {
             // With SSR, we usually want to set some default staleTime
@@ -24,7 +24,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
             retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
           },
         },
-      })
+      });
+      
+      
+      return client;
+    }
   );
 
   return (
