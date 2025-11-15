@@ -83,7 +83,7 @@ export function ComparePanel() {
   // Get rankings for percentile calculation
   const { data: allRankings, isLoading: rankingsLoading, isError: rankingsError, error: rankingsErrorObj, refetch: refetchRankings } = useRankings(
     team1Data?.state || null,
-    team1Data?.age != null ? `u${team1Data.age}` : team1Data?.age_group,
+    team1Data?.age != null ? `u${team1Data.age}` : null,
     team1Data?.gender
   );
 
