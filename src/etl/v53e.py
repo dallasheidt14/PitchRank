@@ -50,10 +50,12 @@ class V53EConfig:
     # Layer 7 (Bayesian shrink)
     SHRINK_TAU: float = 8.0
 
-    # Layer 8 (SOS)
+    # Layer 8 (SOS) - Hybrid iterative system
+    ENABLE_ITERATIVE_SOS: bool = True      # Toggle for rollback to legacy SOS
+    SOS_STRENGTH_ITERATIONS: int = 3       # Fixed iteration count (3-5 recommended)
     UNRANKED_SOS_BASE: float = 0.35
     SOS_REPEAT_CAP: int = 4
-    SOS_ITERATIONS: int = 3
+    SOS_TRANSITIVE_PASSES: int = 2         # Renamed from SOS_ITERATIONS for clarity
     SOS_TRANSITIVITY_LAMBDA: float = 0.15  # Lowered from 0.25 for stability
 
     # Layer 10 weights
@@ -169,6 +171,20 @@ def _provisional_multiplier(gp: int, min_games: int) -> float:
     if gp < 15:
         return 0.95
     return 1.0
+
+
+def _fill_sos_by_cohort(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Fill missing SOS values with cohort mean instead of global 0.5.
+    This reduces fallback pollution while maintaining cohort-level signal.
+    """
+    if df["sos"].notna().any():
+        cohort_mean = df["sos"].mean()
+        df["sos"] = df["sos"].fillna(cohort_mean)
+    else:
+        # True no-data fallback for cohorts with zero SOS coverage
+        df["sos"] = 0.5
+    return df
 
 
 # =========================
@@ -466,50 +482,167 @@ def compute_rankings(
     g["k_adapt"] = g.apply(adaptive_k, axis=1)
 
     # -------------------------
-    # Layer 8: SOS (weights + repeat-cap + iterations)
+    # Layer 8: SOS (Hybrid iterative system with minimal fixes)
     # -------------------------
-    g["w_sos"] = g["w_game"] * g["k_adapt"]
 
-    g = g.sort_values(["team_id", "opp_id", "w_sos"], ascending=[True, True, False])
-    g["repeat_rank"] = g.groupby(["team_id", "opp_id"])["w_sos"].rank(ascending=False, method="first")
-    g_sos = g[g["repeat_rank"] <= cfg.SOS_REPEAT_CAP].copy()
-
-    g_sos["opp_strength"] = g_sos["opp_id"].map(lambda o: strength_map.get(o, cfg.UNRANKED_SOS_BASE))
-
+    # Define improved _avg_weighted that returns NaN instead of 0.5
     def _avg_weighted(df: pd.DataFrame, col: str, wcol: str) -> float:
-        w = df[wcol].values
+        """
+        Weighted average that returns NaN when no valid data exists.
+        This prevents fallback pollution from hardcoded 0.5 values.
+        """
+        # Drop rows where the value column is NaN
+        valid = df[[col, wcol]].dropna(subset=[col])
+        if valid.empty:
+            return np.nan
+        w = valid[wcol].values
         s = w.sum()
         if s <= 0:
-            return 0.5
-        return float(np.average(df[col].values, weights=w))
+            return np.nan
+        return float(np.average(valid[col].values, weights=w))
 
-    direct = (
-        g_sos.groupby("team_id").apply(lambda d: _avg_weighted(d, "opp_strength", "w_sos"))
-        .rename("sos_direct").reset_index()
-    )
-    sos_curr = direct.rename(columns={"sos_direct": "sos"}).copy()
+    if cfg.ENABLE_ITERATIVE_SOS:
+        logger.info("🔄 Using iterative SOS calculation (hybrid system)")
+        logger.info(f"   SOS_STRENGTH_ITERATIONS={cfg.SOS_STRENGTH_ITERATIONS}")
+        logger.info(f"   SOS_TRANSITIVE_PASSES={cfg.SOS_TRANSITIVE_PASSES}")
 
-    # iterative transitivity propagation
-    for _ in range(max(0, cfg.SOS_ITERATIONS - 1)):
-        opp_sos_map = dict(zip(sos_curr["team_id"], sos_curr["sos"]))
-        g_sos["opp_sos"] = g_sos["opp_id"].map(lambda o: opp_sos_map.get(o, cfg.UNRANKED_SOS_BASE))
-        trans = (
-            g_sos.groupby("team_id").apply(lambda d: _avg_weighted(d, "opp_sos", "w_sos"))
-            .rename("sos_trans").reset_index()
+        # Initialize: start with neutral SOS for first iteration
+        team["sos"] = 0.5
+        team["sos_norm"] = 0.5
+
+        # Track SOS variance across iterations
+        sos_stats = []
+
+        for iteration in range(cfg.SOS_STRENGTH_ITERATIONS):
+            # --- (a) Compute SOS from current strength_map ---
+            g["w_sos"] = g["w_game"] * g["k_adapt"]
+
+            g_sorted = g.sort_values(["team_id", "opp_id", "w_sos"],
+                                     ascending=[True, True, False])
+            g_sorted["repeat_rank"] = g_sorted.groupby(["team_id", "opp_id"])["w_sos"].rank(
+                ascending=False, method="first"
+            )
+            g_sos = g_sorted[g_sorted["repeat_rank"] <= cfg.SOS_REPEAT_CAP].copy()
+
+            # Map opponent strength, using NaN for missing opponents (minimal fix #2)
+            g_sos["opp_strength"] = g_sos["opp_id"].map(
+                lambda o: strength_map.get(o, np.nan)  # Changed from UNRANKED_SOS_BASE
+            )
+
+            # Direct SOS: weighted average of opponent strengths
+            direct = (
+                g_sos.groupby("team_id")
+                     .apply(lambda d: _avg_weighted(d, "opp_strength", "w_sos"))
+                     .rename("sos_direct").reset_index()
+            )
+            sos_curr = direct.rename(columns={"sos_direct": "sos"}).copy()
+
+            # --- (b) Transitive propagation (optional inner loop) ---
+            for _ in range(cfg.SOS_TRANSITIVE_PASSES):
+                opp_sos_map = dict(zip(sos_curr["team_id"], sos_curr["sos"]))
+                g_sos["opp_sos"] = g_sos["opp_id"].map(
+                    lambda o: opp_sos_map.get(o, np.nan)  # Changed from UNRANKED_SOS_BASE
+                )
+
+                trans = (
+                    g_sos.groupby("team_id")
+                         .apply(lambda d: _avg_weighted(d, "opp_sos", "w_sos"))
+                         .rename("sos_trans").reset_index()
+                )
+
+                merged = direct.merge(trans, on="team_id", how="outer")
+                # Blend direct and transitive SOS
+                merged["sos"] = (
+                    (1 - cfg.SOS_TRANSITIVITY_LAMBDA) * merged["sos_direct"]
+                    + cfg.SOS_TRANSITIVITY_LAMBDA * merged["sos_trans"]
+                )
+                sos_curr = merged[["team_id", "sos"]].copy()
+
+            # --- (c) Merge SOS into team and apply cohort-wise fallback (minimal fix #1) ---
+            team = team.merge(sos_curr, on="team_id", how="left", suffixes=("_old", ""))
+            if "sos_old" in team.columns:
+                team = team.drop(columns=["sos_old"])
+
+            # Cohort-wise fallback instead of global 0.5
+            team = team.groupby(["age", "gender"], group_keys=False).apply(_fill_sos_by_cohort)
+
+            # Clip to valid range
+            team["sos"] = team["sos"].clip(0.0, 1.0)
+
+            # Normalize SOS within cohort
+            team = _normalize_by_cohort(team, "sos", "sos_norm", cfg.NORM_MODE)
+
+            # Track statistics
+            sos_std = team["sos"].std()
+            sos_mean = team["sos"].mean()
+            sos_nan_count = sos_curr["sos"].isna().sum()
+            sos_stats.append({
+                "iteration": iteration + 1,
+                "sos_mean": sos_mean,
+                "sos_std": sos_std,
+                "sos_nan_count": sos_nan_count
+            })
+
+            # --- (d) Update strength_map including new SOS ---
+            team["strength_iter"] = (
+                cfg.OFF_WEIGHT * team["off_norm"]
+                + cfg.DEF_WEIGHT * team["def_norm"]
+                + cfg.SOS_WEIGHT * team["sos_norm"]
+            )
+            team["abs_strength"] = (team["strength_iter"] / team["anchor"]).clip(0.0, 1.5)
+            strength_map = dict(zip(team["team_id"], team["abs_strength"]))
+
+            logger.info(f"   Iteration {iteration + 1}/{cfg.SOS_STRENGTH_ITERATIONS}: "
+                       f"SOS mean={sos_mean:.4f}, std={sos_std:.4f}, "
+                       f"NaN count={sos_nan_count}")
+
+        # Log final SOS statistics
+        logger.info("✅ Iterative SOS calculation complete")
+        logger.info(f"   Final SOS variance: {sos_stats[-1]['sos_std']:.4f}")
+        if len(sos_stats) > 1:
+            initial_std = sos_stats[0]['sos_std']
+            final_std = sos_stats[-1]['sos_std']
+            improvement = ((final_std - initial_std) / initial_std * 100) if initial_std > 0 else 0
+            logger.info(f"   SOS variance change: {improvement:+.1f}%")
+
+    else:
+        # Legacy single-pass SOS (for rollback)
+        logger.info("⚠️  Using legacy single-pass SOS calculation")
+
+        g["w_sos"] = g["w_game"] * g["k_adapt"]
+
+        g = g.sort_values(["team_id", "opp_id", "w_sos"], ascending=[True, True, False])
+        g["repeat_rank"] = g.groupby(["team_id", "opp_id"])["w_sos"].rank(ascending=False, method="first")
+        g_sos = g[g["repeat_rank"] <= cfg.SOS_REPEAT_CAP].copy()
+
+        g_sos["opp_strength"] = g_sos["opp_id"].map(lambda o: strength_map.get(o, cfg.UNRANKED_SOS_BASE))
+
+        direct = (
+            g_sos.groupby("team_id").apply(lambda d: _avg_weighted(d, "opp_strength", "w_sos"))
+            .rename("sos_direct").reset_index()
         )
-        merged = direct.merge(trans, on="team_id", how="outer").fillna(0.5)
-        merged["sos"] = (
-            (1 - cfg.SOS_TRANSITIVITY_LAMBDA) * merged["sos_direct"]
-            + cfg.SOS_TRANSITIVITY_LAMBDA * merged["sos_trans"]
-        )
-        # SOS stability guard: clip values between 0.0 and 1.0
-        merged["sos"] = merged["sos"].clip(0.0, 1.0)
-        sos_curr = merged[["team_id", "sos"]]
+        sos_curr = direct.rename(columns={"sos_direct": "sos"}).copy()
 
-    team = team.merge(sos_curr, on="team_id", how="left").fillna({"sos": 0.5})
+        # Transitivity propagation
+        for _ in range(cfg.SOS_TRANSITIVE_PASSES):
+            opp_sos_map = dict(zip(sos_curr["team_id"], sos_curr["sos"]))
+            g_sos["opp_sos"] = g_sos["opp_id"].map(lambda o: opp_sos_map.get(o, cfg.UNRANKED_SOS_BASE))
+            trans = (
+                g_sos.groupby("team_id").apply(lambda d: _avg_weighted(d, "opp_sos", "w_sos"))
+                .rename("sos_trans").reset_index()
+            )
+            merged = direct.merge(trans, on="team_id", how="outer")
+            merged["sos"] = merged["sos"].fillna(0.5)
+            merged["sos"] = (
+                (1 - cfg.SOS_TRANSITIVITY_LAMBDA) * merged["sos_direct"]
+                + cfg.SOS_TRANSITIVITY_LAMBDA * merged["sos_trans"]
+            )
+            merged["sos"] = merged["sos"].clip(0.0, 1.0)
+            sos_curr = merged[["team_id", "sos"]]
 
-    # Normalize SOS within cohort
-    team = _normalize_by_cohort(team, "sos", "sos_norm", cfg.NORM_MODE)
+        team = team.merge(sos_curr, on="team_id", how="left")
+        team = team.groupby(["age", "gender"], group_keys=False).apply(_fill_sos_by_cohort)
+        team = _normalize_by_cohort(team, "sos", "sos_norm", cfg.NORM_MODE)
 
     # -------------------------
     # Layer 6: Performance
