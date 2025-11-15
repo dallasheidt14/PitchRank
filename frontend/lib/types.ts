@@ -40,38 +40,6 @@ export interface Game {
   created_at: string;
 }
 
-export interface Ranking {
-  team_id: string; // UUID - references teams.team_id_master
-  team_id_master?: string;
-  // Correct ranking fields (backend contract)
-  national_rank: number | null;
-  state_rank: number | null;
-  national_sos_rank: number | null;
-  state_sos_rank: number | null;
-  power_score_final: number | null; // ML-adjusted power score (ML > global > adj > national)
-  sos_norm: number | null; // Normalized SOS (percentile/z-score within cohort)
-  // Record
-  wins: number;
-  losses: number;
-  draws: number;
-  games_played: number;
-  win_percentage: number | null;
-  goals_for?: number;
-  goals_against?: number;
-  last_game_date: string | null; // ISO date string
-  last_calculated?: string;
-  // Deprecated fields (do not use)
-  /** @deprecated Use power_score_final instead */
-  national_power_score?: never;
-  /** @deprecated Use sos_norm instead */
-  strength_of_schedule?: never;
-  /** @deprecated Use sos_norm instead */
-  sos?: never;
-  /** @deprecated Use sos_norm instead */
-  sos_rank?: never;
-  global_power_score?: number | null; // Kept for backward compatibility but prefer power_score_final
-}
-
 /**
  * Ranking with team details (from rankings_view / state_rankings_view)
  * This matches the exact columns returned by the rankings views (RankingRow contract)
