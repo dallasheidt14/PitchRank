@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
-import { useRankings } from '@/lib/hooks';
+import { useTeamSearch } from '@/hooks/useTeamSearch';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
@@ -48,19 +48,19 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   
-  // Fetch all rankings for autocomplete (no filters)
-  const { data: allRankings, isLoading, isError, error, refetch } = useRankings();
+  // Fetch all teams for autocomplete (not just ranked teams)
+  const { data: allTeams, isLoading, isError, error, refetch } = useTeamSearch();
 
   const selectedTeam = useMemo(() => {
-    if (!value || !allRankings) return null;
-    return allRankings.find(r => r.team_id_master === value) || null;
-  }, [value, allRankings]);
+    if (!value || !allTeams) return null;
+    return allTeams.find(r => r.team_id_master === value) || null;
+  }, [value, allTeams]);
 
   const filteredTeams = useMemo(() => {
-    if (!allRankings || !searchQuery) return [];
+    if (!allTeams || !searchQuery) return [];
     
     const query = searchQuery.toLowerCase();
-    return allRankings
+    return allTeams
       .filter(team => 
         team.team_id_master !== excludeTeamId &&
         (team.team_name.toLowerCase().includes(query) ||
@@ -68,7 +68,7 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
          team.state?.toLowerCase().includes(query))
       )
       .slice(0, 10); // Limit to 10 results
-  }, [allRankings, searchQuery, excludeTeamId]);
+  }, [allTeams, searchQuery, excludeTeamId]);
 
   // Reset selected index when filtered teams change
   useEffect(() => {
