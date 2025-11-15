@@ -456,6 +456,58 @@ def compute_rankings(
     strength_map = dict(zip(team["team_id"], team["abs_strength"]))
     power_map = dict(zip(team["team_id"], team["power_presos"]))
 
+    # Fix for identical SOS scores: Calculate strength for opponents that appear in games
+    # but don't have rows as team_id (filtered out by MAX_GAMES_FOR_RANK)
+    all_opponent_ids = set(g["opp_id"].unique())
+    missing_opponents = all_opponent_ids - set(team["team_id"].unique())
+
+    if missing_opponents:
+        logger.info(f"⚠️  Found {len(missing_opponents)} opponents missing from strength_map")
+        logger.info(f"    These opponents will be estimated from their games in opponent perspective")
+
+        # For each missing opponent, calculate their estimated strength from games where they appear as opp_id
+        # We'll infer their strength from the opponents THEY played (reverse calculation)
+        for opp_id in missing_opponents:
+            # Find games where this team was the opponent
+            opp_games = g[g["opp_id"] == opp_id].copy()
+
+            if len(opp_games) > 0:
+                # Estimate this opponent's strength based on:
+                # 1. The strength of teams that played them (available in strength_map)
+                # 2. The goal differential in those games (if they scored more, they're probably stronger)
+
+                # Calculate weighted average of opponent strengths (teams that played this opp)
+                opp_games["team_strength"] = opp_games["team_id"].map(lambda t: strength_map.get(t, 0.5))
+
+                # Adjust based on goal differential: if opp scored more (ga > gf from team's perspective),
+                # they're likely stronger; if they scored less, they're likely weaker
+                # Note: from team's perspective, gf = team goals, ga = opponent goals
+                # So positive ga-gf means opponent scored more
+                opp_games["gd_adj"] = (opp_games["ga"] - opp_games["gf"]).clip(-cfg.GOAL_DIFF_CAP, cfg.GOAL_DIFF_CAP)
+
+                # Normalize gd_adj to a strength modifier: +5 goals = ~+0.2 strength
+                gd_modifier = opp_games["gd_adj"].mean() / (cfg.GOAL_DIFF_CAP * 2)  # Scale to [-0.5, +0.5]
+                gd_modifier = max(-0.3, min(0.3, gd_modifier))  # Cap modifier to ±0.3
+
+                # Base estimate: average strength of teams they played
+                base_strength = opp_games["team_strength"].mean()
+
+                # Final estimate: adjust base by performance
+                estimated_strength = (base_strength + gd_modifier).clip(0.0, 1.5)
+
+                # Add to strength_map
+                strength_map[opp_id] = estimated_strength
+                # Use a neutral power value for missing opponents
+                power_map[opp_id] = base_strength * team["anchor"].median() if "anchor" in team.columns else base_strength
+
+                logger.debug(f"    {opp_id}: estimated strength = {estimated_strength:.3f} (base={base_strength:.3f}, gd_mod={gd_modifier:.3f})")
+            else:
+                # No games found, use default
+                strength_map[opp_id] = cfg.UNRANKED_SOS_BASE
+                power_map[opp_id] = cfg.UNRANKED_SOS_BASE
+
+        logger.info(f"✅ Added {len(missing_opponents)} missing opponents to strength_map with estimated values")
+
     # -------------------------
     # Layer 5: Adaptive K per game (by abs strength gap)
     # -------------------------
