@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1600" height="500" viewBox="0 0 1600 500" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1600" height="500" fill="#FFFFFF"/>
+  <g transform="translate(120,320)">
+    <text x="0" y="0" font-family="Arial" font-size="220" font-weight="700" fill="#0A1B2B">pitch</text>
+    <text x="670" y="0" font-family="Arial" font-size="220" font-weight="900" fill="#A8F73B">RANK</text>
+    <path d="M 640,20 C 770,60 960,60 1120,20" stroke="#A8F73B" stroke-width="20" stroke-linecap="round" fill="none"/>
+  </g>
+</svg>
