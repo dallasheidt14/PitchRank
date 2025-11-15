@@ -35,7 +35,15 @@ SELECT
       WHEN rf.age_group ~ '[0-9]+' THEN (regexp_replace(rf.age_group, '[^0-9]', '', 'g'))::INTEGER
       ELSE NULL
     END AS age,
-    rf.gender,
+    CASE 
+      WHEN rf.gender = 'Male' THEN 'M'
+      WHEN rf.gender = 'Female' THEN 'F'
+      WHEN rf.gender = 'Boys' THEN 'M'
+      WHEN rf.gender = 'Girls' THEN 'F'
+      WHEN rf.gender = 'M' THEN 'M'
+      WHEN rf.gender = 'F' THEN 'F'
+      ELSE rf.gender
+    END AS gender,
 
     -- Record stats (with fallback to current_rankings)
     COALESCE(rf.games_played, cr.games_played) AS games_played,
