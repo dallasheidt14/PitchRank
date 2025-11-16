@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useRef } from 'react';
+import { useMemo, useState, useRef, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { RankingsTableSkeleton } from '@/components/skeletons/RankingsTableSkeleton';
@@ -45,6 +45,12 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
 
   const { data: rankings, isLoading, isError, error, refetch } = useRankings(region, ageGroup, gender);
   const prefetchTeam = usePrefetchTeam();
+  
+  // Force refetch on mount to get fresh data after rankings update
+  // This ensures we get the latest sos_norm values from the database
+  useEffect(() => {
+    refetch();
+  }, [region, ageGroup, gender, refetch]);
 
   // Debug: Log first ranking to see what data we're getting
   if (rankings && rankings.length > 0) {
@@ -57,11 +63,30 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
       losses: rankings[0].losses,
       draws: rankings[0].draws,
       games_played: rankings[0].games_played,
+      sos_norm: rankings[0].sos_norm,
       allKeys: Object.keys(rankings[0]),
     });
+    
+    // Check if all sos_norm values are the same
+    const sosValues = rankings.map(r => r.sos_norm).filter(v => v != null);
+    const uniqueSosValues = new Set(sosValues);
+    const sosStats = {
+      totalTeams: rankings.length,
+      teamsWithSos: sosValues.length,
+      uniqueSosValues: uniqueSosValues.size,
+      minSos: sosValues.length > 0 ? Math.min(...sosValues) : null,
+      maxSos: sosValues.length > 0 ? Math.max(...sosValues) : null,
+      sampleSosValues: sosValues.slice(0, 10),
+    };
+    console.log('[RankingsTable] SOS Norm Statistics:', sosStats);
+    
+    if (uniqueSosValues.size === 1 && sosValues.length > 0) {
+      console.warn('[RankingsTable] ⚠️ WARNING: All teams have the same sos_norm value:', Array.from(uniqueSosValues)[0]);
+    }
   }
 
   // Optimized SOS Rank calculation per cohort
+  // Handles ties properly - teams with the same sos_norm share the same rank
   const sortedBySOS = useMemo(() => {
     if (!rankings) return [];
     return [...rankings]
@@ -71,9 +96,30 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
 
   const sosRanks = useMemo(() => {
     const map: Record<string, number> = {};
-    sortedBySOS.forEach((t, i) => {
-      map[t.team_id_master] = i + 1;
-    });
+    if (sortedBySOS.length === 0) return map;
+    
+    let currentRank = 1;
+    let i = 0;
+    
+    while (i < sortedBySOS.length) {
+      const currentSOS = sortedBySOS[i].sos_norm ?? 0;
+      const tiedTeams: string[] = [];
+      
+      // Find all teams with the same sos_norm value
+      while (i < sortedBySOS.length && (sortedBySOS[i].sos_norm ?? 0) === currentSOS) {
+        tiedTeams.push(sortedBySOS[i].team_id_master);
+        i++;
+      }
+      
+      // Assign the same rank to all tied teams
+      tiedTeams.forEach(teamId => {
+        map[teamId] = currentRank;
+      });
+      
+      // Move to next rank (skip the number of tied teams)
+      currentRank += tiedTeams.length;
+    }
+    
     return map;
   }, [sortedBySOS]);
 
