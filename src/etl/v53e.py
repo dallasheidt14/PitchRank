@@ -470,15 +470,19 @@ def compute_rankings(
     team["abs_strength"] = (team["power_presos"] / team["anchor"]).clip(0.0, 1.5)
     
     # For SOS calculation, use unclipped strength to preserve variation
-    # Normalize to [0, 1] per cohort using the actual max to preserve relative differences
+    # Normalize to [0, 1] per cohort using percentile ranking to preserve relative differences
     team["strength_for_sos"] = team["power_presos"] / team["anchor"]
-    # Normalize per cohort (age/gender) to preserve relative differences within each cohort
+    # Normalize per cohort (age/gender) using percentile ranking to preserve relative differences
     def _normalize_strength_for_sos(df):
-        strength_max = df["strength_for_sos"].max()
-        if strength_max > 0:
-            df["abs_strength_norm"] = (df["strength_for_sos"] / strength_max).clip(0.0, 1.0)
+        s = df["strength_for_sos"]
+        if len(s) == 0:
+            df["abs_strength_norm"] = 0.0
+        elif len(s) == 1:
+            df["abs_strength_norm"] = 1.0
         else:
-            df["abs_strength_norm"] = df["strength_for_sos"]
+            # Use percentile ranking (0-1) to preserve relative differences
+            # This ensures teams with different strengths get different normalized values
+            df["abs_strength_norm"] = s.rank(method='min', pct=True)
         return df
     team = team.groupby(["age", "gender"], group_keys=False).apply(_normalize_strength_for_sos)
 
@@ -617,13 +621,18 @@ def compute_rankings(
             # For SOS calculation, use unclipped strength to preserve variation
             # This allows top teams to have different SOS even if abs_strength is clipped
             team["strength_for_sos"] = team["strength_iter"] / team["anchor"]
-            # Normalize to [0, 1] per cohort using the actual max to preserve relative differences
+            # Normalize to [0, 1] per cohort using percentile ranking to preserve relative differences
+            # This preserves variation even when values are close to the max
             def _normalize_strength_for_sos(df):
-                strength_max = df["strength_for_sos"].max()
-                if strength_max > 0:
-                    df["abs_strength_norm"] = (df["strength_for_sos"] / strength_max).clip(0.0, 1.0)
+                s = df["strength_for_sos"]
+                if len(s) == 0:
+                    df["abs_strength_norm"] = 0.0
+                elif len(s) == 1:
+                    df["abs_strength_norm"] = 1.0
                 else:
-                    df["abs_strength_norm"] = df["strength_for_sos"]
+                    # Use percentile ranking (0-1) to preserve relative differences
+                    # This ensures teams with different strengths get different normalized values
+                    df["abs_strength_norm"] = s.rank(method='min', pct=True)
                 return df
             team = team.groupby(["age", "gender"], group_keys=False).apply(_normalize_strength_for_sos)
             strength_map = dict(zip(team["team_id"], team["abs_strength"]))
