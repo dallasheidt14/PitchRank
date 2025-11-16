@@ -160,9 +160,9 @@ async def save_rankings_to_supabase(supabase_client, teams_df, use_rankings_full
                         record['goals_for'] = int(row.get('goals_for', 0)) if pd.notna(row.get('goals_for')) else 0
                         record['goals_against'] = int(row.get('goals_against', 0)) if pd.notna(row.get('goals_against')) else 0
                         
-                        # Calculate win percentage
+                        # Calculate win percentage (as 0-100, not 0-1)
                         if record['games_played'] > 0:
-                            record['win_percentage'] = float(record['wins'] / record['games_played'])
+                            record['win_percentage'] = float(record['wins'] / record['games_played'] * 100)
                         else:
                             record['win_percentage'] = None
                         
