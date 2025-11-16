@@ -74,7 +74,7 @@ class V53EConfig:
     ANCHOR_PERCENTILE: float = 0.98
 
     # Normalization mode
-    NORM_MODE: str = "percentile"  # or "zscore"
+    NORM_MODE: str = "zscore"  # or "percentile"
 
 
 # Required team-centric columns (one row per team per game)
@@ -566,8 +566,8 @@ def compute_rankings(
             # Cohort-wise fallback instead of global 0.5
             team = team.groupby(["age", "gender"], group_keys=False).apply(_fill_sos_by_cohort)
 
-            # Clip to valid range
-            team["sos"] = team["sos"].clip(0.0, 1.0)
+            # No clipping - normalization handles the scale
+            # Removed: team["sos"] = team["sos"].clip(0.0, 1.0)
 
             # Normalize SOS within cohort
             team = _normalize_by_cohort(team, "sos", "sos_norm", cfg.NORM_MODE)
@@ -639,7 +639,8 @@ def compute_rankings(
                 (1 - cfg.SOS_TRANSITIVITY_LAMBDA) * merged["sos_direct"]
                 + cfg.SOS_TRANSITIVITY_LAMBDA * merged["sos_trans"]
             )
-            merged["sos"] = merged["sos"].clip(0.0, 1.0)
+            # No clipping - normalization handles the scale
+            # Removed: merged["sos"] = merged["sos"].clip(0.0, 1.0)
             sos_curr = merged[["team_id", "sos"]]
 
         team = team.merge(sos_curr, on="team_id", how="left")
