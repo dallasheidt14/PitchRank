@@ -54,14 +54,14 @@ for iteration in range(2, 4):
     opp_sos = opponent.sos  # Use opponent's SOS from previous iteration
     sos_trans = weighted_average(opp_sos, weights=w_sos)
     
-    # Blend direct and transitive (85% direct, 15% transitive)
+    # Blend direct and transitive (80% direct, 20% transitive)
     sos = (1 - SOS_TRANSITIVITY_LAMBDA) * sos_direct + SOS_TRANSITIVITY_LAMBDA * sos_trans
     sos = sos.clip(0.0, 1.0)  # Ensure in valid range
 ```
 
 **Configuration:**
 - `SOS_ITERATIONS = 3` (total iterations)
-- `SOS_TRANSITIVITY_LAMBDA = 0.15` (15% weight on transitivity)
+- `SOS_TRANSITIVITY_LAMBDA = 0.20` (20% weight on transitivity)
 - `UNRANKED_SOS_BASE = 0.35` (default for unranked opponents)
 
 ### Value Range
