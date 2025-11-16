@@ -33,12 +33,11 @@ export function useRankings(
           .from('rankings_view')
           .select('*');
 
-        if (ageGroup) {
-          // Normalize age group to integer
-          const normalizedAge = normalizeAgeGroup(ageGroup);
-          if (normalizedAge !== null) {
-            query = query.eq('age', normalizedAge);
-          }
+        // Normalize age group to integer (define outside if block for logging)
+        const normalizedAge = ageGroup ? normalizeAgeGroup(ageGroup) : null;
+
+        if (normalizedAge !== null) {
+          query = query.eq('age', normalizedAge);
         }
 
         if (gender) {
@@ -96,12 +95,11 @@ export function useRankings(
           .select('*')
           .eq('state', normalizedRegion);
 
-        if (ageGroup) {
-          // Normalize age group to integer
-          const normalizedAge = normalizeAgeGroup(ageGroup);
-          if (normalizedAge !== null) {
-            query = query.eq('age', normalizedAge);
-          }
+        // Normalize age group to integer
+        const normalizedAge = ageGroup ? normalizeAgeGroup(ageGroup) : null;
+
+        if (normalizedAge !== null) {
+          query = query.eq('age', normalizedAge);
         }
 
         if (gender) {
