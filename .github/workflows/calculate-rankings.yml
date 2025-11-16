@@ -6,21 +6,56 @@ on:
 jobs:
   calculate-rankings:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repository
+      # ---------------------------------------------------------------
+      # 1. CHECKOUT THE CORRECT BRANCH (Iterative SOS branch)
+      # ---------------------------------------------------------------
+      - name: Checkout repository (SOS branch)
         uses: actions/checkout@v4
-      
+        with:
+          ref: claude/python-development-015mskAiqXKrM7PZNZm3mvRq
+          fetch-depth: 0
+
+      # ---------------------------------------------------------------
+      # 2. FAIL-SAFE: VERIFY WE ARE ON THE RIGHT BRANCH
+      # ---------------------------------------------------------------
+      - name: Verify correct branch
+        run: |
+          echo "Checked-out branch: $(git branch --show-current)"
+          if [ "$(git branch --show-current)" != "claude/python-development-015mskAiqXKrM7PZNZm3mvRq" ]; then
+            echo "❌ ERROR: Wrong branch checked out! Rankings run ABORTED."
+            exit 1
+          fi
+
+      # ---------------------------------------------------------------
+      # 3. PRINT COMMIT HASH (for debugging + traceability)
+      # ---------------------------------------------------------------
+      - name: Show commit hash
+        run: |
+          echo "Current commit:"
+          git rev-parse HEAD
+
+      # ---------------------------------------------------------------
+      # 4. SET UP PYTHON ENVIRONMENT
+      # ---------------------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      
+
+      # ---------------------------------------------------------------
+      # 5. INSTALL PYTHON DEPENDENCIES
+      # ---------------------------------------------------------------
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # Install core dependencies for rankings calculation
+          pip install -r requirements.txt || true
           pip install supabase python-dotenv pandas requests rich certifi numpy scikit-learn
-      
+
+      # ---------------------------------------------------------------
+      # 6. RUN THE RANKINGS ENGINE (Iterative SOS + ML)
+      # ---------------------------------------------------------------
       - name: Calculate Rankings
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -28,11 +63,13 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         run: |
-          # Set Python path to include project root
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
-          # Run rankings calculation with ML layer and force rebuild
+          echo "⚽ Running PitchRank Rankings Engine with ML + Iterative SOS"
           python scripts/calculate_rankings.py --ml --force-rebuild
-      
+
+      # ---------------------------------------------------------------
+      # 7. FINAL REPORT
+      # ---------------------------------------------------------------
       - name: Report results
         if: always()
         run: |
