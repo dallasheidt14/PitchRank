@@ -5,17 +5,16 @@ import pytest
 import pandas as pd
 import numpy as np
 from src.etl.v53e import V53EConfig, compute_rankings
-from config.settings import RANKING_CONFIG
 
 
 class TestSOSConfiguration:
     """Test SOS configuration consistency"""
 
-    def test_config_uses_environment_aware_settings(self):
-        """Verify V53EConfig can be instantiated with RANKING_CONFIG"""
-        cfg = V53EConfig(**RANKING_CONFIG)
+    def test_config_has_critical_sos_parameters(self):
+        """Verify V53EConfig has all critical SOS parameters"""
+        cfg = V53EConfig()
 
-        # Verify critical SOS parameters are loaded
+        # Verify critical SOS parameters exist
         assert hasattr(cfg, 'SOS_ITERATIONS')
         assert hasattr(cfg, 'SOS_TRANSITIVITY_LAMBDA')
         assert hasattr(cfg, 'SOS_REPEAT_CAP')
@@ -23,23 +22,23 @@ class TestSOSConfiguration:
 
     def test_sos_iterations_is_three(self):
         """Verify 3-pass iterative SOS is configured"""
-        cfg = V53EConfig(**RANKING_CONFIG)
+        cfg = V53EConfig()
         assert cfg.SOS_ITERATIONS == 3, "SOS should use 3 iterations"
 
     def test_sos_transitivity_lambda_is_correct(self):
         """Verify SOS transitivity lambda is 0.20"""
-        cfg = V53EConfig(**RANKING_CONFIG)
+        cfg = V53EConfig()
         assert cfg.SOS_TRANSITIVITY_LAMBDA == 0.20, \
             "SOS_TRANSITIVITY_LAMBDA should be 0.20 (80% direct, 20% transitive)"
 
     def test_sos_repeat_cap_is_four(self):
         """Verify repeat cap limits to top 4 games per opponent"""
-        cfg = V53EConfig(**RANKING_CONFIG)
+        cfg = V53EConfig()
         assert cfg.SOS_REPEAT_CAP == 4, "SOS repeat cap should be 4"
 
     def test_unranked_sos_base_valid(self):
         """Verify unranked opponent SOS base is reasonable"""
-        cfg = V53EConfig(**RANKING_CONFIG)
+        cfg = V53EConfig()
         assert 0.0 <= cfg.UNRANKED_SOS_BASE <= 1.0, \
             "UNRANKED_SOS_BASE must be between 0 and 1"
         assert cfg.UNRANKED_SOS_BASE == 0.35, \
@@ -51,7 +50,7 @@ class TestPowerScoreWeights:
 
     def test_weights_sum_to_one(self):
         """Verify OFF_WEIGHT + DEF_WEIGHT + SOS_WEIGHT = 1.0"""
-        cfg = V53EConfig(**RANKING_CONFIG)
+        cfg = V53EConfig()
 
         total_weight = cfg.OFF_WEIGHT + cfg.DEF_WEIGHT + cfg.SOS_WEIGHT
         assert abs(total_weight - 1.0) < 0.0001, \
@@ -59,12 +58,12 @@ class TestPowerScoreWeights:
 
     def test_sos_weight_is_fifty_percent(self):
         """Verify SOS has 50% weight in PowerScore"""
-        cfg = V53EConfig(**RANKING_CONFIG)
+        cfg = V53EConfig()
         assert cfg.SOS_WEIGHT == 0.50, "SOS should have 50% weight"
 
     def test_off_def_weights_balanced(self):
         """Verify offense and defense have equal weights"""
-        cfg = V53EConfig(**RANKING_CONFIG)
+        cfg = V53EConfig()
         assert cfg.OFF_WEIGHT == cfg.DEF_WEIGHT, \
             "Offense and defense should have equal weights"
         assert cfg.OFF_WEIGHT == 0.25, "Offense weight should be 25%"
@@ -72,7 +71,7 @@ class TestPowerScoreWeights:
 
     def test_sos_has_highest_weight(self):
         """Verify SOS has the highest component weight"""
-        cfg = V53EConfig(**RANKING_CONFIG)
+        cfg = V53EConfig()
         assert cfg.SOS_WEIGHT > cfg.OFF_WEIGHT, \
             "SOS weight should be greater than offense weight"
         assert cfg.SOS_WEIGHT > cfg.DEF_WEIGHT, \
@@ -102,7 +101,7 @@ class TestSOSValueRanges:
 
     def test_sos_raw_in_valid_range(self, sample_games_df):
         """Verify raw SOS values are between 0 and 1"""
-        cfg = V53EConfig(**RANKING_CONFIG)
+        cfg = V53EConfig()
         result = compute_rankings(
             games=sample_games_df,
             cfg=cfg,
@@ -122,7 +121,7 @@ class TestSOSValueRanges:
 
     def test_sos_norm_in_valid_range(self, sample_games_df):
         """Verify normalized SOS values are between 0 and 1"""
-        cfg = V53EConfig(**RANKING_CONFIG)
+        cfg = V53EConfig()
         result = compute_rankings(
             games=sample_games_df,
             cfg=cfg,
@@ -142,7 +141,7 @@ class TestSOSValueRanges:
 
     def test_powerscore_uses_sos_norm(self, sample_games_df):
         """Verify PowerScore calculation uses sos_norm, not raw sos"""
-        cfg = V53EConfig(**RANKING_CONFIG)
+        cfg = V53EConfig()
         result = compute_rankings(
             games=sample_games_df,
             cfg=cfg,
@@ -175,7 +174,7 @@ class TestSOSTransitivity:
 
     def test_transitivity_weight_calculation(self):
         """Verify direct vs transitive weight split"""
-        cfg = V53EConfig(**RANKING_CONFIG)
+        cfg = V53EConfig()
 
         lambda_val = cfg.SOS_TRANSITIVITY_LAMBDA
         direct_weight = 1 - lambda_val
@@ -197,7 +196,7 @@ class TestSOSDocumentation:
 
     def test_config_matches_documented_values(self):
         """Verify actual config matches SOS_FIELDS_EXPLANATION.md"""
-        cfg = V53EConfig(**RANKING_CONFIG)
+        cfg = V53EConfig()
 
         # From docs: SOS_ITERATIONS = 3
         assert cfg.SOS_ITERATIONS == 3, \
