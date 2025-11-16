@@ -468,8 +468,13 @@ def compute_rankings(
     logger.info("✅ Anchor slope corrected and re-scaled to [0.4, 1.0] range")
     
     team["abs_strength"] = (team["power_presos"] / team["anchor"]).clip(0.0, 1.5)
+    
+    # Normalize abs_strength to [0, 1] for SOS calculation to prevent scale mismatch
+    # abs_strength ranges [0, 1.5], but SOS should naturally stay in [0, 1]
+    team["abs_strength_norm"] = (team["abs_strength"] / 1.5).clip(0.0, 1.0)
 
     strength_map = dict(zip(team["team_id"], team["abs_strength"]))
+    strength_map_sos = dict(zip(team["team_id"], team["abs_strength_norm"]))
     power_map = dict(zip(team["team_id"], team["power_presos"]))
 
     # -------------------------
@@ -524,9 +529,10 @@ def compute_rankings(
             )
             g_sos = g_sorted[g_sorted["repeat_rank"] <= cfg.SOS_REPEAT_CAP].copy()
 
-            # Map opponent strength, using NaN for missing opponents (minimal fix #2)
+            # Map opponent strength (normalized to [0, 1] for SOS calculation)
+            # Use normalized strength to keep SOS naturally in [0, 1] range
             g_sos["opp_strength"] = g_sos["opp_id"].map(
-                lambda o: strength_map.get(o, np.nan)  # Changed from UNRANKED_SOS_BASE
+                lambda o: strength_map_sos.get(o, np.nan)  # Use normalized strength for SOS
             )
 
             # Direct SOS: weighted average of opponent strengths
@@ -572,15 +578,24 @@ def compute_rankings(
             # Normalize SOS within cohort
             team = _normalize_by_cohort(team, "sos", "sos_norm", cfg.NORM_MODE)
 
-            # Track statistics
+            # Track statistics with enhanced metrics
             sos_std = team["sos"].std()
             sos_mean = team["sos"].mean()
             sos_nan_count = sos_curr["sos"].isna().sum()
+            sos_max = team["sos"].max()
+            sos_min = team["sos"].min()
+            # Count unique values and teams at max
+            unique_values = team["sos"].nunique()
+            teams_at_max = (team["sos"] == sos_max).sum() if not pd.isna(sos_max) else 0
             sos_stats.append({
                 "iteration": iteration + 1,
                 "sos_mean": sos_mean,
                 "sos_std": sos_std,
-                "sos_nan_count": sos_nan_count
+                "sos_nan_count": sos_nan_count,
+                "sos_min": sos_min,
+                "sos_max": sos_max,
+                "unique_values": unique_values,
+                "teams_at_max": teams_at_max
             })
 
             # --- (d) Update strength_map including new SOS ---
@@ -590,10 +605,15 @@ def compute_rankings(
                 + cfg.SOS_WEIGHT * team["sos_norm"]
             )
             team["abs_strength"] = (team["strength_iter"] / team["anchor"]).clip(0.0, 1.5)
+            # Normalize abs_strength to [0, 1] for SOS calculation
+            team["abs_strength_norm"] = (team["abs_strength"] / 1.5).clip(0.0, 1.0)
             strength_map = dict(zip(team["team_id"], team["abs_strength"]))
+            strength_map_sos = dict(zip(team["team_id"], team["abs_strength_norm"]))
 
             logger.info(f"   Iteration {iteration + 1}/{cfg.SOS_STRENGTH_ITERATIONS}: "
                        f"SOS mean={sos_mean:.4f}, std={sos_std:.4f}, "
+                       f"range=[{sos_min:.4f}, {sos_max:.4f}], "
+                       f"unique={unique_values}, at_max={teams_at_max}, "
                        f"NaN count={sos_nan_count}")
 
         # Log final SOS statistics
@@ -615,7 +635,8 @@ def compute_rankings(
         g["repeat_rank"] = g.groupby(["team_id", "opp_id"])["w_sos"].rank(ascending=False, method="first")
         g_sos = g[g["repeat_rank"] <= cfg.SOS_REPEAT_CAP].copy()
 
-        g_sos["opp_strength"] = g_sos["opp_id"].map(lambda o: strength_map.get(o, cfg.UNRANKED_SOS_BASE))
+        # Use normalized strength for SOS calculation to keep SOS in [0, 1] range
+        g_sos["opp_strength"] = g_sos["opp_id"].map(lambda o: strength_map_sos.get(o, cfg.UNRANKED_SOS_BASE))
 
         direct = (
             g_sos.groupby("team_id").apply(lambda d: _avg_weighted(d, "opp_strength", "w_sos"))
