@@ -54,34 +54,48 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
 
   // Debug: Log first ranking to see what data we're getting
   if (rankings && rankings.length > 0) {
+    // Log first 5 teams with their sos_norm values
+    console.log('[RankingsTable] Sample teams with sos_norm:', 
+      rankings.slice(0, 5).map(r => ({
+        team: r.team_name,
+        sos_norm: r.sos_norm,
+        sos_norm_type: typeof r.sos_norm,
+        sos_norm_raw: r.sos_norm,
+      }))
+    );
+    
     console.log('[RankingsTable] First ranking data:', {
       team_name: rankings[0].team_name,
       rank_in_cohort_final: rankings[0].rank_in_cohort_final,
-      rank_in_state_final: rankings[0].rank_in_state_final,
-      win_percentage: rankings[0].win_percentage,
-      wins: rankings[0].wins,
-      losses: rankings[0].losses,
-      draws: rankings[0].draws,
-      games_played: rankings[0].games_played,
+      power_score_final: rankings[0].power_score_final,
       sos_norm: rankings[0].sos_norm,
+      sos_norm_type: typeof rankings[0].sos_norm,
+      offense_norm: rankings[0].offense_norm,
+      defense_norm: rankings[0].defense_norm,
       allKeys: Object.keys(rankings[0]),
+      rawObject: rankings[0],
     });
     
     // Check if all sos_norm values are the same
-    const sosValues = rankings.map(r => r.sos_norm).filter(v => v != null);
+    const sosValues = rankings.map(r => r.sos_norm).filter(v => v != null && v !== undefined);
     const uniqueSosValues = new Set(sosValues);
     const sosStats = {
       totalTeams: rankings.length,
       teamsWithSos: sosValues.length,
+      teamsWithoutSos: rankings.length - sosValues.length,
       uniqueSosValues: uniqueSosValues.size,
       minSos: sosValues.length > 0 ? Math.min(...sosValues) : null,
       maxSos: sosValues.length > 0 ? Math.max(...sosValues) : null,
-      sampleSosValues: sosValues.slice(0, 10),
+      sampleSosValues: sosValues.slice(0, 20),
+      allSosValuesAreSame: uniqueSosValues.size === 1,
     };
     console.log('[RankingsTable] SOS Norm Statistics:', sosStats);
     
     if (uniqueSosValues.size === 1 && sosValues.length > 0) {
       console.warn('[RankingsTable] ⚠️ WARNING: All teams have the same sos_norm value:', Array.from(uniqueSosValues)[0]);
+      console.warn('[RankingsTable] This suggests sos_norm may not be properly calculated or saved in rankings_full table');
+    } else if (sosValues.length === 0) {
+      console.error('[RankingsTable] ❌ ERROR: No teams have sos_norm values! All are null/undefined');
     }
   }
 
