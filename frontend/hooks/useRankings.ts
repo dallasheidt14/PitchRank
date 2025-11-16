@@ -33,8 +33,8 @@ export function useRankings(
           .from('rankings_view')
           .select('*');
 
-        // Normalize age group to integer (declare outside if block for logging)
-        const normalizedAge = ageGroup ? normalizeAgeGroup(ageGroup) : null;
+        // Normalize age group to integer
+        const normalizedAge: number | null = ageGroup ? normalizeAgeGroup(ageGroup) : null;
 
         if (normalizedAge !== null) {
           query = query.eq('age', normalizedAge);
