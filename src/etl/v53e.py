@@ -453,7 +453,12 @@ def compute_rankings(
     
     team["abs_strength"] = (team["power_presos"] / team["anchor"]).clip(0.0, 1.5)
 
-    strength_map = dict(zip(team["team_id"], team["abs_strength"]))
+    # Create normalized strength for SOS calculation (scale 0.0-1.5 to 0.0-1.0)
+    # This prevents SOS from exceeding 1.0 and causing excessive clipping
+    team["abs_strength_norm"] = (team["abs_strength"] / 1.5).clip(0.0, 1.0)
+
+    strength_map_sos = dict(zip(team["team_id"], team["abs_strength_norm"]))  # For SOS (scaled 0-1)
+    strength_map = dict(zip(team["team_id"], team["abs_strength"]))  # For adaptive K (original 0-1.5)
     power_map = dict(zip(team["team_id"], team["power_presos"]))
 
     # -------------------------
@@ -474,7 +479,8 @@ def compute_rankings(
     g["repeat_rank"] = g.groupby(["team_id", "opp_id"])["w_sos"].rank(ascending=False, method="first")
     g_sos = g[g["repeat_rank"] <= cfg.SOS_REPEAT_CAP].copy()
 
-    g_sos["opp_strength"] = g_sos["opp_id"].map(lambda o: strength_map.get(o, cfg.UNRANKED_SOS_BASE))
+    # Use normalized strength (0-1 scale) for SOS calculation
+    g_sos["opp_strength"] = g_sos["opp_id"].map(lambda o: strength_map_sos.get(o, cfg.UNRANKED_SOS_BASE))
 
     def _avg_weighted(df: pd.DataFrame, col: str, wcol: str) -> float:
         w = df[wcol].values
@@ -490,11 +496,15 @@ def compute_rankings(
     sos_curr = direct.rename(columns={"sos_direct": "sos"}).copy()
 
     # Log initial SOS (Pass 1: Direct)
+    unique_vals = sos_curr['sos'].nunique()
+    teams_at_max = (sos_curr['sos'] >= 0.99).sum()
     logger.debug(
         f"SOS Pass 1 (Direct): mean={sos_curr['sos'].mean():.4f}, "
         f"std={sos_curr['sos'].std():.4f}, "
         f"min={sos_curr['sos'].min():.4f}, "
-        f"max={sos_curr['sos'].max():.4f}"
+        f"max={sos_curr['sos'].max():.4f}, "
+        f"unique_values={unique_vals}, "
+        f"teams_at_max(>=0.99)={teams_at_max}"
     )
 
     # iterative transitivity propagation
@@ -510,16 +520,20 @@ def compute_rankings(
             (1 - cfg.SOS_TRANSITIVITY_LAMBDA) * merged["sos_direct"]
             + cfg.SOS_TRANSITIVITY_LAMBDA * merged["sos_trans"]
         )
-        # SOS stability guard: clip values between 0.0 and 1.0
-        merged["sos"] = merged["sos"].clip(0.0, 1.0)
+        # No clipping needed since we use normalized strength (0-1 scale)
+        # SOS will naturally stay within [0, 1] bounds
         sos_curr = merged[["team_id", "sos"]]
 
         # Log convergence metrics
+        unique_vals = sos_curr['sos'].nunique()
+        teams_at_max = (sos_curr['sos'] >= 0.99).sum()
         logger.debug(
             f"SOS Pass {iteration_idx + 2} (Transitivity): mean={sos_curr['sos'].mean():.4f}, "
             f"std={sos_curr['sos'].std():.4f}, "
             f"min={sos_curr['sos'].min():.4f}, "
             f"max={sos_curr['sos'].max():.4f}, "
+            f"unique_values={unique_vals}, "
+            f"teams_at_max(>=0.99)={teams_at_max}, "
             f"lambda={cfg.SOS_TRANSITIVITY_LAMBDA}"
         )
 
