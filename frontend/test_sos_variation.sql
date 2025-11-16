@@ -2,7 +2,7 @@
 -- This will help identify if only top teams have the same value (expected)
 -- or if ALL teams have the same value (problem)
 
--- Get teams across different rank ranges
+-- Query 1: Get teams across different rank ranges
 WITH ranked_teams AS (
     SELECT 
         rank_in_cohort_final,
@@ -35,19 +35,4 @@ SELECT
 FROM ranked_teams
 GROUP BY rank_range, sort_order
 ORDER BY sort_order;
-
--- Sample teams from middle ranks to see if they have different values
-SELECT 
-    rank_in_cohort_final,
-    team_name,
-    power_score_final,
-    sos_norm,
-    offense_norm,
-    defense_norm
-FROM rankings_view
-WHERE age = 12 
-  AND gender = 'M'
-  AND rank_in_cohort_final BETWEEN 100 AND 120
-ORDER BY rank_in_cohort_final
-LIMIT 20;
 
