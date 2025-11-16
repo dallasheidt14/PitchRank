@@ -54,7 +54,7 @@ class V53EConfig:
     UNRANKED_SOS_BASE: float = 0.35
     SOS_REPEAT_CAP: int = 4
     SOS_ITERATIONS: int = 3
-    SOS_TRANSITIVITY_LAMBDA: float = 0.15  # Lowered from 0.25 for stability
+    SOS_TRANSITIVITY_LAMBDA: float = 0.20  # Balanced transitivity weight (80% direct, 20% transitive)
 
     # Layer 10 weights
     OFF_WEIGHT: float = 0.25
