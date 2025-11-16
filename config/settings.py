@@ -117,7 +117,7 @@ RANKING_CONFIG = {
     'unranked_sos_base': float(os.getenv("UNRANKED_SOS_BASE", 0.35)),  # V53EConfig.UNRANKED_SOS_BASE
     'sos_repeat_cap': int(os.getenv("SOS_REPEAT_CAP", 4)),  # V53EConfig.SOS_REPEAT_CAP
     'sos_iterations': int(os.getenv("SOS_ITERATIONS", 3)),  # V53EConfig.SOS_ITERATIONS
-    'sos_transitivity_lambda': float(os.getenv("SOS_TRANSITIVITY_LAMBDA", 0.25)),  # V53EConfig.SOS_TRANSITIVITY_LAMBDA
+    'sos_transitivity_lambda': float(os.getenv("SOS_TRANSITIVITY_LAMBDA", 0.20)),  # V53EConfig.SOS_TRANSITIVITY_LAMBDA
     
     # Layer 10 weights
     'off_weight': float(os.getenv("OFF_WEIGHT", 0.25)),  # V53EConfig.OFF_WEIGHT

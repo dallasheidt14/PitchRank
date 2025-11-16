@@ -54,7 +54,7 @@ class V53EConfig:
     UNRANKED_SOS_BASE: float = 0.35
     SOS_REPEAT_CAP: int = 4
     SOS_ITERATIONS: int = 3
-    SOS_TRANSITIVITY_LAMBDA: float = 0.15  # Lowered from 0.25 for stability
+    SOS_TRANSITIVITY_LAMBDA: float = 0.20  # Balanced transitivity weight (80% direct, 20% transitive)
 
     # Layer 10 weights
     OFF_WEIGHT: float = 0.25
@@ -489,8 +489,16 @@ def compute_rankings(
     )
     sos_curr = direct.rename(columns={"sos_direct": "sos"}).copy()
 
+    # Log initial SOS (Pass 1: Direct)
+    logger.debug(
+        f"SOS Pass 1 (Direct): mean={sos_curr['sos'].mean():.4f}, "
+        f"std={sos_curr['sos'].std():.4f}, "
+        f"min={sos_curr['sos'].min():.4f}, "
+        f"max={sos_curr['sos'].max():.4f}"
+    )
+
     # iterative transitivity propagation
-    for _ in range(max(0, cfg.SOS_ITERATIONS - 1)):
+    for iteration_idx in range(max(0, cfg.SOS_ITERATIONS - 1)):
         opp_sos_map = dict(zip(sos_curr["team_id"], sos_curr["sos"]))
         g_sos["opp_sos"] = g_sos["opp_id"].map(lambda o: opp_sos_map.get(o, cfg.UNRANKED_SOS_BASE))
         trans = (
@@ -505,6 +513,15 @@ def compute_rankings(
         # SOS stability guard: clip values between 0.0 and 1.0
         merged["sos"] = merged["sos"].clip(0.0, 1.0)
         sos_curr = merged[["team_id", "sos"]]
+
+        # Log convergence metrics
+        logger.debug(
+            f"SOS Pass {iteration_idx + 2} (Transitivity): mean={sos_curr['sos'].mean():.4f}, "
+            f"std={sos_curr['sos'].std():.4f}, "
+            f"min={sos_curr['sos'].min():.4f}, "
+            f"max={sos_curr['sos'].max():.4f}, "
+            f"lambda={cfg.SOS_TRANSITIVITY_LAMBDA}"
+        )
 
     team = team.merge(sos_curr, on="team_id", how="left").fillna({"sos": 0.5})
 

@@ -17,6 +17,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from src.rankings.calculator import compute_rankings_v53e_only
 from src.etl.v53e import V53EConfig
+from config.settings import RANKING_CONFIG
 
 console = Console()
 # Load environment variables
@@ -41,10 +42,11 @@ async def main():
     supabase = create_client(supabase_url, supabase_key)
     
     console.print("[bold green]Verifying SOS Impact on Rankings[/bold green]\n")
-    
-    # Get config to show weights
-    cfg = V53EConfig()
+
+    # Get config to show weights (using environment-aware config)
+    cfg = V53EConfig(**RANKING_CONFIG)
     console.print(f"[cyan]PowerScore Formula Weights:[/cyan]")
+    console.print(f"  [dim]SOS Transitivity Lambda: {cfg.SOS_TRANSITIVITY_LAMBDA}[/dim]")
     console.print(f"  Offense: {cfg.OFF_WEIGHT * 100:.0f}%")
     console.print(f"  Defense: {cfg.DEF_WEIGHT * 100:.0f}%")
     console.print(f"  [bold]SOS: {cfg.SOS_WEIGHT * 100:.0f}%[/bold]")
