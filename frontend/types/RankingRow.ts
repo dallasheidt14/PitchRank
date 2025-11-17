@@ -19,12 +19,17 @@ export interface RankingRow {
   // Ranks (backend contract)
   rank_in_cohort_final: number; // National rank within age/gender cohort
   rank_in_state_final?: number; // State rank - ONLY in state_rankings_view
-  // Record
+  // Record (capped at 30 games for rankings algorithm)
   wins: number;
   losses: number;
   draws: number;
-  games_played: number;
-  win_percentage: number | null;
+  games_played: number; // Capped at 30 for rankings algorithm
+  // Total record (ALL games, not capped)
+  total_games_played: number; // Actual total count of all games
+  total_wins: number; // Total wins from all games
+  total_losses: number; // Total losses from all games
+  total_draws: number; // Total draws from all games
+  win_percentage: number | null; // Recalculated from total games
   // Deprecated fields (do not use)
   /** @deprecated Use state instead */
   state_code?: never;
