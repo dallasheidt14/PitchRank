@@ -9,8 +9,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { TeamSelector } from './TeamSelector';
 import { PredictedMatchCard } from './PredictedMatchCard';
-import { useTeam, useRankings, useTeamTrajectory, useCommonOpponents, usePredictive } from '@/lib/hooks';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend, LineChart, Line } from 'recharts';
+import { EnhancedPredictionCard } from './EnhancedPredictionCard';
+import { useTeam, useRankings, useCommonOpponents, usePredictive, useMatchPrediction } from '@/lib/hooks';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
 import { ArrowLeftRight, TrendingUp, TrendingDown } from 'lucide-react';
 import { formatPowerScore } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
@@ -71,14 +72,15 @@ export function ComparePanel() {
 
   const { data: team1Details, isLoading: team1Loading, isError: team1Error, error: team1ErrorObj, refetch: refetchTeam1 } = useTeam(team1Id || '');
   const { data: team2Details, isLoading: team2Loading, isError: team2Error, error: team2ErrorObj, refetch: refetchTeam2 } = useTeam(team2Id || '');
-  const { data: team1Trajectory, isLoading: trajectory1Loading, isError: trajectory1Error, error: trajectory1ErrorObj, refetch: refetchTrajectory1 } = useTeamTrajectory(team1Id || '', 30);
-  const { data: team2Trajectory, isLoading: trajectory2Loading, isError: trajectory2Error, error: trajectory2ErrorObj, refetch: refetchTrajectory2 } = useTeamTrajectory(team2Id || '', 30);
   const { data: commonOpponents, isLoading: opponentsLoading, isError: opponentsError, error: opponentsErrorObj, refetch: refetchOpponents } = useCommonOpponents(team1Id, team2Id);
   
   // Fetch predictive data in parallel (non-blocking)
   // Use team_id_master from state (team1Id/team2Id are already team_id_master UUIDs)
   const { data: team1Predictive } = usePredictive(team1Id);
   const { data: team2Predictive } = usePredictive(team2Id);
+
+  // Fetch enhanced match prediction with explanations
+  const { data: matchPrediction, isLoading: predictionLoading } = useMatchPrediction(team1Id, team2Id);
   
   // Get rankings for percentile calculation
   const { data: allRankings, isLoading: rankingsLoading, isError: rankingsError, error: rankingsErrorObj, refetch: refetchRankings } = useRankings(
@@ -167,33 +169,13 @@ export function ComparePanel() {
     },
   ] : [];
 
-  // Prepare trajectory comparison data
-  const trajectoryData = useMemo(() => {
-    if (!team1Trajectory || !team2Trajectory) return [];
-    
-    const data: Array<{ period: string; team1: number; team2: number }> = [];
-    const maxLength = Math.max(team1Trajectory.length, team2Trajectory.length);
-    
-    for (let i = 0; i < maxLength; i++) {
-      const t1 = team1Trajectory[i];
-      const t2 = team2Trajectory[i];
-      data.push({
-        period: t1 ? new Date(t1.period_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '',
-        team1: t1?.win_percentage ?? 0,
-        team2: t2?.win_percentage ?? 0,
-      });
-    }
-    
-    return data;
-  }, [team1Trajectory, team2Trajectory]);
-
   // Show loading state when teams are being fetched
-  const isLoadingData = (team1Id && (team1Loading || team2Loading)) || 
-                        (team1Id && team2Id && (trajectory1Loading || trajectory2Loading || opponentsLoading || rankingsLoading));
+  const isLoadingData = (team1Id && (team1Loading || team2Loading)) ||
+                        (team1Id && team2Id && (opponentsLoading || rankingsLoading));
 
   // Check for errors
   const hasErrors = (team1Id && (team1Error || team2Error)) ||
-                    (team1Id && team2Id && (trajectory1Error || trajectory2Error || opponentsError || rankingsError));
+                    (team1Id && team2Id && (opponentsError || rankingsError));
 
   return (
     <Card>
@@ -249,12 +231,6 @@ export function ComparePanel() {
               {team2Id && team2Error && (
                 <ErrorDisplay error={team2ErrorObj} retry={refetchTeam2} compact />
               )}
-              {team1Id && team2Id && trajectory1Error && (
-                <ErrorDisplay error={trajectory1ErrorObj} retry={refetchTrajectory1} compact />
-              )}
-              {team1Id && team2Id && trajectory2Error && (
-                <ErrorDisplay error={trajectory2ErrorObj} retry={refetchTrajectory2} compact />
-              )}
               {team1Id && team2Id && opponentsError && (
                 <ErrorDisplay error={opponentsErrorObj} retry={refetchOpponents} compact />
               )}
@@ -266,6 +242,97 @@ export function ComparePanel() {
 
           {team1Data && team2Data && !isLoadingData && (
             <>
+              {/* Head-to-Head Stats Comparison */}
+              <div className="pt-4 border-t">
+                <h3 className="text-lg font-semibold mb-4">Head-to-Head Comparison</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-2 px-2 text-sm font-medium text-muted-foreground">Metric</th>
+                        <th className="text-center py-2 px-2 text-sm font-medium">{team1Data.team_name}</th>
+                        <th className="text-center py-2 px-2 text-sm font-medium">{team2Data.team_name}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      <tr>
+                        <td className="py-3 px-2 text-sm text-muted-foreground">National Rank</td>
+                        <td className="py-3 px-2 text-center font-semibold">
+                          {team1Data.rank_in_cohort_final ? `#${team1Data.rank_in_cohort_final}` : '—'}
+                        </td>
+                        <td className="py-3 px-2 text-center font-semibold">
+                          {team2Data.rank_in_cohort_final ? `#${team2Data.rank_in_cohort_final}` : '—'}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-3 px-2 text-sm text-muted-foreground">Power Score</td>
+                        <td className="py-3 px-2 text-center font-semibold">
+                          {formatPowerScore(team1Data.power_score_final)}
+                        </td>
+                        <td className="py-3 px-2 text-center font-semibold">
+                          {formatPowerScore(team2Data.power_score_final)}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-3 px-2 text-sm text-muted-foreground">Win %</td>
+                        <td className="py-3 px-2 text-center font-semibold">
+                          {team1Data.win_percentage !== null ? `${team1Data.win_percentage.toFixed(1)}%` : '—'}
+                        </td>
+                        <td className="py-3 px-2 text-center font-semibold">
+                          {team2Data.win_percentage !== null ? `${team2Data.win_percentage.toFixed(1)}%` : '—'}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-3 px-2 text-sm text-muted-foreground">Record</td>
+                        <td className="py-3 px-2 text-center font-semibold">
+                          {team1Data.wins}-{team1Data.losses}{team1Data.draws > 0 && `-${team1Data.draws}`}
+                        </td>
+                        <td className="py-3 px-2 text-center font-semibold">
+                          {team2Data.wins}-{team2Data.losses}{team2Data.draws > 0 && `-${team2Data.draws}`}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-3 px-2 text-sm text-muted-foreground">Games Played</td>
+                        <td className="py-3 px-2 text-center font-semibold">{team1Data.games_played}</td>
+                        <td className="py-3 px-2 text-center font-semibold">{team2Data.games_played}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Match Prediction - Prominently Displayed */}
+              {matchPrediction && (
+                <EnhancedPredictionCard
+                  teamAName={team1Data.team_name}
+                  teamBName={team2Data.team_name}
+                  prediction={matchPrediction.prediction}
+                  explanation={matchPrediction.explanation}
+                />
+              )}
+
+              {/* Loading state for prediction */}
+              {predictionLoading && (
+                <Card className="mt-4">
+                  <CardContent className="py-8">
+                    <InlineLoader />
+                    <p className="text-center text-sm text-muted-foreground mt-2">
+                      Analyzing matchup...
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Fallback to old prediction card if enhanced prediction fails */}
+              {!matchPrediction && !predictionLoading && (
+                <PredictedMatchCard
+                  teamA={team1Predictive || null}
+                  teamB={team2Predictive || null}
+                  teamAName={team1Data.team_name}
+                  teamBName={team2Data.team_name}
+                />
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
                 <Card>
                   <CardHeader>
@@ -424,64 +491,6 @@ export function ComparePanel() {
                 </Card>
               </div>
 
-              {/* Predicted Match Result */}
-              {team1Data && team2Data && (
-                <PredictedMatchCard
-                  teamA={team1Predictive || null}
-                  teamB={team2Predictive || null}
-                  teamAName={team1Data.team_name}
-                  teamBName={team2Data.team_name}
-                />
-              )}
-
-              {/* Trajectory Comparison */}
-              {trajectoryData.length > 0 && (
-                <div className="pt-4 border-t">
-                  <h3 className="text-lg font-semibold mb-4">Performance Trajectory Comparison</h3>
-                  <ResponsiveContainer width="100%" height={250}>
-                    <LineChart data={trajectoryData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis
-                        dataKey="period"
-                        className="text-xs"
-                        tick={{ fill: 'currentColor' }}
-                        stroke="currentColor"
-                      />
-                      <YAxis
-                        className="text-xs"
-                        tick={{ fill: 'currentColor' }}
-                        stroke="currentColor"
-                        domain={[0, 100]}
-                      />
-                      <RechartsTooltip
-                        contentStyle={{
-                          backgroundColor: 'hsl(var(--card))',
-                          border: '1px solid hsl(var(--border))',
-                          borderRadius: '0.5rem',
-                        }}
-                        labelStyle={{ color: 'hsl(var(--foreground))' }}
-                      />
-                      <Legend />
-                      <Line
-                        type="monotone"
-                        dataKey="team1"
-                        stroke="hsl(var(--chart-1))"
-                        strokeWidth={2}
-                        name={team1Data.team_name}
-                        dot={false}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="team2"
-                        stroke="hsl(var(--chart-2))"
-                        strokeWidth={2}
-                        name={team2Data.team_name}
-                        dot={false}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
 
               {/* Common Opponents */}
               {commonOpponents && commonOpponents.length > 0 && (
