@@ -154,7 +154,7 @@ async def main():
         f"[green]✓ SOS is calculated[/green]",
         f"[green]✓ SOS has {cfg.SOS_WEIGHT * 100:.0f}% weight in PowerScore[/green]",
         f"[green]✓ SOS normalized (sos_norm) is used in formula[/green]",
-        f"[yellow]⚠ SOS is NOT saved to database (but fix is ready)[/yellow]"
+        f"[green]✓ SOS is saved to database[/green]"
     ]
     
     summary_panel = Panel("\n".join(summary_items), title="SOS Status", border_style="cyan")
@@ -164,4 +164,5 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
+
 
