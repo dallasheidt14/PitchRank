@@ -57,6 +57,10 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
       losses: rankings[0].losses,
       draws: rankings[0].draws,
       games_played: rankings[0].games_played,
+      total_games_played: rankings[0].total_games_played,
+      total_wins: rankings[0].total_wins,
+      total_losses: rankings[0].total_losses,
+      total_draws: rankings[0].total_draws,
       allKeys: Object.keys(rankings[0]),
     });
   }
@@ -105,8 +109,8 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
           bValue = b.win_percentage ?? 0;
           break;
         case 'gamesPlayed':
-          aValue = a.games_played;
-          bValue = b.games_played;
+          aValue = a.total_games_played;
+          bValue = b.total_games_played;
           break;
         case 'sos':
           // Use sos_norm for sorting (normalized within cohort)
@@ -353,17 +357,10 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                             {formatPowerScore(team.power_score_final)}
                           </div>
                           <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm">
-                            {(() => {
-                              // Calculate win_percentage if not provided
-                              let winPct = team.win_percentage;
-                              if (winPct == null && team.games_played > 0) {
-                                winPct = ((team.wins + team.draws * 0.5) / team.games_played) * 100;
-                              }
-                              return winPct != null ? `${winPct.toFixed(1)}%` : '—';
-                            })()}
+                            {team.win_percentage != null ? `${team.win_percentage.toFixed(1)}%` : '—'}
                           </div>
                           <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm">
-                            {team.games_played}
+                            {team.total_games_played}
                           </div>
                           <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm">
                             {(() => {
