@@ -95,6 +95,67 @@ class Layer13Config:
 
 
 # ----------------------------
+# Game residual extraction
+# ----------------------------
+def _extract_game_residuals(feats: pd.DataFrame, games_df: pd.DataFrame, cfg: Layer13Config) -> pd.DataFrame:
+    """
+    Extract per-game residuals from feats DataFrame and map to original game IDs.
+
+    Since v53e format duplicates each game (home and away perspective), we filter to
+    home team perspective only to get one residual per game.
+
+    The residual represents the home team's perspective (positive = home outperformed).
+    For display, the frontend should interpret this from each team's viewpoint.
+
+    Returns DataFrame with columns: game_id (UUID), ml_overperformance (float)
+    """
+    if feats.empty or 'residual' not in feats.columns or 'game_id' not in feats.columns:
+        return pd.DataFrame(columns=['game_id', 'ml_overperformance'])
+
+    # Map game_id back to original UUID format
+    # In v53e format, game_id is stored as string (from game_uid or id)
+    # We need to map this to the actual database UUID
+    game_residuals = feats[['game_id', 'residual', 'team_id', 'opp_id']].copy()
+
+    # To avoid duplicates, we need to identify which perspective is "home"
+    # Build a mapping from games_df
+    if games_df.empty or 'id' not in games_df.columns:
+        return pd.DataFrame(columns=['game_id', 'ml_overperformance'])
+
+    # Create home team lookup: game_id -> home_team_id
+    home_team_map = {}
+    for _, game in games_df.iterrows():
+        game_id_key = str(game.get('game_uid') or game.get('id', ''))
+        home_team_id = str(game.get('home_team_master_id', ''))
+        game_uuid = game.get('id')  # This is the actual UUID we want to store
+        if game_id_key and home_team_id and game_uuid:
+            home_team_map[game_id_key] = {'home_team_id': home_team_id, 'uuid': str(game_uuid)}
+
+    # Filter to home team perspective only
+    result_rows = []
+    for _, row in game_residuals.iterrows():
+        game_id_key = str(row['game_id'])
+        team_id = str(row['team_id'])
+
+        if game_id_key in home_team_map:
+            game_info = home_team_map[game_id_key]
+            # Only keep row if this team_id matches the home team
+            if team_id == game_info['home_team_id']:
+                result_rows.append({
+                    'game_id': game_info['uuid'],
+                    'ml_overperformance': float(row['residual'])
+                })
+
+    result_df = pd.DataFrame(result_rows)
+
+    # Remove duplicates (shouldn't happen, but safety check)
+    if not result_df.empty:
+        result_df = result_df.drop_duplicates(subset=['game_id'], keep='first')
+
+    return result_df
+
+
+# ----------------------------
 # Public entry: apply ML layer
 # ----------------------------
 async def apply_predictive_adjustment(
@@ -102,17 +163,21 @@ async def apply_predictive_adjustment(
     teams_df: pd.DataFrame,                # output["teams"] from compute_rankings()
     games_used_df: Optional[pd.DataFrame] = None,  # optional; if None, fetched from Supabase
     cfg: Optional[Layer13Config] = None,
-) -> pd.DataFrame:
+    return_game_residuals: bool = False,   # If True, also return per-game residuals
+) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]:
     """
     Returns a copy of teams_df with:
       - ml_overperf (raw residual per team, goal units, recency-weighted)
       - ml_norm     (cohort-normalized residual, ~[-0.5,+0.5])
       - powerscore_ml
       - rank_in_cohort_ml
+
+    If return_game_residuals=True, returns (teams_df, game_residuals_df) where
+    game_residuals_df has columns: game_id, residual (from home team perspective)
     """
     cfg = cfg or Layer13Config()
     out = teams_df.copy()
-    
+
     if not cfg.enabled or out.empty:
         # ensure columns exist for downstream consumers
         out["ml_overperf"] = 0.0
@@ -124,6 +189,8 @@ async def apply_predictive_adjustment(
             out.groupby(list(cfg.cohort_key_cols))["powerscore_ml"]
                .rank(ascending=False, method="min")
         ).astype(int)
+        if return_game_residuals:
+            return out, pd.DataFrame(columns=['game_id', 'residual'])
         return out
     
     # 1) Acquire training data
@@ -155,6 +222,8 @@ async def apply_predictive_adjustment(
             out.groupby(list(cfg.cohort_key_cols))["powerscore_ml"]
                .rank(ascending=False, method="min")
         ).astype(int)
+        if return_game_residuals:
+            return out, pd.DataFrame(columns=['game_id', 'residual'])
         return out
     
     # 2) Build feature matrix from games + current powers
@@ -172,6 +241,8 @@ async def apply_predictive_adjustment(
             out.groupby(list(cfg.cohort_key_cols))["powerscore_ml"]
                .rank(ascending=False, method="min")
         ).astype(int)
+        if return_game_residuals:
+            return out, pd.DataFrame(columns=['game_id', 'residual'])
         return out
     
     # 3) Fit model and compute residuals (with ML leakage protection)
@@ -210,7 +281,12 @@ async def apply_predictive_adjustment(
         out.groupby(list(cfg.cohort_key_cols))["powerscore_ml"]
            .rank(ascending=False, method="min")
     ).astype(int)
-    
+
+    # 7) Extract per-game residuals if requested
+    if return_game_residuals:
+        game_residuals = _extract_game_residuals(feats, games_df, cfg)
+        return out, game_residuals
+
     return out
 
 
