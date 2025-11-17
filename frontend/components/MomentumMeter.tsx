@@ -3,12 +3,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChartSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
-import {
-  RadialBarChart,
-  RadialBar,
-  ResponsiveContainer,
-  Cell,
-} from 'recharts';
 import { useTeamGames, useTeam } from '@/lib/hooks';
 import { useMemo, useState, useEffect } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -34,7 +28,7 @@ interface GameQuality {
   goalDiff: number;
   expectedMargin: number;
   performanceDelta: number;
-  qualityType: 'dominant-win' | 'quality-win' | 'competitive-loss' | 'expected-loss' | 'bad-loss' | 'standard';
+  qualityType: 'dominant-win' | 'quality-win' | 'competitive-loss' | 'expected-loss' | 'bad-loss' | 'standard' | 'expected-win' | 'struggle-win';
   qualityIcon: string;
   rawPoints: number;
   qualityMultiplier: number;
@@ -184,14 +178,18 @@ async function calculateQualityMomentum(
 
         if (result === 'W') {
           // Beat a weaker opponent
-          if (performanceDelta > PERFORMANCE_THRESHOLD) {
-            qualityType = 'dominant-win';
-            qualityMultiplier = 1.1; // Slight boost for dominating weaker team
-          } else if (performanceDelta < -PERFORMANCE_THRESHOLD) {
-            qualityType = 'standard'; // Struggled against weak team
-            qualityMultiplier = 0.7; // Penalty for struggling
+          if (performanceDelta < -PERFORMANCE_THRESHOLD || goalDiff <= 1) {
+            // Struggled against weak team - RED FLAG
+            qualityType = 'struggle-win';
+            qualityMultiplier = 0.6; // Penalty for struggling against weak opponent
+          } else if (performanceDelta > PERFORMANCE_THRESHOLD) {
+            // Beat them as expected (dominantly)
+            qualityType = 'expected-win';
+            qualityMultiplier = 0.9; // Neutral - just doing what's expected
           } else {
-            qualityMultiplier = 0.8; // Expected win but counts less
+            // Standard win against weaker team
+            qualityType = 'expected-win';
+            qualityMultiplier = 0.85; // Expected win but counts less
           }
         } else if (result === 'L') {
           // Lost to weaker opponent - BAD
@@ -207,8 +205,12 @@ async function calculateQualityMomentum(
         qualityMultiplier = 1.0;
 
         if (result === 'W' && performanceDelta > PERFORMANCE_THRESHOLD) {
+          // Dominant win against similar opponent
+          qualityType = 'dominant-win';
+          qualityMultiplier = 1.3; // Good boost for dominant win vs peer
+        } else if (result === 'W') {
           qualityType = 'quality-win';
-          qualityMultiplier = 1.2;
+          qualityMultiplier = 1.1;
         } else if (result === 'L' && performanceDelta < -PERFORMANCE_THRESHOLD) {
           qualityMultiplier = 0.8;
         }
@@ -255,7 +257,7 @@ async function calculateQualityMomentum(
  * MomentumMeter component - displays quality-adjusted team momentum
  */
 export function MomentumMeter({ teamId }: MomentumMeterProps) {
-  const { data: gamesData, isLoading: gamesLoading, isError: gamesError, error: gamesErrorObj, refetch } = useTeamGames(teamId, 10);
+  const { data: gamesData, isLoading: gamesLoading, isError: gamesError, error: gamesErrorObj, refetch } = useTeamGames(teamId, 12);
   const { data: teamData, isLoading: teamLoading } = useTeam(teamId);
 
   const [animatedScore, setAnimatedScore] = useState(50);
@@ -275,7 +277,7 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
     let isMounted = true;
     const teamPower = teamData?.power_score_final ?? null;
 
-    calculateQualityMomentum(teamId, teamPower, gamesData.games, 5)
+    calculateQualityMomentum(teamId, teamPower, gamesData.games, 8)
       .then(result => {
         if (isMounted) {
           setMomentumData(result);
@@ -337,16 +339,9 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
     return 'Slumping';
   }, [momentumData]);
 
-  const chartData = useMemo(() => {
-    if (!momentumData) return null;
-    return [
-      {
-        name: 'Momentum',
-        value: animatedScore,
-        fill: interpolateMomentumColor(animatedScore),
-      },
-    ];
-  }, [momentumData, animatedScore]);
+  const momentumColor = useMemo(() => {
+    return interpolateMomentumColor(animatedScore);
+  }, [animatedScore]);
 
   if (gamesLoading || teamLoading) {
     return (
@@ -380,7 +375,7 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
     );
   }
 
-  if (!momentumData || !chartData || momentumData.gamesAnalyzed.length === 0) {
+  if (!momentumData || momentumData.gamesAnalyzed.length === 0) {
     return (
       <Card>
         <CardHeader>
@@ -420,53 +415,37 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
               <p className="font-semibold mb-1">How Momentum is Calculated:</p>
               <p className="text-xs mb-2">Based on last {gamesAnalyzed.length} games, weighted by opponent strength and performance vs. expectations.</p>
               <div className="text-xs space-y-1">
-                <p><strong>Icons:</strong></p>
-                <p>⬆️ = Stronger opponent</p>
-                <p>➡️ = Similar opponent</p>
-                <p>⬇️ = Weaker opponent</p>
+                <p><strong>Opponent Rank Colors:</strong></p>
+                <p className="text-red-600 dark:text-red-400">Red = Stronger opponent</p>
+                <p className="text-muted-foreground">Gray = Similar opponent</p>
+                <p className="text-green-600 dark:text-green-400">Green = Weaker opponent</p>
               </div>
             </TooltipContent>
           </Tooltip>
         </div>
       </CardHeader>
       <CardContent>
-        <div className="flex flex-col items-center">
-          <ResponsiveContainer width="100%" height={200}>
-            <RadialBarChart
-              innerRadius="60%"
-              outerRadius="90%"
-              data={chartData}
-              startAngle={90}
-              endAngle={-270}
-            >
-              <RadialBar
-                dataKey="value"
-                cornerRadius={10}
-                isAnimationActive={true}
-                animationDuration={1000}
-                animationBegin={0}
-                animationEasing="ease-out"
+        <div className="flex flex-col">
+          {/* Momentum status bar */}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div
+                className="px-3 py-1 rounded-full text-sm font-semibold text-white transition-all duration-300"
+                style={{ backgroundColor: momentumColor }}
               >
-                {chartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.fill} />
-                ))}
-              </RadialBar>
-            </RadialBarChart>
-          </ResponsiveContainer>
-          <div className="mt-4 text-center">
-            <div className="text-2xl font-bold transition-all duration-300">
-              {momentumLabel}
-            </div>
-            <div className="text-xs text-muted-foreground mt-1">
-              Last {gamesAnalyzed.length}: {record.wins}W-{record.draws}D-{record.losses}L
+                {momentumLabel}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {record.wins}W-{record.draws}D-{record.losses}L
+              </div>
             </div>
           </div>
 
           {/* Game-by-game breakdown */}
-          <div className="mt-6 w-full space-y-2">
-            <h4 className="text-sm font-semibold text-muted-foreground">Recent Games:</h4>
+          <div className="w-full space-y-1.5">
+            <h4 className="text-sm font-semibold text-muted-foreground mb-1">Recent Games:</h4>
             {gamesAnalyzed.map((gameQuality, idx) => {
-              const { result, opponentName, teamScore, oppScore, qualityIcon, opponentRank, performanceDelta } = gameQuality;
+              const { result, opponentName, teamScore, oppScore, qualityIcon, opponentRank, opponentPower, performanceDelta } = gameQuality;
 
               // Determine result color and label
               let resultColor = 'text-muted-foreground';
@@ -479,12 +458,24 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
                 resultBg = 'bg-red-100 dark:bg-red-950';
               }
 
+              // Determine opponent strength color based on qualityIcon
+              let opponentRankColor = 'text-muted-foreground';
+              if (qualityIcon === '⬆️') {
+                opponentRankColor = 'text-red-600 dark:text-red-400 font-semibold'; // Stronger opponent
+              } else if (qualityIcon === '⬇️') {
+                opponentRankColor = 'text-green-600 dark:text-green-400'; // Weaker opponent
+              }
+
               // Quality indicator text
               let qualityText = '';
               if (gameQuality.qualityType === 'dominant-win') {
-                qualityText = performanceDelta > 0 ? 'Dominant Win' : 'Quality Win';
+                qualityText = 'Dominant Win';
               } else if (gameQuality.qualityType === 'quality-win') {
                 qualityText = 'Quality Win';
+              } else if (gameQuality.qualityType === 'expected-win') {
+                qualityText = 'Expected Win';
+              } else if (gameQuality.qualityType === 'struggle-win') {
+                qualityText = 'Underperformed';
               } else if (gameQuality.qualityType === 'competitive-loss') {
                 qualityText = 'Competitive Loss';
               } else if (gameQuality.qualityType === 'bad-loss') {
@@ -494,20 +485,13 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
               return (
                 <div
                   key={idx}
-                  className={`flex items-center justify-between p-2 rounded text-xs ${resultBg}`}
+                  className={`flex items-center justify-between px-2 py-1.5 rounded text-xs ${resultBg}`}
                 >
                   <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <span className="text-base" title={
-                      qualityIcon === '⬆️' ? 'Opponent ranked higher' :
-                      qualityIcon === '⬇️' ? 'Opponent ranked lower' :
-                      'Similar ranked opponent'
-                    }>
-                      {qualityIcon}
-                    </span>
                     <span className={`font-bold ${resultColor}`}>{result}</span>
                     <span className="truncate">{opponentName}</span>
                     {opponentRank && (
-                      <span className="text-muted-foreground text-xs">#{opponentRank}</span>
+                      <span className={`text-xs ${opponentRankColor}`}>#{opponentRank}</span>
                     )}
                   </div>
                   <div className="flex items-center gap-2">
