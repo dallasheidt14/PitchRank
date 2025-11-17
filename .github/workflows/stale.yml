@@ -1,0 +1,127 @@
+name: Stale PR and Issue Management
+
+on:
+  schedule:
+    # Run every day at 1:00 AM UTC
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    name: Mark Stale Issues and PRs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Mark stale issues and pull requests
+        uses: actions/stale@v9
+        with:
+          # ================================================================
+          # General Configuration
+          # ================================================================
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+          # ================================================================
+          # Stale Issue Configuration
+          # ================================================================
+          stale-issue-message: |
+            👋 This issue has been automatically marked as stale because it has not had recent activity.
+
+            It will be closed in 14 days if no further activity occurs.
+
+            If this issue is still relevant, please:
+            - Add a comment to keep it open
+            - Add the `keep-open` label to prevent it from being marked as stale
+
+            Thank you for your contributions! 🙏
+
+          close-issue-message: |
+            This issue was automatically closed due to inactivity.
+
+            If you believe this issue is still relevant, please reopen it or create a new issue with updated context.
+
+          days-before-issue-stale: 90
+          days-before-issue-close: 14
+          stale-issue-label: 'stale'
+
+          # ================================================================
+          # Stale PR Configuration
+          # ================================================================
+          stale-pr-message: |
+            👋 This pull request has been automatically marked as stale because it has not had recent activity.
+
+            It will be closed in 7 days if no further activity occurs.
+
+            If this PR is still being worked on, please:
+            - Push new commits or rebase on the latest main branch
+            - Add a comment to keep it open
+            - Add the `keep-open` label to prevent it from being marked as stale
+
+            Thank you for your contributions! 🙏
+
+          close-pr-message: |
+            This pull request was automatically closed due to inactivity.
+
+            If you would like to continue working on this, please:
+            - Reopen the PR and push new commits
+            - Create a new PR with the latest changes
+
+          days-before-pr-stale: 60
+          days-before-pr-close: 7
+          stale-pr-label: 'stale'
+
+          # ================================================================
+          # Exemptions
+          # ================================================================
+          # Don't mark issues/PRs with these labels as stale
+          exempt-issue-labels: 'keep-open,bug,security,enhancement,documentation'
+          exempt-pr-labels: 'keep-open,work-in-progress,wip,blocked'
+
+          # Don't mark issues/PRs assigned to someone as stale
+          exempt-all-assignees: true
+
+          # Don't mark PRs in draft mode as stale
+          exempt-draft-pr: true
+
+          # Don't mark issues/PRs with milestones as stale
+          exempt-all-milestones: true
+
+          # ================================================================
+          # Advanced Options
+          # ================================================================
+          # Limit the number of operations per run
+          operations-per-run: 30
+
+          # Remove stale label when there's new activity
+          remove-stale-when-updated: true
+
+          # Add comment when removing stale label
+          remove-issue-stale-when-updated: true
+          remove-pr-stale-when-updated: true
+
+          # Only mark as stale, don't close (set to true for testing)
+          # debug-only: false
+
+          # Check for stale status based on any activity, not just comments
+          any-of-labels: ''
+
+          # Order to process issues/PRs (asc = oldest first)
+          ascending: true
+
+          # Start from this issue/PR number (useful for testing)
+          # start-date: '2025-01-01T00:00:00Z'
+
+      - name: Stale Management Summary
+        if: always()
+        run: |
+          echo "## 🧹 Stale Management Completed" >> $GITHUB_STEP_SUMMARY
+          echo "Issues and PRs have been checked for staleness." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Configuration:" >> $GITHUB_STEP_SUMMARY
+          echo "- Issues marked stale after: 90 days of inactivity" >> $GITHUB_STEP_SUMMARY
+          echo "- Issues closed after: 14 days of being marked stale" >> $GITHUB_STEP_SUMMARY
+          echo "- PRs marked stale after: 60 days of inactivity" >> $GITHUB_STEP_SUMMARY
+          echo "- PRs closed after: 7 days of being marked stale" >> $GITHUB_STEP_SUMMARY

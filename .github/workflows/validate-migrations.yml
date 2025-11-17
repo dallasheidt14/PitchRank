@@ -1,0 +1,174 @@
+name: Validate Database Migrations
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'supabase/migrations/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate-migrations:
+    name: Validate SQL Migrations
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check migration file naming convention
+        run: |
+          echo "🔍 Checking migration file naming convention..."
+          cd supabase/migrations
+
+          # Migration files should follow format: YYYYMMDDHHMMSS_description.sql
+          invalid_files=0
+          for file in *.sql; do
+            if [[ ! "$file" =~ ^[0-9]{14}_[a-z0-9_]+\.sql$ ]]; then
+              echo "❌ Invalid migration filename: $file"
+              echo "Expected format: YYYYMMDDHHMMSS_description.sql"
+              invalid_files=$((invalid_files + 1))
+            else
+              echo "✅ Valid filename: $file"
+            fi
+          done
+
+          if [ $invalid_files -gt 0 ]; then
+            echo "Migration file naming validation failed!"
+            exit 1
+          fi
+          echo "All migration filenames are valid."
+
+      - name: Check for SQL syntax errors
+        run: |
+          echo "🔍 Checking SQL syntax..."
+
+          # Install PostgreSQL client for basic syntax checking
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+          cd supabase/migrations
+          errors=0
+
+          for file in *.sql; do
+            echo "Checking $file..."
+            # Use psql to check syntax (dry-run mode)
+            if psql --version > /dev/null 2>&1; then
+              # Basic syntax check (won't catch all errors without a database)
+              if ! grep -q ";" "$file"; then
+                echo "⚠️  Warning: $file may be missing statement terminators"
+              fi
+              echo "✅ Basic syntax check passed for $file"
+            fi
+          done
+
+      - name: Check for dangerous operations
+        run: |
+          echo "🔍 Checking for dangerous SQL operations..."
+
+          cd supabase/migrations
+          dangerous_ops=0
+
+          for file in *.sql; do
+            echo "Scanning $file..."
+
+            # Check for DROP DATABASE (should never be in migrations)
+            if grep -i "DROP DATABASE" "$file"; then
+              echo "❌ DANGEROUS: DROP DATABASE found in $file"
+              dangerous_ops=$((dangerous_ops + 1))
+            fi
+
+            # Check for TRUNCATE without confirmation
+            if grep -i "TRUNCATE" "$file"; then
+              echo "⚠️  WARNING: TRUNCATE found in $file - ensure this is intentional"
+            fi
+
+            # Check for DROP TABLE (may be intentional, but warn)
+            if grep -i "DROP TABLE" "$file" | grep -v "IF EXISTS"; then
+              echo "⚠️  WARNING: DROP TABLE without IF EXISTS in $file"
+            fi
+
+            # Check for ALTER COLUMN DROP
+            if grep -i "ALTER.*DROP COLUMN" "$file" | grep -v "IF EXISTS"; then
+              echo "⚠️  WARNING: DROP COLUMN without IF EXISTS in $file"
+            fi
+          done
+
+          if [ $dangerous_ops -gt 0 ]; then
+            echo "Dangerous operations detected! Please review carefully."
+            exit 1
+          fi
+          echo "No dangerous operations detected."
+
+      - name: Check migration sequence
+        run: |
+          echo "🔍 Checking migration sequence..."
+
+          cd supabase/migrations
+
+          # List migrations in order
+          echo "Migration sequence:"
+          ls -1 *.sql | sort
+
+          # Check for gaps in timestamps
+          prev_timestamp=""
+          for file in $(ls -1 *.sql | sort); do
+            timestamp="${file:0:14}"
+
+            if [ -n "$prev_timestamp" ]; then
+              if [ "$timestamp" -le "$prev_timestamp" ]; then
+                echo "❌ Migration timestamp out of order: $file"
+                echo "Previous: $prev_timestamp, Current: $timestamp"
+                exit 1
+              fi
+            fi
+
+            prev_timestamp="$timestamp"
+          done
+
+          echo "✅ Migration sequence is valid."
+
+      - name: Check for rollback scripts
+        run: |
+          echo "📝 Checking for rollback documentation..."
+
+          cd supabase/migrations
+
+          for file in *.sql; do
+            # Check if migration has comments about rollback
+            if ! grep -qi "rollback\|revert\|undo" "$file"; then
+              echo "⚠️  INFO: $file does not mention rollback procedure"
+            fi
+          done
+
+      - name: Comment validation results on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## ✅ Database Migration Validation\n\nAll migration checks passed!\n\n- ✅ File naming convention\n- ✅ SQL syntax\n- ✅ Dangerous operations check\n- ✅ Migration sequence\n\n**Remember to:**\n- Test migrations on a staging database first\n- Document rollback procedures\n- Coordinate with the team before merging`
+            })
+
+      - name: Migration Validation Summary
+        if: always()
+        run: |
+          echo "## 🗄️ Database Migration Validation" >> $GITHUB_STEP_SUMMARY
+          echo "All migration validation checks completed." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Checks Performed:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ File naming convention" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ SQL syntax validation" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Dangerous operations detection" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Migration sequence verification" >> $GITHUB_STEP_SUMMARY

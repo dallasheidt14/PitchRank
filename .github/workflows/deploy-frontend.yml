@@ -1,0 +1,151 @@
+name: Deploy Frontend
+
+on:
+  # Deploy to production on push to main
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
+
+  # Deploy preview for PRs
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+
+  # Allow manual deployment
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'preview'
+        type: choice
+        options:
+          - preview
+          - production
+
+# Cancel in-progress deployments when a new deployment is triggered
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================================
+  # Deploy to Vercel (recommended for Next.js)
+  # ============================================================================
+  deploy-vercel:
+    name: Deploy to Vercel
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
+      url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Pull Vercel environment information
+        working-directory: frontend
+        run: vercel pull --yes --environment=${{ github.event_name == 'pull_request' && 'preview' || 'production' }} --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Build project artifacts
+        working-directory: frontend
+        run: vercel build ${{ github.event_name == 'pull_request' && '' || '--prod' }} --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Deploy to Vercel
+        id: deploy
+        working-directory: frontend
+        run: |
+          url=$(vercel deploy --prebuilt ${{ github.event_name == 'pull_request' && '' || '--prod' }} --token=${{ secrets.VERCEL_TOKEN }})
+          echo "url=$url" >> $GITHUB_OUTPUT
+          echo "Deployment URL: $url"
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Comment deployment URL on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 🚀 Frontend Deployment\n\nYour preview deployment is ready!\n\n🔗 **URL:** ${{ steps.deploy.outputs.url }}\n\n> Deployed from commit ${{ github.sha }}`
+            })
+
+      - name: Deployment Summary
+        if: always()
+        run: |
+          echo "## 🚀 Frontend Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "Environment: ${{ github.event_name == 'pull_request' && 'Preview' || 'Production' }}" >> $GITHUB_STEP_SUMMARY
+          echo "URL: ${{ steps.deploy.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+          echo "Commit: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # Alternative: Deploy to Netlify
+  # Uncomment this job and comment out the Vercel job if using Netlify
+  # ============================================================================
+  # deploy-netlify:
+  #   name: Deploy to Netlify
+  #   runs-on: ubuntu-latest
+  #   environment:
+  #     name: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
+  #
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Setup Node.js
+  #       uses: actions/setup-node@v4
+  #       with:
+  #         node-version: '20'
+  #         cache: 'npm'
+  #         cache-dependency-path: frontend/package-lock.json
+  #
+  #     - name: Install dependencies
+  #       working-directory: frontend
+  #       run: npm ci
+  #
+  #     - name: Build Next.js application
+  #       working-directory: frontend
+  #       env:
+  #         NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  #         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+  #       run: npm run build
+  #
+  #     - name: Deploy to Netlify
+  #       uses: nwtgck/actions-netlify@v3
+  #       with:
+  #         publish-dir: './frontend/.next'
+  #         production-branch: main
+  #         github-token: ${{ secrets.GITHUB_TOKEN }}
+  #         deploy-message: "Deploy from GitHub Actions"
+  #         enable-pull-request-comment: true
+  #         enable-commit-comment: false
+  #         overwrites-pull-request-comment: true
+  #       env:
+  #         NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+  #         NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}

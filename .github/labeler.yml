@@ -1,0 +1,118 @@
+# Auto-labeling configuration for PRs based on changed files
+# Documentation: https://github.com/actions/labeler
+
+# ============================================================================
+# Backend / Python
+# ============================================================================
+'backend':
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'src/**/*'
+      - 'scripts/**/*'
+      - 'tests/**/*'
+      - 'requirements.txt'
+      - 'pyproject.toml'
+
+'python':
+  - changed-files:
+    - any-glob-to-any-file:
+      - '**/*.py'
+
+# ============================================================================
+# Frontend / TypeScript
+# ============================================================================
+'frontend':
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'frontend/**/*'
+
+'typescript':
+  - changed-files:
+    - any-glob-to-any-file:
+      - '**/*.ts'
+      - '**/*.tsx'
+
+'ui':
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'frontend/components/**/*'
+      - 'frontend/app/**/*'
+
+# ============================================================================
+# Database / Migrations
+# ============================================================================
+'database':
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'supabase/**/*'
+
+'migration':
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'supabase/migrations/**/*'
+
+# ============================================================================
+# Documentation
+# ============================================================================
+'documentation':
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'docs/**/*'
+      - '*.md'
+      - 'README.md'
+
+# ============================================================================
+# CI/CD
+# ============================================================================
+'ci/cd':
+  - changed-files:
+    - any-glob-to-any-file:
+      - '.github/**/*'
+
+'github-actions':
+  - changed-files:
+    - any-glob-to-any-file:
+      - '.github/workflows/**/*'
+
+# ============================================================================
+# Configuration
+# ============================================================================
+'config':
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'config/**/*'
+      - '*.yml'
+      - '*.yaml'
+      - '*.json'
+      - '*.toml'
+      - '.env*'
+
+# ============================================================================
+# Ranking Algorithm
+# ============================================================================
+'ranking':
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'src/rankings/**/*'
+      - 'scripts/calculate_rankings.py'
+
+# ============================================================================
+# Scrapers / ETL
+# ============================================================================
+'scrapers':
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'src/scrapers/**/*'
+      - 'src/etl/**/*'
+
+# ============================================================================
+# Testing
+# ============================================================================
+'tests':
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'tests/**/*'
+      - '**/*.test.ts'
+      - '**/*.test.tsx'
+      - '**/*.spec.ts'
+      - '**/*.spec.tsx'
