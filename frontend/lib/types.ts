@@ -38,6 +38,7 @@ export interface Game {
   source_url: string | null;
   scraped_at: string | null;
   created_at: string;
+  ml_overperformance: number | null; // Layer 13 ML residual: actual - expected goal margin (home team perspective)
 }
 
 /**
@@ -113,7 +114,8 @@ export interface TeamWithRanking {
   wins: number;
   losses: number;
   draws: number;
-  games_played: number;
+  games_played: number; // Games used for rankings calculation (last 30)
+  total_games_played?: number; // Total games in history (all games)
   win_percentage: number | null; // backend should calculate
   // Deprecated fields (do not use)
   /** @deprecated Use state instead */
@@ -161,13 +163,14 @@ export interface TeamTrajectory {
 
 /**
  * Game with team names (for display purposes)
+ * Extends Game interface which already includes ml_overperformance
  */
 export interface GameWithTeams extends Game {
   home_team_name?: string;
   away_team_name?: string;
   home_team_club_name?: string | null;
   away_team_club_name?: string | null;
-  was_overperformed?: boolean | null; // ML over/underperformance indicator
+  was_overperformed?: boolean | null; // Deprecated: use ml_overperformance from Game interface
 }
 
 /**

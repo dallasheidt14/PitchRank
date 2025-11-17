@@ -18,6 +18,50 @@ from src.rankings.data_adapter import fetch_games_for_rankings
 logger = logging.getLogger(__name__)
 
 
+async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame) -> None:
+    """
+    Persist per-game ML residuals to the games table.
+
+    Updates games.ml_overperformance column with residual values from Layer 13.
+
+    Args:
+        supabase_client: Supabase client instance
+        game_residuals: DataFrame with columns [game_id, ml_overperformance]
+    """
+    if game_residuals.empty:
+        return
+
+    # Batch update in chunks to avoid request size limits
+    batch_size = 500
+    total_updated = 0
+    failed_count = 0
+
+    for i in range(0, len(game_residuals), batch_size):
+        batch = game_residuals.iloc[i:i+batch_size]
+
+        for _, row in batch.iterrows():
+            try:
+                # Update individual game with ml_overperformance
+                result = supabase_client.table('games').update({
+                    'ml_overperformance': float(row['ml_overperformance'])
+                }).eq('id', str(row['game_id'])).execute()
+
+                if result.data:
+                    total_updated += 1
+            except Exception as e:
+                failed_count += 1
+                logger.debug(f"Failed to update game {row['game_id']}: {e}")
+
+        # Progress logging every batch
+        if (i // batch_size) % 10 == 0 and i > 0:
+            logger.info(f"  Progress: {total_updated:,} / {len(game_residuals):,} games updated...")
+
+    if failed_count > 0:
+        logger.warning(f"⚠️ Failed to update {failed_count} games")
+
+    logger.info(f"✅ Successfully updated {total_updated:,} games with ML residuals")
+
+
 async def compute_rankings_with_ml(
     supabase_client,
     games_df: Optional[pd.DataFrame] = None,  # Optional: pass games directly
@@ -145,13 +189,22 @@ async def compute_rankings_with_ml(
         provider_filter=provider_filter,
     )
     
-    teams_with_ml = await apply_predictive_adjustment(
+    teams_with_ml, game_residuals = await apply_predictive_adjustment(
         supabase_client=supabase_client,
         teams_df=teams_base,
         games_used_df=games_used,  # Use games from v53e output
         cfg=ml_cfg,
+        return_game_residuals=True,  # Request per-game residuals
     )
     logger.info(f"✅ ML adjustment completed: {len(teams_with_ml):,} teams processed")
+
+    # Persist game residuals to database
+    if not game_residuals.empty:
+        logger.info(f"💾 Persisting {len(game_residuals):,} game residuals to database...")
+        await _persist_game_residuals(supabase_client, game_residuals)
+        logger.info("✅ Game residuals persisted successfully")
+    else:
+        logger.warning("⚠️ No game residuals to persist (likely no games with 6+ team appearances)")
     
     # Diagnostic: Log PowerScore max after ML layer
     if not teams_with_ml.empty and "powerscore_ml" in teams_with_ml.columns:
