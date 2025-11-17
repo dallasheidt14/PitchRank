@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { TeamSelector } from './TeamSelector';
 import { PredictedMatchCard } from './PredictedMatchCard';
-import { useTeam, useRankings, useTeamTrajectory, useCommonOpponents, usePredictive } from '@/lib/hooks';
+import { EnhancedPredictionCard } from './EnhancedPredictionCard';
+import { useTeam, useRankings, useTeamTrajectory, useCommonOpponents, usePredictive, useMatchPrediction } from '@/lib/hooks';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend, LineChart, Line } from 'recharts';
 import { ArrowLeftRight, TrendingUp, TrendingDown } from 'lucide-react';
 import { formatPowerScore } from '@/lib/utils';
@@ -79,6 +80,9 @@ export function ComparePanel() {
   // Use team_id_master from state (team1Id/team2Id are already team_id_master UUIDs)
   const { data: team1Predictive } = usePredictive(team1Id);
   const { data: team2Predictive } = usePredictive(team2Id);
+
+  // Fetch enhanced match prediction with explanations
+  const { data: matchPrediction, isLoading: predictionLoading } = useMatchPrediction(team1Id, team2Id);
   
   // Get rankings for percentile calculation
   const { data: allRankings, isLoading: rankingsLoading, isError: rankingsError, error: rankingsErrorObj, refetch: refetchRankings } = useRankings(
@@ -424,8 +428,30 @@ export function ComparePanel() {
                 </Card>
               </div>
 
-              {/* Predicted Match Result */}
-              {team1Data && team2Data && (
+              {/* Predicted Match Result - Enhanced with Explanations */}
+              {team1Data && team2Data && matchPrediction && (
+                <EnhancedPredictionCard
+                  teamAName={team1Data.team_name}
+                  teamBName={team2Data.team_name}
+                  prediction={matchPrediction.prediction}
+                  explanation={matchPrediction.explanation}
+                />
+              )}
+
+              {/* Loading state for prediction */}
+              {team1Data && team2Data && predictionLoading && (
+                <Card className="mt-4">
+                  <CardContent className="py-8">
+                    <InlineLoader />
+                    <p className="text-center text-sm text-muted-foreground mt-2">
+                      Analyzing matchup...
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Fallback to old prediction card if enhanced prediction fails */}
+              {team1Data && team2Data && !matchPrediction && !predictionLoading && (
                 <PredictedMatchCard
                   teamA={team1Predictive || null}
                   teamB={team2Predictive || null}
