@@ -272,16 +272,25 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
       return;
     }
 
+    let isMounted = true;
     const teamPower = teamData?.power_score_final ?? null;
 
     calculateQualityMomentum(teamId, teamPower, gamesData.games, 5)
       .then(result => {
-        setMomentumData(result);
+        if (isMounted) {
+          setMomentumData(result);
+        }
       })
       .catch(error => {
         console.error('Error calculating momentum:', error);
-        setMomentumData(null);
+        if (isMounted) {
+          setMomentumData(null);
+        }
       });
+
+    return () => {
+      isMounted = false;
+    };
   }, [gamesData, teamData, teamId]);
 
   // Animate score change
