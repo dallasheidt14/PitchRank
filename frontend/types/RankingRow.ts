@@ -25,6 +25,8 @@ export interface RankingRow {
   draws: number;
   games_played: number;
   win_percentage: number | null;
+  // Metadata
+  last_calculated: string | null; // ISO timestamp when rankings were last calculated
   // Deprecated fields (do not use)
   /** @deprecated Use state instead */
   state_code?: never;
