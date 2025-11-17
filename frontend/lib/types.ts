@@ -168,7 +168,8 @@ export interface GameWithTeams extends Game {
   away_team_name?: string;
   home_team_club_name?: string | null;
   away_team_club_name?: string | null;
-  was_overperformed?: boolean | null; // ML over/underperformance indicator
+  was_overperformed?: boolean | null; // ML over/underperformance indicator (deprecated - use ml_overperformance)
+  ml_overperformance?: number | null; // Residual value: actual - expected goal margin (only set for teams with 6+ games)
 }
 
 /**
