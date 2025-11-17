@@ -562,6 +562,66 @@ export const api = {
   },
 
   /**
+  /**
+   * Get enhanced match prediction with explanations
+   * @param teamAId - First team's team_id_master UUID
+   * @param teamBId - Second team's team_id_master UUID
+   * @returns Prediction with explanations
+   */
+  async getMatchPrediction(teamAId: string, teamBId: string) {
+    // Import prediction modules (dynamic to avoid circular dependencies)
+    const { predictMatch } = await import('./matchPredictor');
+    const { explainMatch } = await import('./matchExplainer');
+
+    // Fetch team data
+    const teamA = await this.getTeam(teamAId);
+    const teamB = await this.getTeam(teamBId);
+
+    // Fetch recent games for form calculation (last 60 days, limit 500)
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - 60);
+
+    const { data: gamesData, error: gamesError } = await supabase
+      .from('games')
+      .select('id, game_date, home_team_master_id, away_team_master_id, home_score, away_score')
+      .gte('game_date', cutoffDate.toISOString().split('T')[0])
+      .not('home_score', 'is', null)
+      .not('away_score', 'is', null)
+      .order('game_date', { ascending: false })
+      .limit(500);
+
+    if (gamesError) {
+      console.error('[api.getMatchPrediction] Error fetching games:', gamesError);
+      throw gamesError;
+    }
+
+    // Type assertion: We only need these fields for prediction
+    // The full Game type has more fields, but predictMatch only uses these
+    const games = (gamesData || []) as Game[];
+
+    // Generate prediction
+    const prediction = predictMatch(teamA, teamB, games);
+
+    // Generate explanations
+    const explanation = explainMatch(teamA, teamB, prediction);
+
+    return {
+      teamA: {
+        team_id_master: teamA.team_id_master,
+        team_name: teamA.team_name,
+        club_name: teamA.club_name,
+      },
+      teamB: {
+        team_id_master: teamB.team_id_master,
+        team_name: teamB.team_name,
+        club_name: teamB.club_name,
+      },
+      prediction,
+      explanation,
+    };
+  },
+
+  /**
    * Get rankings for multiple teams by their team_id_master UUIDs
    * @param teamIds - Array of team_id_master UUIDs
    * @returns Map of team_id_master to ranking data
@@ -605,6 +665,7 @@ export const api = {
     });
 
     return rankingsMap;
+  },
   },
 };
 

@@ -147,3 +147,19 @@ export function usePredictive(teamId: string | null) {
   });
 }
 
+/**
+ * Get enhanced match prediction with explanations
+ * @param teamAId - First team's team_id_master UUID
+ * @param teamBId - Second team's team_id_master UUID
+ * @returns React Query hook result with prediction and explanations
+ */
+export function useMatchPrediction(teamAId: string | null, teamBId: string | null) {
+  return useQuery({
+    queryKey: ['match-prediction', teamAId, teamBId],
+    queryFn: () => api.getMatchPrediction(teamAId!, teamBId!),
+    enabled: !!teamAId && !!teamBId && teamAId !== teamBId,
+    staleTime: 2 * 60 * 1000, // 2 minutes (predictions may change with recent games)
+    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
+  });
+}
+
