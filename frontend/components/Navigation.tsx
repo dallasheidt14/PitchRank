@@ -74,6 +74,13 @@ export function Navigation() {
           >
             Methodology
           </Link>
+          <Link
+            href="/dashboard"
+            className="text-sm font-medium transition-colors duration-300 hover:text-primary"
+            aria-label="Admin dashboard"
+          >
+            Dashboard
+          </Link>
           <ThemeToggle />
         </nav>
 
@@ -129,6 +136,13 @@ export function Navigation() {
               onClick={() => setMobileMenuOpen(false)}
             >
               Methodology
+            </Link>
+            <Link
+              href="/dashboard"
+              className="block text-sm font-medium transition-colors duration-300 hover:text-primary py-2"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              Dashboard
             </Link>
             <div className="pt-2 border-t">
               <ThemeToggle />
