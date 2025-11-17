@@ -59,13 +59,31 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
   }, [data, games, isLoading, isError, error, teamId]);
 
   /**
-   * Get color class for result based on ML over/underperformance
-   * @param was_overperformed - true = overperformed (green), false = underperformed (red), null = neutral (gray)
+   * Get the ML overperformance value from the team's perspective
+   * Database stores from home team's perspective, so flip sign for away team
    */
-  const resultColor = (was_overperformed?: boolean | null): string => {
-    if (was_overperformed === true) return "text-green-600 dark:text-green-400 font-bold";
-    if (was_overperformed === false) return "text-red-600 dark:text-red-400 font-bold";
-    return "text-gray-700 dark:text-gray-300"; // neutral
+  const getTeamPerspectiveOverperformance = (game: GameWithTeams, teamId: string): number | null => {
+    if (game.ml_overperformance === null || game.ml_overperformance === undefined) {
+      return null;
+    }
+
+    const isHome = game.home_team_master_id === teamId;
+    // Home team: use value as-is. Away team: flip the sign
+    return isHome ? game.ml_overperformance : -game.ml_overperformance;
+  };
+
+  /**
+   * Get color class for score based on ML over/underperformance
+   * @param ml_overperformance - residual value (actual - expected goal margin) from team's perspective
+   * Green if ≥ +2 (outperformed by 2+ goals), Red if ≤ -2 (underperformed by 2+ goals)
+   * Note: Backend only provides ml_overperformance for teams with 6+ games
+   */
+  const scoreColor = (ml_overperformance: number | null): string => {
+    if (ml_overperformance !== null && ml_overperformance !== undefined) {
+      if (ml_overperformance >= 2) return "text-green-600 dark:text-green-400 font-bold";
+      if (ml_overperformance <= -2) return "text-red-600 dark:text-red-400 font-bold";
+    }
+    return ""; // no color for neutral performance
   };
 
   const getResult = (game: GameWithTeams, teamId: string) => {
@@ -247,14 +265,16 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                     )}
                   </TableCell>
                   <TableCell className="text-center">
-                    <span className={resultColor(game.was_overperformed)}>
-                      {result.text}
-                    </span>
+                    {result.text}
                   </TableCell>
                   <TableCell className="text-right font-mono">
-                    {score.team !== null && score.opponent !== null
-                      ? `${score.team} - ${score.opponent}`
-                      : '—'}
+                    {score.team !== null && score.opponent !== null ? (
+                      <span className={scoreColor(getTeamPerspectiveOverperformance(game, teamId))}>
+                        {score.team} - {score.opponent}
+                      </span>
+                    ) : (
+                      '—'
+                    )}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {game.competition || game.division_name || '—'}

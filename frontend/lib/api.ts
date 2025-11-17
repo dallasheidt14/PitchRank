@@ -68,7 +68,7 @@ export const api = {
    */
   async getTeam(id: string): Promise<TeamWithRanking> {
     console.log('[api.getTeam] Fetching team with id:', id);
-    
+
     // Fetch team data
     const { data: teamData, error: teamError } = await supabase
       .from('teams')
@@ -104,22 +104,81 @@ export const api = {
       // Continue without ranking data rather than failing
     }
 
+    // Fetch state rank from state_rankings_view
+    const { data: stateRankData, error: stateRankError } = await supabase
+      .from('state_rankings_view')
+      .select('rank_in_state_final')
+      .eq('team_id_master', id)
+      .maybeSingle();
+
+    if (stateRankError) {
+      console.warn('[api.getTeam] Error fetching state rank data:', stateRankError);
+      // Continue without state rank data
+    }
+
+    // Fetch all games to calculate total games and win/loss/draw record
+    const { data: gamesData, error: gamesDataError } = await supabase
+      .from('games')
+      .select('home_team_master_id, away_team_master_id, home_score, away_score')
+      .or(`home_team_master_id.eq.${id},away_team_master_id.eq.${id}`);
+
+    if (gamesDataError) {
+      console.warn('[api.getTeam] Error fetching games for record calculation:', gamesDataError);
+    }
+
+    // Calculate total games count and win/loss/draw record from games
+    const totalGamesCount = gamesData?.length ?? 0;
+    let calculatedWins = 0;
+    let calculatedLosses = 0;
+    let calculatedDraws = 0;
+
+    if (gamesData && gamesData.length > 0) {
+      gamesData.forEach(game => {
+        if (game.home_score !== null && game.away_score !== null) {
+          const isHome = game.home_team_master_id === id;
+          const teamScore = isHome ? game.home_score : game.away_score;
+          const opponentScore = isHome ? game.away_score : game.home_score;
+
+          if (teamScore > opponentScore) {
+            calculatedWins++;
+          } else if (teamScore < opponentScore) {
+            calculatedLosses++;
+          } else {
+            calculatedDraws++;
+          }
+        }
+      });
+    }
+
+    // Calculate win percentage
+    const calculatedWinPercentage = totalGamesCount > 0
+      ? ((calculatedWins + calculatedDraws * 0.5) / totalGamesCount) * 100
+      : null;
+
     console.log('[api.getTeam] Successfully fetched team:', teamData.team_name);
     console.log('[api.getTeam] Team data structure:', {
       hasId: !!teamData.id,
       hasTeamIdMaster: !!teamData.team_id_master,
       hasTeamName: !!teamData.team_name,
       hasRanking: !!rankingData,
+      hasStateRank: !!stateRankData,
+      totalGames: totalGamesCount,
       keys: Object.keys(teamData),
     });
     if (rankingData) {
       console.log('[api.getTeam] Ranking data received:', {
         rank_in_cohort_final: rankingData.rank_in_cohort_final,
+        rank_in_state_final: stateRankData?.rank_in_state_final,
         win_percentage: rankingData.win_percentage,
         wins: rankingData.wins,
         losses: rankingData.losses,
         draws: rankingData.draws,
         games_played: rankingData.games_played,
+        total_games_played: totalGamesCount,
+        calculated_wins: calculatedWins,
+        calculated_losses: calculatedLosses,
+        calculated_draws: calculatedDraws,
+        calculated_win_percentage: calculatedWinPercentage,
         power_score_final: rankingData.power_score_final,
         sos_norm: rankingData.sos_norm,
         allKeys: Object.keys(rankingData),
@@ -127,7 +186,15 @@ export const api = {
     } else {
       console.warn('[api.getTeam] No ranking data found for team:', teamData.team_name);
     }
-    
+
+    // Use calculated values if ranking data is missing or 0
+    const finalWins = (rankingData?.wins && rankingData.wins > 0) ? rankingData.wins : calculatedWins;
+    const finalLosses = (rankingData?.losses && rankingData.losses > 0) ? rankingData.losses : calculatedLosses;
+    const finalDraws = (rankingData?.draws && rankingData.draws > 0) ? rankingData.draws : calculatedDraws;
+    const finalWinPercentage = (rankingData?.win_percentage && rankingData.win_percentage > 0)
+      ? rankingData.win_percentage
+      : calculatedWinPercentage;
+
     // Ensure all required Team fields exist
     const team: Team = {
       id: teamData.id,
@@ -147,12 +214,11 @@ export const api = {
     };
 
     // Merge ranking data if available (match TeamWithRanking contract)
-    // Note: rank_in_state_final is NOT in rankings_view, only state_rankings_view
     // Ensure age is always set (from rankingData or converted from team.age_group)
     const age = rankingData?.age ?? (team.age_group ? normalizeAgeGroup(team.age_group) : null);
     const gender = rankingData?.gender ?? (team.gender === 'Male' ? 'M' : team.gender === 'Female' ? 'F' : 'M') as 'M' | 'F' | 'B' | 'G';
-    
-    // Create TeamWithRanking without deprecated fields (state_code, age_group are never)
+
+    // Create TeamWithRanking with state rank, total games, and calculated record
     const teamWithRanking: TeamWithRanking = {
       team_id_master: team.team_id_master,
       team_name: team.team_name,
@@ -166,15 +232,17 @@ export const api = {
       offense_norm: rankingData?.offense_norm ?? null,
       defense_norm: rankingData?.defense_norm ?? null,
       rank_in_cohort_final: rankingData?.rank_in_cohort_final ?? null,
-      // Record fields (default to 0 if no ranking data)
+      rank_in_state_final: stateRankData?.rank_in_state_final ?? null,
+      // Record fields (use calculated values as fallback)
       games_played: rankingData?.games_played ?? 0,
-      wins: rankingData?.wins ?? 0,
-      losses: rankingData?.losses ?? 0,
-      draws: rankingData?.draws ?? 0,
-      win_percentage: rankingData?.win_percentage ?? null,
-      // rank_in_state_final comes from state view, not this call
+      wins: finalWins,
+      losses: finalLosses,
+      draws: finalDraws,
+      win_percentage: finalWinPercentage,
+      // Total games from games table
+      total_games_played: totalGamesCount,
     };
-    
+
     console.log('[api.getTeam] Returning team data:', teamWithRanking.team_name);
     return teamWithRanking;
   },
@@ -494,6 +562,7 @@ export const api = {
   },
 
   /**
+  /**
    * Get enhanced match prediction with explanations
    * @param teamAId - First team's team_id_master UUID
    * @param teamBId - Second team's team_id_master UUID
@@ -550,6 +619,53 @@ export const api = {
       prediction,
       explanation,
     };
+  },
+
+  /**
+   * Get rankings for multiple teams by their team_id_master UUIDs
+   * @param teamIds - Array of team_id_master UUIDs
+   * @returns Map of team_id_master to ranking data
+   */
+  async getTeamRankings(teamIds: string[]): Promise<Map<string, {
+    power_score_final: number;
+    rank_in_cohort_final: number;
+    sos_norm: number;
+  }>> {
+    if (teamIds.length === 0) {
+      return new Map();
+    }
+
+    const { data, error } = await supabase
+      .from('rankings_view')
+      .select('team_id_master, power_score_final, rank_in_cohort_final, sos_norm')
+      .in('team_id_master', teamIds);
+
+    if (error) {
+      console.error('[api.getTeamRankings] Error fetching rankings:', error);
+      throw error;
+    }
+
+    const rankingsMap = new Map<string, {
+      power_score_final: number;
+      rank_in_cohort_final: number;
+      sos_norm: number;
+    }>();
+
+    data?.forEach((ranking: {
+      team_id_master: string;
+      power_score_final: number;
+      rank_in_cohort_final: number;
+      sos_norm: number;
+    }) => {
+      rankingsMap.set(ranking.team_id_master, {
+        power_score_final: ranking.power_score_final,
+        rank_in_cohort_final: ranking.rank_in_cohort_final,
+        sos_norm: ranking.sos_norm,
+      });
+    });
+
+    return rankingsMap;
+  },
   },
 };
 

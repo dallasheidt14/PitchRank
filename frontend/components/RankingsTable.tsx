@@ -191,6 +191,45 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     return parts.join(' • ');
   }, [region, ageGroup, gender]);
 
+  // Get last_calculated timestamp from first ranking (same for all rows)
+  const lastCalculated = useMemo(() => {
+    if (!rankings || rankings.length === 0) return null;
+    return rankings[0].last_calculated;
+  }, [rankings]);
+
+  // Format timestamp for display
+  const formattedLastCalculated = useMemo(() => {
+    if (!lastCalculated) return null;
+
+    try {
+      const date = new Date(lastCalculated);
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+      // Format: "Dec 15, 2024"
+      const formatted = date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+
+      // Add recency indicator
+      if (diffDays === 0) {
+        return `${formatted} (today)`;
+      } else if (diffDays === 1) {
+        return `${formatted} (yesterday)`;
+      } else if (diffDays < 7) {
+        return `${formatted} (${diffDays} days ago)`;
+      } else {
+        return formatted;
+      }
+    } catch (error) {
+      console.error('Error formatting last_calculated date:', error);
+      return null;
+    }
+  }, [lastCalculated]);
+
   if (isLoading) return <RankingsTableSkeleton />;
   if (isError) {
     return (
@@ -217,7 +256,14 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     <Card>
       <CardHeader>
         <CardTitle>Rankings</CardTitle>
-        <CardDescription>{description}</CardDescription>
+        <CardDescription>
+          {description}
+          {formattedLastCalculated && (
+            <span className="ml-2 text-xs">
+              • Rankings last updated: {formattedLastCalculated}
+            </span>
+          )}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {sortedRankings.length === 0 ? (
@@ -253,7 +299,24 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                     <SortButton field="winPercentage" label="Win %" />
                   </div>
                   <div className="px-2 sm:px-4 py-2 sm:py-3 font-medium text-right text-xs sm:text-sm">
-                    <SortButton field="gamesPlayed" label="Games" />
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div>
+                          <SortButton field="gamesPlayed" label="Games" />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-sm">
+                          <strong>Ranked Games / Total Games</strong>
+                          <br />
+                          <span className="text-muted-foreground">
+                            Ranked: Last 30 games within 365 days (used for rankings)
+                            <br />
+                            Total: All games in database
+                          </span>
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
                   <div className="px-2 sm:px-4 py-2 sm:py-3 font-medium text-right text-xs sm:text-sm">
                     <Tooltip>
@@ -363,7 +426,12 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                             })()}
                           </div>
                           <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm">
-                            {team.games_played}
+                            <span className="font-medium">{team.games_played}</span>
+                            {team.total_games_played !== undefined && team.total_games_played !== team.games_played && (
+                              <span className="text-muted-foreground ml-1">
+                                / {team.total_games_played}
+                              </span>
+                            )}
                           </div>
                           <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm">
                             {(() => {

@@ -23,8 +23,11 @@ export interface RankingRow {
   wins: number;
   losses: number;
   draws: number;
-  games_played: number;
+  games_played: number; // Games used for ranking calculation (last 30 within 365 days)
+  total_games_played?: number; // Total games in database (all time) - calculated in frontend
   win_percentage: number | null;
+  // Metadata
+  last_calculated: string | null; // ISO timestamp when rankings were last calculated
   // Deprecated fields (do not use)
   /** @deprecated Use state instead */
   state_code?: never;

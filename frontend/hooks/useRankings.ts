@@ -4,6 +4,80 @@ import { normalizeAgeGroup } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
 
 /**
+ * Enriches rankings data with total_games_played count from the games table
+ * @param rankings - Array of ranking rows
+ * @returns Rankings with total_games_played added to each row
+ */
+async function enrichWithTotalGames(rankings: RankingRow[]): Promise<RankingRow[]> {
+  if (!rankings || rankings.length === 0) {
+    return rankings;
+  }
+
+  try {
+    // Extract all team IDs
+    const teamIds = rankings.map(r => r.team_id_master);
+
+    // Query games table to count games per team
+    // We need to fetch all games where team is either home or away
+    // Use .in() filter combined with .or() for efficiency
+    const { data: gamesData, error } = await supabase
+      .from('games')
+      .select('home_team_master_id, away_team_master_id')
+      .or(`home_team_master_id.in.(${teamIds.join(',')}),away_team_master_id.in.(${teamIds.join(',')})`);
+
+    if (error) {
+      console.warn('[enrichWithTotalGames] Error fetching games data:', error);
+      // Return rankings without total_games_played if query fails
+      return rankings;
+    }
+
+    // Count games per team
+    const gameCountMap = new Map<string, number>();
+
+    if (gamesData) {
+      gamesData.forEach(game => {
+        // Count for home team (only if it's in our team list)
+        if (game.home_team_master_id && teamIds.includes(game.home_team_master_id)) {
+          gameCountMap.set(
+            game.home_team_master_id,
+            (gameCountMap.get(game.home_team_master_id) || 0) + 1
+          );
+        }
+        // Count for away team (only if it's in our team list)
+        if (game.away_team_master_id && teamIds.includes(game.away_team_master_id)) {
+          gameCountMap.set(
+            game.away_team_master_id,
+            (gameCountMap.get(game.away_team_master_id) || 0) + 1
+          );
+        }
+      });
+    }
+
+    // Merge counts into rankings
+    const enrichedRankings = rankings.map(ranking => ({
+      ...ranking,
+      total_games_played: gameCountMap.get(ranking.team_id_master) || 0,
+    }));
+
+    console.log('[enrichWithTotalGames] Enriched rankings with total games:', {
+      teamsProcessed: teamIds.length,
+      gamesDataCount: gamesData?.length || 0,
+      sample: enrichedRankings[0] ? {
+        team_name: enrichedRankings[0].team_name,
+        games_played: enrichedRankings[0].games_played,
+        total_games_played: enrichedRankings[0].total_games_played,
+      } : null,
+    });
+
+    return enrichedRankings;
+  } catch (err) {
+    console.error('[enrichWithTotalGames] Unexpected error:', err);
+    // Return original rankings if something goes wrong
+    return rankings;
+  }
+}
+
+/**
  * Get rankings filtered by region, age group, and gender
  * @param region - State code (2 letters) or null/undefined for national rankings
  * @param ageGroup - Age group filter (e.g., 'u10', 'u11') - will be normalized to integer
@@ -20,24 +94,26 @@ export function useRankings(
     hasSupabaseUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
     hasAnonKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   });
-  
+
   const queryResult = useQuery<RankingRow[]>({
     queryKey: ['rankings', region, ageGroup, gender],
     enabled: true, // Explicitly enable the query
     queryFn: async () => {
       console.log('[useRankings] Query function executing with:', { region, ageGroup, gender });
-      
+
       if (!region) {
         // National rankings = return full slice from rankings_view
         let query = supabase
           .from('rankings_view')
           .select('*');
 
-        // Normalize age group outside if block for use in logging
-        const normalizedAge = ageGroup ? normalizeAgeGroup(ageGroup) : null;
-
-        if (normalizedAge !== null) {
-          query = query.eq('age', normalizedAge);
+        let normalizedAge: number | null = null;
+        if (ageGroup) {
+          // Normalize age group to integer
+          normalizedAge = normalizeAgeGroup(ageGroup);
+          if (normalizedAge !== null) {
+            query = query.eq('age', normalizedAge);
+          }
         }
 
         if (gender) {
@@ -85,7 +161,9 @@ export function useRankings(
           } : null,
         });
 
-        return (data || []) as RankingRow[];
+        // Fetch total games count for all teams
+        const rankingsWithTotalGames = await enrichWithTotalGames(data || []);
+        return rankingsWithTotalGames as RankingRow[];
       } else {
         // State rankings = filtered national from state_rankings_view
         // Normalize state to uppercase for case-insensitive matching
@@ -136,13 +214,15 @@ export function useRankings(
           } : null,
         });
 
-        return (data || []) as RankingRow[];
+        // Fetch total games count for all teams
+        const rankingsWithTotalGames = await enrichWithTotalGames(data || []);
+        return rankingsWithTotalGames as RankingRow[];
       }
     },
     staleTime: 5 * 60 * 1000, // 5 minutes - rankings update weekly
     gcTime: 30 * 60 * 1000, // Keep in cache for 30 minutes
   });
-  
+
   console.log('[useRankings] Query result:', {
     isLoading: queryResult.isLoading,
     isError: queryResult.isError,
@@ -150,7 +230,6 @@ export function useRankings(
     dataLength: queryResult.data?.length || 0,
     hasData: !!queryResult.data && queryResult.data.length > 0,
   });
-  
+
   return queryResult;
 }
-
