@@ -299,7 +299,24 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                     <SortButton field="winPercentage" label="Win %" />
                   </div>
                   <div className="px-2 sm:px-4 py-2 sm:py-3 font-medium text-right text-xs sm:text-sm">
-                    <SortButton field="gamesPlayed" label="Games" />
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div>
+                          <SortButton field="gamesPlayed" label="Games" />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-sm">
+                          <strong>Ranked Games / Total Games</strong>
+                          <br />
+                          <span className="text-muted-foreground">
+                            Ranked: Last 30 games within 365 days (used for rankings)
+                            <br />
+                            Total: All games in database
+                          </span>
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
                   <div className="px-2 sm:px-4 py-2 sm:py-3 font-medium text-right text-xs sm:text-sm">
                     <Tooltip>
@@ -409,7 +426,12 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                             })()}
                           </div>
                           <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm">
-                            {team.games_played}
+                            <span className="font-medium">{team.games_played}</span>
+                            {team.total_games_played !== undefined && team.total_games_played !== team.games_played && (
+                              <span className="text-muted-foreground ml-1">
+                                / {team.total_games_played}
+                              </span>
+                            )}
                           </div>
                           <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm">
                             {(() => {
