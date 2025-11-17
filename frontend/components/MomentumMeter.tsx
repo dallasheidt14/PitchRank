@@ -62,6 +62,7 @@ function interpolateMomentumColor(score: number): string {
 async function calculateQualityMomentum(
   teamId: string,
   teamPower: number | null,
+  teamRank: number | null,
   games: GameWithTeams[],
   numberOfGames: number = 5
 ): Promise<{
@@ -146,7 +147,25 @@ async function calculateQualityMomentum(
     if (opponentPower !== null && teamPower !== null) {
       const STRENGTH_THRESHOLD = 0.15; // Power difference to be considered "much stronger/weaker"
 
-      if (powerDiff < -STRENGTH_THRESHOLD) {
+      // Also use rank-based classification as fallback
+      // If opponent rank is significantly worse (>3x or >500 ranks), they're weaker even if power is similar
+      let isWeakerByRank = false;
+      let isStrongerByRank = false;
+      if (teamRank !== null && opponentRank !== null) {
+        const rankRatio = opponentRank / teamRank;
+        const rankDiff = opponentRank - teamRank;
+
+        // Opponent is weaker if their rank number is much higher (worse)
+        if (rankRatio > 3.0 || rankDiff > 500) {
+          isWeakerByRank = true;
+        }
+        // Opponent is stronger if their rank number is much lower (better)
+        else if (rankRatio < 0.33 || rankDiff < -500) {
+          isStrongerByRank = true;
+        }
+      }
+
+      if (powerDiff < -STRENGTH_THRESHOLD || isStrongerByRank) {
         // Opponent is significantly stronger
         qualityIcon = '⬆️';
 
@@ -172,7 +191,7 @@ async function calculateQualityMomentum(
           // Draw vs stronger opponent
           qualityMultiplier = 1.3;
         }
-      } else if (powerDiff > STRENGTH_THRESHOLD) {
+      } else if (powerDiff > STRENGTH_THRESHOLD || isWeakerByRank) {
         // Opponent is significantly weaker
         qualityIcon = '⬇️';
 
@@ -276,8 +295,9 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
 
     let isMounted = true;
     const teamPower = teamData?.power_score_final ?? null;
+    const teamRank = teamData?.rank_in_cohort_final ?? null;
 
-    calculateQualityMomentum(teamId, teamPower, gamesData.games, 8)
+    calculateQualityMomentum(teamId, teamPower, teamRank, gamesData.games, 8)
       .then(result => {
         if (isMounted) {
           setMomentumData(result);
@@ -485,13 +505,13 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
               return (
                 <div
                   key={idx}
-                  className={`flex items-center justify-between px-2 py-1.5 rounded text-xs ${resultBg}`}
+                  className={`flex items-center justify-between px-2 py-1.5 rounded text-sm ${resultBg}`}
                 >
                   <div className="flex items-center gap-2 flex-1 min-w-0">
                     <span className={`font-bold ${resultColor}`}>{result}</span>
                     <span className="truncate">{opponentName}</span>
                     {opponentRank && (
-                      <span className={`text-xs ${opponentRankColor}`}>#{opponentRank}</span>
+                      <span className={`text-sm ${opponentRankColor}`}>#{opponentRank}</span>
                     )}
                   </div>
                   <div className="flex items-center gap-2">
@@ -499,7 +519,7 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
                       {teamScore}-{oppScore}
                     </span>
                     {qualityText && (
-                      <span className="text-xs text-muted-foreground italic">
+                      <span className="text-sm text-muted-foreground italic">
                         {qualityText}
                       </span>
                     )}
