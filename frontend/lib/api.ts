@@ -666,7 +666,6 @@ export const api = {
 
     return rankingsMap;
   },
-  },
 };
 
 /**

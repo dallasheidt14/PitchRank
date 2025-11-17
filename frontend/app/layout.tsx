@@ -8,11 +8,15 @@ import { Toaster } from "@/components/ui/Toaster";
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
+  fallback: ["system-ui", "sans-serif"],
+  display: "swap",
 });
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+  fallback: ["ui-monospace", "monospace"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
