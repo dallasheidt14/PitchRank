@@ -523,7 +523,12 @@ export const api = {
       sos_norm: number;
     }>();
 
-    data?.forEach((ranking: any) => {
+    data?.forEach((ranking: {
+      team_id_master: string;
+      power_score_final: number;
+      rank_in_cohort_final: number;
+      sos_norm: number;
+    }) => {
       rankingsMap.set(ranking.team_id_master, {
         power_score_final: ranking.power_score_final,
         rank_in_cohort_final: ranking.rank_in_cohort_final,
