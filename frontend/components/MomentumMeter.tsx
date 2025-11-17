@@ -347,8 +347,8 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Momentum</CardTitle>
-          <CardDescription>Quality-adjusted performance trend</CardDescription>
+          <CardTitle>Recent Momentum</CardTitle>
+          <CardDescription>Last 8 Games Quality-adjusted performance trend</CardDescription>
         </CardHeader>
         <CardContent>
           <ChartSkeleton height={200} />
@@ -361,8 +361,8 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Momentum</CardTitle>
-          <CardDescription>Quality-adjusted performance trend</CardDescription>
+          <CardTitle>Recent Momentum</CardTitle>
+          <CardDescription>Last 8 Games Quality-adjusted performance trend</CardDescription>
         </CardHeader>
         <CardContent>
           <ErrorDisplay error={gamesErrorObj} retry={refetch} fallback={
@@ -379,8 +379,8 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Momentum</CardTitle>
-          <CardDescription>Quality-adjusted performance trend</CardDescription>
+          <CardTitle>Recent Momentum</CardTitle>
+          <CardDescription>Last 8 Games Quality-adjusted performance trend</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="h-48 flex items-center justify-center text-muted-foreground">
@@ -398,8 +398,8 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Momentum</CardTitle>
-            <CardDescription>Quality-adjusted performance trend</CardDescription>
+            <CardTitle>Recent Momentum</CardTitle>
+            <CardDescription>Last 8 Games Quality-adjusted performance trend</CardDescription>
           </div>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -415,10 +415,10 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
               <p className="font-semibold mb-1">How Momentum is Calculated:</p>
               <p className="text-xs mb-2">Based on last {gamesAnalyzed.length} games, weighted by opponent strength and performance vs. expectations.</p>
               <div className="text-xs space-y-1">
-                <p><strong>Opponent Rank Colors:</strong></p>
-                <p className="text-red-600 dark:text-red-400">Red = Stronger opponent</p>
-                <p className="text-muted-foreground">Gray = Similar opponent</p>
-                <p className="text-green-600 dark:text-green-400">Green = Weaker opponent</p>
+                <p><strong>Performance Quality Colors:</strong></p>
+                <p className="text-green-600 dark:text-green-400">Green = Dominant win</p>
+                <p className="text-muted-foreground">Gray = Neutral/expected performance</p>
+                <p className="text-red-600 dark:text-red-400">Red = Underperformance (struggle win or bad loss)</p>
               </div>
             </TooltipContent>
           </Tooltip>
@@ -458,12 +458,14 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
                 resultBg = 'bg-red-100 dark:bg-red-950';
               }
 
-              // Determine opponent strength color based on qualityIcon
-              let opponentRankColor = 'text-muted-foreground';
-              if (qualityIcon === '⬆️') {
-                opponentRankColor = 'text-red-600 dark:text-red-400 font-semibold'; // Stronger opponent
-              } else if (qualityIcon === '⬇️') {
-                opponentRankColor = 'text-green-600 dark:text-green-400'; // Weaker opponent
+              // Determine performance quality color
+              let performanceColor = 'text-muted-foreground';
+              if (gameQuality.qualityType === 'dominant-win') {
+                performanceColor = 'text-green-600 dark:text-green-400 font-semibold'; // Dominant win
+              } else if (gameQuality.qualityType === 'quality-win' || gameQuality.qualityType === 'expected-win') {
+                performanceColor = 'text-muted-foreground'; // Neutral/expected performance
+              } else if (gameQuality.qualityType === 'struggle-win' || gameQuality.qualityType === 'bad-loss') {
+                performanceColor = 'text-red-600 dark:text-red-400 font-semibold'; // Underperformance
               }
 
               // Quality indicator text
@@ -490,16 +492,13 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
                   <div className="flex items-center gap-2 flex-1 min-w-0">
                     <span className={`font-bold ${resultColor}`}>{result}</span>
                     <span className="truncate">{opponentName}</span>
-                    {opponentRank && (
-                      <span className={`text-xs ${opponentRankColor}`}>#{opponentRank}</span>
-                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <span className={resultColor}>
                       {teamScore}-{oppScore}
                     </span>
                     {qualityText && (
-                      <span className="text-xs text-muted-foreground italic">
+                      <span className={`text-xs italic ${performanceColor}`}>
                         {qualityText}
                       </span>
                     )}
