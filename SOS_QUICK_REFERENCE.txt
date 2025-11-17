@@ -1,0 +1,165 @@
+================================================================================
+                    SOS CODE LOCATIONS - QUICK REFERENCE
+================================================================================
+
+CALCULATION (Backend)
+────────────────────────────────────────────────────────────────────────────────
+• Core SOS Calculation:
+  /home/user/PitchRank/src/etl/v53e.py, lines 468-530
+  - Layer 8: Direct SOS (line 468-490)
+  - Iterative Transitivity (line 500-524)
+  - Layer 9: Normalization (line 529)
+
+• PowerScore Integration:
+  /home/user/PitchRank/src/etl/v53e.py, lines 571-576
+  - Formula: 25% OFF + 25% DEF + 50% SOS
+
+CONFIGURATION
+────────────────────────────────────────────────────────────────────────────────
+• V53EConfig (Main):
+  /home/user/PitchRank/src/etl/v53e.py, lines 54-62
+  - UNRANKED_SOS_BASE = 0.35
+  - SOS_REPEAT_CAP = 4
+  - SOS_ITERATIONS = 3
+  - SOS_TRANSITIVITY_LAMBDA = 0.20
+  - SOS_WEIGHT = 0.50
+
+• Environment Config:
+  /home/user/PitchRank/config/settings.py, lines 116-125
+
+STORAGE (Database)
+────────────────────────────────────────────────────────────────────────────────
+• rankings_full table:
+  /home/user/PitchRank/supabase/migrations/20250120130000_create_rankings_full.sql
+  - sos (raw, 0.0-1.0)
+  - sos_norm (normalized percentile)
+  - strength_of_schedule (alias)
+
+• Views with SOS:
+  /home/user/PitchRank/supabase/migrations/20250120150000_add_sos_norm_to_views.sql
+  - rankings_view (lines 16-81)
+  - state_rankings_view (lines 86-139)
+
+DATA CONVERSION
+────────────────────────────────────────────────────────────────────────────────
+• v53e to Database Format:
+  /home/user/PitchRank/src/rankings/data_adapter.py
+  - v53e_to_rankings_full_format() [lines 411-648]
+  - v53e_to_supabase_format() [lines 359-408]
+
+CALCULATION & SAVE
+────────────────────────────────────────────────────────────────────────────────
+• Ranking Calculation:
+  /home/user/PitchRank/scripts/calculate_rankings.py
+  - compute_rankings_v53e_only() [line 349-356]
+  - save_rankings_to_supabase() [lines 44-300]
+
+FRONTEND DISPLAY
+────────────────────────────────────────────────────────────────────────────────
+• Type Definitions:
+  /home/user/PitchRank/frontend/types/RankingRow.ts (lines 7-51)
+  /home/user/PitchRank/frontend/lib/types.ts (line 110)
+
+• SOS Formatting:
+  /home/user/PitchRank/frontend/lib/utils.ts (lines 25-31)
+  formatSOSIndex(sosNorm) → converts to 0-100 scale
+
+• Rankings Display:
+  /home/user/PitchRank/frontend/components/RankingsTable.tsx
+  - Filter teams (lines 68-69)
+  - Sort by sos_norm (lines 112-114)
+  - Display (line 421)
+
+• Team Page:
+  /home/user/PitchRank/frontend/components/TeamHeader.tsx (line 207)
+
+• API:
+  /home/user/PitchRank/frontend/lib/api.ts (lines 98, 183, 231)
+
+DOCUMENTATION
+────────────────────────────────────────────────────────────────────────────────
+• Complete Guide:
+  /home/user/PitchRank/docs/SOS_FIELDS_EXPLANATION.md (288 lines)
+
+• SQL Queries:
+  /home/user/PitchRank/docs/SQL_QUERIES_FOR_RANKINGS.md
+
+• Schema:
+  /home/user/PitchRank/docs/RANKINGS_FULL_SCHEMA_PROPOSAL.md
+
+VALIDATION & TESTING
+────────────────────────────────────────────────────────────────────────────────
+• Unit Tests:
+  /home/user/PitchRank/tests/unit/test_sos_validation.py
+
+• Config Validator:
+  /home/user/PitchRank/scripts/validate_sos_config.py
+
+• SOS Check Script:
+  /home/user/PitchRank/scripts/check_sos.py
+
+• Impact Verification:
+  /home/user/PitchRank/scripts/verify_sos_impact.py
+
+================================================================================
+                              KEY FORMULAS
+================================================================================
+
+RAW SOS (Pass 1 - Direct):
+  sos_direct = weighted_average(opponent_strengths, weights=w_sos)
+  - Each opponent counted max 4 times (repeat cap)
+  - w_sos = w_game * k_adapt
+
+ITERATIVE TRANSITIVITY (Passes 2-3):
+  For each iteration:
+    sos_trans = weighted_average(opponent_sos_values, weights=w_sos)
+    sos = (1 - 0.20) * sos_direct + 0.20 * sos_trans
+    sos = clip(sos, 0.0, 1.0)
+
+NORMALIZATION:
+  sos_norm = percentile_rank(sos, within_age_gender_cohort)
+  Result: 0.0 (softest) to 1.0 (toughest)
+
+POWERSCORE:
+  powerscore_core = (0.25 * off_norm) + (0.25 * def_norm) + (0.50 * sos_norm)
+  ↑ SOS has 50% weight - it's the dominant factor!
+
+================================================================================
+                          FIELD RELATIONSHIPS
+================================================================================
+
+Backend Calculation:
+  v53e.compute_rankings() → produces "sos" + "sos_norm"
+
+Data Conversion:
+  v53e_to_rankings_full_format() → maps to database fields
+
+Database Storage:
+  rankings_full: sos, sos_norm, strength_of_schedule (alias)
+  current_rankings: strength_of_schedule (backward compat)
+
+Views:
+  rankings_view → exposes all SOS fields
+  state_rankings_view → state-level filtering
+
+Frontend:
+  API fetches sos_norm (normalized)
+  formatSOSIndex() converts to 0-100 display scale
+  Components sort/display using sos_norm
+
+================================================================================
+                        QUICK FACT SUMMARY
+================================================================================
+
+1. SOS has 50% weight in PowerScore (most important component)
+2. 3-pass iterative: 1 direct + 2 transitivity iterations
+3. Transitivity: 80% direct, 20% transitive (lambda=0.20)
+4. Repeat cap: Each opponent max 4 games
+5. Two fields: sos (raw 0-1) vs sos_norm (normalized percentile)
+6. Display: formatSOSIndex(sos_norm) converts to 0-100
+7. Backward compatible: strength_of_schedule aliases sos
+8. Normalized per cohort: sos_norm is percentile within age/gender
+9. Validation: 4 different scripts validate SOS correctness
+10. Coverage: 49 files reference SOS in the codebase
+
+================================================================================
