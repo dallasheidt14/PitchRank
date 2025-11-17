@@ -168,18 +168,16 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                 {teamRanking?.rank_in_cohort_final ? `#${teamRanking.rank_in_cohort_final}` : '—'}
               </div>
             </div>
-            {teamRanking?.rank_in_state_final && (
-              <div>
-                <div className="text-sm text-muted-foreground mb-1">State Rank</div>
-                <div className="text-2xl font-semibold">
-                  #{teamRanking.rank_in_state_final}
-                </div>
+            <div>
+              <div className="text-sm text-muted-foreground mb-1">State Rank</div>
+              <div className="text-2xl font-semibold">
+                {teamRanking?.rank_in_state_final ? `#${teamRanking.rank_in_state_final}` : '—'}
               </div>
-            )}
+            </div>
             <div>
               <div className="text-sm text-muted-foreground mb-1">Games Played</div>
               <div className="text-2xl font-semibold">
-                {teamRanking?.games_played || 0}
+                {teamRanking?.total_games_played ?? teamRanking?.games_played ?? 0}
               </div>
             </div>
             <div>
