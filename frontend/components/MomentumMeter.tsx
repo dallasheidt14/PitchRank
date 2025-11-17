@@ -445,10 +445,9 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
             </RadialBarChart>
           </ResponsiveContainer>
           <div className="mt-4 text-center">
-            <div className="text-3xl font-bold transition-all duration-300">
-              {animatedScore.toFixed(0)}
+            <div className="text-2xl font-bold transition-all duration-300">
+              {momentumLabel}
             </div>
-            <div className="text-sm text-muted-foreground">{momentumLabel}</div>
             <div className="text-xs text-muted-foreground mt-1">
               Last {gamesAnalyzed.length}: {record.wins}W-{record.draws}D-{record.losses}L
             </div>
