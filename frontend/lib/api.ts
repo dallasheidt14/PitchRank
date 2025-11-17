@@ -492,6 +492,52 @@ export const api = {
 
     return data as TeamPredictive;
   },
+
+  /**
+   * Get rankings for multiple teams by their team_id_master UUIDs
+   * @param teamIds - Array of team_id_master UUIDs
+   * @returns Map of team_id_master to ranking data
+   */
+  async getTeamRankings(teamIds: string[]): Promise<Map<string, {
+    power_score_final: number;
+    rank_in_cohort_final: number;
+    sos_norm: number;
+  }>> {
+    if (teamIds.length === 0) {
+      return new Map();
+    }
+
+    const { data, error } = await supabase
+      .from('rankings_view')
+      .select('team_id_master, power_score_final, rank_in_cohort_final, sos_norm')
+      .in('team_id_master', teamIds);
+
+    if (error) {
+      console.error('[api.getTeamRankings] Error fetching rankings:', error);
+      throw error;
+    }
+
+    const rankingsMap = new Map<string, {
+      power_score_final: number;
+      rank_in_cohort_final: number;
+      sos_norm: number;
+    }>();
+
+    data?.forEach((ranking: {
+      team_id_master: string;
+      power_score_final: number;
+      rank_in_cohort_final: number;
+      sos_norm: number;
+    }) => {
+      rankingsMap.set(ranking.team_id_master, {
+        power_score_final: ranking.power_score_final,
+        rank_in_cohort_final: ranking.rank_in_cohort_final,
+        sos_norm: ranking.sos_norm,
+      });
+    });
+
+    return rankingsMap;
+  },
 };
 
 /**

@@ -33,9 +33,10 @@ export function useRankings(
           .from('rankings_view')
           .select('*');
 
+        let normalizedAge: number | null = null;
         if (ageGroup) {
           // Normalize age group to integer
-          const normalizedAge = normalizeAgeGroup(ageGroup);
+          normalizedAge = normalizeAgeGroup(ageGroup);
           if (normalizedAge !== null) {
             query = query.eq('age', normalizedAge);
           }
