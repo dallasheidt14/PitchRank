@@ -526,7 +526,9 @@ export const api = {
       throw gamesError;
     }
 
-    const games = gamesData || [];
+    // Type assertion: We only need these fields for prediction
+    // The full Game type has more fields, but predictMatch only uses these
+    const games = (gamesData || []) as Game[];
 
     // Generate prediction
     const prediction = predictMatch(teamA, teamB, games);
