@@ -38,6 +38,7 @@ export interface Game {
   source_url: string | null;
   scraped_at: string | null;
   created_at: string;
+  ml_overperformance: number | null; // Layer 13 ML residual: actual - expected goal margin (home team perspective)
 }
 
 /**
@@ -162,14 +163,14 @@ export interface TeamTrajectory {
 
 /**
  * Game with team names (for display purposes)
+ * Extends Game interface which already includes ml_overperformance
  */
 export interface GameWithTeams extends Game {
   home_team_name?: string;
   away_team_name?: string;
   home_team_club_name?: string | null;
   away_team_club_name?: string | null;
-  was_overperformed?: boolean | null; // ML over/underperformance indicator (deprecated - use ml_overperformance)
-  ml_overperformance?: number | null; // Residual value: actual - expected goal margin (only set for teams with 6+ games)
+  was_overperformed?: boolean | null; // Deprecated: use ml_overperformance from Game interface
 }
 
 /**
