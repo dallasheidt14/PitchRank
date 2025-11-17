@@ -234,10 +234,7 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
             <Line
               type="monotone"
               dataKey="goalDifferential"
-              stroke={(data: any) => {
-                // This won't work per-point, so we'll use a single color
-                return "hsl(var(--primary))";
-              }}
+              stroke="hsl(var(--primary))"
               strokeWidth={3}
               dot={(props: any) => {
                 const { cx, cy, payload } = props;
