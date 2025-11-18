@@ -488,10 +488,10 @@ def get_daily_game_imports(days=30):
 
     try:
         # Query games grouped by date
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
 
-        # Calculate date range
-        end_date = datetime.now()
+        # Calculate date range (timezone-aware)
+        end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=days)
 
         # Fetch games created in the last N days
@@ -504,7 +504,7 @@ def get_daily_game_imports(days=30):
 
         # Convert to DataFrame and group by date
         df = pd.DataFrame(result.data)
-        df['created_at'] = pd.to_datetime(df['created_at'])
+        df['created_at'] = pd.to_datetime(df['created_at'], utc=True)
         df['import_date'] = df['created_at'].dt.date
 
         # Count games per day
