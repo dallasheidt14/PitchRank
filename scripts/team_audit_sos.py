@@ -35,9 +35,7 @@ from datetime import datetime, timedelta
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from src.rankings.calculator import compute_rankings_v53e_only
 from src.etl.v53e import V53EConfig
-from src.rankings.data_adapter import fetch_games_for_rankings
 
 console = Console()
 
@@ -238,17 +236,20 @@ async def audit_team(supabase, team_id: str, team_name: str = None):
     else:
         console.print("[yellow]Could not fetch team metadata[/yellow]\n")
 
-    # Fetch current rankings to get strength map and actual SOS
-    console.print("[yellow]Loading rankings data...[/yellow]")
+    # Fetch current rankings from database (don't recompute!)
+    console.print("[yellow]Loading rankings data from database...[/yellow]")
 
     try:
-        result = await compute_rankings_v53e_only(
-            supabase_client=supabase,
-            fetch_from_supabase=True,
-            lookback_days=365,
-        )
+        # Fetch all rankings from rankings_full table
+        rankings_result = supabase.table('rankings_full').select(
+            'team_id, abs_strength, sos, sos_norm'
+        ).execute()
 
-        teams_df = result['teams']
+        if not rankings_result.data:
+            console.print("[red]No rankings found in database. Please run the rankings calculation first.[/red]")
+            return
+
+        teams_df = pd.DataFrame(rankings_result.data)
 
         # Create strength map (team_id -> abs_strength)
         strength_map = dict(zip(teams_df['team_id'], teams_df['abs_strength']))
