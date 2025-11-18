@@ -60,6 +60,15 @@ function formatPercentile(value: number): number {
 }
 
 /**
+ * Format number as ordinal (1st, 2nd, 3rd, 4th, etc.)
+ */
+function formatOrdinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+/**
  * Generate explanation for overall power score differential
  */
 function explainPowerScore(
@@ -114,9 +123,9 @@ function explainSOS(
 
   let description = '';
   if (magnitude === 'significant') {
-    description = `${strongerSOS} has played MUCH tougher competition (${percentileA}th vs ${percentileB}th percentile schedule strength). Their rating is more battle-tested.`;
+    description = `${strongerSOS} has played much tougher competition (${formatOrdinal(percentileA)} percentile vs ${formatOrdinal(percentileB)} percentile). Their rating is more battle-tested.`;
   } else {
-    description = `${strongerSOS} has faced tougher opponents (${percentileA}th vs ${percentileB}th percentile schedule strength)`;
+    description = `${strongerSOS} has played a stronger schedule (${formatOrdinal(percentileA)} percentile vs ${formatOrdinal(percentileB)} percentile)`;
   }
 
   return {
@@ -195,11 +204,11 @@ function explainOffensiveMatchup(
   if (matchupDiff > 0) {
     const offPerc = formatPercentile(offenseA);
     const defPerc = formatPercentile(defenseB);
-    description = `${teamA.team_name}'s strong offense (${offPerc}th percentile) faces ${teamB.team_name}'s weaker defense (${defPerc}th percentile)`;
+    description = `${teamA.team_name}'s offense (${formatOrdinal(offPerc)} percentile) has a favorable matchup against ${teamB.team_name}'s defense (${formatOrdinal(defPerc)} percentile)`;
   } else {
     const offPerc = formatPercentile(teamB.offense_norm || 0.5);
     const defPerc = formatPercentile(teamA.defense_norm || 0.5);
-    description = `${teamB.team_name}'s strong offense (${offPerc}th percentile) faces ${teamA.team_name}'s weaker defense (${defPerc}th percentile)`;
+    description = `${teamB.team_name}'s offense (${formatOrdinal(offPerc)} percentile) has a favorable matchup against ${teamA.team_name}'s defense (${formatOrdinal(defPerc)} percentile)`;
   }
 
   return {

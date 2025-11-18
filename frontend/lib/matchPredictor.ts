@@ -226,8 +226,8 @@ export function predictMatch(
 
   // 9. Expected scores (league average ~2.5 goals per team)
   const leagueAvgGoals = 2.5;
-  const expectedScoreA = Math.max(0, leagueAvgGoals + (expectedMargin / 2));
-  const expectedScoreB = Math.max(0, leagueAvgGoals - (expectedMargin / 2));
+  const expectedScoreA = Math.round(Math.max(0, leagueAvgGoals + (expectedMargin / 2)));
+  const expectedScoreB = Math.round(Math.max(0, leagueAvgGoals - (expectedMargin / 2)));
 
   // 10. Predicted winner
   let predictedWinner: 'team_a' | 'team_b' | 'draw';

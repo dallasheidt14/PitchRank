@@ -107,14 +107,14 @@ export function EnhancedPredictionCard({
             <div>
               <div className="text-sm font-medium truncate mb-1">{teamAName}</div>
               <div className={`text-3xl font-bold ${teamAFavored ? 'text-green-600 dark:text-green-400' : 'text-foreground'}`}>
-                {expectedScore.teamA.toFixed(1)}
+                {expectedScore.teamA.toFixed(0)}
               </div>
             </div>
             <div className="text-2xl font-semibold text-muted-foreground">–</div>
             <div>
               <div className="text-sm font-medium truncate mb-1">{teamBName}</div>
               <div className={`text-3xl font-bold ${teamBFavored ? 'text-green-600 dark:text-green-400' : 'text-foreground'}`}>
-                {expectedScore.teamB.toFixed(1)}
+                {expectedScore.teamB.toFixed(0)}
               </div>
             </div>
           </div>
