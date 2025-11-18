@@ -281,21 +281,55 @@ def get_unmatched_opponents(limit=500):
                 # Columns don't exist in this database, skip team name lookup
                 pass
 
+        # Get opponent team names for matched teams
+        matched_team_ids = set()
+        for game in result.data:
+            if game.get('home_team_master_id'):
+                matched_team_ids.add(game.get('home_team_master_id'))
+            if game.get('away_team_master_id'):
+                matched_team_ids.add(game.get('away_team_master_id'))
+
+        # Fetch opponent team names from teams table
+        opponent_names = {}
+        if matched_team_ids:
+            try:
+                teams_result = client.table('teams').select(
+                    'team_id_master, team_name'
+                ).in_('team_id_master', list(matched_team_ids)).execute()
+
+                if teams_result.data:
+                    for team in teams_result.data:
+                        opponent_names[team['team_id_master']] = team.get('team_name', 'Unknown Team')
+            except Exception:
+                pass
+
         # Process to extract unique unmatched teams with all info
         unmatched_teams = {}
         sample_games = {}  # Store sample games for each team
 
         for game in result.data:
-            game_info = {
-                'date': game.get('game_date', ''),
-                'score': f"{game.get('home_score', '-')} - {game.get('away_score', '-')}",
-                'event': game.get('event_name', 'N/A')
-            }
+            home_score = game.get('home_score', '-')
+            away_score = game.get('away_score', '-')
 
-            # Check home team
+            # Check home team (unmatched)
             if game.get('home_team_master_id') is None:
                 team_id = game.get('home_provider_id', '')
                 if team_id:
+                    # Get opponent info (away team)
+                    opponent_id = game.get('away_team_master_id')
+                    if opponent_id:
+                        opponent = opponent_names.get(opponent_id, 'Unknown')
+                    else:
+                        opponent = f"Unknown ({game.get('away_provider_id', 'N/A')})"
+
+                    game_info = {
+                        'date': game.get('game_date', ''),
+                        'score': f"{home_score} - {away_score}",
+                        'result': 'W' if home_score > away_score else 'L' if home_score < away_score else 'D',
+                        'opponent': opponent,
+                        'event': game.get('event_name', 'N/A')
+                    }
+
                     if team_id not in unmatched_teams:
                         team_info = team_names.get(team_id, {})
                         unmatched_teams[team_id] = {
@@ -315,10 +349,25 @@ def get_unmatched_opponents(limit=500):
                     if len(sample_games[team_id]) < 5:  # Keep up to 5 sample games
                         sample_games[team_id].append(game_info)
 
-            # Check away team
+            # Check away team (unmatched)
             if game.get('away_team_master_id') is None:
                 team_id = game.get('away_provider_id', '')
                 if team_id:
+                    # Get opponent info (home team)
+                    opponent_id = game.get('home_team_master_id')
+                    if opponent_id:
+                        opponent = opponent_names.get(opponent_id, 'Unknown')
+                    else:
+                        opponent = f"Unknown ({game.get('home_provider_id', 'N/A')})"
+
+                    game_info = {
+                        'date': game.get('game_date', ''),
+                        'score': f"{away_score} - {home_score}",  # From away team's perspective
+                        'result': 'W' if away_score > home_score else 'L' if away_score < home_score else 'D',
+                        'opponent': opponent,
+                        'event': game.get('event_name', 'N/A')
+                    }
+
                     if team_id not in unmatched_teams:
                         team_info = team_names.get(team_id, {})
                         unmatched_teams[team_id] = {
@@ -1566,7 +1615,19 @@ def main():
                         st.markdown("---")
                         st.markdown("**Sample Games:**")
                         for game in row['sample_games']:
-                            st.markdown(f"- {game['date'][:10]} - Score: {game['score']} - {game['event']}")
+                            # Add result emoji and opponent info if available
+                            result = game.get('result', '')
+                            result_emoji = '✅' if result == 'W' else '❌' if result == 'L' else '🤝' if result == 'D' else ''
+                            opponent = game.get('opponent', 'Unknown Opponent')
+
+                            game_display = f"- {game['date'][:10]} - "
+                            if result_emoji:
+                                game_display += f"{result_emoji} **{result}** - "
+                            game_display += f"Score: {game['score']} - vs {opponent}"
+                            if game.get('event') and game['event'] != 'N/A':
+                                game_display += f" - {game['event']}"
+
+                            st.markdown(game_display)
 
                 with col2:
                     st.markdown("#### Auto-Suggestions")
