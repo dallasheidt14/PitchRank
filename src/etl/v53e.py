@@ -273,7 +273,7 @@ def compute_rankings(
         out["ga"] = _clip_outliers_series(out["ga"], cfg.OUTLIER_GUARD_ZSCORE)
         return out
 
-    g = g.groupby("team_id", group_keys=False).apply(clip_team_games)
+    g = g.groupby("team_id").apply(clip_team_games).reset_index(drop=True)
     g["gd"] = (g["gf"] - g["ga"]).clip(-cfg.GOAL_DIFF_CAP, cfg.GOAL_DIFF_CAP)
 
     # keep last N games per team (by date)
@@ -295,7 +295,7 @@ def compute_rankings(
         out["w_base"] = w
         return out
 
-    g = g.groupby("team_id", group_keys=False).apply(apply_recency)
+    g = g.groupby("team_id").apply(apply_recency).reset_index(drop=True)
 
     # -------------------------
     # Context multipliers (tournament/KO)
@@ -365,7 +365,7 @@ def compute_rankings(
         out["def_shrunk"] = 1.0 / (out["sad_shrunk"] + cfg.RIDGE_GA)
         return out
 
-    team = team.groupby(["age", "gender"], group_keys=False).apply(shrink_grp)
+    team = team.groupby(["age", "gender"]).apply(shrink_grp).reset_index(drop=True)
 
     # -------------------------
     # Layer 5: team-level outlier guard (OFF/DEF)
@@ -380,7 +380,7 @@ def compute_rankings(
                                   mu + cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd)
         return out
 
-    team = team.groupby(["age", "gender"], group_keys=False).apply(clip_team_level)
+    team = team.groupby(["age", "gender"]).apply(clip_team_level).reset_index(drop=True)
 
     # -------------------------
     # Layer 9: normalize OFF/DEF
@@ -567,7 +567,7 @@ def compute_rankings(
             out["def_shrunk"] = 1.0 / (out["sad_shrunk"] + cfg.RIDGE_GA)
             return out
 
-        team = team.groupby(["age", "gender"], group_keys=False).apply(shrink_grp_adj)
+        team = team.groupby(["age", "gender"]).apply(shrink_grp_adj).reset_index(drop=True)
 
         # Re-apply outlier clipping
         def clip_team_level_adj(df: pd.DataFrame) -> pd.DataFrame:
@@ -580,7 +580,7 @@ def compute_rankings(
                                       mu + cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd)
             return out
 
-        team = team.groupby(["age", "gender"], group_keys=False).apply(clip_team_level_adj)
+        team = team.groupby(["age", "gender"]).apply(clip_team_level_adj).reset_index(drop=True)
 
         # Re-normalize
         team = _normalize_by_cohort(team, "off_shrunk", "off_norm", cfg.NORM_MODE)
