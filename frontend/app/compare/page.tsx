@@ -5,8 +5,32 @@ import { CardSkeleton } from '@/components/ui/skeletons';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Compare Teams | PitchRank',
-  description: 'Compare multiple teams side-by-side to see their rankings and statistics',
+  title: 'Compare Teams',
+  description: 'Compare multiple youth soccer teams side-by-side to see their rankings, statistics, and performance metrics across different age groups and states.',
+  alternates: {
+    canonical: '/compare',
+  },
+  openGraph: {
+    title: 'Compare Teams | PitchRank',
+    description: 'Compare multiple youth soccer teams side-by-side to see their rankings, statistics, and performance metrics.',
+    url: '/compare',
+    siteName: 'PitchRank',
+    type: 'website',
+    images: [
+      {
+        url: '/logos/pitchrank-wordmark.svg',
+        width: 1200,
+        height: 630,
+        alt: 'PitchRank Compare Teams',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Compare Teams | PitchRank',
+    description: 'Compare multiple youth soccer teams side-by-side to see their rankings and statistics.',
+    images: ['/logos/pitchrank-wordmark.svg'],
+  },
 };
 
 export default function ComparePage() {

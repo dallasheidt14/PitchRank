@@ -1,0 +1,16 @@
+# robots.txt for PitchRank
+# Allow all search engines to crawl the site
+
+User-agent: *
+Allow: /
+
+# Allow crawling of all ranking pages
+Allow: /rankings/
+Allow: /teams/
+
+# Disallow admin/test pages
+Disallow: /api/
+Disallow: /test
+
+# Sitemap location
+Sitemap: https://pitchrank.com/sitemap.xml
