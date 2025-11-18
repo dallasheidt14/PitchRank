@@ -264,6 +264,11 @@ def compute_rankings(
     cutoff = today - pd.Timedelta(days=cfg.WINDOW_DAYS)
     g = g[g["date"] >= cutoff].copy()
 
+    # Early return if no games remain after window filter
+    if g.empty:
+        logger.warning(f"No games found within {cfg.WINDOW_DAYS}-day window (cutoff: {cutoff.date()})")
+        return {"teams": pd.DataFrame(), "games_used": pd.DataFrame()}
+
     # -------------------------
     # Layer 2: per-team GF/GA outlier guard + GD cap
     # -------------------------
@@ -274,6 +279,12 @@ def compute_rankings(
         return out
 
     g = g.groupby("team_id", group_keys=False).apply(clip_team_games)
+
+    # Safety check: ensure required columns exist after groupby-apply
+    if g.empty or "team_id" not in g.columns:
+        logger.warning("Dataframe became invalid after clipping operation")
+        return {"teams": pd.DataFrame(), "games_used": pd.DataFrame()}
+
     g["gd"] = (g["gf"] - g["ga"]).clip(-cfg.GOAL_DIFF_CAP, cfg.GOAL_DIFF_CAP)
 
     # keep last N games per team (by date)
