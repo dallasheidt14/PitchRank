@@ -530,10 +530,10 @@ def get_stale_teams(days_threshold=10):
         return pd.DataFrame()
 
     try:
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
 
-        # Calculate threshold date
-        threshold_date = datetime.now() - timedelta(days=days_threshold)
+        # Calculate threshold date (timezone-aware)
+        threshold_date = datetime.now(timezone.utc) - timedelta(days=days_threshold)
 
         # Query teams with old scrape dates or null scrape dates
         result = client.table('teams').select(
@@ -551,8 +551,9 @@ def get_stale_teams(days_threshold=10):
 
         # Calculate days since last scrape
         if 'last_scraped_at' in df.columns:
-            df['last_scraped_at'] = pd.to_datetime(df['last_scraped_at'], errors='coerce')
-            df['days_since_scrape'] = (datetime.now() - df['last_scraped_at']).dt.days
+            df['last_scraped_at'] = pd.to_datetime(df['last_scraped_at'], errors='coerce', utc=True)
+            now_utc = pd.Timestamp.now(tz='UTC')
+            df['days_since_scrape'] = (now_utc - df['last_scraped_at']).dt.days
             df['days_since_scrape'] = df['days_since_scrape'].fillna(999)  # For null values
         else:
             df['days_since_scrape'] = 999
