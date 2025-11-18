@@ -52,13 +52,14 @@ else:
 async def search_teams(supabase, search_term: str):
     """Search for teams by name"""
     try:
-        # Search in team_names table first
-        result = supabase.table('team_names').select(
-            'team_id_master, name'
-        ).ilike('name', f'%{search_term}%').limit(20).execute()
+        # Search in teams table
+        result = supabase.table('teams').select(
+            'team_id_master, team_name'
+        ).ilike('team_name', f'%{search_term}%').limit(20).execute()
 
         if result.data:
-            return result.data
+            # Normalize the response to use 'name' key for consistency
+            return [{'team_id_master': t['team_id_master'], 'name': t['team_name']} for t in result.data]
         return []
     except Exception as e:
         console.print(f"[red]Error searching teams: {e}[/red]")
@@ -68,22 +69,15 @@ async def search_teams(supabase, search_term: str):
 async def get_team_info(supabase, team_id: str):
     """Get team information including name and metadata"""
     try:
-        # Get team name
-        name_result = supabase.table('team_names').select(
-            'name'
-        ).eq('team_id_master', team_id).limit(1).execute()
-
-        team_name = name_result.data[0]['name'] if name_result.data else 'Unknown'
-
-        # Get team metadata
+        # Get team info from teams table (single query)
         team_result = supabase.table('teams').select(
-            'age_group, gender'
+            'team_name, age_group, gender'
         ).eq('team_id_master', team_id).limit(1).execute()
 
         if team_result.data:
             return {
                 'team_id': team_id,
-                'name': team_name,
+                'name': team_result.data[0].get('team_name', 'Unknown'),
                 'age_group': team_result.data[0].get('age_group', 'Unknown'),
                 'gender': team_result.data[0].get('gender', 'Unknown')
             }
@@ -155,13 +149,13 @@ async def get_opponent_names(supabase, opp_ids: list):
 
         for i in range(0, len(opp_ids), batch_size):
             batch = list(opp_ids)[i:i + batch_size]
-            result = supabase.table('team_names').select(
-                'team_id_master, name'
+            result = supabase.table('teams').select(
+                'team_id_master, team_name'
             ).in_('team_id_master', batch).execute()
 
             if result.data:
                 for row in result.data:
-                    names[row['team_id_master']] = row['name']
+                    names[row['team_id_master']] = row['team_name']
 
         return names
     except Exception as e:
