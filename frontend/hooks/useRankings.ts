@@ -20,13 +20,13 @@ export function useRankings(
     hasSupabaseUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
     hasAnonKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   });
-  
+
   const queryResult = useQuery<RankingRow[]>({
     queryKey: ['rankings', region, ageGroup, gender],
     enabled: true, // Explicitly enable the query
     queryFn: async () => {
       console.log('[useRankings] Query function executing with:', { region, ageGroup, gender });
-      
+
       if (!region) {
         // National rankings = return full slice from rankings_view
         let query = supabase
@@ -87,6 +87,7 @@ export function useRankings(
           } : null,
         });
 
+        // total_games_played is now calculated in the database view
         return (data || []) as RankingRow[];
       } else {
         // State rankings = filtered national from state_rankings_view
@@ -138,13 +139,14 @@ export function useRankings(
           } : null,
         });
 
+        // total_games_played is now calculated in the database view
         return (data || []) as RankingRow[];
       }
     },
     staleTime: 5 * 60 * 1000, // 5 minutes - rankings update weekly
     gcTime: 30 * 60 * 1000, // Keep in cache for 30 minutes
   });
-  
+
   console.log('[useRankings] Query result:', {
     isLoading: queryResult.isLoading,
     isError: queryResult.isError,
@@ -152,7 +154,6 @@ export function useRankings(
     dataLength: queryResult.data?.length || 0,
     hasData: !!queryResult.data && queryResult.data.length > 0,
   });
-  
+
   return queryResult;
 }
-
