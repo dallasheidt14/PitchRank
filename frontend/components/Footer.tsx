@@ -43,7 +43,6 @@ export function Footer() {
     ],
     Resources: [
       { name: 'Methodology', href: '/methodology' },
-      { name: 'How Rankings Work', href: '/methodology' },
     ],
   };
 
