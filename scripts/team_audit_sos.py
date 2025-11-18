@@ -11,9 +11,12 @@ Shows:
 - Helps verify SOS is being calculated correctly
 
 Usage:
+    # Interactive mode
     python scripts/team_audit_sos.py
 
-    Then enter team name or ID when prompted
+    # Non-interactive mode (for GitHub Actions)
+    python scripts/team_audit_sos.py --team-name "Dallas Tigers"
+    python scripts/team_audit_sos.py --team-id "abc-123-def"
 """
 import asyncio
 import sys
@@ -22,6 +25,7 @@ import pandas as pd
 import numpy as np
 from supabase import create_client
 import os
+import argparse
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
@@ -216,73 +220,18 @@ def calculate_sos_manually(games_df: pd.DataFrame, strength_map: dict, cfg: V53E
     return sos_direct, g_sos
 
 
-async def main():
-    # Initialize Supabase client
-    supabase_url = os.getenv('SUPABASE_URL')
-    supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+async def audit_team(supabase, team_id: str, team_name: str = None):
+    """
+    Run SOS audit for a specific team
 
-    if not supabase_url or not supabase_key:
-        console.print("[red]Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env[/red]")
-        sys.exit(1)
-
-    supabase = create_client(supabase_url, supabase_key)
-
-    console.print(Panel.fit(
-        "[bold cyan]Team SOS Audit Script[/bold cyan]\n\n"
-        "This script helps you verify SOS calculations by showing:\n"
-        "• Team's complete game history\n"
-        "• Opponent strength for each game\n"
-        "• Game weights and SOS contributions\n"
-        "• Manual SOS calculation vs database value",
-        border_style="cyan"
-    ))
-
-    # Get team search term
-    search_term = Prompt.ask("\n[cyan]Enter team name to search[/cyan]")
-
-    console.print(f"\n[yellow]Searching for teams matching '{search_term}'...[/yellow]")
-    teams = await search_teams(supabase, search_term)
-
-    if not teams:
-        console.print(f"[red]No teams found matching '{search_term}'[/red]")
-        return
-
-    # Display search results
-    console.print(f"\n[green]Found {len(teams)} team(s):[/green]")
-    search_table = Table(show_header=True)
-    search_table.add_column("#", style="cyan", width=4)
-    search_table.add_column("Team Name", style="white")
-    search_table.add_column("Team ID", style="dim")
-
-    for i, team in enumerate(teams, 1):
-        search_table.add_row(
-            str(i),
-            team['name'],
-            str(team['team_id_master'])[:8] + "..."
-        )
-
-    console.print(search_table)
-
-    # Select team
-    if len(teams) == 1:
-        selected_idx = 0
-        console.print(f"\n[green]Auto-selecting only match: {teams[0]['name']}[/green]")
-    else:
-        selection = Prompt.ask(
-            f"\n[cyan]Select team number (1-{len(teams)})[/cyan]",
-            default="1"
-        )
-        try:
-            selected_idx = int(selection) - 1
-            if selected_idx < 0 or selected_idx >= len(teams):
-                console.print("[red]Invalid selection[/red]")
-                return
-        except ValueError:
-            console.print("[red]Invalid selection[/red]")
-            return
-
-    team_id = teams[selected_idx]['team_id_master']
-    team_name = teams[selected_idx]['name']
+    Args:
+        supabase: Supabase client
+        team_id: Team ID to audit
+        team_name: Optional team name (will be fetched if not provided)
+    """
+    if not team_name:
+        team_info = await get_team_info(supabase, team_id)
+        team_name = team_info['name'] if team_info else 'Unknown'
 
     console.print(f"\n[bold green]Analyzing: {team_name}[/bold green]")
     console.print(f"[dim]Team ID: {team_id}[/dim]\n")
@@ -292,6 +241,8 @@ async def main():
     if team_info:
         console.print(f"[cyan]Age Group:[/cyan] {team_info['age_group']}")
         console.print(f"[cyan]Gender:[/cyan] {team_info['gender']}\n")
+    else:
+        console.print("[yellow]Could not fetch team metadata[/yellow]\n")
 
     # Fetch current rankings to get strength map and actual SOS
     console.print("[yellow]Loading rankings data...[/yellow]")
@@ -454,6 +405,138 @@ async def main():
                 console.print("\n[yellow]⚠ Small difference detected. This is expected due to transitivity passes.[/yellow]")
             else:
                 console.print("\n[red]✗ Large difference detected! SOS calculation may have issues.[/red]")
+
+
+async def main():
+    """Main entry point - handles both interactive and CLI modes"""
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(
+        description='Audit SOS calculations for a specific team',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Interactive mode
+  python scripts/team_audit_sos.py
+
+  # Non-interactive mode
+  python scripts/team_audit_sos.py --team-name "Dallas Tigers"
+  python scripts/team_audit_sos.py --team-id "abc-123-def-456"
+        """
+    )
+    parser.add_argument('--team-name', type=str, help='Team name to search for')
+    parser.add_argument('--team-id', type=str, help='Exact team ID to audit')
+    parser.add_argument('--auto-select', action='store_true',
+                        help='Auto-select first match (for non-interactive use)')
+
+    args = parser.parse_args()
+
+    # Initialize Supabase client
+    supabase_url = os.getenv('SUPABASE_URL')
+    supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+
+    if not supabase_url or not supabase_key:
+        console.print("[red]Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env[/red]")
+        sys.exit(1)
+
+    supabase = create_client(supabase_url, supabase_key)
+
+    # Non-interactive mode: team ID provided
+    if args.team_id:
+        console.print(Panel.fit(
+            "[bold cyan]Team SOS Audit Script[/bold cyan]\n"
+            "[dim]Running in non-interactive mode[/dim]",
+            border_style="cyan"
+        ))
+        await audit_team(supabase, args.team_id)
+        return
+
+    # Non-interactive mode: team name provided
+    if args.team_name:
+        console.print(Panel.fit(
+            "[bold cyan]Team SOS Audit Script[/bold cyan]\n"
+            "[dim]Running in non-interactive mode[/dim]",
+            border_style="cyan"
+        ))
+
+        console.print(f"\n[yellow]Searching for teams matching '{args.team_name}'...[/yellow]")
+        teams = await search_teams(supabase, args.team_name)
+
+        if not teams:
+            console.print(f"[red]No teams found matching '{args.team_name}'[/red]")
+            sys.exit(1)
+
+        # Auto-select if requested or only one match
+        if args.auto_select or len(teams) == 1:
+            selected_team = teams[0]
+            console.print(f"[green]Selected: {selected_team['name']}[/green]")
+        else:
+            # Display options and take first match
+            console.print(f"\n[green]Found {len(teams)} team(s), using first match:[/green]")
+            selected_team = teams[0]
+            console.print(f"[green]→ {selected_team['name']}[/green]")
+
+        await audit_team(supabase, selected_team['team_id_master'], selected_team['name'])
+        return
+
+    # Interactive mode
+    console.print(Panel.fit(
+        "[bold cyan]Team SOS Audit Script[/bold cyan]\n\n"
+        "This script helps you verify SOS calculations by showing:\n"
+        "• Team's complete game history\n"
+        "• Opponent strength for each game\n"
+        "• Game weights and SOS contributions\n"
+        "• Manual SOS calculation vs database value",
+        border_style="cyan"
+    ))
+
+    # Get team search term
+    search_term = Prompt.ask("\n[cyan]Enter team name to search[/cyan]")
+
+    console.print(f"\n[yellow]Searching for teams matching '{search_term}'...[/yellow]")
+    teams = await search_teams(supabase, search_term)
+
+    if not teams:
+        console.print(f"[red]No teams found matching '{search_term}'[/red]")
+        return
+
+    # Display search results
+    console.print(f"\n[green]Found {len(teams)} team(s):[/green]")
+    search_table = Table(show_header=True)
+    search_table.add_column("#", style="cyan", width=4)
+    search_table.add_column("Team Name", style="white")
+    search_table.add_column("Team ID", style="dim")
+
+    for i, team in enumerate(teams, 1):
+        search_table.add_row(
+            str(i),
+            team['name'],
+            str(team['team_id_master'])[:8] + "..."
+        )
+
+    console.print(search_table)
+
+    # Select team
+    if len(teams) == 1:
+        selected_idx = 0
+        console.print(f"\n[green]Auto-selecting only match: {teams[0]['name']}[/green]")
+    else:
+        selection = Prompt.ask(
+            f"\n[cyan]Select team number (1-{len(teams)})[/cyan]",
+            default="1"
+        )
+        try:
+            selected_idx = int(selection) - 1
+            if selected_idx < 0 or selected_idx >= len(teams):
+                console.print("[red]Invalid selection[/red]")
+                return
+        except ValueError:
+            console.print("[red]Invalid selection[/red]")
+            return
+
+    team_id = teams[selected_idx]['team_id_master']
+    team_name = teams[selected_idx]['name']
+
+    await audit_team(supabase, team_id, team_name)
 
 
 if __name__ == '__main__':
