@@ -9,12 +9,11 @@ jobs:
 
     steps:
       # ---------------------------------------------------------------
-      # 1. CHECKOUT THE CORRECT BRANCH (Iterative SOS branch)
+      # 1. CHECKOUT THE MAIN BRANCH
       # ---------------------------------------------------------------
-      - name: Checkout repository (Opponent-adjusted branch)
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: claude/analyze-power-score-sos-01NFoj7SvCVtxEDh1fNmcHtd
           fetch-depth: 0
 
       # ---------------------------------------------------------------
@@ -23,7 +22,7 @@ jobs:
       - name: Verify correct branch
         run: |
           echo "Checked-out branch: $(git branch --show-current)"
-          if [ "$(git branch --show-current)" != "claude/analyze-power-score-sos-01NFoj7SvCVtxEDh1fNmcHtd" ]; then
+          if [ "$(git branch --show-current)" != "main" ]; then
             echo "❌ ERROR: Wrong branch checked out! Rankings run ABORTED."
             exit 1
           fi
