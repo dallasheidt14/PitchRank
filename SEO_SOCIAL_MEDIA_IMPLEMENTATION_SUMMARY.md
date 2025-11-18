@@ -31,7 +31,7 @@ We've successfully implemented a comprehensive SEO and social media strategy for
   - Static pages (home, rankings, compare, methodology)
   - Proper change frequencies and priorities
   - National rankings have higher priority than state rankings
-- **Accessible at**: `https://pitchrank.com/sitemap.xml`
+- **Accessible at**: `https://pitchrank.io/sitemap.xml`
 - **Impact**: Search engines can discover and index all your pages efficiently
 
 ### 3. **Enhanced Meta Tags (Root Layout)**
@@ -198,8 +198,8 @@ All code has been committed and pushed to:
 ```
 
 #### 2. **Verify SEO Implementation** (After Deploy)
-- [ ] Visit https://pitchrank.com/robots.txt (should show your robots.txt)
-- [ ] Visit https://pitchrank.com/sitemap.xml (should show XML sitemap)
+- [ ] Visit https://pitchrank.io/robots.txt (should show your robots.txt)
+- [ ] Visit https://pitchrank.io/sitemap.xml (should show XML sitemap)
 - [ ] View page source and verify structured data (look for `<script type="application/ld+json">`)
 - [ ] Test social media sharing:
   - Share a link on Twitter - verify preview looks good
@@ -209,9 +209,9 @@ All code has been committed and pushed to:
 #### 3. **Submit to Search Engines**
 - [ ] **Google Search Console**:
   1. Go to search.google.com/search-console
-  2. Add property: https://pitchrank.com
+  2. Add property: https://pitchrank.io
   3. Verify ownership (DNS or HTML file)
-  4. Submit sitemap: `https://pitchrank.com/sitemap.xml`
+  4. Submit sitemap: `https://pitchrank.io/sitemap.xml`
   5. Request indexing for key pages
 
 - [ ] **Bing Webmaster Tools**:
@@ -268,7 +268,7 @@ You need to create:
 
 #### 7. **Launch Social Media**
 - [ ] Post announcement on all platforms
-- [ ] Share link to pitchrank.com
+- [ ] Share link to pitchrank.io
 - [ ] Tag 5-10 top-ranked teams (create engagement)
 - [ ] Post daily for first week (build momentum)
 

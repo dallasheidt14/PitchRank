@@ -22,7 +22,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://pitchrank.com"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://pitchrank.io"),
   title: {
     default: "PitchRank — Youth Soccer Rankings",
     template: "%s | PitchRank",

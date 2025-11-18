@@ -3,7 +3,7 @@
  * Provides rich metadata for search engines
  */
 export function StructuredData() {
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.com';
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
 
   // Organization Schema
   const organizationSchema = {

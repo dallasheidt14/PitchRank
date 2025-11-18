@@ -13,4 +13,4 @@ Disallow: /api/
 Disallow: /test
 
 # Sitemap location
-Sitemap: https://pitchrank.com/sitemap.xml
+Sitemap: https://pitchrank.io/sitemap.xml

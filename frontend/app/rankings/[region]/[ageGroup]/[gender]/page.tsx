@@ -44,7 +44,7 @@ export async function generateMetadata({ params }: RankingsPageProps): Promise<M
     const resolvedParams = await params;
     const { region, ageGroup, gender } = resolvedParams;
     
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.com';
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
     const canonicalUrl = `${baseUrl}/rankings/${region}/${ageGroup}/${gender}`;
     
     const formattedAgeGroup = formatAgeGroup(ageGroup);
