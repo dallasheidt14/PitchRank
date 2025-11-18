@@ -163,29 +163,53 @@ async def get_opponent_names(supabase, opp_ids: list):
 
 def calculate_sos_manually(games_df: pd.DataFrame, strength_map: dict, cfg: V53EConfig, today: pd.Timestamp):
     """
-    Manually calculate SOS using the same logic as v53e.py
+    Manually calculate SOS using simplified v53e logic
 
-    This replicates the SOS calculation from v53e.py:468-530 for verification
+    This approximates the SOS calculation from v53e.py for verification.
+    Uses simplified recency weighting instead of full v53e complexity.
     """
     if games_df.empty:
         return None, None
 
     g = games_df.copy()
 
-    # Calculate days since each game
-    g['days_since'] = (today - pd.to_datetime(g['date'])).dt.days
-    g['days_since'] = g['days_since'].clip(lower=0)
-
     # Calculate recency rank (1 = most recent)
     g = g.sort_values('date', ascending=False).reset_index(drop=True)
     g['rank_recency'] = range(1, len(g) + 1)
 
-    # Calculate w_game (recency weight)
-    g['w_game'] = np.exp(-cfg.RECENCY_DECAY_RATE * g['days_since'])
+    # Simplified recency weighting: most recent games get higher weight
+    # Approximates v53e Layer 3 logic
+    n = len(g)
+    k = min(cfg.RECENT_K, n)
+
+    # Recent games (first k) get higher weight, older games get dampened
+    weights = []
+    for i in range(n):
+        pos = i + 1
+        if pos <= k:
+            # Recent games: full weight
+            w = 1.0
+        elif cfg.DAMPEN_TAIL_START <= pos <= cfg.DAMPEN_TAIL_END:
+            # Tail dampening
+            t = (pos - cfg.DAMPEN_TAIL_START) / max(1, cfg.DAMPEN_TAIL_END - cfg.DAMPEN_TAIL_START)
+            w = cfg.DAMPEN_TAIL_START_WEIGHT + (cfg.DAMPEN_TAIL_END_WEIGHT - cfg.DAMPEN_TAIL_START_WEIGHT) * t
+        elif pos > cfg.DAMPEN_TAIL_END:
+            # Very old games: minimum weight
+            w = cfg.DAMPEN_TAIL_END_WEIGHT
+        else:
+            # Between recent and tail: full weight
+            w = 1.0
+        weights.append(w)
+
+    g['w_game'] = weights
 
     # Calculate k_adapt (strength gap adjustment)
+    # Approximates v53e Layer 5 logic
     g['gd'] = g['gf'] - g['ga']
-    g['k_adapt'] = np.exp(-cfg.ADAPT_K * g['gd'].abs())
+
+    # Simplified adaptive K based on goal difference (proxy for strength gap)
+    # In real v53e, this uses actual strength difference, but we approximate here
+    g['k_adapt'] = cfg.ADAPTIVE_K_ALPHA * (1.0 + cfg.ADAPTIVE_K_BETA * (g['gd'].abs() / 10.0))
 
     # Calculate w_sos (SOS weight)
     g['w_sos'] = g['w_game'] * g['k_adapt']
