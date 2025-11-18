@@ -1862,6 +1862,14 @@ def main():
                 never_scraped = (df_stale['days_since_scrape'] == 999).sum()
                 very_stale = (df_stale['days_since_scrape'] > 30).sum()
 
+                # Calculate average age (exclude never-scraped teams)
+                scraped_teams = df_stale[df_stale['days_since_scrape'] != 999]
+                if len(scraped_teams) > 0:
+                    avg_age = scraped_teams['days_since_scrape'].mean()
+                    avg_age_display = f"{int(avg_age)}"
+                else:
+                    avg_age_display = "N/A"
+
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     st.metric("Total Stale Teams", f"{total_stale:,}")
@@ -1870,8 +1878,7 @@ def main():
                 with col3:
                     st.metric(">30 Days Old", f"{very_stale:,}")
                 with col4:
-                    avg_age = df_stale[df_stale['days_since_scrape'] != 999]['days_since_scrape'].mean()
-                    st.metric("Avg Days Since Scrape", f"{int(avg_age) if not pd.isna(avg_age) else 'N/A'}")
+                    st.metric("Avg Days Since Scrape", avg_age_display)
 
                 # Filter options
                 st.markdown("#### Filters")
