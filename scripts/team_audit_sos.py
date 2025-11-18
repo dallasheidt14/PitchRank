@@ -264,16 +264,32 @@ async def audit_team(supabase, team_id: str, team_name: str = None):
     console.print("[yellow]Loading rankings data from database...[/yellow]")
 
     try:
-        # Fetch all rankings from rankings_full table
-        rankings_result = supabase.table('rankings_full').select(
-            'team_id, abs_strength, sos, sos_norm'
-        ).execute()
+        # Fetch all rankings from rankings_full table with pagination
+        all_rankings = []
+        page_size = 1000
+        offset = 0
 
-        if not rankings_result.data:
+        while True:
+            rankings_result = supabase.table('rankings_full').select(
+                'team_id, abs_strength, sos, sos_norm'
+            ).range(offset, offset + page_size - 1).execute()
+
+            if not rankings_result.data:
+                break
+
+            all_rankings.extend(rankings_result.data)
+
+            # If we got fewer than page_size, we've reached the end
+            if len(rankings_result.data) < page_size:
+                break
+
+            offset += page_size
+
+        if not all_rankings:
             console.print("[red]No rankings found in database. Please run the rankings calculation first.[/red]")
             return
 
-        teams_df = pd.DataFrame(rankings_result.data)
+        teams_df = pd.DataFrame(all_rankings)
 
         # Create strength map (team_id -> abs_strength)
         strength_map = dict(zip(teams_df['team_id'], teams_df['abs_strength']))
