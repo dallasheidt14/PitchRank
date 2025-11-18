@@ -184,32 +184,35 @@ async def fetch_games_for_rankings(
     
     for _, game in games_df.iterrows():
         game_id = str(game.get('game_uid') or game.get('id', ''))
+        game_uuid = game.get('id')  # Keep original UUID for ML residual mapping
         game_date = pd.to_datetime(game.get('game_date'))
         home_team_id = game.get('home_team_master_id')
         away_team_id = game.get('away_team_master_id')
         home_score = game.get('home_score')
         away_score = game.get('away_score')
-        
+
         # Skip if missing required data
         if pd.isna(home_team_id) or pd.isna(away_team_id) or pd.isna(game_date):
             continue
-        
+
         # Get team metadata
         home_age = team_age_map.get(home_team_id, '')
         home_gender = team_gender_map.get(home_team_id, '')
         away_age = team_age_map.get(away_team_id, '')
         away_gender = team_gender_map.get(away_team_id, '')
-        
+
         # Skip if missing age/gender
         if not home_age or not home_gender or not away_age or not away_gender:
             continue
-        
+
         # Home perspective
         v53e_rows.append({
             'game_id': game_id,
+            'id': game_uuid,  # Include UUID for ML residual mapping
             'date': game_date,
             'team_id': str(home_team_id),
             'opp_id': str(away_team_id),
+            'home_team_master_id': str(home_team_id),  # Track which team is home
             'age': home_age,
             'gender': home_gender,
             'opp_age': away_age,
@@ -217,13 +220,15 @@ async def fetch_games_for_rankings(
             'gf': safe_int(home_score),
             'ga': safe_int(away_score),
         })
-        
+
         # Away perspective
         v53e_rows.append({
             'game_id': game_id,
+            'id': game_uuid,  # Include UUID for ML residual mapping
             'date': game_date,
             'team_id': str(away_team_id),
             'opp_id': str(home_team_id),
+            'home_team_master_id': str(home_team_id),  # Track which team is home
             'age': away_age,
             'gender': away_gender,
             'opp_age': home_age,
@@ -301,29 +306,32 @@ def supabase_to_v53e_format(
     
     for _, game in games_df.iterrows():
         game_id = str(game.get('game_uid') or game.get('id', ''))
+        game_uuid = game.get('id')  # Keep original UUID for ML residual mapping
         game_date = pd.to_datetime(game.get('game_date'))
         home_team_id = game.get('home_team_master_id')
         away_team_id = game.get('away_team_master_id')
         home_score = game.get('home_score')
         away_score = game.get('away_score')
-        
+
         if pd.isna(home_team_id) or pd.isna(away_team_id) or pd.isna(game_date):
             continue
-        
+
         home_age = team_age_map.get(home_team_id, '')
         home_gender = team_gender_map.get(home_team_id, '')
         away_age = team_age_map.get(away_team_id, '')
         away_gender = team_gender_map.get(away_team_id, '')
-        
+
         if not home_age or not home_gender or not away_age or not away_gender:
             continue
-        
+
         # Home perspective
         v53e_rows.append({
             'game_id': game_id,
+            'id': game_uuid,  # Include UUID for ML residual mapping
             'date': game_date,
             'team_id': str(home_team_id),
             'opp_id': str(away_team_id),
+            'home_team_master_id': str(home_team_id),  # Track which team is home
             'age': home_age,
             'gender': home_gender,
             'opp_age': away_age,
@@ -331,13 +339,15 @@ def supabase_to_v53e_format(
             'gf': safe_int(home_score),
             'ga': safe_int(away_score),
         })
-        
+
         # Away perspective
         v53e_rows.append({
             'game_id': game_id,
+            'id': game_uuid,  # Include UUID for ML residual mapping
             'date': game_date,
             'team_id': str(away_team_id),
             'opp_id': str(home_team_id),
+            'home_team_master_id': str(home_team_id),  # Track which team is home
             'age': away_age,
             'gender': away_gender,
             'opp_age': home_age,
