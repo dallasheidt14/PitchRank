@@ -1,0 +1,80 @@
+name: Audit SOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      team_name:
+        description: 'Team name to audit (e.g., "Dallas Tigers")'
+        required: true
+        type: string
+      team_id:
+        description: 'Team ID (optional - use instead of team name for exact match)'
+        required: false
+        type: string
+
+jobs:
+  audit-team-sos:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ---------------------------------------------------------------
+      # 1. CHECKOUT REPOSITORY
+      # ---------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # ---------------------------------------------------------------
+      # 2. SET UP PYTHON ENVIRONMENT
+      # ---------------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      # ---------------------------------------------------------------
+      # 3. INSTALL PYTHON DEPENDENCIES
+      # ---------------------------------------------------------------
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt || true
+          pip install supabase python-dotenv pandas requests rich certifi numpy scikit-learn
+
+      # ---------------------------------------------------------------
+      # 4. RUN SOS AUDIT SCRIPT
+      # ---------------------------------------------------------------
+      - name: Run Team SOS Audit
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          echo "🔍 Auditing SOS for team: ${{ inputs.team_name || inputs.team_id }}"
+          echo ""
+
+          if [ -n "${{ inputs.team_id }}" ]; then
+            echo "Running audit with Team ID: ${{ inputs.team_id }}"
+            python scripts/team_audit_sos.py --team-id "${{ inputs.team_id }}"
+          else
+            echo "Running audit with Team Name: ${{ inputs.team_name }}"
+            python scripts/team_audit_sos.py --team-name "${{ inputs.team_name }}" --auto-select
+          fi
+
+      # ---------------------------------------------------------------
+      # 5. FINAL REPORT
+      # ---------------------------------------------------------------
+      - name: Report results
+        if: always()
+        run: |
+          echo ""
+          echo "✅ SOS Audit completed. Check the output above for detailed results."
+          echo ""
+          echo "The audit shows:"
+          echo "  • Team game history"
+          echo "  • Opponent strengths used in SOS calculation"
+          echo "  • Game weights and contributions"
+          echo "  • Manual vs Database SOS comparison"

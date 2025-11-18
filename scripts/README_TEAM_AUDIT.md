@@ -15,8 +15,32 @@ The `team_audit_sos.py` script is a powerful debugging tool that helps verify St
   - Whether the game is included in SOS calculation (repeat cap)
 - **Manual Verification**: Calculates SOS manually and compares with database value
 - **Summary Statistics**: Shows aggregate stats about opponents and games
+- **GitHub Action**: Run audits directly from GitHub Actions UI
 
 ## Usage
+
+### Option 1: GitHub Action (Recommended)
+
+The easiest way to audit a team's SOS is through the GitHub Action:
+
+1. Go to the **Actions** tab in your GitHub repository
+2. Select **"Audit SOS"** from the workflows list
+3. Click **"Run workflow"**
+4. Enter the team name (e.g., "Dallas Tigers")
+5. Click **"Run workflow"**
+6. Wait for the workflow to complete and view the results in the logs
+
+**Inputs:**
+- **team_name**: Team name to search for (required if team_id not provided)
+- **team_id**: Exact team ID (optional - use for precise matching)
+
+**Benefits:**
+- No local setup required
+- Runs on GitHub's infrastructure
+- Shareable results (link to workflow run)
+- Always uses latest code from repository
+
+### Option 2: Local Command Line
 
 ### Prerequisites
 
@@ -28,11 +52,24 @@ These should be in `.env` or `.env.local` file in the project root.
 
 ### Running the Script
 
+**Interactive Mode:**
 ```bash
 python scripts/team_audit_sos.py
 ```
 
-### Interactive Prompts
+**Non-Interactive Mode (Command Line):**
+```bash
+# Search by team name (auto-selects first match)
+python scripts/team_audit_sos.py --team-name "Dallas Tigers"
+
+# Search by exact team ID
+python scripts/team_audit_sos.py --team-id "abc-123-def-456"
+
+# Auto-select first match without showing options
+python scripts/team_audit_sos.py --team-name "Dallas" --auto-select
+```
+
+### Interactive Mode Prompts
 
 1. **Team Search**: Enter a team name to search
    ```
@@ -141,6 +178,63 @@ These values come from `src/etl/v53e.py::V53EConfig`
   - Game weights
   - Transitivity calculations
   - Data quality issues
+
+## GitHub Action Workflow
+
+### Workflow File
+
+The SOS audit is available as a GitHub Action in `.github/workflows/audit-sos.yml`.
+
+### How to Use
+
+1. **Navigate to Actions**:
+   - Go to your repository on GitHub
+   - Click the "Actions" tab at the top
+
+2. **Select Workflow**:
+   - In the left sidebar, click "Audit SOS"
+
+3. **Run Workflow**:
+   - Click the "Run workflow" button (top right)
+   - Fill in the inputs:
+     - **team_name**: Enter the team name to search (e.g., "Dallas Tigers")
+     - **team_id**: (Optional) Enter exact team ID if you know it
+   - Click "Run workflow"
+
+4. **View Results**:
+   - The workflow will appear in the list below
+   - Click on it to see the progress
+   - Once complete, click "Run Team SOS Audit" step to see detailed output
+
+### Example Workflow Run
+
+```yaml
+Inputs:
+  team_name: "FC Dallas Academy"
+  team_id: (leave empty)
+
+Output:
+  ✓ Found team and analyzed SOS
+  ✓ Shows game history with opponent strengths
+  ✓ Displays manual vs database SOS comparison
+  ✓ Summary statistics
+```
+
+### Workflow Features
+
+- **Manual Trigger**: Run on-demand whenever needed
+- **Flexible Input**: Use team name or exact team ID
+- **Complete Output**: Full audit results in workflow logs
+- **No Local Setup**: Runs entirely on GitHub infrastructure
+- **Shareable**: Send workflow run URL to others
+
+### When to Use the GitHub Action
+
+- Quick checks without local setup
+- Verifying SOS after rankings updates
+- Debugging specific team issues
+- Sharing results with team members
+- Running audits from mobile devices
 
 ## Related Scripts
 
