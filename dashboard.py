@@ -234,8 +234,8 @@ def get_match_statistics():
         return None
 
 
-def get_unmatched_opponents(limit=100):
-    """Fetch games with unmatched teams."""
+def get_unmatched_opponents(limit=500):
+    """Fetch games with unmatched teams and extract team info."""
     client = get_supabase_client()
     if not client:
         return pd.DataFrame()
@@ -253,44 +253,135 @@ def get_unmatched_opponents(limit=100):
         if not result.data:
             return pd.DataFrame()
 
-        # Process to extract unique unmatched teams
+        # Get team names from team_alias_map for provider IDs
+        all_provider_ids = set()
+        for game in result.data:
+            if game.get('home_team_master_id') is None:
+                all_provider_ids.add(game.get('home_provider_id', ''))
+            if game.get('away_team_master_id') is None:
+                all_provider_ids.add(game.get('away_provider_id', ''))
+
+        # Fetch team names from alias map (even if rejected)
+        team_names = {}
+        if all_provider_ids:
+            alias_result = client.table('team_alias_map').select(
+                'provider_team_id, team_name, age_group, gender'
+            ).in_('provider_team_id', list(all_provider_ids)).execute()
+
+            if alias_result.data:
+                for alias in alias_result.data:
+                    team_names[alias['provider_team_id']] = {
+                        'team_name': alias.get('team_name', ''),
+                        'age_group': alias.get('age_group', ''),
+                        'gender': alias.get('gender', '')
+                    }
+
+        # Process to extract unique unmatched teams with all info
         unmatched_teams = {}
+        sample_games = {}  # Store sample games for each team
 
         for game in result.data:
+            game_info = {
+                'date': game.get('game_date', ''),
+                'score': f"{game.get('home_score', '-')} - {game.get('away_score', '-')}",
+                'event': game.get('event_name', 'N/A')
+            }
+
             # Check home team
             if game.get('home_team_master_id') is None:
                 team_id = game.get('home_provider_id', '')
-                if team_id and team_id not in unmatched_teams:
-                    unmatched_teams[team_id] = {
-                        'provider_team_id': team_id,
-                        'provider_id': game.get('provider_id', ''),
-                        'game_count': 0,
-                        'recent_game_date': game.get('game_date', ''),
-                        'division_name': game.get('division_name', ''),
-                        'event_name': game.get('event_name', '')
-                    }
                 if team_id:
+                    if team_id not in unmatched_teams:
+                        team_info = team_names.get(team_id, {})
+                        unmatched_teams[team_id] = {
+                            'provider_team_id': team_id,
+                            'provider_id': game.get('provider_id', ''),
+                            'team_name': team_info.get('team_name', f'Unknown ({team_id})'),
+                            'age_group': team_info.get('age_group', ''),
+                            'gender': team_info.get('gender', ''),
+                            'game_count': 0,
+                            'recent_game_date': game.get('game_date', ''),
+                            'division_name': game.get('division_name', ''),
+                            'event_name': game.get('event_name', '')
+                        }
+                        sample_games[team_id] = []
+
                     unmatched_teams[team_id]['game_count'] += 1
+                    if len(sample_games[team_id]) < 5:  # Keep up to 5 sample games
+                        sample_games[team_id].append(game_info)
 
             # Check away team
             if game.get('away_team_master_id') is None:
                 team_id = game.get('away_provider_id', '')
-                if team_id and team_id not in unmatched_teams:
-                    unmatched_teams[team_id] = {
-                        'provider_team_id': team_id,
-                        'provider_id': game.get('provider_id', ''),
-                        'game_count': 0,
-                        'recent_game_date': game.get('game_date', ''),
-                        'division_name': game.get('division_name', ''),
-                        'event_name': game.get('event_name', '')
-                    }
                 if team_id:
+                    if team_id not in unmatched_teams:
+                        team_info = team_names.get(team_id, {})
+                        unmatched_teams[team_id] = {
+                            'provider_team_id': team_id,
+                            'provider_id': game.get('provider_id', ''),
+                            'team_name': team_info.get('team_name', f'Unknown ({team_id})'),
+                            'age_group': team_info.get('age_group', ''),
+                            'gender': team_info.get('gender', ''),
+                            'game_count': 0,
+                            'recent_game_date': game.get('game_date', ''),
+                            'division_name': game.get('division_name', ''),
+                            'event_name': game.get('event_name', '')
+                        }
+                        sample_games[team_id] = []
+
                     unmatched_teams[team_id]['game_count'] += 1
+                    if len(sample_games[team_id]) < 5:
+                        sample_games[team_id].append(game_info)
+
+        # Add sample games to the dataframe
+        for team_id, team_data in unmatched_teams.items():
+            team_data['sample_games'] = sample_games.get(team_id, [])
 
         return pd.DataFrame(list(unmatched_teams.values()))
     except Exception as e:
         st.error(f"Error fetching unmatched opponents: {e}")
         return pd.DataFrame()
+
+
+def get_overall_matching_stats():
+    """Get overall statistics about team matching."""
+    client = get_supabase_client()
+    if not client:
+        return None
+
+    try:
+        # Get total games
+        games_result = client.table('games').select('id, home_team_master_id, away_team_master_id', count='exact').execute()
+        total_games = games_result.count if games_result.count else 0
+
+        # Get matched/unmatched counts
+        matched_both = client.table('games').select('id', count='exact').not_.is_('home_team_master_id', 'null').not_.is_('away_team_master_id', 'null').execute()
+        matched_one = client.table('games').select('id', count='exact').or_('home_team_master_id.is.null,away_team_master_id.is.null').not_.or_('home_team_master_id.is.null.and.away_team_master_id.is.null').execute()
+        matched_none = client.table('games').select('id', count='exact').is_('home_team_master_id', 'null').is_('away_team_master_id', 'null').execute()
+
+        # Get team counts
+        total_teams = client.table('teams').select('id', count='exact').execute()
+
+        # Get alias map stats
+        alias_stats = client.table('team_alias_map').select('match_method, review_status', count='exact').execute()
+
+        fuzzy_auto = sum(1 for a in alias_stats.data if a.get('match_method') == 'fuzzy_auto') if alias_stats.data else 0
+        fuzzy_pending = sum(1 for a in alias_stats.data if a.get('match_method') == 'fuzzy_review' and a.get('review_status') == 'pending') if alias_stats.data else 0
+        manual_matches = sum(1 for a in alias_stats.data if a.get('match_method') == 'manual') if alias_stats.data else 0
+
+        return {
+            'total_games': total_games,
+            'matched_both': matched_both.count if matched_both.count else 0,
+            'matched_one': matched_one.count if matched_one.count else 0,
+            'matched_none': matched_none.count if matched_none.count else 0,
+            'total_teams': total_teams.count if total_teams.count else 0,
+            'fuzzy_auto': fuzzy_auto,
+            'fuzzy_pending': fuzzy_pending,
+            'manual_matches': manual_matches
+        }
+    except Exception as e:
+        st.error(f"Error fetching stats: {e}")
+        return None
 
 
 def search_teams(search_query: str, age_group: str = None, gender: str = None):
@@ -1338,18 +1429,56 @@ def main():
             """
         )
 
+        # Overall matching statistics
+        st.markdown("### 📊 Overall Matching Statistics")
+        overall_stats = get_overall_matching_stats()
+
+        if overall_stats:
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                st.metric("Total Games", f"{overall_stats['total_games']:,}")
+            with col2:
+                pct_both = (overall_stats['matched_both'] / overall_stats['total_games'] * 100) if overall_stats['total_games'] > 0 else 0
+                st.metric("Both Teams Matched", f"{overall_stats['matched_both']:,}",
+                         delta=f"{pct_both:.1f}%", delta_color="normal")
+            with col3:
+                pct_one = (overall_stats['matched_one'] / overall_stats['total_games'] * 100) if overall_stats['total_games'] > 0 else 0
+                st.metric("One Team Matched", f"{overall_stats['matched_one']:,}",
+                         delta=f"{pct_one:.1f}%", delta_color="off")
+            with col4:
+                pct_none = (overall_stats['matched_none'] / overall_stats['total_games'] * 100) if overall_stats['total_games'] > 0 else 0
+                st.metric("No Teams Matched", f"{overall_stats['matched_none']:,}",
+                         delta=f"{pct_none:.1f}%", delta_color="inverse")
+            with col5:
+                st.metric("Total Master Teams", f"{overall_stats['total_teams']:,}")
+
+            # Match method breakdown
+            st.markdown("#### Match Method Breakdown")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Fuzzy Auto-Matched", f"{overall_stats['fuzzy_auto']:,}",
+                         help="Teams auto-matched with confidence ≥0.90")
+            with col2:
+                st.metric("Fuzzy Pending Review", f"{overall_stats['fuzzy_pending']:,}",
+                         help="Teams needing manual review (0.75-0.89)")
+            with col3:
+                st.metric("Manual Matches", f"{overall_stats['manual_matches']:,}",
+                         help="Teams manually linked by you")
+
+        st.markdown("---")
+
         # Fetch unmatched opponents
-        df = get_unmatched_opponents(limit=200)
+        df = get_unmatched_opponents(limit=500)
 
         if df.empty:
             st.success("✅ No unmatched opponents! All teams are matched.")
             return
 
-        # Statistics
-        st.markdown("### 📊 Unmatched Teams Statistics")
+        # Unmatched teams statistics
+        st.markdown("### 🔴 Unmatched Teams Details")
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("Total Unmatched Teams", len(df))
+            st.metric("Unique Unmatched Teams", len(df))
         with col2:
             total_games = df['game_count'].sum() if 'game_count' in df.columns else 0
             st.metric("Total Games Affected", int(total_games))
@@ -1391,9 +1520,10 @@ def main():
         # Display each unmatched team
         for idx, row in df_display.iterrows():
             team_id = row['provider_team_id']
+            team_name = row.get('team_name', f'Unknown ({team_id})')
 
             with st.expander(
-                f"🔴 **{team_id}** ({row.get('game_count', 0)} games) - Last seen: {row.get('recent_game_date', 'N/A')[:10]}",
+                f"🔴 **{team_name}** ({row.get('game_count', 0)} games) - Last seen: {row.get('recent_game_date', 'N/A')[:10]}",
                 expanded=False
             ):
                 # Team info
@@ -1401,22 +1531,58 @@ def main():
 
                 with col1:
                     st.markdown("#### Team Information")
+                    st.markdown(f"**Team Name:** {team_name}")
                     st.markdown(f"**Provider Team ID:** `{team_id}`")
+                    if row.get('age_group'):
+                        st.markdown(f"**Age Group:** {row['age_group']}")
+                    if row.get('gender'):
+                        st.markdown(f"**Gender:** {row['gender']}")
                     st.markdown(f"**Games:** {row.get('game_count', 0)}")
                     st.markdown(f"**Most Recent Game:** {row.get('recent_game_date', 'N/A')[:10]}")
                     st.markdown(f"**Division:** {row.get('division_name', 'N/A')}")
-                    st.markdown(f"**Event:** {row.get('event_name', 'N/A')}")
+
+                    # Show sample games
+                    if 'sample_games' in row and row['sample_games']:
+                        st.markdown("---")
+                        st.markdown("**Sample Games:**")
+                        for game in row['sample_games']:
+                            st.markdown(f"- {game['date'][:10]} - Score: {game['score']} - {game['event']}")
 
                 with col2:
-                    st.markdown("#### Actions")
-                    action = st.radio(
-                        "What would you like to do?",
-                        options=["Search & Link", "Create New Team"],
-                        key=f"action_{team_id}",
-                        label_visibility="collapsed"
-                    )
+                    st.markdown("#### Auto-Suggestions")
+                    # Auto-search for similar teams
+                    if team_name and not team_name.startswith('Unknown'):
+                        suggested_teams = search_teams(team_name,
+                                                      age_group=row.get('age_group') if row.get('age_group') else None,
+                                                      gender=row.get('gender') if row.get('gender') else None)
+                        if suggested_teams:
+                            st.markdown(f"**Found {len(suggested_teams)} similar teams:**")
+                            for i, suggested in enumerate(suggested_teams[:3]):  # Show top 3
+                                if st.button(f"✓ {suggested['team_name'][:30]}",
+                                           key=f"quick_link_{team_id}_{i}",
+                                           help=f"{suggested.get('club_name', 'N/A')} - {suggested['age_group']} {suggested['gender']}"):
+                                    if link_team_manually(
+                                        row.get('provider_id', ''),
+                                        team_id,
+                                        suggested['team_id_master'],
+                                        suggested
+                                    ):
+                                        st.success(f"✅ Linked to {suggested['team_name']}!")
+                                        st.rerun()
+                        else:
+                            st.info("No similar teams found. Try manual search or create new team below.")
+                    else:
+                        st.info("Enter team name in alias map to see suggestions.")
 
                 st.markdown("---")
+                st.markdown("### Manual Review Options")
+
+                action = st.radio(
+                    "Choose an action:",
+                    options=["Search & Link", "Create New Team"],
+                    key=f"manual_action_{team_id}",
+                    horizontal=True
+                )
 
                 if action == "Search & Link":
                     st.markdown("#### Search Existing Teams")
