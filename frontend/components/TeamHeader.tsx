@@ -171,7 +171,7 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
             <div>
               <div className="text-sm text-muted-foreground mb-1">State Rank</div>
               <div className="text-2xl font-semibold">
-                {teamRanking?.rank_in_state_final ? `#${teamRanking.rank_in_state_final}` : '—'}
+                {teamRanking?.rank_in_state_final != null ? `#${teamRanking.rank_in_state_final}` : '—'}
               </div>
             </div>
             <div>

@@ -105,6 +105,7 @@ export const api = {
     }
 
     // Fetch state rank from state_rankings_view
+    // Note: state_rankings_view only includes teams where state IS NOT NULL in rankings_view
     const { data: stateRankData, error: stateRankError } = await supabase
       .from('state_rankings_view')
       .select('rank_in_state_final')
@@ -114,6 +115,20 @@ export const api = {
     if (stateRankError) {
       console.warn('[api.getTeam] Error fetching state rank data:', stateRankError);
       // Continue without state rank data
+    }
+
+    // Enhanced logging to debug state rank issues
+    if (!stateRankData && rankingData && teamData.state) {
+      console.warn('[api.getTeam] State rank missing despite team having state:', {
+        team_name: teamData.team_name,
+        team_table_state: teamData.state,
+        rankings_view_state: rankingData.state,
+        has_ranking_data: !!rankingData,
+        rank_in_cohort_final: rankingData.rank_in_cohort_final,
+        explanation: rankingData.state === null
+          ? 'rankings_view.state is NULL - team excluded from state_rankings_view'
+          : 'Team not found in state_rankings_view for unknown reason'
+      });
     }
 
     // Fetch all games to calculate total games and win/loss/draw record
