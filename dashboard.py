@@ -488,10 +488,10 @@ def get_daily_game_imports(days=30):
 
     try:
         # Query games grouped by date
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
 
-        # Calculate date range
-        end_date = datetime.now()
+        # Calculate date range (timezone-aware)
+        end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=days)
 
         # Fetch games created in the last N days
@@ -504,7 +504,7 @@ def get_daily_game_imports(days=30):
 
         # Convert to DataFrame and group by date
         df = pd.DataFrame(result.data)
-        df['created_at'] = pd.to_datetime(df['created_at'])
+        df['created_at'] = pd.to_datetime(df['created_at'], utc=True)
         df['import_date'] = df['created_at'].dt.date
 
         # Count games per day
@@ -530,10 +530,10 @@ def get_stale_teams(days_threshold=10):
         return pd.DataFrame()
 
     try:
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
 
-        # Calculate threshold date
-        threshold_date = datetime.now() - timedelta(days=days_threshold)
+        # Calculate threshold date (timezone-aware)
+        threshold_date = datetime.now(timezone.utc) - timedelta(days=days_threshold)
 
         # Query teams with old scrape dates or null scrape dates
         result = client.table('teams').select(
@@ -551,8 +551,9 @@ def get_stale_teams(days_threshold=10):
 
         # Calculate days since last scrape
         if 'last_scraped_at' in df.columns:
-            df['last_scraped_at'] = pd.to_datetime(df['last_scraped_at'], errors='coerce')
-            df['days_since_scrape'] = (datetime.now() - df['last_scraped_at']).dt.days
+            df['last_scraped_at'] = pd.to_datetime(df['last_scraped_at'], errors='coerce', utc=True)
+            now_utc = pd.Timestamp.now(tz='UTC')
+            df['days_since_scrape'] = (now_utc - df['last_scraped_at']).dt.days
             df['days_since_scrape'] = df['days_since_scrape'].fillna(999)  # For null values
         else:
             df['days_since_scrape'] = 999
