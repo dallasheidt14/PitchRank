@@ -513,18 +513,60 @@ def get_daily_game_imports(days=30):
         end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=days)
 
-        # Fetch games created in the last N days
-        result = client.table('games').select(
-            'created_at'
-        ).gte('created_at', start_date.isoformat()).order('created_at', desc=False).execute()
+        # Try to fetch games using available timestamp columns
+        # First try created_at, then fall back to scraped_at
+        timestamp_col = None
+        result = None
 
-        if not result.data:
+        # Try created_at first
+        try:
+            result = client.table('games').select(
+                'created_at'
+            ).gte('created_at', start_date.isoformat()).order('created_at', desc=False).execute()
+
+            if result.data:
+                timestamp_col = 'created_at'
+        except Exception:
+            pass
+
+        # Fall back to scraped_at if created_at doesn't work
+        if not timestamp_col:
+            try:
+                result = client.table('games').select(
+                    'scraped_at'
+                ).gte('scraped_at', start_date.isoformat()).order('scraped_at', desc=False).execute()
+
+                if result.data:
+                    timestamp_col = 'scraped_at'
+            except Exception:
+                pass
+
+        # If neither column works, try fetching all games and use any available timestamp
+        if not timestamp_col:
+            result = client.table('games').select('*').limit(1).execute()
+            if result.data and len(result.data) > 0:
+                sample_game = result.data[0]
+                # Check which timestamp columns exist
+                if 'created_at' in sample_game:
+                    timestamp_col = 'created_at'
+                elif 'scraped_at' in sample_game:
+                    timestamp_col = 'scraped_at'
+                else:
+                    st.warning("⚠️ No timestamp column found in games table (created_at or scraped_at)")
+                    return pd.DataFrame()
+
+                # Now fetch with the correct column
+                result = client.table('games').select(
+                    timestamp_col
+                ).gte(timestamp_col, start_date.isoformat()).order(timestamp_col, desc=False).execute()
+
+        if not result or not result.data:
             return pd.DataFrame()
 
         # Convert to DataFrame and group by date
         df = pd.DataFrame(result.data)
-        df['created_at'] = pd.to_datetime(df['created_at'], utc=True)
-        df['import_date'] = df['created_at'].dt.date
+        df[timestamp_col] = pd.to_datetime(df[timestamp_col], utc=True)
+        df['import_date'] = df[timestamp_col].dt.date
 
         # Count games per day
         daily_counts = df.groupby('import_date').size().reset_index(name='game_count')
@@ -539,6 +581,8 @@ def get_daily_game_imports(days=30):
         return daily_counts
     except Exception as e:
         st.error(f"Error fetching daily imports: {e}")
+        import traceback
+        st.error(f"Details: {traceback.format_exc()}")
         return pd.DataFrame()
 
 
