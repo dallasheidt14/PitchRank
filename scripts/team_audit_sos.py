@@ -351,27 +351,27 @@ async def audit_team(supabase, team_id: str, team_name: str = None):
     if games_with_weights is not None:
         console.print(Panel.fit(
             "[bold]Game History with SOS Contributions[/bold]\n"
-            "[dim]Shows opponent strength, game weight, and whether included in SOS calc[/dim]",
+            "[dim]Sorted by opponent strength (strongest first) to verify SOS calculation logic[/dim]",
             border_style="cyan"
         ))
 
         games_table = Table(show_header=True, header_style="bold cyan")
-        games_table.add_column("Date", style="white", width=10)
-        games_table.add_column("Opponent", style="white", width=30)
-        games_table.add_column("Score", justify="center", width=10)
-        games_table.add_column("Opp Str", justify="right", width=8)
-        games_table.add_column("Weight", justify="right", width=8)
-        games_table.add_column("Contrib", justify="right", width=8)
+        games_table.add_column("Date", style="white", width=12)
+        games_table.add_column("Opponent", style="white", width=35)
+        games_table.add_column("Score", justify="center", width=8)
+        games_table.add_column("Opp Strength", justify="right", width=12)
+        games_table.add_column("Game Weight", justify="right", width=12)
+        games_table.add_column("SOS Contrib", justify="right", width=12)
         games_table.add_column("In SOS?", justify="center", width=8)
         games_table.add_column("Loc", justify="center", width=6)
 
-        # Sort by date (most recent first)
-        games_display = games_with_weights.sort_values('date', ascending=False)
+        # Sort by opponent strength (descending) to show strongest opponents first
+        games_display = games_with_weights.sort_values('opp_strength', ascending=False)
 
         total_weight = games_display['w_sos'].sum()
 
         for _, game in games_display.iterrows():
-            opp_name = opp_names.get(game['opp_id'], 'Unknown')[:30]
+            opp_name = opp_names.get(game['opp_id'], 'Unknown')[:35]
             opp_strength = game['opp_strength']
             weight = game['w_sos']
             included = game['repeat_rank'] <= cfg.SOS_REPEAT_CAP
@@ -379,10 +379,10 @@ async def audit_team(supabase, team_id: str, team_name: str = None):
             # Calculate contribution to SOS
             contrib = (opp_strength * weight) / total_weight if total_weight > 0 else 0
 
-            # Color code based on opponent strength
-            if opp_strength >= 0.65:
+            # Color code based on opponent strength (abs_strength scale)
+            if opp_strength >= 1.3:
                 strength_color = "green"
-            elif opp_strength >= 0.45:
+            elif opp_strength >= 1.0:
                 strength_color = "yellow"
             else:
                 strength_color = "red"
@@ -391,9 +391,9 @@ async def audit_team(supabase, team_id: str, team_name: str = None):
                 game['date'][:10],
                 opp_name,
                 f"{int(game['gf']) if pd.notna(game['gf']) else '?'}-{int(game['ga']) if pd.notna(game['ga']) else '?'}",
-                f"[{strength_color}]{opp_strength:.4f}[/{strength_color}]",
-                f"{weight:.4f}",
-                f"{contrib:.6f}",
+                f"[{strength_color}]{opp_strength:.6f}[/{strength_color}]",
+                f"{weight:.6f}",
+                f"{contrib:.8f}",
                 "[green]✓[/green]" if included else "[red]✗[/red]",
                 game.get('location', '?')
             )
