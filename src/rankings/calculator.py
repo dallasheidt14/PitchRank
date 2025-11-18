@@ -181,8 +181,8 @@ async def compute_rankings_with_ml(
     logger.info("🤖 Applying ML predictive adjustment layer...")
     ml_cfg = layer13_cfg or Layer13Config(
         lookback_days=v53_cfg.WINDOW_DAYS,
-        alpha=0.12,
-        norm_mode="percentile",
+        alpha=0.20,
+        norm_mode="zscore",
         min_team_games_for_residual=6,
         recency_decay_lambda=0.06,
         table_name="games",
