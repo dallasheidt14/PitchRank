@@ -78,7 +78,7 @@ Located in: `/frontend/public/logos/`
 
 **Account Setup:**
 1. Download Instagram app
-2. Sign up with business email (create: social@pitchrank.com or use dallasheidt14@gmail.com)
+2. Sign up with business email (create: social@pitchrank.io or use dallasheidt14@gmail.com)
 3. Choose username: **pitchrank**
 4. Switch to Business Account: Settings → Account → Switch to Professional Account → Business
 
@@ -92,10 +92,10 @@ Located in: `/frontend/public/logos/`
   🏆 Compare teams, track performance
   🔗 Check your team's ranking ⬇️
   ```
-- **Website**: https://pitchrank.com
+- **Website**: https://pitchrank.io
 - **Category**: Sports & Recreation
 - **Contact Options**:
-  - Email: dallasheidt14@gmail.com (or social@pitchrank.com)
+  - Email: dallasheidt14@gmail.com (or social@pitchrank.io)
   - Add action buttons: "View Rankings", "Contact Us"
 
 **Instagram Settings to Configure:**
@@ -107,13 +107,13 @@ Located in: `/frontend/public/logos/`
 
 **First Posts (Launch Sequence):**
 1. **Announcement Post**: Introduce PitchRank
-   - Caption: "🚀 Welcome to PitchRank! We're bringing data-powered rankings to youth soccer teams across the nation. U10-U18 | Boys & Girls | All 50 States. Check your team's ranking at pitchrank.com 🔗 #YouthSoccer #PitchRank"
+   - Caption: "🚀 Welcome to PitchRank! We're bringing data-powered rankings to youth soccer teams across the nation. U10-U18 | Boys & Girls | All 50 States. Check your team's ranking at pitchrank.io 🔗 #YouthSoccer #PitchRank"
 
 2. **Methodology Post**: How rankings work
-   - Caption: "Ever wonder how youth soccer rankings are calculated? 📊 We use cross-age game support and power scoring to create the most comprehensive rankings system. Learn more at pitchrank.com/methodology #SoccerRankings"
+   - Caption: "Ever wonder how youth soccer rankings are calculated? 📊 We use cross-age game support and power scoring to create the most comprehensive rankings system. Learn more at pitchrank.io/methodology #SoccerRankings"
 
 3. **First Rankings Post**: Share top 10 for popular age group
-   - Caption: "🏆 U14 Boys National Rankings - Week 1! Congrats to all teams in the top 10. See the full rankings at pitchrank.com #U14Soccer #YouthSoccer"
+   - Caption: "🏆 U14 Boys National Rankings - Week 1! Congrats to all teams in the top 10. See the full rankings at pitchrank.io #U14Soccer #YouthSoccer"
 
 **Content Calendar (Weekly):**
 - **Monday**: Weekly rankings release + top movers
@@ -146,9 +146,9 @@ Located in: `/frontend/public/logos/`
 - **Handle**: @pitchrank
 - **Bio**:
   ```
-  Data-powered youth soccer rankings | U10-U18 boys & girls | National & state rankings | Check your team at pitchrank.com ⚽📊
+  Data-powered youth soccer rankings | U10-U18 boys & girls | National & state rankings | Check your team at pitchrank.io ⚽📊
   ```
-- **Website**: https://pitchrank.com
+- **Website**: https://pitchrank.io
 - **Location**: United States
 - **Header Image**: Use custom 1500x500px cover photo
 - **Profile Picture**: pitchrank-symbol (1000x1000)
@@ -168,7 +168,7 @@ Located in: `/frontend/public/logos/`
    📊 Cross-age power scoring
    🏆 National & state rankings
 
-   Check your team's ranking: https://pitchrank.com
+   Check your team's ranking: https://pitchrank.io
 
    #YouthSoccer #SoccerRankings
    ```
@@ -178,7 +178,7 @@ Located in: `/frontend/public/logos/`
    Tweet 2: "1/ Traditional rankings only compare teams in the same age group. But what if your U13 team plays a U14 team?"
    Tweet 3: "2/ PitchRank uses cross-age scoring to accurately rank teams regardless of age group matchups."
    Tweet 4: "3/ We track teams from U10-U18, boys and girls, across all 50 states. Over [X] teams ranked!"
-   Tweet 5: "4/ Check out the full methodology: pitchrank.com/methodology"
+   Tweet 5: "4/ Check out the full methodology: pitchrank.io/methodology"
 
 **Tweet Types & Frequency:**
 - **3-5 tweets/day**
@@ -229,9 +229,9 @@ Located in: `/frontend/public/logos/`
   🏆 Power score analytics
   📈 Weekly ranking updates
 
-  Check your team's ranking at pitchrank.com
+  Check your team's ranking at pitchrank.io
   ```
-- **Website**: https://pitchrank.com
+- **Website**: https://pitchrank.io
 - **Email**: dallasheidt14@gmail.com
 - **Founded**: 2025
 - **Impressum** (if required): Business contact info
@@ -261,7 +261,7 @@ Located in: `/frontend/public/logos/`
    ✅ Cross-age game support
    ✅ Weekly updates
 
-   Check your team's ranking now: https://pitchrank.com
+   Check your team's ranking now: https://pitchrank.io
 
    Like our page and turn on notifications to stay updated! 🔔
 
@@ -271,7 +271,7 @@ Located in: `/frontend/public/logos/`
 2. **How It Works Post**:
    - Use infographic or carousel post
    - Explain ranking methodology simply
-   - Link to pitchrank.com/methodology
+   - Link to pitchrank.io/methodology
 
 **Content Strategy:**
 - **1 post/day** during active season
@@ -308,7 +308,7 @@ Consider creating:
 
 **Company Information:**
 - **Tagline**: Data-Powered Youth Soccer Rankings
-- **Website**: https://pitchrank.com
+- **Website**: https://pitchrank.io
 - **Industry**: Sports
 - **Company Size**: 1-10 employees
 - **Company Type**: Privately Held
@@ -328,7 +328,7 @@ Services:
 • Weekly ranking updates
 • Team comparison tools
 
-Visit pitchrank.com to see where your team ranks.
+Visit pitchrank.io to see where your team ranks.
 ```
 
 **LinkedIn Content Strategy:**
@@ -372,7 +372,7 @@ Visit pitchrank.com to see where your team ranks.
   📊 U10-U18 | All 50 states
   🏆 See your team's rank ⬇️
   ```
-- **Website**: pitchrank.com
+- **Website**: pitchrank.io
 - **Category**: Sports
 
 **Content Strategy:**
@@ -666,7 +666,7 @@ Visit pitchrank.com to see where your team ranks.
 5. Never argue publicly
 
 **Example Response:**
-> "We understand your concern! Our rankings use cross-age power scoring based on game results. Each team's score is calculated using wins, losses, strength of schedule, and opponent quality. Learn more about our methodology at pitchrank.com/methodology. Feel free to DM us if you have specific questions! ⚽"
+> "We understand your concern! Our rankings use cross-age power scoring based on game results. Each team's score is calculated using wins, losses, strength of schedule, and opponent quality. Learn more about our methodology at pitchrank.io/methodology. Feel free to DM us if you have specific questions! ⚽"
 
 ### Data Errors
 
