@@ -118,7 +118,13 @@ RANKING_CONFIG = {
     'sos_repeat_cap': int(os.getenv("SOS_REPEAT_CAP", 4)),  # V53EConfig.SOS_REPEAT_CAP
     'sos_iterations': int(os.getenv("SOS_ITERATIONS", 3)),  # V53EConfig.SOS_ITERATIONS
     'sos_transitivity_lambda': float(os.getenv("SOS_TRANSITIVITY_LAMBDA", 0.20)),  # V53EConfig.SOS_TRANSITIVITY_LAMBDA
-    
+
+    # Opponent-adjusted offense/defense (fixes double-counting problem)
+    'opponent_adjust_enabled': os.getenv("OPPONENT_ADJUST_ENABLED", "true").lower() in ("true", "1", "yes"),  # V53EConfig.OPPONENT_ADJUST_ENABLED
+    'opponent_adjust_baseline': float(os.getenv("OPPONENT_ADJUST_BASELINE", 0.5)),  # V53EConfig.OPPONENT_ADJUST_BASELINE
+    'opponent_adjust_clip_min': float(os.getenv("OPPONENT_ADJUST_CLIP_MIN", 0.4)),  # V53EConfig.OPPONENT_ADJUST_CLIP_MIN
+    'opponent_adjust_clip_max': float(os.getenv("OPPONENT_ADJUST_CLIP_MAX", 1.6)),  # V53EConfig.OPPONENT_ADJUST_CLIP_MAX
+
     # Layer 10 weights
     'off_weight': float(os.getenv("OFF_WEIGHT", 0.25)),  # V53EConfig.OFF_WEIGHT
     'def_weight': float(os.getenv("DEF_WEIGHT", 0.25)),  # V53EConfig.DEF_WEIGHT
