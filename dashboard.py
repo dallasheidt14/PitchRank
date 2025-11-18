@@ -389,6 +389,89 @@ def create_new_team(provider_id: str, provider_team_id: str, team_data: dict):
         return False
 
 
+def get_daily_game_imports(days=30):
+    """Get daily game import counts."""
+    client = get_supabase_client()
+    if not client:
+        return pd.DataFrame()
+
+    try:
+        # Query games grouped by date
+        from datetime import datetime, timedelta
+
+        # Calculate date range
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+
+        # Fetch games created in the last N days
+        result = client.table('games').select(
+            'created_at'
+        ).gte('created_at', start_date.isoformat()).order('created_at', desc=False).execute()
+
+        if not result.data:
+            return pd.DataFrame()
+
+        # Convert to DataFrame and group by date
+        df = pd.DataFrame(result.data)
+        df['created_at'] = pd.to_datetime(df['created_at'])
+        df['import_date'] = df['created_at'].dt.date
+
+        # Count games per day
+        daily_counts = df.groupby('import_date').size().reset_index(name='game_count')
+        daily_counts['import_date'] = pd.to_datetime(daily_counts['import_date'])
+
+        # Fill in missing dates with 0
+        date_range = pd.date_range(start=start_date.date(), end=end_date.date(), freq='D')
+        all_dates = pd.DataFrame({'import_date': date_range})
+        daily_counts = all_dates.merge(daily_counts, on='import_date', how='left').fillna(0)
+        daily_counts['game_count'] = daily_counts['game_count'].astype(int)
+
+        return daily_counts
+    except Exception as e:
+        st.error(f"Error fetching daily imports: {e}")
+        return pd.DataFrame()
+
+
+def get_stale_teams(days_threshold=10):
+    """Get teams with stale scrape dates."""
+    client = get_supabase_client()
+    if not client:
+        return pd.DataFrame()
+
+    try:
+        from datetime import datetime, timedelta
+
+        # Calculate threshold date
+        threshold_date = datetime.now() - timedelta(days=days_threshold)
+
+        # Query teams with old scrape dates or null scrape dates
+        result = client.table('teams').select(
+            'team_id_master, team_name, club_name, age_group, gender, state_code, '
+            'last_scraped_at, created_at'
+        ).or_(
+            f'last_scraped_at.lt.{threshold_date.isoformat()},last_scraped_at.is.null'
+        ).order('last_scraped_at', desc=False).limit(500).execute()
+
+        if not result.data:
+            return pd.DataFrame()
+
+        # Convert to DataFrame
+        df = pd.DataFrame(result.data)
+
+        # Calculate days since last scrape
+        if 'last_scraped_at' in df.columns:
+            df['last_scraped_at'] = pd.to_datetime(df['last_scraped_at'], errors='coerce')
+            df['days_since_scrape'] = (datetime.now() - df['last_scraped_at']).dt.days
+            df['days_since_scrape'] = df['days_since_scrape'].fillna(999)  # For null values
+        else:
+            df['days_since_scrape'] = 999
+
+        return df
+    except Exception as e:
+        st.error(f"Error fetching stale teams: {e}")
+        return pd.DataFrame()
+
+
 def main():
     # Header
     st.markdown(
@@ -411,6 +494,7 @@ def main():
             "Matching Configuration",
             "Fuzzy Match Review",
             "Unmatched Opponents",
+            "Data Quality Monitoring",
             "ETL & Data",
             "Age Groups",
             "Environment Variables",
@@ -1484,6 +1568,248 @@ def main():
             2. All existing games with this team are updated
             3. Future imports automatically match this team
             4. The team appears in rankings and statistics
+            """)
+
+    # Data Quality Monitoring Section
+    elif section == "Data Quality Monitoring":
+        st.markdown(
+            "<h2 class='section-header'>📊 Data Quality Monitoring</h2>",
+            unsafe_allow_html=True,
+        )
+
+        # Check if Supabase is configured
+        client = get_supabase_client()
+        if not client:
+            st.error(
+                "⚠️ Supabase connection not configured. Please set SUPABASE_URL and "
+                "SUPABASE_SERVICE_ROLE_KEY in your .env file."
+            )
+            return
+
+        st.info(
+            """
+            **Monitor data import activity and data freshness**
+
+            Track daily game imports and identify teams that may need data refresh.
+            """
+        )
+
+        # Tab selection
+        tab1, tab2 = st.tabs(["📈 Daily Game Imports", "⏰ Stale Teams"])
+
+        with tab1:
+            st.markdown("### 📈 Daily Game Import Activity")
+
+            # Days selector
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                days_range = st.selectbox(
+                    "Time Range",
+                    options=[7, 14, 30, 60, 90],
+                    index=2,
+                    format_func=lambda x: f"Last {x} days"
+                )
+
+            # Fetch data
+            df_imports = get_daily_game_imports(days=days_range)
+
+            if df_imports.empty:
+                st.warning("No game import data available for the selected period.")
+            else:
+                # Statistics
+                total_games = df_imports['game_count'].sum()
+                avg_daily = df_imports['game_count'].mean()
+                max_daily = df_imports['game_count'].max()
+                days_with_imports = (df_imports['game_count'] > 0).sum()
+
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Total Games Imported", f"{int(total_games):,}")
+                with col2:
+                    st.metric("Avg Games/Day", f"{int(avg_daily):,}")
+                with col3:
+                    st.metric("Peak Day", f"{int(max_daily):,}")
+                with col4:
+                    st.metric("Active Days", f"{days_with_imports}/{len(df_imports)}")
+
+                # Chart
+                st.markdown("#### Import Trend")
+                st.line_chart(
+                    df_imports.set_index('import_date')['game_count'],
+                    use_container_width=True
+                )
+
+                # Recent activity table
+                st.markdown("#### Recent Import Activity (Last 14 Days)")
+                recent_df = df_imports.tail(14).copy()
+                recent_df['import_date'] = recent_df['import_date'].dt.strftime('%Y-%m-%d')
+                recent_df.columns = ['Date', 'Games Imported']
+                st.dataframe(
+                    recent_df.sort_values('Date', ascending=False),
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+        with tab2:
+            st.markdown("### ⏰ Teams with Stale Scrape Data")
+
+            # Threshold selector
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                days_threshold = st.number_input(
+                    "Days Threshold",
+                    min_value=1,
+                    max_value=365,
+                    value=10,
+                    step=1,
+                    help="Show teams not scraped in this many days"
+                )
+
+            # Fetch data
+            df_stale = get_stale_teams(days_threshold=days_threshold)
+
+            if df_stale.empty:
+                st.success(f"✅ No teams with scrape data older than {days_threshold} days!")
+            else:
+                # Statistics
+                total_stale = len(df_stale)
+                never_scraped = (df_stale['days_since_scrape'] == 999).sum()
+                very_stale = (df_stale['days_since_scrape'] > 30).sum()
+
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Total Stale Teams", f"{total_stale:,}")
+                with col2:
+                    st.metric("Never Scraped", f"{never_scraped:,}")
+                with col3:
+                    st.metric(">30 Days Old", f"{very_stale:,}")
+                with col4:
+                    avg_age = df_stale[df_stale['days_since_scrape'] != 999]['days_since_scrape'].mean()
+                    st.metric("Avg Days Since Scrape", f"{int(avg_age) if not pd.isna(avg_age) else 'N/A'}")
+
+                # Filter options
+                st.markdown("#### Filters")
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    age_group_filter = st.selectbox(
+                        "Age Group",
+                        options=["All"] + sorted(df_stale['age_group'].unique().tolist()),
+                        key="stale_age_filter"
+                    )
+
+                with col2:
+                    gender_filter = st.selectbox(
+                        "Gender",
+                        options=["All"] + sorted(df_stale['gender'].unique().tolist()),
+                        key="stale_gender_filter"
+                    )
+
+                with col3:
+                    sort_by = st.selectbox(
+                        "Sort By",
+                        options=["Oldest First", "Team Name", "Age Group"],
+                        key="stale_sort"
+                    )
+
+                # Apply filters
+                filtered_df = df_stale.copy()
+                if age_group_filter != "All":
+                    filtered_df = filtered_df[filtered_df['age_group'] == age_group_filter]
+                if gender_filter != "All":
+                    filtered_df = filtered_df[filtered_df['gender'] == gender_filter]
+
+                # Apply sorting
+                if sort_by == "Oldest First":
+                    filtered_df = filtered_df.sort_values('days_since_scrape', ascending=False)
+                elif sort_by == "Team Name":
+                    filtered_df = filtered_df.sort_values('team_name')
+                else:
+                    filtered_df = filtered_df.sort_values('age_group')
+
+                # Display table
+                st.markdown(f"#### Stale Teams ({len(filtered_df)} teams)")
+
+                # Format for display
+                display_df = filtered_df.copy()
+                display_df['last_scraped_at'] = display_df['last_scraped_at'].dt.strftime('%Y-%m-%d %H:%M')
+                display_df['last_scraped_at'] = display_df['last_scraped_at'].fillna('Never')
+
+                # Select columns to display
+                display_columns = {
+                    'team_name': 'Team Name',
+                    'club_name': 'Club',
+                    'age_group': 'Age',
+                    'gender': 'Gender',
+                    'state_code': 'State',
+                    'last_scraped_at': 'Last Scraped',
+                    'days_since_scrape': 'Days Ago'
+                }
+
+                display_df = display_df[list(display_columns.keys())]
+                display_df.columns = list(display_columns.values())
+
+                # Replace 999 with "Never" for display
+                display_df['Days Ago'] = display_df['Days Ago'].replace(999, '∞ (Never)')
+
+                st.dataframe(
+                    display_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=500
+                )
+
+                # Download option
+                csv = filtered_df.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download as CSV",
+                    data=csv,
+                    file_name=f"stale_teams_{days_threshold}_days.csv",
+                    mime="text/csv"
+                )
+
+        # Help section
+        st.markdown("---")
+        with st.expander("ℹ️ Help & Information"):
+            st.markdown("""
+            ### Daily Game Imports
+
+            **Purpose:** Monitor the health of your data import pipeline by tracking how many games
+            are imported each day.
+
+            **What to Look For:**
+            - **Consistent imports** - Regular daily activity indicates healthy scraping
+            - **Sudden drops** - May indicate scraper issues or no games available
+            - **Spikes** - Large tournaments or batch imports
+            - **Zero days** - Could indicate problems that need investigation
+
+            **Use Cases:**
+            - Verify scraper is running daily
+            - Identify patterns in data availability
+            - Confirm tournament data imports
+            - Troubleshoot import pipeline issues
+
+            ### Stale Teams
+
+            **Purpose:** Identify teams that haven't been scraped recently and may have outdated
+            schedule or game data.
+
+            **What to Look For:**
+            - **Never scraped** - Teams that were created but never had data collected
+            - **Very stale (>30 days)** - Teams that may be inactive or missed by scraper
+            - **Recently stale (10-30 days)** - Teams approaching the threshold
+
+            **Recommended Actions:**
+            1. Prioritize teams with many games for scraping
+            2. Check if teams are still active (verify on source website)
+            3. Update scraper configuration if teams are consistently missed
+            4. Archive inactive teams to reduce noise
+
+            **Best Practices:**
+            - Review stale teams weekly
+            - Set threshold based on your scraping frequency
+            - Keep threshold at 2-3x your normal scraping interval
+            - Document teams that are intentionally not scraped
             """)
 
     # ETL & Data Section
