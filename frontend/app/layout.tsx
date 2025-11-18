@@ -4,6 +4,7 @@ import "./globals.css";
 import { Providers } from "./providers";
 import { Navigation } from "@/components/Navigation";
 import { Toaster } from "@/components/ui/Toaster";
+import { StructuredData } from "@/components/StructuredData";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -21,16 +22,74 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://pitchrank.com"),
-  title: "PitchRank — Youth Soccer Rankings",
-  description: "Data-powered youth soccer team rankings and performance analytics.",
+  title: {
+    default: "PitchRank — Youth Soccer Rankings",
+    template: "%s | PitchRank",
+  },
+  description: "Data-powered youth soccer team rankings and performance analytics. Compare U10-U18 boys and girls teams nationally and across all 50 states.",
+  keywords: [
+    "youth soccer rankings",
+    "soccer team rankings",
+    "youth soccer",
+    "club soccer rankings",
+    "soccer power rankings",
+    "U10 soccer",
+    "U12 soccer",
+    "U14 soccer",
+    "U16 soccer",
+    "U18 soccer",
+    "soccer analytics",
+  ],
+  authors: [{ name: "PitchRank" }],
+  creator: "PitchRank",
+  publisher: "PitchRank",
+  formatDetection: {
+    email: false,
+    address: false,
+    telephone: false,
+  },
   icons: {
     icon: "/logos/favicon.ico",
     shortcut: "/logos/favicon.ico",
+    apple: "/logos/pitchrank-symbol.svg",
+  },
+  alternates: {
+    canonical: "/",
   },
   openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "/",
+    siteName: "PitchRank",
     title: "PitchRank — Youth Soccer Rankings",
-    description: "Data-powered youth soccer team rankings and performance analytics.",
+    description: "Data-powered youth soccer team rankings and performance analytics. Compare U10-U18 boys and girls teams nationally and across all 50 states.",
+    images: [
+      {
+        url: "/logos/pitchrank-wordmark.svg",
+        width: 1200,
+        height: 630,
+        alt: "PitchRank - Youth Soccer Rankings",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "PitchRank — Youth Soccer Rankings",
+    description: "Data-powered youth soccer team rankings and performance analytics. Compare U10-U18 boys and girls teams nationally and across all 50 states.",
     images: ["/logos/pitchrank-wordmark.svg"],
+    creator: "@pitchrank",
+    site: "@pitchrank",
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-video-preview": -1,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
   },
 };
 
@@ -46,17 +105,8 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* Favicon */}
-        <link rel="icon" href="/logos/favicon.ico" sizes="any" />
-        <link rel="shortcut icon" href="/logos/favicon.ico" />
-
-        {/* SEO Meta Tags */}
-        <meta name="description" content="Data-powered youth soccer team rankings and performance analytics." />
-
-        {/* Optional: social/SEO icons */}
-        <meta property="og:image" content="/logos/pitchrank-wordmark.svg" />
-        <meta property="og:title" content="PitchRank — Youth Soccer Rankings" />
-        <meta property="og:description" content="Data-powered youth soccer team rankings and performance analytics." />
+        {/* Structured Data for SEO */}
+        <StructuredData />
 
         {/* Prevent Flash of Theme (FOT) by applying theme before React hydration */}
         <script
