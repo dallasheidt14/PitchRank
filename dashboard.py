@@ -6,6 +6,11 @@ A Streamlit-based UI to view all tunable parameters in the ranking engine.
 import streamlit as st
 import sys
 from pathlib import Path
+import os
+from datetime import datetime
+import pandas as pd
+from supabase import create_client
+from dotenv import load_dotenv
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -21,6 +26,9 @@ from config.settings import (
     PROJECT_NAME,
 )
 from src.etl.v53e import V53EConfig
+
+# Load environment variables
+load_dotenv()
 
 
 # Page configuration
@@ -108,6 +116,124 @@ def render_parameter(name: str, value, description: str = "", unit: str = ""):
         )
 
 
+@st.cache_resource
+def get_supabase_client():
+    """Initialize and cache Supabase client."""
+    supabase_url = os.getenv('SUPABASE_URL')
+    supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+
+    if not supabase_url or not supabase_key:
+        return None
+
+    return create_client(supabase_url, supabase_key)
+
+
+def get_pending_matches():
+    """Fetch pending matches from database."""
+    client = get_supabase_client()
+    if not client:
+        return pd.DataFrame()
+
+    try:
+        result = client.table('team_alias_map').select(
+            '*, teams!team_id_master(team_name, club_name, state_code, age_group, gender)'
+        ).eq('review_status', 'pending').gte(
+            'match_confidence', 0.75
+        ).lt('match_confidence', 0.9).order('match_confidence', desc=True).execute()
+
+        if not result.data:
+            return pd.DataFrame()
+
+        # Flatten the data for display
+        flattened = []
+        for item in result.data:
+            matched_team = item.get('teams', {})
+            if isinstance(matched_team, list) and len(matched_team) > 0:
+                matched_team = matched_team[0]
+            elif not isinstance(matched_team, dict):
+                matched_team = {}
+
+            flattened.append({
+                'id': item['id'],
+                'provider_team_id': item.get('provider_team_id', ''),
+                'provider_team_name': item.get('team_name', ''),
+                'provider_age_group': item.get('age_group', ''),
+                'provider_gender': item.get('gender', ''),
+                'matched_team_name': matched_team.get('team_name', '') if matched_team else '',
+                'matched_club_name': matched_team.get('club_name', '') if matched_team else '',
+                'matched_state': matched_team.get('state_code', '') if matched_team else '',
+                'matched_age_group': matched_team.get('age_group', '') if matched_team else '',
+                'matched_gender': matched_team.get('gender', '') if matched_team else '',
+                'confidence': item.get('match_confidence', 0),
+                'match_method': item.get('match_method', ''),
+                'team_id_master': item.get('team_id_master', ''),
+                'created_at': item.get('created_at', '')
+            })
+
+        return pd.DataFrame(flattened)
+    except Exception as e:
+        st.error(f"Error fetching matches: {e}")
+        return pd.DataFrame()
+
+
+def approve_match(match_id: str):
+    """Approve a fuzzy match."""
+    client = get_supabase_client()
+    if not client:
+        return False
+
+    try:
+        client.table('team_alias_map').update({
+            'review_status': 'approved'
+        }).eq('id', match_id).execute()
+        return True
+    except Exception as e:
+        st.error(f"Error approving match: {e}")
+        return False
+
+
+def reject_match(match_id: str):
+    """Reject a fuzzy match."""
+    client = get_supabase_client()
+    if not client:
+        return False
+
+    try:
+        client.table('team_alias_map').update({
+            'review_status': 'rejected'
+        }).eq('id', match_id).execute()
+        return True
+    except Exception as e:
+        st.error(f"Error rejecting match: {e}")
+        return False
+
+
+def get_match_statistics():
+    """Get statistics about pending matches."""
+    client = get_supabase_client()
+    if not client:
+        return None
+
+    try:
+        result = client.table('team_alias_map').select(
+            'match_confidence, review_status'
+        ).eq('review_status', 'pending').execute()
+
+        if not result.data:
+            return None
+
+        data = result.data
+        return {
+            'total': len(data),
+            'high_conf': sum(1 for m in data if m.get('match_confidence', 0) >= 0.85),
+            'med_conf': sum(1 for m in data if 0.80 <= m.get('match_confidence', 0) < 0.85),
+            'low_conf': sum(1 for m in data if 0.75 <= m.get('match_confidence', 0) < 0.80)
+        }
+    except Exception as e:
+        st.error(f"Error getting statistics: {e}")
+        return None
+
+
 def main():
     # Header
     st.markdown(
@@ -128,6 +254,7 @@ def main():
             "V53E Ranking Engine",
             "Machine Learning Layer",
             "Matching Configuration",
+            "Fuzzy Match Review",
             "ETL & Data",
             "Age Groups",
             "Environment Variables",
@@ -712,6 +839,239 @@ def main():
             st.error(f"❌ Current weights sum to {weight_sum:.3f}, not 1.0!")
         else:
             st.success(f"✅ Weights correctly sum to {weight_sum:.3f}")
+
+    # Fuzzy Match Review Section
+    elif section == "Fuzzy Match Review":
+        st.markdown(
+            "<h2 class='section-header'>🔍 Fuzzy Match Review Dashboard</h2>",
+            unsafe_allow_html=True,
+        )
+
+        # Check if Supabase is configured
+        client = get_supabase_client()
+        if not client:
+            st.error(
+                "⚠️ Supabase connection not configured. Please set SUPABASE_URL and "
+                "SUPABASE_SERVICE_ROLE_KEY in your .env file."
+            )
+            return
+
+        st.info(
+            """
+            **Review fuzzy team matches that need manual approval**
+
+            Matches with confidence scores between 0.75 and 0.90 require human review to ensure accuracy.
+            Once approved, these matches will be used for automatic matching in future imports.
+            """
+        )
+
+        # Statistics Section
+        st.markdown("### 📊 Match Statistics")
+        stats = get_match_statistics()
+
+        if stats:
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Pending", stats['total'])
+            with col2:
+                st.metric("High Confidence (0.85-0.89)", stats['high_conf'],
+                         delta="Best matches", delta_color="normal")
+            with col3:
+                st.metric("Medium Confidence (0.80-0.84)", stats['med_conf'],
+                         delta="Good matches", delta_color="normal")
+            with col4:
+                st.metric("Low Confidence (0.75-0.79)", stats['low_conf'],
+                         delta="Review carefully", delta_color="inverse")
+
+            # Confidence distribution chart
+            if stats['total'] > 0:
+                st.markdown("### 📈 Confidence Distribution")
+                chart_data = pd.DataFrame({
+                    'Confidence Level': ['High (0.85-0.89)', 'Medium (0.80-0.84)', 'Low (0.75-0.79)'],
+                    'Count': [stats['high_conf'], stats['med_conf'], stats['low_conf']]
+                })
+                st.bar_chart(chart_data.set_index('Confidence Level'))
+        else:
+            st.success("✅ No pending matches to review!")
+            return
+
+        st.markdown("---")
+
+        # Filters Section
+        st.markdown("### 🔎 Filters")
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            min_confidence = st.slider(
+                "Minimum Confidence",
+                min_value=0.75,
+                max_value=0.89,
+                value=0.75,
+                step=0.01,
+                help="Filter matches by minimum confidence score"
+            )
+
+        with col2:
+            age_filter = st.selectbox(
+                "Age Group",
+                options=["All"] + sorted(list(AGE_GROUPS.keys())),
+                help="Filter by age group"
+            )
+
+        with col3:
+            gender_filter = st.selectbox(
+                "Gender",
+                options=["All", "Male", "Female"],
+                help="Filter by gender"
+            )
+
+        # Fetch pending matches
+        df = get_pending_matches()
+
+        if df.empty:
+            st.success("✅ No pending matches to review!")
+            return
+
+        # Apply filters
+        filtered_df = df[df['confidence'] >= min_confidence].copy()
+
+        if age_filter != "All":
+            filtered_df = filtered_df[filtered_df['provider_age_group'] == age_filter]
+
+        if gender_filter != "All":
+            filtered_df = filtered_df[filtered_df['provider_gender'] == gender_filter]
+
+        st.markdown(f"### 📋 Pending Matches ({len(filtered_df)} matches)")
+
+        if filtered_df.empty:
+            st.info("No matches found with current filters.")
+            return
+
+        # Display matches
+        for idx, row in filtered_df.iterrows():
+            confidence_color = "🟢" if row['confidence'] >= 0.85 else "🟡" if row['confidence'] >= 0.80 else "🔴"
+
+            with st.expander(
+                f"{confidence_color} **{row['provider_team_name'][:50]}** ➜ **{row['matched_team_name'][:50]}** "
+                f"(Confidence: {row['confidence']:.2%})",
+                expanded=False
+            ):
+                # Create two columns for comparison
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    st.markdown("#### Provider Team")
+                    st.markdown(f"**Team Name:** {row['provider_team_name']}")
+                    st.markdown(f"**Age Group:** {row['provider_age_group']}")
+                    st.markdown(f"**Gender:** {row['provider_gender']}")
+                    st.markdown(f"**Provider Team ID:** `{row['provider_team_id']}`")
+
+                with col2:
+                    st.markdown("#### Matched Team (Database)")
+                    st.markdown(f"**Team Name:** {row['matched_team_name']}")
+                    st.markdown(f"**Club Name:** {row['matched_club_name']}")
+                    st.markdown(f"**State:** {row['matched_state']}")
+                    st.markdown(f"**Age Group:** {row['matched_age_group']}")
+                    st.markdown(f"**Gender:** {row['matched_gender']}")
+
+                # Match details
+                st.markdown("---")
+                st.markdown("#### Match Details")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Confidence Score", f"{row['confidence']:.2%}")
+                with col2:
+                    st.markdown(f"**Match Method:** `{row['match_method']}`")
+                with col3:
+                    st.markdown(f"**Created:** {row['created_at'][:10] if row['created_at'] else 'N/A'}")
+
+                # Action buttons
+                st.markdown("---")
+                col1, col2, col3 = st.columns([1, 1, 2])
+
+                with col1:
+                    if st.button("✅ Approve", key=f"approve_{row['id']}", type="primary"):
+                        if approve_match(row['id']):
+                            st.success("Match approved! Refreshing...")
+                            st.rerun()
+                        else:
+                            st.error("Failed to approve match.")
+
+                with col2:
+                    if st.button("❌ Reject", key=f"reject_{row['id']}", type="secondary"):
+                        if reject_match(row['id']):
+                            st.warning("Match rejected! Refreshing...")
+                            st.rerun()
+                        else:
+                            st.error("Failed to reject match.")
+
+                with col3:
+                    st.markdown(f"**Master Team ID:** `{row['team_id_master']}`")
+
+        # Batch Actions
+        st.markdown("---")
+        st.markdown("### ⚡ Batch Actions")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("**Auto-approve high confidence matches**")
+            auto_approve_threshold = st.number_input(
+                "Approve all matches above confidence:",
+                min_value=0.85,
+                max_value=0.89,
+                value=0.88,
+                step=0.01,
+                help="Automatically approve all matches above this confidence level"
+            )
+
+            if st.button("Auto-Approve High Confidence", type="primary"):
+                high_conf_matches = filtered_df[filtered_df['confidence'] >= auto_approve_threshold]
+                approved_count = 0
+                for _, match in high_conf_matches.iterrows():
+                    if approve_match(match['id']):
+                        approved_count += 1
+
+                if approved_count > 0:
+                    st.success(f"Approved {approved_count} high-confidence matches! Refreshing...")
+                    st.rerun()
+                else:
+                    st.info("No matches to auto-approve.")
+
+        with col2:
+            st.markdown("**Refresh Data**")
+            st.markdown("Click to reload pending matches from the database")
+            if st.button("🔄 Refresh", type="secondary"):
+                st.cache_data.clear()
+                st.rerun()
+
+        # Help Section
+        st.markdown("---")
+        with st.expander("ℹ️ Help & Information"):
+            st.markdown("""
+            ### How Fuzzy Matching Works
+
+            **Confidence Score Calculation:**
+            - **65%** - Team name similarity (normalized and compared)
+            - **25%** - Club name similarity
+            - **5%** - Age group match (exact match required)
+            - **5%** - Location/state match
+
+            **Confidence Thresholds:**
+            - **≥ 0.90** - Auto-approved (high confidence)
+            - **0.75 - 0.89** - Manual review required (shown here)
+            - **< 0.75** - Rejected (too uncertain)
+
+            **Best Practices:**
+            - Review high-confidence matches (0.85-0.89) first - these are usually correct
+            - Be cautious with low-confidence matches (0.75-0.79)
+            - Check that age group and gender match
+            - Verify club names are similar or related
+            - When in doubt, reject and let it be reviewed again later
+
+            **After Approval:**
+            Once approved, the match is saved and future imports will automatically match
+            this provider team to the master team in the database.
+            """)
 
     # ETL & Data Section
     elif section == "ETL & Data":
