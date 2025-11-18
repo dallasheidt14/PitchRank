@@ -234,6 +234,161 @@ def get_match_statistics():
         return None
 
 
+def get_unmatched_opponents(limit=100):
+    """Fetch games with unmatched teams."""
+    client = get_supabase_client()
+    if not client:
+        return pd.DataFrame()
+
+    try:
+        # Query games where either home or away team is not matched
+        result = client.table('games').select(
+            'id, game_date, home_provider_id, away_provider_id, '
+            'home_team_master_id, away_team_master_id, '
+            'home_score, away_score, division_name, event_name, provider_id'
+        ).or_(
+            'home_team_master_id.is.null,away_team_master_id.is.null'
+        ).order('game_date', desc=True).limit(limit).execute()
+
+        if not result.data:
+            return pd.DataFrame()
+
+        # Process to extract unique unmatched teams
+        unmatched_teams = {}
+
+        for game in result.data:
+            # Check home team
+            if game.get('home_team_master_id') is None:
+                team_id = game.get('home_provider_id', '')
+                if team_id and team_id not in unmatched_teams:
+                    unmatched_teams[team_id] = {
+                        'provider_team_id': team_id,
+                        'provider_id': game.get('provider_id', ''),
+                        'game_count': 0,
+                        'recent_game_date': game.get('game_date', ''),
+                        'division_name': game.get('division_name', ''),
+                        'event_name': game.get('event_name', '')
+                    }
+                if team_id:
+                    unmatched_teams[team_id]['game_count'] += 1
+
+            # Check away team
+            if game.get('away_team_master_id') is None:
+                team_id = game.get('away_provider_id', '')
+                if team_id and team_id not in unmatched_teams:
+                    unmatched_teams[team_id] = {
+                        'provider_team_id': team_id,
+                        'provider_id': game.get('provider_id', ''),
+                        'game_count': 0,
+                        'recent_game_date': game.get('game_date', ''),
+                        'division_name': game.get('division_name', ''),
+                        'event_name': game.get('event_name', '')
+                    }
+                if team_id:
+                    unmatched_teams[team_id]['game_count'] += 1
+
+        return pd.DataFrame(list(unmatched_teams.values()))
+    except Exception as e:
+        st.error(f"Error fetching unmatched opponents: {e}")
+        return pd.DataFrame()
+
+
+def search_teams(search_query: str, age_group: str = None, gender: str = None):
+    """Search for teams in the master teams table."""
+    client = get_supabase_client()
+    if not client:
+        return []
+
+    try:
+        query = client.table('teams').select(
+            'team_id_master, team_name, club_name, age_group, gender, state_code'
+        )
+
+        # Add text search
+        if search_query:
+            query = query.ilike('team_name', f'%{search_query}%')
+
+        # Add filters
+        if age_group:
+            query = query.eq('age_group', age_group)
+        if gender:
+            query = query.eq('gender', gender)
+
+        result = query.limit(50).execute()
+        return result.data if result.data else []
+    except Exception as e:
+        st.error(f"Error searching teams: {e}")
+        return []
+
+
+def link_team_manually(provider_id: str, provider_team_id: str, master_team_id: str, team_info: dict):
+    """Manually link a provider team to a master team."""
+    client = get_supabase_client()
+    if not client:
+        return False
+
+    try:
+        # Create alias mapping
+        alias_data = {
+            'provider_id': provider_id,
+            'provider_team_id': provider_team_id,
+            'team_id_master': master_team_id,
+            'team_name': team_info.get('team_name', ''),
+            'age_group': team_info.get('age_group', ''),
+            'gender': team_info.get('gender', ''),
+            'match_confidence': 1.0,
+            'match_method': 'manual',
+            'review_status': 'approved'
+        }
+
+        client.table('team_alias_map').insert(alias_data).execute()
+
+        # Update games table
+        client.table('games').update({
+            'home_team_master_id': master_team_id
+        }).eq('home_provider_id', provider_team_id).is_('home_team_master_id', 'null').execute()
+
+        client.table('games').update({
+            'away_team_master_id': master_team_id
+        }).eq('away_provider_id', provider_team_id).is_('away_team_master_id', 'null').execute()
+
+        return True
+    except Exception as e:
+        st.error(f"Error linking team: {e}")
+        return False
+
+
+def create_new_team(provider_id: str, provider_team_id: str, team_data: dict):
+    """Create a new team in the master teams table."""
+    client = get_supabase_client()
+    if not client:
+        return False
+
+    try:
+        import uuid
+
+        # Create new team
+        team_id_master = str(uuid.uuid4())
+        new_team = {
+            'team_id_master': team_id_master,
+            'team_name': team_data['team_name'],
+            'club_name': team_data.get('club_name', ''),
+            'age_group': team_data['age_group'],
+            'gender': team_data['gender'],
+            'state_code': team_data.get('state_code', ''),
+            'provider_id': provider_id,
+            'provider_team_id': provider_team_id
+        }
+
+        client.table('teams').insert(new_team).execute()
+
+        # Link it
+        return link_team_manually(provider_id, provider_team_id, team_id_master, team_data)
+    except Exception as e:
+        st.error(f"Error creating team: {e}")
+        return False
+
+
 def main():
     # Header
     st.markdown(
@@ -255,6 +410,7 @@ def main():
             "Machine Learning Layer",
             "Matching Configuration",
             "Fuzzy Match Review",
+            "Unmatched Opponents",
             "ETL & Data",
             "Age Groups",
             "Environment Variables",
@@ -1071,6 +1227,263 @@ def main():
             **After Approval:**
             Once approved, the match is saved and future imports will automatically match
             this provider team to the master team in the database.
+            """)
+
+    # Unmatched Opponents Section
+    elif section == "Unmatched Opponents":
+        st.markdown(
+            "<h2 class='section-header'>🔍 Unmatched Opponents Review</h2>",
+            unsafe_allow_html=True,
+        )
+
+        # Check if Supabase is configured
+        client = get_supabase_client()
+        if not client:
+            st.error(
+                "⚠️ Supabase connection not configured. Please set SUPABASE_URL and "
+                "SUPABASE_SERVICE_ROLE_KEY in your .env file."
+            )
+            return
+
+        st.info(
+            """
+            **Review and match teams that couldn't be automatically matched**
+
+            These teams appear in games but couldn't be matched to any team in the master database
+            (confidence < 0.75). You can manually link them to existing teams or create new teams.
+            """
+        )
+
+        # Fetch unmatched opponents
+        df = get_unmatched_opponents(limit=200)
+
+        if df.empty:
+            st.success("✅ No unmatched opponents! All teams are matched.")
+            return
+
+        # Statistics
+        st.markdown("### 📊 Unmatched Teams Statistics")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Unmatched Teams", len(df))
+        with col2:
+            total_games = df['game_count'].sum() if 'game_count' in df.columns else 0
+            st.metric("Total Games Affected", int(total_games))
+        with col3:
+            avg_games = df['game_count'].mean() if 'game_count' in df.columns and len(df) > 0 else 0
+            st.metric("Avg Games per Team", f"{avg_games:.1f}")
+
+        st.markdown("---")
+
+        # Sort options
+        col1, col2 = st.columns(2)
+        with col1:
+            sort_by = st.selectbox(
+                "Sort by",
+                options=["Game Count (High to Low)", "Most Recent Game", "Provider Team ID"],
+                help="Choose how to sort unmatched teams"
+            )
+        with col2:
+            show_count = st.slider(
+                "Teams to display",
+                min_value=10,
+                max_value=min(200, len(df)),
+                value=min(50, len(df)),
+                step=10
+            )
+
+        # Apply sorting
+        if sort_by == "Game Count (High to Low)":
+            df_sorted = df.sort_values('game_count', ascending=False)
+        elif sort_by == "Most Recent Game":
+            df_sorted = df.sort_values('recent_game_date', ascending=False)
+        else:
+            df_sorted = df.sort_values('provider_team_id')
+
+        df_display = df_sorted.head(show_count)
+
+        st.markdown(f"### 📋 Unmatched Teams ({len(df_display)} of {len(df)})")
+
+        # Display each unmatched team
+        for idx, row in df_display.iterrows():
+            team_id = row['provider_team_id']
+
+            with st.expander(
+                f"🔴 **{team_id}** ({row.get('game_count', 0)} games) - Last seen: {row.get('recent_game_date', 'N/A')[:10]}",
+                expanded=False
+            ):
+                # Team info
+                col1, col2 = st.columns([2, 1])
+
+                with col1:
+                    st.markdown("#### Team Information")
+                    st.markdown(f"**Provider Team ID:** `{team_id}`")
+                    st.markdown(f"**Games:** {row.get('game_count', 0)}")
+                    st.markdown(f"**Most Recent Game:** {row.get('recent_game_date', 'N/A')[:10]}")
+                    st.markdown(f"**Division:** {row.get('division_name', 'N/A')}")
+                    st.markdown(f"**Event:** {row.get('event_name', 'N/A')}")
+
+                with col2:
+                    st.markdown("#### Actions")
+                    action = st.radio(
+                        "What would you like to do?",
+                        options=["Search & Link", "Create New Team"],
+                        key=f"action_{team_id}",
+                        label_visibility="collapsed"
+                    )
+
+                st.markdown("---")
+
+                if action == "Search & Link":
+                    st.markdown("#### Search Existing Teams")
+
+                    search_col1, search_col2, search_col3 = st.columns(3)
+
+                    with search_col1:
+                        search_query = st.text_input(
+                            "Search team name",
+                            key=f"search_{team_id}",
+                            placeholder="Enter team name..."
+                        )
+
+                    with search_col2:
+                        age_group_filter = st.selectbox(
+                            "Age Group",
+                            options=["Any"] + sorted(list(AGE_GROUPS.keys())),
+                            key=f"age_{team_id}"
+                        )
+
+                    with search_col3:
+                        gender_filter = st.selectbox(
+                            "Gender",
+                            options=["Any", "Male", "Female"],
+                            key=f"gender_{team_id}"
+                        )
+
+                    if st.button("🔍 Search", key=f"search_btn_{team_id}"):
+                        results = search_teams(
+                            search_query,
+                            age_group=None if age_group_filter == "Any" else age_group_filter,
+                            gender=None if gender_filter == "Any" else gender_filter
+                        )
+
+                        if results:
+                            st.markdown(f"**Found {len(results)} teams:**")
+
+                            for result in results:
+                                result_col1, result_col2 = st.columns([3, 1])
+
+                                with result_col1:
+                                    st.markdown(
+                                        f"**{result['team_name']}** - "
+                                        f"{result.get('club_name', 'N/A')} - "
+                                        f"{result['age_group']} {result['gender']} - "
+                                        f"{result.get('state_code', 'N/A')}"
+                                    )
+
+                                with result_col2:
+                                    if st.button("Link", key=f"link_{team_id}_{result['team_id_master']}"):
+                                        if link_team_manually(
+                                            row.get('provider_id', ''),
+                                            team_id,
+                                            result['team_id_master'],
+                                            result
+                                        ):
+                                            st.success(f"✅ Successfully linked to {result['team_name']}!")
+                                            st.rerun()
+                                        else:
+                                            st.error("Failed to link team.")
+                        else:
+                            st.warning("No teams found. Try different search criteria or create a new team.")
+
+                else:  # Create New Team
+                    st.markdown("#### Create New Team")
+
+                    with st.form(key=f"create_team_form_{team_id}"):
+                        form_col1, form_col2 = st.columns(2)
+
+                        with form_col1:
+                            new_team_name = st.text_input("Team Name *", key=f"new_name_{team_id}")
+                            new_club_name = st.text_input("Club Name", key=f"new_club_{team_id}")
+                            new_age_group = st.selectbox(
+                                "Age Group *",
+                                options=sorted(list(AGE_GROUPS.keys())),
+                                key=f"new_age_{team_id}"
+                            )
+
+                        with form_col2:
+                            new_gender = st.selectbox(
+                                "Gender *",
+                                options=["Male", "Female"],
+                                key=f"new_gender_{team_id}"
+                            )
+                            new_state_code = st.text_input(
+                                "State Code (2 letters)",
+                                max_chars=2,
+                                key=f"new_state_{team_id}"
+                            )
+
+                        submit = st.form_submit_button("✅ Create Team")
+
+                        if submit:
+                            if not new_team_name or not new_age_group or not new_gender:
+                                st.error("Please fill in all required fields (*)")
+                            else:
+                                team_data = {
+                                    'team_name': new_team_name,
+                                    'club_name': new_club_name,
+                                    'age_group': new_age_group,
+                                    'gender': new_gender,
+                                    'state_code': new_state_code.upper() if new_state_code else ''
+                                }
+
+                                if create_new_team(row.get('provider_id', ''), team_id, team_data):
+                                    st.success(f"✅ Created and linked new team: {new_team_name}!")
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to create team.")
+
+        # Help section
+        st.markdown("---")
+        with st.expander("ℹ️ Help & Information"):
+            st.markdown("""
+            ### What are Unmatched Opponents?
+
+            Unmatched opponents are teams that appear in game records but couldn't be automatically
+            matched to any team in your master database. This happens when:
+
+            - The fuzzy match confidence score is below 0.75 (too uncertain)
+            - The team name is completely different from all known teams
+            - The team is genuinely new and hasn't been added to the database yet
+
+            ### How to Review
+
+            **Option 1: Search & Link to Existing Team**
+            1. Use the search box to find similar teams in your database
+            2. Filter by age group and gender to narrow results
+            3. Click "Link" to connect the unmatched team to an existing team
+            4. Future games with this team will automatically match
+
+            **Option 2: Create New Team**
+            1. Enter the team information (name, club, age group, gender, state)
+            2. Click "Create Team" to add it to your master database
+            3. The unmatched team will be linked to this new team
+            4. Future games will match automatically
+
+            ### Best Practices
+
+            - Start with teams that have the most games (use "Game Count" sort)
+            - Search carefully before creating new teams to avoid duplicates
+            - Use consistent naming conventions when creating teams
+            - Check age group and gender match the game data
+
+            ### What Happens After Linking?
+
+            When you link or create a team:
+            1. An alias mapping is created in `team_alias_map`
+            2. All existing games with this team are updated
+            3. Future imports automatically match this team
+            4. The team appears in rankings and statistics
             """)
 
     # ETL & Data Section
