@@ -180,7 +180,8 @@ def _provisional_multiplier(gp: int, min_games: int) -> float:
 def _adjust_for_opponent_strength(
     games: pd.DataFrame,
     strength_map: Dict[str, float],
-    cfg: V53EConfig
+    cfg: V53EConfig,
+    baseline: Optional[float] = None
 ) -> pd.DataFrame:
     """
     Adjust goals for/against based on opponent strength to fix double-counting problem.
@@ -192,11 +193,16 @@ def _adjust_for_opponent_strength(
         games: DataFrame with columns [gf, ga, opp_id, w_game]
         strength_map: Dict mapping team_id to strength (0-1)
         cfg: Configuration
+        baseline: Reference strength for adjustment (defaults to cfg.OPPONENT_ADJUST_BASELINE)
 
     Returns:
         DataFrame with additional columns [gf_adjusted, ga_adjusted]
     """
     g = games.copy()
+
+    # Use provided baseline or fall back to config
+    if baseline is None:
+        baseline = cfg.OPPONENT_ADJUST_BASELINE
 
     # Get opponent strength for each game
     g["opp_strength"] = g["opp_id"].map(
@@ -206,18 +212,18 @@ def _adjust_for_opponent_strength(
     # Calculate adjustment multipliers
     # Offense: score against strong opponent = more credit
     # multiplier = opp_strength / baseline
-    # Example: opp_strength=0.8, baseline=0.5 → multiplier=1.6 (60% more credit)
-    #          opp_strength=0.3, baseline=0.5 → multiplier=0.6 (40% less credit)
-    g["off_multiplier"] = (g["opp_strength"] / cfg.OPPONENT_ADJUST_BASELINE).clip(
+    # Example: opp_strength=0.8, baseline=0.7 → multiplier=1.14 (14% more credit)
+    #          opp_strength=0.6, baseline=0.7 → multiplier=0.86 (14% less credit)
+    g["off_multiplier"] = (g["opp_strength"] / baseline).clip(
         cfg.OPPONENT_ADJUST_CLIP_MIN,
         cfg.OPPONENT_ADJUST_CLIP_MAX
     )
 
     # Defense: allow goals to strong opponent = less penalty
     # multiplier = baseline / opp_strength
-    # Example: opp_strength=0.8, baseline=0.5 → multiplier=0.625 (37.5% less penalty)
-    #          opp_strength=0.3, baseline=0.5 → multiplier=1.67 (67% more penalty)
-    g["def_multiplier"] = (cfg.OPPONENT_ADJUST_BASELINE / g["opp_strength"]).clip(
+    # Example: opp_strength=0.8, baseline=0.7 → multiplier=0.875 (12.5% less penalty)
+    #          opp_strength=0.6, baseline=0.7 → multiplier=1.17 (17% more penalty)
+    g["def_multiplier"] = (baseline / g["opp_strength"]).clip(
         cfg.OPPONENT_ADJUST_CLIP_MIN,
         cfg.OPPONENT_ADJUST_CLIP_MAX
     )
@@ -520,8 +526,17 @@ def compute_rankings(
     if cfg.OPPONENT_ADJUST_ENABLED:
         logger.info("🔄 Applying opponent-adjusted offense/defense to fix double-counting...")
 
+        # Calculate the actual mean strength to use as baseline (instead of hardcoded 0.5)
+        strength_values = list(strength_map.values())
+        actual_mean_strength = np.mean(strength_values) if strength_values else 0.5
+        logger.info(f"📊 Strength distribution: mean={actual_mean_strength:.3f}, "
+                   f"min={min(strength_values):.3f}, max={max(strength_values):.3f}")
+
+        # Use actual mean as baseline for opponent adjustment
+        baseline = actual_mean_strength
+
         # Adjust games for opponent strength
-        g_adjusted = _adjust_for_opponent_strength(g, strength_map, cfg)
+        g_adjusted = _adjust_for_opponent_strength(g, strength_map, cfg, baseline=baseline)
 
         # Re-aggregate with adjusted values
         g_adjusted["gf_weighted_adj"] = g_adjusted["gf_adjusted"] * g_adjusted["w_game"]
