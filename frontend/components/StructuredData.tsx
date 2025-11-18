@@ -14,10 +14,10 @@ export function StructuredData() {
     logo: `${baseUrl}/logos/pitchrank-logo-dark.png`,
     description: 'Data-powered youth soccer team rankings and performance analytics',
     sameAs: [
-      // Add social media URLs here once created
-      // 'https://twitter.com/pitchrank',
-      // 'https://instagram.com/pitchrank',
-      // 'https://facebook.com/pitchrank',
+      'https://twitter.com/pitchrank',
+      'https://instagram.com/pitchrank',
+      'https://facebook.com/pitchrank',
+      'https://linkedin.com/company/pitchrank',
     ],
     contactPoint: {
       '@type': 'ContactPoint',

@@ -5,6 +5,7 @@ import { Providers } from "./providers";
 import { Navigation } from "@/components/Navigation";
 import { Toaster } from "@/components/ui/Toaster";
 import { StructuredData } from "@/components/StructuredData";
+import { Footer } from "@/components/Footer";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -129,13 +130,14 @@ export default function RootLayout({
         />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased transition-colors duration-300 ease-in-out`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased transition-colors duration-300 ease-in-out flex flex-col min-h-screen`}
       >
         <Providers>
           <Navigation />
-          <main className="min-h-screen bg-background text-foreground">
+          <main className="flex-1 bg-background text-foreground">
             {children}
           </main>
+          <Footer />
           <Toaster />
         </Providers>
       </body>
