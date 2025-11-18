@@ -273,7 +273,7 @@ def compute_rankings(
         out["ga"] = _clip_outliers_series(out["ga"], cfg.OUTLIER_GUARD_ZSCORE)
         return out
 
-    g = g.groupby("team_id", group_keys=False).apply(clip_team_games, include_groups=False)
+    g = g.groupby("team_id", group_keys=False).apply(clip_team_games)
     g["gd"] = (g["gf"] - g["ga"]).clip(-cfg.GOAL_DIFF_CAP, cfg.GOAL_DIFF_CAP)
 
     # keep last N games per team (by date)
@@ -295,7 +295,7 @@ def compute_rankings(
         out["w_base"] = w
         return out
 
-    g = g.groupby("team_id", group_keys=False).apply(apply_recency, include_groups=False)
+    g = g.groupby("team_id", group_keys=False).apply(apply_recency)
 
     # -------------------------
     # Context multipliers (tournament/KO)
@@ -365,7 +365,7 @@ def compute_rankings(
         out["def_shrunk"] = 1.0 / (out["sad_shrunk"] + cfg.RIDGE_GA)
         return out
 
-    team = team.groupby(["age", "gender"], group_keys=False).apply(shrink_grp, include_groups=False)
+    team = team.groupby(["age", "gender"], group_keys=False).apply(shrink_grp)
 
     # -------------------------
     # Layer 5: team-level outlier guard (OFF/DEF)
@@ -380,7 +380,7 @@ def compute_rankings(
                                   mu + cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd)
         return out
 
-    team = team.groupby(["age", "gender"], group_keys=False).apply(clip_team_level, include_groups=False)
+    team = team.groupby(["age", "gender"], group_keys=False).apply(clip_team_level)
 
     # -------------------------
     # Layer 9: normalize OFF/DEF
@@ -567,7 +567,7 @@ def compute_rankings(
             out["def_shrunk"] = 1.0 / (out["sad_shrunk"] + cfg.RIDGE_GA)
             return out
 
-        team = team.groupby(["age", "gender"], group_keys=False).apply(shrink_grp_adj, include_groups=False)
+        team = team.groupby(["age", "gender"], group_keys=False).apply(shrink_grp_adj)
 
         # Re-apply outlier clipping
         def clip_team_level_adj(df: pd.DataFrame) -> pd.DataFrame:
@@ -580,7 +580,7 @@ def compute_rankings(
                                       mu + cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd)
             return out
 
-        team = team.groupby(["age", "gender"], group_keys=False).apply(clip_team_level_adj, include_groups=False)
+        team = team.groupby(["age", "gender"], group_keys=False).apply(clip_team_level_adj)
 
         # Re-normalize
         team = _normalize_by_cohort(team, "off_shrunk", "off_norm", cfg.NORM_MODE)
@@ -628,7 +628,7 @@ def compute_rankings(
         return float(np.average(df[col].values, weights=w))
 
     direct = (
-        g_sos.groupby("team_id").apply(lambda d: _avg_weighted(d, "opp_strength", "w_sos"), include_groups=False)
+        g_sos.groupby("team_id").apply(lambda d: _avg_weighted(d, "opp_strength", "w_sos"))
         .rename("sos_direct").reset_index()
     )
     sos_curr = direct.rename(columns={"sos_direct": "sos"}).copy()
@@ -646,7 +646,7 @@ def compute_rankings(
         opp_sos_map = dict(zip(sos_curr["team_id"], sos_curr["sos"]))
         g_sos["opp_sos"] = g_sos["opp_id"].map(lambda o: opp_sos_map.get(o, cfg.UNRANKED_SOS_BASE))
         trans = (
-            g_sos.groupby("team_id").apply(lambda d: _avg_weighted(d, "opp_sos", "w_sos"), include_groups=False)
+            g_sos.groupby("team_id").apply(lambda d: _avg_weighted(d, "opp_sos", "w_sos"))
             .rename("sos_trans").reset_index()
         )
         merged = direct.merge(trans, on="team_id", how="outer").fillna(0.5)
