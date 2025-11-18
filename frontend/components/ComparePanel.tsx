@@ -274,6 +274,15 @@ export function ComparePanel() {
                         </td>
                       </tr>
                       <tr>
+                        <td className="py-3 px-2 text-sm text-muted-foreground">SOS (Strength of Schedule)</td>
+                        <td className="py-3 px-2 text-center font-semibold">
+                          {team1Details.sos_norm !== null ? team1Details.sos_norm.toFixed(3) : '—'}
+                        </td>
+                        <td className="py-3 px-2 text-center font-semibold">
+                          {team2Details.sos_norm !== null ? team2Details.sos_norm.toFixed(3) : '—'}
+                        </td>
+                      </tr>
+                      <tr>
                         <td className="py-3 px-2 text-sm text-muted-foreground">Win %</td>
                         <td className="py-3 px-2 text-center font-semibold">
                           {team1Details.win_percentage !== null ? `${team1Details.win_percentage.toFixed(1)}%` : '—'}
@@ -379,6 +388,27 @@ export function ComparePanel() {
                         />
                       </div>
 
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">SOS (Schedule Strength):</span>
+                        <span className="font-semibold">
+                          {team1Details.sos_norm !== null ? team1Details.sos_norm.toFixed(3) : '—'}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Offense Rating:</span>
+                        <span className="font-semibold">
+                          {team1Details.offense_norm !== null ? team1Details.offense_norm.toFixed(3) : '—'}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Defense Rating:</span>
+                        <span className="font-semibold">
+                          {team1Details.defense_norm !== null ? team1Details.defense_norm.toFixed(3) : '—'}
+                        </span>
+                      </div>
+
                       <div>
                         <div className="flex justify-between mb-1">
                           <span className="text-muted-foreground">Win %:</span>
@@ -455,6 +485,27 @@ export function ComparePanel() {
                           maxValue={maxPowerScore}
                           percentile={percentiles?.team2?.powerScore ?? 0}
                         />
+                      </div>
+
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">SOS (Schedule Strength):</span>
+                        <span className="font-semibold">
+                          {team2Details.sos_norm !== null ? team2Details.sos_norm.toFixed(3) : '—'}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Offense Rating:</span>
+                        <span className="font-semibold">
+                          {team2Details.offense_norm !== null ? team2Details.offense_norm.toFixed(3) : '—'}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Defense Rating:</span>
+                        <span className="font-semibold">
+                          {team2Details.defense_norm !== null ? team2Details.defense_norm.toFixed(3) : '—'}
+                        </span>
                       </div>
 
                       <div>
