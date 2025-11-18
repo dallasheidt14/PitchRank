@@ -261,20 +261,25 @@ def get_unmatched_opponents(limit=500):
             if game.get('away_team_master_id') is None:
                 all_provider_ids.add(game.get('away_provider_id', ''))
 
-        # Fetch team names from alias map (even if rejected)
+        # Fetch team info from alias map (if columns exist)
         team_names = {}
         if all_provider_ids:
-            alias_result = client.table('team_alias_map').select(
-                'provider_team_id, team_name, age_group, gender'
-            ).in_('provider_team_id', list(all_provider_ids)).execute()
+            try:
+                # Try to get team names from alias map if those columns exist
+                alias_result = client.table('team_alias_map').select(
+                    'provider_team_id, team_name, age_group, gender'
+                ).in_('provider_team_id', list(all_provider_ids)).execute()
 
-            if alias_result.data:
-                for alias in alias_result.data:
-                    team_names[alias['provider_team_id']] = {
-                        'team_name': alias.get('team_name', ''),
-                        'age_group': alias.get('age_group', ''),
-                        'gender': alias.get('gender', '')
-                    }
+                if alias_result.data:
+                    for alias in alias_result.data:
+                        team_names[alias['provider_team_id']] = {
+                            'team_name': alias.get('team_name', ''),
+                            'age_group': alias.get('age_group', ''),
+                            'gender': alias.get('gender', '')
+                        }
+            except Exception:
+                # Columns don't exist in this database, skip team name lookup
+                pass
 
         # Process to extract unique unmatched teams with all info
         unmatched_teams = {}
@@ -350,20 +355,23 @@ def get_overall_matching_stats():
         return None
 
     try:
-        # Get total games
-        games_result = client.table('games').select('id, home_team_master_id, away_team_master_id', count='exact').execute()
-        total_games = games_result.count if games_result.count else 0
+        # Get all games and calculate stats client-side for better compatibility
+        games_result = client.table('games').select('home_team_master_id, away_team_master_id').execute()
 
-        # Get matched/unmatched counts
-        matched_both = client.table('games').select('id', count='exact').not_.is_('home_team_master_id', 'null').not_.is_('away_team_master_id', 'null').execute()
-        matched_one = client.table('games').select('id', count='exact').or_('home_team_master_id.is.null,away_team_master_id.is.null').not_.or_('home_team_master_id.is.null.and.away_team_master_id.is.null').execute()
-        matched_none = client.table('games').select('id', count='exact').is_('home_team_master_id', 'null').is_('away_team_master_id', 'null').execute()
+        if not games_result.data:
+            return None
+
+        total_games = len(games_result.data)
+        matched_both = sum(1 for g in games_result.data if g.get('home_team_master_id') and g.get('away_team_master_id'))
+        matched_none = sum(1 for g in games_result.data if not g.get('home_team_master_id') and not g.get('away_team_master_id'))
+        matched_one = total_games - matched_both - matched_none
 
         # Get team counts
-        total_teams = client.table('teams').select('id', count='exact').execute()
+        total_teams_result = client.table('teams').select('id', count='exact').execute()
+        total_teams = total_teams_result.count if total_teams_result.count else 0
 
         # Get alias map stats
-        alias_stats = client.table('team_alias_map').select('match_method, review_status', count='exact').execute()
+        alias_stats = client.table('team_alias_map').select('match_method, review_status').execute()
 
         fuzzy_auto = sum(1 for a in alias_stats.data if a.get('match_method') == 'fuzzy_auto') if alias_stats.data else 0
         fuzzy_pending = sum(1 for a in alias_stats.data if a.get('match_method') == 'fuzzy_review' and a.get('review_status') == 'pending') if alias_stats.data else 0
@@ -371,10 +379,10 @@ def get_overall_matching_stats():
 
         return {
             'total_games': total_games,
-            'matched_both': matched_both.count if matched_both.count else 0,
-            'matched_one': matched_one.count if matched_one.count else 0,
-            'matched_none': matched_none.count if matched_none.count else 0,
-            'total_teams': total_teams.count if total_teams.count else 0,
+            'matched_both': matched_both,
+            'matched_one': matched_one,
+            'matched_none': matched_none,
+            'total_teams': total_teams,
             'fuzzy_auto': fuzzy_auto,
             'fuzzy_pending': fuzzy_pending,
             'manual_matches': manual_matches
@@ -419,18 +427,29 @@ def link_team_manually(provider_id: str, provider_team_id: str, master_team_id: 
         return False
 
     try:
-        # Create alias mapping
+        # Create alias mapping (only include base fields that always exist)
         alias_data = {
             'provider_id': provider_id,
             'provider_team_id': provider_team_id,
             'team_id_master': master_team_id,
-            'team_name': team_info.get('team_name', ''),
-            'age_group': team_info.get('age_group', ''),
-            'gender': team_info.get('gender', ''),
             'match_confidence': 1.0,
             'match_method': 'manual',
             'review_status': 'approved'
         }
+
+        # Try to add optional fields if they exist in the table
+        try:
+            # Test if these columns exist by trying to select them
+            test_result = client.table('team_alias_map').select('team_name').limit(1).execute()
+            # If successful, add the optional fields
+            alias_data.update({
+                'team_name': team_info.get('team_name', ''),
+                'age_group': team_info.get('age_group', ''),
+                'gender': team_info.get('gender', '')
+            })
+        except Exception:
+            # Columns don't exist, skip them
+            pass
 
         client.table('team_alias_map').insert(alias_data).execute()
 
