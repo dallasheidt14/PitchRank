@@ -72,7 +72,7 @@ class V53EConfig:
     ANCHOR_PERCENTILE: float = 0.98
 
     # Normalization mode
-    NORM_MODE: str = "percentile"  # or "zscore"
+    NORM_MODE: str = "zscore"  # or "percentile"
 
 
 # Required team-centric columns (one row per team per game)
