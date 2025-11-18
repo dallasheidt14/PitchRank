@@ -264,6 +264,21 @@ export function ComparePanel() {
                           {team2Details.rank_in_cohort_final ? `#${team2Details.rank_in_cohort_final}` : '—'}
                         </td>
                       </tr>
+                      {(team1Details.state && team1Details.rank_in_state_final) || (team2Details.state && team2Details.rank_in_state_final) ? (
+                        <tr>
+                          <td className="py-3 px-2 text-sm text-muted-foreground">State Rank</td>
+                          <td className="py-3 px-2 text-center font-semibold">
+                            {team1Details.state && team1Details.rank_in_state_final
+                              ? `#${team1Details.rank_in_state_final} (${team1Details.state.toUpperCase()})`
+                              : '—'}
+                          </td>
+                          <td className="py-3 px-2 text-center font-semibold">
+                            {team2Details.state && team2Details.rank_in_state_final
+                              ? `#${team2Details.rank_in_state_final} (${team2Details.state.toUpperCase()})`
+                              : '—'}
+                          </td>
+                        </tr>
+                      ) : null}
                       <tr>
                         <td className="py-3 px-2 text-sm text-muted-foreground">Power Score</td>
                         <td className="py-3 px-2 text-center font-semibold">
@@ -280,6 +295,24 @@ export function ComparePanel() {
                         </td>
                         <td className="py-3 px-2 text-center font-semibold">
                           {team2Details.sos_norm !== null ? team2Details.sos_norm.toFixed(3) : '—'}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-3 px-2 text-sm text-muted-foreground">Offense Rating</td>
+                        <td className="py-3 px-2 text-center font-semibold">
+                          {team1Details.offense_norm !== null ? team1Details.offense_norm.toFixed(3) : '—'}
+                        </td>
+                        <td className="py-3 px-2 text-center font-semibold">
+                          {team2Details.offense_norm !== null ? team2Details.offense_norm.toFixed(3) : '—'}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-3 px-2 text-sm text-muted-foreground">Defense Rating</td>
+                        <td className="py-3 px-2 text-center font-semibold">
+                          {team1Details.defense_norm !== null ? team1Details.defense_norm.toFixed(3) : '—'}
+                        </td>
+                        <td className="py-3 px-2 text-center font-semibold">
+                          {team2Details.defense_norm !== null ? team2Details.defense_norm.toFixed(3) : '—'}
                         </td>
                       </tr>
                       <tr>
@@ -342,213 +375,12 @@ export function ComparePanel() {
                 />
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">{team1Details.team_name}</CardTitle>
-                    <CardDescription>
-                      {team1Details.club_name && <span>{team1Details.club_name}</span>}
-                      {team1Details.state && (
-                        <span className={team1Details.club_name ? ' • ' : ''}>
-                          {team1Details.state}
-                        </span>
-                      )}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">National Rank:</span>
-                        <span className="font-semibold">
-                          {team1Details.rank_in_cohort_final ? `#${team1Details.rank_in_cohort_final}` : '—'}
-                        </span>
-                      </div>
-                      {team1Details.state && team1Details.rank_in_state_final && (
-                        <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground">State Rank:</span>
-                          <span className="font-semibold">
-                            #{team1Details.rank_in_state_final} ({team1Details.state.toUpperCase()})
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-3 pt-2 border-t">
-                      <div>
-                        <div className="flex justify-between mb-1">
-                          <span className="text-muted-foreground">PowerScore (ML Adjusted):</span>
-                          <span className="font-semibold">
-                            {formatPowerScore(team1Details.power_score_final)}
-                          </span>
-                        </div>
-                        <PercentileBar
-                          value={team1Details.power_score_final ?? 0}
-                          maxValue={maxPowerScore}
-                          percentile={percentiles?.team1?.powerScore ?? 0}
-                        />
-                      </div>
-
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">SOS (Schedule Strength):</span>
-                        <span className="font-semibold">
-                          {team1Details.sos_norm !== null ? team1Details.sos_norm.toFixed(3) : '—'}
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Offense Rating:</span>
-                        <span className="font-semibold">
-                          {team1Details.offense_norm !== null ? team1Details.offense_norm.toFixed(3) : '—'}
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Defense Rating:</span>
-                        <span className="font-semibold">
-                          {team1Details.defense_norm !== null ? team1Details.defense_norm.toFixed(3) : '—'}
-                        </span>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between mb-1">
-                          <span className="text-muted-foreground">Win %:</span>
-                          <span className="font-semibold">
-                            {team1Details.win_percentage !== null
-                              ? `${team1Details.win_percentage.toFixed(1)}%`
-                              : '—'}
-                          </span>
-                        </div>
-                        {team1Details.win_percentage !== null && (
-                          <PercentileBar
-                            value={team1Details.win_percentage ?? 0}
-                            maxValue={100}
-                            percentile={percentiles?.team1?.winPercentage ?? 0}
-                          />
-                        )}
-                      </div>
-
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Record:</span>
-                        <span className="font-semibold">
-                          {team1Details.wins}-{team1Details.losses}
-                          {team1Details.draws > 0 && `-${team1Details.draws}`}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Games Played:</span>
-                        <span className="font-semibold">{team1Details.games_played}</span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">{team2Details.team_name}</CardTitle>
-                    <CardDescription>
-                      {team2Details.club_name && <span>{team2Details.club_name}</span>}
-                      {team2Details.state && (
-                        <span className={team2Details.club_name ? ' • ' : ''}>
-                          {team2Details.state}
-                        </span>
-                      )}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">National Rank:</span>
-                        <span className="font-semibold">
-                          {team2Details.rank_in_cohort_final ? `#${team2Details.rank_in_cohort_final}` : '—'}
-                        </span>
-                      </div>
-                      {team2Details.state && team2Details.rank_in_state_final && (
-                        <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground">State Rank:</span>
-                          <span className="font-semibold">
-                            #{team2Details.rank_in_state_final} ({team2Details.state.toUpperCase()})
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-3 pt-2 border-t">
-                      <div>
-                        <div className="flex justify-between mb-1">
-                          <span className="text-muted-foreground">PowerScore (ML Adjusted):</span>
-                          <span className="font-semibold">
-                            {formatPowerScore(team2Details.power_score_final)}
-                          </span>
-                        </div>
-                        <PercentileBar
-                          value={team2Details.power_score_final ?? 0}
-                          maxValue={maxPowerScore}
-                          percentile={percentiles?.team2?.powerScore ?? 0}
-                        />
-                      </div>
-
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">SOS (Schedule Strength):</span>
-                        <span className="font-semibold">
-                          {team2Details.sos_norm !== null ? team2Details.sos_norm.toFixed(3) : '—'}
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Offense Rating:</span>
-                        <span className="font-semibold">
-                          {team2Details.offense_norm !== null ? team2Details.offense_norm.toFixed(3) : '—'}
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Defense Rating:</span>
-                        <span className="font-semibold">
-                          {team2Details.defense_norm !== null ? team2Details.defense_norm.toFixed(3) : '—'}
-                        </span>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between mb-1">
-                          <span className="text-muted-foreground">Win %:</span>
-                          <span className="font-semibold">
-                            {team2Details.win_percentage !== null
-                              ? `${team2Details.win_percentage.toFixed(1)}%`
-                              : '—'}
-                          </span>
-                        </div>
-                        {team2Details.win_percentage !== null && (
-                          <PercentileBar
-                            value={team2Details.win_percentage ?? 0}
-                            maxValue={100}
-                            percentile={percentiles?.team2?.winPercentage ?? 0}
-                          />
-                        )}
-                      </div>
-
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Record:</span>
-                        <span className="font-semibold">
-                          {team2Details.wins}-{team2Details.losses}
-                          {team2Details.draws > 0 && `-${team2Details.draws}`}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Games Played:</span>
-                        <span className="font-semibold">{team2Details.games_played}</span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-
               {/* Common Opponents */}
               {commonOpponents && commonOpponents.length > 0 && (
                 <div className="pt-4 border-t">
                   <h3 className="text-lg font-semibold mb-4">Common Opponents</h3>
                   <div className="space-y-2">
-                    {commonOpponents.slice(0, 5).map((opponent) => (
+                    {commonOpponents.slice(0, 10).map((opponent) => (
                       <Card key={opponent.opponent_id} className="p-3">
                         <div className="flex items-center justify-between">
                           <div className="font-medium">{opponent.opponent_name}</div>
@@ -587,9 +419,9 @@ export function ComparePanel() {
                         </div>
                       </Card>
                     ))}
-                    {commonOpponents.length > 5 && (
+                    {commonOpponents.length > 10 && (
                       <p className="text-sm text-muted-foreground text-center">
-                        Showing 5 of {commonOpponents.length} common opponents
+                        Showing 10 of {commonOpponents.length} common opponents
                       </p>
                     )}
                   </div>
