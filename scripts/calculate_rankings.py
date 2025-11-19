@@ -557,5 +557,15 @@ async def main():
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+        sys.exit(0)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]⚠️  Interrupted by user[/yellow]")
+        sys.exit(130)
+    except Exception as e:
+        console.print(f"\n[red]💥 Fatal error: {e}[/red]")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
