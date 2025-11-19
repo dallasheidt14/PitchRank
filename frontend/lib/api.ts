@@ -30,7 +30,8 @@ export const api = {
     gender?: 'M' | 'F' | 'B' | 'G' | null
   ): Promise<RankingWithTeam[]> {
     const table = region ? 'state_rankings_view' : 'rankings_view';
-    let query = supabase.from(table).select('*');
+    let query = supabase.from(table).select('*')
+      .eq('status', 'Active'); // Filter out inactive teams (>180 days since last game)
 
     if (ageGroup) {
       // Normalize age group to integer

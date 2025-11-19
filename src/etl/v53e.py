@@ -56,6 +56,12 @@ class V53EConfig:
     SOS_ITERATIONS: int = 3
     SOS_TRANSITIVITY_LAMBDA: float = 0.20  # Balanced transitivity weight (80% direct, 20% transitive)
 
+    # Opponent-adjusted offense/defense (fixes double-counting)
+    OPPONENT_ADJUST_ENABLED: bool = True
+    OPPONENT_ADJUST_BASELINE: float = 0.5  # Reference strength for adjustment
+    OPPONENT_ADJUST_CLIP_MIN: float = 0.4  # Min multiplier (avoid extreme adjustments)
+    OPPONENT_ADJUST_CLIP_MAX: float = 1.6  # Max multiplier (conservative bounds)
+
     # Layer 10 weights
     OFF_WEIGHT: float = 0.25
     DEF_WEIGHT: float = 0.25
@@ -72,7 +78,7 @@ class V53EConfig:
     ANCHOR_PERCENTILE: float = 0.98
 
     # Normalization mode
-    NORM_MODE: str = "percentile"  # or "zscore"
+    NORM_MODE: str = "zscore"  # or "percentile"
 
 
 # Required team-centric columns (one row per team per game)
@@ -171,6 +177,64 @@ def _provisional_multiplier(gp: int, min_games: int) -> float:
     return 1.0
 
 
+def _adjust_for_opponent_strength(
+    games: pd.DataFrame,
+    strength_map: Dict[str, float],
+    cfg: V53EConfig,
+    baseline: Optional[float] = None
+) -> pd.DataFrame:
+    """
+    Adjust goals for/against based on opponent strength to fix double-counting problem.
+
+    For offense: Scoring against STRONG opponents gets MORE credit (multiplier > 1)
+    For defense: Allowing goals to STRONG opponents gets LESS penalty (multiplier < 1)
+
+    Args:
+        games: DataFrame with columns [gf, ga, opp_id, w_game]
+        strength_map: Dict mapping team_id to strength (0-1)
+        cfg: Configuration
+        baseline: Reference strength for adjustment (defaults to cfg.OPPONENT_ADJUST_BASELINE)
+
+    Returns:
+        DataFrame with additional columns [gf_adjusted, ga_adjusted]
+    """
+    g = games.copy()
+
+    # Use provided baseline or fall back to config
+    if baseline is None:
+        baseline = cfg.OPPONENT_ADJUST_BASELINE
+
+    # Get opponent strength for each game
+    g["opp_strength"] = g["opp_id"].map(
+        lambda o: strength_map.get(o, cfg.UNRANKED_SOS_BASE)
+    )
+
+    # Calculate adjustment multipliers
+    # Offense: score against strong opponent = more credit
+    # multiplier = opp_strength / baseline
+    # Example: opp_strength=0.8, baseline=0.7 → multiplier=1.14 (14% more credit)
+    #          opp_strength=0.6, baseline=0.7 → multiplier=0.86 (14% less credit)
+    g["off_multiplier"] = (g["opp_strength"] / baseline).clip(
+        cfg.OPPONENT_ADJUST_CLIP_MIN,
+        cfg.OPPONENT_ADJUST_CLIP_MAX
+    )
+
+    # Defense: allow goals to strong opponent = less penalty
+    # multiplier = baseline / opp_strength
+    # Example: opp_strength=0.8, baseline=0.7 → multiplier=0.875 (12.5% less penalty)
+    #          opp_strength=0.6, baseline=0.7 → multiplier=1.17 (17% more penalty)
+    g["def_multiplier"] = (baseline / g["opp_strength"]).clip(
+        cfg.OPPONENT_ADJUST_CLIP_MIN,
+        cfg.OPPONENT_ADJUST_CLIP_MAX
+    )
+
+    # Apply adjustments
+    g["gf_adjusted"] = g["gf"] * g["off_multiplier"]
+    g["ga_adjusted"] = g["ga"] * g["def_multiplier"]
+
+    return g
+
+
 # =========================
 # Main: compute_rankings
 # =========================
@@ -215,7 +279,7 @@ def compute_rankings(
         out["ga"] = _clip_outliers_series(out["ga"], cfg.OUTLIER_GUARD_ZSCORE)
         return out
 
-    g = g.groupby("team_id", group_keys=False).apply(clip_team_games)
+    g = g.groupby("team_id").apply(clip_team_games).reset_index(drop=True)
     g["gd"] = (g["gf"] - g["ga"]).clip(-cfg.GOAL_DIFF_CAP, cfg.GOAL_DIFF_CAP)
 
     # keep last N games per team (by date)
@@ -237,7 +301,7 @@ def compute_rankings(
         out["w_base"] = w
         return out
 
-    g = g.groupby("team_id", group_keys=False).apply(apply_recency)
+    g = g.groupby("team_id").apply(apply_recency).reset_index(drop=True)
 
     # -------------------------
     # Context multipliers (tournament/KO)
@@ -307,7 +371,7 @@ def compute_rankings(
         out["def_shrunk"] = 1.0 / (out["sad_shrunk"] + cfg.RIDGE_GA)
         return out
 
-    team = team.groupby(["age", "gender"], group_keys=False).apply(shrink_grp)
+    team = team.groupby(["age", "gender"]).apply(shrink_grp).reset_index(drop=True)
 
     # -------------------------
     # Layer 5: team-level outlier guard (OFF/DEF)
@@ -322,7 +386,7 @@ def compute_rankings(
                                   mu + cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd)
         return out
 
-    team = team.groupby(["age", "gender"], group_keys=False).apply(clip_team_level)
+    team = team.groupby(["age", "gender"]).apply(clip_team_level).reset_index(drop=True)
 
     # -------------------------
     # Layer 9: normalize OFF/DEF
@@ -455,6 +519,101 @@ def compute_rankings(
 
     strength_map = dict(zip(team["team_id"], team["abs_strength"]))
     power_map = dict(zip(team["team_id"], team["power_presos"]))
+
+    # -------------------------
+    # Opponent-Adjusted Offense/Defense (if enabled)
+    # -------------------------
+    if cfg.OPPONENT_ADJUST_ENABLED:
+        logger.info("🔄 Applying opponent-adjusted offense/defense to fix double-counting...")
+
+        # Calculate the actual mean strength to use as baseline (instead of hardcoded 0.5)
+        strength_values = list(strength_map.values())
+        actual_mean_strength = np.mean(strength_values) if strength_values else 0.5
+        logger.info(f"📊 Strength distribution: mean={actual_mean_strength:.3f}, "
+                   f"min={min(strength_values):.3f}, max={max(strength_values):.3f}")
+
+        # Use actual mean as baseline for opponent adjustment
+        baseline = actual_mean_strength
+
+        # Adjust games for opponent strength
+        g_adjusted = _adjust_for_opponent_strength(g, strength_map, cfg, baseline=baseline)
+
+        # Re-aggregate with adjusted values
+        g_adjusted["gf_weighted_adj"] = g_adjusted["gf_adjusted"] * g_adjusted["w_game"]
+        g_adjusted["ga_weighted_adj"] = g_adjusted["ga_adjusted"] * g_adjusted["w_game"]
+
+        team_adj = g_adjusted.groupby(["team_id", "age", "gender"], as_index=False).agg({
+            "gf_weighted_adj": "sum",
+            "ga_weighted_adj": "sum",
+            "w_game": "sum",
+        })
+
+        # Calculate adjusted weighted averages
+        w_sum = team_adj["w_game"]
+        team_adj["off_raw"] = np.where(
+            w_sum > 0,
+            team_adj["gf_weighted_adj"] / w_sum,
+            0.0
+        ).astype(float)
+        team_adj["sad_raw"] = np.where(
+            w_sum > 0,
+            team_adj["ga_weighted_adj"] / w_sum,
+            0.0
+        ).astype(float)
+
+        # Merge back to team DataFrame (replace old off_raw, sad_raw)
+        team = team.drop(columns=["off_raw", "sad_raw"])
+        team = team.merge(
+            team_adj[["team_id", "age", "gender", "off_raw", "sad_raw"]],
+            on=["team_id", "age", "gender"],
+            how="left"
+        )
+
+        # Re-apply defense ridge
+        team["def_raw"] = 1.0 / (team["sad_raw"] + cfg.RIDGE_GA)
+
+        # Re-apply Bayesian shrinkage
+        def shrink_grp_adj(df: pd.DataFrame) -> pd.DataFrame:
+            mu_off = df["off_raw"].mean()
+            mu_sad = df["sad_raw"].mean()
+            out = df.copy()
+            out["off_shrunk"] = (out["off_raw"] * out["gp"] + mu_off * cfg.SHRINK_TAU) / (out["gp"] + cfg.SHRINK_TAU)
+            out["sad_shrunk"] = (out["sad_raw"] * out["gp"] + mu_sad * cfg.SHRINK_TAU) / (out["gp"] + cfg.SHRINK_TAU)
+            out["def_shrunk"] = 1.0 / (out["sad_shrunk"] + cfg.RIDGE_GA)
+            return out
+
+        team = team.groupby(["age", "gender"]).apply(shrink_grp_adj).reset_index(drop=True)
+
+        # Re-apply outlier clipping
+        def clip_team_level_adj(df: pd.DataFrame) -> pd.DataFrame:
+            out = df.copy()
+            for col in ["off_shrunk", "def_shrunk"]:
+                s = out[col]
+                if len(s) >= 3 and s.std(ddof=0) > 0:
+                    mu, sd = s.mean(), s.std(ddof=0)
+                    out[col] = s.clip(mu - cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd,
+                                      mu + cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd)
+            return out
+
+        team = team.groupby(["age", "gender"]).apply(clip_team_level_adj).reset_index(drop=True)
+
+        # Re-normalize
+        team = _normalize_by_cohort(team, "off_shrunk", "off_norm", cfg.NORM_MODE)
+        team = _normalize_by_cohort(team, "def_shrunk", "def_norm", cfg.NORM_MODE)
+
+        # Recalculate power_presos with adjusted OFF/DEF
+        team["power_presos"] = (
+            cfg.OFF_WEIGHT * team["off_norm"]
+            + cfg.DEF_WEIGHT * team["def_norm"]
+            + cfg.SOS_WEIGHT * team["sos_presos"]
+        )
+
+        # Update strength_map and power_map with adjusted power
+        team["abs_strength"] = (team["power_presos"] / team["anchor"]).clip(0.0, 1.5)
+        strength_map = dict(zip(team["team_id"], team["abs_strength"]))
+        power_map = dict(zip(team["team_id"], team["power_presos"]))
+
+        logger.info("✅ Opponent-adjusted offense/defense applied successfully")
 
     # -------------------------
     # Layer 5: Adaptive K per game (by abs strength gap)

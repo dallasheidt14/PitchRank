@@ -1,42 +1,32 @@
-name: Calculate Rankings
+name: Audit SOS
 
 on:
-  workflow_dispatch: # Allow manual trigger from GitHub Actions tab
+  workflow_dispatch:
+    inputs:
+      team_name:
+        description: 'Team name to audit (e.g., "Dallas Tigers")'
+        required: true
+        type: string
+      team_id:
+        description: 'Team ID (optional - use instead of team name for exact match)'
+        required: false
+        type: string
 
 jobs:
-  calculate-rankings:
+  audit-team-sos:
     runs-on: ubuntu-latest
 
     steps:
       # ---------------------------------------------------------------
-      # 1. CHECKOUT THE MAIN BRANCH
+      # 1. CHECKOUT REPOSITORY
       # ---------------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       # ---------------------------------------------------------------
-      # 2. FAIL-SAFE: VERIFY WE ARE ON THE RIGHT BRANCH
-      # ---------------------------------------------------------------
-      - name: Verify correct branch
-        run: |
-          echo "Checked-out branch: $(git branch --show-current)"
-          if [ "$(git branch --show-current)" != "main" ]; then
-            echo "❌ ERROR: Wrong branch checked out! Rankings run ABORTED."
-            exit 1
-          fi
-
-      # ---------------------------------------------------------------
-      # 3. PRINT COMMIT HASH (for debugging + traceability)
-      # ---------------------------------------------------------------
-      - name: Show commit hash
-        run: |
-          echo "Current commit:"
-          git rev-parse HEAD
-
-      # ---------------------------------------------------------------
-      # 4. SET UP PYTHON ENVIRONMENT
+      # 2. SET UP PYTHON ENVIRONMENT
       # ---------------------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -44,7 +34,7 @@ jobs:
           python-version: '3.11'
 
       # ---------------------------------------------------------------
-      # 5. INSTALL PYTHON DEPENDENCIES
+      # 3. INSTALL PYTHON DEPENDENCIES
       # ---------------------------------------------------------------
       - name: Install dependencies
         run: |
@@ -53,9 +43,9 @@ jobs:
           pip install supabase python-dotenv pandas requests rich certifi numpy scikit-learn
 
       # ---------------------------------------------------------------
-      # 6. RUN THE RANKINGS ENGINE (Iterative SOS + ML)
+      # 4. RUN SOS AUDIT SCRIPT
       # ---------------------------------------------------------------
-      - name: Calculate Rankings
+      - name: Run Team SOS Audit
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -63,14 +53,28 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         run: |
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
-          echo "⚽ Running PitchRank Rankings Engine with ML + Iterative SOS"
-          python scripts/calculate_rankings.py --ml --force-rebuild
+          echo "🔍 Auditing SOS for team: ${{ inputs.team_name || inputs.team_id }}"
+          echo ""
+
+          if [ -n "${{ inputs.team_id }}" ]; then
+            echo "Running audit with Team ID: ${{ inputs.team_id }}"
+            python scripts/team_audit_sos.py --team-id "${{ inputs.team_id }}"
+          else
+            echo "Running audit with Team Name: ${{ inputs.team_name }}"
+            python scripts/team_audit_sos.py --team-name "${{ inputs.team_name }}" --auto-select
+          fi
 
       # ---------------------------------------------------------------
-      # 7. FINAL REPORT
+      # 5. FINAL REPORT
       # ---------------------------------------------------------------
       - name: Report results
         if: always()
         run: |
-          echo "Rankings calculation completed. Check logs above for details."
-
+          echo ""
+          echo "✅ SOS Audit completed. Check the output above for detailed results."
+          echo ""
+          echo "The audit shows:"
+          echo "  • Team game history"
+          echo "  • Opponent strengths used in SOS calculation"
+          echo "  • Game weights and contributions"
+          echo "  • Manual vs Database SOS comparison"
