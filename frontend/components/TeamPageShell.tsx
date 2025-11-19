@@ -27,7 +27,7 @@ interface TeamPageShellProps {
   id: string;
 }
 
-function BackToRankingsButton() {
+function BackToRankingsButtonContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -75,6 +75,15 @@ function BackToRankingsButton() {
   );
 }
 
+// Wrapper component that ensures useSearchParams is always in Suspense
+function BackToRankingsButton() {
+  return (
+    <Suspense fallback={<div className="mb-4 h-9" />}>
+      <BackToRankingsButtonContent />
+    </Suspense>
+  );
+}
+
 export function TeamPageShell({ id }: TeamPageShellProps) {
   return (
     <div className="container mx-auto py-8 px-4">
@@ -87,9 +96,7 @@ export function TeamPageShell({ id }: TeamPageShellProps) {
         backHref="/"
       />
       
-      <Suspense fallback={<div className="mb-4 h-9" />}>
-        <BackToRankingsButton />
-      </Suspense>
+      <BackToRankingsButton />
       
       <div className="space-y-6">
         <TeamHeader teamId={id} />
