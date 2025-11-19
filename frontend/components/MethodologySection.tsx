@@ -1,4 +1,5 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { FAQSchema } from '@/components/FAQSchema';
 
 /**
  * MethodologySection component - explains the ranking methodology
@@ -6,8 +7,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
  */
 export function MethodologySection() {
   return (
-    <div className="space-y-6">
-      <Card>
+    <>
+      <FAQSchema />
+      <div className="space-y-6">
+        <Card>
         <CardHeader>
           <CardTitle>Ranking Methodology</CardTitle>
           <CardDescription>
@@ -41,7 +44,8 @@ export function MethodologySection() {
           </p>
         </CardContent>
       </Card>
-    </div>
+      </div>
+    </>
   );
 }
 
