@@ -50,11 +50,11 @@ export function PredictedMatchCard({ teamA, teamB, teamAName, teamBName }: Predi
           {/* Expected scores */}
           <div className="grid grid-cols-3 text-center items-center">
             <div className="text-2xl font-bold">
-              {teamAGoals != null ? teamAGoals.toFixed(1) : '—'}
+              {teamAGoals != null ? Math.round(teamAGoals) : '—'}
             </div>
             <div className="text-xl font-semibold text-muted-foreground">–</div>
             <div className="text-2xl font-bold">
-              {teamBGoals != null ? teamBGoals.toFixed(1) : '—'}
+              {teamBGoals != null ? Math.round(teamBGoals) : '—'}
             </div>
           </div>
 
