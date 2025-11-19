@@ -19,8 +19,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
             refetchOnWindowFocus: false,
 
-            // Only refetch on mount if data is stale (not always)
-            refetchOnMount: 'stale', // Changed from true to 'stale'
+            // Only refetch on mount if data is stale (default behavior when staleTime is set)
+            // refetchOnMount defaults to true, which respects staleTime
 
             // Automatic request deduplication in React Query v5 based on query keys
 
