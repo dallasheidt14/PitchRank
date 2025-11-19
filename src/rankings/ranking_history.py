@@ -115,8 +115,8 @@ async def get_historical_ranks(
 
     try:
         # Batch queries to avoid URL length limits (Supabase has ~8KB URL limit)
-        # With 150 teams per batch, we stay well under the limit
-        batch_size = 150
+        # With 100 teams per batch, we stay well under the limit (accounting for URL encoding)
+        batch_size = 100
         all_records = []
 
         for i in range(0, len(team_ids), batch_size):
