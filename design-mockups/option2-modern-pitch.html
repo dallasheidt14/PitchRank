@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PitchRank - Modern Pitch</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&family=Montserrat:wght@500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --pitch-green: #1B5E20;
+            --vibrant-green: #4CAF50;
+            --electric-cyan: #00E5FF;
+            --neon-pink: #FF1744;
+            --sunset-orange: #FF6F00;
+            --deep-navy: #0A1929;
+            --pure-white: #FFFFFF;
+            --off-white: #F5F5F5;
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: var(--deep-navy);
+            color: var(--pure-white);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Animated gradient background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background:
+                radial-gradient(circle at 20% 50%, rgba(76, 175, 80, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(0, 229, 255, 0.1) 0%, transparent 50%),
+                linear-gradient(135deg, var(--deep-navy) 0%, #1a2332 100%);
+            z-index: 0;
+            animation: gradientShift 15s ease infinite;
+        }
+
+        @keyframes gradientShift {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.8; }
+        }
+
+        /* Hexagon pattern overlay */
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image:
+                repeating-linear-gradient(30deg, transparent, transparent 50px, rgba(255, 255, 255, 0.02) 50px, rgba(255, 255, 255, 0.02) 51px),
+                repeating-linear-gradient(150deg, transparent, transparent 50px, rgba(255, 255, 255, 0.02) 50px, rgba(255, 255, 255, 0.02) 51px);
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Header */
+        header {
+            background: rgba(10, 25, 41, 0.9);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            padding: 1rem 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 2px solid rgba(0, 229, 255, 0.3);
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 2rem;
+            font-weight: 800;
+            letter-spacing: -1px;
+            background: linear-gradient(135deg, var(--electric-cyan) 0%, var(--vibrant-green) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-transform: uppercase;
+        }
+
+        nav {
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+        }
+
+        nav a {
+            color: var(--pure-white);
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.95rem;
+            position: relative;
+            transition: color 0.3s ease;
+            padding: 0.5rem 1rem;
+        }
+
+        nav a::before {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 2px;
+            background: var(--electric-cyan);
+            transition: width 0.3s ease;
+        }
+
+        nav a:hover {
+            color: var(--electric-cyan);
+        }
+
+        nav a:hover::before {
+            width: 100%;
+        }
+
+        /* Hero Section */
+        .hero {
+            padding: 6rem 0 4rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero-grid {
+            display: grid;
+            grid-template-columns: 1.2fr 0.8fr;
+            gap: 4rem;
+            align-items: center;
+        }
+
+        .hero-content h1 {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 5rem;
+            font-weight: 800;
+            line-height: 1;
+            margin-bottom: 1.5rem;
+            letter-spacing: -2px;
+        }
+
+        .hero-content h1 .gradient-text {
+            background: linear-gradient(135deg, var(--electric-cyan) 0%, var(--neon-pink) 50%, var(--sunset-orange) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            display: block;
+            animation: shimmer 3s ease-in-out infinite;
+            background-size: 200% 200%;
+        }
+
+        @keyframes shimmer {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+
+        .hero-subtitle {
+            font-size: 1.2rem;
+            line-height: 1.6;
+            opacity: 0.9;
+            margin-bottom: 2.5rem;
+        }
+
+        .cta-button {
+            display: inline-block;
+            background: linear-gradient(135deg, var(--electric-cyan) 0%, var(--vibrant-green) 100%);
+            color: var(--deep-navy);
+            padding: 1rem 2.5rem;
+            border-radius: 50px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 1.1rem;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 30px rgba(0, 229, 255, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .cta-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            transition: left 0.5s ease;
+        }
+
+        .cta-button:hover::before {
+            left: 100%;
+        }
+
+        .cta-button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 40px rgba(0, 229, 255, 0.5);
+        }
+
+        /* Stats Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, rgba(76, 175, 80, 0.1) 0%, rgba(0, 229, 255, 0.05) 100%);
+            border: 2px solid rgba(0, 229, 255, 0.3);
+            border-radius: 20px;
+            padding: 2rem;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.4s ease;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(0, 229, 255, 0.1) 0%, transparent 70%);
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+
+        .stat-card:hover::before {
+            opacity: 1;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-10px) scale(1.05);
+            border-color: var(--electric-cyan);
+            box-shadow: 0 20px 50px rgba(0, 229, 255, 0.3);
+        }
+
+        .stat-number {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 3.5rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--electric-cyan) 0%, var(--vibrant-green) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            line-height: 1;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            opacity: 0.8;
+            font-weight: 600;
+        }
+
+        /* Rankings Section */
+        .section {
+            padding: 5rem 0;
+            position: relative;
+        }
+
+        .section-header {
+            text-align: center;
+            margin-bottom: 4rem;
+        }
+
+        .section-title {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 3.5rem;
+            font-weight: 800;
+            margin-bottom: 1rem;
+            letter-spacing: -1px;
+        }
+
+        .section-subtitle {
+            font-size: 1.1rem;
+            opacity: 0.8;
+        }
+
+        /* Asymmetric Rankings Grid */
+        .rankings-asymmetric {
+            display: grid;
+            grid-template-columns: 1.5fr 1fr;
+            gap: 2rem;
+        }
+
+        /* Main Rankings Card */
+        .rankings-main {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            padding: 2rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .rankings-main::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(90deg, var(--electric-cyan), var(--neon-pink), var(--sunset-orange));
+        }
+
+        .rankings-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .rankings-header h3 {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 1.8rem;
+            font-weight: 700;
+        }
+
+        .filter-badge {
+            background: linear-gradient(135deg, var(--electric-cyan) 0%, var(--vibrant-green) 100%);
+            color: var(--deep-navy);
+            padding: 0.5rem 1.5rem;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 0.9rem;
+        }
+
+        /* Team Row */
+        .team-row {
+            display: grid;
+            grid-template-columns: 60px 1fr auto auto;
+            align-items: center;
+            gap: 1.5rem;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all 0.3s ease;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .team-row::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 4px;
+            height: 100%;
+            background: linear-gradient(180deg, var(--electric-cyan), var(--vibrant-green));
+            transform: scaleY(0);
+            transition: transform 0.3s ease;
+        }
+
+        .team-row:hover::before {
+            transform: scaleY(1);
+        }
+
+        .team-row:hover {
+            background: rgba(0, 229, 255, 0.1);
+            border-color: rgba(0, 229, 255, 0.3);
+            transform: translateX(8px);
+        }
+
+        .rank-circle {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, rgba(0, 229, 255, 0.2), rgba(76, 175, 80, 0.2));
+            border: 2px solid var(--electric-cyan);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 1.3rem;
+            font-weight: 800;
+        }
+
+        .rank-circle.gold {
+            background: linear-gradient(135deg, #FFD700, #FFA500);
+            border-color: #FFD700;
+            color: var(--deep-navy);
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+        }
+
+        .team-details h4 {
+            font-weight: 700;
+            font-size: 1.1rem;
+            margin-bottom: 0.3rem;
+        }
+
+        .team-details p {
+            font-size: 0.85rem;
+            opacity: 0.7;
+            font-family: 'Montserrat', sans-serif;
+        }
+
+        .power-pill {
+            background: linear-gradient(135deg, var(--electric-cyan), var(--vibrant-green));
+            color: var(--deep-navy);
+            padding: 0.75rem 1.5rem;
+            border-radius: 30px;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 800;
+        }
+
+        .win-rate {
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 700;
+            font-size: 1.1rem;
+        }
+
+        .win-rate-bar {
+            width: 60px;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 2px;
+            margin-top: 0.5rem;
+            overflow: hidden;
+        }
+
+        .win-rate-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--electric-cyan), var(--vibrant-green));
+            border-radius: 2px;
+        }
+
+        /* Sidebar */
+        .sidebar-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .featured-card {
+            background: linear-gradient(135deg, rgba(255, 23, 68, 0.15), rgba(255, 111, 0, 0.15));
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 111, 0, 0.3);
+            border-radius: 24px;
+            padding: 2rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .featured-card::before {
+            content: '🔥';
+            position: absolute;
+            font-size: 8rem;
+            right: -2rem;
+            bottom: -2rem;
+            opacity: 0.1;
+        }
+
+        .featured-card h3 {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+        }
+
+        .mover-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .mover-item:last-child {
+            border-bottom: none;
+        }
+
+        .mover-name {
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+
+        .mover-meta {
+            font-size: 0.8rem;
+            opacity: 0.6;
+            margin-top: 0.2rem;
+        }
+
+        .rank-jump {
+            background: rgba(76, 175, 80, 0.3);
+            color: var(--vibrant-green);
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 800;
+            font-size: 1.1rem;
+        }
+
+        /* Footer */
+        footer {
+            background: rgba(10, 25, 41, 0.8);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            padding: 2rem 0;
+            margin-top: 5rem;
+            border-top: 1px solid rgba(0, 229, 255, 0.2);
+        }
+
+        .footer-content {
+            text-align: center;
+            opacity: 0.7;
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .hero-grid {
+                grid-template-columns: 1fr;
+                gap: 3rem;
+            }
+
+            .rankings-asymmetric {
+                grid-template-columns: 1fr;
+            }
+
+            .hero-content h1 {
+                font-size: 3.5rem;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .team-row {
+                grid-template-columns: 50px 1fr auto;
+            }
+
+            .win-rate {
+                display: none;
+            }
+
+            nav {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">PitchRank</div>
+                <nav>
+                    <a href="#home">Home</a>
+                    <a href="#rankings">Rankings</a>
+                    <a href="#compare">Compare</a>
+                    <a href="#about">About</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <section class="hero">
+        <div class="container">
+            <div class="hero-grid">
+                <div class="hero-content">
+                    <h1>
+                        Where Talent<br>
+                        <span class="gradient-text">Meets Data</span>
+                    </h1>
+                    <p class="hero-subtitle">
+                        Advanced performance analytics powering the next generation of youth soccer.
+                        Track rankings, analyze matchups, and follow your team's journey to the top.
+                    </p>
+                    <a href="#rankings" class="cta-button">Explore Rankings</a>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-number">16.6K</div>
+                        <div class="stat-label">Games</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">2.8K</div>
+                        <div class="stat-label">Teams</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">50</div>
+                        <div class="stat-label">States</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="section">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">National Leaders</h2>
+                <p class="section-subtitle">Top performing teams across the country</p>
+            </div>
+
+            <div class="rankings-asymmetric">
+                <div class="rankings-main">
+                    <div class="rankings-header">
+                        <h3>U12 Boys</h3>
+                        <div class="filter-badge">National</div>
+                    </div>
+
+                    <div class="team-row">
+                        <div class="rank-circle gold">1</div>
+                        <div class="team-details">
+                            <h4>Dallas Texans 12B Premier</h4>
+                            <p>Texas • 2013 Boys</p>
+                        </div>
+                        <div class="power-pill">94.7</div>
+                        <div class="win-rate">
+                            88.9%
+                            <div class="win-rate-bar">
+                                <div class="win-rate-fill" style="width: 88.9%"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="team-row">
+                        <div class="rank-circle gold">2</div>
+                        <div class="team-details">
+                            <h4>FC Boston Academy U12</h4>
+                            <p>Massachusetts • 2013 Boys</p>
+                        </div>
+                        <div class="power-pill">92.3</div>
+                        <div class="win-rate">
+                            85.2%
+                            <div class="win-rate-bar">
+                                <div class="win-rate-fill" style="width: 85.2%"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="team-row">
+                        <div class="rank-circle gold">3</div>
+                        <div class="team-details">
+                            <h4>LA Galaxy South Bay 12B</h4>
+                            <p>California • 2013 Boys</p>
+                        </div>
+                        <div class="power-pill">91.8</div>
+                        <div class="win-rate">
+                            81.5%
+                            <div class="win-rate-bar">
+                                <div class="win-rate-fill" style="width: 81.5%"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="team-row">
+                        <div class="rank-circle">4</div>
+                        <div class="team-details">
+                            <h4>Seattle United 12B Elite</h4>
+                            <p>Washington • 2013 Boys</p>
+                        </div>
+                        <div class="power-pill">90.5</div>
+                        <div class="win-rate">
+                            77.8%
+                            <div class="win-rate-bar">
+                                <div class="win-rate-fill" style="width: 77.8%"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="team-row">
+                        <div class="rank-circle">5</div>
+                        <div class="team-details">
+                            <h4>Atlanta United Academy U12</h4>
+                            <p>Georgia • 2013 Boys</p>
+                        </div>
+                        <div class="power-pill">89.2</div>
+                        <div class="win-rate">
+                            74.1%
+                            <div class="win-rate-bar">
+                                <div class="win-rate-fill" style="width: 74.1%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sidebar-stack">
+                    <div class="featured-card">
+                        <h3>🔥 Hot Streaks</h3>
+                        <div class="mover-item">
+                            <div>
+                                <div class="mover-name">FC Dallas 14B Academy</div>
+                                <div class="mover-meta">Texas • U14 Boys</div>
+                            </div>
+                            <div class="rank-jump">↑12</div>
+                        </div>
+                        <div class="mover-item">
+                            <div>
+                                <div class="mover-name">Chicago Fire Elite</div>
+                                <div class="mover-meta">Illinois • U16 Boys</div>
+                            </div>
+                            <div class="rank-jump">↑8</div>
+                        </div>
+                        <div class="mover-item">
+                            <div>
+                                <div class="mover-name">Portland Thorns U12</div>
+                                <div class="mover-meta">Oregon • U12 Girls</div>
+                            </div>
+                            <div class="rank-jump">↑7</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <p>&copy; 2025 PitchRank • Powered by V53E Engine • Built for the beautiful game</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Smooth scroll
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                document.querySelector(this.getAttribute('href'))?.scrollIntoView({
+                    behavior: 'smooth'
+                });
+            });
+        });
+
+        // Parallax effect on scroll
+        window.addEventListener('scroll', () => {
+            const scrolled = window.pageYOffset;
+            const hero = document.querySelector('.hero');
+            if (hero) {
+                hero.style.transform = `translateY(${scrolled * 0.3}px)`;
+            }
+        });
+    </script>
+</body>
+</html>
