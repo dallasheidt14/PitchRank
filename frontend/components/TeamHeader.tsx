@@ -11,6 +11,8 @@ import { useMemo, useState, useEffect } from 'react';
 import { Star } from 'lucide-react';
 import { addToWatchlist, removeFromWatchlist, isWatched } from '@/lib/watchlist';
 import { formatPowerScore, formatSOSIndex } from '@/lib/utils';
+import { ShareButtons } from '@/components/ShareButtons';
+import { TeamSchema } from '@/components/TeamSchema';
 
 interface TeamHeaderProps {
   teamId: string;
@@ -112,10 +114,25 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
   }
 
   return (
-    <Card>
-      <CardContent className="pt-6">
-        <div className="space-y-6">
-          <div className="flex items-start justify-between gap-4">
+    <>
+      {/* Team Structured Data */}
+      <TeamSchema
+        teamName={team.team_name}
+        clubName={team.club_name || undefined}
+        state={team.state || undefined}
+        ageGroup={team.age || undefined}
+        gender={team.gender}
+        rank={teamRanking?.rank_in_cohort_final || undefined}
+        powerScore={teamRanking?.power_score_final || undefined}
+        wins={teamRanking?.wins || undefined}
+        losses={teamRanking?.losses || undefined}
+        draws={teamRanking?.draws || undefined}
+      />
+
+      <Card>
+        <CardContent className="pt-6">
+          <div className="space-y-6">
+            <div className="flex items-start justify-between gap-4">
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">
                 <h1 className="text-3xl font-bold">{team.team_name}</h1>
@@ -216,9 +233,18 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
               </div>
             </div>
           )}
+
+          {/* Share Buttons */}
+          <div className="pt-4 border-t">
+            <ShareButtons
+              title={`⚽ ${team.team_name} is ranked #${teamRanking?.rank_in_cohort_final || 'N/A'} ${team.state ? `in ${team.state}` : 'nationally'} for ${team.age ? `U${team.age}` : ''} ${team.gender === 'M' || team.gender === 'B' ? 'Boys' : 'Girls'} on PitchRank!`}
+              hashtags={['YouthSoccer', 'PitchRank', team.age ? `U${team.age}Soccer` : 'Soccer']}
+            />
+          </div>
         </div>
       </CardContent>
     </Card>
+    </>
   );
 }
 
