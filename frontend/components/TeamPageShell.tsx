@@ -5,6 +5,7 @@ import { TeamHeader } from '@/components/TeamHeader';
 import { TeamTrajectoryChart } from '@/components/TeamTrajectoryChart';
 import { GameHistoryTable } from '@/components/GameHistoryTable';
 import { MomentumMeter } from '@/components/MomentumMeter';
+import { Breadcrumbs } from '@/components/Breadcrumbs';
 import dynamic from 'next/dynamic';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Suspense } from 'react';
@@ -77,6 +78,8 @@ function BackToRankingsButton() {
 export function TeamPageShell({ id }: TeamPageShellProps) {
   return (
     <div className="container mx-auto py-8 px-4">
+      <Breadcrumbs />
+
       <PageHeader
         title="Team Details"
         description={`View detailed information and statistics`}
