@@ -1078,6 +1078,135 @@ elif section == "🔎 Unknown Teams Mapper":
         except Exception as e:
             st.error(f"Error loading pending reviews: {e}")
 
+        st.divider()
+
+        # Add New Team Section
+        st.subheader("➕ Add New Team")
+        st.markdown("Create a brand new team in the database (use this when a team doesn't exist in the master list)")
+
+        with st.expander("📝 Create New Team", expanded=False):
+            st.info("Fill in all required fields to add a new team to the database")
+
+            # Form for new team
+            with st.form("new_team_form"):
+                st.markdown("### Required Information")
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    new_team_name = st.text_input(
+                        "Team Name *",
+                        placeholder="e.g., Legends FC Premier",
+                        help="Full team name"
+                    )
+                    new_provider_team_id = st.text_input(
+                        "Provider Team ID *",
+                        placeholder="e.g., 544491",
+                        help="The provider's unique ID for this team"
+                    )
+                    new_age_group = st.selectbox(
+                        "Age Group *",
+                        options=list(AGE_GROUPS.keys()),
+                        help="Team age group"
+                    )
+
+                with col2:
+                    new_club_name = st.text_input(
+                        "Club Name",
+                        placeholder="e.g., Legends FC",
+                        help="Parent club/organization (optional)"
+                    )
+                    new_gender = st.selectbox(
+                        "Gender *",
+                        options=["Male", "Female"],
+                        help="Team gender"
+                    )
+                    new_state_code = st.text_input(
+                        "State Code",
+                        placeholder="e.g., CA",
+                        max_chars=2,
+                        help="2-letter state code (optional)"
+                    )
+
+                st.markdown("### Auto-filled Information")
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    # Auto-calculate birth year from age group
+                    if new_age_group:
+                        birth_year = AGE_GROUPS[new_age_group]['birth_year']
+                        st.text_input("Birth Year", value=str(birth_year), disabled=True, help="Auto-calculated from age group")
+
+                with col2:
+                    st.text_input("Provider", value="GotSport", disabled=True, help="Data source provider")
+
+                # Submit button
+                submitted = st.form_submit_button("✅ Create Team", type="primary", use_container_width=True)
+
+                if submitted:
+                    # Validate required fields
+                    if not new_team_name:
+                        st.error("❌ Team Name is required")
+                    elif not new_provider_team_id:
+                        st.error("❌ Provider Team ID is required")
+                    elif not new_age_group:
+                        st.error("❌ Age Group is required")
+                    elif not new_gender:
+                        st.error("❌ Gender is required")
+                    else:
+                        try:
+                            # Get provider ID
+                            provider_result = db.table('providers').select('id').eq('code', 'gotsport').single().execute()
+                            provider_id = provider_result.data['id']
+
+                            # Generate new team_id_master
+                            import uuid
+                            new_team_id_master = str(uuid.uuid4())
+
+                            # Prepare team data
+                            team_data = {
+                                'team_id_master': new_team_id_master,
+                                'provider_team_id': str(new_provider_team_id),
+                                'provider_id': provider_id,
+                                'team_name': new_team_name.strip(),
+                                'club_name': new_club_name.strip() if new_club_name else None,
+                                'age_group': new_age_group,
+                                'birth_year': AGE_GROUPS[new_age_group]['birth_year'],
+                                'gender': new_gender,
+                                'state_code': new_state_code.upper().strip() if new_state_code else None,
+                                'created_at': datetime.now().isoformat()
+                            }
+
+                            # Insert into teams table
+                            db.table('teams').insert(team_data).execute()
+
+                            # Also create alias mapping
+                            alias_data = {
+                                'provider_id': provider_id,
+                                'provider_team_id': str(new_provider_team_id),
+                                'team_id_master': new_team_id_master,
+                                'match_confidence': 1.0,
+                                'match_method': 'dashboard_new_team',
+                                'review_status': 'approved',
+                                'created_at': datetime.now().isoformat()
+                            }
+
+                            db.table('team_alias_map').insert(alias_data).execute()
+
+                            st.success(f"✅ Successfully created team: **{new_team_name}**")
+                            st.balloons()
+                            st.info(f"Team ID: `{new_team_id_master}`")
+                            st.info("Refresh the page to see the new team in the database")
+
+                        except Exception as e:
+                            st.error(f"❌ Error creating team: {e}")
+                            import traceback
+                            with st.expander("View Error Details"):
+                                st.code(traceback.format_exc())
+
+            st.markdown("---")
+            st.caption("**Note:** Only use this when the team truly doesn't exist in the master database. For existing teams, use the mapping tool above.")
+
 # ============================================================================
 # DATABASE IMPORT STATS SECTION
 # ============================================================================
