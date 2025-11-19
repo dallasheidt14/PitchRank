@@ -35,6 +35,9 @@ export interface RankingRow {
   // Rank change tracking (from rankings_full table)
   rank_change_7d?: number | null; // Rank change over 7 days (positive = improved)
   rank_change_30d?: number | null; // Rank change over 30 days (positive = improved)
+  // Activity status (for filtering inactive teams)
+  status?: 'Active' | 'Inactive' | 'Not Enough Ranked Games' | null; // Team activity status
+  last_game?: string | null; // ISO timestamp of last game played
   // Deprecated fields (do not use)
   /** @deprecated Use state instead */
   state_code?: never;

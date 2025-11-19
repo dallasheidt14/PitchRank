@@ -31,7 +31,8 @@ export function useRankings(
         // National rankings = return full slice from rankings_view
         let query = supabase
           .from('rankings_view')
-          .select('*');
+          .select('*')
+          .eq('status', 'Active'); // Filter out inactive teams (>180 days since last game)
 
         let normalizedAge: number | null = null;
         if (ageGroup) {
@@ -96,7 +97,8 @@ export function useRankings(
         let query = supabase
           .from('state_rankings_view')
           .select('*')
-          .eq('state', normalizedRegion);
+          .eq('state', normalizedRegion)
+          .eq('status', 'Active'); // Filter out inactive teams (>180 days since last game)
 
         if (ageGroup) {
           // Normalize age group to integer
