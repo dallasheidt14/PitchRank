@@ -38,7 +38,6 @@ export function Footer() {
   const footerLinks = {
     Rankings: [
       { name: 'National Rankings', href: '/rankings/national/u12/male' },
-      { name: 'State Rankings', href: '/rankings' },
       { name: 'Compare Teams', href: '/compare' },
     ],
     Resources: [
