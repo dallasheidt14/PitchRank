@@ -246,34 +246,34 @@ export function ComparePanel() {
               {/* Head-to-Head Stats Comparison */}
               <div className="pt-4 border-t">
                 <h3 className="text-lg font-semibold mb-4">Head-to-Head Comparison</h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
+                <div className="overflow-x-auto -mx-4 sm:mx-0 touch-pan-x">
+                  <table className="w-full min-w-[600px]">
                     <thead>
                       <tr className="border-b">
-                        <th className="text-left py-2 px-2 text-sm font-medium text-muted-foreground">Metric</th>
-                        <th className="text-center py-2 px-2 text-sm font-medium">{team1Details.team_name}</th>
-                        <th className="text-center py-2 px-2 text-sm font-medium">{team2Details.team_name}</th>
+                        <th className="text-left py-3 px-3 sm:px-4 text-xs sm:text-sm font-medium text-muted-foreground">Metric</th>
+                        <th className="text-center py-3 px-2 sm:px-3 text-xs sm:text-sm font-medium truncate max-w-[150px]">{team1Details.team_name}</th>
+                        <th className="text-center py-3 px-2 sm:px-3 text-xs sm:text-sm font-medium truncate max-w-[150px]">{team2Details.team_name}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
                       <tr>
-                        <td className="py-3 px-2 text-sm text-muted-foreground">National Rank</td>
-                        <td className="py-3 px-2 text-center font-semibold">
+                        <td className="py-3 px-3 sm:px-4 text-xs sm:text-sm text-muted-foreground">National Rank</td>
+                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
                           {team1Details.rank_in_cohort_final ? `#${team1Details.rank_in_cohort_final}` : '—'}
                         </td>
-                        <td className="py-3 px-2 text-center font-semibold">
+                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
                           {team2Details.rank_in_cohort_final ? `#${team2Details.rank_in_cohort_final}` : '—'}
                         </td>
                       </tr>
                       {(team1Details.state && team1Details.rank_in_state_final) || (team2Details.state && team2Details.rank_in_state_final) ? (
                         <tr>
-                          <td className="py-3 px-2 text-sm text-muted-foreground">State Rank</td>
-                          <td className="py-3 px-2 text-center font-semibold">
+                          <td className="py-3 px-3 sm:px-4 text-xs sm:text-sm text-muted-foreground">State Rank</td>
+                          <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
                             {team1Details.state && team1Details.rank_in_state_final
                               ? `#${team1Details.rank_in_state_final} (${team1Details.state.toUpperCase()})`
                               : '—'}
                           </td>
-                          <td className="py-3 px-2 text-center font-semibold">
+                          <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
                             {team2Details.state && team2Details.rank_in_state_final
                               ? `#${team2Details.rank_in_state_final} (${team2Details.state.toUpperCase()})`
                               : '—'}
@@ -281,63 +281,63 @@ export function ComparePanel() {
                         </tr>
                       ) : null}
                       <tr>
-                        <td className="py-3 px-2 text-sm text-muted-foreground">Power Score</td>
-                        <td className="py-3 px-2 text-center font-semibold">
+                        <td className="py-3 px-3 sm:px-4 text-xs sm:text-sm text-muted-foreground">Power Score</td>
+                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
                           {formatPowerScore(team1Details.power_score_final)}
                         </td>
-                        <td className="py-3 px-2 text-center font-semibold">
+                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
                           {formatPowerScore(team2Details.power_score_final)}
                         </td>
                       </tr>
                       <tr>
-                        <td className="py-3 px-2 text-sm text-muted-foreground">SOS (Strength of Schedule)</td>
-                        <td className="py-3 px-2 text-center font-semibold">
+                        <td className="py-3 px-3 sm:px-4 text-xs sm:text-sm text-muted-foreground whitespace-nowrap">SOS</td>
+                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
                           {team1Details.sos_norm !== null ? team1Details.sos_norm.toFixed(3) : '—'}
                         </td>
-                        <td className="py-3 px-2 text-center font-semibold">
+                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
                           {team2Details.sos_norm !== null ? team2Details.sos_norm.toFixed(3) : '—'}
                         </td>
                       </tr>
                       <tr>
-                        <td className="py-3 px-2 text-sm text-muted-foreground">Offense Rating</td>
-                        <td className="py-3 px-2 text-center font-semibold">
+                        <td className="py-3 px-3 sm:px-4 text-xs sm:text-sm text-muted-foreground">Offense</td>
+                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
                           {team1Details.offense_norm !== null ? team1Details.offense_norm.toFixed(3) : '—'}
                         </td>
-                        <td className="py-3 px-2 text-center font-semibold">
+                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
                           {team2Details.offense_norm !== null ? team2Details.offense_norm.toFixed(3) : '—'}
                         </td>
                       </tr>
                       <tr>
-                        <td className="py-3 px-2 text-sm text-muted-foreground">Defense Rating</td>
-                        <td className="py-3 px-2 text-center font-semibold">
+                        <td className="py-3 px-3 sm:px-4 text-xs sm:text-sm text-muted-foreground">Defense</td>
+                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
                           {team1Details.defense_norm !== null ? team1Details.defense_norm.toFixed(3) : '—'}
                         </td>
-                        <td className="py-3 px-2 text-center font-semibold">
+                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
                           {team2Details.defense_norm !== null ? team2Details.defense_norm.toFixed(3) : '—'}
                         </td>
                       </tr>
                       <tr>
-                        <td className="py-3 px-2 text-sm text-muted-foreground">Win %</td>
-                        <td className="py-3 px-2 text-center font-semibold">
+                        <td className="py-3 px-3 sm:px-4 text-xs sm:text-sm text-muted-foreground">Win %</td>
+                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
                           {team1Details.win_percentage !== null ? `${team1Details.win_percentage.toFixed(1)}%` : '—'}
                         </td>
-                        <td className="py-3 px-2 text-center font-semibold">
+                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
                           {team2Details.win_percentage !== null ? `${team2Details.win_percentage.toFixed(1)}%` : '—'}
                         </td>
                       </tr>
                       <tr>
-                        <td className="py-3 px-2 text-sm text-muted-foreground">Record</td>
-                        <td className="py-3 px-2 text-center font-semibold">
+                        <td className="py-3 px-3 sm:px-4 text-xs sm:text-sm text-muted-foreground">Record</td>
+                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
                           {team1Details.wins}-{team1Details.losses}{team1Details.draws > 0 && `-${team1Details.draws}`}
                         </td>
-                        <td className="py-3 px-2 text-center font-semibold">
+                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
                           {team2Details.wins}-{team2Details.losses}{team2Details.draws > 0 && `-${team2Details.draws}`}
                         </td>
                       </tr>
                       <tr>
-                        <td className="py-3 px-2 text-sm text-muted-foreground">Games Played</td>
-                        <td className="py-3 px-2 text-center font-semibold">{team1Details.games_played}</td>
-                        <td className="py-3 px-2 text-center font-semibold">{team2Details.games_played}</td>
+                        <td className="py-3 px-3 sm:px-4 text-xs sm:text-sm text-muted-foreground">Games</td>
+                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">{team1Details.games_played}</td>
+                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">{team2Details.games_played}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -432,33 +432,51 @@ export function ComparePanel() {
               {/* Side-by-Side Comparison Chart */}
               <div className="pt-4 border-t">
                 <h3 className="text-lg font-semibold mb-4">Side-by-Side Comparison</h3>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={comparisonData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis
-                      dataKey="metric"
-                      className="text-xs"
-                      tick={{ fill: 'currentColor' }}
-                      stroke="currentColor"
-                    />
-                    <YAxis
-                      className="text-xs"
-                      tick={{ fill: 'currentColor' }}
-                      stroke="currentColor"
-                    />
-                    <RechartsTooltip
-                      contentStyle={{
-                        backgroundColor: 'hsl(var(--card))',
-                        border: '1px solid hsl(var(--border))',
-                        borderRadius: '0.5rem',
+                <div className="w-full h-[300px] sm:h-[350px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={comparisonData}
+                      margin={{
+                        top: 20,
+                        right: 10,
+                        left: 0,
+                        bottom: 5
                       }}
-                      labelStyle={{ color: 'hsl(var(--foreground))' }}
-                    />
-                    <Legend />
-                    <Bar dataKey="team1" fill="hsl(var(--chart-1))" name={team1Details.team_name} />
-                    <Bar dataKey="team2" fill="hsl(var(--chart-2))" name={team2Details.team_name} />
-                  </BarChart>
-                </ResponsiveContainer>
+                    >
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                      <XAxis
+                        dataKey="metric"
+                        className="text-xs"
+                        tick={{ fill: 'currentColor', fontSize: 11 }}
+                        stroke="currentColor"
+                        angle={-15}
+                        textAnchor="end"
+                        height={60}
+                      />
+                      <YAxis
+                        className="text-xs"
+                        tick={{ fill: 'currentColor', fontSize: 11 }}
+                        stroke="currentColor"
+                        width={40}
+                      />
+                      <RechartsTooltip
+                        contentStyle={{
+                          backgroundColor: 'hsl(var(--card))',
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '0.5rem',
+                          fontSize: '12px',
+                        }}
+                        labelStyle={{ color: 'hsl(var(--foreground))' }}
+                      />
+                      <Legend
+                        wrapperStyle={{ fontSize: '12px' }}
+                        iconSize={12}
+                      />
+                      <Bar dataKey="team1" fill="hsl(var(--chart-1))" name={team1Details.team_name} radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="team2" fill="hsl(var(--chart-2))" name={team2Details.team_name} radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
             </>
           )}

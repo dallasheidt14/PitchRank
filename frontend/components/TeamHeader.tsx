@@ -130,17 +130,17 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
       />
 
       <Card>
-        <CardContent className="pt-6">
-          <div className="space-y-6">
-            <div className="flex items-start justify-between gap-4">
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-2">
-                <h1 className="text-3xl font-bold">{team.team_name}</h1>
+        <CardContent className="pt-4 sm:pt-6 px-4 sm:px-6">
+          <div className="space-y-4 sm:space-y-6">
+            <div className="flex flex-col sm:flex-row items-start justify-between gap-3 sm:gap-4">
+            <div className="flex-1 w-full">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-2">
+                <h1 className="text-2xl sm:text-3xl font-bold">{team.team_name}</h1>
                 <Button
                   variant={watched ? "default" : "outline"}
                   size="sm"
                   onClick={handleWatchToggle}
-                  className="transition-colors duration-300"
+                  className="transition-colors duration-300 self-start"
                   aria-label={watched ? "Unwatch team" : "Watch team"}
                 >
                   <Star className={`h-4 w-4 mr-1 ${watched ? 'fill-current' : ''}`} />
@@ -149,10 +149,10 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
               </div>
               <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
                 {team.club_name && (
-                  <span className="text-lg">{team.club_name}</span>
+                  <span className="text-base sm:text-lg">{team.club_name}</span>
                 )}
                 {team.state && (
-                  <Badge variant="outline" className="ml-2">
+                  <Badge variant="outline" className="ml-0 sm:ml-2">
                     {team.state}
                   </Badge>
                 )}
@@ -161,14 +161,14 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                 </Badge>
               </div>
             </div>
-            <div className="text-right">
+            <div className="text-left sm:text-right w-full sm:w-auto">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <div>
-                    <div className="text-4xl font-bold">
+                    <div className="text-3xl sm:text-4xl font-bold">
                       {formatPowerScore(teamRanking?.power_score_final)}
                     </div>
-                    <div className="text-sm text-muted-foreground">PowerScore (ML Adjusted)</div>
+                    <div className="text-xs sm:text-sm text-muted-foreground">PowerScore (ML Adjusted)</div>
                   </div>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -178,28 +178,28 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pt-4 border-t">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 pt-4 border-t">
             <div>
-              <div className="text-sm text-muted-foreground mb-1">National Rank</div>
-              <div className="text-2xl font-semibold">
+              <div className="text-xs sm:text-sm text-muted-foreground mb-1">National Rank</div>
+              <div className="text-xl sm:text-2xl font-semibold">
                 {teamRanking?.rank_in_cohort_final ? `#${teamRanking.rank_in_cohort_final}` : '—'}
               </div>
             </div>
             <div>
-              <div className="text-sm text-muted-foreground mb-1">State Rank</div>
-              <div className="text-2xl font-semibold">
+              <div className="text-xs sm:text-sm text-muted-foreground mb-1">State Rank</div>
+              <div className="text-xl sm:text-2xl font-semibold">
                 {teamRanking?.rank_in_state_final ? `#${teamRanking.rank_in_state_final}` : '—'}
               </div>
             </div>
             <div>
-              <div className="text-sm text-muted-foreground mb-1">Games Played</div>
-              <div className="text-2xl font-semibold">
+              <div className="text-xs sm:text-sm text-muted-foreground mb-1">Games Played</div>
+              <div className="text-xl sm:text-2xl font-semibold">
                 {teamRanking?.total_games_played ?? teamRanking?.games_played ?? 0}
               </div>
             </div>
             <div>
-              <div className="text-sm text-muted-foreground mb-1">Win %</div>
-              <div className="text-2xl font-semibold">
+              <div className="text-xs sm:text-sm text-muted-foreground mb-1">Win %</div>
+              <div className="text-xl sm:text-2xl font-semibold">
                 {teamRanking?.win_percentage != null ? `${teamRanking.win_percentage.toFixed(1)}%` : '—'}
               </div>
             </div>

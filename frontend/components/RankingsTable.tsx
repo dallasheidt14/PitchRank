@@ -276,9 +276,9 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
           </p>
         ) : (
           <div className="rounded-md border overflow-hidden">
-            {/* Mobile: Horizontal scroll wrapper */}
-            <div className="overflow-x-auto -mx-4 sm:mx-0">
-              <div className="inline-block min-w-full align-middle" style={{ minWidth: region ? '800px' : '900px' }}>
+            {/* Mobile: Horizontal scroll wrapper with momentum scrolling */}
+            <div className="overflow-x-auto -mx-4 sm:mx-0 touch-pan-x">
+              <div className="inline-block min-w-full align-middle" style={{ minWidth: region ? '700px' : '750px' }}>
                 {/* Table Header */}
                 <div className="grid border-b bg-muted/50 sticky top-0 z-10" style={{ gridTemplateColumns: region ? '60px 2fr 1fr 0.9fr 0.8fr 0.9fr 1fr' : '60px 2fr 1fr 0.9fr 0.8fr 0.9fr 1fr 1fr' }}>
                   <div className="px-2 sm:px-4 py-2 sm:py-3 font-medium text-xs sm:text-sm">
