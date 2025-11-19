@@ -129,9 +129,18 @@ def _extract_game_residuals(feats: pd.DataFrame, games_df: pd.DataFrame, cfg: La
         return pd.DataFrame(columns=['game_id', 'ml_overperformance'])
 
     # Filter to home team perspective only (where team_id == home_team_master_id)
-    home_perspective = feats[feats['team_id'] == feats['home_team_master_id']].copy()
+    # Convert to string for comparison to handle UUID/string mismatches
+    feats['team_id_str'] = feats['team_id'].astype(str)
+    feats['home_team_master_id_str'] = feats['home_team_master_id'].astype(str)
+    home_perspective = feats[feats['team_id_str'] == feats['home_team_master_id_str']].copy()
     print(f"[DEBUG _extract_game_residuals] Home perspective after filter: {len(home_perspective)} rows")
     logger.info(f"[_extract_game_residuals] Home perspective: {len(home_perspective)} rows")
+    
+    # Debug: show why rows might be filtered out
+    if len(home_perspective) == 0 and len(feats) > 0:
+        print(f"[DEBUG _extract_game_residuals] ⚠️ All rows filtered out! Sample team_id values: {feats['team_id_str'].head(5).tolist()}")
+        print(f"[DEBUG _extract_game_residuals] Sample home_team_master_id values: {feats['home_team_master_id_str'].head(5).tolist()}")
+        print(f"[DEBUG _extract_game_residuals] Matching count: {(feats['team_id_str'] == feats['home_team_master_id_str']).sum()}")
 
     if home_perspective.empty:
         print(f"[DEBUG _extract_game_residuals] ❌ Home perspective is empty after filtering")
@@ -284,7 +293,18 @@ async def apply_predictive_adjustment(
 
     # 7) Extract per-game residuals if requested
     if return_game_residuals:
+        print(f"[DEBUG apply_predictive_adjustment] About to extract game residuals...")
+        print(f"[DEBUG apply_predictive_adjustment] feats shape: {feats.shape}, columns: {list(feats.columns)}")
+        print(f"[DEBUG apply_predictive_adjustment] feats has 'residual': {'residual' in feats.columns}")
+        print(f"[DEBUG apply_predictive_adjustment] feats has 'id': {'id' in feats.columns}")
+        print(f"[DEBUG apply_predictive_adjustment] feats has 'team_id': {'team_id' in feats.columns}")
+        print(f"[DEBUG apply_predictive_adjustment] feats has 'home_team_master_id': {'home_team_master_id' in feats.columns}")
+        if not feats.empty and 'residual' in feats.columns:
+            print(f"[DEBUG apply_predictive_adjustment] Residual stats: min={feats['residual'].min():.3f}, max={feats['residual'].max():.3f}, mean={feats['residual'].mean():.3f}")
         game_residuals = _extract_game_residuals(feats, games_df, cfg)
+        print(f"[DEBUG apply_predictive_adjustment] Extracted game_residuals: shape={game_residuals.shape}, empty={game_residuals.empty}")
+        if not game_residuals.empty:
+            print(f"[DEBUG apply_predictive_adjustment] Sample residuals: {game_residuals.head()}")
         return out, game_residuals
 
     return out
