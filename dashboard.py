@@ -1087,6 +1087,15 @@ elif section == "🔎 Unknown Teams Mapper":
         with st.expander("📝 Create New Team", expanded=False):
             st.info("Fill in all required fields to add a new team to the database")
 
+            # Show age group -> birth year reference (always visible)
+            st.markdown("**📅 Age Group → Birth Year Reference:**")
+            ref_data = [[age.upper(), data['birth_year']] for age, data in AGE_GROUPS.items()]
+            ref_df = pd.DataFrame(ref_data, columns=['Age Group', 'Birth Year'])
+            col1, col2, col3 = st.columns([2, 1, 2])
+            with col2:
+                st.dataframe(ref_df, use_container_width=True, hide_index=True)
+            st.caption("📌 The birth year will be automatically set based on your age group selection when you submit the form")
+
             # Form for new team
             with st.form("new_team_form"):
                 st.markdown("### Required Information")
@@ -1107,7 +1116,7 @@ elif section == "🔎 Unknown Teams Mapper":
                     new_age_group = st.selectbox(
                         "Age Group *",
                         options=list(AGE_GROUPS.keys()),
-                        help="Team age group"
+                        help="Team age group (see birth year reference table above)"
                     )
 
                 with col2:
@@ -1129,16 +1138,17 @@ elif section == "🔎 Unknown Teams Mapper":
                     )
 
                 st.markdown("### Auto-filled Information")
+                st.caption("✨ These fields are automatically filled when you create the team")
+
                 col1, col2 = st.columns(2)
 
                 with col1:
-                    # Auto-calculate birth year from age group
-                    if new_age_group:
-                        birth_year = AGE_GROUPS[new_age_group]['birth_year']
-                        st.text_input("Birth Year", value=str(birth_year), disabled=True, help="Auto-calculated from age group")
+                    birth_year_val = AGE_GROUPS.get(new_age_group, {}).get('birth_year', '?')
+                    st.success(f"🎂 **Birth Year:** {birth_year_val} (based on {new_age_group.upper() if new_age_group else '?'})")
+                    st.caption("See reference table above for all mappings")
 
                 with col2:
-                    st.text_input("Provider", value="GotSport", disabled=True, help="Data source provider")
+                    st.success(f"📊 **Provider:** GotSport")
 
                 # Submit button
                 submitted = st.form_submit_button("✅ Create Team", type="primary", use_container_width=True)
