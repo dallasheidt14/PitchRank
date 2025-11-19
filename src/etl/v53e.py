@@ -792,10 +792,28 @@ def compute_rankings(
         team["gp_last_180"] < cfg.MIN_GAMES_PROVISIONAL, "Not Enough Ranked Games", "Active"
     )
 
+    # Initialize rank_in_cohort as NULL for all teams
+    team["rank_in_cohort"] = None
+
+    # Only rank teams with "Active" status to avoid gaps in ranking numbers
+    # Filter active teams, sort, rank, then merge back using team_id as key
+    active_mask = team["status"] == "Active"
+    active_teams = team[active_mask].copy()
+    
+    if not active_teams.empty:
+        # Sort active teams for ranking
+        active_teams = active_teams.sort_values(["gender", "age", "powerscore_adj"], ascending=[True, True, False]).reset_index(drop=True)
+        # Calculate ranks for active teams only
+        active_teams["rank_in_cohort"] = active_teams.groupby(["age", "gender"])["powerscore_adj"].rank(
+            ascending=False, method="min"
+        ).astype(int)
+        
+        # Merge ranks back into full team DataFrame using team_id as key
+        rank_map = dict(zip(active_teams["team_id"], active_teams["rank_in_cohort"]))
+        team.loc[active_mask, "rank_in_cohort"] = team.loc[active_mask, "team_id"].map(rank_map)
+    
+    # Sort full team DataFrame for consistent output order
     team = team.sort_values(["gender", "age", "powerscore_adj"], ascending=[True, True, False]).reset_index(drop=True)
-    team["rank_in_cohort"] = team.groupby(["age", "gender"])["powerscore_adj"].rank(
-        ascending=False, method="min"
-    ).astype(int)
 
     # outputs
     games_used_cols = [
