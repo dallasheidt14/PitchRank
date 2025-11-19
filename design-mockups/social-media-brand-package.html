@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PitchRank - Social Media Brand Package</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700;800&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --forest-green: #0B5345;
+            --dark-green: #052E27;
+            --electric-yellow: #F4D03F;
+            --bright-white: #FDFEFE;
+            --soft-gray: #ECF0F1;
+            --charcoal: #2C3E50;
+        }
+
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: #f5f5f5;
+            padding: 3rem 2rem;
+            color: var(--charcoal);
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-family: 'Oswald', sans-serif;
+            font-size: 3rem;
+            text-align: center;
+            margin-bottom: 0.5rem;
+            color: var(--dark-green);
+            text-transform: uppercase;
+        }
+
+        .subtitle {
+            text-align: center;
+            font-size: 1.2rem;
+            color: #7F8C8D;
+            margin-bottom: 3rem;
+        }
+
+        .section {
+            margin-bottom: 4rem;
+        }
+
+        .section-title {
+            font-family: 'Oswald', sans-serif;
+            font-size: 2.5rem;
+            color: var(--dark-green);
+            margin-bottom: 2rem;
+            text-transform: uppercase;
+            border-left: 8px solid var(--electric-yellow);
+            padding-left: 1.5rem;
+        }
+
+        .platform-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .template-card {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        }
+
+        .template-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .template-name {
+            font-family: 'Oswald', sans-serif;
+            font-size: 1.5rem;
+            color: var(--dark-green);
+            text-transform: uppercase;
+        }
+
+        .template-size {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            background: var(--soft-gray);
+            padding: 0.4rem 0.8rem;
+            border-radius: 4px;
+            color: #7F8C8D;
+        }
+
+        .template-preview {
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            margin-bottom: 1rem;
+        }
+
+        /* Instagram Post (Square) */
+        .insta-post {
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            background: linear-gradient(135deg, var(--forest-green) 0%, var(--dark-green) 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 3rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .insta-post::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image:
+                repeating-linear-gradient(
+                    0deg,
+                    rgba(255, 255, 255, 0.03) 0px,
+                    transparent 1px,
+                    transparent 2px,
+                    rgba(255, 255, 255, 0.03) 3px
+                );
+        }
+
+        .insta-post .logo {
+            font-family: 'Oswald', sans-serif;
+            font-size: 4rem;
+            font-weight: 800;
+            color: var(--bright-white);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            position: relative;
+            z-index: 2;
+            margin-bottom: 2rem;
+        }
+
+        .insta-post .logo::before {
+            content: '';
+            position: absolute;
+            width: 6px;
+            height: 120%;
+            background: var(--electric-yellow);
+            left: -20px;
+            top: -10%;
+            transform: skewX(-10deg);
+        }
+
+        .insta-post .content {
+            font-size: 1.8rem;
+            color: var(--bright-white);
+            text-align: center;
+            font-weight: 600;
+            line-height: 1.4;
+            position: relative;
+            z-index: 2;
+        }
+
+        .insta-post .content .highlight {
+            color: var(--electric-yellow);
+            font-weight: 800;
+        }
+
+        /* Instagram Story */
+        .insta-story {
+            width: 100%;
+            aspect-ratio: 9 / 16;
+            background: linear-gradient(135deg, var(--forest-green) 0%, var(--dark-green) 100%);
+            display: flex;
+            flex-direction: column;
+            padding: 4rem 2rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .insta-story::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image:
+                repeating-linear-gradient(
+                    0deg,
+                    rgba(255, 255, 255, 0.03) 0px,
+                    transparent 1px,
+                    transparent 2px,
+                    rgba(255, 255, 255, 0.03) 3px
+                );
+        }
+
+        .insta-story .story-logo {
+            font-family: 'Oswald', sans-serif;
+            font-size: 3rem;
+            font-weight: 800;
+            color: var(--bright-white);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            position: relative;
+            z-index: 2;
+            margin-bottom: 3rem;
+            align-self: center;
+        }
+
+        .insta-story .story-logo::before {
+            content: '';
+            position: absolute;
+            width: 6px;
+            height: 120%;
+            background: var(--electric-yellow);
+            left: -15px;
+            top: -10%;
+            transform: skewX(-10deg);
+        }
+
+        .insta-story .story-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            z-index: 2;
+        }
+
+        .insta-story .story-title {
+            font-family: 'Oswald', sans-serif;
+            font-size: 3.5rem;
+            font-weight: 800;
+            color: var(--bright-white);
+            text-align: center;
+            line-height: 1.1;
+            margin-bottom: 2rem;
+            text-transform: uppercase;
+        }
+
+        .insta-story .story-subtitle {
+            font-size: 1.5rem;
+            color: var(--electric-yellow);
+            text-align: center;
+            font-weight: 700;
+        }
+
+        /* LinkedIn/Facebook Post */
+        .linkedin-post {
+            width: 100%;
+            aspect-ratio: 1.91 / 1;
+            background: linear-gradient(135deg, var(--forest-green) 0%, var(--dark-green) 100%);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 3rem 4rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .linkedin-post::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image:
+                repeating-linear-gradient(
+                    0deg,
+                    rgba(255, 255, 255, 0.03) 0px,
+                    transparent 1px,
+                    transparent 2px,
+                    rgba(255, 255, 255, 0.03) 3px
+                );
+        }
+
+        .linkedin-post .left-content {
+            flex: 1;
+            position: relative;
+            z-index: 2;
+        }
+
+        .linkedin-post .post-title {
+            font-family: 'Oswald', sans-serif;
+            font-size: 3rem;
+            font-weight: 800;
+            color: var(--bright-white);
+            margin-bottom: 1rem;
+            text-transform: uppercase;
+        }
+
+        .linkedin-post .post-subtitle {
+            font-size: 1.3rem;
+            color: var(--electric-yellow);
+            font-weight: 700;
+        }
+
+        .linkedin-post .right-logo {
+            font-family: 'Oswald', sans-serif;
+            font-size: 5rem;
+            font-weight: 800;
+            color: var(--bright-white);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            position: relative;
+            z-index: 2;
+        }
+
+        .linkedin-post .right-logo::before {
+            content: '';
+            position: absolute;
+            width: 8px;
+            height: 120%;
+            background: var(--electric-yellow);
+            left: -25px;
+            top: -10%;
+            transform: skewX(-10deg);
+        }
+
+        /* Twitter/X Post */
+        .twitter-post {
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            background: linear-gradient(135deg, var(--dark-green) 0%, var(--forest-green) 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem 3rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .twitter-post::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image:
+                repeating-linear-gradient(
+                    0deg,
+                    rgba(255, 255, 255, 0.03) 0px,
+                    transparent 1px,
+                    transparent 2px,
+                    rgba(255, 255, 255, 0.03) 3px
+                );
+        }
+
+        .twitter-post .tweet-logo {
+            font-family: 'Oswald', sans-serif;
+            font-size: 3.5rem;
+            font-weight: 800;
+            color: var(--bright-white);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            position: relative;
+            z-index: 2;
+            margin-bottom: 1.5rem;
+        }
+
+        .twitter-post .tweet-logo::before {
+            content: '';
+            position: absolute;
+            width: 6px;
+            height: 120%;
+            background: var(--electric-yellow);
+            left: -18px;
+            top: -10%;
+            transform: skewX(-10deg);
+        }
+
+        .twitter-post .tweet-text {
+            font-size: 1.8rem;
+            color: var(--bright-white);
+            text-align: center;
+            font-weight: 600;
+            position: relative;
+            z-index: 2;
+        }
+
+        /* Cover Images */
+        .cover-image {
+            width: 100%;
+            height: 250px;
+            background: linear-gradient(90deg, var(--dark-green) 0%, var(--forest-green) 50%, var(--dark-green) 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .cover-image::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image:
+                repeating-linear-gradient(
+                    0deg,
+                    rgba(255, 255, 255, 0.03) 0px,
+                    transparent 1px,
+                    transparent 2px,
+                    rgba(255, 255, 255, 0.03) 3px
+                );
+        }
+
+        .cover-image .cover-logo {
+            font-family: 'Oswald', sans-serif;
+            font-size: 4.5rem;
+            font-weight: 800;
+            color: var(--bright-white);
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            position: relative;
+            z-index: 2;
+        }
+
+        .cover-image .cover-logo .pitch {
+            color: var(--bright-white);
+        }
+
+        .cover-image .cover-logo .rank {
+            color: var(--electric-yellow);
+        }
+
+        .specs-table {
+            margin-top: 1rem;
+            font-size: 0.9rem;
+        }
+
+        .specs-table ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .specs-table li {
+            padding: 0.4rem 0;
+            color: #7F8C8D;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .specs-table li strong {
+            color: var(--forest-green);
+        }
+
+        .download-note {
+            background: linear-gradient(135deg, var(--electric-yellow), #FFA500);
+            padding: 2rem;
+            border-radius: 8px;
+            margin-top: 3rem;
+            text-align: center;
+        }
+
+        .download-note h3 {
+            font-family: 'Oswald', sans-serif;
+            font-size: 1.8rem;
+            color: var(--dark-green);
+            margin-bottom: 1rem;
+            text-transform: uppercase;
+        }
+
+        .download-note p {
+            color: var(--dark-green);
+            line-height: 1.7;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Social Media Brand Package</h1>
+        <p class="subtitle">Production-ready templates for all major platforms</p>
+
+        <!-- Instagram Section -->
+        <div class="section">
+            <h2 class="section-title">📸 Instagram</h2>
+            <div class="platform-grid">
+                <!-- Instagram Post -->
+                <div class="template-card">
+                    <div class="template-header">
+                        <div class="template-name">Instagram Post</div>
+                        <div class="template-size">1080 × 1080</div>
+                    </div>
+                    <div class="template-preview">
+                        <div class="insta-post">
+                            <div class="logo">PITCHRANK</div>
+                            <div class="content">
+                                Where <span class="highlight">Champions</span><br>Are Ranked
+                            </div>
+                        </div>
+                    </div>
+                    <div class="specs-table">
+                        <ul>
+                            <li><strong>Format:</strong> <span>Square</span></li>
+                            <li><strong>Aspect Ratio:</strong> <span>1:1</span></li>
+                            <li><strong>Best For:</strong> <span>Feed posts, announcements</span></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Instagram Story -->
+                <div class="template-card">
+                    <div class="template-header">
+                        <div class="template-name">Instagram Story</div>
+                        <div class="template-size">1080 × 1920</div>
+                    </div>
+                    <div class="template-preview">
+                        <div class="insta-story">
+                            <div class="story-logo">PITCHRANK</div>
+                            <div class="story-content">
+                                <div class="story-title">NEW<br>RANKINGS<br>LIVE!</div>
+                                <div class="story-subtitle">Swipe Up to See</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="specs-table">
+                        <ul>
+                            <li><strong>Format:</strong> <span>Vertical</span></li>
+                            <li><strong>Aspect Ratio:</strong> <span>9:16</span></li>
+                            <li><strong>Best For:</strong> <span>Stories, updates, CTAs</span></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- LinkedIn Section -->
+        <div class="section">
+            <h2 class="section-title">💼 LinkedIn</h2>
+            <div class="platform-grid">
+                <!-- LinkedIn Post -->
+                <div class="template-card">
+                    <div class="template-header">
+                        <div class="template-name">LinkedIn Post</div>
+                        <div class="template-size">1200 × 628</div>
+                    </div>
+                    <div class="template-preview">
+                        <div class="linkedin-post">
+                            <div class="left-content">
+                                <div class="post-title">Data-Driven<br>Youth Soccer<br>Rankings</div>
+                                <div class="post-subtitle">Powered by V53E Engine</div>
+                            </div>
+                            <div class="right-logo">PITCHRANK</div>
+                        </div>
+                    </div>
+                    <div class="specs-table">
+                        <ul>
+                            <li><strong>Format:</strong> <span>Horizontal</span></li>
+                            <li><strong>Aspect Ratio:</strong> <span>1.91:1</span></li>
+                            <li><strong>Best For:</strong> <span>Link posts, articles</span></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- LinkedIn Cover -->
+                <div class="template-card">
+                    <div class="template-header">
+                        <div class="template-name">LinkedIn Cover</div>
+                        <div class="template-size">1584 × 396</div>
+                    </div>
+                    <div class="template-preview">
+                        <div class="cover-image">
+                            <div class="cover-logo">
+                                <span class="pitch">PITCH</span><span class="rank">RANK</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="specs-table">
+                        <ul>
+                            <li><strong>Format:</strong> <span>Wide banner</span></li>
+                            <li><strong>Aspect Ratio:</strong> <span>4:1</span></li>
+                            <li><strong>Best For:</strong> <span>Company/profile header</span></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Facebook Section -->
+        <div class="section">
+            <h2 class="section-title">👍 Facebook</h2>
+            <div class="platform-grid">
+                <!-- Facebook Post -->
+                <div class="template-card">
+                    <div class="template-header">
+                        <div class="template-name">Facebook Post</div>
+                        <div class="template-size">1200 × 630</div>
+                    </div>
+                    <div class="template-preview">
+                        <div class="linkedin-post">
+                            <div class="left-content">
+                                <div class="post-title">Find Your<br>Team's Rank</div>
+                                <div class="post-subtitle">National & State Rankings</div>
+                            </div>
+                            <div class="right-logo">PITCHRANK</div>
+                        </div>
+                    </div>
+                    <div class="specs-table">
+                        <ul>
+                            <li><strong>Format:</strong> <span>Horizontal</span></li>
+                            <li><strong>Aspect Ratio:</strong> <span>1.91:1</span></li>
+                            <li><strong>Best For:</strong> <span>Link shares, posts</span></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Facebook Cover -->
+                <div class="template-card">
+                    <div class="template-header">
+                        <div class="template-name">Facebook Cover</div>
+                        <div class="template-size">820 × 312</div>
+                    </div>
+                    <div class="template-preview">
+                        <div class="cover-image" style="height: 150px;">
+                            <div class="cover-logo" style="font-size: 3rem;">
+                                <span class="pitch">PITCH</span><span class="rank">RANK</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="specs-table">
+                        <ul>
+                            <li><strong>Format:</strong> <span>Wide banner</span></li>
+                            <li><strong>Aspect Ratio:</strong> <span>2.63:1</span></li>
+                            <li><strong>Best For:</strong> <span>Page header</span></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Twitter/X Section -->
+        <div class="section">
+            <h2 class="section-title">🐦 Twitter / X</h2>
+            <div class="platform-grid">
+                <!-- Twitter Post -->
+                <div class="template-card">
+                    <div class="template-header">
+                        <div class="template-name">Twitter Post</div>
+                        <div class="template-size">1200 × 675</div>
+                    </div>
+                    <div class="template-preview">
+                        <div class="twitter-post">
+                            <div class="tweet-logo">PITCHRANK</div>
+                            <div class="tweet-text">Your Team's Performance, Quantified.</div>
+                        </div>
+                    </div>
+                    <div class="specs-table">
+                        <ul>
+                            <li><strong>Format:</strong> <span>Horizontal</span></li>
+                            <li><strong>Aspect Ratio:</strong> <span>16:9</span></li>
+                            <li><strong>Best For:</strong> <span>Tweet images, announcements</span></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Twitter Header -->
+                <div class="template-card">
+                    <div class="template-header">
+                        <div class="template-name">Twitter Header</div>
+                        <div class="template-size">1500 × 500</div>
+                    </div>
+                    <div class="template-preview">
+                        <div class="cover-image" style="height: 167px;">
+                            <div class="cover-logo" style="font-size: 3.5rem;">
+                                <span class="pitch">PITCH</span><span class="rank">RANK</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="specs-table">
+                        <ul>
+                            <li><strong>Format:</strong> <span>Wide banner</span></li>
+                            <li><strong>Aspect Ratio:</strong> <span>3:1</span></li>
+                            <li><strong>Best For:</strong> <span>Profile header</span></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="download-note">
+            <h3>📦 Complete Package Includes:</h3>
+            <p>
+                ✅ All logos in SVG format (scalable, editable)<br>
+                ✅ Social media templates for Instagram, LinkedIn, Facebook, Twitter<br>
+                ✅ Multiple size variants for each platform<br>
+                ✅ Light and dark background versions<br>
+                ✅ Editable templates with your brand colors and fonts<br>
+                <br>
+                <strong>Ready to create PNG exports and Canva templates for easy customization!</strong>
+            </p>
+        </div>
+    </div>
+</body>
+</html>
