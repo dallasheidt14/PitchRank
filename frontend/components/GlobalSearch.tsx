@@ -150,9 +150,9 @@ export function GlobalSearch() {
   }, []);
 
   return (
-    <div className="relative w-full max-w-md hidden md:block">
+    <div className="relative w-full max-w-md">
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Search className="absolute left-2 sm:left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
         <Input
           ref={inputRef}
           type="text"
@@ -168,7 +168,7 @@ export function GlobalSearch() {
             }
           }}
           onKeyDown={handleKeyDown}
-          className="pl-10 pr-10 w-full"
+          className="pl-8 sm:pl-10 pr-8 sm:pr-10 w-full text-sm h-10 sm:h-11"
           aria-label="Search for teams"
           aria-autocomplete="list"
           aria-expanded={isOpen && searchResults.length > 0}
@@ -179,7 +179,7 @@ export function GlobalSearch() {
               setSearchQuery('');
               setIsOpen(false);
             }}
-            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+            className="absolute right-2 sm:right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center -mr-2"
             aria-label="Clear search"
           >
             <X className="h-4 w-4" />
