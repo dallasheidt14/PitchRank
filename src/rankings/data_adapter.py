@@ -6,8 +6,67 @@ import re
 from typing import Dict, Optional, List
 from datetime import datetime, timedelta
 import logging
+import time
 
 logger = logging.getLogger(__name__)
+
+
+# --------------------------------------------------------------------
+#  Retry wrapper for Supabase queries
+# --------------------------------------------------------------------
+def retry_supabase_query(query_func, max_retries=4, initial_delay=2.0, description="Query"):
+    """
+    Retry a Supabase query with exponential backoff.
+
+    Args:
+        query_func: Function that executes the query (should return result)
+        max_retries: Maximum number of retry attempts
+        initial_delay: Initial delay in seconds
+        description: Description of the query for logging
+
+    Returns:
+        Query result
+
+    Raises:
+        Exception: If all retries fail
+    """
+    delay = initial_delay
+    last_error = None
+
+    for attempt in range(max_retries):
+        try:
+            return query_func()
+        except Exception as e:
+            last_error = e
+            error_msg = str(e).lower()
+
+            # Check if it's a retryable error (network/SSL/timeout)
+            is_retryable = any(keyword in error_msg for keyword in [
+                'ssl', 'timeout', 'connection', 'reset', 'network',
+                'temporarily unavailable', 'bad record', 'remote host'
+            ])
+
+            if attempt < max_retries - 1 and is_retryable:
+                logger.warning(
+                    f"⚠️  {description} failed (attempt {attempt + 1}/{max_retries}): {str(e)[:100]}"
+                )
+                logger.info(f"   Retrying in {delay:.1f}s...")
+                time.sleep(delay)
+                delay *= 2  # Exponential backoff
+            elif attempt < max_retries - 1:
+                # Non-retryable error, but try anyway
+                logger.warning(
+                    f"⚠️  {description} error (attempt {attempt + 1}/{max_retries}): {str(e)[:100]}"
+                )
+                time.sleep(delay)
+                delay *= 2
+            else:
+                # Last attempt failed
+                logger.error(f"❌ {description} failed after {max_retries} attempts")
+                raise
+
+    # Should never reach here, but just in case
+    raise last_error
 
 
 # --------------------------------------------------------------------
@@ -67,15 +126,20 @@ async def fetch_games_for_rankings(
     ).gte('game_date', cutoff_date_str).order('game_date', desc=False)  # Order for consistent pagination
     
     if provider_filter:
-        # Get provider ID
+        # Get provider ID with retry logic
         try:
-            provider_result = supabase_client.table('providers').select('id').eq(
-                'code', provider_filter
-            ).single().execute()
+            provider_result = retry_supabase_query(
+                lambda: supabase_client.table('providers').select('id').eq(
+                    'code', provider_filter
+                ).single().execute(),
+                max_retries=4,
+                initial_delay=2.0,
+                description=f"Fetching provider filter '{provider_filter}'"
+            )
             if getattr(provider_result, 'data', None):
                 base_query = base_query.eq('provider_id', provider_result.data['id'])
         except Exception as e:
-            logger.warning(f"⚠️  Failed to fetch provider filter '{provider_filter}': {e}")
+            logger.warning(f"⚠️  Failed to fetch provider filter '{provider_filter}' after retries: {str(e)[:100]}")
             # Continue without provider filter
     
     # Paginate to fetch all games (Supabase max is 1000 per query)
@@ -85,27 +149,38 @@ async def fetch_games_for_rankings(
     max_games = 1000000  # Safety limit
     
     logger.info(f"📥 Fetching games from Supabase (cutoff: {cutoff_date_str})...")
-    
+
     while len(games_data) < max_games:
         query = base_query.range(offset, offset + page_size - 1)
+
         try:
-            games_result = query.execute()
+            # Use retry wrapper for resilient fetching
+            games_result = retry_supabase_query(
+                lambda: query.execute(),
+                max_retries=4,
+                initial_delay=2.0,
+                description=f"Fetching games batch at offset {offset}"
+            )
         except Exception as e:
-            # If query times out, log and break
-            logger.warning(f"⚠️  Query timeout at offset {offset}, fetched {len(games_data):,} games so far: {e}")
+            # If all retries fail, log and break (use what we have)
+            logger.warning(
+                f"⚠️  Failed to fetch games at offset {offset} after retries. "
+                f"Using {len(games_data):,} games fetched so far."
+            )
+            logger.warning(f"   Error: {str(e)[:200]}")
             break
-        
+
         if not games_result.data:
             break
-        
+
         games_data.extend(games_result.data)
-        
+
         # If we got fewer than page_size, we've reached the end
         if len(games_result.data) < page_size:
             break
-        
+
         offset += page_size
-        
+
         # Progress indicator for large fetches (every 10k games)
         if len(games_data) % 10000 == 0:
             logger.info(f"  ✓ Fetched {len(games_data):,} games...")
@@ -138,16 +213,22 @@ async def fetch_games_for_rankings(
     for i in range(0, len(team_ids_list), batch_size):
         batch = team_ids_list[i:i + batch_size]
         try:
-            teams_result = supabase_client.table('teams').select(
-                'team_id_master, age_group, gender'
-            ).in_('team_id_master', batch).execute()
-            
+            # Use retry wrapper for team metadata fetching
+            teams_result = retry_supabase_query(
+                lambda: supabase_client.table('teams').select(
+                    'team_id_master, age_group, gender'
+                ).in_('team_id_master', batch).execute(),
+                max_retries=4,
+                initial_delay=2.0,
+                description=f"Fetching team metadata batch {i}-{i+batch_size}"
+            )
+
             if getattr(teams_result, 'data', None):
                 teams_data.extend(teams_result.data)
         except Exception as e:
-            logger.warning(f"⚠️  Team metadata batch failed ({i}-{i+batch_size}): {e}")
+            logger.warning(f"⚠️  Team metadata batch failed ({i}-{i+batch_size}) after retries: {str(e)[:100]}")
             continue
-        
+
         # Progress indicator for team fetching
         if (i + batch_size) % 1000 == 0 or (i + batch_size) >= len(team_ids_list):
             logger.info(f"  ✓ Fetched metadata for {len(teams_data):,} teams...")
