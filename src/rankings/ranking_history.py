@@ -60,18 +60,40 @@ async def save_ranking_snapshot(
         logger.warning("⚠️ No valid records to save in snapshot")
         return 0
 
-    # Batch upsert (insert or update on conflict)
+    # Batch upsert (insert or update on conflict) to avoid timeout
+    # Process in batches to prevent statement timeout errors
     try:
-        logger.info(f"💾 Saving {len(snapshot_records):,} ranking snapshots for {snapshot_date}...")
-
-        # Supabase upsert - will insert or update based on (team_id, snapshot_date) unique constraint
-        response = supabase_client.table("ranking_history").upsert(
-            snapshot_records,
-            on_conflict="team_id,snapshot_date"
-        ).execute()
-
-        saved_count = len(response.data) if response.data else len(snapshot_records)
-        logger.info(f"✅ Saved {saved_count:,} ranking snapshots")
+        total_records = len(snapshot_records)
+        logger.info(f"💾 Saving {total_records:,} ranking snapshots for {snapshot_date}...")
+        
+        # Batch size: 2000 records per batch (safe for Supabase upsert operations)
+        batch_size = 2000
+        saved_count = 0
+        
+        for i in range(0, total_records, batch_size):
+            batch = snapshot_records[i:i + batch_size]
+            batch_num = (i // batch_size) + 1
+            total_batches = (total_records + batch_size - 1) // batch_size
+            
+            try:
+                # Supabase upsert - will insert or update based on (team_id, snapshot_date) unique constraint
+                response = supabase_client.table("ranking_history").upsert(
+                    batch,
+                    on_conflict="team_id,snapshot_date"
+                ).execute()
+                
+                batch_saved = len(response.data) if response.data else len(batch)
+                saved_count += batch_saved
+                
+                if total_batches > 1:
+                    logger.info(f"   Batch {batch_num}/{total_batches}: Saved {batch_saved:,} snapshots ({saved_count:,}/{total_records:,} total)")
+                
+            except Exception as batch_error:
+                logger.error(f"❌ Error saving batch {batch_num}/{total_batches}: {batch_error}")
+                # Continue with next batch instead of failing completely
+                continue
+        
+        logger.info(f"✅ Saved {saved_count:,}/{total_records:,} ranking snapshots")
         return saved_count
 
     except Exception as e:
