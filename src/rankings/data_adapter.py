@@ -516,6 +516,12 @@ def v53e_to_rankings_full_format(
         rankings_df['games_played'] = rankings_df['gp'].fillna(0).astype(int)
     elif 'games_played' not in rankings_df.columns:
         rankings_df['games_played'] = 0
+
+    # Map games in last 180 days (used for activity filtering)
+    if 'gp_last_180' in rankings_df.columns:
+        rankings_df['games_last_180_days'] = rankings_df['gp_last_180'].fillna(0).astype(int)
+    elif 'games_last_180_days' not in rankings_df.columns:
+        rankings_df['games_last_180_days'] = 0
     
     # Wins/losses/draws may not be in v53e output - will need to calculate from games
     # For now, set defaults
