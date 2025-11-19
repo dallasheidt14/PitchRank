@@ -1,5 +1,3 @@
-'use client';
-
 import Image from 'next/image';
 import { PageHeader } from '@/components/PageHeader';
 import { HomeLeaderboard } from '@/components/HomeLeaderboard';
@@ -7,10 +5,57 @@ import { RecentMovers } from '@/components/RecentMovers';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { dehydrate, HydrationBoundary, QueryClient } from '@tanstack/react-query';
+import { supabase } from '@/lib/supabaseClient';
+import { normalizeAgeGroup } from '@/lib/utils';
+import type { RankingRow } from '@/types/RankingRow';
 
-export default function Home() {
+/**
+ * Prefetch rankings data on the server
+ * This function runs on the server and fetches data before the page is sent to the client
+ */
+async function prefetchRankingsData() {
+  const queryClient = new QueryClient();
+
+  // Prefetch the same data that HomeLeaderboard and RecentMovers will need
+  await queryClient.prefetchQuery({
+    queryKey: ['rankings', null, 'u12', 'M'],
+    queryFn: async () => {
+      // This mirrors the logic from useRankings hook
+      const normalizedAge = normalizeAgeGroup('u12');
+
+      let query = supabase
+        .from('rankings_view')
+        .select('*')
+        .eq('status', 'Active');
+
+      if (normalizedAge !== null) {
+        query = query.eq('age', normalizedAge);
+      }
+
+      query = query.eq('gender', 'M');
+      query = query.order('power_score_final', { ascending: false });
+
+      const { data, error } = await query;
+
+      if (error) {
+        throw error;
+      }
+
+      return (data || []) as RankingRow[];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  return dehydrate(queryClient);
+}
+
+export default async function Home() {
+  // Prefetch data on the server
+  const dehydratedState = await prefetchRankingsData();
 
   return (
+    <HydrationBoundary state={dehydratedState}>
     <div className="container mx-auto py-8 px-4">
       <div className="flex flex-col items-center mb-6 sm:mb-8 w-full">
         <div className="w-full max-w-3xl px-2 sm:px-4 flex justify-center">
@@ -67,5 +112,6 @@ export default function Home() {
         </Card>
       </div>
     </div>
+    </HydrationBoundary>
   );
 }
