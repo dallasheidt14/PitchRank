@@ -56,7 +56,7 @@ export default async function Home() {
 
   return (
     <HydrationBoundary state={dehydratedState}>
-    <div className="container mx-auto py-8 px-4">
+    <div className="container mx-auto py-6 sm:py-8 px-4 sm:px-6">
       <div className="flex flex-col items-center mb-6 sm:mb-8 w-full">
         <div className="w-full max-w-3xl px-2 sm:px-4 flex justify-center">
           <Image

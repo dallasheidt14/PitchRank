@@ -13,7 +13,7 @@ export function Navigation() {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container flex h-16 items-center justify-between gap-2 sm:gap-4 px-2 sm:px-4">
+      <div className="container flex h-16 items-center justify-between gap-3 sm:gap-4 px-3 sm:px-4">
         <Link 
           href="/" 
           className="flex items-center transition-colors duration-300 hover:opacity-80 flex-shrink-0"
@@ -78,21 +78,21 @@ export function Navigation() {
         </nav>
 
         {/* Mobile: Search + Menu Button */}
-        <div className="flex lg:hidden items-center gap-2">
+        <div className="flex lg:hidden items-center gap-2 sm:gap-3">
           <div className="flex-1 max-w-xs">
             <GlobalSearch />
           </div>
           <Button
             variant="ghost"
             size="icon"
-            className="flex-shrink-0"
+            className="flex-shrink-0 min-w-[44px] min-h-[44px]"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-label="Toggle menu"
           >
             {mobileMenuOpen ? (
-              <X className="h-5 w-5" />
+              <X className="h-6 w-6" />
             ) : (
-              <Menu className="h-5 w-5" />
+              <Menu className="h-6 w-6" />
             )}
           </Button>
         </div>
