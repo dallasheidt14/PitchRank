@@ -1196,7 +1196,7 @@ elif section == "🔎 Unknown Teams Mapper":
                                 'provider_team_id': str(new_provider_team_id),
                                 'team_id_master': new_team_id_master,
                                 'match_confidence': 1.0,
-                                'match_method': 'dashboard_new_team',
+                                'match_method': 'direct_id',  # Using 'direct_id' since we're explicitly creating this mapping
                                 'review_status': 'approved',
                                 'created_at': datetime.now().isoformat()
                             }
