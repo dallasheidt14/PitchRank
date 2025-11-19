@@ -594,12 +594,16 @@ def get_daily_game_imports(days=30):
         # Show date range being queried
         st.info(f"📆 Querying games from {start_date.date()} to {end_date.date()} (last {days} days)")
 
-        # Fetch games in the date range
+        # Fetch games in the date range (without order to avoid timeout, with reasonable limit)
+        # Note: We're fetching up to 100k games which should be enough for daily tracking
+        max_fetch = 100000
         result = client.table('games').select(
             timestamp_col
-        ).gte(timestamp_col, start_date.isoformat()).order(timestamp_col, desc=False).execute()
+        ).gte(timestamp_col, start_date.isoformat()).limit(max_fetch).execute()
 
-        st.info(f"📊 Found {len(result.data) if result.data else 0} games in the date range")
+        games_found = len(result.data) if result.data else 0
+        st.info(f"📊 Found {games_found:,} games in the date range" +
+                (f" (limited to {max_fetch:,})" if games_found >= max_fetch else ""))
 
         if not result or not result.data:
             return pd.DataFrame()
