@@ -567,47 +567,39 @@ def get_daily_game_imports(days=30):
         timestamp_col = None
         result = None
 
-        # Try created_at first
-        try:
-            result = client.table('games').select(
-                'created_at'
-            ).gte('created_at', start_date.isoformat()).order('created_at', desc=False).execute()
+        # First, detect which timestamp column to use by sampling the table
+        sample_result = client.table('games').select('*').limit(5).order('game_date', desc=True).execute()
 
-            if result.data:
-                timestamp_col = 'created_at'
-        except Exception:
-            pass
+        if not sample_result.data or len(sample_result.data) == 0:
+            st.warning("⚠️ No games found in the database")
+            return pd.DataFrame()
 
-        # Fall back to scraped_at if created_at doesn't work
-        if not timestamp_col:
-            try:
-                result = client.table('games').select(
-                    'scraped_at'
-                ).gte('scraped_at', start_date.isoformat()).order('scraped_at', desc=False).execute()
+        sample_game = sample_result.data[0]
 
-                if result.data:
-                    timestamp_col = 'scraped_at'
-            except Exception:
-                pass
+        # Debug info
+        st.info(f"🔍 **Debug Info:** Found {len(sample_result.data)} sample games. Available columns: {list(sample_game.keys())}")
 
-        # If neither column works, try fetching all games and use any available timestamp
-        if not timestamp_col:
-            result = client.table('games').select('*').limit(1).execute()
-            if result.data and len(result.data) > 0:
-                sample_game = result.data[0]
-                # Check which timestamp columns exist
-                if 'created_at' in sample_game:
-                    timestamp_col = 'created_at'
-                elif 'scraped_at' in sample_game:
-                    timestamp_col = 'scraped_at'
-                else:
-                    st.warning("⚠️ No timestamp column found in games table (created_at or scraped_at)")
-                    return pd.DataFrame()
+        # Determine which timestamp column to use
+        timestamp_col = None
+        if 'created_at' in sample_game and sample_game.get('created_at'):
+            timestamp_col = 'created_at'
+            st.info(f"📅 Using **created_at** for tracking. Sample value: {sample_game['created_at']}")
+        elif 'scraped_at' in sample_game and sample_game.get('scraped_at'):
+            timestamp_col = 'scraped_at'
+            st.info(f"📅 Using **scraped_at** for tracking. Sample value: {sample_game['scraped_at']}")
+        else:
+            st.warning(f"⚠️ No valid timestamp column found. Available columns: {list(sample_game.keys())}")
+            return pd.DataFrame()
 
-                # Now fetch with the correct column
-                result = client.table('games').select(
-                    timestamp_col
-                ).gte(timestamp_col, start_date.isoformat()).order(timestamp_col, desc=False).execute()
+        # Show date range being queried
+        st.info(f"📆 Querying games from {start_date.date()} to {end_date.date()} (last {days} days)")
+
+        # Fetch games in the date range
+        result = client.table('games').select(
+            timestamp_col
+        ).gte(timestamp_col, start_date.isoformat()).order(timestamp_col, desc=False).execute()
+
+        st.info(f"📊 Found {len(result.data) if result.data else 0} games in the date range")
 
         if not result or not result.data:
             return pd.DataFrame()
