@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PitchRank Logo Concepts</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700;800&family=DM+Sans:wght@400;500;700&family=Bebas+Neue&family=Archivo+Black&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --forest-green: #0B5345;
+            --dark-green: #052E27;
+            --electric-yellow: #F4D03F;
+            --bright-white: #FDFEFE;
+            --soft-gray: #ECF0F1;
+            --charcoal: #2C3E50;
+        }
+
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: #f5f5f5;
+            padding: 3rem 2rem;
+            color: var(--charcoal);
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-family: 'Oswald', sans-serif;
+            font-size: 3rem;
+            text-align: center;
+            margin-bottom: 1rem;
+            color: var(--dark-green);
+        }
+
+        .subtitle {
+            text-align: center;
+            font-size: 1.1rem;
+            color: #7F8C8D;
+            margin-bottom: 3rem;
+        }
+
+        .logo-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+            gap: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        .logo-card {
+            background: white;
+            border-radius: 12px;
+            padding: 3rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 300px;
+            position: relative;
+        }
+
+        .logo-label {
+            position: absolute;
+            top: 1rem;
+            left: 1rem;
+            font-family: 'Oswald', sans-serif;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #95A5A6;
+            font-weight: 700;
+        }
+
+        .logo-card.dark {
+            background: var(--dark-green);
+        }
+
+        /* Logo 1: Bold Wordmark with Diagonal Slash */
+        .logo-1 {
+            font-family: 'Oswald', sans-serif;
+            font-size: 4rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--dark-green);
+            position: relative;
+            display: inline-block;
+        }
+
+        .logo-1::before {
+            content: '';
+            position: absolute;
+            width: 8px;
+            height: 120%;
+            background: var(--electric-yellow);
+            left: -20px;
+            top: -10%;
+            transform: skewX(-10deg);
+        }
+
+        .logo-1.light {
+            color: var(--bright-white);
+        }
+
+        /* Logo 2: Soccer Ball Icon + Wordmark */
+        .logo-2-container {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+        }
+
+        .logo-2-icon {
+            width: 80px;
+            height: 80px;
+            position: relative;
+        }
+
+        .soccer-ball {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: var(--forest-green);
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .soccer-ball::before {
+            content: '⚽';
+            font-size: 3rem;
+            filter: brightness(0) invert(1);
+        }
+
+        .logo-2-text {
+            font-family: 'Oswald', sans-serif;
+            font-size: 3.5rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--dark-green);
+        }
+
+        .logo-2-text.light {
+            color: var(--bright-white);
+        }
+
+        .logo-2-tagline {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--electric-yellow);
+            margin-top: 0.5rem;
+        }
+
+        /* Logo 3: Stacked with Rank Badge */
+        .logo-3-container {
+            text-align: center;
+        }
+
+        .logo-3-badge {
+            width: 100px;
+            height: 100px;
+            background: linear-gradient(135deg, var(--electric-yellow) 0%, #FFA500 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 1.5rem;
+            box-shadow: 0 10px 30px rgba(244, 208, 63, 0.4);
+            position: relative;
+        }
+
+        .logo-3-badge::before {
+            content: '#1';
+            font-family: 'Oswald', sans-serif;
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: var(--dark-green);
+        }
+
+        .logo-3-text {
+            font-family: 'Oswald', sans-serif;
+            font-size: 3.5rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--dark-green);
+            line-height: 1;
+        }
+
+        .logo-3-text.light {
+            color: var(--bright-white);
+        }
+
+        .logo-3-subtitle {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--electric-yellow);
+            margin-top: 0.5rem;
+        }
+
+        /* Logo 4: Minimal with Underline */
+        .logo-4 {
+            font-family: 'Oswald', sans-serif;
+            font-size: 4rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            position: relative;
+            display: inline-block;
+        }
+
+        .logo-4-pitch {
+            color: var(--forest-green);
+        }
+
+        .logo-4-rank {
+            color: var(--dark-green);
+        }
+
+        .logo-4::after {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            left: 0;
+            width: 100%;
+            height: 6px;
+            background: var(--electric-yellow);
+            transform: skewX(-10deg);
+        }
+
+        .logo-4.light .logo-4-pitch,
+        .logo-4.light .logo-4-rank {
+            color: var(--bright-white);
+        }
+
+        /* Logo 5: Field Lines Graphic */
+        .logo-5-container {
+            position: relative;
+        }
+
+        .field-lines {
+            width: 120px;
+            height: 80px;
+            background: var(--forest-green);
+            border: 3px solid var(--electric-yellow);
+            border-radius: 8px;
+            position: relative;
+            margin: 0 auto 1.5rem;
+            box-shadow: 0 8px 25px rgba(11, 83, 69, 0.3);
+        }
+
+        .field-lines::before {
+            content: '';
+            position: absolute;
+            width: 2px;
+            height: 100%;
+            background: var(--electric-yellow);
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .field-lines::after {
+            content: '';
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            border: 2px solid var(--electric-yellow);
+            border-radius: 50%;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .logo-5-text {
+            font-family: 'Oswald', sans-serif;
+            font-size: 3rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--dark-green);
+            text-align: center;
+        }
+
+        .logo-5-text.light {
+            color: var(--bright-white);
+        }
+
+        /* Logo 6: Gradient Treatment */
+        .logo-6 {
+            font-family: 'Oswald', sans-serif;
+            font-size: 4.5rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            background: linear-gradient(135deg, var(--forest-green) 0%, var(--electric-yellow) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            position: relative;
+        }
+
+        /* Logo 7: Bebas Neue Bold */
+        .logo-7 {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 5rem;
+            letter-spacing: 4px;
+            color: var(--dark-green);
+            position: relative;
+            text-transform: uppercase;
+        }
+
+        .logo-7 .highlight {
+            color: var(--electric-yellow);
+        }
+
+        .logo-7.light {
+            color: var(--bright-white);
+        }
+
+        /* Logo 8: Compact Icon Version */
+        .logo-8-icon {
+            width: 100px;
+            height: 100px;
+            background: var(--dark-green);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            box-shadow: 0 10px 30px rgba(11, 83, 69, 0.3);
+        }
+
+        .logo-8-icon::before {
+            content: 'PR';
+            font-family: 'Oswald', sans-serif;
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: var(--electric-yellow);
+            letter-spacing: -2px;
+        }
+
+        .logo-8-icon::after {
+            content: '';
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            right: 10px;
+            height: 3px;
+            background: var(--electric-yellow);
+            transform: skewX(-10deg);
+        }
+
+        /* Usage Examples */
+        .usage-section {
+            margin-top: 4rem;
+            padding-top: 3rem;
+            border-top: 3px solid #e0e0e0;
+        }
+
+        .usage-section h2 {
+            font-family: 'Oswald', sans-serif;
+            font-size: 2rem;
+            text-align: center;
+            margin-bottom: 2rem;
+            color: var(--dark-green);
+        }
+
+        .usage-card {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            margin-bottom: 2rem;
+        }
+
+        .usage-preview {
+            background: var(--soft-gray);
+            padding: 2rem;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 150px;
+        }
+
+        .usage-label {
+            font-family: 'Oswald', sans-serif;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #7F8C8D;
+            margin-bottom: 1rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .logo-grid {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 2rem;
+            }
+
+            .logo-1,
+            .logo-4,
+            .logo-6,
+            .logo-7 {
+                font-size: 2.5rem;
+            }
+
+            .logo-2-text,
+            .logo-3-text,
+            .logo-5-text {
+                font-size: 2.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PitchRank Logo Concepts</h1>
+        <p class="subtitle">Explore different logo variations aligned with the Athletic Editorial aesthetic</p>
+
+        <div class="logo-grid">
+            <!-- Logo 1: Bold Wordmark with Diagonal Slash -->
+            <div class="logo-card">
+                <span class="logo-label">Concept 1: Diagonal Slash</span>
+                <div class="logo-1">PITCHRANK</div>
+            </div>
+
+            <div class="logo-card dark">
+                <span class="logo-label" style="color: rgba(255,255,255,0.5)">Concept 1: Dark Version</span>
+                <div class="logo-1 light">PITCHRANK</div>
+            </div>
+
+            <!-- Logo 2: Soccer Ball Icon + Wordmark -->
+            <div class="logo-card">
+                <span class="logo-label">Concept 2: Icon + Wordmark</span>
+                <div class="logo-2-container">
+                    <div class="logo-2-icon">
+                        <div class="soccer-ball"></div>
+                    </div>
+                    <div>
+                        <div class="logo-2-text">PITCHRANK</div>
+                        <div class="logo-2-tagline">Youth Soccer Rankings</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="logo-card dark">
+                <span class="logo-label" style="color: rgba(255,255,255,0.5)">Concept 2: Dark Version</span>
+                <div class="logo-2-container">
+                    <div class="logo-2-icon">
+                        <div class="soccer-ball" style="background: var(--electric-yellow);">
+                            <span style="filter: none; color: var(--dark-green); font-size: 3rem;">⚽</span>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="logo-2-text light">PITCHRANK</div>
+                        <div class="logo-2-tagline">Youth Soccer Rankings</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Logo 3: Stacked with Rank Badge -->
+            <div class="logo-card">
+                <span class="logo-label">Concept 3: Rank Badge</span>
+                <div class="logo-3-container">
+                    <div class="logo-3-badge"></div>
+                    <div class="logo-3-text">PITCHRANK</div>
+                    <div class="logo-3-subtitle">Where Teams Rise</div>
+                </div>
+            </div>
+
+            <div class="logo-card dark">
+                <span class="logo-label" style="color: rgba(255,255,255,0.5)">Concept 3: Dark Version</span>
+                <div class="logo-3-container">
+                    <div class="logo-3-badge"></div>
+                    <div class="logo-3-text light">PITCHRANK</div>
+                    <div class="logo-3-subtitle">Where Teams Rise</div>
+                </div>
+            </div>
+
+            <!-- Logo 4: Minimal with Underline -->
+            <div class="logo-card">
+                <span class="logo-label">Concept 4: Two-Tone Underline</span>
+                <div class="logo-4">
+                    <span class="logo-4-pitch">PITCH</span><span class="logo-4-rank">RANK</span>
+                </div>
+            </div>
+
+            <div class="logo-card dark">
+                <span class="logo-label" style="color: rgba(255,255,255,0.5)">Concept 4: Dark Version</span>
+                <div class="logo-4 light">
+                    <span class="logo-4-pitch">PITCH</span><span class="logo-4-rank">RANK</span>
+                </div>
+            </div>
+
+            <!-- Logo 5: Field Lines Graphic -->
+            <div class="logo-card">
+                <span class="logo-label">Concept 5: Field Lines</span>
+                <div class="logo-5-container">
+                    <div class="field-lines"></div>
+                    <div class="logo-5-text">PITCHRANK</div>
+                </div>
+            </div>
+
+            <div class="logo-card dark">
+                <span class="logo-label" style="color: rgba(255,255,255,0.5)">Concept 5: Dark Version</span>
+                <div class="logo-5-container">
+                    <div class="field-lines"></div>
+                    <div class="logo-5-text light">PITCHRANK</div>
+                </div>
+            </div>
+
+            <!-- Logo 6: Gradient Treatment -->
+            <div class="logo-card">
+                <span class="logo-label">Concept 6: Gradient</span>
+                <div class="logo-6">PITCHRANK</div>
+            </div>
+
+            <div class="logo-card dark">
+                <span class="logo-label" style="color: rgba(255,255,255,0.5)">Concept 6: Solid Light</span>
+                <div style="font-family: 'Oswald', sans-serif; font-size: 4.5rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: var(--bright-white);">PITCHRANK</div>
+            </div>
+
+            <!-- Logo 7: Bebas Neue -->
+            <div class="logo-card">
+                <span class="logo-label">Concept 7: Bold Condensed</span>
+                <div class="logo-7">PITCH<span class="highlight">RANK</span></div>
+            </div>
+
+            <div class="logo-card dark">
+                <span class="logo-label" style="color: rgba(255,255,255,0.5)">Concept 7: Dark Version</span>
+                <div class="logo-7 light">PITCH<span class="highlight">RANK</span></div>
+            </div>
+
+            <!-- Logo 8: Compact Icon -->
+            <div class="logo-card">
+                <span class="logo-label">Concept 8: App Icon</span>
+                <div class="logo-8-icon"></div>
+                <p style="margin-top: 1rem; font-size: 0.85rem; color: #7F8C8D;">Perfect for favicons & mobile</p>
+            </div>
+
+            <div class="logo-card dark">
+                <span class="logo-label" style="color: rgba(255,255,255,0.5)">Concept 8: Light Version</span>
+                <div class="logo-8-icon" style="background: var(--electric-yellow);">
+                    <span style="position: absolute; font-family: 'Oswald', sans-serif; font-size: 2.5rem; font-weight: 800; color: var(--dark-green); letter-spacing: -2px;">PR</span>
+                    <span style="position: absolute; bottom: 10px; left: 10px; right: 10px; height: 3px; background: var(--dark-green); transform: skewX(-10deg);"></span>
+                </div>
+                <p style="margin-top: 1rem; font-size: 0.85rem; color: rgba(255,255,255,0.6);">Perfect for favicons & mobile</p>
+            </div>
+        </div>
+
+        <div class="usage-section">
+            <h2>Logo Usage Examples</h2>
+
+            <div class="usage-card">
+                <div class="usage-label">Header Navigation (Recommended: Concept 1 or 4)</div>
+                <div class="usage-preview" style="background: var(--dark-green); justify-content: flex-start; padding-left: 3rem;">
+                    <div class="logo-1 light" style="font-size: 2rem;">PITCHRANK</div>
+                </div>
+            </div>
+
+            <div class="usage-card">
+                <div class="usage-label">Hero Section (Recommended: Concept 2 or 6)</div>
+                <div class="usage-preview" style="background: linear-gradient(135deg, var(--forest-green) 0%, var(--dark-green) 100%);">
+                    <div class="logo-6" style="font-size: 5rem; color: var(--bright-white); background: none; -webkit-text-fill-color: var(--bright-white);">PITCHRANK</div>
+                </div>
+            </div>
+
+            <div class="usage-card">
+                <div class="usage-label">Mobile App Icon (Recommended: Concept 8)</div>
+                <div class="usage-preview">
+                    <div class="logo-8-icon" style="width: 120px; height: 120px;">
+                        <span style="position: absolute; font-family: 'Oswald', sans-serif; font-size: 3rem; font-weight: 800; color: var(--electric-yellow); letter-spacing: -2px;">PR</span>
+                        <span style="position: absolute; bottom: 12px; left: 12px; right: 12px; height: 4px; background: var(--electric-yellow); transform: skewX(-10deg);"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 4rem; padding: 2rem; background: white; border-radius: 12px;">
+            <h3 style="font-family: 'Oswald', sans-serif; font-size: 1.5rem; margin-bottom: 1rem; color: var(--dark-green);">📝 Recommendations</h3>
+            <p style="max-width: 800px; margin: 0 auto; line-height: 1.8; color: #7F8C8D;">
+                <strong>Concept 1</strong> (Diagonal Slash) - Best for header/nav, clean and professional<br>
+                <strong>Concept 2</strong> (Icon + Wordmark) - Best for marketing materials, recognizable<br>
+                <strong>Concept 4</strong> (Two-Tone) - Best all-arounder, versatile across contexts<br>
+                <strong>Concept 8</strong> (App Icon) - Perfect for favicons, social media avatars, app icons
+            </p>
+        </div>
+    </div>
+</body>
+</html>
