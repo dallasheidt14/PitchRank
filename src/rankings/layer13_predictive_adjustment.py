@@ -112,20 +112,17 @@ def _extract_game_residuals(feats: pd.DataFrame, games_df: pd.DataFrame, cfg: La
     import logging
     logger = logging.getLogger(__name__)
 
-    print(f"[DEBUG _extract_game_residuals] Input feats: {len(feats)} rows, columns: {list(feats.columns)}")
-    logger.info(f"[_extract_game_residuals] Input feats: {len(feats)} rows, columns: {list(feats.columns)}")
+    logger.info(f"[DEBUG _extract_game_residuals] Input feats: {len(feats)} rows, columns: {list(feats.columns)}")
 
     if feats.empty or 'residual' not in feats.columns:
-        print(f"[DEBUG _extract_game_residuals] ❌ Feats empty or missing 'residual' column")
-        logger.warning(f"[_extract_game_residuals] Feats empty or missing 'residual' column")
+        logger.warning(f"[DEBUG _extract_game_residuals] ❌ Feats empty or missing 'residual' column")
         return pd.DataFrame(columns=['game_id', 'ml_overperformance'])
 
     # Check if v53e format has the required fields (id, team_id, home_team_master_id)
     required_cols = {'id', 'team_id', 'home_team_master_id', 'residual'}
     if not required_cols.issubset(feats.columns):
         missing = required_cols - set(feats.columns)
-        print(f"[DEBUG _extract_game_residuals] ❌ Missing required columns: {missing}")
-        logger.warning(f"[_extract_game_residuals] Missing required columns: {missing}")
+        logger.warning(f"[DEBUG _extract_game_residuals] ❌ Missing required columns: {missing}")
         return pd.DataFrame(columns=['game_id', 'ml_overperformance'])
 
     # Filter to home team perspective only (where team_id == home_team_master_id)
@@ -133,18 +130,16 @@ def _extract_game_residuals(feats: pd.DataFrame, games_df: pd.DataFrame, cfg: La
     feats['team_id_str'] = feats['team_id'].astype(str)
     feats['home_team_master_id_str'] = feats['home_team_master_id'].astype(str)
     home_perspective = feats[feats['team_id_str'] == feats['home_team_master_id_str']].copy()
-    print(f"[DEBUG _extract_game_residuals] Home perspective after filter: {len(home_perspective)} rows")
-    logger.info(f"[_extract_game_residuals] Home perspective: {len(home_perspective)} rows")
+    logger.info(f"[DEBUG _extract_game_residuals] Home perspective after filter: {len(home_perspective)} rows")
     
     # Debug: show why rows might be filtered out
     if len(home_perspective) == 0 and len(feats) > 0:
-        print(f"[DEBUG _extract_game_residuals] ⚠️ All rows filtered out! Sample team_id values: {feats['team_id_str'].head(5).tolist()}")
-        print(f"[DEBUG _extract_game_residuals] Sample home_team_master_id values: {feats['home_team_master_id_str'].head(5).tolist()}")
-        print(f"[DEBUG _extract_game_residuals] Matching count: {(feats['team_id_str'] == feats['home_team_master_id_str']).sum()}")
-
+        logger.warning(f"[DEBUG _extract_game_residuals] ⚠️ All rows filtered out! Sample team_id values: {feats['team_id_str'].head(5).tolist()}")
+        logger.warning(f"[DEBUG _extract_game_residuals] Sample home_team_master_id values: {feats['home_team_master_id_str'].head(5).tolist()}")
+        logger.warning(f"[DEBUG _extract_game_residuals] Matching count: {(feats['team_id_str'] == feats['home_team_master_id_str']).sum()}")
+    
     if home_perspective.empty:
-        print(f"[DEBUG _extract_game_residuals] ❌ Home perspective is empty after filtering")
-        logger.warning(f"[_extract_game_residuals] Home perspective is empty after filtering")
+        logger.warning(f"[DEBUG _extract_game_residuals] ❌ Home perspective is empty after filtering")
         return pd.DataFrame(columns=['game_id', 'ml_overperformance'])
 
     # Extract game_id (UUID) and residual
@@ -158,8 +153,7 @@ def _extract_game_residuals(feats: pd.DataFrame, games_df: pd.DataFrame, cfg: La
     # Remove duplicates (shouldn't happen, but safety check)
     result_df = result_df.drop_duplicates(subset=['game_id'], keep='first')
 
-    print(f"[DEBUG _extract_game_residuals] ✅ Extracted {len(result_df)} game residuals")
-    logger.info(f"[_extract_game_residuals] Extracted {len(result_df)} game residuals")
+    logger.info(f"[DEBUG _extract_game_residuals] ✅ Extracted {len(result_df)} game residuals")
 
     return result_df
 
@@ -293,18 +287,20 @@ async def apply_predictive_adjustment(
 
     # 7) Extract per-game residuals if requested
     if return_game_residuals:
-        print(f"[DEBUG apply_predictive_adjustment] About to extract game residuals...")
-        print(f"[DEBUG apply_predictive_adjustment] feats shape: {feats.shape}, columns: {list(feats.columns)}")
-        print(f"[DEBUG apply_predictive_adjustment] feats has 'residual': {'residual' in feats.columns}")
-        print(f"[DEBUG apply_predictive_adjustment] feats has 'id': {'id' in feats.columns}")
-        print(f"[DEBUG apply_predictive_adjustment] feats has 'team_id': {'team_id' in feats.columns}")
-        print(f"[DEBUG apply_predictive_adjustment] feats has 'home_team_master_id': {'home_team_master_id' in feats.columns}")
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("[DEBUG apply_predictive_adjustment] About to extract game residuals...")
+        logger.info(f"[DEBUG apply_predictive_adjustment] feats shape: {feats.shape}, columns: {list(feats.columns)}")
+        logger.info(f"[DEBUG apply_predictive_adjustment] feats has 'residual': {'residual' in feats.columns}")
+        logger.info(f"[DEBUG apply_predictive_adjustment] feats has 'id': {'id' in feats.columns}")
+        logger.info(f"[DEBUG apply_predictive_adjustment] feats has 'team_id': {'team_id' in feats.columns}")
+        logger.info(f"[DEBUG apply_predictive_adjustment] feats has 'home_team_master_id': {'home_team_master_id' in feats.columns}")
         if not feats.empty and 'residual' in feats.columns:
-            print(f"[DEBUG apply_predictive_adjustment] Residual stats: min={feats['residual'].min():.3f}, max={feats['residual'].max():.3f}, mean={feats['residual'].mean():.3f}")
+            logger.info(f"[DEBUG apply_predictive_adjustment] Residual stats: min={feats['residual'].min():.3f}, max={feats['residual'].max():.3f}, mean={feats['residual'].mean():.3f}")
         game_residuals = _extract_game_residuals(feats, games_df, cfg)
-        print(f"[DEBUG apply_predictive_adjustment] Extracted game_residuals: shape={game_residuals.shape}, empty={game_residuals.empty}")
+        logger.info(f"[DEBUG apply_predictive_adjustment] Extracted game_residuals: shape={game_residuals.shape}, empty={game_residuals.empty}")
         if not game_residuals.empty:
-            print(f"[DEBUG apply_predictive_adjustment] Sample residuals: {game_residuals.head()}")
+            logger.info(f"[DEBUG apply_predictive_adjustment] Sample residuals: {game_residuals.head().to_dict()}")
         return out, game_residuals
 
     return out
@@ -397,18 +393,15 @@ def _build_features(games: pd.DataFrame, power_map: Dict[str, float], cfg: Layer
     # Debug logging
     import logging
     logger = logging.getLogger(__name__)
-    print(f"[DEBUG _build_features] Input columns: {list(f.columns)}")
-    print(f"[DEBUG _build_features] Has 'id': {'id' in f.columns}, Has 'home_team_master_id': {'home_team_master_id' in f.columns}")
-    logger.info(f"[_build_features] Input columns: {list(f.columns)}")
+    logger.info(f"[DEBUG _build_features] Input columns: {list(f.columns)}")
+    logger.info(f"[DEBUG _build_features] Has 'id': {'id' in f.columns}, Has 'home_team_master_id': {'home_team_master_id' in f.columns}")
     logger.info(f"[_build_features] Needed columns: {needed}")
-    logger.info(f"[_build_features] Has 'id': {'id' in f.columns}, Has 'home_team_master_id': {'home_team_master_id' in f.columns}")
 
     # Only keep columns that exist
     needed = [col for col in needed if col in f.columns]
     f = f[needed].dropna(subset=["goal_margin", "team_power", "opp_power"])
 
-    print(f"[DEBUG _build_features] Output columns: {list(f.columns)}, rows: {len(f)}")
-    logger.info(f"[_build_features] Output columns: {list(f.columns)}, rows: {len(f)}")
+    logger.info(f"[DEBUG _build_features] Output columns: {list(f.columns)}, rows: {len(f)}")
 
     return f.reset_index(drop=True)
 
