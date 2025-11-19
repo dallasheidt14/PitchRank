@@ -1,6 +1,10 @@
 """PitchRank Settings Dashboard - Comprehensive Parameter Viewer"""
 import streamlit as st
 import pandas as pd
+import os
+from datetime import datetime, timedelta
+from difflib import SequenceMatcher
+from supabase import create_client
 from config.settings import (
     RANKING_CONFIG,
     ML_CONFIG,
@@ -8,7 +12,9 @@ from config.settings import (
     ETL_CONFIG,
     AGE_GROUPS,
     VERSION,
-    PROJECT_NAME
+    PROJECT_NAME,
+    SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY
 )
 
 # Page configuration
@@ -23,6 +29,18 @@ st.set_page_config(
 st.title(f"⚽ {PROJECT_NAME} Settings Dashboard")
 st.caption(f"Version {VERSION} | Comprehensive Parameter Viewer")
 
+# Database connection helper
+@st.cache_resource
+def get_database():
+    """Get cached database connection"""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        return None
+    try:
+        return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    except Exception as e:
+        st.error(f"Failed to connect to database: {e}")
+        return None
+
 # Sidebar navigation
 st.sidebar.title("Navigation")
 section = st.sidebar.radio(
@@ -34,7 +52,9 @@ section = st.sidebar.radio(
         "🔍 Matching Configuration",
         "⚙️ ETL & Data Processing",
         "👥 Age Groups",
-        "🔧 Environment Variables"
+        "🔧 Environment Variables",
+        "🔎 Unknown Teams Mapper",
+        "📈 Database Import Stats"
     ]
 )
 
@@ -63,6 +83,24 @@ def param_info(name, value, description, unit=""):
             st.metric(label="", value=f"{value} {unit}")
         else:
             st.metric(label="", value=value)
+
+# Helper functions for fuzzy matching
+def normalize_team_name(name: str) -> str:
+    """Normalize team name for comparison"""
+    if not name:
+        return ''
+    import string
+    name = name.lower().strip()
+    name = name.translate(str.maketrans('', '', string.punctuation))
+    return ' '.join(name.split())
+
+def calculate_similarity(str1: str, str2: str) -> float:
+    """Calculate string similarity"""
+    str1 = normalize_team_name(str1)
+    str2 = normalize_team_name(str2)
+    if str1 == str2:
+        return 1.0
+    return SequenceMatcher(None, str1, str2).ratio()
 
 # ============================================================================
 # OVERVIEW SECTION
@@ -753,6 +791,433 @@ SUPABASE_KEY=your_supabase_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 """
         st.code(env_example, language="bash")
+
+# ============================================================================
+# UNKNOWN TEAMS MAPPER SECTION
+# ============================================================================
+elif section == "🔎 Unknown Teams Mapper":
+    st.header("Unknown Teams Mapper")
+    st.markdown("Find and map unknown teams to your master team database using fuzzy matching")
+
+    db = get_database()
+
+    if not db:
+        st.error("Database connection not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your .env file.")
+    else:
+        tab1, tab2, tab3 = st.tabs(["🔍 Search Unknown Teams", "📋 Pending Reviews", "✅ Create Alias"])
+
+        # Tab 1: Search Unknown Teams
+        with tab1:
+            st.subheader("Search for Unknown Teams")
+            st.markdown("Find games with unmatched teams or validation errors")
+
+            # Search options
+            search_option = st.radio(
+                "Search for:",
+                ["Games with NULL team IDs", "Validation Errors", "Manual Team Search"]
+            )
+
+            if search_option == "Games with NULL team IDs":
+                try:
+                    # Find games where home or away team couldn't be matched
+                    result = db.table('games').select(
+                        'id, game_date, home_provider_id, away_provider_id, home_score, away_score, competition'
+                    ).or_('home_team_master_id.is.null,away_team_master_id.is.null').order(
+                        'game_date', desc=True
+                    ).limit(100).execute()
+
+                    if result.data:
+                        st.success(f"Found {len(result.data)} games with unmatched teams")
+
+                        df = pd.DataFrame(result.data)
+                        st.dataframe(df, use_container_width=True)
+
+                        # Select a game to map
+                        if len(result.data) > 0:
+                            st.divider()
+                            st.subheader("Map Unknown Team")
+
+                            selected_idx = st.selectbox(
+                                "Select a game to map:",
+                                range(len(result.data)),
+                                format_func=lambda i: f"{result.data[i]['game_date']} - Provider IDs: {result.data[i]['home_provider_id']} vs {result.data[i]['away_provider_id']}"
+                            )
+
+                            game = result.data[selected_idx]
+
+                            col1, col2 = st.columns(2)
+
+                            with col1:
+                                st.markdown("**Game Details**")
+                                st.write(f"Date: {game['game_date']}")
+                                st.write(f"Score: {game.get('home_score', '?')} - {game.get('away_score', '?')}")
+                                st.write(f"Competition: {game.get('competition', 'N/A')}")
+
+                            with col2:
+                                st.markdown("**Provider IDs**")
+                                st.write(f"Home: {game['home_provider_id']}")
+                                st.write(f"Away: {game['away_provider_id']}")
+                    else:
+                        st.info("No games with unmatched teams found! 🎉")
+
+                except Exception as e:
+                    st.error(f"Error searching games: {e}")
+
+            elif search_option == "Validation Errors":
+                try:
+                    # Get validation errors from the last 30 days
+                    thirty_days_ago = (datetime.now() - timedelta(days=30)).isoformat()
+                    result = db.table('validation_errors').select(
+                        '*'
+                    ).gte('created_at', thirty_days_ago).order(
+                        'created_at', desc=True
+                    ).limit(100).execute()
+
+                    if result.data:
+                        st.success(f"Found {len(result.data)} validation errors in the last 30 days")
+
+                        df = pd.DataFrame(result.data)
+                        st.dataframe(df, use_container_width=True)
+                    else:
+                        st.info("No validation errors found in the last 30 days! 🎉")
+
+                except Exception as e:
+                    st.error(f"Error searching validation errors: {e}")
+
+            elif search_option == "Manual Team Search":
+                st.markdown("Search for a team in your database using fuzzy matching")
+
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    search_name = st.text_input("Team Name", placeholder="Enter team name...")
+                with col2:
+                    search_age = st.selectbox("Age Group", [""] + list(AGE_GROUPS.keys()))
+                with col3:
+                    search_gender = st.selectbox("Gender", ["", "Male", "Female"])
+
+                if st.button("Search") and search_name:
+                    try:
+                        # Build query
+                        query = db.table('teams').select('*')
+
+                        if search_age:
+                            query = query.eq('age_group', search_age)
+                        if search_gender:
+                            query = query.eq('gender', search_gender)
+
+                        result = query.execute()
+
+                        if result.data:
+                            # Calculate similarity scores
+                            matches = []
+                            for team in result.data:
+                                similarity = calculate_similarity(search_name, team['team_name'])
+                                if similarity >= 0.3:  # Show matches with 30%+ similarity
+                                    matches.append({
+                                        'team_id_master': team['team_id_master'],
+                                        'team_name': team['team_name'],
+                                        'club_name': team.get('club_name', ''),
+                                        'age_group': team['age_group'],
+                                        'gender': team['gender'],
+                                        'state': team.get('state_code', ''),
+                                        'similarity': round(similarity * 100, 1)
+                                    })
+
+                            # Sort by similarity
+                            matches.sort(key=lambda x: x['similarity'], reverse=True)
+
+                            if matches:
+                                st.success(f"Found {len(matches)} potential matches")
+
+                                df = pd.DataFrame(matches[:20])  # Show top 20
+                                st.dataframe(
+                                    df,
+                                    use_container_width=True,
+                                    hide_index=True,
+                                    column_config={
+                                        "similarity": st.column_config.ProgressColumn(
+                                            "Match %",
+                                            format="%d%%",
+                                            min_value=0,
+                                            max_value=100,
+                                        ),
+                                    }
+                                )
+                            else:
+                                st.warning("No similar teams found. Try adjusting your search.")
+                        else:
+                            st.info("No teams found with those criteria.")
+
+                    except Exception as e:
+                        st.error(f"Error searching teams: {e}")
+
+        # Tab 2: Pending Reviews
+        with tab2:
+            st.subheader("Pending Alias Reviews")
+            st.markdown("Review and approve/reject pending team aliases")
+
+            try:
+                result = db.table('team_alias_map').select(
+                    'id, provider_team_id, team_id_master, match_confidence, match_method, review_status, created_at'
+                ).eq('review_status', 'pending').order('match_confidence', desc=True).limit(50).execute()
+
+                if result.data:
+                    st.info(f"Found {len(result.data)} aliases pending review")
+
+                    for alias in result.data:
+                        with st.expander(f"Provider ID: {alias['provider_team_id']} (Confidence: {alias['match_confidence']:.2%})"):
+                            # Get team details
+                            team_result = db.table('teams').select(
+                                'team_name, club_name, age_group, gender, state_code'
+                            ).eq('team_id_master', alias['team_id_master']).single().execute()
+
+                            if team_result.data:
+                                team = team_result.data
+
+                                col1, col2 = st.columns(2)
+
+                                with col1:
+                                    st.markdown("**Alias Details**")
+                                    st.write(f"Provider Team ID: {alias['provider_team_id']}")
+                                    st.write(f"Match Method: {alias['match_method']}")
+                                    st.write(f"Confidence: {alias['match_confidence']:.2%}")
+                                    st.write(f"Created: {alias['created_at'][:10]}")
+
+                                with col2:
+                                    st.markdown("**Matched Team**")
+                                    st.write(f"Name: {team['team_name']}")
+                                    st.write(f"Club: {team.get('club_name', 'N/A')}")
+                                    st.write(f"Age/Gender: {team['age_group']} {team['gender']}")
+                                    st.write(f"State: {team.get('state_code', 'N/A')}")
+
+                                # Action buttons
+                                col1, col2, col3 = st.columns(3)
+
+                                with col1:
+                                    if st.button("✅ Approve", key=f"approve_{alias['id']}"):
+                                        try:
+                                            db.table('team_alias_map').update({
+                                                'review_status': 'approved',
+                                                'reviewed_by': 'dashboard_user',
+                                                'reviewed_at': datetime.now().isoformat()
+                                            }).eq('id', alias['id']).execute()
+                                            st.success("Approved!")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Error: {e}")
+
+                                with col2:
+                                    if st.button("❌ Reject", key=f"reject_{alias['id']}"):
+                                        try:
+                                            db.table('team_alias_map').update({
+                                                'review_status': 'rejected',
+                                                'reviewed_by': 'dashboard_user',
+                                                'reviewed_at': datetime.now().isoformat()
+                                            }).eq('id', alias['id']).execute()
+                                            st.success("Rejected!")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Error: {e}")
+
+                                with col3:
+                                    if st.button("🆕 New Team", key=f"new_{alias['id']}"):
+                                        try:
+                                            db.table('team_alias_map').update({
+                                                'review_status': 'new_team',
+                                                'reviewed_by': 'dashboard_user',
+                                                'reviewed_at': datetime.now().isoformat()
+                                            }).eq('id', alias['id']).execute()
+                                            st.success("Marked as new team!")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Error: {e}")
+                else:
+                    st.success("No pending aliases to review! 🎉")
+
+            except Exception as e:
+                st.error(f"Error loading pending reviews: {e}")
+
+        # Tab 3: Create Alias
+        with tab3:
+            st.subheader("Create New Alias Mapping")
+            st.markdown("Manually create an alias to map a provider team ID to a master team")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.markdown("**Provider Information**")
+                provider_team_id = st.text_input("Provider Team ID", placeholder="e.g., 544491")
+                provider_name = st.text_input("Provider Team Name (optional)", placeholder="For reference")
+
+            with col2:
+                st.markdown("**Master Team**")
+                master_team_id = st.text_input("Master Team ID", placeholder="team_id_master UUID")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                match_method = st.selectbox("Match Method", ["manual", "direct_id", "fuzzy_manual"])
+            with col2:
+                match_confidence = st.slider("Confidence", 0.0, 1.0, 1.0, 0.01)
+
+            if st.button("Create Alias"):
+                if not provider_team_id or not master_team_id:
+                    st.error("Provider Team ID and Master Team ID are required")
+                else:
+                    try:
+                        # Get provider ID (assume gotsport for now)
+                        provider_result = db.table('providers').select('id').eq('code', 'gotsport').single().execute()
+                        provider_id = provider_result.data['id']
+
+                        # Create alias
+                        db.table('team_alias_map').insert({
+                            'provider_id': provider_id,
+                            'provider_team_id': str(provider_team_id),
+                            'team_id_master': master_team_id,
+                            'match_confidence': match_confidence,
+                            'match_method': match_method,
+                            'review_status': 'approved',
+                            'created_at': datetime.now().isoformat()
+                        }).execute()
+
+                        st.success("✅ Alias created successfully!")
+
+                    except Exception as e:
+                        st.error(f"Error creating alias: {e}")
+
+# ============================================================================
+# DATABASE IMPORT STATS SECTION
+# ============================================================================
+elif section == "📈 Database Import Stats":
+    st.header("Database Import Statistics")
+    st.markdown("Track recent imports and database activity")
+
+    db = get_database()
+
+    if not db:
+        st.error("Database connection not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your .env file.")
+    else:
+        # Overview metrics
+        st.subheader("Overview")
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        try:
+            # Total teams
+            teams_result = db.table('teams').select('id', count='exact').execute()
+            total_teams = teams_result.count
+
+            # Total games
+            games_result = db.table('games').select('id', count='exact').execute()
+            total_games = games_result.count
+
+            # Teams added in last 7 days
+            seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
+            new_teams_result = db.table('teams').select('id', count='exact').gte('created_at', seven_days_ago).execute()
+            new_teams = new_teams_result.count
+
+            # Games added in last 7 days
+            new_games_result = db.table('games').select('id', count='exact').gte('created_at', seven_days_ago).execute()
+            new_games = new_games_result.count
+
+            with col1:
+                st.metric("Total Teams", f"{total_teams:,}")
+            with col2:
+                st.metric("Total Games", f"{total_games:,}")
+            with col3:
+                st.metric("New Teams (7d)", f"{new_teams:,}")
+            with col4:
+                st.metric("New Games (7d)", f"{new_games:,}")
+
+        except Exception as e:
+            st.error(f"Error loading overview metrics: {e}")
+
+        st.divider()
+
+        # Recent builds
+        st.subheader("Recent Build Activity")
+
+        try:
+            builds_result = db.table('build_logs').select(
+                'build_id, stage, started_at, completed_at, records_processed, records_succeeded, records_failed'
+            ).order('started_at', desc=True).limit(20).execute()
+
+            if builds_result.data:
+                df = pd.DataFrame(builds_result.data)
+
+                # Add status column
+                df['status'] = df.apply(lambda row:
+                    'running' if pd.isna(row['completed_at'])
+                    else 'partial' if row['records_failed'] > 0
+                    else 'success', axis=1)
+
+                # Format dates
+                df['started_at'] = pd.to_datetime(df['started_at']).dt.strftime('%Y-%m-%d %H:%M')
+                df['completed_at'] = pd.to_datetime(df['completed_at']).dt.strftime('%Y-%m-%d %H:%M')
+
+                st.dataframe(df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No build logs found")
+
+        except Exception as e:
+            st.error(f"Error loading build logs: {e}")
+
+        st.divider()
+
+        # Import activity by date
+        st.subheader("Import Activity (Last 30 Days)")
+
+        try:
+            thirty_days_ago = (datetime.now() - timedelta(days=30)).date().isoformat()
+
+            # Get games by date
+            games_by_date = db.table('games').select(
+                'created_at'
+            ).gte('created_at', thirty_days_ago).execute()
+
+            if games_by_date.data:
+                # Convert to DataFrame and group by date
+                df = pd.DataFrame(games_by_date.data)
+                df['date'] = pd.to_datetime(df['created_at']).dt.date
+                daily_counts = df.groupby('date').size().reset_index(name='games_imported')
+
+                # Display chart
+                st.bar_chart(daily_counts.set_index('date'))
+
+                # Summary table
+                st.dataframe(daily_counts, use_container_width=True, hide_index=True)
+            else:
+                st.info("No imports in the last 30 days")
+
+        except Exception as e:
+            st.error(f"Error loading import activity: {e}")
+
+        st.divider()
+
+        # Validation errors summary
+        st.subheader("Validation Errors (Last 30 Days)")
+
+        try:
+            thirty_days_ago = (datetime.now() - timedelta(days=30)).isoformat()
+
+            errors_result = db.table('validation_errors').select(
+                'error_type, record_type'
+            ).gte('created_at', thirty_days_ago).execute()
+
+            if errors_result.data:
+                df = pd.DataFrame(errors_result.data)
+
+                # Group by error type
+                error_summary = df.groupby(['record_type', 'error_type']).size().reset_index(name='count')
+                error_summary = error_summary.sort_values('count', ascending=False)
+
+                st.dataframe(error_summary, use_container_width=True, hide_index=True)
+            else:
+                st.success("No validation errors in the last 30 days! 🎉")
+
+        except Exception as e:
+            st.error(f"Error loading validation errors: {e}")
 
 # Footer
 st.divider()
