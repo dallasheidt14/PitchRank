@@ -350,7 +350,14 @@ def compute_rankings(
     # Add gp (game count) using vectorized count
     gp_counts = g.groupby(["team_id", "age", "gender"], as_index=False).size().rename(columns={"size": "gp"})
     team = team.merge(gp_counts, on=["team_id", "age", "gender"], how="left")
-    
+
+    # Calculate games in last 180 days for activity filter
+    inactive_cutoff = today - pd.Timedelta(days=cfg.INACTIVE_HIDE_DAYS)
+    g_recent = g[g["date"] >= inactive_cutoff].copy()
+    gp_recent_counts = g_recent.groupby(["team_id", "age", "gender"], as_index=False).size().rename(columns={"size": "gp_last_180"})
+    team = team.merge(gp_recent_counts, on=["team_id", "age", "gender"], how="left")
+    team["gp_last_180"] = team["gp_last_180"].fillna(0).astype(int)
+
     # Drop intermediate columns
     team = team.drop(columns=["gf_weighted", "ga_weighted", "w_game"])
 
@@ -775,9 +782,9 @@ def compute_rankings(
     # Layer 11: Rank & status
     # -------------------------
     team["days_since_last"] = (pd.Timestamp(today) - pd.to_datetime(team["last_game"])).dt.days
+    # Filter teams based on games in last 180 days (must have at least 5 games in last 180 days)
     team["status"] = np.where(
-        team["gp"] < cfg.MIN_GAMES_PROVISIONAL, "Not Enough Ranked Games",
-        np.where(team["days_since_last"] > cfg.INACTIVE_HIDE_DAYS, "Inactive", "Active")
+        team["gp_last_180"] < cfg.MIN_GAMES_PROVISIONAL, "Not Enough Ranked Games", "Active"
     )
 
     team = team.sort_values(["gender", "age", "powerscore_adj"], ascending=[True, True, False]).reset_index(drop=True)
@@ -800,7 +807,7 @@ def compute_rankings(
     )
 
     keep_cols = [
-        "team_id", "age", "gender", "gp", "last_game", "status", "rank_in_cohort",
+        "team_id", "age", "gender", "gp", "gp_last_180", "last_game", "status", "rank_in_cohort",
         "off_raw", "sad_raw", "off_shrunk", "sad_shrunk", "def_shrunk",
         "off_norm", "def_norm",
         "sos", "sos_norm",
