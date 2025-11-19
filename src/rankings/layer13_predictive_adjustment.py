@@ -235,6 +235,9 @@ async def apply_predictive_adjustment(
     feats = _build_features(games_df, power_map, cfg)
     
     if feats.empty:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"⚠️ feats DataFrame is empty after _build_features. Input games_df had {len(games_df)} rows.")
         out["ml_overperf"] = 0.0
         out["ml_norm"] = 0.0
         out["powerscore_ml"] = out[base_power_col]
@@ -245,7 +248,7 @@ async def apply_predictive_adjustment(
                .rank(ascending=False, method="min")
         ).astype(int)
         if return_game_residuals:
-            return out, pd.DataFrame(columns=['game_id', 'residual'])
+            return out, pd.DataFrame(columns=['game_id', 'ml_overperformance'])
         return out
     
     # 3) Fit model and compute residuals (with ML leakage protection)
