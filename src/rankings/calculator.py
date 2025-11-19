@@ -192,7 +192,7 @@ async def compute_rankings_with_ml(
     teams_with_ml, game_residuals = await apply_predictive_adjustment(
         supabase_client=supabase_client,
         teams_df=teams_base,
-        games_used_df=games_used,  # Use games from v53e output
+        games_used_df=games_df,  # Use original games with full columns (id, home_team_master_id)
         cfg=ml_cfg,
         return_game_residuals=True,  # Request per-game residuals
     )
