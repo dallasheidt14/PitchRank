@@ -853,9 +853,27 @@ elif section == "🔎 Unknown Teams Mapper":
                     # Step 2: Select a team to map
                     st.subheader("Step 2: Map a Team")
 
+                    # Add search/filter box
+                    search_filter = st.text_input(
+                        "🔍 Search Provider Team ID:",
+                        placeholder="Type to filter (e.g., 615537)",
+                        help="Filter the list below by typing part of the Provider Team ID"
+                    )
+
+                    # Filter the list based on search
+                    if search_filter:
+                        filtered_ids = [(pid, count) for pid, count in sorted_ids if search_filter in str(pid)]
+                        if not filtered_ids:
+                            st.warning(f"No Provider Team IDs found matching '{search_filter}'")
+                            st.stop()
+                    else:
+                        filtered_ids = sorted_ids
+
+                    st.caption(f"Showing {len(filtered_ids)} of {len(sorted_ids)} unmapped teams")
+
                     selected_provider_id = st.selectbox(
                         "Select Provider Team ID to map:",
-                        options=[pid for pid, _ in sorted_ids],
+                        options=[pid for pid, _ in filtered_ids],
                         format_func=lambda x: f"{x} ({unmapped_ids[x]} games affected)"
                     )
 
