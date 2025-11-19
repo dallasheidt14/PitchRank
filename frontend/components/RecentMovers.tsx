@@ -77,25 +77,26 @@ export function RecentMovers({
   }, [rankings, timeWindow, maxItems]);
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5" />
+    <Card className="border-l-4 border-l-primary shadow-md">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex-1">
+            <CardTitle className="flex items-center gap-2 text-xl">
+              <TrendingUp className="h-5 w-5 text-primary" />
               Recent Movers
             </CardTitle>
-            <CardDescription>
-              Teams with biggest rank changes ({timeWindow === '7d' ? 'last 7 days' : 'last 30 days'})
+            <CardDescription className="text-sm">
+              Biggest rank changes • {timeWindow === '7d' ? '7 days' : '30 days'}
             </CardDescription>
           </div>
-          <div className="flex gap-1">
+          <div className="flex gap-1 flex-shrink-0">
             <Button
               variant={timeWindow === '7d' ? 'default' : 'outline'}
               size="sm"
               onClick={() => setTimeWindow('7d')}
               aria-label="Show 7-day rank changes"
               aria-pressed={timeWindow === '7d'}
+              className="font-semibold"
             >
               7D
             </Button>
@@ -105,6 +106,7 @@ export function RecentMovers({
               onClick={() => setTimeWindow('30d')}
               aria-label="Show 30-day rank changes"
               aria-pressed={timeWindow === '30d'}
+              className="font-semibold"
             >
               30D
             </Button>
@@ -119,11 +121,11 @@ export function RecentMovers({
         {!isLoading && !isError && (
           <>
             {recentMovers.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">
+              <p className="text-sm text-muted-foreground text-center py-6">
                 No significant rank changes in the past {timeWindow === '7d' ? '7 days' : '30 days'}
               </p>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-1">
                 {recentMovers.map((team) => {
                   const rankChange = timeWindow === '7d'
                     ? team.rank_change_7d ?? 0
@@ -135,29 +137,36 @@ export function RecentMovers({
                       key={team.team_id_master}
                       href={`/teams/${team.team_id_master}`}
                       onMouseEnter={() => prefetchTeam(team.team_id_master)}
-                      className="flex items-center justify-between p-2 rounded-md hover:bg-accent hover:shadow-sm transition-all duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary"
+                      className="flex items-center justify-between p-3 rounded-md hover:bg-secondary/50 border border-transparent hover:border-border transition-all duration-300 group"
                       aria-label={`View ${team.team_name} - moved ${Math.abs(rankChange)} positions ${isImprovement ? 'up' : 'down'}`}
                       tabIndex={0}
                     >
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm truncate">{team.team_name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          Rank #{team.rank_in_cohort_final}
-                          {team.state && ` • ${team.state}`}
+                        <div className="font-semibold text-sm truncate group-hover:text-primary transition-colors">
+                          {team.team_name}
+                        </div>
+                        <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <span className="font-mono">#{team.rank_in_cohort_final}</span>
+                          {team.state && (
+                            <>
+                              <span>•</span>
+                              <span>{team.state}</span>
+                            </>
+                          )}
                         </div>
                       </div>
                       <div
-                        className={`flex items-center gap-1 text-xs font-semibold ${
+                        className={`flex items-center gap-1.5 text-sm font-bold px-2 py-1 rounded ${
                           isImprovement
-                            ? 'text-green-600 dark:text-green-400'
-                            : 'text-red-600 dark:text-red-400'
+                            ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                            : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
                         }`}
                         aria-label={`${isImprovement ? 'Improved' : 'Declined'} by ${Math.abs(rankChange)} ranks`}
                       >
                         {isImprovement ? (
-                          <ArrowUp className="h-3 w-3" aria-hidden="true" />
+                          <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
                         ) : (
-                          <ArrowDown className="h-3 w-3" aria-hidden="true" />
+                          <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
                         )}
                         <span>{Math.abs(rankChange)}</span>
                       </div>

@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dallas Texans 12B Premier - PitchRank</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --forest-green: #0B5345;
+            --dark-green: #052E27;
+            --electric-yellow: #F4D03F;
+            --bright-white: #FDFEFE;
+            --soft-gray: #ECF0F1;
+            --charcoal: #2C3E50;
+            --accent-orange: #E67E22;
+            --win-green: #27AE60;
+            --loss-red: #E74C3C;
+        }
+
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: var(--bright-white);
+            color: var(--charcoal);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image:
+                repeating-linear-gradient(
+                    0deg,
+                    rgba(11, 83, 69, 0.03) 0px,
+                    transparent 1px,
+                    transparent 2px,
+                    rgba(11, 83, 69, 0.03) 3px
+                );
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Header */
+        header {
+            background: var(--dark-green);
+            color: var(--bright-white);
+            padding: 1.5rem 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-family: 'Oswald', sans-serif;
+            font-size: 2rem;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            background: linear-gradient(135deg, var(--bright-white) 0%, var(--electric-yellow) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        nav {
+            display: flex;
+            gap: 2.5rem;
+        }
+
+        nav a {
+            color: var(--bright-white);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 0.95rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            position: relative;
+            transition: color 0.3s ease;
+        }
+
+        nav a::after {
+            content: '';
+            position: absolute;
+            bottom: -5px;
+            left: 0;
+            width: 0;
+            height: 3px;
+            background: var(--electric-yellow);
+            transition: width 0.3s ease;
+        }
+
+        nav a:hover {
+            color: var(--electric-yellow);
+        }
+
+        nav a:hover::after {
+            width: 100%;
+        }
+
+        /* Team Hero */
+        .team-hero {
+            background: linear-gradient(135deg, var(--forest-green) 0%, var(--dark-green) 100%);
+            color: var(--bright-white);
+            padding: 3rem 0;
+            margin-bottom: 3rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .team-hero::before {
+            content: '#1';
+            position: absolute;
+            font-family: 'Oswald', sans-serif;
+            font-size: 20rem;
+            font-weight: 700;
+            right: -2rem;
+            top: 50%;
+            transform: translateY(-50%);
+            opacity: 0.05;
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 2;
+        }
+
+        .breadcrumb {
+            font-size: 0.9rem;
+            opacity: 0.8;
+            margin-bottom: 1rem;
+        }
+
+        .breadcrumb a {
+            color: var(--electric-yellow);
+            text-decoration: none;
+        }
+
+        .team-name {
+            font-family: 'Oswald', sans-serif;
+            font-size: 3.5rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 0.5rem;
+            line-height: 1.1;
+        }
+
+        .team-meta {
+            font-size: 1.1rem;
+            opacity: 0.9;
+            margin-bottom: 2rem;
+        }
+
+        .hero-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 2rem;
+            max-width: 900px;
+        }
+
+        .hero-stat {
+            text-align: center;
+        }
+
+        .hero-stat-number {
+            font-family: 'Oswald', sans-serif;
+            font-size: 3rem;
+            font-weight: 700;
+            color: var(--electric-yellow);
+            line-height: 1;
+        }
+
+        .hero-stat-label {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            opacity: 0.8;
+            margin-top: 0.5rem;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 8px;
+            padding: 2rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            border-left: 6px solid var(--forest-green);
+        }
+
+        .stat-card-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .stat-card-header::before {
+            content: '';
+            width: 4px;
+            height: 100%;
+            background: var(--electric-yellow);
+            margin-right: 1rem;
+            transform: skewX(-5deg);
+        }
+
+        .stat-card h3 {
+            font-family: 'Oswald', sans-serif;
+            font-size: 1.3rem;
+            text-transform: uppercase;
+            color: var(--dark-green);
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid var(--soft-gray);
+        }
+
+        .stat-row:last-child {
+            border-bottom: none;
+        }
+
+        .stat-label {
+            font-weight: 600;
+            color: var(--charcoal);
+        }
+
+        .stat-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            color: var(--forest-green);
+        }
+
+        /* Performance Chart */
+        .chart-card {
+            background: white;
+            border-radius: 8px;
+            padding: 2rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            margin-bottom: 3rem;
+        }
+
+        .chart-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .chart-header::before {
+            content: '';
+            width: 6px;
+            height: 100%;
+            background: var(--electric-yellow);
+            margin-right: 1.5rem;
+            transform: skewX(-5deg);
+        }
+
+        .chart-header h2 {
+            font-family: 'Oswald', sans-serif;
+            font-size: 2rem;
+            text-transform: uppercase;
+            color: var(--dark-green);
+        }
+
+        .form-guide {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .form-label {
+            font-weight: 700;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            margin-right: 1rem;
+        }
+
+        .form-result {
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            font-family: 'Oswald', sans-serif;
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: white;
+        }
+
+        .form-result.win {
+            background: var(--win-green);
+        }
+
+        .form-result.loss {
+            background: var(--loss-red);
+        }
+
+        .form-result.draw {
+            background: #95A5A6;
+        }
+
+        /* Game History Table */
+        .game-history {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            overflow: hidden;
+            margin-bottom: 3rem;
+        }
+
+        .table-header {
+            background: linear-gradient(135deg, var(--forest-green) 0%, var(--dark-green) 100%);
+            color: white;
+            padding: 1.5rem 2rem;
+        }
+
+        .table-header h3 {
+            font-family: 'Oswald', sans-serif;
+            font-size: 1.8rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: var(--soft-gray);
+        }
+
+        th {
+            padding: 1rem 1.5rem;
+            text-align: left;
+            font-family: 'Oswald', sans-serif;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--dark-green);
+            font-weight: 700;
+            border-bottom: 3px solid var(--forest-green);
+        }
+
+        th.center {
+            text-align: center;
+        }
+
+        tbody tr {
+            border-bottom: 1px solid #ECF0F1;
+            transition: all 0.3s ease;
+        }
+
+        tbody tr:hover {
+            background: linear-gradient(90deg, rgba(244, 208, 63, 0.1) 0%, transparent 100%);
+        }
+
+        td {
+            padding: 1.25rem 1.5rem;
+            font-size: 0.95rem;
+        }
+
+        td.center {
+            text-align: center;
+        }
+
+        .result-badge {
+            display: inline-block;
+            padding: 0.4rem 1rem;
+            border-radius: 20px;
+            font-family: 'Oswald', sans-serif;
+            font-weight: 700;
+            color: white;
+            font-size: 0.9rem;
+        }
+
+        .result-badge.win {
+            background: var(--win-green);
+        }
+
+        .result-badge.loss {
+            background: var(--loss-red);
+        }
+
+        .result-badge.draw {
+            background: #95A5A6;
+        }
+
+        .opponent-name {
+            font-weight: 600;
+            color: var(--charcoal);
+        }
+
+        .game-date {
+            font-family: 'JetBrains Mono', monospace;
+            color: #7F8C8D;
+            font-size: 0.9rem;
+        }
+
+        /* Footer */
+        footer {
+            background: var(--dark-green);
+            color: var(--bright-white);
+            padding: 3rem 0 2rem;
+            margin-top: 4rem;
+        }
+
+        .footer-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .footer-content p {
+            opacity: 0.8;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .team-name {
+                font-size: 2.5rem;
+            }
+
+            .hero-stats {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            nav {
+                display: none;
+            }
+
+            table {
+                font-size: 0.85rem;
+            }
+
+            th, td {
+                padding: 0.75rem 0.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">PITCHRANK</div>
+                <nav>
+                    <a href="#home">Home</a>
+                    <a href="#rankings">Rankings</a>
+                    <a href="#compare">Compare</a>
+                    <a href="#methodology">Methodology</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <div class="team-hero">
+        <div class="container">
+            <div class="hero-content">
+                <div class="breadcrumb">
+                    <a href="#home">Home</a> / <a href="#rankings">Rankings</a> / <a href="#u12boys">U12 Boys</a> / Dallas Texans 12B Premier
+                </div>
+                <h1 class="team-name">Dallas Texans 12B Premier</h1>
+                <p class="team-meta">Texas • 2013 Boys • U12 Boys Division</p>
+
+                <div class="hero-stats">
+                    <div class="hero-stat">
+                        <div class="hero-stat-number">#1</div>
+                        <div class="hero-stat-label">National Rank</div>
+                    </div>
+                    <div class="hero-stat">
+                        <div class="hero-stat-number">94.7</div>
+                        <div class="hero-stat-label">Power Score</div>
+                    </div>
+                    <div class="hero-stat">
+                        <div class="hero-stat-number">24-2-1</div>
+                        <div class="hero-stat-label">Record</div>
+                    </div>
+                    <div class="hero-stat">
+                        <div class="hero-stat-number">88.9%</div>
+                        <div class="hero-stat-label">Win Rate</div>
+                    </div>
+                    <div class="hero-stat">
+                        <div class="hero-stat-number">0.87</div>
+                        <div class="hero-stat-label">SOS Index</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-card-header">
+                    <h3>Performance</h3>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Goals For</span>
+                    <span class="stat-value">78</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Goals Against</span>
+                    <span class="stat-value">21</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Goal Differential</span>
+                    <span class="stat-value">+57</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Goals Per Game</span>
+                    <span class="stat-value">2.89</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Allowed Per Game</span>
+                    <span class="stat-value">0.78</span>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-card-header">
+                    <h3>V53E Components</h3>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Offensive Rating</span>
+                    <span class="stat-value">0.92</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Defensive Rating</span>
+                    <span class="stat-value">0.89</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Strength of Schedule</span>
+                    <span class="stat-value">0.87</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Performance Adj.</span>
+                    <span class="stat-value">+1.2</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">ML Enhancement</span>
+                    <span class="stat-value">+0.4</span>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-card-header">
+                    <h3>Rankings</h3>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">National Rank</span>
+                    <span class="stat-value">#1</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">State Rank (TX)</span>
+                    <span class="stat-value">#1</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">SOS Rank</span>
+                    <span class="stat-value">#3</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">7-Day Change</span>
+                    <span class="stat-value">—</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">30-Day Change</span>
+                    <span class="stat-value">↑ 2</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="chart-card">
+            <div class="chart-header">
+                <h2>Recent Form</h2>
+            </div>
+            <div class="form-guide">
+                <span class="form-label">Last 10 Games:</span>
+                <div class="form-result win">W</div>
+                <div class="form-result win">W</div>
+                <div class="form-result win">W</div>
+                <div class="form-result draw">D</div>
+                <div class="form-result win">W</div>
+                <div class="form-result win">W</div>
+                <div class="form-result loss">L</div>
+                <div class="form-result win">W</div>
+                <div class="form-result win">W</div>
+                <div class="form-result win">W</div>
+            </div>
+            <p style="color: #7F8C8D; font-size: 0.95rem;">
+                <strong>Current Streak:</strong> 3 wins •
+                <strong>Unbeaten:</strong> 12 games •
+                <strong>Last Loss:</strong> Oct 15, 2024 vs FC Boston Academy (1-2)
+            </p>
+        </div>
+
+        <div class="game-history">
+            <div class="table-header">
+                <h3>Game History (Last 10 Games)</h3>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Opponent</th>
+                        <th class="center">Score</th>
+                        <th class="center">Result</th>
+                        <th class="center">Venue</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="game-date">Nov 12, 2024</td>
+                        <td class="opponent-name">Chicago Fire Academy 12B</td>
+                        <td class="center">3-1</td>
+                        <td class="center">
+                            <span class="result-badge win">WIN</span>
+                        </td>
+                        <td class="center">Home</td>
+                    </tr>
+                    <tr>
+                        <td class="game-date">Nov 9, 2024</td>
+                        <td class="opponent-name">Real Colorado National 12B</td>
+                        <td class="center">2-0</td>
+                        <td class="center">
+                            <span class="result-badge win">WIN</span>
+                        </td>
+                        <td class="center">Away</td>
+                    </tr>
+                    <tr>
+                        <td class="game-date">Nov 5, 2024</td>
+                        <td class="opponent-name">Seattle United 12B Elite</td>
+                        <td class="center">4-1</td>
+                        <td class="center">
+                            <span class="result-badge win">WIN</span>
+                        </td>
+                        <td class="center">Home</td>
+                    </tr>
+                    <tr>
+                        <td class="game-date">Oct 29, 2024</td>
+                        <td class="opponent-name">LA Galaxy South Bay 12B</td>
+                        <td class="center">2-2</td>
+                        <td class="center">
+                            <span class="result-badge draw">DRAW</span>
+                        </td>
+                        <td class="center">Away</td>
+                    </tr>
+                    <tr>
+                        <td class="game-date">Oct 22, 2024</td>
+                        <td class="opponent-name">Atlanta United Academy U12</td>
+                        <td class="center">3-0</td>
+                        <td class="center">
+                            <span class="result-badge win">WIN</span>
+                        </td>
+                        <td class="center">Home</td>
+                    </tr>
+                    <tr>
+                        <td class="game-date">Oct 19, 2024</td>
+                        <td class="opponent-name">Portland Timbers Academy 12B</td>
+                        <td class="center">2-1</td>
+                        <td class="center">
+                            <span class="result-badge win">WIN</span>
+                        </td>
+                        <td class="center">Away</td>
+                    </tr>
+                    <tr>
+                        <td class="game-date">Oct 15, 2024</td>
+                        <td class="opponent-name">FC Boston Academy U12</td>
+                        <td class="center">1-2</td>
+                        <td class="center">
+                            <span class="result-badge loss">LOSS</span>
+                        </td>
+                        <td class="center">Away</td>
+                    </tr>
+                    <tr>
+                        <td class="game-date">Oct 12, 2024</td>
+                        <td class="opponent-name">New York Red Bulls Academy U12</td>
+                        <td class="center">3-1</td>
+                        <td class="center">
+                            <span class="result-badge win">WIN</span>
+                        </td>
+                        <td class="center">Home</td>
+                    </tr>
+                    <tr>
+                        <td class="game-date">Oct 8, 2024</td>
+                        <td class="opponent-name">Philadelphia Union Academy U12</td>
+                        <td class="center">4-0</td>
+                        <td class="center">
+                            <span class="result-badge win">WIN</span>
+                        </td>
+                        <td class="center">Home</td>
+                    </tr>
+                    <tr>
+                        <td class="game-date">Oct 5, 2024</td>
+                        <td class="opponent-name">Houston Dynamo Academy 12B</td>
+                        <td class="center">2-0</td>
+                        <td class="center">
+                            <span class="result-badge win">WIN</span>
+                        </td>
+                        <td class="center">Away</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <p>&copy; 2025 PitchRank. Powered by V53E Ranking Engine.</p>
+                <p>Data-driven youth soccer analytics</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Smooth scroll
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth' });
+                }
+            });
+        });
+    </script>
+</body>
+</html>

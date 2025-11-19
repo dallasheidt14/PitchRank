@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PitchRank - Canva Template Guide</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700;800&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --forest-green: #0B5345;
+            --dark-green: #052E27;
+            --electric-yellow: #F4D03F;
+            --bright-white: #FDFEFE;
+            --soft-gray: #ECF0F1;
+            --charcoal: #2C3E50;
+        }
+
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: #f5f5f5;
+            padding: 2rem;
+            color: var(--charcoal);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-family: 'Oswald', sans-serif;
+            font-size: 3rem;
+            color: var(--dark-green);
+            margin-bottom: 1rem;
+            text-transform: uppercase;
+        }
+
+        .intro {
+            background: linear-gradient(135deg, var(--electric-yellow), #FFA500);
+            padding: 2rem;
+            border-radius: 12px;
+            margin-bottom: 3rem;
+        }
+
+        .intro h2 {
+            font-family: 'Oswald', sans-serif;
+            font-size: 1.8rem;
+            color: var(--dark-green);
+            margin-bottom: 1rem;
+        }
+
+        .intro p {
+            color: var(--dark-green);
+            font-weight: 500;
+        }
+
+        .brand-colors {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            margin-bottom: 3rem;
+        }
+
+        .brand-colors h2 {
+            font-family: 'Oswald', sans-serif;
+            font-size: 2rem;
+            color: var(--dark-green);
+            margin-bottom: 1.5rem;
+            text-transform: uppercase;
+        }
+
+        .color-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .color-card {
+            text-align: center;
+        }
+
+        .color-swatch {
+            width: 100%;
+            height: 100px;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .color-name {
+            font-family: 'Oswald', sans-serif;
+            font-weight: 700;
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .color-hex {
+            font-family: monospace;
+            background: var(--soft-gray);
+            padding: 0.5rem;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+
+        .color-hex:hover {
+            background: #ddd;
+        }
+
+        .template-section {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            margin-bottom: 2rem;
+        }
+
+        .template-section h2 {
+            font-family: 'Oswald', sans-serif;
+            font-size: 2rem;
+            color: var(--dark-green);
+            margin-bottom: 1.5rem;
+            text-transform: uppercase;
+            border-left: 6px solid var(--electric-yellow);
+            padding-left: 1rem;
+        }
+
+        .template-card {
+            background: var(--soft-gray);
+            padding: 2rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+        }
+
+        .template-card:last-child {
+            margin-bottom: 0;
+        }
+
+        .template-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .template-title {
+            font-family: 'Oswald', sans-serif;
+            font-size: 1.8rem;
+            color: var(--forest-green);
+        }
+
+        .canva-button {
+            background: linear-gradient(135deg, var(--forest-green), var(--dark-green));
+            color: white;
+            padding: 0.75rem 2rem;
+            border-radius: 25px;
+            text-decoration: none;
+            font-weight: 700;
+            font-family: 'Oswald', sans-serif;
+            text-transform: uppercase;
+            display: inline-block;
+            transition: transform 0.2s ease;
+        }
+
+        .canva-button:hover {
+            transform: translateY(-2px);
+        }
+
+        .specs-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .spec-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.75rem;
+            background: white;
+            border-radius: 4px;
+        }
+
+        .spec-label {
+            font-weight: 700;
+            color: var(--forest-green);
+        }
+
+        .spec-value {
+            font-family: monospace;
+            color: var(--charcoal);
+        }
+
+        .steps {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-top: 1.5rem;
+        }
+
+        .steps h4 {
+            font-family: 'Oswald', sans-serif;
+            font-size: 1.3rem;
+            color: var(--dark-green);
+            margin-bottom: 1rem;
+            text-transform: uppercase;
+        }
+
+        .steps ol {
+            padding-left: 1.5rem;
+        }
+
+        .steps li {
+            margin-bottom: 1rem;
+            line-height: 1.8;
+        }
+
+        .steps li strong {
+            color: var(--forest-green);
+        }
+
+        .steps code {
+            background: var(--soft-gray);
+            padding: 0.2rem 0.5rem;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+
+        .quick-links {
+            background: var(--dark-green);
+            color: white;
+            padding: 2rem;
+            border-radius: 12px;
+            margin-bottom: 3rem;
+        }
+
+        .quick-links h3 {
+            font-family: 'Oswald', sans-serif;
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            color: var(--electric-yellow);
+            text-transform: uppercase;
+        }
+
+        .quick-links ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .quick-links li {
+            padding: 0.5rem 0;
+        }
+
+        .quick-links li::before {
+            content: '→ ';
+            color: var(--electric-yellow);
+            font-weight: 700;
+            margin-right: 0.5rem;
+        }
+
+        .tip-box {
+            background: linear-gradient(135deg, rgba(11, 83, 69, 0.1), rgba(244, 208, 63, 0.1));
+            border-left: 4px solid var(--electric-yellow);
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin: 1.5rem 0;
+        }
+
+        .tip-box strong {
+            color: var(--forest-green);
+        }
+
+        @media print {
+            body {
+                background: white;
+            }
+            .canva-button {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Canva Template Guide</h1>
+
+        <div class="intro">
+            <h2>📐 Complete Setup Instructions</h2>
+            <p>
+                Follow these step-by-step guides to recreate all PitchRank social media templates in Canva.
+                Each template includes exact dimensions, colors, fonts, and layout instructions.
+            </p>
+        </div>
+
+        <!-- Brand Colors -->
+        <div class="brand-colors">
+            <h2>🎨 Brand Color Palette</h2>
+            <p style="margin-bottom: 1.5rem; color: #7F8C8D;">Copy these hex codes into Canva's color picker:</p>
+
+            <div class="color-grid">
+                <div class="color-card">
+                    <div class="color-swatch" style="background: #052E27;"></div>
+                    <div class="color-name">Dark Green</div>
+                    <div class="color-hex" onclick="navigator.clipboard.writeText('#052E27')" title="Click to copy">#052E27</div>
+                </div>
+
+                <div class="color-card">
+                    <div class="color-swatch" style="background: #0B5345;"></div>
+                    <div class="color-name">Forest Green</div>
+                    <div class="color-hex" onclick="navigator.clipboard.writeText('#0B5345')" title="Click to copy">#0B5345</div>
+                </div>
+
+                <div class="color-card">
+                    <div class="color-swatch" style="background: #F4D03F;"></div>
+                    <div class="color-name">Electric Yellow</div>
+                    <div class="color-hex" onclick="navigator.clipboard.writeText('#F4D03F')" title="Click to copy">#F4D03F</div>
+                </div>
+
+                <div class="color-card">
+                    <div class="color-swatch" style="background: #FDFEFE; border: 2px solid #ddd;"></div>
+                    <div class="color-name">Bright White</div>
+                    <div class="color-hex" onclick="navigator.clipboard.writeText('#FDFEFE')" title="Click to copy">#FDFEFE</div>
+                </div>
+            </div>
+
+            <div class="tip-box">
+                <strong>💡 Pro Tip:</strong> Click any hex code to copy it to your clipboard. In Canva, paste it directly into the color picker for exact brand colors.
+            </div>
+        </div>
+
+        <!-- Quick Setup Guide -->
+        <div class="quick-links">
+            <h3>⚡ Quick Setup Steps</h3>
+            <ul>
+                <li>Create custom dimensions in Canva (see sizes below)</li>
+                <li>Add brand colors to your palette (use hex codes above)</li>
+                <li>Search for "Oswald" font in Canva (free font)</li>
+                <li>Follow step-by-step instructions for each template</li>
+                <li>Save as template for future use</li>
+            </ul>
+        </div>
+
+        <!-- Instagram Post Template -->
+        <div class="template-section">
+            <h2>📸 Instagram Post (Square)</h2>
+
+            <div class="template-card">
+                <div class="template-header">
+                    <div class="template-title">Instagram Feed Post</div>
+                    <a href="https://www.canva.com/create/instagram-posts/" target="_blank" class="canva-button">Open in Canva</a>
+                </div>
+
+                <div class="specs-grid">
+                    <div class="spec-item">
+                        <span class="spec-label">Dimensions:</span>
+                        <span class="spec-value">1080 × 1080 px</span>
+                    </div>
+                    <div class="spec-item">
+                        <span class="spec-label">Aspect Ratio:</span>
+                        <span class="spec-value">1:1 (Square)</span>
+                    </div>
+                    <div class="spec-item">
+                        <span class="spec-label">Background:</span>
+                        <span class="spec-value">#052E27 → #0B5345 gradient</span>
+                    </div>
+                    <div class="spec-item">
+                        <span class="spec-label">Main Font:</span>
+                        <span class="spec-value">Oswald ExtraBold</span>
+                    </div>
+                </div>
+
+                <div class="steps">
+                    <h4>Setup Instructions:</h4>
+                    <ol>
+                        <li><strong>Create canvas:</strong> In Canva, select "Instagram Post" (automatically 1080×1080px)</li>
+                        <li><strong>Add background gradient:</strong>
+                            <ul style="margin-top: 0.5rem;">
+                                <li>Click "Elements" → Search "gradient"</li>
+                                <li>Choose diagonal gradient</li>
+                                <li>Set first color: <code>#052E27</code> (top-left)</li>
+                                <li>Set second color: <code>#0B5345</code> (bottom-right)</li>
+                            </ul>
+                        </li>
+                        <li><strong>Add texture overlay (optional):</strong>
+                            <ul style="margin-top: 0.5rem;">
+                                <li>Search "grass texture" in Elements</li>
+                                <li>Set transparency to 3-5%</li>
+                                <li>Layer over gradient background</li>
+                            </ul>
+                        </li>
+                        <li><strong>Add logo "PITCHRANK":</strong>
+                            <ul style="margin-top: 0.5rem;">
+                                <li>Add text box</li>
+                                <li>Type: <code>PITCHRANK</code></li>
+                                <li>Font: Oswald ExtraBold (or 800 weight)</li>
+                                <li>Size: 100-120pt</li>
+                                <li>Color: <code>#FDFEFE</code> (white)</li>
+                                <li>Letter spacing: +20</li>
+                                <li>Position: Upper-center</li>
+                            </ul>
+                        </li>
+                        <li><strong>Add yellow diagonal slash:</strong>
+                            <ul style="margin-top: 0.5rem;">
+                                <li>Elements → Shapes → Rectangle</li>
+                                <li>Size: 8px wide × 150px tall</li>
+                                <li>Color: <code>#F4D03F</code> (yellow)</li>
+                                <li>Rotate: -10° (slight left tilt)</li>
+                                <li>Position: Left of logo text</li>
+                            </ul>
+                        </li>
+                        <li><strong>Add main content text:</strong>
+                            <ul style="margin-top: 0.5rem;">
+                                <li>Font: DM Sans Bold or Oswald Regular</li>
+                                <li>Size: 48-60pt</li>
+                                <li>Color: <code>#FDFEFE</code></li>
+                                <li>Highlight word: Change color to <code>#F4D03F</code></li>
+                                <li>Position: Center-bottom</li>
+                            </ul>
+                        </li>
+                        <li><strong>Save as template:</strong> File → Save as template → Name it "PitchRank Instagram Post"</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+
+        <!-- Instagram Story Template -->
+        <div class="template-section">
+            <h2>📱 Instagram Story (Vertical)</h2>
+
+            <div class="template-card">
+                <div class="template-header">
+                    <div class="template-title">Instagram Story</div>
+                    <a href="https://www.canva.com/create/instagram-stories/" target="_blank" class="canva-button">Open in Canva</a>
+                </div>
+
+                <div class="specs-grid">
+                    <div class="spec-item">
+                        <span class="spec-label">Dimensions:</span>
+                        <span class="spec-value">1080 × 1920 px</span>
+                    </div>
+                    <div class="spec-item">
+                        <span class="spec-label">Aspect Ratio:</span>
+                        <span class="spec-value">9:16 (Vertical)</span>
+                    </div>
+                    <div class="spec-item">
+                        <span class="spec-label">Background:</span>
+                        <span class="spec-value">#052E27 → #0B5345 gradient</span>
+                    </div>
+                    <div class="spec-item">
+                        <span class="spec-label">Main Font:</span>
+                        <span class="spec-value">Oswald ExtraBold</span>
+                    </div>
+                </div>
+
+                <div class="steps">
+                    <h4>Setup Instructions:</h4>
+                    <ol>
+                        <li><strong>Create canvas:</strong> Select "Instagram Story" (automatically 1080×1920px)</li>
+                        <li><strong>Add background:</strong> Same gradient as Instagram Post (<code>#052E27</code> to <code>#0B5345</code>)</li>
+                        <li><strong>Add logo at top:</strong>
+                            <ul style="margin-top: 0.5rem;">
+                                <li>Text: <code>PITCHRANK</code></li>
+                                <li>Font: Oswald ExtraBold, 80pt</li>
+                                <li>Color: <code>#FDFEFE</code></li>
+                                <li>Position: Top-center with 80px margin</li>
+                            </ul>
+                        </li>
+                        <li><strong>Add diagonal slash:</strong> Same as Instagram Post (8px × 150px, yellow, -10° rotation)</li>
+                        <li><strong>Add main headline:</strong>
+                            <ul style="margin-top: 0.5rem;">
+                                <li>Font: Oswald ExtraBold, 100-120pt</li>
+                                <li>Color: <code>#FDFEFE</code></li>
+                                <li>Text: "NEW RANKINGS LIVE!" (or custom message)</li>
+                                <li>Position: Center (vertically and horizontally)</li>
+                                <li>Line height: 0.9 (tight spacing)</li>
+                            </ul>
+                        </li>
+                        <li><strong>Add subtitle/CTA:</strong>
+                            <ul style="margin-top: 0.5rem;">
+                                <li>Font: Oswald Bold, 40pt</li>
+                                <li>Color: <code>#F4D03F</code> (yellow)</li>
+                                <li>Text: "Swipe Up to See" or "Link in Bio"</li>
+                                <li>Position: Below headline</li>
+                            </ul>
+                        </li>
+                        <li><strong>Save as template</strong></li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+
+        <!-- LinkedIn Post Template -->
+        <div class="template-section">
+            <h2>💼 LinkedIn Post (Horizontal)</h2>
+
+            <div class="template-card">
+                <div class="template-header">
+                    <div class="template-title">LinkedIn Link Post</div>
+                    <a href="https://www.canva.com/create/linkedin-posts/" target="_blank" class="canva-button">Open in Canva</a>
+                </div>
+
+                <div class="specs-grid">
+                    <div class="spec-item">
+                        <span class="spec-label">Dimensions:</span>
+                        <span class="spec-value">1200 × 628 px</span>
+                    </div>
+                    <div class="spec-item">
+                        <span class="spec-label">Aspect Ratio:</span>
+                        <span class="spec-value">1.91:1 (Horizontal)</span>
+                    </div>
+                    <div class="spec-item">
+                        <span class="spec-label">Background:</span>
+                        <span class="spec-value">#052E27 → #0B5345 gradient</span>
+                    </div>
+                    <div class="spec-item">
+                        <span class="spec-label">Main Font:</span>
+                        <span class="spec-value">Oswald ExtraBold</span>
+                    </div>
+                </div>
+
+                <div class="steps">
+                    <h4>Setup Instructions:</h4>
+                    <ol>
+                        <li><strong>Create custom size:</strong> Click "Custom size" → Enter 1200 × 628 px</li>
+                        <li><strong>Add background:</strong> Gradient <code>#052E27</code> to <code>#0B5345</code></li>
+                        <li><strong>Create two-column layout:</strong>
+                            <ul style="margin-top: 0.5rem;">
+                                <li>Left side: Main content (2/3 width)</li>
+                                <li>Right side: Logo (1/3 width)</li>
+                            </ul>
+                        </li>
+                        <li><strong>Left side - Add headline:</strong>
+                            <ul style="margin-top: 0.5rem;">
+                                <li>Font: Oswald ExtraBold, 80-90pt</li>
+                                <li>Color: <code>#FDFEFE</code></li>
+                                <li>Text: "Data-Driven Youth Soccer Rankings" (or custom)</li>
+                                <li>Position: Left-aligned, 60px from left edge</li>
+                            </ul>
+                        </li>
+                        <li><strong>Add subtitle:</strong>
+                            <ul style="margin-top: 0.5rem;">
+                                <li>Font: Oswald Bold, 36pt</li>
+                                <li>Color: <code>#F4D03F</code></li>
+                                <li>Text: "Powered by V53E Engine"</li>
+                                <li>Position: Below headline</li>
+                            </ul>
+                        </li>
+                        <li><strong>Right side - Add logo:</strong>
+                            <ul style="margin-top: 0.5rem;">
+                                <li>Text: <code>PITCHRANK</code></li>
+                                <li>Font: Oswald ExtraBold, 80pt</li>
+                                <li>Color: <code>#FDFEFE</code></li>
+                                <li>Rotation: -90° (vertical orientation) OR keep horizontal</li>
+                                <li>Add diagonal slash (8px × 120px yellow rectangle, -10° rotation)</li>
+                            </ul>
+                        </li>
+                        <li><strong>Save as template</strong></li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+
+        <!-- Facebook Post Template -->
+        <div class="template-section">
+            <h2>👍 Facebook Post</h2>
+
+            <div class="template-card">
+                <div class="template-header">
+                    <div class="template-title">Facebook Link Post</div>
+                    <a href="https://www.canva.com/create/facebook-posts/" target="_blank" class="canva-button">Open in Canva</a>
+                </div>
+
+                <div class="specs-grid">
+                    <div class="spec-item">
+                        <span class="spec-label">Dimensions:</span>
+                        <span class="spec-value">1200 × 630 px</span>
+                    </div>
+                    <div class="spec-item">
+                        <span class="spec-label">Aspect Ratio:</span>
+                        <span class="spec-value">1.91:1 (Horizontal)</span>
+                    </div>
+                    <div class="spec-item">
+                        <span class="spec-label">Note:</span>
+                        <span class="spec-value">Same as LinkedIn Post</span>
+                    </div>
+                </div>
+
+                <div class="tip-box">
+                    <strong>💡 Time Saver:</strong> Facebook posts use the same 1200×630 dimensions as LinkedIn. Duplicate your LinkedIn template and just change the message!
+                </div>
+            </div>
+        </div>
+
+        <!-- Twitter Post Template -->
+        <div class="template-section">
+            <h2>🐦 Twitter/X Post</h2>
+
+            <div class="template-card">
+                <div class="template-header">
+                    <div class="template-title">Twitter Image Post</div>
+                    <a href="https://www.canva.com/create/twitter-posts/" target="_blank" class="canva-button">Open in Canva</a>
+                </div>
+
+                <div class="specs-grid">
+                    <div class="spec-item">
+                        <span class="spec-label">Dimensions:</span>
+                        <span class="spec-value">1200 × 675 px</span>
+                    </div>
+                    <div class="spec-item">
+                        <span class="spec-label">Aspect Ratio:</span>
+                        <span class="spec-value">16:9 (Horizontal)</span>
+                    </div>
+                    <div class="spec-item">
+                        <span class="spec-label">Background:</span>
+                        <span class="spec-value">#052E27 → #0B5345 gradient</span>
+                    </div>
+                    <div class="spec-item">
+                        <span class="spec-label">Main Font:</span>
+                        <span class="spec-value">Oswald ExtraBold</span>
+                    </div>
+                </div>
+
+                <div class="steps">
+                    <h4>Setup Instructions:</h4>
+                    <ol>
+                        <li><strong>Create custom size:</strong> 1200 × 675 px</li>
+                        <li><strong>Add background:</strong> Gradient <code>#052E27</code> to <code>#0B5345</code></li>
+                        <li><strong>Center-aligned layout:</strong>
+                            <ul style="margin-top: 0.5rem;">
+                                <li>Logo at top</li>
+                                <li>Message in center</li>
+                            </ul>
+                        </li>
+                        <li><strong>Add logo:</strong>
+                            <ul style="margin-top: 0.5rem;">
+                                <li>Text: <code>PITCHRANK</code></li>
+                                <li>Font: Oswald ExtraBold, 90pt</li>
+                                <li>Color: <code>#FDFEFE</code></li>
+                                <li>Position: Top-center</li>
+                                <li>Add diagonal slash</li>
+                            </ul>
+                        </li>
+                        <li><strong>Add message:</strong>
+                            <ul style="margin-top: 0.5rem;">
+                                <li>Font: DM Sans Bold or Oswald Regular, 50-60pt</li>
+                                <li>Color: <code>#FDFEFE</code></li>
+                                <li>Text: Your tweet message</li>
+                                <li>Position: Center</li>
+                            </ul>
+                        </li>
+                        <li><strong>Save as template</strong></li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cover Images Section -->
+        <div class="template-section">
+            <h2>🖼️ Cover Images (LinkedIn, Facebook, Twitter)</h2>
+
+            <div class="template-card">
+                <div class="template-header">
+                    <div class="template-title">LinkedIn Cover</div>
+                    <span class="spec-value" style="font-size: 1.1rem;">1584 × 396 px</span>
+                </div>
+                <div class="steps">
+                    <ol>
+                        <li>Create custom size: <code>1584 × 396 px</code></li>
+                        <li>Add horizontal gradient background: <code>#052E27</code> → <code>#0B5345</code> → <code>#052E27</code> (dark on edges, lighter in center)</li>
+                        <li>Add centered logo using alternative style:
+                            <ul style="margin-top: 0.5rem;">
+                                <li>Text 1: <code>PITCH</code> in white (<code>#FDFEFE</code>)</li>
+                                <li>Text 2: <code>RANK</code> in yellow (<code>#F4D03F</code>)</li>
+                                <li>Font: Oswald ExtraBold, 110pt</li>
+                            </ul>
+                        </li>
+                    </ol>
+                </div>
+            </div>
+
+            <div class="template-card">
+                <div class="template-header">
+                    <div class="template-title">Facebook Cover</div>
+                    <span class="spec-value" style="font-size: 1.1rem;">820 × 312 px</span>
+                </div>
+                <div class="steps">
+                    <ol>
+                        <li>Create custom size: <code>820 × 312 px</code></li>
+                        <li>Same design as LinkedIn cover, scaled down</li>
+                        <li>Logo size: 80-90pt</li>
+                    </ol>
+                </div>
+            </div>
+
+            <div class="template-card">
+                <div class="template-header">
+                    <div class="template-title">Twitter Header</div>
+                    <span class="spec-value" style="font-size: 1.1rem;">1500 × 500 px</span>
+                </div>
+                <div class="steps">
+                    <ol>
+                        <li>Create custom size: <code>1500 × 500 px</code></li>
+                        <li>Same design as LinkedIn/Facebook covers</li>
+                        <li>Logo size: 100pt</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bonus Tips -->
+        <div class="template-section">
+            <h2>💡 Pro Tips & Best Practices</h2>
+
+            <div class="tip-box">
+                <strong>🎨 Brand Kit in Canva Pro:</strong> If you have Canva Pro, create a Brand Kit with your colors (#052E27, #0B5345, #F4D03F, #FDFEFE) and Oswald font for instant access.
+            </div>
+
+            <div class="tip-box">
+                <strong>📏 Diagonal Slash Consistency:</strong> Always rotate yellow rectangles to exactly -10° for brand consistency across all templates.
+            </div>
+
+            <div class="tip-box">
+                <strong>✨ Texture Overlay:</strong> Search "grass texture" or "subtle noise" in Canva Elements. Set to 3-5% transparency and layer over gradient for that athletic field feel.
+            </div>
+
+            <div class="tip-box">
+                <strong>🔤 Letter Spacing:</strong> For "PITCHRANK" logo text, increase letter spacing to +15 to +20 in Canva's text settings for that bold, magazine look.
+            </div>
+
+            <div class="tip-box">
+                <strong>💾 Save as Templates:</strong> After creating each design, save as a template so you can duplicate and customize quickly for future posts.
+            </div>
+
+            <div class="tip-box">
+                <strong>📱 Test on Mobile:</strong> Always preview how your designs look on mobile before posting. Use Canva's preview feature.
+            </div>
+        </div>
+
+        <!-- Quick Reference -->
+        <div style="background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08); margin-top: 2rem;">
+            <h2 style="font-family: 'Oswald', sans-serif; font-size: 2rem; color: var(--dark-green); margin-bottom: 1.5rem; text-transform: uppercase;">📋 Quick Reference Chart</h2>
+
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: var(--soft-gray);">
+                        <th style="padding: 1rem; text-align: left; border-bottom: 2px solid var(--forest-green);">Platform</th>
+                        <th style="padding: 1rem; text-align: left; border-bottom: 2px solid var(--forest-green);">Size (px)</th>
+                        <th style="padding: 1rem; text-align: left; border-bottom: 2px solid var(--forest-green);">Aspect Ratio</th>
+                        <th style="padding: 1rem; text-align: left; border-bottom: 2px solid var(--forest-green);">Logo Size</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;"><strong>Instagram Post</strong></td>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;">1080 × 1080</td>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;">1:1</td>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;">100-120pt</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;"><strong>Instagram Story</strong></td>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;">1080 × 1920</td>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;">9:16</td>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;">80-100pt</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;"><strong>LinkedIn Post</strong></td>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;">1200 × 628</td>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;">1.91:1</td>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;">80-90pt</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;"><strong>LinkedIn Cover</strong></td>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;">1584 × 396</td>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;">4:1</td>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;">110pt</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;"><strong>Facebook Post</strong></td>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;">1200 × 630</td>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;">1.91:1</td>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;">80-90pt</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;"><strong>Facebook Cover</strong></td>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;">820 × 312</td>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;">2.63:1</td>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;">80-90pt</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;"><strong>Twitter Post</strong></td>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;">1200 × 675</td>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;">16:9</td>
+                        <td style="padding: 1rem; border-bottom: 1px solid #ddd;">90pt</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 1rem;"><strong>Twitter Header</strong></td>
+                        <td style="padding: 1rem;">1500 × 500</td>
+                        <td style="padding: 1rem;">3:1</td>
+                        <td style="padding: 1rem;">100pt</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div style="text-align: center; margin-top: 3rem; padding: 2rem; background: linear-gradient(135deg, var(--forest-green), var(--dark-green)); border-radius: 12px; color: white;">
+            <h3 style="font-family: 'Oswald', sans-serif; font-size: 2rem; margin-bottom: 1rem; color: var(--electric-yellow); text-transform: uppercase;">🎉 You're All Set!</h3>
+            <p style="font-size: 1.1rem; line-height: 1.8; max-width: 800px; margin: 0 auto;">
+                Use these instructions to create professional, on-brand social media graphics in Canva.
+                Each template follows the Athletic Editorial design system and maintains perfect brand consistency.
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // Click to copy hex codes
+        document.querySelectorAll('.color-hex').forEach(el => {
+            el.addEventListener('click', function() {
+                const hex = this.textContent;
+                navigator.clipboard.writeText(hex);
+                const original = this.textContent;
+                this.textContent = 'Copied!';
+                setTimeout(() => {
+                    this.textContent = original;
+                }, 1500);
+            });
+        });
+    </script>
+</body>
+</html>

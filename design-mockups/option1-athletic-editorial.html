@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PitchRank - Athletic Editorial</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --forest-green: #0B5345;
+            --dark-green: #052E27;
+            --electric-yellow: #F4D03F;
+            --bright-white: #FDFEFE;
+            --soft-gray: #ECF0F1;
+            --charcoal: #2C3E50;
+            --accent-orange: #E67E22;
+        }
+
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: var(--bright-white);
+            color: var(--charcoal);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Grass texture overlay */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image:
+                repeating-linear-gradient(
+                    0deg,
+                    rgba(11, 83, 69, 0.03) 0px,
+                    transparent 1px,
+                    transparent 2px,
+                    rgba(11, 83, 69, 0.03) 3px
+                );
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Header */
+        header {
+            background: var(--dark-green);
+            color: var(--bright-white);
+            padding: 1.5rem 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-family: 'Oswald', sans-serif;
+            font-size: 2rem;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            background: linear-gradient(135deg, var(--bright-white) 0%, var(--electric-yellow) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        nav {
+            display: flex;
+            gap: 2.5rem;
+        }
+
+        nav a {
+            color: var(--bright-white);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 0.95rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            position: relative;
+            transition: color 0.3s ease;
+        }
+
+        nav a::after {
+            content: '';
+            position: absolute;
+            bottom: -5px;
+            left: 0;
+            width: 0;
+            height: 3px;
+            background: var(--electric-yellow);
+            transition: width 0.3s ease;
+        }
+
+        nav a:hover {
+            color: var(--electric-yellow);
+        }
+
+        nav a:hover::after {
+            width: 100%;
+        }
+
+        /* Hero Section */
+        .hero {
+            background: linear-gradient(135deg, var(--forest-green) 0%, var(--dark-green) 100%);
+            color: var(--bright-white);
+            padding: 5rem 0 4rem;
+            margin-top: 0;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '⚽';
+            position: absolute;
+            font-size: 25rem;
+            opacity: 0.05;
+            right: -5rem;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 2;
+        }
+
+        .hero h1 {
+            font-family: 'Oswald', sans-serif;
+            font-size: 4.5rem;
+            font-weight: 700;
+            line-height: 1.1;
+            margin-bottom: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            animation: slideInLeft 0.8s ease-out;
+        }
+
+        .hero h1 .highlight {
+            color: var(--electric-yellow);
+            position: relative;
+            display: inline-block;
+        }
+
+        .hero h1 .highlight::after {
+            content: '';
+            position: absolute;
+            bottom: 0.5rem;
+            left: 0;
+            width: 100%;
+            height: 0.4rem;
+            background: var(--electric-yellow);
+            transform: skewX(-12deg);
+        }
+
+        .hero-subtitle {
+            font-size: 1.3rem;
+            font-weight: 400;
+            margin-bottom: 2rem;
+            opacity: 0.9;
+            max-width: 600px;
+            animation: slideInLeft 0.8s ease-out 0.2s both;
+        }
+
+        .hero-stats {
+            display: flex;
+            gap: 3rem;
+            animation: slideInLeft 0.8s ease-out 0.4s both;
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .stat-number {
+            font-family: 'Oswald', sans-serif;
+            font-size: 3rem;
+            font-weight: 700;
+            color: var(--electric-yellow);
+            line-height: 1;
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            opacity: 0.8;
+            margin-top: 0.5rem;
+        }
+
+        /* Section Headers */
+        .section {
+            padding: 4rem 0;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 2.5rem;
+            position: relative;
+        }
+
+        .section-header::before {
+            content: '';
+            width: 6px;
+            height: 100%;
+            background: var(--electric-yellow);
+            margin-right: 1.5rem;
+            transform: skewX(-5deg);
+        }
+
+        .section-title {
+            font-family: 'Oswald', sans-serif;
+            font-size: 2.5rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--dark-green);
+        }
+
+        /* Rankings Table */
+        .rankings-grid {
+            display: grid;
+            gap: 2rem;
+            grid-template-columns: 2fr 1fr;
+        }
+
+        .table-card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            overflow: hidden;
+            animation: fadeInUp 0.6s ease-out;
+        }
+
+        .table-header {
+            background: linear-gradient(135deg, var(--forest-green) 0%, var(--dark-green) 100%);
+            color: white;
+            padding: 1.5rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .table-header h3 {
+            font-family: 'Oswald', sans-serif;
+            font-size: 1.5rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .view-all {
+            background: var(--electric-yellow);
+            color: var(--dark-green);
+            padding: 0.5rem 1.5rem;
+            border-radius: 4px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .view-all:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(244, 208, 63, 0.4);
+        }
+
+        .ranking-row {
+            display: grid;
+            grid-template-columns: 80px 1fr 120px 100px;
+            align-items: center;
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid #ECF0F1;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .ranking-row:hover {
+            background: linear-gradient(90deg, rgba(244, 208, 63, 0.1) 0%, transparent 100%);
+            transform: translateX(4px);
+        }
+
+        .ranking-row:last-child {
+            border-bottom: none;
+        }
+
+        .rank-badge {
+            font-family: 'Oswald', sans-serif;
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--forest-green);
+            position: relative;
+        }
+
+        .rank-badge.top3 {
+            background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .rank-badge.top3::before {
+            content: '★';
+            position: absolute;
+            left: -25px;
+            color: #FFD700;
+            font-size: 1.2rem;
+        }
+
+        .team-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .team-name {
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: var(--charcoal);
+            margin-bottom: 0.3rem;
+        }
+
+        .team-meta {
+            font-size: 0.85rem;
+            color: #7F8C8D;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .power-score {
+            font-family: 'Oswald', sans-serif;
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--electric-yellow);
+            text-align: center;
+            background: var(--dark-green);
+            padding: 0.5rem;
+            border-radius: 6px;
+        }
+
+        .record {
+            text-align: center;
+            font-weight: 600;
+            color: var(--charcoal);
+        }
+
+        .win-pct {
+            display: block;
+            font-size: 0.75rem;
+            color: #7F8C8D;
+            margin-top: 0.3rem;
+        }
+
+        /* Sidebar - Recent Movers */
+        .movers-card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            overflow: hidden;
+            animation: fadeInUp 0.6s ease-out 0.2s both;
+        }
+
+        .mover-item {
+            padding: 1.5rem;
+            border-bottom: 1px solid #ECF0F1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.3s ease;
+        }
+
+        .mover-item:hover {
+            background: rgba(244, 208, 63, 0.05);
+        }
+
+        .mover-item:last-child {
+            border-bottom: none;
+        }
+
+        .mover-info h4 {
+            font-weight: 700;
+            color: var(--charcoal);
+            margin-bottom: 0.3rem;
+        }
+
+        .mover-info p {
+            font-size: 0.85rem;
+            color: #7F8C8D;
+        }
+
+        .rank-change {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-family: 'Oswald', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        .rank-change.up {
+            color: #27AE60;
+        }
+
+        .rank-change.down {
+            color: #E74C3C;
+        }
+
+        .arrow {
+            font-size: 1.2rem;
+        }
+
+        /* Animations */
+        @keyframes slideInLeft {
+            from {
+                opacity: 0;
+                transform: translateX(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Footer */
+        footer {
+            background: var(--dark-green);
+            color: var(--bright-white);
+            padding: 3rem 0 2rem;
+            margin-top: 4rem;
+        }
+
+        .footer-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .footer-content p {
+            opacity: 0.8;
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .rankings-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .hero h1 {
+                font-size: 3rem;
+            }
+
+            nav {
+                gap: 1.5rem;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .hero-stats {
+                flex-direction: column;
+                gap: 1.5rem;
+            }
+
+            .ranking-row {
+                grid-template-columns: 60px 1fr 100px;
+                padding: 1rem;
+            }
+
+            .record {
+                display: none;
+            }
+
+            nav {
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">PITCHRANK</div>
+                <nav>
+                    <a href="#home">Home</a>
+                    <a href="#rankings">Rankings</a>
+                    <a href="#compare">Compare</a>
+                    <a href="#methodology">Methodology</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <section class="hero">
+        <div class="container">
+            <div class="hero-content">
+                <h1>AMERICA'S <span class="highlight">DEFINITIVE</span><br>YOUTH SOCCER RANKINGS</h1>
+                <p class="hero-subtitle">Data-powered performance analytics for U10-U18 boys and girls teams nationwide</p>
+                <div class="hero-stats">
+                    <div class="stat-item">
+                        <div class="stat-number">16,649</div>
+                        <div class="stat-label">Games Analyzed</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">2,847</div>
+                        <div class="stat-label">Teams Ranked</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">50</div>
+                        <div class="stat-label">States Covered</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="section">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">National Rankings</h2>
+            </div>
+
+            <div class="rankings-grid">
+                <div class="table-card">
+                    <div class="table-header">
+                        <h3>U12 Boys - Top 10</h3>
+                        <a href="#" class="view-all">View All</a>
+                    </div>
+                    <div class="ranking-row">
+                        <div class="rank-badge top3">1</div>
+                        <div class="team-info">
+                            <div class="team-name">Dallas Texans 12B Premier</div>
+                            <div class="team-meta">TX • 2013 Boys</div>
+                        </div>
+                        <div class="power-score">94.7</div>
+                        <div class="record">24-2-1<span class="win-pct">88.9%</span></div>
+                    </div>
+                    <div class="ranking-row">
+                        <div class="rank-badge top3">2</div>
+                        <div class="team-info">
+                            <div class="team-name">FC Boston Academy U12</div>
+                            <div class="team-meta">MA • 2013 Boys</div>
+                        </div>
+                        <div class="power-score">92.3</div>
+                        <div class="record">22-3-2<span class="win-pct">85.2%</span></div>
+                    </div>
+                    <div class="ranking-row">
+                        <div class="rank-badge top3">3</div>
+                        <div class="team-info">
+                            <div class="team-name">LA Galaxy South Bay 12B</div>
+                            <div class="team-meta">CA • 2013 Boys</div>
+                        </div>
+                        <div class="power-score">91.8</div>
+                        <div class="record">21-4-2<span class="win-pct">81.5%</span></div>
+                    </div>
+                    <div class="ranking-row">
+                        <div class="rank-badge">4</div>
+                        <div class="team-info">
+                            <div class="team-name">Seattle United 12B Elite</div>
+                            <div class="team-meta">WA • 2013 Boys</div>
+                        </div>
+                        <div class="power-score">90.5</div>
+                        <div class="record">20-5-2<span class="win-pct">77.8%</span></div>
+                    </div>
+                    <div class="ranking-row">
+                        <div class="rank-badge">5</div>
+                        <div class="team-info">
+                            <div class="team-name">Atlanta United Academy U12</div>
+                            <div class="team-meta">GA • 2013 Boys</div>
+                        </div>
+                        <div class="power-score">89.2</div>
+                        <div class="record">19-6-2<span class="win-pct">74.1%</span></div>
+                    </div>
+                </div>
+
+                <div class="movers-card">
+                    <div class="table-header">
+                        <h3>Biggest Movers</h3>
+                    </div>
+                    <div class="mover-item">
+                        <div class="mover-info">
+                            <h4>FC Dallas 14B Academy</h4>
+                            <p>TX • U14 Boys</p>
+                        </div>
+                        <div class="rank-change up">
+                            <span class="arrow">↑</span>
+                            <span>12</span>
+                        </div>
+                    </div>
+                    <div class="mover-item">
+                        <div class="mover-info">
+                            <h4>Chicago Fire Elite</h4>
+                            <p>IL • U16 Boys</p>
+                        </div>
+                        <div class="rank-change up">
+                            <span class="arrow">↑</span>
+                            <span>8</span>
+                        </div>
+                    </div>
+                    <div class="mover-item">
+                        <div class="mover-info">
+                            <h4>Portland Thorns U12</h4>
+                            <p>OR • U12 Girls</p>
+                        </div>
+                        <div class="rank-change up">
+                            <span class="arrow">↑</span>
+                            <span>7</span>
+                        </div>
+                    </div>
+                    <div class="mover-item">
+                        <div class="mover-info">
+                            <h4>LAFC Elite U14</h4>
+                            <p>CA • U14 Boys</p>
+                        </div>
+                        <div class="rank-change down">
+                            <span class="arrow">↓</span>
+                            <span>5</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <p>&copy; 2025 PitchRank. Powered by V53E Ranking Engine.</p>
+                <p>Data-driven youth soccer analytics</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Smooth scroll for navigation
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        });
+
+        // Add hover effect animation to ranking rows
+        const rows = document.querySelectorAll('.ranking-row');
+        rows.forEach((row, index) => {
+            row.style.animationDelay = `${index * 0.05}s`;
+        });
+    </script>
+</body>
+</html>
