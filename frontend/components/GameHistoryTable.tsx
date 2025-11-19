@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { TableSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
@@ -62,15 +62,15 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
    * Get the ML overperformance value from the team's perspective
    * Database stores from home team's perspective, so flip sign for away team
    */
-  const getTeamPerspectiveOverperformance = (game: GameWithTeams, teamId: string): number | null => {
+  const getTeamPerspectiveOverperformance = useCallback((game: GameWithTeams, currentTeamId: string): number | null => {
     if (game.ml_overperformance === null || game.ml_overperformance === undefined) {
       return null;
     }
 
-    const isHome = game.home_team_master_id === teamId;
+    const isHome = game.home_team_master_id === currentTeamId;
     // Home team: use value as-is. Away team: flip the sign
     return isHome ? game.ml_overperformance : -game.ml_overperformance;
-  };
+  }, []);
 
   /**
    * Get color class for score based on ML over/underperformance
@@ -78,16 +78,16 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
    * Green if ≥ +2 (outperformed by 2+ goals), Red if ≤ -2 (underperformed by 2+ goals)
    * Note: Backend only provides ml_overperformance for teams with 6+ games
    */
-  const scoreColor = (ml_overperformance: number | null): string => {
+  const scoreColor = useCallback((ml_overperformance: number | null): string => {
     if (ml_overperformance !== null && ml_overperformance !== undefined) {
       if (ml_overperformance >= 2) return "text-green-600 dark:text-green-400 font-bold";
       if (ml_overperformance <= -2) return "text-red-600 dark:text-red-400 font-bold";
     }
     return ""; // no color for neutral performance
-  };
+  }, []);
 
-  const getResult = (game: GameWithTeams, teamId: string) => {
-    const isHome = game.home_team_master_id === teamId;
+  const getResult = useCallback((game: GameWithTeams, currentTeamId: string) => {
+    const isHome = game.home_team_master_id === currentTeamId;
     const teamScore = isHome ? game.home_score : game.away_score;
     const opponentScore = isHome ? game.away_score : game.home_score;
 
@@ -100,29 +100,29 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
     } else {
       return { text: 'D' };
     }
-  };
+  }, []);
 
-  const getOpponent = (game: GameWithTeams, teamId: string) => {
-    const isHome = game.home_team_master_id === teamId;
+  const getOpponent = useCallback((game: GameWithTeams, currentTeamId: string) => {
+    const isHome = game.home_team_master_id === currentTeamId;
     return isHome ? game.away_team_name : game.home_team_name;
-  };
+  }, []);
 
-  const getOpponentClub = (game: GameWithTeams, teamId: string) => {
-    const isHome = game.home_team_master_id === teamId;
+  const getOpponentClub = useCallback((game: GameWithTeams, currentTeamId: string) => {
+    const isHome = game.home_team_master_id === currentTeamId;
     return isHome ? game.away_team_club_name : game.home_team_club_name;
-  };
+  }, []);
 
-  const getOpponentId = (game: GameWithTeams, teamId: string) => {
-    const isHome = game.home_team_master_id === teamId;
+  const getOpponentId = useCallback((game: GameWithTeams, currentTeamId: string) => {
+    const isHome = game.home_team_master_id === currentTeamId;
     return isHome ? game.away_team_master_id : game.home_team_master_id;
-  };
+  }, []);
 
-  const getScore = (game: GameWithTeams, teamId: string) => {
-    const isHome = game.home_team_master_id === teamId;
+  const getScore = useCallback((game: GameWithTeams, currentTeamId: string) => {
+    const isHome = game.home_team_master_id === currentTeamId;
     const teamScore = isHome ? game.home_score : game.away_score;
     const opponentScore = isHome ? game.away_score : game.home_score;
     return { team: teamScore, opponent: opponentScore };
-  };
+  }, []);
 
   if (isLoading) {
     return (

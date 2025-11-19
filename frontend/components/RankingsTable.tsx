@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useRef } from 'react';
+import { useMemo, useState, useRef, memo, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { RankingsTableSkeleton } from '@/components/skeletons/RankingsTableSkeleton';
@@ -147,16 +147,16 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     overscan: 5, // Render 5 extra rows above/below viewport
   });
 
-  const handleSort = (field: SortField) => {
+  const handleSort = useCallback((field: SortField) => {
     if (sortField === field) {
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
       setSortField(field);
       setSortDirection('asc');
     }
-  };
+  }, [sortField, sortDirection]);
 
-  const SortButton = ({ field, label }: { field: SortField; label: string | React.ReactNode }) => {
+  const SortButton = memo(({ field, label }: { field: SortField; label: string | React.ReactNode }) => {
     const isActive = sortField === field;
     const labelText = typeof label === 'string' ? label : 'Sort';
     return (
@@ -177,7 +177,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
         )}
       </button>
     );
-  };
+  });
 
   // Build description text
   const description = useMemo(() => {

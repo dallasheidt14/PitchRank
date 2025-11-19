@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, memo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CardSkeleton, ChartSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
@@ -40,8 +40,9 @@ function getPercentileLabel(percentile: number): string {
 
 /**
  * PercentileBar component - visual representation of percentile
+ * Memoized to prevent unnecessary re-renders
  */
-function PercentileBar({ value, maxValue, percentile }: { value: number; maxValue: number; percentile: number }) {
+const PercentileBar = memo(({ value, maxValue, percentile }: { value: number; maxValue: number; percentile: number }) => {
   const percentage = (value / maxValue) * 100;
   return (
     <div className="space-y-1">
@@ -59,7 +60,7 @@ function PercentileBar({ value, maxValue, percentile }: { value: number; maxValu
       </div>
     </div>
   );
-}
+});
 
 /**
  * ComparePanel component - enhanced team comparison with all features
