@@ -25,15 +25,15 @@ type SortDirection = 'asc' | 'desc';
 const ROW_HEIGHT = 60; // Estimated row height in pixels
 
 /**
- * Get border color class for top teams
+ * Get border color class for top teams - Athletic Editorial style
  */
 function getRankBorderClass(rank: number | null | undefined): string {
   if (!rank) return '';
-  
+
   if (rank <= 3) {
-    return 'border-l-4 border-yellow-500 dark:border-yellow-400';
+    return 'border-l-4 border-accent bg-accent/5';
   } else if (rank <= 10) {
-    return 'border-l-4 border-gray-400 dark:border-gray-500';
+    return 'border-l-4 border-primary/30';
   }
   return '';
 }
@@ -257,14 +257,17 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   const columnCount = region ? 7 : 8;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Rankings</CardTitle>
-        <CardDescription>
+    <Card className="overflow-hidden border-0 shadow-lg">
+      <CardHeader className="bg-gradient-to-r from-primary to-[oklch(0.28_0.08_165)] text-primary-foreground relative">
+        <div className="absolute right-0 top-0 w-2 h-full bg-accent -skew-x-12" aria-hidden="true" />
+        <CardTitle className="text-2xl sm:text-3xl font-bold uppercase tracking-wide">
+          Complete Rankings
+        </CardTitle>
+        <CardDescription className="text-primary-foreground/90 text-sm sm:text-base">
           {description}
           {formattedLastCalculated && (
-            <span className="ml-2 text-xs">
-              • Rankings last updated: {formattedLastCalculated}
+            <span className="block sm:inline sm:ml-2 text-xs mt-1 sm:mt-0">
+              • Last updated: {formattedLastCalculated}
             </span>
           )}
         </CardDescription>
@@ -280,14 +283,14 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
             <div className="overflow-x-auto -mx-4 sm:mx-0 touch-pan-x">
               <div className="inline-block min-w-full align-middle" style={{ minWidth: region ? '700px' : '750px' }}>
                 {/* Table Header */}
-                <div className="grid border-b bg-muted/50 sticky top-0 z-10" style={{ gridTemplateColumns: region ? '60px 2fr 1fr 0.9fr 0.8fr 0.9fr 1fr' : '60px 2fr 1fr 0.9fr 0.8fr 0.9fr 1fr 1fr' }}>
-                  <div className="px-2 sm:px-4 py-2 sm:py-3 font-medium text-xs sm:text-sm">
+                <div className="grid border-b-2 border-primary bg-secondary/50 sticky top-0 z-10" style={{ gridTemplateColumns: region ? '60px 2fr 1fr 0.9fr 0.8fr 0.9fr 1fr' : '60px 2fr 1fr 0.9fr 0.8fr 0.9fr 1fr 1fr' }}>
+                  <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide">
                     <SortButton field="rank" label="Rank" />
                   </div>
-                  <div className="px-2 sm:px-4 py-2 sm:py-3 font-medium text-xs sm:text-sm">
+                  <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide">
                     <SortButton field="team" label="Team" />
                   </div>
-                  <div className="px-2 sm:px-4 py-2 sm:py-3 font-medium text-right text-xs sm:text-sm">
+                  <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div>
@@ -299,10 +302,10 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                       </TooltipContent>
                     </Tooltip>
                   </div>
-                  <div className="px-2 sm:px-4 py-2 sm:py-3 font-medium text-right text-xs sm:text-sm">
+                  <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide">
                     <SortButton field="winPercentage" label="Win %" />
                   </div>
-                  <div className="px-2 sm:px-4 py-2 sm:py-3 font-medium text-right text-xs sm:text-sm">
+                  <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div>
@@ -322,7 +325,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                       </TooltipContent>
                     </Tooltip>
                   </div>
-                  <div className="px-2 sm:px-4 py-2 sm:py-3 font-medium text-right text-xs sm:text-sm">
+                  <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div>
@@ -334,7 +337,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                       </TooltipContent>
                     </Tooltip>
                   </div>
-                  <div className="px-2 sm:px-4 py-2 sm:py-3 font-medium text-right text-xs sm:text-sm">
+                  <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div>

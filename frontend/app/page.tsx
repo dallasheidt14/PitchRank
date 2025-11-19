@@ -1,5 +1,3 @@
-import Image from 'next/image';
-import { PageHeader } from '@/components/PageHeader';
 import { HomeLeaderboard } from '@/components/HomeLeaderboard';
 import { RecentMovers } from '@/components/RecentMovers';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -56,62 +54,73 @@ export default async function Home() {
 
   return (
     <HydrationBoundary state={dehydratedState}>
-    <div className="container mx-auto py-6 sm:py-8 px-4 sm:px-6">
-      <div className="flex flex-col items-center mb-6 sm:mb-8 w-full">
-        <div className="w-full max-w-3xl px-2 sm:px-4 flex justify-center">
-          <Image
-            src="/logos/pitchrank-logo-white.svg"
-            alt="PitchRank"
-            width={300}
-            height={75}
-            priority
-            className="w-full h-auto max-w-[300px] sm:max-w-[400px] dark:hidden"
-          />
-          <Image
-            src="/logos/pitchrank-logo-black.svg"
-            alt="PitchRank"
-            width={300}
-            height={75}
-            priority
-            className="w-full h-auto max-w-[300px] sm:max-w-[400px] hidden dark:block"
-          />
+      {/* Hero Section - Athletic Editorial Style */}
+      <div className="relative bg-gradient-to-br from-primary via-primary to-[oklch(0.28_0.08_165)] text-primary-foreground py-16 sm:py-24 overflow-hidden">
+        {/* Diagonal slash accent */}
+        <div className="absolute left-0 top-0 w-3 h-full bg-accent -skew-x-12" aria-hidden="true" />
+
+        <div className="container mx-auto px-4 sm:px-6 relative">
+          <div className="max-w-4xl">
+            <h1 className="font-display text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold uppercase leading-tight mb-4">
+              National Youth
+              <br />
+              Soccer Rankings
+            </h1>
+            <p className="text-lg sm:text-xl md:text-2xl font-light tracking-wide mb-6">
+              Powered by V53E Algorithm • Data-Driven Excellence
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <Button size="lg" variant="secondary" asChild className="font-semibold uppercase tracking-wide">
+                <Link href="/rankings">
+                  View Rankings
+                </Link>
+              </Button>
+              <Button size="lg" variant="outline" asChild className="font-semibold uppercase tracking-wide bg-transparent border-primary-foreground text-primary-foreground hover:bg-primary-foreground hover:text-primary">
+                <Link href="/methodology">
+                  Our Methodology
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Decorative gradient overlay */}
+        <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-background to-transparent pointer-events-none" />
+      </div>
+
+      {/* Main Content */}
+      <div className="container mx-auto py-8 sm:py-12 px-4 sm:px-6">
+        <div className="grid gap-6 lg:grid-cols-3">
+          {/* Main Column - Leaderboard (takes 2 columns) */}
+          <div className="lg:col-span-2">
+            <HomeLeaderboard />
+          </div>
+
+          {/* Sidebar Column */}
+          <div className="space-y-6">
+            <RecentMovers />
+
+            <Card className="border-l-4 border-l-accent">
+              <CardHeader>
+                <CardTitle className="text-xl">Quick Links</CardTitle>
+                <CardDescription>Navigate to key sections</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <Button variant="outline" className="w-full justify-start font-semibold hover:bg-accent hover:text-accent-foreground transition-colors" asChild>
+                  <Link href="/compare">
+                    Compare Teams
+                  </Link>
+                </Button>
+                <Button variant="outline" className="w-full justify-start font-semibold hover:bg-accent hover:text-accent-foreground transition-colors" asChild>
+                  <Link href="/rankings/state">
+                    State Rankings
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </div>
-      <PageHeader
-        title="Welcome to PitchRank"
-        description="Comprehensive rankings for youth soccer teams across the United States"
-      />
-      
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        <HomeLeaderboard />
-
-        <RecentMovers />
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Quick Links</CardTitle>
-            <CardDescription>Navigate to key sections</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <Button variant="outline" className="w-full justify-start" asChild>
-              <Link href="/rankings">
-                View Rankings
-              </Link>
-            </Button>
-            <Button variant="outline" className="w-full justify-start" asChild>
-              <Link href="/compare">
-                Compare Teams
-              </Link>
-            </Button>
-            <Button variant="outline" className="w-full justify-start" asChild>
-              <Link href="/methodology">
-                Methodology
-              </Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
     </HydrationBoundary>
   );
 }
