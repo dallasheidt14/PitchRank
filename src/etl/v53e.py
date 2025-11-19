@@ -527,6 +527,10 @@ def compute_rankings(
     strength_map = dict(zip(team["team_id"], team["abs_strength"]))
     power_map = dict(zip(team["team_id"], team["power_presos"]))
 
+    # Save original strength_map for SOS calculation (before opponent adjustment)
+    # SOS should be based on pre-adjustment strength to avoid circular dependency
+    strength_map_for_sos = strength_map.copy()
+
     # -------------------------
     # Opponent-Adjusted Offense/Defense (if enabled)
     # -------------------------
@@ -640,7 +644,8 @@ def compute_rankings(
     g["repeat_rank"] = g.groupby(["team_id", "opp_id"])["w_sos"].rank(ascending=False, method="first")
     g_sos = g[g["repeat_rank"] <= cfg.SOS_REPEAT_CAP].copy()
 
-    g_sos["opp_strength"] = g_sos["opp_id"].map(lambda o: strength_map.get(o, cfg.UNRANKED_SOS_BASE))
+    # Use pre-adjustment strength_map for SOS to avoid circular dependency
+    g_sos["opp_strength"] = g_sos["opp_id"].map(lambda o: strength_map_for_sos.get(o, cfg.UNRANKED_SOS_BASE))
 
     def _avg_weighted(df: pd.DataFrame, col: str, wcol: str) -> float:
         w = df[wcol].values
