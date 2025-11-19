@@ -2,7 +2,7 @@
 
 import { usePathname, useSearchParams } from 'next/navigation';
 import Script from 'next/script';
-import { useEffect } from 'react';
+import { useEffect, Suspense } from 'react';
 
 interface GoogleAnalyticsProps {
   measurementId?: string;
@@ -20,20 +20,10 @@ declare global {
 }
 
 /**
- * Google Analytics component
- * Add to root layout to track page views and user behavior
- *
- * Features:
- * - Tracks initial page views
- * - Tracks client-side navigation (SPA routing)
- * - Auto-disabled in development mode
- *
- * Usage:
- * 1. Get a Google Analytics 4 (GA4) property ID from https://analytics.google.com
- * 2. Set NEXT_PUBLIC_GA_MEASUREMENT_ID environment variable (e.g., G-XXXXXXXXXX)
- * 3. Component will automatically initialize when measurementId is provided
+ * Google Analytics component (internal - uses useSearchParams)
+ * Must be wrapped in Suspense when used
  */
-export function GoogleAnalytics({ measurementId }: GoogleAnalyticsProps) {
+function GoogleAnalyticsContent({ measurementId }: GoogleAnalyticsProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -79,5 +69,32 @@ export function GoogleAnalytics({ measurementId }: GoogleAnalyticsProps) {
         `}
       </Script>
     </>
+  );
+}
+
+/**
+ * Google Analytics component
+ * Add to root layout to track page views and user behavior
+ *
+ * Features:
+ * - Tracks initial page views
+ * - Tracks client-side navigation (SPA routing)
+ * - Auto-disabled in development mode
+ *
+ * Usage:
+ * 1. Get a Google Analytics 4 (GA4) property ID from https://analytics.google.com
+ * 2. Set NEXT_PUBLIC_GA_MEASUREMENT_ID environment variable (e.g., G-XXXXXXXXXX)
+ * 3. Component will automatically initialize when measurementId is provided
+ */
+export function GoogleAnalytics({ measurementId }: GoogleAnalyticsProps) {
+  // Don't render in development or if no measurement ID is provided
+  if (!measurementId || process.env.NODE_ENV === 'development') {
+    return null;
+  }
+
+  return (
+    <Suspense fallback={null}>
+      <GoogleAnalyticsContent measurementId={measurementId} />
+    </Suspense>
   );
 }
