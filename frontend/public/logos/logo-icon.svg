@@ -1,0 +1,10 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background square with rounded corners -->
+  <rect width="512" height="512" rx="80" fill="#052E27"/>
+
+  <!-- PR Text -->
+  <text x="256" y="330" font-family="Oswald, sans-serif" font-weight="800" font-size="220" fill="#F4D03F" text-anchor="middle" letter-spacing="-10">PR</text>
+
+  <!-- Diagonal slash accent -->
+  <rect x="100" y="420" width="312" height="20" fill="#F4D03F" transform="skewX(-10)"/>
+</svg>

@@ -14,25 +14,25 @@ export function Navigation() {
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 items-center justify-between gap-3 sm:gap-4 px-3 sm:px-4">
-        <Link 
-          href="/" 
+        <Link
+          href="/"
           className="flex items-center transition-colors duration-300 hover:opacity-80 flex-shrink-0"
           aria-label="PitchRank home"
           onClick={() => setMobileMenuOpen(false)}
         >
           <Image
-            src="/logos/pitchrank-logo-white.svg"
+            src="/logos/logo-primary.svg"
             alt="PitchRank"
-            width={140}
-            height={32}
+            width={200}
+            height={50}
             className="h-6 sm:h-8 w-auto dark:hidden"
             priority
           />
           <Image
-            src="/logos/pitchrank-logo-black.svg"
+            src="/logos/logo-primary-light.svg"
             alt="PitchRank"
-            width={140}
-            height={32}
+            width={200}
+            height={50}
             className="h-6 sm:h-8 w-auto hidden dark:block"
             priority
           />
@@ -48,28 +48,28 @@ export function Navigation() {
         <nav className="hidden lg:flex items-center gap-4 xl:gap-6 flex-shrink-0">
           <Link
             href="/"
-            className="text-sm font-medium transition-colors duration-300 hover:text-primary"
+            className="text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent"
             aria-label="Home page"
           >
             Home
           </Link>
           <Link
             href="/rankings"
-            className="text-sm font-medium transition-colors duration-300 hover:text-primary"
+            className="text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent"
             aria-label="Rankings page"
           >
             Rankings
           </Link>
           <Link
             href="/compare"
-            className="text-sm font-medium transition-colors duration-300 hover:text-primary"
+            className="text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent"
             aria-label="Compare teams page"
           >
             Compare
           </Link>
           <Link
             href="/methodology"
-            className="text-sm font-medium transition-colors duration-300 hover:text-primary"
+            className="text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent"
             aria-label="Methodology page"
           >
             Methodology
@@ -104,28 +104,28 @@ export function Navigation() {
           <nav className="container px-4 py-4 space-y-3">
             <Link
               href="/"
-              className="block text-sm font-medium transition-colors duration-300 hover:text-primary py-2"
+              className="block text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent py-2"
               onClick={() => setMobileMenuOpen(false)}
             >
               Home
             </Link>
             <Link
               href="/rankings"
-              className="block text-sm font-medium transition-colors duration-300 hover:text-primary py-2"
+              className="block text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent py-2"
               onClick={() => setMobileMenuOpen(false)}
             >
               Rankings
             </Link>
             <Link
               href="/compare"
-              className="block text-sm font-medium transition-colors duration-300 hover:text-primary py-2"
+              className="block text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent py-2"
               onClick={() => setMobileMenuOpen(false)}
             >
               Compare
             </Link>
             <Link
               href="/methodology"
-              className="block text-sm font-medium transition-colors duration-300 hover:text-primary py-2"
+              className="block text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent py-2"
               onClick={() => setMobileMenuOpen(false)}
             >
               Methodology

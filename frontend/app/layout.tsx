@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Oswald, DM_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import { Navigation } from "@/components/Navigation";
@@ -8,16 +8,27 @@ import { StructuredData } from "@/components/StructuredData";
 import { Footer } from "@/components/Footer";
 import { GoogleAnalytics } from "@/components/GoogleAnalytics";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Athletic Editorial Typography
+const oswald = Oswald({
+  variable: "--font-oswald",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
   fallback: ["system-ui", "sans-serif"],
   display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const dmSans = DM_Sans({
+  variable: "--font-dm-sans",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  fallback: ["system-ui", "sans-serif"],
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-jetbrains-mono",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
   fallback: ["ui-monospace", "monospace"],
   display: "swap",
 });
@@ -100,7 +111,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 5,
   userScalable: true,
-  themeColor: "#101828",
+  themeColor: "#052E27", // Athletic Editorial dark green
   viewportFit: "cover",
 };
 
@@ -139,7 +150,7 @@ export default function RootLayout({
         />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased transition-colors duration-300 ease-in-out flex flex-col min-h-screen`}
+        className={`${oswald.variable} ${dmSans.variable} ${jetbrainsMono.variable} antialiased transition-colors duration-300 ease-in-out flex flex-col min-h-screen`}
       >
         <Providers>
           <Navigation />

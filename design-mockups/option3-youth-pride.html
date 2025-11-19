@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PitchRank - Youth Soccer Pride</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Playfair+Display:wght@600;700&family=Quicksand:wght@500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --sunset-orange: #FF8C42;
+            --warm-coral: #FF6B6B;
+            --deep-teal: #16697A;
+            --soft-teal: #489FB5;
+            --gold: #FDB833;
+            --cream: #FFF8E7;
+            --warm-white: #FFFEF9;
+            --soft-gray: #E8E4E1;
+            --charcoal: #2C3E50;
+        }
+
+        body {
+            font-family: 'Nunito', sans-serif;
+            background: var(--cream);
+            color: var(--charcoal);
+            line-height: 1.7;
+            overflow-x: hidden;
+        }
+
+        /* Soft gradient background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background:
+                radial-gradient(circle at 10% 20%, rgba(255, 140, 66, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 90% 80%, rgba(72, 159, 181, 0.1) 0%, transparent 50%),
+                linear-gradient(180deg, var(--cream) 0%, var(--warm-white) 100%);
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .container {
+            max-width: 1300px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Header */
+        header {
+            background: var(--warm-white);
+            padding: 1.5rem 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 20px rgba(0, 0, 0, 0.05);
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-family: 'Playfair Display', serif;
+            font-size: 2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--deep-teal) 0%, var(--sunset-orange) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        nav {
+            display: flex;
+            gap: 2rem;
+        }
+
+        nav a {
+            color: var(--deep-teal);
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            padding: 0.5rem 1rem;
+            border-radius: 30px;
+        }
+
+        nav a:hover {
+            background: linear-gradient(135deg, var(--sunset-orange), var(--warm-coral));
+            color: white;
+            transform: translateY(-2px);
+        }
+
+        /* Hero Section */
+        .hero {
+            padding: 5rem 0 4rem;
+            text-align: center;
+        }
+
+        .hero h1 {
+            font-family: 'Playfair Display', serif;
+            font-size: 4rem;
+            font-weight: 700;
+            color: var(--deep-teal);
+            margin-bottom: 1.5rem;
+            line-height: 1.2;
+        }
+
+        .hero h1 .accent {
+            color: var(--sunset-orange);
+            position: relative;
+        }
+
+        .hero-subtitle {
+            font-size: 1.4rem;
+            color: var(--charcoal);
+            max-width: 700px;
+            margin: 0 auto 2.5rem;
+            opacity: 0.9;
+        }
+
+        .hero-badges {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            flex-wrap: wrap;
+            margin-top: 3rem;
+        }
+
+        .badge {
+            background: white;
+            padding: 2rem 2.5rem;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+            transition: all 0.4s ease;
+            border: 3px solid transparent;
+        }
+
+        .badge:hover {
+            transform: translateY(-10px) rotate(2deg);
+            box-shadow: 0 20px 60px rgba(255, 140, 66, 0.2);
+            border-color: var(--gold);
+        }
+
+        .badge-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .badge-number {
+            font-family: 'Quicksand', sans-serif;
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--sunset-orange);
+            line-height: 1;
+        }
+
+        .badge-label {
+            font-size: 0.95rem;
+            color: var(--charcoal);
+            font-weight: 600;
+            margin-top: 0.5rem;
+        }
+
+        /* Section */
+        .section {
+            padding: 4rem 0;
+        }
+
+        .section-header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .section-title {
+            font-family: 'Playfair Display', serif;
+            font-size: 3rem;
+            font-weight: 700;
+            color: var(--deep-teal);
+            margin-bottom: 0.5rem;
+        }
+
+        .section-subtitle {
+            font-size: 1.1rem;
+            color: var(--charcoal);
+            opacity: 0.8;
+        }
+
+        /* Rankings Grid */
+        .rankings-wrapper {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 2.5rem;
+        }
+
+        .rankings-card {
+            background: white;
+            border-radius: 30px;
+            padding: 2.5rem;
+            box-shadow: 0 10px 50px rgba(0, 0, 0, 0.08);
+            border: 3px solid var(--soft-gray);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 3px solid var(--soft-gray);
+        }
+
+        .card-header h3 {
+            font-family: 'Quicksand', sans-serif;
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--deep-teal);
+        }
+
+        .view-button {
+            background: linear-gradient(135deg, var(--sunset-orange), var(--warm-coral));
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 25px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 20px rgba(255, 140, 66, 0.3);
+        }
+
+        .view-button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 30px rgba(255, 140, 66, 0.4);
+        }
+
+        /* Team Item */
+        .team-item {
+            display: grid;
+            grid-template-columns: 70px 1fr auto;
+            align-items: center;
+            gap: 1.5rem;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, rgba(255, 140, 66, 0.03), rgba(72, 159, 181, 0.03));
+            border-radius: 20px;
+            border: 2px solid transparent;
+            transition: all 0.4s ease;
+            cursor: pointer;
+        }
+
+        .team-item:hover {
+            border-color: var(--gold);
+            transform: translateX(8px);
+            box-shadow: 0 8px 30px rgba(253, 184, 51, 0.2);
+        }
+
+        .rank-medal {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Quicksand', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--soft-teal), var(--deep-teal));
+            color: white;
+            box-shadow: 0 5px 20px rgba(22, 105, 122, 0.3);
+        }
+
+        .rank-medal.gold-medal {
+            background: linear-gradient(135deg, #FFD700, #FFA500);
+            box-shadow: 0 5px 20px rgba(255, 215, 0, 0.5);
+            position: relative;
+        }
+
+        .rank-medal.gold-medal::after {
+            content: '👑';
+            position: absolute;
+            top: -15px;
+            right: -10px;
+            font-size: 1.5rem;
+        }
+
+        .team-content h4 {
+            font-family: 'Quicksand', sans-serif;
+            font-weight: 700;
+            font-size: 1.2rem;
+            color: var(--deep-teal);
+            margin-bottom: 0.4rem;
+        }
+
+        .team-content p {
+            font-size: 0.9rem;
+            color: var(--charcoal);
+            opacity: 0.7;
+        }
+
+        .team-score {
+            text-align: center;
+        }
+
+        .score-value {
+            font-family: 'Quicksand', sans-serif;
+            font-size: 2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--sunset-orange), var(--warm-coral));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            line-height: 1;
+        }
+
+        .score-label {
+            font-size: 0.75rem;
+            color: var(--charcoal);
+            opacity: 0.6;
+            margin-top: 0.3rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .celebration-card {
+            background: linear-gradient(135deg, var(--sunset-orange), var(--warm-coral));
+            color: white;
+            border-radius: 30px;
+            padding: 2.5rem;
+            box-shadow: 0 15px 50px rgba(255, 140, 66, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .celebration-card::before {
+            content: '⚽';
+            position: absolute;
+            font-size: 12rem;
+            right: -3rem;
+            bottom: -3rem;
+            opacity: 0.1;
+            transform: rotate(-15deg);
+        }
+
+        .celebration-card h3 {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.8rem;
+            margin-bottom: 1.5rem;
+            position: relative;
+            z-index: 2;
+        }
+
+        .achievement-item {
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            padding: 1.5rem;
+            border-radius: 15px;
+            margin-bottom: 1rem;
+            position: relative;
+            z-index: 2;
+        }
+
+        .achievement-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .achievement-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .achievement-name {
+            font-weight: 700;
+            font-size: 1.05rem;
+        }
+
+        .achievement-badge {
+            background: var(--gold);
+            color: var(--charcoal);
+            padding: 0.4rem 1rem;
+            border-radius: 20px;
+            font-family: 'Quicksand', sans-serif;
+            font-weight: 700;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .achievement-meta {
+            font-size: 0.85rem;
+            opacity: 0.9;
+        }
+
+        /* Stats Card */
+        .stats-card {
+            background: white;
+            border-radius: 30px;
+            padding: 2rem;
+            box-shadow: 0 10px 50px rgba(0, 0, 0, 0.08);
+            border: 3px solid var(--soft-gray);
+        }
+
+        .stats-card h3 {
+            font-family: 'Quicksand', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--deep-teal);
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 1rem 0;
+            border-bottom: 2px dashed var(--soft-gray);
+        }
+
+        .stat-row:last-child {
+            border-bottom: none;
+        }
+
+        .stat-label {
+            font-weight: 600;
+            color: var(--charcoal);
+        }
+
+        .stat-value {
+            font-family: 'Quicksand', sans-serif;
+            font-weight: 700;
+            color: var(--sunset-orange);
+            font-size: 1.1rem;
+        }
+
+        /* Footer */
+        footer {
+            background: var(--deep-teal);
+            color: white;
+            padding: 3rem 0 2rem;
+            margin-top: 5rem;
+            border-radius: 50px 50px 0 0;
+        }
+
+        .footer-content {
+            text-align: center;
+        }
+
+        .footer-content p {
+            opacity: 0.9;
+            font-size: 1rem;
+        }
+
+        /* Decorative Elements */
+        .trophy-float {
+            position: fixed;
+            font-size: 3rem;
+            opacity: 0.05;
+            animation: float 20s ease-in-out infinite;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .trophy-1 { top: 10%; left: 5%; animation-delay: 0s; }
+        .trophy-2 { top: 60%; right: 8%; animation-delay: 5s; }
+        .trophy-3 { bottom: 20%; left: 10%; animation-delay: 10s; }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-30px) rotate(10deg); }
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .rankings-wrapper {
+                grid-template-columns: 1fr;
+            }
+
+            .hero h1 {
+                font-size: 3rem;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .hero-badges {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .team-item {
+                grid-template-columns: 60px 1fr;
+            }
+
+            .team-score {
+                grid-column: 2;
+                text-align: right;
+            }
+
+            nav {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Floating decorative elements -->
+    <div class="trophy-float trophy-1">🏆</div>
+    <div class="trophy-float trophy-2">⚽</div>
+    <div class="trophy-float trophy-3">🥇</div>
+
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">PitchRank</div>
+                <nav>
+                    <a href="#home">Home</a>
+                    <a href="#rankings">Rankings</a>
+                    <a href="#compare">Compare</a>
+                    <a href="#about">About</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <section class="hero">
+        <div class="container">
+            <h1>Celebrating Every <span class="accent">Achievement</span></h1>
+            <p class="hero-subtitle">
+                Track your team's journey, celebrate victories, and watch young athletes grow.
+                PitchRank brings families closer to the game they love.
+            </p>
+
+            <div class="hero-badges">
+                <div class="badge">
+                    <div class="badge-icon">⚽</div>
+                    <div class="badge-number">16,649</div>
+                    <div class="badge-label">Games Analyzed</div>
+                </div>
+                <div class="badge">
+                    <div class="badge-icon">👥</div>
+                    <div class="badge-number">2,847</div>
+                    <div class="badge-label">Teams Tracked</div>
+                </div>
+                <div class="badge">
+                    <div class="badge-icon">🗺️</div>
+                    <div class="badge-number">50</div>
+                    <div class="badge-label">States Covered</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="section">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">Top Performers</h2>
+                <p class="section-subtitle">Celebrating the best teams in youth soccer</p>
+            </div>
+
+            <div class="rankings-wrapper">
+                <div class="rankings-card">
+                    <div class="card-header">
+                        <h3>U12 Boys National Rankings</h3>
+                        <a href="#" class="view-button">See All</a>
+                    </div>
+
+                    <div class="team-item">
+                        <div class="rank-medal gold-medal">1</div>
+                        <div class="team-content">
+                            <h4>Dallas Texans 12B Premier</h4>
+                            <p>Texas • 2013 Boys • 24 Wins</p>
+                        </div>
+                        <div class="team-score">
+                            <div class="score-value">94.7</div>
+                            <div class="score-label">Power Score</div>
+                        </div>
+                    </div>
+
+                    <div class="team-item">
+                        <div class="rank-medal gold-medal">2</div>
+                        <div class="team-content">
+                            <h4>FC Boston Academy U12</h4>
+                            <p>Massachusetts • 2013 Boys • 22 Wins</p>
+                        </div>
+                        <div class="team-score">
+                            <div class="score-value">92.3</div>
+                            <div class="score-label">Power Score</div>
+                        </div>
+                    </div>
+
+                    <div class="team-item">
+                        <div class="rank-medal gold-medal">3</div>
+                        <div class="team-content">
+                            <h4>LA Galaxy South Bay 12B</h4>
+                            <p>California • 2013 Boys • 21 Wins</p>
+                        </div>
+                        <div class="team-score">
+                            <div class="score-value">91.8</div>
+                            <div class="score-label">Power Score</div>
+                        </div>
+                    </div>
+
+                    <div class="team-item">
+                        <div class="rank-medal">4</div>
+                        <div class="team-content">
+                            <h4>Seattle United 12B Elite</h4>
+                            <p>Washington • 2013 Boys • 20 Wins</p>
+                        </div>
+                        <div class="team-score">
+                            <div class="score-value">90.5</div>
+                            <div class="score-label">Power Score</div>
+                        </div>
+                    </div>
+
+                    <div class="team-item">
+                        <div class="rank-medal">5</div>
+                        <div class="team-content">
+                            <h4>Atlanta United Academy U12</h4>
+                            <p>Georgia • 2013 Boys • 19 Wins</p>
+                        </div>
+                        <div class="team-score">
+                            <div class="score-value">89.2</div>
+                            <div class="score-label">Power Score</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sidebar">
+                    <div class="celebration-card">
+                        <h3>🌟 Rising Stars</h3>
+                        <div class="achievement-item">
+                            <div class="achievement-header">
+                                <div class="achievement-name">FC Dallas 14B Academy</div>
+                                <div class="achievement-badge">↑12 <span>🔥</span></div>
+                            </div>
+                            <div class="achievement-meta">Texas • On a 7-game win streak!</div>
+                        </div>
+                        <div class="achievement-item">
+                            <div class="achievement-header">
+                                <div class="achievement-name">Chicago Fire Elite</div>
+                                <div class="achievement-badge">↑8 <span>⭐</span></div>
+                            </div>
+                            <div class="achievement-meta">Illinois • Dominating the midwest</div>
+                        </div>
+                        <div class="achievement-item">
+                            <div class="achievement-header">
+                                <div class="achievement-name">Portland Thorns U12</div>
+                                <div class="achievement-badge">↑7 <span>💪</span></div>
+                            </div>
+                            <div class="achievement-meta">Oregon • Breakthrough performance</div>
+                        </div>
+                    </div>
+
+                    <div class="stats-card">
+                        <h3>📊 Quick Stats</h3>
+                        <div class="stat-row">
+                            <span class="stat-label">Teams Ranked</span>
+                            <span class="stat-value">2,847</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Games This Week</span>
+                            <span class="stat-value">1,243</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Rank Changes</span>
+                            <span class="stat-value">156</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Last Updated</span>
+                            <span class="stat-value">Today</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <p>&copy; 2025 PitchRank • Celebrating youth soccer excellence</p>
+                <p style="margin-top: 0.5rem; opacity: 0.8;">Powered by the V53E Ranking Engine</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Smooth scroll
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth' });
+                }
+            });
+        });
+
+        // Add entrance animations on scroll
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -100px 0px'
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.style.opacity = '1';
+                    entry.target.style.transform = 'translateY(0)';
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.team-item, .badge, .achievement-item').forEach(el => {
+            el.style.opacity = '0';
+            el.style.transform = 'translateY(20px)';
+            el.style.transition = 'all 0.6s ease';
+            observer.observe(el);
+        });
+    </script>
+</body>
+</html>
