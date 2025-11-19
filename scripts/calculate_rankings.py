@@ -32,6 +32,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Suppress verbose HTTP logging from httpx/supabase
+logging.getLogger('httpx').setLevel(logging.WARNING)
+logging.getLogger('httpcore').setLevel(logging.WARNING)
+
 console = Console()
 # Load environment variables - prioritize .env.local if it exists
 env_local = Path('.env.local')
