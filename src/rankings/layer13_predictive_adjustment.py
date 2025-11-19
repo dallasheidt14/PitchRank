@@ -178,6 +178,9 @@ async def apply_predictive_adjustment(
     cfg = cfg or Layer13Config()
     out = teams_df.copy()
 
+    print(f"[DEBUG apply_predictive_adjustment] START - games_used_df: {len(games_used_df) if games_used_df is not None else 'None'} rows")
+    print(f"[DEBUG apply_predictive_adjustment] Config enabled: {cfg.enabled}")
+
     if not cfg.enabled or out.empty:
         # ensure columns exist for downstream consumers
         out["ml_overperf"] = 0.0
@@ -192,7 +195,7 @@ async def apply_predictive_adjustment(
         if return_game_residuals:
             return out, pd.DataFrame(columns=['game_id', 'residual'])
         return out
-    
+
     # 1) Acquire training data
     if games_used_df is None or games_used_df.empty:
         games_df = await _fetch_games_from_supabase(
@@ -204,7 +207,11 @@ async def apply_predictive_adjustment(
         )
     else:
         games_df = games_used_df.copy()
-    
+
+    print(f"[DEBUG apply_predictive_adjustment] games_df columns: {list(games_df.columns)}")
+    print(f"[DEBUG apply_predictive_adjustment] games_df has 'id': {'id' in games_df.columns}")
+    print(f"[DEBUG apply_predictive_adjustment] games_df has 'home_team_master_id': {'home_team_master_id' in games_df.columns}")
+
     # Ensure required columns exist
     required = {
         cfg.date_col, cfg.team_id_col, cfg.opp_id_col, cfg.gf_col, cfg.ga_col,
@@ -212,6 +219,7 @@ async def apply_predictive_adjustment(
     }
     missing = required - set(games_df.columns)
     if missing:
+        print(f"[DEBUG apply_predictive_adjustment] ❌ EARLY EXIT - Missing required columns: {missing}")
         # If we can't train, return pass-through
         out["ml_overperf"] = 0.0
         out["ml_norm"] = 0.0
