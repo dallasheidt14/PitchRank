@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, memo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CardSkeleton, ChartSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
@@ -40,8 +40,9 @@ function getPercentileLabel(percentile: number): string {
 
 /**
  * PercentileBar component - visual representation of percentile
+ * Memoized to prevent unnecessary re-renders
  */
-function PercentileBar({ value, maxValue, percentile }: { value: number; maxValue: number; percentile: number }) {
+const PercentileBar = memo(({ value, maxValue, percentile }: { value: number; maxValue: number; percentile: number }) => {
   const percentage = (value / maxValue) * 100;
   return (
     <div className="space-y-1">
@@ -59,7 +60,7 @@ function PercentileBar({ value, maxValue, percentile }: { value: number; maxValu
       </div>
     </div>
   );
-}
+});
 
 /**
  * ComparePanel component - enhanced team comparison with all features
@@ -84,15 +85,15 @@ export function ComparePanel() {
   
   // Get rankings for percentile calculation
   const { data: allRankings, isLoading: rankingsLoading, isError: rankingsError, error: rankingsErrorObj, refetch: refetchRankings } = useRankings(
-    team1Data?.state || undefined,
-    team1Data?.age != null ? `u${team1Data.age}` : undefined,
-    team1Data?.gender
+    team1Details?.state || undefined,
+    team1Details?.age != null ? `u${team1Details.age}` : undefined,
+    team1Details?.gender
   );
 
   // Calculate percentiles for all metrics
   const percentiles = useMemo(() => {
-    if (!team1Data || !team2Data || !allRankings || allRankings.length === 0) {
-      return { 
+    if (!team1Details || !team2Details || !allRankings || allRankings.length === 0) {
+      return {
         team1: { powerScore: 0, winPercentage: 0, gamesPlayed: 0 },
         team2: { powerScore: 0, winPercentage: 0, gamesPlayed: 0 },
       };
@@ -104,28 +105,28 @@ export function ComparePanel() {
 
     return {
       team1: {
-        powerScore: calculatePercentile(team1Data.power_score_final ?? 0, powerScores),
-        winPercentage: team1Data.win_percentage 
-          ? calculatePercentile(team1Data.win_percentage, winPercentages)
+        powerScore: calculatePercentile(team1Details.power_score_final ?? 0, powerScores),
+        winPercentage: team1Details.win_percentage
+          ? calculatePercentile(team1Details.win_percentage, winPercentages)
           : 0,
-        gamesPlayed: calculatePercentile(team1Data.games_played, gamesPlayed),
+        gamesPlayed: calculatePercentile(team1Details.games_played, gamesPlayed),
       },
       team2: {
-        powerScore: calculatePercentile(team2Data.power_score_final ?? 0, powerScores),
-        winPercentage: team2Data.win_percentage
-          ? calculatePercentile(team2Data.win_percentage, winPercentages)
+        powerScore: calculatePercentile(team2Details.power_score_final ?? 0, powerScores),
+        winPercentage: team2Details.win_percentage
+          ? calculatePercentile(team2Details.win_percentage, winPercentages)
           : 0,
-        gamesPlayed: calculatePercentile(team2Data.games_played, gamesPlayed),
+        gamesPlayed: calculatePercentile(team2Details.games_played, gamesPlayed),
       },
     };
-  }, [team1Data, team2Data, allRankings]);
+  }, [team1Details, team2Details, allRankings]);
 
   const maxPowerScore = useMemo(() => {
     return Math.max(
-      team1Data?.power_score_final ?? 0,
-      team2Data?.power_score_final ?? 0
+      team1Details?.power_score_final ?? 0,
+      team2Details?.power_score_final ?? 0
     );
-  }, [team1Data, team2Data]);
+  }, [team1Details, team2Details]);
 
   const handleTeam1Change = (id: string | null, team: RankingRow | null) => {
     setTeam1Id(id);
@@ -146,26 +147,26 @@ export function ComparePanel() {
     setTeam2Data(tempData);
   };
 
-  const comparisonData = team1Data && team2Data ? [
+  const comparisonData = team1Details && team2Details ? [
     {
       metric: 'PowerScore (ML Adjusted)',
-      team1: team1Data.power_score_final ?? 0,
-      team2: team2Data.power_score_final ?? 0,
+      team1: team1Details.power_score_final ?? 0,
+      team2: team2Details.power_score_final ?? 0,
     },
     {
       metric: 'Win %',
-      team1: team1Data.win_percentage || 0,
-      team2: team2Data.win_percentage || 0,
+      team1: team1Details.win_percentage || 0,
+      team2: team2Details.win_percentage || 0,
     },
     {
       metric: 'Games Played',
-      team1: team1Data.games_played,
-      team2: team2Data.games_played,
+      team1: team1Details.games_played,
+      team2: team2Details.games_played,
     },
     {
       metric: 'Wins',
-      team1: team1Data.wins,
-      team2: team2Data.wins,
+      team1: team1Details.wins,
+      team2: team2Details.wins,
     },
   ] : [];
 
@@ -240,7 +241,7 @@ export function ComparePanel() {
             </div>
           )}
 
-          {team1Data && team2Data && !isLoadingData && (
+          {team1Details && team2Details && !isLoadingData && (
             <>
               {/* Head-to-Head Stats Comparison */}
               <div className="pt-4 border-t">
@@ -250,51 +251,93 @@ export function ComparePanel() {
                     <thead>
                       <tr className="border-b">
                         <th className="text-left py-2 px-2 text-sm font-medium text-muted-foreground">Metric</th>
-                        <th className="text-center py-2 px-2 text-sm font-medium">{team1Data.team_name}</th>
-                        <th className="text-center py-2 px-2 text-sm font-medium">{team2Data.team_name}</th>
+                        <th className="text-center py-2 px-2 text-sm font-medium">{team1Details.team_name}</th>
+                        <th className="text-center py-2 px-2 text-sm font-medium">{team2Details.team_name}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
                       <tr>
                         <td className="py-3 px-2 text-sm text-muted-foreground">National Rank</td>
                         <td className="py-3 px-2 text-center font-semibold">
-                          {team1Data.rank_in_cohort_final ? `#${team1Data.rank_in_cohort_final}` : '—'}
+                          {team1Details.rank_in_cohort_final ? `#${team1Details.rank_in_cohort_final}` : '—'}
                         </td>
                         <td className="py-3 px-2 text-center font-semibold">
-                          {team2Data.rank_in_cohort_final ? `#${team2Data.rank_in_cohort_final}` : '—'}
+                          {team2Details.rank_in_cohort_final ? `#${team2Details.rank_in_cohort_final}` : '—'}
                         </td>
                       </tr>
+                      {(team1Details.state && team1Details.rank_in_state_final) || (team2Details.state && team2Details.rank_in_state_final) ? (
+                        <tr>
+                          <td className="py-3 px-2 text-sm text-muted-foreground">State Rank</td>
+                          <td className="py-3 px-2 text-center font-semibold">
+                            {team1Details.state && team1Details.rank_in_state_final
+                              ? `#${team1Details.rank_in_state_final} (${team1Details.state.toUpperCase()})`
+                              : '—'}
+                          </td>
+                          <td className="py-3 px-2 text-center font-semibold">
+                            {team2Details.state && team2Details.rank_in_state_final
+                              ? `#${team2Details.rank_in_state_final} (${team2Details.state.toUpperCase()})`
+                              : '—'}
+                          </td>
+                        </tr>
+                      ) : null}
                       <tr>
                         <td className="py-3 px-2 text-sm text-muted-foreground">Power Score</td>
                         <td className="py-3 px-2 text-center font-semibold">
-                          {formatPowerScore(team1Data.power_score_final)}
+                          {formatPowerScore(team1Details.power_score_final)}
                         </td>
                         <td className="py-3 px-2 text-center font-semibold">
-                          {formatPowerScore(team2Data.power_score_final)}
+                          {formatPowerScore(team2Details.power_score_final)}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-3 px-2 text-sm text-muted-foreground">SOS (Strength of Schedule)</td>
+                        <td className="py-3 px-2 text-center font-semibold">
+                          {team1Details.sos_norm !== null ? team1Details.sos_norm.toFixed(3) : '—'}
+                        </td>
+                        <td className="py-3 px-2 text-center font-semibold">
+                          {team2Details.sos_norm !== null ? team2Details.sos_norm.toFixed(3) : '—'}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-3 px-2 text-sm text-muted-foreground">Offense Rating</td>
+                        <td className="py-3 px-2 text-center font-semibold">
+                          {team1Details.offense_norm !== null ? team1Details.offense_norm.toFixed(3) : '—'}
+                        </td>
+                        <td className="py-3 px-2 text-center font-semibold">
+                          {team2Details.offense_norm !== null ? team2Details.offense_norm.toFixed(3) : '—'}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-3 px-2 text-sm text-muted-foreground">Defense Rating</td>
+                        <td className="py-3 px-2 text-center font-semibold">
+                          {team1Details.defense_norm !== null ? team1Details.defense_norm.toFixed(3) : '—'}
+                        </td>
+                        <td className="py-3 px-2 text-center font-semibold">
+                          {team2Details.defense_norm !== null ? team2Details.defense_norm.toFixed(3) : '—'}
                         </td>
                       </tr>
                       <tr>
                         <td className="py-3 px-2 text-sm text-muted-foreground">Win %</td>
                         <td className="py-3 px-2 text-center font-semibold">
-                          {team1Data.win_percentage !== null ? `${team1Data.win_percentage.toFixed(1)}%` : '—'}
+                          {team1Details.win_percentage !== null ? `${team1Details.win_percentage.toFixed(1)}%` : '—'}
                         </td>
                         <td className="py-3 px-2 text-center font-semibold">
-                          {team2Data.win_percentage !== null ? `${team2Data.win_percentage.toFixed(1)}%` : '—'}
+                          {team2Details.win_percentage !== null ? `${team2Details.win_percentage.toFixed(1)}%` : '—'}
                         </td>
                       </tr>
                       <tr>
                         <td className="py-3 px-2 text-sm text-muted-foreground">Record</td>
                         <td className="py-3 px-2 text-center font-semibold">
-                          {team1Data.wins}-{team1Data.losses}{team1Data.draws > 0 && `-${team1Data.draws}`}
+                          {team1Details.wins}-{team1Details.losses}{team1Details.draws > 0 && `-${team1Details.draws}`}
                         </td>
                         <td className="py-3 px-2 text-center font-semibold">
-                          {team2Data.wins}-{team2Data.losses}{team2Data.draws > 0 && `-${team2Data.draws}`}
+                          {team2Details.wins}-{team2Details.losses}{team2Details.draws > 0 && `-${team2Details.draws}`}
                         </td>
                       </tr>
                       <tr>
                         <td className="py-3 px-2 text-sm text-muted-foreground">Games Played</td>
-                        <td className="py-3 px-2 text-center font-semibold">{team1Data.games_played}</td>
-                        <td className="py-3 px-2 text-center font-semibold">{team2Data.games_played}</td>
+                        <td className="py-3 px-2 text-center font-semibold">{team1Details.games_played}</td>
+                        <td className="py-3 px-2 text-center font-semibold">{team2Details.games_played}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -304,8 +347,8 @@ export function ComparePanel() {
               {/* Match Prediction - Prominently Displayed */}
               {matchPrediction && (
                 <EnhancedPredictionCard
-                  teamAName={team1Data.team_name}
-                  teamBName={team2Data.team_name}
+                  teamAName={team1Details.team_name}
+                  teamBName={team2Details.team_name}
                   prediction={matchPrediction.prediction}
                   explanation={matchPrediction.explanation}
                 />
@@ -328,182 +371,23 @@ export function ComparePanel() {
                 <PredictedMatchCard
                   teamA={team1Predictive || null}
                   teamB={team2Predictive || null}
-                  teamAName={team1Data.team_name}
-                  teamBName={team2Data.team_name}
+                  teamAName={team1Details.team_name}
+                  teamBName={team2Details.team_name}
                 />
               )}
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">{team1Data.team_name}</CardTitle>
-                    <CardDescription>
-                      {team1Data.club_name && <span>{team1Data.club_name}</span>}
-                      {team1Data.state && (
-                        <span className={team1Data.club_name ? ' • ' : ''}>
-                          {team1Data.state}
-                        </span>
-                      )}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">National Rank:</span>
-                        <span className="font-semibold">
-                          {team1Data.rank_in_cohort_final ? `#${team1Data.rank_in_cohort_final}` : '—'}
-                        </span>
-                      </div>
-                      {team1Data.state && team1Data.rank_in_state_final && (
-                        <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground">State Rank:</span>
-                          <span className="font-semibold">
-                            #{team1Data.rank_in_state_final} ({team1Data.state.toUpperCase()})
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div className="space-y-3 pt-2 border-t">
-                      <div>
-                        <div className="flex justify-between mb-1">
-                          <span className="text-muted-foreground">PowerScore (ML Adjusted):</span>
-                          <span className="font-semibold">
-                            {formatPowerScore(team1Data.power_score_final)}
-                          </span>
-                        </div>
-                        <PercentileBar
-                          value={team1Data.power_score_final ?? 0}
-                          maxValue={maxPowerScore}
-                          percentile={percentiles?.team1?.powerScore ?? 0}
-                        />
-                      </div>
-                      
-                      <div>
-                        <div className="flex justify-between mb-1">
-                          <span className="text-muted-foreground">Win %:</span>
-                          <span className="font-semibold">
-                            {team1Data.win_percentage !== null
-                              ? `${team1Data.win_percentage.toFixed(1)}%`
-                              : '—'}
-                          </span>
-                        </div>
-                        {team1Data.win_percentage !== null && (
-                          <PercentileBar
-                            value={team1Data.win_percentage ?? 0}
-                            maxValue={100}
-                            percentile={percentiles?.team1?.winPercentage ?? 0}
-                          />
-                        )}
-                      </div>
-                      
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Record:</span>
-                        <span className="font-semibold">
-                          {team1Data.wins}-{team1Data.losses}
-                          {team1Data.draws > 0 && `-${team1Data.draws}`}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Games Played:</span>
-                        <span className="font-semibold">{team1Data.games_played}</span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">{team2Data.team_name}</CardTitle>
-                    <CardDescription>
-                      {team2Data.club_name && <span>{team2Data.club_name}</span>}
-                      {team2Data.state && (
-                        <span className={team2Data.club_name ? ' • ' : ''}>
-                          {team2Data.state}
-                        </span>
-                      )}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">National Rank:</span>
-                        <span className="font-semibold">
-                          {team2Data.rank_in_cohort_final ? `#${team2Data.rank_in_cohort_final}` : '—'}
-                        </span>
-                      </div>
-                      {team2Data.state && team2Data.rank_in_state_final && (
-                        <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground">State Rank:</span>
-                          <span className="font-semibold">
-                            #{team2Data.rank_in_state_final} ({team2Data.state.toUpperCase()})
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div className="space-y-3 pt-2 border-t">
-                      <div>
-                        <div className="flex justify-between mb-1">
-                          <span className="text-muted-foreground">PowerScore (ML Adjusted):</span>
-                          <span className="font-semibold">
-                            {formatPowerScore(team2Data.power_score_final)}
-                          </span>
-                        </div>
-                        <PercentileBar
-                          value={team2Data.power_score_final ?? 0}
-                          maxValue={maxPowerScore}
-                          percentile={percentiles?.team2?.powerScore ?? 0}
-                        />
-                      </div>
-                      
-                      <div>
-                        <div className="flex justify-between mb-1">
-                          <span className="text-muted-foreground">Win %:</span>
-                          <span className="font-semibold">
-                            {team2Data.win_percentage !== null
-                              ? `${team2Data.win_percentage.toFixed(1)}%`
-                              : '—'}
-                          </span>
-                        </div>
-                        {team2Data.win_percentage !== null && (
-                          <PercentileBar
-                            value={team2Data.win_percentage ?? 0}
-                            maxValue={100}
-                            percentile={percentiles?.team2?.winPercentage ?? 0}
-                          />
-                        )}
-                      </div>
-                      
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Record:</span>
-                        <span className="font-semibold">
-                          {team2Data.wins}-{team2Data.losses}
-                          {team2Data.draws > 0 && `-${team2Data.draws}`}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Games Played:</span>
-                        <span className="font-semibold">{team2Data.games_played}</span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
 
               {/* Common Opponents */}
               {commonOpponents && commonOpponents.length > 0 && (
                 <div className="pt-4 border-t">
                   <h3 className="text-lg font-semibold mb-4">Common Opponents</h3>
                   <div className="space-y-2">
-                    {commonOpponents.slice(0, 5).map((opponent) => (
+                    {commonOpponents.slice(0, 10).map((opponent) => (
                       <Card key={opponent.opponent_id} className="p-3">
                         <div className="flex items-center justify-between">
                           <div className="font-medium">{opponent.opponent_name}</div>
                           <div className="flex items-center gap-4 text-sm">
                             <div className="flex items-center gap-2">
-                              <span className="text-muted-foreground">{team1Data.team_name}:</span>
+                              <span className="text-muted-foreground">{team1Details.team_name}:</span>
                               <span className={`font-semibold ${
                                 opponent.team1_result === 'W' ? 'text-green-600' :
                                 opponent.team1_result === 'L' ? 'text-red-600' :
@@ -518,7 +402,7 @@ export function ComparePanel() {
                               )}
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className="text-muted-foreground">{team2Data.team_name}:</span>
+                              <span className="text-muted-foreground">{team2Details.team_name}:</span>
                               <span className={`font-semibold ${
                                 opponent.team2_result === 'W' ? 'text-green-600' :
                                 opponent.team2_result === 'L' ? 'text-red-600' :
@@ -536,9 +420,9 @@ export function ComparePanel() {
                         </div>
                       </Card>
                     ))}
-                    {commonOpponents.length > 5 && (
+                    {commonOpponents.length > 10 && (
                       <p className="text-sm text-muted-foreground text-center">
-                        Showing 5 of {commonOpponents.length} common opponents
+                        Showing 10 of {commonOpponents.length} common opponents
                       </p>
                     )}
                   </div>
@@ -571,15 +455,15 @@ export function ComparePanel() {
                       labelStyle={{ color: 'hsl(var(--foreground))' }}
                     />
                     <Legend />
-                    <Bar dataKey="team1" fill="hsl(var(--chart-1))" name={team1Data.team_name} />
-                    <Bar dataKey="team2" fill="hsl(var(--chart-2))" name={team2Data.team_name} />
+                    <Bar dataKey="team1" fill="hsl(var(--chart-1))" name={team1Details.team_name} />
+                    <Bar dataKey="team2" fill="hsl(var(--chart-2))" name={team2Details.team_name} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             </>
           )}
 
-          {(!team1Data || !team2Data) && (
+          {(!team1Details || !team2Details) && !isLoadingData && (
             <div className="text-center py-8 text-muted-foreground">
               <p>Select two teams to compare their statistics</p>
             </div>

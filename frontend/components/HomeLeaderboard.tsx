@@ -78,11 +78,9 @@ export function HomeLeaderboard() {
                 )}
               </div>
             ) : (
-              topTeams.map((team, index) => {
-                const previousRank = index > 0 ? topTeams[index - 1].rank_in_cohort_final : null;
-                const rankChange = previousRank && team.rank_in_cohort_final
-                  ? previousRank - team.rank_in_cohort_final
-                  : 0;
+              topTeams.map((team) => {
+                // Use real historical rank change data (7-day change)
+                const rankChange = team.rank_change_7d ?? 0;
 
                 return (
                   <Link

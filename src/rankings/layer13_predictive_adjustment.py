@@ -109,48 +109,48 @@ def _extract_game_residuals(feats: pd.DataFrame, games_df: pd.DataFrame, cfg: La
 
     Returns DataFrame with columns: game_id (UUID), ml_overperformance (float)
     """
-    if feats.empty or 'residual' not in feats.columns or 'game_id' not in feats.columns:
+    import logging
+    logger = logging.getLogger(__name__)
+
+    print(f"[DEBUG _extract_game_residuals] Input feats: {len(feats)} rows, columns: {list(feats.columns)}")
+    logger.info(f"[_extract_game_residuals] Input feats: {len(feats)} rows, columns: {list(feats.columns)}")
+
+    if feats.empty or 'residual' not in feats.columns:
+        print(f"[DEBUG _extract_game_residuals] ❌ Feats empty or missing 'residual' column")
+        logger.warning(f"[_extract_game_residuals] Feats empty or missing 'residual' column")
         return pd.DataFrame(columns=['game_id', 'ml_overperformance'])
 
-    # Map game_id back to original UUID format
-    # In v53e format, game_id is stored as string (from game_uid or id)
-    # We need to map this to the actual database UUID
-    game_residuals = feats[['game_id', 'residual', 'team_id', 'opp_id']].copy()
-
-    # To avoid duplicates, we need to identify which perspective is "home"
-    # Build a mapping from games_df
-    if games_df.empty or 'id' not in games_df.columns:
+    # Check if v53e format has the required fields (id, team_id, home_team_master_id)
+    required_cols = {'id', 'team_id', 'home_team_master_id', 'residual'}
+    if not required_cols.issubset(feats.columns):
+        missing = required_cols - set(feats.columns)
+        print(f"[DEBUG _extract_game_residuals] ❌ Missing required columns: {missing}")
+        logger.warning(f"[_extract_game_residuals] Missing required columns: {missing}")
         return pd.DataFrame(columns=['game_id', 'ml_overperformance'])
 
-    # Create home team lookup: game_id -> home_team_id
-    home_team_map = {}
-    for _, game in games_df.iterrows():
-        game_id_key = str(game.get('game_uid') or game.get('id', ''))
-        home_team_id = str(game.get('home_team_master_id', ''))
-        game_uuid = game.get('id')  # This is the actual UUID we want to store
-        if game_id_key and home_team_id and game_uuid:
-            home_team_map[game_id_key] = {'home_team_id': home_team_id, 'uuid': str(game_uuid)}
+    # Filter to home team perspective only (where team_id == home_team_master_id)
+    home_perspective = feats[feats['team_id'] == feats['home_team_master_id']].copy()
+    print(f"[DEBUG _extract_game_residuals] Home perspective after filter: {len(home_perspective)} rows")
+    logger.info(f"[_extract_game_residuals] Home perspective: {len(home_perspective)} rows")
 
-    # Filter to home team perspective only
-    result_rows = []
-    for _, row in game_residuals.iterrows():
-        game_id_key = str(row['game_id'])
-        team_id = str(row['team_id'])
+    if home_perspective.empty:
+        print(f"[DEBUG _extract_game_residuals] ❌ Home perspective is empty after filtering")
+        logger.warning(f"[_extract_game_residuals] Home perspective is empty after filtering")
+        return pd.DataFrame(columns=['game_id', 'ml_overperformance'])
 
-        if game_id_key in home_team_map:
-            game_info = home_team_map[game_id_key]
-            # Only keep row if this team_id matches the home team
-            if team_id == game_info['home_team_id']:
-                result_rows.append({
-                    'game_id': game_info['uuid'],
-                    'ml_overperformance': float(row['residual'])
-                })
+    # Extract game_id (UUID) and residual
+    result_df = home_perspective[['id', 'residual']].copy()
+    result_df = result_df.rename(columns={'id': 'game_id', 'residual': 'ml_overperformance'})
 
-    result_df = pd.DataFrame(result_rows)
+    # Ensure game_id is string UUID
+    result_df['game_id'] = result_df['game_id'].astype(str)
+    result_df['ml_overperformance'] = result_df['ml_overperformance'].astype(float)
 
     # Remove duplicates (shouldn't happen, but safety check)
-    if not result_df.empty:
-        result_df = result_df.drop_duplicates(subset=['game_id'], keep='first')
+    result_df = result_df.drop_duplicates(subset=['game_id'], keep='first')
+
+    print(f"[DEBUG _extract_game_residuals] ✅ Extracted {len(result_df)} game residuals")
+    logger.info(f"[_extract_game_residuals] Extracted {len(result_df)} game residuals")
 
     return result_df
 
@@ -368,11 +368,28 @@ def _build_features(games: pd.DataFrame, power_map: Dict[str, float], cfg: Layer
         date_col, team_id_col, opp_id_col, age_col, gender_col,
         "goal_margin", "team_power", "opp_power", "power_diff", "age_gap", "cross_gender", "rank_recency"
     ]
-    
+
+    # Include additional columns if present (needed for extracting per-game residuals)
+    for col in ['game_id', 'id', 'home_team_master_id']:
+        if col in f.columns:
+            needed.append(col)
+
+    # Debug logging
+    import logging
+    logger = logging.getLogger(__name__)
+    print(f"[DEBUG _build_features] Input columns: {list(f.columns)}")
+    print(f"[DEBUG _build_features] Has 'id': {'id' in f.columns}, Has 'home_team_master_id': {'home_team_master_id' in f.columns}")
+    logger.info(f"[_build_features] Input columns: {list(f.columns)}")
+    logger.info(f"[_build_features] Needed columns: {needed}")
+    logger.info(f"[_build_features] Has 'id': {'id' in f.columns}, Has 'home_team_master_id': {'home_team_master_id' in f.columns}")
+
     # Only keep columns that exist
     needed = [col for col in needed if col in f.columns]
     f = f[needed].dropna(subset=["goal_margin", "team_power", "opp_power"])
-    
+
+    print(f"[DEBUG _build_features] Output columns: {list(f.columns)}, rows: {len(f)}")
+    logger.info(f"[_build_features] Output columns: {list(f.columns)}, rows: {len(f)}")
+
     return f.reset_index(drop=True)
 
 

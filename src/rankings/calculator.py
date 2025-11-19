@@ -14,6 +14,10 @@ from src.rankings.layer13_predictive_adjustment import (
     apply_predictive_adjustment, Layer13Config
 )
 from src.rankings.data_adapter import fetch_games_for_rankings
+from src.rankings.ranking_history import (
+    calculate_rank_changes,
+    save_ranking_snapshot
+)
 
 logger = logging.getLogger(__name__)
 
@@ -181,8 +185,8 @@ async def compute_rankings_with_ml(
     logger.info("🤖 Applying ML predictive adjustment layer...")
     ml_cfg = layer13_cfg or Layer13Config(
         lookback_days=v53_cfg.WINDOW_DAYS,
-        alpha=0.12,
-        norm_mode="percentile",
+        alpha=0.20,
+        norm_mode="zscore",
         min_team_games_for_residual=6,
         recency_decay_lambda=0.06,
         table_name="games",
@@ -192,7 +196,7 @@ async def compute_rankings_with_ml(
     teams_with_ml, game_residuals = await apply_predictive_adjustment(
         supabase_client=supabase_client,
         teams_df=teams_base,
-        games_used_df=games_used,  # Use games from v53e output
+        games_used_df=games_df,  # Use original games with full columns (id, home_team_master_id)
         cfg=ml_cfg,
         return_game_residuals=True,  # Request per-game residuals
     )
@@ -225,18 +229,20 @@ async def compute_rankings_with_ml(
                 diff = after - before
                 logger.info(f"    {age} {gender}: before={before:.3f}, after={after:.3f}, diff={diff:+.3f}")
     
-    # Add rank change tracking (7d and 30d)
-    if not teams_with_ml.empty and "rank_in_cohort_ml" in teams_with_ml.columns:
-        # Sort by age, gender, team_id, and rank for diff calculation (team_id ensures consistent alignment)
-        teams_with_ml = teams_with_ml.sort_values(["age", "gender", "team_id", "rank_in_cohort_ml"]).reset_index(drop=True)
-        
-        # Calculate rank changes within each cohort
-        teams_with_ml["rank_change_7d"] = teams_with_ml.groupby(["age", "gender"])["rank_in_cohort_ml"].diff(7).fillna(0)
-        teams_with_ml["rank_change_30d"] = teams_with_ml.groupby(["age", "gender"])["rank_in_cohort_ml"].diff(30).fillna(0)
-    else:
-        # Add empty columns if rank_in_cohort_ml doesn't exist
-        teams_with_ml["rank_change_7d"] = 0
-        teams_with_ml["rank_change_30d"] = 0
+    # Calculate rank changes using historical snapshots (7d and 30d)
+    logger.info("📊 Calculating rank changes from historical data...")
+    teams_with_ml = await calculate_rank_changes(
+        supabase_client=supabase_client,
+        current_rankings_df=teams_with_ml
+    )
+
+    # Save current rankings as a snapshot for future rank change calculations
+    if not teams_with_ml.empty:
+        logger.info("💾 Saving ranking snapshot for future comparisons...")
+        await save_ranking_snapshot(
+            supabase_client=supabase_client,
+            rankings_df=teams_with_ml
+        )
     
     return {
         "teams": teams_with_ml,
