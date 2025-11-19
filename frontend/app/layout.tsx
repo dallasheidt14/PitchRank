@@ -6,6 +6,7 @@ import { Navigation } from "@/components/Navigation";
 import { Toaster } from "@/components/ui/Toaster";
 import { StructuredData } from "@/components/StructuredData";
 import { Footer } from "@/components/Footer";
+import { GoogleAnalytics } from "@/components/GoogleAnalytics";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -108,6 +109,9 @@ export default function RootLayout({
       <head>
         {/* Structured Data for SEO */}
         <StructuredData />
+
+        {/* Google Analytics */}
+        <GoogleAnalytics measurementId={process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID} />
 
         {/* Prevent Flash of Theme (FOT) by applying theme before React hydration */}
         <script
