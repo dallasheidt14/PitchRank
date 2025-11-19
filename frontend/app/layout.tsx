@@ -12,7 +12,7 @@ import { GoogleAnalytics } from "@/components/GoogleAnalytics";
 const oswald = Oswald({
   variable: "--font-oswald",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["400", "500", "600", "700", "800"],
   fallback: ["system-ui", "sans-serif"],
   display: "swap",
 });
