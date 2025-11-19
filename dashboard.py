@@ -1165,6 +1165,23 @@ elif section == "🔎 Unknown Teams Mapper":
                         st.error("❌ Gender is required")
                     else:
                         try:
+                            # First, check if this provider_team_id already exists
+                            existing_team = db.table('teams').select(
+                                'team_id_master, team_name, club_name, age_group, gender, state_code'
+                            ).eq('provider_team_id', str(new_provider_team_id)).execute()
+
+                            if existing_team.data and len(existing_team.data) > 0:
+                                # Team already exists - show error and guide them
+                                existing = existing_team.data[0]
+                                st.error(f"❌ Provider Team ID **{new_provider_team_id}** already exists in the database!")
+                                st.warning("**This team already exists:**")
+                                st.write(f"- **Name:** {existing['team_name']}")
+                                st.write(f"- **Club:** {existing.get('club_name', 'N/A')}")
+                                st.write(f"- **Age/Gender:** {existing['age_group']} {existing['gender']}")
+                                st.write(f"- **State:** {existing.get('state_code', 'N/A')}")
+                                st.info("💡 **What to do:** Use the **mapping tool above** (Step 2 & 3) to create an alias mapping for this team instead of adding it as new.")
+                                st.stop()
+
                             # Get provider ID
                             provider_result = db.table('providers').select('id').eq('code', 'gotsport').single().execute()
                             provider_id = provider_result.data['id']
