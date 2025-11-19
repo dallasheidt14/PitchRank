@@ -114,16 +114,30 @@ async def get_historical_ranks(
         return {}
 
     try:
-        # Query snapshots within date range for all teams
-        response = supabase_client.table("ranking_history").select(
-            "team_id, snapshot_date, rank_in_cohort, rank_in_cohort_ml"
-        ).in_("team_id", team_ids).gte(
-            "snapshot_date", date_range_start.isoformat()
-        ).lte(
-            "snapshot_date", date_range_end.isoformat()
-        ).execute()
+        # Batch queries to avoid URL length limits (Supabase has ~8KB URL limit)
+        # With 150 teams per batch, we stay well under the limit
+        batch_size = 150
+        all_records = []
 
-        if not response.data:
+        for i in range(0, len(team_ids), batch_size):
+            batch = team_ids[i:i+batch_size]
+            try:
+                # Query snapshots within date range for this batch
+                response = supabase_client.table("ranking_history").select(
+                    "team_id, snapshot_date, rank_in_cohort, rank_in_cohort_ml"
+                ).in_("team_id", batch).gte(
+                    "snapshot_date", date_range_start.isoformat()
+                ).lte(
+                    "snapshot_date", date_range_end.isoformat()
+                ).execute()
+
+                if response.data:
+                    all_records.extend(response.data)
+            except Exception as batch_error:
+                logger.warning(f"❌ Error fetching historical ranks for batch {i//batch_size + 1}: {batch_error}")
+                continue
+
+        if not all_records:
             logger.debug(f"No historical rankings found for {len(team_ids)} teams around {target_date}")
             return {team_id: None for team_id in team_ids}
 
@@ -132,7 +146,7 @@ async def get_historical_ranks(
         historical_ranks = {}
         snapshots_by_team = {}
 
-        for record in response.data:
+        for record in all_records:
             team_id = record["team_id"]
             snapshot_date = date.fromisoformat(record["snapshot_date"])
             rank = record.get("rank_in_cohort_ml") or record.get("rank_in_cohort")
@@ -237,6 +251,11 @@ async def calculate_rank_changes(
     current_rankings_df["rank_change_7d"] = changes[0]
     current_rankings_df["rank_change_30d"] = changes[1]
 
+    # Convert to numeric dtype to ensure .nlargest() works properly
+    # pd.to_numeric will convert None to NaN and ensure numeric dtype
+    current_rankings_df["rank_change_7d"] = pd.to_numeric(current_rankings_df["rank_change_7d"], errors='coerce')
+    current_rankings_df["rank_change_30d"] = pd.to_numeric(current_rankings_df["rank_change_30d"], errors='coerce')
+
     # Log statistics
     total_teams = len(current_rankings_df)
     teams_with_7d = current_rankings_df["rank_change_7d"].notna().sum()
@@ -246,10 +265,13 @@ async def calculate_rank_changes(
     logger.info(f"   - Teams with 7-day data: {teams_with_7d:,}/{total_teams:,} ({teams_with_7d/total_teams*100:.1f}%)")
     logger.info(f"   - Teams with 30-day data: {teams_with_30d:,}/{total_teams:,} ({teams_with_30d/total_teams*100:.1f}%)")
 
-    # Show examples of big movers
-    big_movers_7d = current_rankings_df[
-        current_rankings_df["rank_change_7d"].notna()
-    ].nlargest(3, "rank_change_7d", keep="first")
+    # Show examples of big movers (only if we have data)
+    if teams_with_7d > 0:
+        big_movers_7d = current_rankings_df[
+            current_rankings_df["rank_change_7d"].notna()
+        ].nlargest(3, "rank_change_7d", keep="first")
+    else:
+        big_movers_7d = pd.DataFrame()
 
     if not big_movers_7d.empty:
         logger.info("📈 Top 3 biggest improvers (7-day):")
