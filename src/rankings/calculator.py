@@ -208,7 +208,8 @@ async def compute_rankings_with_ml(
         await _persist_game_residuals(supabase_client, game_residuals)
         logger.info("✅ Game residuals persisted successfully")
     else:
-        logger.warning("⚠️ No game residuals to persist (likely no games with 6+ team appearances)")
+        logger.warning("⚠️ No game residuals to persist - check DEBUG output above to see why extraction failed")
+        logger.warning("   Common causes: missing columns (id, home_team_master_id), empty feats, or filter issues")
     
     # Diagnostic: Log PowerScore max after ML layer
     if not teams_with_ml.empty and "powerscore_ml" in teams_with_ml.columns:
