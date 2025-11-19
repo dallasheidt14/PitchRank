@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import Fuse from 'fuse.js';
+import type Fuse from 'fuse.js';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { InlineLoader } from '@/components/ui/LoadingStates';
@@ -35,22 +35,33 @@ function highlightMatch(text: string, query: string): React.ReactNode {
 
 /**
  * GlobalSearch component - fuzzy search for teams across the entire site
+ * Lazy loads Fuse.js library for better initial bundle size
  */
 export function GlobalSearch() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [FuseClass, setFuseClass] = useState<typeof Fuse | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
-  
+
   const { data: allTeams, isLoading, isError, error, refetch } = useTeamSearch();
+
+  // Dynamically load Fuse.js only when needed
+  useEffect(() => {
+    if (!FuseClass) {
+      import('fuse.js').then((module) => {
+        setFuseClass(() => module.default);
+      });
+    }
+  }, [FuseClass]);
 
   // Configure Fuse.js for fuzzy search
   const fuse = useMemo(() => {
-    if (!allTeams) return null;
-    
-    return new Fuse(allTeams, {
+    if (!allTeams || !FuseClass) return null;
+
+    return new FuseClass(allTeams, {
       keys: [
         { name: 'team_name', weight: 0.7 },
         { name: 'club_name', weight: 0.2 },
@@ -60,7 +71,7 @@ export function GlobalSearch() {
       includeScore: true,
       minMatchCharLength: 2,
     });
-  }, [allTeams]);
+  }, [allTeams, FuseClass]);
 
   // Perform fuzzy search
   const searchResults = useMemo(() => {
