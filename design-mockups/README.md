@@ -4,8 +4,12 @@ Three distinctive design directions for your PitchRank frontend, each targeting 
 
 ## 🎨 Design Options
 
-### Option 1: Athletic Editorial
-**File:** `option1-athletic-editorial.html`
+### Option 1: Athletic Editorial ⭐ **FULL SUITE**
+**Files:**
+- `option1-athletic-editorial.html` - Homepage with leaderboard
+- `option1-rankings-page.html` - Full rankings table with filters
+- `option1-team-profile.html` - Individual team profile page
+- `option1-compare-page.html` - Side-by-side team comparison
 
 **Aesthetic:** Sports Illustrated meets FiveThirtyEight
 - **Typography:** Oswald (bold headers) + DM Sans (body) + JetBrains Mono (stats)
