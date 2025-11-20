@@ -71,8 +71,8 @@ async function prefetchRankingsData() {
       }
 
       return {
-        total_games: gamesCount || 0,
-        total_teams: teamsCount || 0,
+        totalGames: gamesCount || 0,
+        totalTeams: teamsCount || 0,
       };
     },
     staleTime: 60 * 60 * 1000, // 1 hour
