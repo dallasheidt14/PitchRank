@@ -3,8 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Menu, X } from "lucide-react";
-import { ThemeToggle } from "./ThemeToggle";
+import { Menu, X, Star } from "lucide-react";
 import { GlobalSearch } from "./GlobalSearch";
 import { Button } from "./ui/button";
 
@@ -25,15 +24,7 @@ export function Navigation() {
             alt="PitchRank"
             width={200}
             height={50}
-            className="h-6 sm:h-8 w-auto dark:hidden"
-            priority
-          />
-          <Image
-            src="/logos/logo-primary-light.svg"
-            alt="PitchRank"
-            width={200}
-            height={50}
-            className="h-6 sm:h-8 w-auto hidden dark:block"
+            className="h-6 sm:h-8 w-auto"
             priority
           />
           <span className="sr-only">PitchRank Home</span>
@@ -68,13 +59,20 @@ export function Navigation() {
             Compare
           </Link>
           <Link
+            href="/watchlist"
+            className="text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent flex items-center gap-1.5"
+            aria-label="Watchlist page"
+          >
+            <Star className="h-3.5 w-3.5" />
+            Watchlist
+          </Link>
+          <Link
             href="/methodology"
             className="text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent"
             aria-label="Methodology page"
           >
             Methodology
           </Link>
-          <ThemeToggle />
         </nav>
 
         {/* Mobile: Search + Menu Button */}
@@ -124,15 +122,20 @@ export function Navigation() {
               Compare
             </Link>
             <Link
+              href="/watchlist"
+              className="block text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent hover:bg-accent/10 py-3 px-2 rounded-md min-h-[44px] flex items-center gap-2"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              <Star className="h-4 w-4" />
+              Watchlist
+            </Link>
+            <Link
               href="/methodology"
               className="block text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent hover:bg-accent/10 py-3 px-2 rounded-md min-h-[44px] flex items-center"
               onClick={() => setMobileMenuOpen(false)}
             >
               Methodology
             </Link>
-            <div className="pt-2 border-t">
-              <ThemeToggle />
-            </div>
           </nav>
         </div>
       )}
