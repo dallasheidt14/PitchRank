@@ -36,7 +36,7 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
         return
 
     # Use moderate batch size to avoid statement timeouts
-    batch_size = 500
+    batch_size = 1000
     total_updated = 0
     failed_count = 0
 
