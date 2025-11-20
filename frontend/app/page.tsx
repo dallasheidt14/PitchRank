@@ -95,8 +95,8 @@ export default async function Home() {
   let totalTeams = 0;
   try {
     const stats = await api.getDbStats();
-    totalGames = stats.total_games;
-    totalTeams = stats.total_teams;
+    totalGames = stats.totalGames;
+    totalTeams = stats.totalTeams;
   } catch (error) {
     console.error('Error fetching db stats:', error);
     // Fall back to estimates if fetch fails
