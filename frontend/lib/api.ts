@@ -623,38 +623,6 @@ export const api = {
   },
 
   /**
-   * Get database statistics: total games and total ranked teams
-   * @returns Object with total_games and total_teams counts
-   */
-  async getDbStats(): Promise<{ total_games: number; total_teams: number }> {
-    // Query total games count from games table
-    const { count: gamesCount, error: gamesError } = await supabase
-      .from('games')
-      .select('*', { count: 'exact', head: true });
-
-    if (gamesError) {
-      console.error('[api.getDbStats] Error fetching games count:', gamesError);
-      throw gamesError;
-    }
-
-    // Query total active ranked teams count from rankings_view
-    const { count: teamsCount, error: teamsError } = await supabase
-      .from('rankings_view')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'Active');
-
-    if (teamsError) {
-      console.error('[api.getDbStats] Error fetching teams count:', teamsError);
-      throw teamsError;
-    }
-
-    return {
-      total_games: gamesCount || 0,
-      total_teams: teamsCount || 0,
-    };
-  },
-
-  /**
    * Get rankings for multiple teams by their team_id_master UUIDs
    * @param teamIds - Array of team_id_master UUIDs
    * @returns Map of team_id_master to ranking data
