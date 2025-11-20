@@ -66,10 +66,11 @@ async function prefetchRankingsData() {
       totalGames = gamesCount || 0;
     }
 
-    // Query total ranked teams count
+    // Query total ranked teams count (from rankings_full where power_score exists)
     const { count: teamsCount, error: teamsError } = await supabase
-      .from('rankings_view')
-      .select('*', { count: 'exact', head: true });
+      .from('rankings_full')
+      .select('*', { count: 'exact', head: true })
+      .not('power_score_final', 'is', null);
 
     if (teamsError) {
       console.error('Error fetching teams count:', teamsError);
