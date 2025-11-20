@@ -323,6 +323,7 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
     const duration = 1000; // 1 second animation
     const startTime = Date.now();
     const startScore = animatedScore;
+    let animationId: number | null = null;
 
     const animate = () => {
       const elapsed = Date.now() - startTime;
@@ -334,18 +335,25 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
       setAnimatedScore(currentScore);
 
       if (progress < 1) {
-        requestAnimationFrame(animate);
+        animationId = requestAnimationFrame(animate);
       } else {
         setAnimatedScore(targetScore);
       }
     };
 
     // Only start animation if target score is different
-    if (Math.abs(targetScore - animatedScore) > 0.1) {
-      requestAnimationFrame(animate);
+    if (Math.abs(targetScore - startScore) > 0.1) {
+      animationId = requestAnimationFrame(animate);
     } else {
       setAnimatedScore(targetScore);
     }
+
+    // Cleanup animation on unmount or when effect re-runs
+    return () => {
+      if (animationId !== null) {
+        cancelAnimationFrame(animationId);
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [momentumData?.score]);
 

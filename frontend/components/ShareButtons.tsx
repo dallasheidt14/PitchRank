@@ -2,7 +2,7 @@
 
 import { Twitter, Facebook, Link as LinkIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 interface ShareButtonsProps {
   /**
@@ -34,6 +34,16 @@ export function ShareButtons({
   variant = 'default',
 }: ShareButtonsProps) {
   const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   // Use current URL if not provided
   const shareUrl = url || (typeof window !== 'undefined' ? window.location.href : '');
@@ -67,7 +77,11 @@ export function ShareButtons({
     try {
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      // Clear any existing timeout
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      timeoutRef.current = setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error('Failed to copy:', err);
     }
