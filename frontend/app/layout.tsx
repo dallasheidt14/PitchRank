@@ -121,33 +121,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en">
       <head>
         {/* Structured Data for SEO */}
         <StructuredData />
 
         {/* Google Analytics */}
         <GoogleAnalytics measurementId={process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID} />
-
-        {/* Prevent Flash of Theme (FOT) by applying theme before React hydration */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                try {
-                  const theme = localStorage.getItem('theme');
-                  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                  const shouldBeDark = theme === 'dark' || (!theme && prefersDark);
-                  if (shouldBeDark) {
-                    document.documentElement.classList.add('dark');
-                  }
-                } catch (e) {
-                  // Graceful degradation if localStorage is unavailable
-                }
-              })();
-            `,
-          }}
-        />
       </head>
       <body
         className={`${oswald.variable} ${dmSans.variable} ${jetbrainsMono.variable} antialiased transition-colors duration-300 ease-in-out flex flex-col min-h-screen`}

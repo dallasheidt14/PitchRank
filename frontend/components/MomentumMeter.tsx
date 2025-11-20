@@ -436,9 +436,9 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
               <p className="text-xs mb-2">Based on last {gamesAnalyzed.length} games, weighted by opponent strength and performance vs. expectations.</p>
               <div className="text-xs space-y-1">
                 <p><strong>Performance Quality Colors:</strong></p>
-                <p className="text-green-600 dark:text-green-400">Green = Dominant win</p>
+                <p className="text-green-600">Green = Dominant win</p>
                 <p className="text-muted-foreground">Gray = Neutral/expected performance</p>
-                <p className="text-red-600 dark:text-red-400">Red = Underperformance (struggle win or bad loss)</p>
+                <p className="text-red-600">Red = Underperformance (struggle win or bad loss)</p>
               </div>
             </TooltipContent>
           </Tooltip>
@@ -471,21 +471,21 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
               let resultColor = 'text-muted-foreground';
               let resultBg = 'bg-muted';
               if (result === 'W') {
-                resultColor = 'text-green-600 dark:text-green-400';
-                resultBg = 'bg-green-100 dark:bg-green-950';
+                resultColor = 'text-green-600';
+                resultBg = 'bg-green-100';
               } else if (result === 'L') {
-                resultColor = 'text-red-600 dark:text-red-400';
-                resultBg = 'bg-red-100 dark:bg-red-950';
+                resultColor = 'text-red-600';
+                resultBg = 'bg-red-100';
               }
 
               // Determine performance quality color
               let performanceColor = 'text-muted-foreground';
               if (gameQuality.qualityType === 'dominant-win') {
-                performanceColor = 'text-green-600 dark:text-green-400 font-semibold'; // Dominant win
+                performanceColor = 'text-green-600 font-semibold'; // Dominant win
               } else if (gameQuality.qualityType === 'quality-win' || gameQuality.qualityType === 'expected-win') {
                 performanceColor = 'text-muted-foreground'; // Neutral/expected performance
               } else if (gameQuality.qualityType === 'struggle-win' || gameQuality.qualityType === 'bad-loss') {
-                performanceColor = 'text-red-600 dark:text-red-400 font-semibold'; // Underperformance
+                performanceColor = 'text-red-600 font-semibold'; // Underperformance
               }
 
               // Quality indicator text

@@ -22,7 +22,7 @@ function highlightMatch(text: string, query: string): React.ReactNode {
     <>
       {parts.map((part, index) => 
         part.toLowerCase() === query.toLowerCase() ? (
-          <mark key={index} className="bg-yellow-200 dark:bg-yellow-900 px-1 rounded">
+          <mark key={index} className="bg-yellow-200 px-1 rounded">
             {part}
           </mark>
         ) : (
