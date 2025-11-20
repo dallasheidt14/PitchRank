@@ -687,10 +687,11 @@ export const api = {
       throw gamesError;
     }
 
-    // Get total ranked teams count from rankings_view
+    // Get total ranked teams count from rankings_full (faster than view)
     const { count: teamsCount, error: teamsError } = await supabase
-      .from('rankings_view')
-      .select('*', { count: 'exact', head: true });
+      .from('rankings_full')
+      .select('*', { count: 'exact', head: true })
+      .not('power_score_final', 'is', null);
 
     if (teamsError) {
       console.error('Error fetching teams count:', teamsError);
