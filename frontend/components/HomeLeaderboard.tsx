@@ -87,6 +87,14 @@ export function HomeLeaderboard() {
                 const rankChange = team.rank_change_7d ?? 0;
                 const isTopThree = index < 3;
 
+                // Determine badge style based on rank
+                const getBadgeClass = (idx: number) => {
+                  if (idx === 0) return 'badge-gold';
+                  if (idx === 1) return 'badge-silver';
+                  if (idx === 2) return 'badge-bronze';
+                  return 'bg-secondary text-secondary-foreground';
+                };
+
                 return (
                   <Link
                     key={team.team_id_master}
@@ -99,11 +107,7 @@ export function HomeLeaderboard() {
                     tabIndex={0}
                   >
                     <div className="flex items-center gap-4 sm:gap-6 flex-1 min-w-0">
-                      <div className={`flex-shrink-0 w-10 sm:w-12 h-10 sm:h-12 rounded-full flex items-center justify-center font-bold text-lg sm:text-xl ${
-                        isTopThree
-                          ? 'bg-accent text-accent-foreground'
-                          : 'bg-secondary text-secondary-foreground'
-                      }`}>
+                      <div className={`flex-shrink-0 w-10 sm:w-12 h-10 sm:h-12 rounded-full flex items-center justify-center font-bold text-lg sm:text-xl ${getBadgeClass(index)}`}>
                         {team.rank_in_cohort_final || '—'}
                       </div>
                       <div className="flex-1 min-w-0">
