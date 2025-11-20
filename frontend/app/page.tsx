@@ -45,47 +45,45 @@ async function prefetchRankingsData() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Prefetch database stats for hero section stats display
-  await queryClient.prefetchQuery({
-    queryKey: ['db-stats'],
-    queryFn: async () => {
-      // Query total games count (only games with valid team IDs and scores)
-      const { count: gamesCount, error: gamesError } = await supabase
-        .from('games')
-        .select('*', { count: 'exact', head: true })
-        .not('home_team_master_id', 'is', null)
-        .not('away_team_master_id', 'is', null)
-        .not('home_score', 'is', null)
-        .not('away_score', 'is', null);
+  // Fetch database stats directly for hero section stats display
+  // Using direct fetch instead of prefetchQuery to properly handle errors
+  let totalGames = 0;
+  let totalTeams = 0;
 
-      if (gamesError) {
-        throw gamesError;
-      }
+  try {
+    // Query total games count (only games with valid team IDs and scores)
+    const { count: gamesCount, error: gamesError } = await supabase
+      .from('games')
+      .select('*', { count: 'exact', head: true })
+      .not('home_team_master_id', 'is', null)
+      .not('away_team_master_id', 'is', null)
+      .not('home_score', 'is', null)
+      .not('away_score', 'is', null);
 
-      // Query total ranked teams count
-      const { count: teamsCount, error: teamsError } = await supabase
-        .from('rankings_view')
-        .select('*', { count: 'exact', head: true });
+    if (gamesError) {
+      console.error('Error fetching games count:', gamesError);
+    } else {
+      totalGames = gamesCount || 0;
+    }
 
-      if (teamsError) {
-        throw teamsError;
-      }
+    // Query total ranked teams count
+    const { count: teamsCount, error: teamsError } = await supabase
+      .from('rankings_view')
+      .select('*', { count: 'exact', head: true });
 
-      return {
-        totalGames: gamesCount || 0,
-        totalTeams: teamsCount || 0,
-      };
-    },
-    staleTime: 60 * 60 * 1000, // 1 hour
-  });
-
-  // Get the prefetched db-stats data from the QueryClient
-  const dbStats = queryClient.getQueryData<{ totalGames: number; totalTeams: number }>(['db-stats']);
+    if (teamsError) {
+      console.error('Error fetching teams count:', teamsError);
+    } else {
+      totalTeams = teamsCount || 0;
+    }
+  } catch (error) {
+    console.error('Error fetching database stats:', error);
+  }
 
   return {
     dehydratedState: dehydrate(queryClient),
-    totalGames: dbStats?.totalGames ?? 0,
-    totalTeams: dbStats?.totalTeams ?? 0,
+    totalGames,
+    totalTeams,
   };
 }
 
