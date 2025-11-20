@@ -49,11 +49,11 @@ export function Footer() {
     <footer className="border-t border-border bg-muted/30 mt-auto">
       <div className="container mx-auto px-4 py-8 md:py-12">
         {/* Main Footer Content */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 md:gap-8 mb-8">
           {/* Brand Column */}
           <div className="md:col-span-2">
             <Link href="/" className="inline-block mb-4">
-              <h3 className="text-xl font-bold">PitchRank</h3>
+              <h3 className="font-display text-xl font-bold uppercase tracking-wide">PitchRank</h3>
             </Link>
             <p className="text-sm text-muted-foreground mb-4 max-w-md">
               Data-powered youth soccer team rankings and performance analytics.
@@ -82,7 +82,7 @@ export function Footer() {
 
           {/* Rankings Links */}
           <div>
-            <h4 className="font-semibold mb-4">Rankings</h4>
+            <h4 className="font-display font-semibold uppercase tracking-wide mb-4">Rankings</h4>
             <ul className="space-y-2">
               {footerLinks.Rankings.map((link) => (
                 <li key={link.name}>
@@ -99,7 +99,7 @@ export function Footer() {
 
           {/* Resources Links */}
           <div>
-            <h4 className="font-semibold mb-4">Resources</h4>
+            <h4 className="font-display font-semibold uppercase tracking-wide mb-4">Resources</h4>
             <ul className="space-y-2">
               {footerLinks.Resources.map((link) => (
                 <li key={link.name}>
