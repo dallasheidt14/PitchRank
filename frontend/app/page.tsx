@@ -1,5 +1,6 @@
 import { HomeLeaderboard } from '@/components/HomeLeaderboard';
 import { RecentMovers } from '@/components/RecentMovers';
+import { HomeStats } from '@/components/HomeStats';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -45,72 +46,18 @@ async function prefetchRankingsData() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Fetch database stats - try RPC first, fallback to direct queries
-  let totalGames = 0;
-  let totalTeams = 0;
-
-  try {
-    // Try RPC function first (most efficient, single DB call)
-    const { data, error } = await supabase.rpc('get_db_stats');
-
-    if (!error && data && data.length > 0) {
-      totalGames = Number(data[0].total_games) || 0;
-      totalTeams = Number(data[0].total_teams) || 0;
-    } else {
-      // Fallback: direct queries if RPC fails (function may not exist yet)
-      if (error) {
-        console.error('RPC get_db_stats failed:', error.message);
-      }
-
-      const [gamesRes, teamsRes] = await Promise.all([
-        supabase.from('games').select('*', { count: 'exact', head: true })
-          .not('home_score', 'is', null),
-        supabase.from('rankings_full').select('*', { count: 'exact', head: true })
-          .not('power_score_final', 'is', null)
-      ]);
-
-      if (!gamesRes.error) totalGames = gamesRes.count || 0;
-      if (!teamsRes.error) totalTeams = teamsRes.count || 0;
-    }
-  } catch (error) {
-    console.error('Error fetching database stats:', error);
-  }
-
-  return {
-    dehydratedState: dehydrate(queryClient),
-    totalGames,
-    totalTeams,
-  };
-}
-
-// Helper function to format numbers with commas (e.g., 16649 -> "16,649")
-function formatStatNumber(num: number): string {
-  return num.toLocaleString('en-US');
+  return dehydrate(queryClient);
 }
 
 export default async function Home() {
-  // Prefetch data on the server and get stats
+  // Prefetch rankings data on the server
   let dehydratedState;
-  let totalGames = 0;
-  let totalTeams = 0;
 
   try {
-    const prefetchResult = await prefetchRankingsData();
-    dehydratedState = prefetchResult.dehydratedState;
-    totalGames = prefetchResult.totalGames;
-    totalTeams = prefetchResult.totalTeams;
+    dehydratedState = await prefetchRankingsData();
   } catch (error) {
     console.error('Error prefetching data:', error);
-    // Create empty dehydrated state on error
     dehydratedState = dehydrate(new QueryClient());
-  }
-
-  // Fall back to estimates if stats are 0 (query failed or returned no data)
-  if (totalGames === 0) {
-    totalGames = 16000;
-  }
-  if (totalTeams === 0) {
-    totalTeams = 2800;
   }
 
   return (
@@ -137,21 +84,8 @@ export default async function Home() {
               Data-driven performance analytics for U10-U18 boys and girls nationwide
             </p>
 
-            {/* Stats Row */}
-            <div className="grid grid-cols-3 gap-4 sm:gap-8 mb-8 max-w-2xl">
-              <div className="text-center">
-                <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">{formatStatNumber(totalGames)}</div>
-                <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">Games Analyzed</div>
-              </div>
-              <div className="text-center">
-                <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">{formatStatNumber(totalTeams)}</div>
-                <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">Teams Ranked</div>
-              </div>
-              <div className="text-center">
-                <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">50</div>
-                <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">States Covered</div>
-              </div>
-            </div>
+            {/* Stats Row - Client component for reliable data fetching */}
+            <HomeStats />
 
             <div className="flex flex-wrap gap-3">
               <Button size="lg" variant="secondary" asChild className="font-semibold uppercase tracking-wide">
