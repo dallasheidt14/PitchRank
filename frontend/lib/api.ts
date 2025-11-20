@@ -699,6 +699,38 @@ export const api = {
 
     return rankingsMap;
   },
+
+  /**
+   * Get database statistics for the homepage
+   * @returns Object with totalGames and totalTeams counts
+   */
+  async getDbStats(): Promise<{ totalGames: number; totalTeams: number }> {
+    // Get total games count
+    const { count: gamesCount, error: gamesError } = await supabase
+      .from('games')
+      .select('*', { count: 'exact', head: true });
+
+    if (gamesError) {
+      console.error('Error fetching games count:', gamesError);
+      throw gamesError;
+    }
+
+    // Get total active teams count from rankings_view
+    const { count: teamsCount, error: teamsError } = await supabase
+      .from('rankings_view')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'Active');
+
+    if (teamsError) {
+      console.error('Error fetching teams count:', teamsError);
+      throw teamsError;
+    }
+
+    return {
+      totalGames: gamesCount || 0,
+      totalTeams: teamsCount || 0,
+    };
+  },
 };
 
 /**

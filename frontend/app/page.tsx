@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { dehydrate, HydrationBoundary, QueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
 import { normalizeAgeGroup } from '@/lib/utils';
+import { api } from '@/lib/api';
 import type { RankingRow } from '@/types/RankingRow';
 
 /**
@@ -80,30 +81,73 @@ async function prefetchRankingsData() {
   return dehydrate(queryClient);
 }
 
+// Helper function to format numbers (e.g., 16649 -> "16.6K+")
+function formatStatNumber(num: number): string {
+  if (num >= 1000) {
+    const formatted = (num / 1000).toFixed(1);
+    // Remove trailing .0
+    const clean = formatted.endsWith('.0') ? formatted.slice(0, -2) : formatted;
+    return `${clean}K+`;
+  }
+  return num.toString();
+}
+
 export default async function Home() {
   // Prefetch data on the server
   const dehydratedState = await prefetchRankingsData();
 
+  // Fetch database stats
+  let totalGames = 0;
+  let totalTeams = 0;
+  try {
+    const stats = await api.getDbStats();
+    totalGames = stats.totalGames;
+    totalTeams = stats.totalTeams;
+  } catch (error) {
+    console.error('Error fetching db stats:', error);
+    // Fall back to estimates if fetch fails
+    totalGames = 16000;
+    totalTeams = 2800;
+  }
+
   return (
     <HydrationBoundary state={dehydratedState}>
       {/* Hero Section - Athletic Editorial Style */}
-      <div className="relative bg-gradient-to-br from-primary via-primary to-[oklch(0.28_0.08_165)] text-primary-foreground py-16 sm:py-24 overflow-hidden">
+      <div className="relative bg-gradient-to-br from-primary via-primary to-[oklch(0.28_0.08_163)] text-primary-foreground py-16 sm:py-24 overflow-hidden">
         {/* Diagonal slash accent */}
         <div className="absolute left-0 top-0 w-3 h-full bg-accent -skew-x-12" aria-hidden="true" />
 
         <div className="container mx-auto px-4 sm:px-6 relative">
           <div className="max-w-4xl">
             <h1 className="font-display text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold uppercase leading-tight mb-4">
-              National Youth
+              America&apos;s{' '}
+              <span className="relative inline-block">
+                <span className="text-accent">Definitive</span>
+                <span className="absolute bottom-0 left-0 w-full h-1 sm:h-1.5 bg-accent" aria-hidden="true" />
+              </span>
               <br />
-              Soccer Rankings
+              Youth Soccer Rankings
             </h1>
-            <p className="text-lg sm:text-xl md:text-2xl font-light tracking-wide mb-6">
-              Powered by V53E Algorithm • Data-Driven Excellence
+            <p className="text-lg sm:text-xl md:text-2xl font-light tracking-wide mb-8">
+              Data-driven performance analytics for U10-U18 boys and girls nationwide
             </p>
-            <div className="mb-6">
-              <DatabaseStats />
+
+            {/* Stats Row */}
+            <div className="grid grid-cols-3 gap-4 sm:gap-8 mb-8 max-w-2xl">
+              <div className="text-center">
+                <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">{formatStatNumber(totalGames)}</div>
+                <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">Games Analyzed</div>
+              </div>
+              <div className="text-center">
+                <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">{formatStatNumber(totalTeams)}</div>
+                <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">Teams Ranked</div>
+              </div>
+              <div className="text-center">
+                <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">50</div>
+                <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">States Covered</div>
+              </div>
             </div>
+
             <div className="flex flex-wrap gap-3">
               <Button size="lg" variant="secondary" asChild className="font-semibold uppercase tracking-wide">
                 <Link href="/rankings">

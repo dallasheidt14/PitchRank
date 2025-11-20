@@ -1,6 +1,5 @@
 'use client';
 
-import { PageHeader } from '@/components/PageHeader';
 import { TeamHeader } from '@/components/TeamHeader';
 import { TeamTrajectoryChart } from '@/components/TeamTrajectoryChart';
 import { GameHistoryTable } from '@/components/GameHistoryTable';
@@ -86,29 +85,36 @@ function BackToRankingsButton() {
 
 export function TeamPageShell({ id }: TeamPageShellProps) {
   return (
-    <div className="container mx-auto py-8 px-4">
-      <Breadcrumbs />
-
-      <PageHeader
-        title="Team Details"
-        description={`View detailed information and statistics`}
-        showBackButton
-        backHref="/"
-      />
-      
-      <BackToRankingsButton />
-      
-      <div className="space-y-6">
-        <TeamHeader teamId={id} />
-        
-        <div className="grid gap-6 md:grid-cols-2">
-          <GameHistoryTable teamId={id} />
-          <LazyMomentumMeter teamId={id} />
+    <>
+      {/* Page Header - Athletic Editorial Style */}
+      <div className="relative bg-secondary/30 border-b-2 border-primary py-8 sm:py-12">
+        <div className="absolute left-0 top-0 w-2 h-full bg-accent -skew-x-12" aria-hidden="true" />
+        <div className="container mx-auto px-4">
+          <Breadcrumbs />
+          <h1 className="font-display text-3xl sm:text-4xl md:text-5xl font-bold uppercase text-primary mb-2">
+            Team Details
+          </h1>
+          <p className="text-muted-foreground text-base sm:text-lg">
+            View rankings, trajectory, momentum, and full match history
+          </p>
         </div>
-        
-        <LazyTeamTrajectoryChart teamId={id} />
       </div>
-    </div>
+
+      <div className="container mx-auto py-6 sm:py-8 px-4">
+        <BackToRankingsButton />
+
+        <div className="space-y-6">
+          <TeamHeader teamId={id} />
+
+          <div className="grid gap-6 md:grid-cols-2">
+            <GameHistoryTable teamId={id} />
+            <LazyMomentumMeter teamId={id} />
+          </div>
+
+          <LazyTeamTrajectoryChart teamId={id} />
+        </div>
+      </div>
+    </>
   );
 }
 

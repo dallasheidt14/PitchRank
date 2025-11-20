@@ -48,72 +48,72 @@
   --radius: 0.625rem;
   /* Athletic Editorial Color Palette */
   /* Forest Green: #0B5345, Dark Green: #052E27, Electric Yellow: #F4D03F, White: #FDFEFE */
-  --background: oklch(0.99 0 0); /* Bright white */
-  --foreground: oklch(0.17 0.04 165); /* Dark green #052E27 */
+  --background: oklch(0.995 0 0); /* Pure white */
+  --foreground: oklch(0.22 0.05 163); /* Dark green #052E27 */
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.17 0.04 165);
+  --card-foreground: oklch(0.22 0.05 163);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.17 0.04 165);
-  --primary: oklch(0.32 0.08 165); /* Forest green #0B5345 */
-  --primary-foreground: oklch(0.99 0 0); /* White */
-  --secondary: oklch(0.95 0.01 165); /* Light green tint */
-  --secondary-foreground: oklch(0.17 0.04 165);
-  --muted: oklch(0.96 0.005 165);
-  --muted-foreground: oklch(0.45 0.04 165);
-  --accent: oklch(0.85 0.15 95); /* Electric yellow #F4D03F */
-  --accent-foreground: oklch(0.17 0.04 165); /* Dark green text on yellow */
+  --popover-foreground: oklch(0.22 0.05 163);
+  --primary: oklch(0.38 0.1 163); /* Forest green #0B5345 - more saturated */
+  --primary-foreground: oklch(0.995 0 0); /* White */
+  --secondary: oklch(0.96 0.02 163); /* Light green tint */
+  --secondary-foreground: oklch(0.22 0.05 163);
+  --muted: oklch(0.97 0.01 163);
+  --muted-foreground: oklch(0.5 0.04 163);
+  --accent: oklch(0.88 0.18 90); /* Electric yellow #F4D03F - more vibrant */
+  --accent-foreground: oklch(0.22 0.05 163); /* Dark green text on yellow */
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.9 0.01 165);
-  --input: oklch(0.9 0.01 165);
-  --ring: oklch(0.32 0.08 165); /* Forest green */
-  --chart-1: oklch(0.32 0.08 165); /* Forest green */
-  --chart-2: oklch(0.85 0.15 95); /* Electric yellow */
-  --chart-3: oklch(0.45 0.06 165); /* Mid green */
-  --chart-4: oklch(0.6 0.12 80); /* Yellow-green */
-  --chart-5: oklch(0.25 0.06 165); /* Deep green */
-  --sidebar: oklch(0.99 0 0);
-  --sidebar-foreground: oklch(0.17 0.04 165);
-  --sidebar-primary: oklch(0.32 0.08 165);
-  --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.95 0.01 165);
-  --sidebar-accent-foreground: oklch(0.17 0.04 165);
-  --sidebar-border: oklch(0.9 0.01 165);
-  --sidebar-ring: oklch(0.32 0.08 165);
+  --border: oklch(0.92 0.015 163);
+  --input: oklch(0.92 0.015 163);
+  --ring: oklch(0.38 0.1 163); /* Forest green */
+  --chart-1: oklch(0.38 0.1 163); /* Forest green */
+  --chart-2: oklch(0.88 0.18 90); /* Electric yellow */
+  --chart-3: oklch(0.5 0.08 163); /* Mid green */
+  --chart-4: oklch(0.65 0.14 85); /* Yellow-green */
+  --chart-5: oklch(0.3 0.07 163); /* Deep green */
+  --sidebar: oklch(0.995 0 0);
+  --sidebar-foreground: oklch(0.22 0.05 163);
+  --sidebar-primary: oklch(0.38 0.1 163);
+  --sidebar-primary-foreground: oklch(0.995 0 0);
+  --sidebar-accent: oklch(0.96 0.02 163);
+  --sidebar-accent-foreground: oklch(0.22 0.05 163);
+  --sidebar-border: oklch(0.92 0.015 163);
+  --sidebar-ring: oklch(0.38 0.1 163);
 }
 
 .dark {
   /* Dark mode: Dark green background with electric yellow accents */
-  --background: oklch(0.17 0.04 165); /* Dark green #052E27 */
-  --foreground: oklch(0.99 0 0); /* White */
-  --card: oklch(0.22 0.04 165); /* Slightly lighter dark green */
-  --card-foreground: oklch(0.99 0 0);
-  --popover: oklch(0.22 0.04 165);
-  --popover-foreground: oklch(0.99 0 0);
-  --primary: oklch(0.85 0.15 95); /* Electric yellow #F4D03F */
-  --primary-foreground: oklch(0.17 0.04 165); /* Dark green */
-  --secondary: oklch(0.28 0.04 165); /* Medium dark green */
-  --secondary-foreground: oklch(0.99 0 0);
-  --muted: oklch(0.25 0.04 165);
-  --muted-foreground: oklch(0.7 0.02 165);
-  --accent: oklch(0.85 0.15 95); /* Electric yellow */
-  --accent-foreground: oklch(0.17 0.04 165);
+  --background: oklch(0.22 0.05 163); /* Dark green #052E27 */
+  --foreground: oklch(0.995 0 0); /* White */
+  --card: oklch(0.28 0.05 163); /* Slightly lighter dark green */
+  --card-foreground: oklch(0.995 0 0);
+  --popover: oklch(0.28 0.05 163);
+  --popover-foreground: oklch(0.995 0 0);
+  --primary: oklch(0.88 0.18 90); /* Electric yellow #F4D03F */
+  --primary-foreground: oklch(0.22 0.05 163); /* Dark green */
+  --secondary: oklch(0.32 0.05 163); /* Medium dark green */
+  --secondary-foreground: oklch(0.995 0 0);
+  --muted: oklch(0.3 0.05 163);
+  --muted-foreground: oklch(0.75 0.02 163);
+  --accent: oklch(0.88 0.18 90); /* Electric yellow */
+  --accent-foreground: oklch(0.22 0.05 163);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.85 0.15 95); /* Electric yellow ring */
-  --chart-1: oklch(0.85 0.15 95); /* Electric yellow */
-  --chart-2: oklch(0.32 0.08 165); /* Forest green */
-  --chart-3: oklch(0.6 0.12 80); /* Yellow-green */
-  --chart-4: oklch(0.45 0.06 165); /* Mid green */
-  --chart-5: oklch(0.75 0.12 90); /* Light yellow */
-  --sidebar: oklch(0.22 0.04 165);
-  --sidebar-foreground: oklch(0.99 0 0);
-  --sidebar-primary: oklch(0.85 0.15 95);
-  --sidebar-primary-foreground: oklch(0.17 0.04 165);
-  --sidebar-accent: oklch(0.28 0.04 165);
-  --sidebar-accent-foreground: oklch(0.99 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.85 0.15 95);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 18%);
+  --ring: oklch(0.88 0.18 90); /* Electric yellow ring */
+  --chart-1: oklch(0.88 0.18 90); /* Electric yellow */
+  --chart-2: oklch(0.38 0.1 163); /* Forest green */
+  --chart-3: oklch(0.65 0.14 85); /* Yellow-green */
+  --chart-4: oklch(0.5 0.08 163); /* Mid green */
+  --chart-5: oklch(0.8 0.14 88); /* Light yellow */
+  --sidebar: oklch(0.28 0.05 163);
+  --sidebar-foreground: oklch(0.995 0 0);
+  --sidebar-primary: oklch(0.88 0.18 90);
+  --sidebar-primary-foreground: oklch(0.22 0.05 163);
+  --sidebar-accent: oklch(0.32 0.05 163);
+  --sidebar-accent-foreground: oklch(0.995 0 0);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.88 0.18 90);
 }
 
 @layer base {
@@ -170,8 +170,8 @@
   /* Athletic Editorial Typography */
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-oswald), sans-serif;
-    font-weight: 600;
-    letter-spacing: 0.02em;
+    font-weight: 700;
+    letter-spacing: 0.025em;
     text-transform: uppercase;
   }
 }
