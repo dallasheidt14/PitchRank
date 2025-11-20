@@ -152,9 +152,24 @@
     text-size-adjust: 100%;
   }
   body {
-    @apply bg-background text-foreground transition-colors duration-300 ease-in-out;
+    @apply bg-background text-foreground transition-colors duration-300 ease-in-out leading-relaxed;
     /* Better touch scrolling on iOS */
     -webkit-overflow-scrolling: touch;
+  }
+
+  /* Tabular numbers for better alignment in tables and stats */
+  .font-mono, [class*="tabular-nums"] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Reduced motion support for accessibility */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
   main {
     @apply transition-colors duration-300 ease-in-out;
@@ -196,5 +211,46 @@
     font-weight: 700;
     letter-spacing: 0.025em;
     text-transform: uppercase;
+  }
+}
+
+/* Athletic Editorial Utility Classes */
+@layer utilities {
+  /* Gradient text effect */
+  .text-gradient-athletic {
+    background: linear-gradient(135deg, var(--primary-foreground) 0%, var(--accent) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Diagonal stripe pattern for hero backgrounds */
+  .bg-diagonal-stripes {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      transparent,
+      transparent 10px,
+      oklch(0 0 0 / 8%) 10px,
+      oklch(0 0 0 / 8%) 20px
+    );
+  }
+
+  /* Medal/rank badge colors */
+  .badge-gold {
+    background: linear-gradient(135deg, oklch(0.85 0.15 85) 0%, oklch(0.75 0.12 70) 100%);
+    color: oklch(0.25 0.05 70);
+    box-shadow: 0 2px 8px oklch(0.85 0.15 85 / 40%);
+  }
+
+  .badge-silver {
+    background: linear-gradient(135deg, oklch(0.85 0.02 0) 0%, oklch(0.7 0.02 0) 100%);
+    color: oklch(0.25 0.02 0);
+    box-shadow: 0 2px 8px oklch(0.7 0.02 0 / 40%);
+  }
+
+  .badge-bronze {
+    background: linear-gradient(135deg, oklch(0.7 0.1 50) 0%, oklch(0.55 0.08 40) 100%);
+    color: oklch(0.25 0.05 40);
+    box-shadow: 0 2px 8px oklch(0.65 0.1 50 / 40%);
   }
 }

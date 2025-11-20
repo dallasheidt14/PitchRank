@@ -114,19 +114,21 @@ export default async function Home() {
     <HydrationBoundary state={dehydratedState}>
       {/* Hero Section - Athletic Editorial Style */}
       <div className="relative bg-gradient-to-br from-primary via-primary to-[oklch(0.28_0.08_163)] text-primary-foreground py-16 sm:py-24 overflow-hidden">
+        {/* Diagonal stripe pattern overlay */}
+        <div className="absolute inset-0 bg-diagonal-stripes opacity-50" aria-hidden="true" />
         {/* Diagonal slash accent */}
         <div className="absolute left-0 top-0 w-3 h-full bg-accent -skew-x-12" aria-hidden="true" />
 
         <div className="container mx-auto px-4 sm:px-6 relative">
           <div className="max-w-4xl">
             <h1 className="font-display text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold uppercase leading-tight mb-4">
-              America&apos;s{' '}
+              <span className="text-gradient-athletic">America&apos;s</span>{' '}
               <span className="relative inline-block">
                 <span className="text-accent">Definitive</span>
                 <span className="absolute bottom-0 left-0 w-full h-1 sm:h-1.5 bg-accent" aria-hidden="true" />
               </span>
               <br />
-              Youth Soccer Rankings
+              <span className="text-gradient-athletic">Youth Soccer Rankings</span>
             </h1>
             <p className="text-lg sm:text-xl md:text-2xl font-light tracking-wide mb-8">
               Data-driven performance analytics for U10-U18 boys and girls nationwide
