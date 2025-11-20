@@ -49,20 +49,23 @@ async function prefetchRankingsData() {
   await queryClient.prefetchQuery({
     queryKey: ['db-stats'],
     queryFn: async () => {
-      // Query total games count
+      // Query total games count (only games with valid team IDs and scores)
       const { count: gamesCount, error: gamesError } = await supabase
         .from('games')
-        .select('*', { count: 'exact', head: true });
+        .select('*', { count: 'exact', head: true })
+        .not('home_team_master_id', 'is', null)
+        .not('away_team_master_id', 'is', null)
+        .not('home_score', 'is', null)
+        .not('away_score', 'is', null);
 
       if (gamesError) {
         throw gamesError;
       }
 
-      // Query total active ranked teams count
+      // Query total ranked teams count
       const { count: teamsCount, error: teamsError } = await supabase
         .from('rankings_view')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'Active');
+        .select('*', { count: 'exact', head: true });
 
       if (teamsError) {
         throw teamsError;
