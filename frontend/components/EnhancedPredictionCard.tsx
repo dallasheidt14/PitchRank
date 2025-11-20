@@ -126,7 +126,7 @@ export function EnhancedPredictionCard({
           <div className="space-y-2">
             {/* Team A */}
             <div className="flex items-center gap-2">
-              <span className="text-sm w-32 truncate">{teamAName}</span>
+              <span className="text-sm w-20 sm:w-32 truncate">{teamAName}</span>
               <div className="flex-1 h-6 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                 <div
                   className={`h-full ${teamAFavored ? 'bg-green-500' : 'bg-blue-400'} transition-all duration-300`}
@@ -139,7 +139,7 @@ export function EnhancedPredictionCard({
             </div>
             {/* Team B */}
             <div className="flex items-center gap-2">
-              <span className="text-sm w-32 truncate">{teamBName}</span>
+              <span className="text-sm w-20 sm:w-32 truncate">{teamBName}</span>
               <div className="flex-1 h-6 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                 <div
                   className={`h-full ${teamBFavored ? 'bg-green-500' : 'bg-blue-400'} transition-all duration-300`}

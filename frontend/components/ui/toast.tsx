@@ -51,14 +51,14 @@ const Toast = React.forwardRef<HTMLDivElement, ToastProps & { className?: string
           )}
         </div>
         <button
-          className={cn('absolute right-2 top-2 rounded-md p-1 opacity-0 transition-opacity hover:opacity-100 focus:opacity-100 focus:outline-none group-hover:opacity-100', {
+          className={cn('absolute right-2 top-2 rounded-md p-2 min-w-[44px] min-h-[44px] flex items-center justify-center opacity-0 transition-opacity hover:opacity-100 focus:opacity-100 focus:outline-none group-hover:opacity-100', {
             'text-green-600 dark:text-green-400': variant === 'success',
             'text-red-600 dark:text-red-400': variant === 'error',
             'text-yellow-600 dark:text-yellow-400': variant === 'warning',
           })}
           onClick={onClose}
         >
-          <X className="h-4 w-4" />
+          <X className="h-5 w-5" />
         </button>
       </div>
     );
