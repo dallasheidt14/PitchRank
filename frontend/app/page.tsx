@@ -81,15 +81,9 @@ async function prefetchRankingsData() {
   return dehydrate(queryClient);
 }
 
-// Helper function to format numbers (e.g., 16649 -> "16.6K+")
+// Helper function to format numbers with commas (e.g., 16649 -> "16,649")
 function formatStatNumber(num: number): string {
-  if (num >= 1000) {
-    const formatted = (num / 1000).toFixed(1);
-    // Remove trailing .0
-    const clean = formatted.endsWith('.0') ? formatted.slice(0, -2) : formatted;
-    return `${clean}K+`;
-  }
-  return num.toString();
+  return num.toLocaleString('en-US');
 }
 
 export default async function Home() {
