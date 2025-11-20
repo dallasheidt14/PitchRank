@@ -45,18 +45,32 @@ async function prefetchRankingsData() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Fetch database stats using RPC function for better performance
+  // Fetch database stats - try RPC first, fallback to direct queries
   let totalGames = 0;
   let totalTeams = 0;
 
   try {
+    // Try RPC function first (most efficient, single DB call)
     const { data, error } = await supabase.rpc('get_db_stats');
 
-    if (error) {
-      console.error('Error fetching db stats:', error);
-    } else if (data && data.length > 0) {
-      totalGames = data[0].total_games || 0;
-      totalTeams = data[0].total_teams || 0;
+    if (!error && data && data.length > 0) {
+      totalGames = Number(data[0].total_games) || 0;
+      totalTeams = Number(data[0].total_teams) || 0;
+    } else {
+      // Fallback: direct queries if RPC fails (function may not exist yet)
+      if (error) {
+        console.error('RPC get_db_stats failed:', error.message);
+      }
+
+      const [gamesRes, teamsRes] = await Promise.all([
+        supabase.from('games').select('*', { count: 'exact', head: true })
+          .not('home_score', 'is', null),
+        supabase.from('rankings_full').select('*', { count: 'exact', head: true })
+          .not('power_score_final', 'is', null)
+      ]);
+
+      if (!gamesRes.error) totalGames = gamesRes.count || 0;
+      if (!teamsRes.error) totalTeams = teamsRes.count || 0;
     }
   } catch (error) {
     console.error('Error fetching database stats:', error);
