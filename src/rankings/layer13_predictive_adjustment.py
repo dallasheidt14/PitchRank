@@ -126,9 +126,9 @@ def _extract_game_residuals(feats: pd.DataFrame, games_df: pd.DataFrame, cfg: La
         return pd.DataFrame(columns=['game_id', 'ml_overperformance'])
 
     # Filter to home team perspective only (where team_id == home_team_master_id)
-    # Convert to string for comparison to handle UUID/string mismatches
-    feats['team_id_str'] = feats['team_id'].astype(str)
-    feats['home_team_master_id_str'] = feats['home_team_master_id'].astype(str)
+    # Convert to string and normalize for comparison to handle UUID/string mismatches
+    feats['team_id_str'] = feats['team_id'].astype(str).str.strip().str.lower()
+    feats['home_team_master_id_str'] = feats['home_team_master_id'].astype(str).str.strip().str.lower()
     home_perspective = feats[feats['team_id_str'] == feats['home_team_master_id_str']].copy()
     logger.info(f"[DEBUG _extract_game_residuals] Home perspective after filter: {len(home_perspective)} rows")
     
