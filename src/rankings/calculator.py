@@ -35,8 +35,6 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
     if game_residuals.empty:
         return
 
-    import json
-
     # Use larger batch size for RPC calls (Postgres can handle big batches)
     batch_size = 5000
     total_updated = 0
@@ -45,7 +43,7 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
     for i in range(0, len(game_residuals), batch_size):
         batch = game_residuals.iloc[i:i+batch_size]
 
-        # Prepare batch data as JSON for RPC
+        # Prepare batch data for RPC (Supabase client handles JSON conversion)
         batch_data = [
             {
                 'id': str(row['game_id']),
@@ -58,7 +56,7 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
             # Call RPC function for batch update
             result = supabase_client.rpc(
                 'batch_update_ml_overperformance',
-                {'updates': json.dumps(batch_data)}
+                {'updates': batch_data}  # Pass list directly, not JSON string
             ).execute()
 
             # RPC returns the count of updated rows
