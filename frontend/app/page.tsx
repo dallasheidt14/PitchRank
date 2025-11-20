@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { dehydrate, HydrationBoundary, QueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
 import { normalizeAgeGroup } from '@/lib/utils';
+import { api } from '@/lib/api';
 import type { RankingRow } from '@/types/RankingRow';
 
 /**
@@ -48,9 +49,34 @@ async function prefetchRankingsData() {
   return dehydrate(queryClient);
 }
 
+// Helper function to format numbers (e.g., 16649 -> "16.6K+")
+function formatStatNumber(num: number): string {
+  if (num >= 1000) {
+    const formatted = (num / 1000).toFixed(1);
+    // Remove trailing .0
+    const clean = formatted.endsWith('.0') ? formatted.slice(0, -2) : formatted;
+    return `${clean}K+`;
+  }
+  return num.toString();
+}
+
 export default async function Home() {
   // Prefetch data on the server
   const dehydratedState = await prefetchRankingsData();
+
+  // Fetch database stats
+  let totalGames = 0;
+  let totalTeams = 0;
+  try {
+    const stats = await api.getDbStats();
+    totalGames = stats.totalGames;
+    totalTeams = stats.totalTeams;
+  } catch (error) {
+    console.error('Error fetching db stats:', error);
+    // Fall back to estimates if fetch fails
+    totalGames = 16000;
+    totalTeams = 2800;
+  }
 
   return (
     <HydrationBoundary state={dehydratedState}>
@@ -77,11 +103,11 @@ export default async function Home() {
             {/* Stats Row */}
             <div className="grid grid-cols-3 gap-4 sm:gap-8 mb-8 max-w-2xl">
               <div className="text-center">
-                <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">16K+</div>
+                <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">{formatStatNumber(totalGames)}</div>
                 <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">Games Analyzed</div>
               </div>
               <div className="text-center">
-                <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">2.8K+</div>
+                <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">{formatStatNumber(totalTeams)}</div>
                 <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">Teams Ranked</div>
               </div>
               <div className="text-center">
