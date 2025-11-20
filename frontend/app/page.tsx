@@ -115,14 +115,14 @@ export default async function Home() {
 
         <div className="container mx-auto px-4 sm:px-6 relative">
           <div className="max-w-4xl">
-            <h1 className="font-display text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold uppercase leading-tight mb-4">
-              <span className="text-gradient-athletic">America&apos;s</span>{' '}
+            <h1 className="font-display text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold uppercase leading-tight mb-4 text-white">
+              America&apos;s{' '}
               <span className="relative inline-block">
                 <span className="text-accent">Definitive</span>
                 <span className="absolute bottom-0 left-0 w-full h-1 sm:h-1.5 bg-accent" aria-hidden="true" />
               </span>
               <br />
-              <span className="text-gradient-athletic">Youth Soccer Rankings</span>
+              Youth Soccer Rankings
             </h1>
             <p className="text-lg sm:text-xl md:text-2xl font-light tracking-wide mb-8">
               Data-driven performance analytics for U10-U18 boys and girls nationwide
