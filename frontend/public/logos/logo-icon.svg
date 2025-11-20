@@ -3,7 +3,7 @@
   <rect width="512" height="512" rx="80" fill="#052E27"/>
 
   <!-- PR Text -->
-  <text x="256" y="330" font-family="Oswald, sans-serif" font-weight="800" font-size="220" fill="#F4D03F" text-anchor="middle" letter-spacing="-10">PR</text>
+  <text x="256" y="330" font-family="Oswald, sans-serif" font-weight="700" font-size="220" fill="#F4D03F" text-anchor="middle" letter-spacing="-10">PR</text>
 
   <!-- Diagonal slash accent -->
   <rect x="100" y="420" width="312" height="20" fill="#F4D03F" transform="skewX(-10)"/>

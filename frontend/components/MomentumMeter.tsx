@@ -471,10 +471,10 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
               let resultColor = 'text-muted-foreground';
               let resultBg = 'bg-muted';
               if (result === 'W') {
-                resultColor = 'text-green-700 dark:text-green-400';
+                resultColor = 'text-green-600 dark:text-green-400';
                 resultBg = 'bg-green-100 dark:bg-green-950';
               } else if (result === 'L') {
-                resultColor = 'text-red-700 dark:text-red-400';
+                resultColor = 'text-red-600 dark:text-red-400';
                 resultBg = 'bg-red-100 dark:bg-red-950';
               }
 

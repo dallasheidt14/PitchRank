@@ -204,14 +204,14 @@ export function GlobalSearch() {
                   <button
                     key={team.team_id_master}
                     onClick={() => handleSelect(team)}
-                    className={`w-full text-left p-3 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary ${
+                    className={`w-full text-left p-3 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary min-h-[44px] ${
                       index === selectedIndex
                         ? 'bg-accent font-semibold'
                         : 'hover:bg-accent/50'
                     }`}
                     aria-label={`Select ${team.team_name}`}
                   >
-                    <div className="font-medium">
+                    <div className="font-medium truncate">
                       {highlightMatch(team.team_name, searchQuery)}
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">

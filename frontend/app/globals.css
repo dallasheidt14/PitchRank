@@ -22,6 +22,13 @@
   --color-chart-3: var(--chart-3);
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
+  --color-win: var(--color-win);
+  --color-win-muted: var(--color-win-muted);
+  --color-loss: var(--color-loss);
+  --color-loss-muted: var(--color-loss-muted);
+  --color-draw: var(--color-draw);
+  --color-draw-muted: var(--color-draw-muted);
+  --color-neutral: var(--color-neutral);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -71,6 +78,14 @@
   --chart-3: oklch(0.5 0.08 163); /* Mid green */
   --chart-4: oklch(0.65 0.14 85); /* Yellow-green */
   --chart-5: oklch(0.3 0.07 163); /* Deep green */
+  /* Semantic colors for win/loss/draw indicators */
+  --color-win: oklch(0.6 0.18 145); /* Green for wins */
+  --color-win-muted: oklch(0.6 0.18 145 / 30%);
+  --color-loss: oklch(0.55 0.22 27); /* Red for losses */
+  --color-loss-muted: oklch(0.55 0.22 27 / 30%);
+  --color-draw: oklch(0.7 0.15 85); /* Yellow for draws */
+  --color-draw-muted: oklch(0.7 0.15 85 / 30%);
+  --color-neutral: oklch(0.5 0.02 0); /* Gray for neutral */
   --sidebar: oklch(0.995 0 0);
   --sidebar-foreground: oklch(0.22 0.05 163);
   --sidebar-primary: oklch(0.38 0.1 163);
@@ -106,6 +121,14 @@
   --chart-3: oklch(0.65 0.14 85); /* Yellow-green */
   --chart-4: oklch(0.5 0.08 163); /* Mid green */
   --chart-5: oklch(0.8 0.14 88); /* Light yellow */
+  /* Semantic colors for win/loss/draw indicators (dark mode - brighter) */
+  --color-win: oklch(0.7 0.18 145);
+  --color-win-muted: oklch(0.7 0.18 145 / 30%);
+  --color-loss: oklch(0.65 0.2 27);
+  --color-loss-muted: oklch(0.65 0.2 27 / 30%);
+  --color-draw: oklch(0.75 0.15 85);
+  --color-draw-muted: oklch(0.75 0.15 85 / 30%);
+  --color-neutral: oklch(0.6 0.02 0);
   --sidebar: oklch(0.28 0.05 163);
   --sidebar-foreground: oklch(0.995 0 0);
   --sidebar-primary: oklch(0.88 0.18 90);

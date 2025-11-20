@@ -163,7 +163,7 @@ export default async function Home() {
 
       {/* Main Content */}
       <div className="container mx-auto py-8 sm:py-12 px-4 sm:px-6">
-        <div className="grid gap-6 lg:grid-cols-3">
+        <div className="grid gap-4 sm:gap-6 lg:grid-cols-3">
           {/* Main Column - Leaderboard (takes 2 columns) */}
           <div className="lg:col-span-2">
             <HomeLeaderboard />

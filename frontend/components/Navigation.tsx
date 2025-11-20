@@ -101,31 +101,31 @@ export function Navigation() {
       {/* Mobile Menu */}
       {mobileMenuOpen && (
         <div className="lg:hidden border-t bg-background">
-          <nav className="container px-4 py-4 space-y-3">
+          <nav className="container px-4 py-4 space-y-1">
             <Link
               href="/"
-              className="block text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent py-2"
+              className="block text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent hover:bg-accent/10 py-3 px-2 rounded-md min-h-[44px] flex items-center"
               onClick={() => setMobileMenuOpen(false)}
             >
               Home
             </Link>
             <Link
               href="/rankings"
-              className="block text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent py-2"
+              className="block text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent hover:bg-accent/10 py-3 px-2 rounded-md min-h-[44px] flex items-center"
               onClick={() => setMobileMenuOpen(false)}
             >
               Rankings
             </Link>
             <Link
               href="/compare"
-              className="block text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent py-2"
+              className="block text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent hover:bg-accent/10 py-3 px-2 rounded-md min-h-[44px] flex items-center"
               onClick={() => setMobileMenuOpen(false)}
             >
               Compare
             </Link>
             <Link
               href="/methodology"
-              className="block text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent py-2"
+              className="block text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent hover:bg-accent/10 py-3 px-2 rounded-md min-h-[44px] flex items-center"
               onClick={() => setMobileMenuOpen(false)}
             >
               Methodology

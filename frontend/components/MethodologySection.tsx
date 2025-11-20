@@ -19,21 +19,21 @@ export function MethodologySection() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <h3 className="text-lg font-semibold mb-2">Power Score Calculation</h3>
+            <h3 className="font-display text-lg font-semibold uppercase tracking-wide mb-2">Power Score Calculation</h3>
             <p className="text-muted-foreground">
               Our power score algorithm considers multiple factors including win percentage, 
               strength of schedule, goals for/against, and recent performance trends.
             </p>
           </div>
           <div>
-            <h3 className="text-lg font-semibold mb-2">Data Sources</h3>
+            <h3 className="font-display text-lg font-semibold uppercase tracking-wide mb-2">Data Sources</h3>
             <p className="text-muted-foreground">
               Rankings are calculated from verified game results across multiple youth soccer 
               leagues and competitions. Data is updated weekly.
             </p>
           </div>
           <div>
-            <h3 className="text-lg font-semibold mb-2">Age Groups & Regions</h3>
+            <h3 className="font-display text-lg font-semibold uppercase tracking-wide mb-2">Age Groups & Regions</h3>
             <p className="text-muted-foreground">
               Teams are ranked within their specific age group (U10, U11, etc.) and gender. 
               Regional rankings are available for state-level comparisons.
