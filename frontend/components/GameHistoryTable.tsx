@@ -80,8 +80,8 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
    */
   const scoreColor = useCallback((ml_overperformance: number | null): string => {
     if (ml_overperformance !== null && ml_overperformance !== undefined) {
-      if (ml_overperformance >= 2) return "text-green-600 dark:text-green-400 font-bold";
-      if (ml_overperformance <= -2) return "text-red-600 dark:text-red-400 font-bold";
+      if (ml_overperformance >= 2) return "text-green-600 font-bold";
+      if (ml_overperformance <= -2) return "text-red-600 font-bold";
     }
     return ""; // no color for neutral performance
   }, []);

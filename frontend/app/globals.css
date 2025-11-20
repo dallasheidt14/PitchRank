@@ -1,8 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
-
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -96,49 +94,6 @@
   --sidebar-ring: oklch(0.38 0.1 163);
 }
 
-.dark {
-  /* Dark mode: Dark green background with electric yellow accents */
-  --background: oklch(0.22 0.05 163); /* Dark green #052E27 */
-  --foreground: oklch(0.995 0 0); /* White */
-  --card: oklch(0.28 0.05 163); /* Slightly lighter dark green */
-  --card-foreground: oklch(0.995 0 0);
-  --popover: oklch(0.28 0.05 163);
-  --popover-foreground: oklch(0.995 0 0);
-  --primary: oklch(0.88 0.18 90); /* Electric yellow #F4D03F */
-  --primary-foreground: oklch(0.22 0.05 163); /* Dark green */
-  --secondary: oklch(0.32 0.05 163); /* Medium dark green */
-  --secondary-foreground: oklch(0.995 0 0);
-  --muted: oklch(0.3 0.05 163);
-  --muted-foreground: oklch(0.75 0.02 163);
-  --accent: oklch(0.88 0.18 90); /* Electric yellow */
-  --accent-foreground: oklch(0.22 0.05 163);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 18%);
-  --ring: oklch(0.88 0.18 90); /* Electric yellow ring */
-  --chart-1: oklch(0.88 0.18 90); /* Electric yellow */
-  --chart-2: oklch(0.38 0.1 163); /* Forest green */
-  --chart-3: oklch(0.65 0.14 85); /* Yellow-green */
-  --chart-4: oklch(0.5 0.08 163); /* Mid green */
-  --chart-5: oklch(0.8 0.14 88); /* Light yellow */
-  /* Semantic colors for win/loss/draw indicators (dark mode - brighter) */
-  --color-win: oklch(0.7 0.18 145);
-  --color-win-muted: oklch(0.7 0.18 145 / 30%);
-  --color-loss: oklch(0.65 0.2 27);
-  --color-loss-muted: oklch(0.65 0.2 27 / 30%);
-  --color-draw: oklch(0.75 0.15 85);
-  --color-draw-muted: oklch(0.75 0.15 85 / 30%);
-  --color-neutral: oklch(0.6 0.02 0);
-  --sidebar: oklch(0.28 0.05 163);
-  --sidebar-foreground: oklch(0.995 0 0);
-  --sidebar-primary: oklch(0.88 0.18 90);
-  --sidebar-primary-foreground: oklch(0.22 0.05 163);
-  --sidebar-accent: oklch(0.32 0.05 163);
-  --sidebar-accent-foreground: oklch(0.995 0 0);
-  --sidebar-border: oklch(1 0 0 / 12%);
-  --sidebar-ring: oklch(0.88 0.18 90);
-}
-
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -172,9 +127,6 @@
     }
   }
   main {
-    @apply transition-colors duration-300 ease-in-out;
-  }
-  .dark {
     @apply transition-colors duration-300 ease-in-out;
   }
   /* Global focus styles for accessibility */
