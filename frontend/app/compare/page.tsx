@@ -35,20 +35,28 @@ export const metadata: Metadata = {
 
 export default function ComparePage() {
   return (
-    <div className="container mx-auto py-8 px-4">
-      <PageHeader
-        title="Compare Teams"
-        description="Select teams to compare their rankings, statistics, and performance metrics side-by-side"
-        showBackButton
-        backHref="/"
-      />
-      
-      <div className="max-w-6xl mx-auto">
-        <Suspense fallback={<CardSkeleton />}>
-          <ComparePanel />
-        </Suspense>
+    <>
+      {/* Page Header - Athletic Editorial Style */}
+      <div className="relative bg-secondary/30 border-b-2 border-primary py-8 sm:py-12">
+        <div className="absolute left-0 top-0 w-2 h-full bg-accent -skew-x-12" aria-hidden="true" />
+        <div className="container mx-auto px-4">
+          <h1 className="font-display text-3xl sm:text-4xl md:text-5xl font-bold uppercase text-primary mb-2">
+            Compare Teams
+          </h1>
+          <p className="text-muted-foreground text-base sm:text-lg">
+            Select teams to compare rankings, statistics, and performance metrics side-by-side
+          </p>
+        </div>
       </div>
-    </div>
+
+      <div className="container mx-auto py-6 sm:py-8 px-4">
+        <div className="max-w-6xl mx-auto">
+          <Suspense fallback={<CardSkeleton />}>
+            <ComparePanel />
+          </Suspense>
+        </div>
+      </div>
+    </>
   );
 }
 

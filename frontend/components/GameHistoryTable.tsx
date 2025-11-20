@@ -200,11 +200,11 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
   }
 
   return (
-    <Card>
+    <Card className="border-l-4 border-l-accent">
       <CardHeader>
         <div className="flex items-start justify-between">
           <div>
-            <CardTitle>Game History</CardTitle>
+            <CardTitle className="font-display uppercase tracking-wide">Game History</CardTitle>
             <CardDescription>
               {limit ? `Latest ${limit} match results` : 'All match results'}
             </CardDescription>
