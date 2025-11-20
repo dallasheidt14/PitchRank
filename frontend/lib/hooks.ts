@@ -168,7 +168,7 @@ export function useMatchPrediction(teamAId: string | null, teamBId: string | nul
  * @returns React Query hook result with stats data
  */
 export function useDbStats() {
-  return useQuery<{ total_games: number; total_teams: number }>({
+  return useQuery<{ totalGames: number; totalTeams: number }>({
     queryKey: ['db-stats'],
     queryFn: () => api.getDbStats(),
     staleTime: 60 * 60 * 1000, // 1 hour - stats don't change frequently
