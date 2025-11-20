@@ -35,8 +35,8 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
     if game_residuals.empty:
         return
 
-    # Use larger batch size for RPC calls (Postgres can handle big batches)
-    batch_size = 5000
+    # Use moderate batch size to avoid statement timeouts
+    batch_size = 1000
     total_updated = 0
     failed_count = 0
 
