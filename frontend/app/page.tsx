@@ -1,5 +1,6 @@
 import { HomeLeaderboard } from '@/components/HomeLeaderboard';
 import { RecentMovers } from '@/components/RecentMovers';
+import { DatabaseStats } from '@/components/DatabaseStats';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -16,7 +17,7 @@ import type { RankingRow } from '@/types/RankingRow';
 async function prefetchRankingsData() {
   const queryClient = new QueryClient();
 
-  // Prefetch the same data that HomeLeaderboard and RecentMovers will need
+  // Prefetch rankings data for HomeLeaderboard and RecentMovers
   await queryClient.prefetchQuery({
     queryKey: ['rankings', null, 'u12', 'M'],
     queryFn: async () => {
@@ -44,6 +45,37 @@ async function prefetchRankingsData() {
       return (data || []) as RankingRow[];
     },
     staleTime: 5 * 60 * 1000,
+  });
+
+  // Prefetch database stats for DatabaseStats component
+  await queryClient.prefetchQuery({
+    queryKey: ['db-stats'],
+    queryFn: async () => {
+      // Query total games count
+      const { count: gamesCount, error: gamesError } = await supabase
+        .from('games')
+        .select('*', { count: 'exact', head: true });
+
+      if (gamesError) {
+        throw gamesError;
+      }
+
+      // Query total active ranked teams count
+      const { count: teamsCount, error: teamsError } = await supabase
+        .from('rankings_view')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'Active');
+
+      if (teamsError) {
+        throw teamsError;
+      }
+
+      return {
+        total_games: gamesCount || 0,
+        total_teams: teamsCount || 0,
+      };
+    },
+    staleTime: 60 * 60 * 1000, // 1 hour
   });
 
   return dehydrate(queryClient);

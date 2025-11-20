@@ -853,9 +853,27 @@ elif section == "🔎 Unknown Teams Mapper":
                     # Step 2: Select a team to map
                     st.subheader("Step 2: Map a Team")
 
+                    # Add search/filter box
+                    search_filter = st.text_input(
+                        "🔍 Search Provider Team ID:",
+                        placeholder="Type to filter (e.g., 615537)",
+                        help="Filter the list below by typing part of the Provider Team ID"
+                    )
+
+                    # Filter the list based on search
+                    if search_filter:
+                        filtered_ids = [(pid, count) for pid, count in sorted_ids if search_filter in str(pid)]
+                        if not filtered_ids:
+                            st.warning(f"No Provider Team IDs found matching '{search_filter}'")
+                            st.stop()
+                    else:
+                        filtered_ids = sorted_ids
+
+                    st.caption(f"Showing {len(filtered_ids)} of {len(sorted_ids)} unmapped teams")
+
                     selected_provider_id = st.selectbox(
                         "Select Provider Team ID to map:",
-                        options=[pid for pid, _ in sorted_ids],
+                        options=[pid for pid, _ in filtered_ids],
                         format_func=lambda x: f"{x} ({unmapped_ids[x]} games affected)"
                     )
 
@@ -1165,6 +1183,23 @@ elif section == "🔎 Unknown Teams Mapper":
                         st.error("❌ Gender is required")
                     else:
                         try:
+                            # First, check if this provider_team_id already exists
+                            existing_team = db.table('teams').select(
+                                'team_id_master, team_name, club_name, age_group, gender, state_code'
+                            ).eq('provider_team_id', str(new_provider_team_id)).execute()
+
+                            if existing_team.data and len(existing_team.data) > 0:
+                                # Team already exists - show error and guide them
+                                existing = existing_team.data[0]
+                                st.error(f"❌ Provider Team ID **{new_provider_team_id}** already exists in the database!")
+                                st.warning("**This team already exists:**")
+                                st.write(f"- **Name:** {existing['team_name']}")
+                                st.write(f"- **Club:** {existing.get('club_name', 'N/A')}")
+                                st.write(f"- **Age/Gender:** {existing['age_group']} {existing['gender']}")
+                                st.write(f"- **State:** {existing.get('state_code', 'N/A')}")
+                                st.info("💡 **What to do:** Use the **mapping tool above** (Step 2 & 3) to create an alias mapping for this team instead of adding it as new.")
+                                st.stop()
+
                             # Get provider ID
                             provider_result = db.table('providers').select('id').eq('code', 'gotsport').single().execute()
                             provider_id = provider_result.data['id']
@@ -1196,7 +1231,7 @@ elif section == "🔎 Unknown Teams Mapper":
                                 'provider_team_id': str(new_provider_team_id),
                                 'team_id_master': new_team_id_master,
                                 'match_confidence': 1.0,
-                                'match_method': 'dashboard_new_team',
+                                'match_method': 'direct_id',  # Using 'direct_id' since we're explicitly creating this mapping
                                 'review_status': 'approved',
                                 'created_at': datetime.now().isoformat()
                             }

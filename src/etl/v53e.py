@@ -644,9 +644,7 @@ def compute_rankings(
     g["repeat_rank"] = g.groupby(["team_id", "opp_id"])["w_sos"].rank(ascending=False, method="first")
     g_sos = g[g["repeat_rank"] <= cfg.SOS_REPEAT_CAP].copy()
 
-    # Use pre-adjustment strength_map for SOS to avoid circular dependency
-    g_sos["opp_strength"] = g_sos["opp_id"].map(lambda o: strength_map_for_sos.get(o, cfg.UNRANKED_SOS_BASE))
-
+    # Helper function for weighted averages
     def _avg_weighted(df: pd.DataFrame, col: str, wcol: str) -> float:
         w = df[wcol].values
         s = w.sum()
@@ -654,28 +652,66 @@ def compute_rankings(
             return 0.5
         return float(np.average(df[col].values, weights=w))
 
+    # Create lookup maps for base strength calculation (OFF/DEF only, no SOS component)
+    # This avoids feedback loops in the iterative algorithm
+    team_off_norm_map = dict(zip(team["team_id"], team["off_norm"]))
+    team_def_norm_map = dict(zip(team["team_id"], team["def_norm"]))
+    team_anchor_map = dict(zip(team["team_id"], team["anchor"]))
+
+    # Calculate BASE strength for each team (OFF/DEF only, normalized to avoid drift)
+    # This represents opponent quality independent of their schedule
+    base_strength_map = {}
+    for tid in team["team_id"]:
+        # Base power uses only OFF and DEF (50% each of the non-SOS weight)
+        base_power = (
+            0.5 * team_off_norm_map.get(tid, 0.5) +
+            0.5 * team_def_norm_map.get(tid, 0.5)
+        )
+        base_strength_map[tid] = float(np.clip(base_power, 0.0, 1.0))
+
+    # Use base strength for initial SOS calculation (Pass 1)
+    # This represents how good opponents are at OFF/DEF
+    g_sos["opp_strength"] = g_sos["opp_id"].map(
+        lambda o: base_strength_map.get(o, cfg.UNRANKED_SOS_BASE)
+    )
+
     direct = (
-        g_sos.groupby("team_id").apply(lambda d: _avg_weighted(d, "opp_strength", "w_sos"))
-        .rename("sos_direct").reset_index()
+        g_sos.groupby("team_id", group_keys=False).apply(
+            lambda d: _avg_weighted(d, "opp_strength", "w_sos")
+        ).rename("sos_direct").reset_index()
     )
     sos_curr = direct.rename(columns={"sos_direct": "sos"}).copy()
 
     # Log initial SOS (Pass 1: Direct)
-    logger.debug(
-        f"SOS Pass 1 (Direct): mean={sos_curr['sos'].mean():.4f}, "
+    logger.info(
+        f"🔄 SOS Pass 1 (Direct): mean={sos_curr['sos'].mean():.4f}, "
         f"std={sos_curr['sos'].std():.4f}, "
         f"min={sos_curr['sos'].min():.4f}, "
         f"max={sos_curr['sos'].max():.4f}"
     )
 
-    # iterative transitivity propagation
+    # True iterative SOS: Propagate schedule difficulty through opponent SOS
+    # Direct component (opponent OFF/DEF) stays FIXED to prevent convergence drift
+    # Transitive component (opponent SOS) propagates schedule difficulty
     for iteration_idx in range(max(0, cfg.SOS_ITERATIONS - 1)):
+        # Store previous SOS for convergence tracking
+        prev_sos_map = dict(zip(sos_curr["team_id"], sos_curr["sos"]))
+
+        # Get current SOS values for all teams
         opp_sos_map = dict(zip(sos_curr["team_id"], sos_curr["sos"]))
-        g_sos["opp_sos"] = g_sos["opp_id"].map(lambda o: opp_sos_map.get(o, cfg.UNRANKED_SOS_BASE))
-        trans = (
-            g_sos.groupby("team_id").apply(lambda d: _avg_weighted(d, "opp_sos", "w_sos"))
-            .rename("sos_trans").reset_index()
+
+        # Calculate transitive SOS (opponent's SOS - this propagates schedule difficulty)
+        g_sos["opp_sos"] = g_sos["opp_id"].map(
+            lambda o: opp_sos_map.get(o, cfg.UNRANKED_SOS_BASE)
         )
+        trans = (
+            g_sos.groupby("team_id", group_keys=False).apply(
+                lambda d: _avg_weighted(d, "opp_sos", "w_sos")
+            ).rename("sos_trans").reset_index()
+        )
+
+        # Blend direct (opponent OFF/DEF - fixed) and transitive (opponent SOS - iterates)
+        # Direct stays fixed to prevent upward drift, transitive propagates schedule info
         merged = direct.merge(trans, on="team_id", how="outer").fillna(0.5)
         merged["sos"] = (
             (1 - cfg.SOS_TRANSITIVITY_LAMBDA) * merged["sos_direct"]
@@ -685,14 +721,28 @@ def compute_rankings(
         merged["sos"] = merged["sos"].clip(0.0, 1.0)
         sos_curr = merged[["team_id", "sos"]]
 
-        # Log convergence metrics
-        logger.debug(
-            f"SOS Pass {iteration_idx + 2} (Transitivity): mean={sos_curr['sos'].mean():.4f}, "
+        # Calculate convergence: mean absolute change from previous iteration
+        sos_changes = [abs(sos_curr[sos_curr["team_id"] == tid]["sos"].iloc[0] - prev_sos_map.get(tid, 0.5))
+                      for tid in sos_curr["team_id"] if tid in prev_sos_map]
+        mean_change = np.mean(sos_changes) if sos_changes else 0.0
+
+        # Log convergence metrics with change tracking
+        logger.info(
+            f"🔄 SOS Pass {iteration_idx + 2} (Iterative): mean={sos_curr['sos'].mean():.4f}, "
             f"std={sos_curr['sos'].std():.4f}, "
             f"min={sos_curr['sos'].min():.4f}, "
             f"max={sos_curr['sos'].max():.4f}, "
+            f"mean_change={mean_change:.6f}, "
             f"lambda={cfg.SOS_TRANSITIVITY_LAMBDA}"
         )
+
+    # Log final SOS statistics
+    logger.info(
+        f"✅ SOS calculation complete: "
+        f"mean={sos_curr['sos'].mean():.4f}, "
+        f"std={sos_curr['sos'].std():.4f}, "
+        f"range=[{sos_curr['sos'].min():.4f}, {sos_curr['sos'].max():.4f}]"
+    )
 
     team = team.merge(sos_curr, on="team_id", how="left").fillna({"sos": 0.5})
 
