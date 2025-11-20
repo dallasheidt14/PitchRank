@@ -61,8 +61,8 @@ export function PredictedMatchCard({ teamA, teamB, teamAName, teamBName }: Predi
           {/* Expected margin */}
           <div className="text-center text-sm text-muted-foreground">
             Expected Margin: {margin >= 0 ? '+' : ''}{margin.toFixed(2)} goals
-            {margin > 0 && <span className="ml-2 text-green-600 dark:text-green-400">({teamAName} favored)</span>}
-            {margin < 0 && <span className="ml-2 text-green-600 dark:text-green-400">({teamBName} favored)</span>}
+            {margin > 0 && <span className="ml-2 text-green-600">({teamAName} favored)</span>}
+            {margin < 0 && <span className="ml-2 text-green-600">({teamBName} favored)</span>}
             {margin === 0 && <span className="ml-2 text-muted-foreground">(Even match)</span>}
           </div>
 

@@ -18,9 +18,9 @@ interface EnhancedPredictionCardProps {
  */
 function ConfidenceBadge({ confidence }: { confidence: 'high' | 'medium' | 'low' }) {
   const styles = {
-    high: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
-    medium: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
-    low: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200',
+    high: 'bg-green-100 text-green-800',
+    medium: 'bg-yellow-100 text-yellow-800',
+    low: 'bg-gray-100 text-gray-800',
   };
 
   return (
@@ -43,9 +43,9 @@ function ExplanationFactor({
   magnitude: 'significant' | 'moderate' | 'minimal';
 }) {
   const magnitudeColors = {
-    significant: 'border-l-green-500 dark:border-l-green-400',
-    moderate: 'border-l-blue-500 dark:border-l-blue-400',
-    minimal: 'border-l-gray-400 dark:border-l-gray-500',
+    significant: 'border-l-green-500',
+    moderate: 'border-l-blue-500',
+    minimal: 'border-l-gray-400',
   };
 
   return (
@@ -106,14 +106,14 @@ export function EnhancedPredictionCard({
           <div className="grid grid-cols-3 text-center items-center">
             <div>
               <div className="text-sm font-medium truncate mb-1">{teamAName}</div>
-              <div className={`text-3xl font-bold ${teamAFavored ? 'text-green-600 dark:text-green-400' : 'text-foreground'}`}>
+              <div className={`text-3xl font-bold ${teamAFavored ? 'text-green-600' : 'text-foreground'}`}>
                 {Math.round(expectedScore.teamA)}
               </div>
             </div>
             <div className="text-2xl font-semibold text-muted-foreground">–</div>
             <div>
               <div className="text-sm font-medium truncate mb-1">{teamBName}</div>
-              <div className={`text-3xl font-bold ${teamBFavored ? 'text-green-600 dark:text-green-400' : 'text-foreground'}`}>
+              <div className={`text-3xl font-bold ${teamBFavored ? 'text-green-600' : 'text-foreground'}`}>
                 {Math.round(expectedScore.teamB)}
               </div>
             </div>
@@ -127,7 +127,7 @@ export function EnhancedPredictionCard({
             {/* Team A */}
             <div className="flex items-center gap-2">
               <span className="text-sm w-20 sm:w-32 truncate">{teamAName}</span>
-              <div className="flex-1 h-6 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div className="flex-1 h-6 bg-gray-200 rounded-full overflow-hidden">
                 <div
                   className={`h-full ${teamAFavored ? 'bg-green-500' : 'bg-blue-400'} transition-all duration-300`}
                   style={{ width: `${winProbabilityA * 100}%` }}
@@ -140,7 +140,7 @@ export function EnhancedPredictionCard({
             {/* Team B */}
             <div className="flex items-center gap-2">
               <span className="text-sm w-20 sm:w-32 truncate">{teamBName}</span>
-              <div className="flex-1 h-6 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div className="flex-1 h-6 bg-gray-200 rounded-full overflow-hidden">
                 <div
                   className={`h-full ${teamBFavored ? 'bg-green-500' : 'bg-blue-400'} transition-all duration-300`}
                   style={{ width: `${winProbabilityB * 100}%` }}
