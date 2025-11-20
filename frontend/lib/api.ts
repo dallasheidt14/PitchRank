@@ -673,21 +673,24 @@ export const api = {
    * @returns Object with totalGames and totalTeams counts
    */
   async getDbStats(): Promise<{ totalGames: number; totalTeams: number }> {
-    // Get total games count
+    // Get total games count (only games with valid team IDs and scores)
     const { count: gamesCount, error: gamesError } = await supabase
       .from('games')
-      .select('*', { count: 'exact', head: true });
+      .select('*', { count: 'exact', head: true })
+      .not('home_team_master_id', 'is', null)
+      .not('away_team_master_id', 'is', null)
+      .not('home_score', 'is', null)
+      .not('away_score', 'is', null);
 
     if (gamesError) {
       console.error('Error fetching games count:', gamesError);
       throw gamesError;
     }
 
-    // Get total active teams count from rankings_view
+    // Get total ranked teams count from rankings_view
     const { count: teamsCount, error: teamsError } = await supabase
       .from('rankings_view')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'Active');
+      .select('*', { count: 'exact', head: true });
 
     if (teamsError) {
       console.error('Error fetching teams count:', teamsError);
