@@ -1,13 +1,11 @@
 import { HomeLeaderboard } from '@/components/HomeLeaderboard';
 import { RecentMovers } from '@/components/RecentMovers';
-import { DatabaseStats } from '@/components/DatabaseStats';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { dehydrate, HydrationBoundary, QueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
 import { normalizeAgeGroup } from '@/lib/utils';
-import { api } from '@/lib/api';
 import type { RankingRow } from '@/types/RankingRow';
 
 /**
@@ -47,7 +45,7 @@ async function prefetchRankingsData() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Prefetch database stats for DatabaseStats component
+  // Prefetch database stats for hero section stats display
   await queryClient.prefetchQuery({
     queryKey: ['db-stats'],
     queryFn: async () => {
@@ -78,7 +76,14 @@ async function prefetchRankingsData() {
     staleTime: 60 * 60 * 1000, // 1 hour
   });
 
-  return dehydrate(queryClient);
+  // Get the prefetched db-stats data from the QueryClient
+  const dbStats = queryClient.getQueryData<{ totalGames: number; totalTeams: number }>(['db-stats']);
+
+  return {
+    dehydratedState: dehydrate(queryClient),
+    totalGames: dbStats?.totalGames ?? 0,
+    totalTeams: dbStats?.totalTeams ?? 0,
+  };
 }
 
 // Helper function to format numbers with commas (e.g., 16649 -> "16,649")
@@ -87,20 +92,27 @@ function formatStatNumber(num: number): string {
 }
 
 export default async function Home() {
-  // Prefetch data on the server
-  const dehydratedState = await prefetchRankingsData();
-
-  // Fetch database stats
+  // Prefetch data on the server and get stats
+  let dehydratedState;
   let totalGames = 0;
   let totalTeams = 0;
+
   try {
-    const stats = await api.getDbStats();
-    totalGames = stats.totalGames;
-    totalTeams = stats.totalTeams;
+    const prefetchResult = await prefetchRankingsData();
+    dehydratedState = prefetchResult.dehydratedState;
+    totalGames = prefetchResult.totalGames;
+    totalTeams = prefetchResult.totalTeams;
   } catch (error) {
-    console.error('Error fetching db stats:', error);
-    // Fall back to estimates if fetch fails
+    console.error('Error prefetching data:', error);
+    // Create empty dehydrated state on error
+    dehydratedState = dehydrate(new QueryClient());
+  }
+
+  // Fall back to estimates if stats are 0 (query failed or returned no data)
+  if (totalGames === 0) {
     totalGames = 16000;
+  }
+  if (totalTeams === 0) {
     totalTeams = 2800;
   }
 
