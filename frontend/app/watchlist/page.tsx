@@ -18,7 +18,8 @@ import {
   MapPin,
   Users,
   ChevronRight,
-  Sparkles
+  Sparkles,
+  AlertCircle
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { getWatchedTeams, removeFromWatchlist } from "@/lib/watchlist";
@@ -79,6 +80,10 @@ export default function WatchlistPage() {
   const teams = teamQueries
     .filter((q) => q.data)
     .map((q) => q.data as TeamWithRanking);
+
+  // Track failed queries to show error message
+  const failedQueries = teamQueries.filter((q) => q.isError);
+  const hasFailures = failedQueries.length > 0;
 
   // Filter and sort teams
   const filteredTeams = useMemo(() => {
@@ -369,6 +374,17 @@ export default function WatchlistPage() {
                 )}
               </div>
             </div>
+
+            {/* Error message for failed fetches */}
+            {hasFailures && (
+              <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg flex items-center gap-2 text-sm text-destructive">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                <span>
+                  {failedQueries.length} {failedQueries.length === 1 ? 'team' : 'teams'} could not be loaded.
+                  They may have been removed or there was a network error.
+                </span>
+              </div>
+            )}
 
             {/* Results Info */}
             {filteredTeams.length !== teams.length && (

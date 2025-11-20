@@ -1,10 +1,25 @@
 'use client';
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { isNetworkError } from '@/lib/errors';
 
 export function Providers({ children }: { children: React.ReactNode }) {
+  // Handle unhandled promise rejections
+  useEffect(() => {
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      console.error('Unhandled promise rejection:', event.reason);
+      // Prevent the default browser behavior (console error)
+      // but still log for debugging
+    };
+
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+
+    return () => {
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
+  }, []);
+
   const [queryClient] = useState(
     () => {
       const client = new QueryClient({
