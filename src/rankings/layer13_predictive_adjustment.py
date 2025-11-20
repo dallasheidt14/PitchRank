@@ -207,14 +207,31 @@ async def apply_predictive_adjustment(
         )
     else:
         games_df = games_used_df.copy()
-    
-    # Ensure required columns exist
-    required = {
-        cfg.date_col, cfg.team_id_col, cfg.opp_id_col, cfg.gf_col, cfg.ga_col,
-        cfg.age_col, cfg.gender_col, cfg.opp_age_col, cfg.opp_gender_col
-    }
-    missing = required - set(games_df.columns)
+
+    # Ensure required columns exist (check both v53e format and config format)
+    # v53e format: date, team_id, opp_id, gf, ga, age, gender, opp_age, opp_gender
+    # config format: game_date, team_id_master, opp_id_master, etc.
+    required_pairs = [
+        ('date', cfg.date_col),
+        ('team_id', cfg.team_id_col),
+        ('opp_id', cfg.opp_id_col),
+        ('gf', cfg.gf_col),
+        ('ga', cfg.ga_col),
+        ('age', cfg.age_col),
+        ('gender', cfg.gender_col),
+        ('opp_age', cfg.opp_age_col),
+        ('opp_gender', cfg.opp_gender_col),
+    ]
+
+    missing = []
+    for v53e_name, config_name in required_pairs:
+        if v53e_name not in games_df.columns and config_name not in games_df.columns:
+            missing.append(f"{v53e_name}/{config_name}")
+
     if missing:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"⚠️ Missing required columns: {missing}. Cannot train ML model.")
         # If we can't train, return pass-through
         out["ml_overperf"] = 0.0
         out["ml_norm"] = 0.0
