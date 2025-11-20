@@ -389,9 +389,9 @@ export function ComparePanel() {
                             <div className="flex items-center gap-2">
                               <span className="text-muted-foreground">{team1Details.team_name}:</span>
                               <span className={`font-semibold ${
-                                opponent.team1_result === 'W' ? 'text-green-600 dark:text-green-400' :
-                                opponent.team1_result === 'L' ? 'text-red-600 dark:text-red-400' :
-                                'text-yellow-600 dark:text-yellow-400'
+                                opponent.team1_result === 'W' ? 'text-green-600' :
+                                opponent.team1_result === 'L' ? 'text-red-600' :
+                                'text-yellow-600'
                               }`}>
                                 {opponent.team1_result || '—'}
                               </span>
@@ -404,9 +404,9 @@ export function ComparePanel() {
                             <div className="flex items-center gap-2">
                               <span className="text-muted-foreground">{team2Details.team_name}:</span>
                               <span className={`font-semibold ${
-                                opponent.team2_result === 'W' ? 'text-green-600 dark:text-green-400' :
-                                opponent.team2_result === 'L' ? 'text-red-600 dark:text-red-400' :
-                                'text-yellow-600 dark:text-yellow-400'
+                                opponent.team2_result === 'W' ? 'text-green-600' :
+                                opponent.team2_result === 'L' ? 'text-red-600' :
+                                'text-yellow-600'
                               }`}>
                                 {opponent.team2_result || '—'}
                               </span>

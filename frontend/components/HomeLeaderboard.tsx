@@ -127,7 +127,7 @@ export function HomeLeaderboard() {
                     <div className="flex items-center gap-3 sm:gap-6 flex-shrink-0">
                       {rankChange !== 0 && (
                         <div className={`flex items-center gap-1 text-sm font-semibold ${
-                          rankChange > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                          rankChange > 0 ? 'text-green-600' : 'text-red-600'
                         }`}>
                           {rankChange > 0 ? (
                             <ArrowUp className="h-4 w-4" />

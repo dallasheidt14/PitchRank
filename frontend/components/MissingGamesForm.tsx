@@ -165,7 +165,7 @@ export function MissingGamesForm({ teamId, teamName }: MissingGamesFormProps) {
               </div>
             )}
             {success && (
-              <div className="rounded-md bg-green-500/10 p-3 text-sm text-green-600 dark:text-green-400">
+              <div className="rounded-md bg-green-500/10 p-3 text-sm text-green-600">
                 Game data requested! It should appear in 1-2 minutes.
               </div>
             )}
