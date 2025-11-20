@@ -26,7 +26,7 @@ export function PageHeader({
             </Button>
           </Link>
         )}
-        <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
+        <h1 className="font-display text-3xl font-bold uppercase tracking-wide">{title}</h1>
         {description && (
           <p className="mt-2 text-muted-foreground">{description}</p>
         )}

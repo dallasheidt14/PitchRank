@@ -219,9 +219,9 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
             {/* Area fill with gradient for positive/negative zones */}
             <defs>
               <linearGradient id="goalDiffGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="rgb(34, 197, 94)" stopOpacity={0.3} />
-                <stop offset="50%" stopColor="rgb(100, 100, 100)" stopOpacity={0.1} />
-                <stop offset="100%" stopColor="rgb(239, 68, 68)" stopOpacity={0.3} />
+                <stop offset="0%" stopColor="var(--color-win)" stopOpacity={0.3} />
+                <stop offset="50%" stopColor="var(--color-neutral)" stopOpacity={0.1} />
+                <stop offset="100%" stopColor="var(--color-loss)" stopOpacity={0.3} />
               </linearGradient>
             </defs>
             <Area
@@ -239,15 +239,15 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
               dot={(props: any) => {
                 const { cx, cy, payload } = props;
                 const color = payload.goalDifferential >= 0
-                  ? 'rgb(34, 197, 94)'
-                  : 'rgb(239, 68, 68)';
+                  ? 'var(--color-win)'
+                  : 'var(--color-loss)';
                 return (
                   <circle
                     cx={cx}
                     cy={cy}
                     r={5}
                     fill={color}
-                    stroke="white"
+                    stroke="var(--background)"
                     strokeWidth={2}
                   />
                 );
