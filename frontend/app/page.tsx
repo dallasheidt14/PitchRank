@@ -46,36 +46,38 @@ async function prefetchRankingsData() {
   });
 
   // Fetch database stats directly for hero section stats display
-  // Using direct fetch instead of prefetchQuery to properly handle errors
+  // Run queries in parallel for better performance
   let totalGames = 0;
   let totalTeams = 0;
 
   try {
-    // Query total games count (only games with valid team IDs and scores)
-    const { count: gamesCount, error: gamesError } = await supabase
-      .from('games')
-      .select('*', { count: 'exact', head: true })
-      .not('home_team_master_id', 'is', null)
-      .not('away_team_master_id', 'is', null)
-      .not('home_score', 'is', null)
-      .not('away_score', 'is', null);
+    // Run both count queries in parallel
+    const [gamesResult, teamsResult] = await Promise.all([
+      // Query total games count (only games with valid team IDs and scores)
+      supabase
+        .from('games')
+        .select('*', { count: 'exact', head: true })
+        .not('home_team_master_id', 'is', null)
+        .not('away_team_master_id', 'is', null)
+        .not('home_score', 'is', null)
+        .not('away_score', 'is', null),
+      // Query total ranked teams count (from rankings_full where power_score exists)
+      supabase
+        .from('rankings_full')
+        .select('*', { count: 'exact', head: true })
+        .not('power_score_final', 'is', null),
+    ]);
 
-    if (gamesError) {
-      console.error('Error fetching games count:', gamesError);
+    if (gamesResult.error) {
+      console.error('Error fetching games count:', gamesResult.error);
     } else {
-      totalGames = gamesCount || 0;
+      totalGames = gamesResult.count || 0;
     }
 
-    // Query total ranked teams count (from rankings_full where power_score exists)
-    const { count: teamsCount, error: teamsError } = await supabase
-      .from('rankings_full')
-      .select('*', { count: 'exact', head: true })
-      .not('power_score_final', 'is', null);
-
-    if (teamsError) {
-      console.error('Error fetching teams count:', teamsError);
+    if (teamsResult.error) {
+      console.error('Error fetching teams count:', teamsResult.error);
     } else {
-      totalTeams = teamsCount || 0;
+      totalTeams = teamsResult.count || 0;
     }
   } catch (error) {
     console.error('Error fetching database stats:', error);
