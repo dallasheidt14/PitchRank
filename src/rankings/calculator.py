@@ -183,6 +183,18 @@ async def compute_rankings_with_ml(
     
     # 3) Apply ML predictive adjustment
     logger.info("🤖 Applying ML predictive adjustment layer...")
+
+    # DIAGNOSTIC: Check if required columns for game residuals exist
+    logger.info(f"[DIAG] games_df columns: {list(games_df.columns)}")
+    logger.info(f"[DIAG] games_df has 'id': {'id' in games_df.columns}")
+    logger.info(f"[DIAG] games_df has 'home_team_master_id': {'home_team_master_id' in games_df.columns}")
+    if 'id' in games_df.columns:
+        logger.info(f"[DIAG] Sample 'id' values: {games_df['id'].head(3).tolist()}")
+    if 'home_team_master_id' in games_df.columns:
+        logger.info(f"[DIAG] Sample 'home_team_master_id' values: {games_df['home_team_master_id'].head(3).tolist()}")
+    if 'team_id' in games_df.columns:
+        logger.info(f"[DIAG] Sample 'team_id' values: {games_df['team_id'].head(3).tolist()}")
+
     ml_cfg = layer13_cfg or Layer13Config(
         lookback_days=v53_cfg.WINDOW_DAYS,
         alpha=0.20,
@@ -192,7 +204,7 @@ async def compute_rankings_with_ml(
         table_name="games",
         provider_filter=provider_filter,
     )
-    
+
     teams_with_ml, game_residuals = await apply_predictive_adjustment(
         supabase_client=supabase_client,
         teams_df=teams_base,
