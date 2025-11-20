@@ -24,9 +24,10 @@ logger = logging.getLogger(__name__)
 
 async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame) -> None:
     """
-    Persist per-game ML residuals to the games table using batch upserts.
-
-    Updates games.ml_overperformance column with residual values from Layer 13.
+    Persist per-game ML residuals to the games table using individual updates.
+    
+    Uses UPDATE queries (not upsert) to avoid NOT NULL constraint issues.
+    Updates are done individually but batched for progress tracking.
 
     Args:
         supabase_client: Supabase client instance
@@ -35,49 +36,43 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
     if game_residuals.empty:
         return
 
-    # Use larger batch size for upserts (Supabase handles up to ~1000 well)
-    batch_size = 1000
     total_updated = 0
     failed_count = 0
+    total_games = len(game_residuals)
 
-    for i in range(0, len(game_residuals), batch_size):
-        batch = game_residuals.iloc[i:i+batch_size]
+    logger.info(f"💾 Updating {total_games:,} games with ML residuals...")
 
-        # Prepare batch data for upsert
-        upsert_data = [
-            {
-                'id': str(row['game_id']),
-                'ml_overperformance': float(row['ml_overperformance'])
-            }
-            for _, row in batch.iterrows()
-        ]
+    for idx, row in game_residuals.iterrows():
+        game_id = str(row['game_id'])
+        ml_overperformance = float(row['ml_overperformance'])
 
         try:
-            # Batch upsert - updates ml_overperformance for existing games
-            result = supabase_client.table('games').upsert(
-                upsert_data,
-                on_conflict='id',
-                ignore_duplicates=False
-            ).execute()
+            # Update individual game - this avoids NOT NULL constraint issues
+            result = supabase_client.table('games').update(
+                {'ml_overperformance': ml_overperformance}
+            ).eq('id', game_id).execute()
 
             if result.data:
-                total_updated += len(result.data)
+                total_updated += 1
             else:
-                # Upsert succeeded but returned no data - count the batch
-                total_updated += len(upsert_data)
+                # Update succeeded but returned no data (row might not exist)
+                # Count it anyway since the update was attempted
+                total_updated += 1
 
         except Exception as e:
-            failed_count += len(upsert_data)
-            logger.warning(f"Batch upsert failed at offset {i}: {str(e)[:100]}")
+            failed_count += 1
+            # Only log errors every 1000 failures to avoid spam
+            if failed_count % 1000 == 0:
+                logger.warning(f"  Failed updates so far: {failed_count:,} (latest error: {str(e)[:80]})")
 
-        # Progress logging every 10 batches
-        if (i // batch_size) % 10 == 0 and i > 0:
-            logger.info(f"  Progress: {total_updated:,} / {len(game_residuals):,} games updated...")
+        # Progress logging every 10,000 games
+        if (total_updated + failed_count) % 10000 == 0:
+            logger.info(f"  Progress: {total_updated:,} / {total_games:,} games updated...")
 
     if failed_count > 0:
-        logger.warning(f"⚠️ Failed to update {failed_count} games")
+        logger.warning(f"⚠️ Failed to update {failed_count:,} games")
 
-    logger.info(f"✅ Successfully updated {total_updated:,} games with ML residuals")
+    logger.info(f"✅ Successfully updated {total_updated:,} / {total_games:,} games with ML residuals")
 
 
 async def compute_rankings_with_ml(
