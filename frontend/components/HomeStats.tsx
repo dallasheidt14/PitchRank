@@ -12,6 +12,7 @@ export function HomeStats({ fallbackGames = 16000, fallbackTeams = 2800 }: HomeS
   const [totalGames, setTotalGames] = useState(fallbackGames);
   const [totalTeams, setTotalTeams] = useState(fallbackTeams);
   const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchStats() {
@@ -36,6 +37,7 @@ export function HomeStats({ fallbackGames = 16000, fallbackTeams = 2800 }: HomeS
         }
       } catch (err) {
         console.error('Error fetching stats:', err);
+        setError('Failed to load statistics');
       } finally {
         setLoaded(true);
       }
@@ -45,6 +47,38 @@ export function HomeStats({ fallbackGames = 16000, fallbackTeams = 2800 }: HomeS
   }, [fallbackGames, fallbackTeams]);
 
   const formatNumber = (num: number) => num.toLocaleString('en-US');
+
+  // Show error indicator if fetch failed (still shows fallback values)
+  if (error && loaded) {
+    return (
+      <div className="grid grid-cols-3 gap-4 sm:gap-8 mb-8 max-w-2xl">
+        <div className="text-center">
+          <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">
+            {formatNumber(totalGames)}
+          </div>
+          <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">
+            Games Analyzed
+          </div>
+        </div>
+        <div className="text-center">
+          <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">
+            {formatNumber(totalTeams)}
+          </div>
+          <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">
+            Teams Ranked
+          </div>
+        </div>
+        <div className="text-center">
+          <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">
+            50
+          </div>
+          <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">
+            States Covered
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="grid grid-cols-3 gap-4 sm:gap-8 mb-8 max-w-2xl">
