@@ -45,39 +45,18 @@ async function prefetchRankingsData() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Fetch database stats directly for hero section stats display
-  // Run queries in parallel for better performance
+  // Fetch database stats using RPC function for better performance
   let totalGames = 0;
   let totalTeams = 0;
 
   try {
-    // Run both count queries in parallel
-    const [gamesResult, teamsResult] = await Promise.all([
-      // Query total games count (only games with valid team IDs and scores)
-      supabase
-        .from('games')
-        .select('*', { count: 'exact', head: true })
-        .not('home_team_master_id', 'is', null)
-        .not('away_team_master_id', 'is', null)
-        .not('home_score', 'is', null)
-        .not('away_score', 'is', null),
-      // Query total ranked teams count (from rankings_full where power_score exists)
-      supabase
-        .from('rankings_full')
-        .select('*', { count: 'exact', head: true })
-        .not('power_score_final', 'is', null),
-    ]);
+    const { data, error } = await supabase.rpc('get_db_stats');
 
-    if (gamesResult.error) {
-      console.error('Error fetching games count:', gamesResult.error);
-    } else {
-      totalGames = gamesResult.count || 0;
-    }
-
-    if (teamsResult.error) {
-      console.error('Error fetching teams count:', teamsResult.error);
-    } else {
-      totalTeams = teamsResult.count || 0;
+    if (error) {
+      console.error('Error fetching db stats:', error);
+    } else if (data && data.length > 0) {
+      totalGames = data[0].total_games || 0;
+      totalTeams = data[0].total_teams || 0;
     }
   } catch (error) {
     console.error('Error fetching database stats:', error);
