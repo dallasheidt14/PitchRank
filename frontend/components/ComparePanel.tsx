@@ -179,9 +179,9 @@ export function ComparePanel() {
                     (team1Id && team2Id && (opponentsError || rankingsError));
 
   return (
-    <Card>
+    <Card className="border-l-4 border-l-accent">
       <CardHeader>
-        <CardTitle>Compare Teams</CardTitle>
+        <CardTitle className="font-display text-xl uppercase tracking-wide">Compare Teams</CardTitle>
         <CardDescription>
           Select two teams to compare their rankings, statistics, and performance metrics side-by-side
         </CardDescription>
@@ -245,7 +245,7 @@ export function ComparePanel() {
             <>
               {/* Head-to-Head Stats Comparison */}
               <div className="pt-4 border-t">
-                <h3 className="text-lg font-semibold mb-4">Head-to-Head Comparison</h3>
+                <h3 className="font-display text-lg font-bold uppercase tracking-wide text-primary mb-4">Head-to-Head Comparison</h3>
                 <div className="overflow-x-auto -mx-4 sm:mx-0 touch-pan-x">
                   <table className="w-full min-w-[600px]">
                     <thead>
@@ -379,7 +379,7 @@ export function ComparePanel() {
               {/* Common Opponents */}
               {commonOpponents && commonOpponents.length > 0 && (
                 <div className="pt-4 border-t">
-                  <h3 className="text-lg font-semibold mb-4">Common Opponents</h3>
+                  <h3 className="font-display text-lg font-bold uppercase tracking-wide text-primary mb-4">Common Opponents</h3>
                   <div className="space-y-2">
                     {commonOpponents.slice(0, 10).map((opponent) => (
                       <Card key={opponent.opponent_id} className="p-3">
@@ -431,7 +431,7 @@ export function ComparePanel() {
 
               {/* Side-by-Side Comparison Chart */}
               <div className="pt-4 border-t">
-                <h3 className="text-lg font-semibold mb-4">Side-by-Side Comparison</h3>
+                <h3 className="font-display text-lg font-bold uppercase tracking-wide text-primary mb-4">Side-by-Side Comparison</h3>
                 <div className="w-full h-[300px] sm:h-[350px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart

@@ -414,11 +414,11 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
   const { record, gamesAnalyzed } = momentumData;
 
   return (
-    <Card>
+    <Card className="border-l-4 border-l-accent">
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Recent Momentum</CardTitle>
+            <CardTitle className="font-display uppercase tracking-wide">Recent Momentum</CardTitle>
             <CardDescription>Last 8 Games Quality-adjusted performance trend</CardDescription>
           </div>
           <Tooltip>
