@@ -129,46 +129,34 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
         draws={teamRanking?.draws || undefined}
       />
 
-      <Card>
-        <CardContent className="pt-4 sm:pt-6 px-4 sm:px-6">
-          <div className="space-y-4 sm:space-y-6">
-            <div className="flex flex-col sm:flex-row items-start justify-between gap-3 sm:gap-4">
-            <div className="flex-1 w-full">
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-2">
-                <h1 className="text-2xl sm:text-3xl font-bold">{team.team_name}</h1>
-                <Button
-                  variant={watched ? "default" : "outline"}
-                  size="sm"
-                  onClick={handleWatchToggle}
-                  className="transition-colors duration-300 self-start"
-                  aria-label={watched ? "Unwatch team" : "Watch team"}
-                >
-                  <Star className={`h-4 w-4 mr-1 ${watched ? 'fill-current' : ''}`} />
-                  {watched ? 'Watching' : 'Watch'}
-                </Button>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
-                {team.club_name && (
-                  <span className="text-base sm:text-lg">{team.club_name}</span>
-                )}
-                {team.state && (
-                  <Badge variant="outline" className="ml-0 sm:ml-2">
-                    {team.state}
-                  </Badge>
-                )}
-                <Badge variant="outline">
-                  {team.age != null ? `U${team.age}` : 'N/A'} {team.gender === 'M' ? 'Boys' : team.gender === 'F' ? 'Girls' : team.gender === 'B' ? 'Boys' : team.gender === 'G' ? 'Girls' : team.gender}
-                </Badge>
-              </div>
+      <Card className="border-l-4 border-l-accent overflow-hidden">
+        {/* Team Name Header with Green Gradient */}
+        <div className="relative bg-gradient-to-r from-primary to-primary/90 px-4 sm:px-6 py-4">
+          <div className="absolute left-0 top-0 w-1.5 h-full bg-accent -skew-x-12" aria-hidden="true" />
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <h1 className="text-xl sm:text-2xl md:text-3xl font-display font-bold uppercase text-primary-foreground tracking-wide">
+                {team.team_name}
+              </h1>
+              <Button
+                variant={watched ? "secondary" : "outline"}
+                size="sm"
+                onClick={handleWatchToggle}
+                className={`transition-colors duration-300 ${watched ? '' : 'bg-transparent border-primary-foreground text-primary-foreground hover:bg-primary-foreground hover:text-primary'}`}
+                aria-label={watched ? "Unwatch team" : "Watch team"}
+              >
+                <Star className={`h-4 w-4 mr-1 ${watched ? 'fill-current' : ''}`} />
+                {watched ? 'Watching' : 'Watch'}
+              </Button>
             </div>
-            <div className="text-left sm:text-right w-full sm:w-auto">
+            <div className="text-left sm:text-right">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <div>
-                    <div className="text-3xl sm:text-4xl font-bold">
+                    <div className="font-mono text-2xl sm:text-3xl font-bold text-accent">
                       {formatPowerScore(teamRanking?.power_score_final)}
                     </div>
-                    <div className="text-xs sm:text-sm text-muted-foreground">PowerScore (ML Adjusted)</div>
+                    <div className="text-xs sm:text-sm text-primary-foreground/80">PowerScore</div>
                   </div>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -177,6 +165,23 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
               </Tooltip>
             </div>
           </div>
+        </div>
+
+        <CardContent className="pt-4 sm:pt-6 px-4 sm:px-6">
+          <div className="space-y-4 sm:space-y-6">
+            <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
+              {team.club_name && (
+                <span className="text-base sm:text-lg font-medium">{team.club_name}</span>
+              )}
+              {team.state && (
+                <Badge variant="outline" className="ml-0 sm:ml-2">
+                  {team.state}
+                </Badge>
+              )}
+              <Badge variant="outline">
+                {team.age != null ? `U${team.age}` : 'N/A'} {team.gender === 'M' ? 'Boys' : team.gender === 'F' ? 'Girls' : team.gender === 'B' ? 'Boys' : team.gender === 'G' ? 'Girls' : team.gender}
+              </Badge>
+            </div>
 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 pt-4 border-t">
             <div>
