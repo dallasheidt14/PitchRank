@@ -867,18 +867,30 @@ class EnhancedETLPipeline:
                     
                     # Check for duplicate/unique constraint violations
                     if 'duplicate' in error_str or 'unique' in error_str or '23505' in error_str:
-                        # Duplicate key violation - these games already exist
-                        # Don't count as inserted, but don't retry (they're already in DB)
-                        duplicate_violations += len(chunk)
-                        # Update metrics to track these as duplicates found
-                        self.metrics.duplicates_found += len(chunk)
-                        logger.warning(f"⚠️  Duplicate key violation: {len(chunk)} games already exist in database")
-                        logger.debug(f"Duplicate error details: {str(e)}")
-                        # Extract which records are duplicates if possible
-                        if 'details' in str(e):
-                            logger.debug(f"Duplicate details: {str(e)}")
-                        inserted_chunk = True  # Mark as handled (no retry needed)
-                        # Don't increment inserted - these weren't new inserts
+                        # Duplicate key violation - fall back to individual inserts to save valid records
+                        logger.warning(f"⚠️  Duplicate key violation in batch of {len(chunk)} games - falling back to individual inserts")
+
+                        # Try inserting each record individually to save valid ones
+                        individual_inserted = 0
+                        individual_duplicates = 0
+
+                        for record in chunk:
+                            try:
+                                self.supabase.table('games').insert(record, returning='minimal').execute()
+                                individual_inserted += 1
+                            except Exception as individual_e:
+                                individual_error_str = str(individual_e).lower()
+                                if 'duplicate' in individual_error_str or 'unique' in individual_error_str or '23505' in individual_error_str:
+                                    individual_duplicates += 1
+                                else:
+                                    logger.debug(f"Individual insert failed: {individual_e}")
+
+                        inserted += individual_inserted
+                        duplicate_violations += individual_duplicates
+                        self.metrics.duplicates_found += individual_duplicates
+
+                        logger.info(f"✅ Fallback complete: {individual_inserted} inserted, {individual_duplicates} duplicates skipped")
+                        inserted_chunk = True
                         break
                     elif '429' in error_str or 'rate limit' in error_str or 'too many requests' in error_str:
                         # Rate limit error - wait longer and reduce batch size
