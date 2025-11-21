@@ -280,24 +280,38 @@ async def main():
                 console.print(f"[green]Loaded {len(games):,} games from CSV[/green]")
                 games_batches = None
         elif use_streaming and file_path.suffix in ['.jsonl', '.ndjson']:
-            # Streaming mode for JSONL files
+            # Streaming mode for JSONL files - count lines first for progress tracking
             console.print(f"[bold]Streaming games from {args.file}[/bold]")
             if args.limit:
                 console.print(f"[yellow]Limiting to first {args.limit:,} games for testing[/yellow]")
-            games_batches = list(stream_games_jsonl(file_path, args.batch_size))
-            # Apply limit if specified
-            if args.limit:
-                limited_batches = []
+
+            # Count total lines for progress estimation (fast pass)
+            total_lines = 0
+            with open(file_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if line.strip():
+                        total_lines += 1
+                        if args.limit and total_lines >= args.limit:
+                            break
+
+            # Create generator (don't load into memory)
+            def limited_stream():
+                """Stream with optional limit"""
                 total = 0
-                for batch in games_batches:
-                    if total >= args.limit:
-                        break
-                    remaining = args.limit - total
-                    limited_batches.append(batch[:remaining])
-                    total += len(batch[:remaining])
-                games_batches = limited_batches
-            total_games = sum(len(batch) for batch in games_batches)
-            console.print(f"[green]Streaming ready: {len(games_batches)} batches, {total_games:,} games[/green]")
+                for batch in stream_games_jsonl(file_path, args.batch_size):
+                    if args.limit:
+                        remaining = args.limit - total
+                        if remaining <= 0:
+                            break
+                        if len(batch) > remaining:
+                            batch = batch[:remaining]
+                    yield batch
+                    total += len(batch)
+
+            games_batches = limited_stream()  # Generator, not list
+            total_games = min(total_lines, args.limit) if args.limit else total_lines
+            num_batches = (total_games + args.batch_size - 1) // args.batch_size
+            console.print(f"[green]Streaming ready: ~{num_batches} batches, {total_games:,} games[/green]")
             games = None  # Will process batches directly
         else:
             # In-memory mode for small files or JSON arrays
@@ -403,71 +417,96 @@ async def main():
     
     try:
         if use_streaming and games_batches is not None:
-            # Streaming mode with concurrency
+            # Streaming mode with concurrency - process generator without loading all into memory
             logger.info(f"Starting streaming {mode_text.lower()} for provider: {args.provider}, "
-                       f"file: {args.file}, batches: {len(games_batches)}, concurrency: {args.concurrency}")
-            
+                       f"file: {args.file}, concurrency: {args.concurrency}")
+
             semaphore = asyncio.Semaphore(args.concurrency)
-            
-            # Create tasks for all batches
-            async def process_batch(batch_num: int, batch: List[Dict], failed_ref: list, failed_rows_ref: list) -> Optional[ImportMetrics]:
+
+            # Process batches as they come from generator
+            async def process_batch(batch_num: int, batch: List[Dict]) -> Optional[ImportMetrics]:
                 """Process a single batch with error handling"""
                 try:
                     return await import_batch_with_retry(pipeline, batch, semaphore)
                 except Exception as e:
                     # Track failed batches
-                    failed_ref.append({
+                    failed_batches.append({
                         'batch_num': batch_num,
                         'size': len(batch),
                         'error': str(e)
                     })
-                    failed_rows_ref[0] += len(batch)
+                    nonlocal failed_rows
+                    failed_rows += len(batch)
                     logger.error(f"Batch {batch_num} failed: {e}")
                     return None
-            
-            # Create all batch tasks
-            batch_tasks = [
-                process_batch(batch_num, batch, failed_batches, [failed_rows])
-                for batch_num, batch in enumerate(games_batches, 1)
-            ]
-            
-            # Execute batches concurrently with concurrency control
+
+            # Execute batches concurrently with sliding window
             batch_start = datetime.now()
             completed_batches = 0
-            
-            # Use gather to process batches concurrently
-            results = await asyncio.gather(*batch_tasks, return_exceptions=True)
-            
-            # Aggregate results
-            for batch_num, result in enumerate(results, 1):
-                if isinstance(result, Exception):
-                    # Exception was raised (already logged in process_batch)
-                    continue
-                
-                if result:
-                    # Aggregate metrics
-                    aggregated_metrics.games_processed += result.games_processed
-                    aggregated_metrics.games_accepted += result.games_accepted
-                    aggregated_metrics.games_quarantined += result.games_quarantined
-                    aggregated_metrics.duplicates_found += result.duplicates_found
-                    aggregated_metrics.duplicates_skipped += result.duplicates_skipped
-                    aggregated_metrics.teams_matched += result.teams_matched
-                    aggregated_metrics.teams_created += result.teams_created
-                    aggregated_metrics.fuzzy_matches_auto += result.fuzzy_matches_auto
-                    aggregated_metrics.fuzzy_matches_manual += result.fuzzy_matches_manual
-                    aggregated_metrics.fuzzy_matches_rejected += result.fuzzy_matches_rejected
-                    aggregated_metrics.errors.extend(result.errors)
-                    
-                    completed_batches += 1
-                    
-                    # Checkpoint logging (suppress console during concurrent operations)
-                    if args.checkpoint and completed_batches % 10 == 0:
-                        elapsed = (datetime.now() - batch_start).total_seconds()
-                        log_checkpoint(completed_batches, aggregated_metrics.games_processed, elapsed, args.provider)
-                        logger.info(f"Checkpoint: {completed_batches} batches completed, "
-                                   f"Games: {aggregated_metrics.games_processed:,}, Elapsed: {elapsed:.1f}s")
-            
+            pending_tasks = []
+            batch_num = 0
+
+            # Consume generator and create tasks
+            for batch in games_batches:
+                batch_num += 1
+                task = asyncio.create_task(process_batch(batch_num, batch))
+                pending_tasks.append(task)
+
+                # When we have enough tasks, wait for some to complete
+                if len(pending_tasks) >= args.concurrency * 2:
+                    # Wait for at least half to complete
+                    done, pending_tasks_set = await asyncio.wait(
+                        pending_tasks,
+                        return_when=asyncio.FIRST_COMPLETED
+                    )
+                    pending_tasks = list(pending_tasks_set)
+
+                    # Process completed results
+                    for task in done:
+                        result = task.result()
+                        if result:
+                            aggregated_metrics.games_processed += result.games_processed
+                            aggregated_metrics.games_accepted += result.games_accepted
+                            aggregated_metrics.games_quarantined += result.games_quarantined
+                            aggregated_metrics.duplicates_found += result.duplicates_found
+                            aggregated_metrics.duplicates_skipped += result.duplicates_skipped
+                            aggregated_metrics.teams_matched += result.teams_matched
+                            aggregated_metrics.teams_created += result.teams_created
+                            aggregated_metrics.fuzzy_matches_auto += result.fuzzy_matches_auto
+                            aggregated_metrics.fuzzy_matches_manual += result.fuzzy_matches_manual
+                            aggregated_metrics.fuzzy_matches_rejected += result.fuzzy_matches_rejected
+                            aggregated_metrics.errors.extend(result.errors)
+                            completed_batches += 1
+
+                            # Checkpoint logging
+                            if args.checkpoint and completed_batches % 10 == 0:
+                                elapsed = (datetime.now() - batch_start).total_seconds()
+                                log_checkpoint(completed_batches, aggregated_metrics.games_processed, elapsed, args.provider)
+                                logger.info(f"Checkpoint: {completed_batches} batches completed, "
+                                           f"Games: {aggregated_metrics.games_processed:,}, Elapsed: {elapsed:.1f}s")
+
+            # Wait for remaining tasks
+            if pending_tasks:
+                results = await asyncio.gather(*pending_tasks, return_exceptions=True)
+                for result in results:
+                    if isinstance(result, Exception):
+                        continue
+                    if result:
+                        aggregated_metrics.games_processed += result.games_processed
+                        aggregated_metrics.games_accepted += result.games_accepted
+                        aggregated_metrics.games_quarantined += result.games_quarantined
+                        aggregated_metrics.duplicates_found += result.duplicates_found
+                        aggregated_metrics.duplicates_skipped += result.duplicates_skipped
+                        aggregated_metrics.teams_matched += result.teams_matched
+                        aggregated_metrics.teams_created += result.teams_created
+                        aggregated_metrics.fuzzy_matches_auto += result.fuzzy_matches_auto
+                        aggregated_metrics.fuzzy_matches_manual += result.fuzzy_matches_manual
+                        aggregated_metrics.fuzzy_matches_rejected += result.fuzzy_matches_rejected
+                        aggregated_metrics.errors.extend(result.errors)
+                        completed_batches += 1
+
             aggregated_metrics.processing_time_seconds = (datetime.now() - start_time).total_seconds()
+            total_batches = batch_num  # Store for exit code check
             
         else:
             # In-memory mode (single batch or small file)
@@ -530,8 +569,9 @@ async def main():
             console.print("\n[green]Check build_logs table for detailed metrics[/green]")
         
         # Exit code based on success/failure
-        if failed_batches and len(failed_batches) == len(games_batches) if games_batches else False:
-            sys.exit(1)  # All batches failed
+        if use_streaming and 'total_batches' in dir():
+            if failed_batches and len(failed_batches) == total_batches:
+                sys.exit(1)  # All batches failed
             
     except Exception as e:
         console.print(f"\n[red]Import failed: {e}[/red]")
