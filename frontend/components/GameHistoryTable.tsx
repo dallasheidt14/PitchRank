@@ -84,30 +84,27 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
     }
 
     // Gradient intensity based on magnitude
-    // Thresholds based on meaningful goal differences:
-    // - ±1 goal is minimum meaningful difference in soccer
-    // - ±2 goals is clear over/underperformance
-    // - ±3+ goals is exceptional
-    if (ml_overperformance >= 3) {
-      // Exceptional overperformance (+3 or more goals above expected)
+    // Thresholds: ±2 goals to introduce shading, gradient intensity for larger residuals
+    if (ml_overperformance >= 4) {
+      // Exceptional overperformance (+4 or more goals above expected)
       return "bg-green-300 dark:bg-green-800/50 font-semibold";
-    } else if (ml_overperformance >= 2) {
-      // Strong overperformance (+2 to +3 goals above expected)
+    } else if (ml_overperformance >= 3) {
+      // Strong overperformance (+3 to +4 goals above expected)
       return "bg-green-200 dark:bg-green-900/40 font-medium";
-    } else if (ml_overperformance >= 1) {
-      // Moderate overperformance (+1 to +2 goals above expected)
+    } else if (ml_overperformance >= 2) {
+      // Moderate overperformance (+2 to +3 goals above expected)
       return "bg-green-100 dark:bg-green-900/25";
-    } else if (ml_overperformance > -1) {
-      // Neutral performance (-1 to +1) - within normal variance
-      return "";
     } else if (ml_overperformance > -2) {
-      // Moderate underperformance (-1 to -2 goals below expected)
-      return "bg-red-100 dark:bg-red-900/25";
+      // Neutral performance (-2 to +2) - within normal variance
+      return "";
     } else if (ml_overperformance > -3) {
-      // Strong underperformance (-2 to -3 goals below expected)
+      // Moderate underperformance (-2 to -3 goals below expected)
+      return "bg-red-100 dark:bg-red-900/25";
+    } else if (ml_overperformance > -4) {
+      // Strong underperformance (-3 to -4 goals below expected)
       return "bg-red-200 dark:bg-red-900/40 font-medium";
     } else {
-      // Exceptional underperformance (-3 or more goals below expected)
+      // Exceptional underperformance (-4 or more goals below expected)
       return "bg-red-300 dark:bg-red-800/50 font-semibold";
     }
   }, []);
