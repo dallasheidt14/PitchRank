@@ -46,9 +46,7 @@ st.sidebar.title("Navigation")
 section = st.sidebar.radio(
     "Select Section",
     [
-        "📊 Overview",
-        "🎯 V53E Ranking Engine",
-        "🤖 Machine Learning Layer",
+        "🎯 Ranking Engine & ML",
         "🔍 Matching Configuration",
         "⚙️ ETL & Data Processing",
         "👥 Age Groups",
@@ -103,13 +101,13 @@ def calculate_similarity(str1: str, str2: str) -> float:
     return SequenceMatcher(None, str1, str2).ratio()
 
 # ============================================================================
-# OVERVIEW SECTION
+# RANKING ENGINE & ML SECTION (Combined)
 # ============================================================================
-if section == "📊 Overview":
-    st.header("Overview")
-    st.markdown("Quick view of critical parameters and system health.")
+if section == "🎯 Ranking Engine & ML":
+    st.header("Ranking Engine & Machine Learning")
+    st.markdown("V53E ranking parameters and ML layer configuration")
 
-    # Key metrics
+    # Key metrics overview
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
@@ -130,37 +128,8 @@ if section == "📊 Overview":
 
     st.divider()
 
-    # Critical parameters
-    st.subheader("🔴 Critical Parameters")
-
-    param_info(
-        "SOS_TRANSITIVITY_LAMBDA",
-        RANKING_CONFIG['sos_transitivity_lambda'],
-        "Controls strength of schedule transitivity. 0.20 = 80% direct opponents, 20% opponents of opponents"
-    )
-
-    param_info(
-        "RECENT_SHARE",
-        RANKING_CONFIG['recent_share'],
-        "Weight given to recent games vs older games. Higher = more emphasis on recent performance"
-    )
-
-    param_info(
-        "SHRINK_TAU",
-        RANKING_CONFIG['shrink_tau'],
-        "Bayesian shrinkage strength. Higher = more conservative estimates"
-    )
-
-    param_info(
-        "ML_ALPHA",
-        ML_CONFIG['alpha'],
-        "Machine learning layer contribution. 0 = no ML, 1 = full ML"
-    )
-
-    st.divider()
-
     # Component weights validation
-    st.subheader("⚖️ Component Weights Validation")
+    st.subheader("⚖️ Component Weights")
 
     off_weight = RANKING_CONFIG['off_weight']
     def_weight = RANKING_CONFIG['def_weight']
@@ -181,12 +150,10 @@ if section == "📊 Overview":
         else:
             st.metric("Total", total_weight, delta="⚠️ Should be 1.0")
 
-# ============================================================================
-# V53E RANKING ENGINE SECTION
-# ============================================================================
-elif section == "🎯 V53E Ranking Engine":
-    st.header("V53E Ranking Engine")
-    st.markdown("All 24 core parameters across 11 processing layers")
+    st.divider()
+
+    # V53E Ranking Engine Parameters
+    st.subheader("🎯 V53E Ranking Engine (24 Parameters)")
 
     # Layer 1: Time Window & Visibility
     with st.expander("**Layer 1: Time Window & Visibility**", expanded=True):
@@ -422,12 +389,9 @@ elif section == "🎯 V53E Ranking Engine":
             "Normalization mode: 'percentile' or 'zscore'"
         )
 
-# ============================================================================
-# MACHINE LEARNING LAYER SECTION
-# ============================================================================
-elif section == "🤖 Machine Learning Layer":
-    st.header("Machine Learning Layer (Layer 13)")
-    st.markdown("XGBoost and Random Forest ensemble for predictive adjustment")
+    # ML Layer Section (Layer 13)
+    st.divider()
+    st.subheader("🤖 Machine Learning Layer (Layer 13)")
 
     # ML Layer Status
     col1, col2 = st.columns(2)
@@ -439,64 +403,57 @@ elif section == "🤖 Machine Learning Layer":
     with col2:
         st.metric("ML Alpha (Blend Weight)", ML_CONFIG['alpha'])
 
-    st.divider()
+    # Core ML Parameters in expander
+    with st.expander("**Core ML Parameters**", expanded=False):
+        param_info(
+            "ML_ALPHA",
+            ML_CONFIG['alpha'],
+            "Blend weight for ML adjustment: 0 = no ML, 1 = full ML"
+        )
+        param_info(
+            "RECENCY_DECAY_LAMBDA",
+            ML_CONFIG['recency_decay_lambda'],
+            "Exponential decay rate for game recency"
+        )
+        param_info(
+            "MIN_TEAM_GAMES_FOR_RESIDUAL",
+            ML_CONFIG['min_team_games_for_residual'],
+            "Minimum games required to calculate game residuals",
+            "games"
+        )
+        param_info(
+            "RESIDUAL_CLIP_GOALS",
+            ML_CONFIG['residual_clip_goals'],
+            "Clip residuals to prevent extreme outlier influence",
+            "goals"
+        )
+        param_info(
+            "NORM_MODE",
+            ML_CONFIG['norm_mode'],
+            "Normalization mode for ML features"
+        )
+        param_info(
+            "LOOKBACK_DAYS",
+            ML_CONFIG['lookback_days'],
+            "Historical data window for ML training",
+            "days"
+        )
 
-    # Core ML Parameters
-    st.subheader("Core ML Parameters")
+    # XGBoost Parameters in expander
+    with st.expander("**XGBoost Hyperparameters**", expanded=False):
+        xgb_df = pd.DataFrame([
+            {"Parameter": k, "Value": v}
+            for k, v in ML_CONFIG['xgb_params'].items()
+        ])
+        st.dataframe(xgb_df, use_container_width=True, hide_index=True)
 
-    param_info(
-        "ML_ALPHA",
-        ML_CONFIG['alpha'],
-        "Blend weight for ML adjustment: 0 = no ML, 1 = full ML"
-    )
-    param_info(
-        "RECENCY_DECAY_LAMBDA",
-        ML_CONFIG['recency_decay_lambda'],
-        "Exponential decay rate for game recency"
-    )
-    param_info(
-        "MIN_TEAM_GAMES_FOR_RESIDUAL",
-        ML_CONFIG['min_team_games_for_residual'],
-        "Minimum games required to calculate game residuals",
-        "games"
-    )
-    param_info(
-        "RESIDUAL_CLIP_GOALS",
-        ML_CONFIG['residual_clip_goals'],
-        "Clip residuals to prevent extreme outlier influence",
-        "goals"
-    )
-    param_info(
-        "NORM_MODE",
-        ML_CONFIG['norm_mode'],
-        "Normalization mode for ML features"
-    )
-    param_info(
-        "LOOKBACK_DAYS",
-        ML_CONFIG['lookback_days'],
-        "Historical data window for ML training",
-        "days"
-    )
-
-    st.divider()
-
-    # XGBoost Parameters
-    st.subheader("XGBoost Hyperparameters")
-    xgb_df = pd.DataFrame([
-        {"Parameter": k, "Value": v}
-        for k, v in ML_CONFIG['xgb_params'].items()
-    ])
-    st.dataframe(xgb_df, use_container_width=True, hide_index=True)
-
-    st.divider()
-
-    # Random Forest Parameters
-    st.subheader("Random Forest Hyperparameters")
-    rf_df = pd.DataFrame([
-        {"Parameter": k, "Value": v}
-        for k, v in ML_CONFIG['rf_params'].items()
-    ])
-    st.dataframe(rf_df, use_container_width=True, hide_index=True)
+    # Random Forest Parameters in expander
+    with st.expander("**Random Forest Hyperparameters**", expanded=False):
+        rf_df = pd.DataFrame([
+            {"Parameter": k, "Value": v}
+            for k, v in ML_CONFIG['rf_params'].items()
+        ])
+        st.dataframe(rf_df, use_container_width=True, hide_index=True)
 
 # ============================================================================
 # MATCHING CONFIGURATION SECTION
@@ -1198,6 +1155,24 @@ elif section == "🔎 Unknown Teams Mapper":
                                 st.write(f"- **Age/Gender:** {existing['age_group']} {existing['gender']}")
                                 st.write(f"- **State:** {existing.get('state_code', 'N/A')}")
                                 st.info("💡 **What to do:** Use the **mapping tool above** (Step 2 & 3) to create an alias mapping for this team instead of adding it as new.")
+                                st.stop()
+
+                            # Check for duplicate team by name + age_group + gender
+                            duplicate_team = db.table('teams').select(
+                                'team_id_master, team_name, club_name, age_group, gender, state_code, provider_team_id'
+                            ).eq('team_name', new_team_name.strip()).eq('age_group', new_age_group).eq('gender', new_gender).execute()
+
+                            if duplicate_team.data and len(duplicate_team.data) > 0:
+                                # Team with same name/age/gender already exists
+                                existing = duplicate_team.data[0]
+                                st.error(f"❌ A team with this name, age group, and gender already exists!")
+                                st.warning("**Potential duplicate team found:**")
+                                st.write(f"- **Name:** {existing['team_name']}")
+                                st.write(f"- **Club:** {existing.get('club_name', 'N/A')}")
+                                st.write(f"- **Age/Gender:** {existing['age_group']} {existing['gender']}")
+                                st.write(f"- **State:** {existing.get('state_code', 'N/A')}")
+                                st.write(f"- **Provider Team ID:** {existing.get('provider_team_id', 'N/A')}")
+                                st.info("💡 **What to do:** If this is the same team, use the **mapping tool above** to create an alias. If it's truly a different team, consider adding a distinguishing suffix to the team name (e.g., 'Legends FC Premier 2').")
                                 st.stop()
 
                             # Get provider ID
