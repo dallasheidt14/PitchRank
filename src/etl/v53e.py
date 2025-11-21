@@ -56,6 +56,12 @@ class V53EConfig:
     SOS_ITERATIONS: int = 3
     SOS_TRANSITIVITY_LAMBDA: float = 0.20  # Balanced transitivity weight (80% direct, 20% transitive)
 
+    # SOS sample size weighting
+    SOS_SAMPLE_SIZE_THRESHOLD: int = 25  # Teams with fewer games shrink toward cohort mean
+    OPPONENT_SAMPLE_SIZE_THRESHOLD: int = 20  # Opponents with fewer games shrink toward cohort mean
+    MIN_GAMES_FOR_TOP_SOS: int = 10  # Teams with fewer games get capped sos_norm
+    SOS_TOP_CAP_FOR_LOW_SAMPLE: float = 0.70  # Max sos_norm for low-sample teams
+
     # Opponent-adjusted offense/defense (fixes double-counting)
     OPPONENT_ADJUST_ENABLED: bool = True
     OPPONENT_ADJUST_BASELINE: float = 0.5  # Reference strength for adjustment
@@ -535,10 +541,6 @@ def compute_rankings(
     strength_map = dict(zip(team["team_id"], team["abs_strength"]))
     power_map = dict(zip(team["team_id"], team["power_presos"]))
 
-    # Save original strength_map for SOS calculation (before opponent adjustment)
-    # SOS should be based on pre-adjustment strength to avoid circular dependency
-    strength_map_for_sos = strength_map.copy()
-
     # -------------------------
     # Opponent-Adjusted Offense/Defense (if enabled)
     # -------------------------
@@ -664,10 +666,25 @@ def compute_rankings(
     # This avoids feedback loops in the iterative algorithm
     team_off_norm_map = dict(zip(team["team_id"], team["off_norm"]))
     team_def_norm_map = dict(zip(team["team_id"], team["def_norm"]))
-    team_anchor_map = dict(zip(team["team_id"], team["anchor"]))
+    team_gp_map = dict(zip(team["team_id"], team["gp"]))
+
+    # Calculate cohort average strength for shrinkage
+    # Using (age, gender) as cohort key
+    cohort_avg_strength = {}
+    for (age, gender), grp in team.groupby(["age", "gender"]):
+        # Base power uses only OFF and DEF (50% each)
+        grp_base_power = 0.5 * grp["off_norm"] + 0.5 * grp["def_norm"]
+        cohort_avg_strength[(age, gender)] = float(grp_base_power.mean())
+
+    # Map team_id to cohort for quick lookup
+    team_cohort_map = dict(zip(
+        team["team_id"],
+        list(zip(team["age"], team["gender"]))
+    ))
 
     # Calculate BASE strength for each team (OFF/DEF only, normalized to avoid drift)
     # This represents opponent quality independent of their schedule
+    # Apply sample size weighting: shrink toward cohort mean for low-game opponents
     base_strength_map = {}
     for tid in team["team_id"]:
         # Base power uses only OFF and DEF (50% each of the non-SOS weight)
@@ -675,7 +692,17 @@ def compute_rankings(
             0.5 * team_off_norm_map.get(tid, 0.5) +
             0.5 * team_def_norm_map.get(tid, 0.5)
         )
-        base_strength_map[tid] = float(np.clip(base_power, 0.0, 1.0))
+        raw_strength = float(np.clip(base_power, 0.0, 1.0))
+
+        # Apply sample size weighting for opponent strength
+        opp_gp = team_gp_map.get(tid, 0)
+        opp_weight = min(1.0, opp_gp / cfg.OPPONENT_SAMPLE_SIZE_THRESHOLD)
+
+        cohort_key = team_cohort_map.get(tid)
+        cohort_avg = cohort_avg_strength.get(cohort_key, 0.5) if cohort_key else 0.5
+
+        # Blend: raw_strength * weight + cohort_avg * (1 - weight)
+        base_strength_map[tid] = raw_strength * opp_weight + cohort_avg * (1 - opp_weight)
 
     # Use base strength for initial SOS calculation (Pass 1)
     # This represents how good opponents are at OFF/DEF
@@ -770,8 +797,39 @@ def compute_rankings(
 
     team = team.merge(sos_curr, on="team_id", how="left").fillna({"sos": 0.5})
 
+    # Sample size weighting: shrink SOS toward cohort mean for low-sample teams
+    # This prevents teams with few games from having inflated/deflated SOS
+    cohort_avg_sos = team.groupby(["age", "gender"])["sos"].transform("mean")
+    sos_weight = (team["gp"] / cfg.SOS_SAMPLE_SIZE_THRESHOLD).clip(0, 1)
+    team["sos"] = team["sos"] * sos_weight + cohort_avg_sos * (1 - sos_weight)
+
+    logger.info(
+        f"📊 SOS after sample-size shrinkage: mean={team['sos'].mean():.4f}, "
+        f"std={team['sos'].std():.4f}, "
+        f"range=[{team['sos'].min():.4f}, {team['sos'].max():.4f}]"
+    )
+
     # Normalize SOS within cohort
     team = _normalize_by_cohort(team, "sos", "sos_norm", cfg.NORM_MODE)
+
+    # Low sample flagging: cap sos_norm for teams with insufficient games
+    team["sample_flag"] = np.where(
+        team["gp"] < cfg.MIN_GAMES_FOR_TOP_SOS,
+        "LOW_SAMPLE",
+        "OK"
+    )
+    # Cap sos_norm for low-sample teams to prevent unearned high rankings
+    low_sample_mask = team["gp"] < cfg.MIN_GAMES_FOR_TOP_SOS
+    team.loc[low_sample_mask, "sos_norm"] = team.loc[low_sample_mask, "sos_norm"].clip(
+        upper=cfg.SOS_TOP_CAP_FOR_LOW_SAMPLE
+    )
+
+    low_sample_count = low_sample_mask.sum()
+    if low_sample_count > 0:
+        logger.info(
+            f"🏷️  Low sample flagging: {low_sample_count} teams flagged, "
+            f"sos_norm capped at {cfg.SOS_TOP_CAP_FOR_LOW_SAMPLE}"
+        )
 
     # -------------------------
     # Layer 6: Performance
@@ -907,7 +965,7 @@ def compute_rankings(
         "team_id", "age", "gender", "gp", "gp_last_180", "last_game", "status", "rank_in_cohort",
         "off_raw", "sad_raw", "off_shrunk", "sad_shrunk", "def_shrunk",
         "off_norm", "def_norm",
-        "sos", "sos_norm",
+        "sos", "sos_norm", "sample_flag",
         "power_presos", "anchor", "abs_strength",
         "perf_raw", "perf_centered",
         "powerscore_core", "provisional_mult", "powerscore_adj"
