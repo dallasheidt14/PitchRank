@@ -232,7 +232,7 @@ async def main():
     parser.add_argument('file', help='JSON/JSONL/CSV file containing games data')
     parser.add_argument('provider', help='Provider ID (gotsport, tgs, usclub)')
     parser.add_argument('--dry-run', action='store_true', help='Run without committing')
-    parser.add_argument('--batch-size', type=int, default=5000, help='Batch size for streaming and inserts (default: 5000, optimal: 5000-10000)')
+    parser.add_argument('--batch-size', type=int, default=1000, help='Batch size for streaming and inserts (default: 1000, optimal: 1000-2000)')
     parser.add_argument('--validate-only', action='store_true', help='Only validate, don\'t import')
     parser.add_argument('--stream', action='store_true', help='Force streaming mode (auto-enabled for large files)')
     parser.add_argument('--concurrency', type=int, default=4, help='Number of concurrent batches (default: 4)')

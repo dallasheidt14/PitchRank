@@ -8,7 +8,7 @@ import sys
 import argparse
 import subprocess
 from pathlib import Path
-from datetime import datetime, date
+from datetime import datetime
 import json
 import csv
 import logging
@@ -141,7 +141,6 @@ async def _scrape_team_concurrent(
     semaphore: Semaphore,
     scraper: GotSportScraper,
     team: Dict,
-    since_date: Optional[date],
     scrape_dates_cache: Dict[str, Optional[datetime]],
     file_lock: threading.Lock,
     output_file_handle,
@@ -157,12 +156,8 @@ async def _scrape_team_concurrent(
         team_master_id = team.get('team_id_master')
         
         try:
-            # Determine since_date for this team
-            if since_date:
-                team_since_date = datetime.combine(since_date, datetime.min.time())
-            else:
-                # Use cached scrape date
-                team_since_date = scrape_dates_cache.get(team_master_id)
+            # Use cached scrape date for incremental updates
+            team_since_date = scrape_dates_cache.get(team_master_id)
             
             # Run synchronous scraper in thread pool (since requests is sync)
             game_data_list = await asyncio.to_thread(
@@ -215,8 +210,6 @@ async def scrape_games(
     provider: str = 'gotsport', 
     output_file: str = None, 
     limit_teams: int = None,
-    null_teams_only: bool = False,
-    since_date: date = None,
     auto_import: bool = False,
     concurrency: int = 30
 ):
@@ -233,8 +226,6 @@ async def scrape_games(
         provider: Provider code (default: 'gotsport')
         output_file: Output file path (default: auto-generated)
         limit_teams: Limit number of teams to scrape (for testing)
-        null_teams_only: Only scrape teams with NULL last_scraped_at (bootstrap mode)
-        since_date: Override since_date for scraping (for NULL teams)
         auto_import: Automatically import scraped games after scraping completes
         concurrency: Number of concurrent scrapes (default: 30)
     """
@@ -247,52 +238,22 @@ async def scrape_games(
     scraper = GotSportScraper(supabase, provider)
     provider_id = scraper._get_provider_id()
     
-    # Get teams to scrape
-    if null_teams_only:
-        # Get teams with NULL last_scraped_at (with pagination to handle >1000 teams)
-        console.print("[cyan]Fetching teams with NULL last_scraped_at (paginated)...[/cyan]")
-        teams = []
-        page_size = 1000
-        offset = 0
-        
-        while True:
-            teams_result = supabase.table('teams').select('*').eq(
-                'provider_id', provider_id
-            ).is_('last_scraped_at', 'null').range(offset, offset + page_size - 1).execute()
-            
-            if not teams_result.data:
-                break
-            
-            teams.extend(teams_result.data)
-            
-            # Stop if we've reached the limit or got fewer results than page_size
-            if limit_teams and len(teams) >= limit_teams:
-                teams = teams[:limit_teams]
-                break
-            
-            if len(teams_result.data) < page_size:
-                break
-            
-            offset += page_size
-            console.print(f"  Fetched {len(teams)} teams so far...")
-        
-        console.print(f"[cyan]Found {len(teams)} teams with NULL last_scraped_at[/cyan]")
-    else:
-        # Steady-state incremental mode: scrape teams not scraped in last 7 days
-        teams = scraper._get_teams_to_scrape()
-        if limit_teams:
-            teams = teams[:limit_teams]
-        console.print(f"[cyan]Incremental mode: Scraping teams not updated in last 7 days[/cyan]")
-        console.print(f"[dim]Each team will use its cached last_scraped_at for incremental updates[/dim]")
+    # Get teams to scrape (incremental mode: scrape teams not scraped in last 7 days)
+    console.print("[dim]Fetching teams that need scraping (this may take a moment for large datasets)...[/dim]")
+    teams = scraper._get_teams_to_scrape()
+    if limit_teams:
+        teams = teams[:limit_teams]
+        console.print(f"[dim]Limited to {limit_teams} teams for testing[/dim]")
+    
+    # Early exit if no teams to scrape
+    if len(teams) == 0:
+        console.print(f"[bold green]✅ No teams need scraping[/bold green]")
+        console.print(f"[dim]All teams have been scraped within the last 7 days[/dim]")
+        return None
     
     console.print(f"[bold cyan]Scraping games for {len(teams)} teams[/bold cyan]")
     console.print(f"[cyan]Concurrency: {concurrency} teams at once[/cyan]")
-    if since_date:
-        console.print(f"[cyan]Using override since_date: {since_date}[/cyan]\n")
-    elif not null_teams_only:
-        console.print(f"[dim]Using per-team last_scraped_at for incremental scraping[/dim]\n")
-    else:
-        console.print()
+    console.print(f"[dim]Using per-team last_scraped_at for incremental scraping[/dim]\n")
     
     # OPTIMIZATION 1: Bulk fetch all scrape dates
     console.print("[dim]Fetching scrape dates for all teams...[/dim]")
@@ -331,7 +292,7 @@ async def scrape_games(
             # Create tasks for all teams
             tasks = [
                 _scrape_team_concurrent(
-                    semaphore, scraper, team, since_date, scrape_dates_cache,
+                    semaphore, scraper, team, scrape_dates_cache,
                     file_lock, output_file_handle, log_buffer, flush_counter, progress, task_id
                 )
                 for team in teams
@@ -387,7 +348,7 @@ async def scrape_games(
                 str(output_path),
                 provider,
                 '--stream',
-                '--batch-size', '2000'
+                '--batch-size', '1000'
             ]
             
             result = subprocess.run(cmd, capture_output=False, text=True)
@@ -415,29 +376,16 @@ def main():
     parser.add_argument('--provider', type=str, default='gotsport', help='Provider code')
     parser.add_argument('--output', type=str, default=None, help='Output file path (default: auto-generated)')
     parser.add_argument('--limit-teams', type=int, default=None, help='Limit number of teams to scrape (for testing)')
-    parser.add_argument('--null-teams-only', action='store_true', help='Only scrape teams with NULL last_scraped_at')
-    parser.add_argument('--since-date', type=str, default=None, help='Override since_date for scraping (YYYY-MM-DD format, used for NULL teams)')
     parser.add_argument('--auto-import', action='store_true', help='Automatically import scraped games after scraping completes')
     parser.add_argument('--concurrency', type=int, default=30, help='Number of concurrent scrapes (default: 30)')
     
     args = parser.parse_args()
-    
-    # Parse since_date if provided
-    since_date_obj = None
-    if args.since_date:
-        try:
-            since_date_obj = datetime.strptime(args.since_date, '%Y-%m-%d').date()
-        except ValueError:
-            console.print(f"[red]Error: Invalid date format '{args.since_date}'. Use YYYY-MM-DD format.[/red]")
-            sys.exit(1)
     
     try:
         output_file = asyncio.run(scrape_games(
             provider=args.provider,
             output_file=args.output,
             limit_teams=args.limit_teams,
-            null_teams_only=args.null_teams_only,
-            since_date=since_date_obj,
             auto_import=args.auto_import,
             concurrency=args.concurrency
         ))
