@@ -53,13 +53,10 @@ def retry_supabase_query(query_func, max_retries=4, initial_delay=2.0, descripti
                 logger.info(f"   Retrying in {delay:.1f}s...")
                 time.sleep(delay)
                 delay *= 2  # Exponential backoff
-            elif attempt < max_retries - 1:
-                # Non-retryable error, but try anyway
-                logger.warning(
-                    f"⚠️  {description} error (attempt {attempt + 1}/{max_retries}): {str(e)[:100]}"
-                )
-                time.sleep(delay)
-                delay *= 2
+            elif not is_retryable:
+                # Non-retryable error (404, 401, permission denied, etc.) - fail immediately
+                logger.error(f"❌ {description} failed with non-retryable error: {str(e)[:200]}")
+                raise
             else:
                 # Last attempt failed
                 logger.error(f"❌ {description} failed after {max_retries} attempts")
@@ -186,12 +183,21 @@ async def fetch_games_for_rankings(
             logger.info(f"  ✓ Fetched {len(games_data):,} games...")
     
     logger.info(f"✅ Fetched {len(games_data):,} total games from database")
-    
+
     if not games_data:
         logger.warning("⚠️  No games found in database")
         return pd.DataFrame()
-    
+
     games_df = pd.DataFrame(games_data)
+
+    # Deduplicate games by ID to prevent duplicate perspective rows
+    # (can occur from pagination overlap or duplicate inserts in source)
+    before_dedup = len(games_df)
+    games_df = games_df.drop_duplicates(subset=['id'])
+    after_dedup = len(games_df)
+    if before_dedup != after_dedup:
+        logger.warning(f"⚠️  Removed {before_dedup - after_dedup:,} duplicate games")
+
     logger.info(f"📊 Processing {len(games_df):,} games...")
     
     # Fetch teams for age_group and gender

@@ -33,12 +33,13 @@ class Layer13Config:
     cohort_key_cols: Tuple[str, str] = ("age", "gender")
     
     # residual aggregation
-    recency_decay_lambda: float = 0.06     # exp(-lambda * (recency-1))
+    recency_decay_lambda: float = 0.06     # exp(-lambda * (recency-1)); short-term form focus
     min_team_games_for_residual: int = 6
     residual_clip_goals: float = 3.5       # guardrail on residual outliers
+    min_training_rows: int = 30            # Minimum rows to enable ML (prevents leakage)
     
     # blend into PowerScore
-    alpha: float = 0.12                    # 0.05–0.20 recommended
+    alpha: float = 0.15                    # Unified default: 0.15 is sweet spot (0.05–0.20 range)
     norm_mode: str = "percentile"          # or "zscore"
     
     # supabase
@@ -115,7 +116,7 @@ def _extract_game_residuals(feats: pd.DataFrame, games_df: pd.DataFrame, cfg: La
     logger.info(f"[DEBUG _extract_game_residuals] Input feats: {len(feats)} rows, columns: {list(feats.columns)}")
 
     if feats.empty or 'residual' not in feats.columns:
-        logger.warning(f"[DEBUG _extract_game_residuals] ❌ Feats empty or missing 'residual' column")
+        logger.warning("[DEBUG _extract_game_residuals] Feats empty or missing 'residual' column")
         return pd.DataFrame(columns=['game_id', 'ml_overperformance'])
 
     # Check if v53e format has the required fields (id, team_id, home_team_master_id)
@@ -139,7 +140,7 @@ def _extract_game_residuals(feats: pd.DataFrame, games_df: pd.DataFrame, cfg: La
         logger.warning(f"[DEBUG _extract_game_residuals] Matching count: {(feats['team_id_str'] == feats['home_team_master_id_str']).sum()}")
     
     if home_perspective.empty:
-        logger.warning(f"[DEBUG _extract_game_residuals] ❌ Home perspective is empty after filtering")
+        logger.warning("[DEBUG _extract_game_residuals] Home perspective is empty after filtering")
         return pd.DataFrame(columns=['game_id', 'ml_overperformance'])
 
     # Extract game_id (UUID) and residual
@@ -248,8 +249,35 @@ async def apply_predictive_adjustment(
     
     # 2) Build feature matrix from games + current powers
     base_power_col = "powerscore_adj" if "powerscore_adj" in out.columns else "powerscore_core"
-    power_map = dict(zip(out["team_id"], out[base_power_col].astype(float)))
-    feats = _build_features(games_df, power_map, cfg)
+    power_map = dict(zip(out["team_id"].astype(str), out[base_power_col].astype(float)))
+
+    # Compute cohort means for missing PowerScores fallback (better than hardcoded 0.5)
+    cohort_power_means = {}
+    global_power_mean = out[base_power_col].mean() if not out.empty else 0.5
+    if "age" in out.columns and "gender" in out.columns:
+        for (age, gender), grp in out.groupby(["age", "gender"]):
+            cohort_power_means[(str(age), str(gender).lower())] = grp[base_power_col].mean()
+
+    feats = _build_features(games_df, power_map, cfg, cohort_power_means, global_power_mean)
+
+    # Check for missing PowerScores and warn if >1%
+    if not feats.empty and "team_power" in feats.columns:
+        # Count games where team or opp had to use fallback
+        teams_in_power_map = set(power_map.keys())
+        team_id_col = 'team_id' if 'team_id' in games_df.columns else cfg.team_id_col
+        opp_id_col = 'opp_id' if 'opp_id' in games_df.columns else cfg.opp_id_col
+        missing_team = ~games_df[team_id_col].astype(str).isin(teams_in_power_map)
+        missing_opp = ~games_df[opp_id_col].astype(str).isin(teams_in_power_map)
+        missing_count = (missing_team | missing_opp).sum()
+        missing_pct = (missing_count / len(games_df)) * 100 if len(games_df) > 0 else 0
+
+        if missing_pct > 1.0:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"⚠️  {missing_pct:.1f}% of games ({missing_count:,}) involve teams with missing PowerScores. "
+                f"Using cohort mean as fallback. ML accuracy may be degraded."
+            )
     
     if feats.empty:
         import logging
@@ -273,13 +301,42 @@ async def apply_predictive_adjustment(
     if "date" in feats.columns and len(feats) > 0:
         cutoff_date = feats["date"].max() - pd.Timedelta(days=30)
         train_feats = feats[feats["date"] < cutoff_date].copy()
-        
-        # Fall back to full feats if no training data
-        if train_feats.empty or len(train_feats) < 10:
-            train_feats = feats.copy()
+
+        # Disable ML if insufficient training data (prevents leakage)
+        if len(train_feats) < cfg.min_training_rows:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"⚠️  Layer 13 disabled: only {len(train_feats)} training rows "
+                f"(need ≥{cfg.min_training_rows}). Passing through base v53E scores."
+            )
+            out["ml_overperf"] = 0.0
+            out["ml_norm"] = 0.0
+            out["powerscore_ml"] = out.get("powerscore_adj", out.get("powerscore_core", 0.0))
+            out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
+            out["rank_in_cohort_ml"] = (
+                out.groupby(list(cfg.cohort_key_cols))["powerscore_ml"]
+                   .rank(ascending=False, method="min")
+            ).astype(int)
+            if return_game_residuals:
+                return out, pd.DataFrame(columns=['game_id', 'ml_overperformance'])
+            return out
     else:
-        # No date column or empty feats - use full feats
-        train_feats = feats.copy()
+        # No date column or empty feats - disable ML
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning("⚠️  Layer 13 disabled: no date column in feats. Passing through base v53E scores.")
+        out["ml_overperf"] = 0.0
+        out["ml_norm"] = 0.0
+        out["powerscore_ml"] = out.get("powerscore_adj", out.get("powerscore_core", 0.0))
+        out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
+        out["rank_in_cohort_ml"] = (
+            out.groupby(list(cfg.cohort_key_cols))["powerscore_ml"]
+               .rank(ascending=False, method="min")
+        ).astype(int)
+        if return_game_residuals:
+            return out, pd.DataFrame(columns=['game_id', 'ml_overperformance'])
+        return out
     
     feats = _fit_and_residualize(feats, train_feats, cfg)
     
@@ -362,8 +419,22 @@ async def _fetch_games_from_supabase(
 # ----------------------------
 # Feature engineering & model
 # ----------------------------
-def _build_features(games: pd.DataFrame, power_map: Dict[str, float], cfg: Layer13Config) -> pd.DataFrame:
-    """Build feature matrix for ML model"""
+def _build_features(
+    games: pd.DataFrame,
+    power_map: Dict[str, float],
+    cfg: Layer13Config,
+    cohort_power_means: Optional[Dict[Tuple[str, str], float]] = None,
+    global_power_mean: float = 0.5
+) -> pd.DataFrame:
+    """Build feature matrix for ML model
+
+    Args:
+        games: Games DataFrame in v53e format
+        power_map: Dict of team_id -> PowerScore
+        cfg: Layer13Config
+        cohort_power_means: Dict of (age, gender) -> mean PowerScore for cohort
+        global_power_mean: Fallback mean if cohort mean not available
+    """
     f = games.copy()
     
     # v53e format uses: team_id, opp_id, gf, ga, age, gender, opp_age, opp_gender, date
@@ -379,8 +450,32 @@ def _build_features(games: pd.DataFrame, power_map: Dict[str, float], cfg: Layer
     date_col = 'date' if 'date' in f.columns else cfg.date_col
     
     f["goal_margin"] = (f[gf_col] - f[ga_col]).astype(float)
-    f["team_power"] = f[team_id_col].astype(str).map(lambda t: power_map.get(str(t), 0.5))
-    f["opp_power"] = f[opp_id_col].astype(str).map(lambda t: power_map.get(str(t), 0.5))
+
+    # Use cohort mean as fallback for missing PowerScores (not hardcoded 0.5)
+    def get_team_power(row):
+        team_id = str(row[team_id_col])
+        if team_id in power_map:
+            return power_map[team_id]
+        # Fallback to cohort mean, then global mean
+        if cohort_power_means:
+            cohort_key = (str(row[age_col]), str(row[gender_col]).lower())
+            if cohort_key in cohort_power_means:
+                return cohort_power_means[cohort_key]
+        return global_power_mean
+
+    def get_opp_power(row):
+        opp_id = str(row[opp_id_col])
+        if opp_id in power_map:
+            return power_map[opp_id]
+        # Fallback to opponent's cohort mean, then global mean
+        if cohort_power_means:
+            cohort_key = (str(row[opp_age_col]), str(row[opp_gender_col]).lower())
+            if cohort_key in cohort_power_means:
+                return cohort_power_means[cohort_key]
+        return global_power_mean
+
+    f["team_power"] = f.apply(get_team_power, axis=1).astype(float)
+    f["opp_power"] = f.apply(get_opp_power, axis=1).astype(float)
     f["power_diff"] = f["team_power"] - f["opp_power"]
     
     # age gap
@@ -454,24 +549,30 @@ def _aggregate_team_residuals(feats: pd.DataFrame, cfg: Layer13Config) -> pd.Dat
     """Aggregate residuals per team with recency weighting"""
     df = feats.copy()
     df["recency_w"] = np.exp(-cfg.recency_decay_lambda * (df["rank_recency"].astype(float) - 1.0))
-    
-    def _wavg(d: pd.DataFrame) -> float:
-        w = d["recency_w"].values
-        s = float(w.sum())
-        if s <= 0:
-            return 0.0
-        return float(np.average(d["residual"].values, weights=w))
-    
+
     # Get team_id and age/gender columns (v53e format uses team_id, age, gender)
     team_id_col = 'team_id' if 'team_id' in df.columns else ('team_id_master' if 'team_id_master' in df.columns else cfg.team_id_col)
     age_col = 'age' if 'age' in df.columns else cfg.age_col
     gender_col = 'gender' if 'gender' in df.columns else cfg.gender_col
-    
-    agg = (
-        df.groupby([team_id_col, age_col, gender_col], as_index=False)
-          .apply(lambda d: pd.Series({"ml_overperf": _wavg(d)}))
-          .reset_index(drop=True)
-    )
+
+    # Compute weighted average per group (avoiding deprecated .apply pattern)
+    def compute_group_wavg(group_df):
+        w = group_df["recency_w"].values
+        s = float(w.sum())
+        if s <= 0:
+            return 0.0
+        return float(np.average(group_df["residual"].values, weights=w))
+
+    # Use groupby + agg with custom function (avoids FutureWarning)
+    agg = df.groupby([team_id_col, age_col, gender_col], as_index=False).apply(
+        lambda d: pd.DataFrame({
+            team_id_col: [d[team_id_col].iloc[0]],
+            age_col: [d[age_col].iloc[0]],
+            gender_col: [d[gender_col].iloc[0]],
+            "ml_overperf": [compute_group_wavg(d)]
+        }),
+        include_groups=False
+    ).reset_index(drop=True)
     
     # require a minimum number of games to avoid yo-yo
     counts = df.groupby([team_id_col, age_col, gender_col], as_index=False)["residual"].count() \

@@ -89,6 +89,7 @@ async def compute_rankings_with_ml(
     lookback_days: int = 365,
     provider_filter: Optional[str] = None,
     force_rebuild: bool = False,
+    save_snapshot: bool = True,  # Set to False when called from compute_all_cohorts
 ) -> Dict[str, pd.DataFrame]:
     """
     Runs your deterministic v53E engine, then applies the Supabase-aware ML adjustment.
@@ -137,22 +138,30 @@ async def compute_rankings_with_ml(
     cache_dir = Path("data/cache")
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    # Generate hash key from game IDs (use first 1000 IDs for performance)
-    game_ids_sample = games_df["game_id"].head(1000).astype(str).tolist() if "game_id" in games_df.columns else []
-    hash_input = "".join(sorted(game_ids_sample)) + str(lookback_days) + (provider_filter or "")
+    # Generate hash key from ALL game IDs (not just first 1000 - that caused stale cache issues)
+    game_ids = games_df["game_id"].astype(str).tolist() if "game_id" in games_df.columns else []
+    hash_input = "".join(sorted(game_ids)) + str(lookback_days) + (provider_filter or "")
     cache_key = hashlib.md5(hash_input.encode()).hexdigest()
-    cache_file = cache_dir / f"rankings_{cache_key}.parquet"
+    cache_file_teams = cache_dir / f"rankings_{cache_key}_teams.parquet"
+    cache_file_games = cache_dir / f"rankings_{cache_key}_games.parquet"
 
-    # Try to load from cache
+    # Try to load from cache (both teams and games_used)
     base = None
-    if not force_rebuild and cache_file.exists():
+    if not force_rebuild and cache_file_teams.exists():
         try:
-            cached_teams = pd.read_parquet(cache_file)
+            cached_teams = pd.read_parquet(cache_file_teams)
             if not cached_teams.empty:
-                # Cache hit - use cached teams, but still need games_used
-                # Run v53e to get games_used (or skip if not needed)
-                base = compute_rankings(games_df=games_df, today=today, cfg=v53_cfg)
-                base["teams"] = cached_teams  # Override with cached teams
+                # Cache hit - load both teams and games_used, skip v53e entirely
+                cached_games_used = pd.DataFrame()
+                if cache_file_games.exists():
+                    try:
+                        cached_games_used = pd.read_parquet(cache_file_games)
+                    except Exception:
+                        pass  # games_used cache failed, use empty
+                base = {
+                    "teams": cached_teams,
+                    "games_used": cached_games_used
+                }
         except Exception:
             # Cache load failed - continue with computation
             pass
@@ -163,11 +172,15 @@ async def compute_rankings_with_ml(
         base = compute_rankings(games_df=games_df, today=today, cfg=v53_cfg)
         logger.info(f"✅ v53e engine completed: {len(base['teams']):,} teams ranked")
 
-        # Save to cache (only teams DataFrame)
+        # Save to cache (both teams and games_used DataFrames)
         try:
             if not base["teams"].empty:
-                base["teams"].to_parquet(cache_file, index=False)
-                logger.debug(f"💾 Cached rankings to {cache_file}")
+                base["teams"].to_parquet(cache_file_teams, index=False)
+                logger.debug(f"💾 Cached teams to {cache_file_teams}")
+            games_used_to_cache = base.get("games_used")
+            if games_used_to_cache is not None and not getattr(games_used_to_cache, "empty", True):
+                games_used_to_cache.to_parquet(cache_file_games, index=False)
+                logger.debug(f"💾 Cached games_used to {cache_file_games}")
         except Exception:
             # Cache save failed - continue without caching
             pass
@@ -210,10 +223,10 @@ async def compute_rankings_with_ml(
 
     ml_cfg = layer13_cfg or Layer13Config(
         lookback_days=v53_cfg.WINDOW_DAYS,
-        alpha=0.20,
+        alpha=0.15,  # Unified default: 0.15 is sweet spot between conservative (0.12) and aggressive (0.20)
         norm_mode="zscore",
         min_team_games_for_residual=6,
-        recency_decay_lambda=0.06,
+        recency_decay_lambda=0.06,  # Short-term form focus; tune later after stability verified
         table_name="games",
         provider_filter=provider_filter,
     )
@@ -263,7 +276,8 @@ async def compute_rankings_with_ml(
     )
 
     # Save current rankings as a snapshot for future rank change calculations
-    if not teams_with_ml.empty:
+    # (Skip if save_snapshot=False, e.g., when called from compute_all_cohorts)
+    if save_snapshot and not teams_with_ml.empty:
         logger.info("💾 Saving ranking snapshot for future comparisons...")
         await save_ranking_snapshot(
             supabase_client=supabase_client,
@@ -362,6 +376,7 @@ async def compute_all_cohorts(
     cohorts = games_df.groupby(["age", "gender"])
 
     # Create tasks for each cohort
+    # Pass save_snapshot=False to avoid multiple partial snapshots
     tasks = []
     for (age, gender), cohort_games in cohorts:
         task = compute_rankings_with_ml(
@@ -374,6 +389,7 @@ async def compute_all_cohorts(
             lookback_days=lookback_days,
             provider_filter=provider_filter,
             force_rebuild=force_rebuild,
+            save_snapshot=False,  # Don't save partial snapshots; save combined at end
         )
         tasks.append(task)
 
@@ -393,6 +409,14 @@ async def compute_all_cohorts(
     # Combine results
     teams_combined = pd.concat(all_teams, ignore_index=True) if all_teams else pd.DataFrame()
     games_used_combined = pd.concat(all_games_used, ignore_index=True) if all_games_used else pd.DataFrame()
+
+    # Save one combined snapshot for all cohorts (instead of multiple partial snapshots)
+    if not teams_combined.empty:
+        logger.info("💾 Saving combined ranking snapshot for all cohorts...")
+        await save_ranking_snapshot(
+            supabase_client=supabase_client,
+            rankings_df=teams_combined
+        )
 
     return {
         "teams": teams_combined,
