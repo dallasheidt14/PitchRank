@@ -90,6 +90,7 @@ async def compute_rankings_with_ml(
     provider_filter: Optional[str] = None,
     force_rebuild: bool = False,
     save_snapshot: bool = True,  # Set to False when called from compute_all_cohorts
+    global_strength_map: Optional[Dict] = None,  # For cross-age SOS lookups
 ) -> Dict[str, pd.DataFrame]:
     """
     Runs your deterministic v53E engine, then applies the Supabase-aware ML adjustment.
@@ -169,7 +170,12 @@ async def compute_rankings_with_ml(
     # 2) Run v53e rankings engine (if not cached)
     if base is None:
         logger.info(f"🔁 Rebuilding v53e rankings from raw data... (force_rebuild={force_rebuild})")
-        base = compute_rankings(games_df=games_df, today=today, cfg=v53_cfg)
+        base = compute_rankings(
+            games_df=games_df,
+            today=today,
+            cfg=v53_cfg,
+            global_strength_map=global_strength_map,
+        )
         logger.info(f"✅ v53e engine completed: {len(base['teams']):,} teams ranked")
 
         # Save to cache (both teams and games_used DataFrames)
@@ -349,10 +355,12 @@ async def compute_all_cohorts(
     force_rebuild: bool = False,
 ) -> Dict[str, pd.DataFrame]:
     """
-    Compute rankings for all cohorts in parallel.
+    Compute rankings for all cohorts using two-pass architecture.
 
-    Groups games_df by (age, gender) and runs compute_rankings_with_ml() concurrently
-    for each cohort, then merges results.
+    Pass 1: Run each cohort to get initial abs_strength values
+    Pass 2: Re-run with global_strength_map for accurate cross-age SOS
+
+    This ensures cross-age opponents get their real strength instead of 0.35.
     """
     # Get games data if not provided
     if games_df is None or games_df.empty:
@@ -373,11 +381,12 @@ async def compute_all_cohorts(
         }
 
     # Group by (age, gender) cohorts
-    cohorts = games_df.groupby(["age", "gender"])
+    cohorts = list(games_df.groupby(["age", "gender"]))
+    logger.info(f"🔄 Two-pass SOS: Processing {len(cohorts)} cohorts")
 
-    # Create tasks for each cohort
-    # Pass save_snapshot=False to avoid multiple partial snapshots
-    tasks = []
+    # ========== PASS 1: Get initial strengths from all cohorts ==========
+    logger.info("📊 Pass 1: Computing initial strengths for all cohorts...")
+    pass1_tasks = []
     for (age, gender), cohort_games in cohorts:
         task = compute_rankings_with_ml(
             supabase_client=supabase_client,
@@ -385,22 +394,55 @@ async def compute_all_cohorts(
             today=today,
             v53_cfg=v53_cfg,
             layer13_cfg=layer13_cfg,
-            fetch_from_supabase=False,  # Already have games_df
+            fetch_from_supabase=False,
             lookback_days=lookback_days,
             provider_filter=provider_filter,
             force_rebuild=force_rebuild,
-            save_snapshot=False,  # Don't save partial snapshots; save combined at end
+            save_snapshot=False,
+            global_strength_map=None,  # No global map yet
         )
-        tasks.append(task)
+        pass1_tasks.append(task)
 
-    # Run all cohorts concurrently
-    results = await asyncio.gather(*tasks)
+    pass1_results = await asyncio.gather(*pass1_tasks)
 
-    # Merge results from all cohorts
+    # Build global strength map from Pass 1 results
+    global_strength_map = {}
+    for result in pass1_results:
+        if not result["teams"].empty:
+            teams_df = result["teams"]
+            if "abs_strength" in teams_df.columns:
+                for _, row in teams_df.iterrows():
+                    team_id = str(row["team_id"])
+                    global_strength_map[team_id] = float(row["abs_strength"])
+
+    logger.info(f"🌍 Built global strength map with {len(global_strength_map):,} teams")
+
+    # ========== PASS 2: Re-run with global strength map ==========
+    logger.info("📊 Pass 2: Re-computing with global strength map for accurate cross-age SOS...")
+    pass2_tasks = []
+    for (age, gender), cohort_games in cohorts:
+        task = compute_rankings_with_ml(
+            supabase_client=supabase_client,
+            games_df=cohort_games,
+            today=today,
+            v53_cfg=v53_cfg,
+            layer13_cfg=layer13_cfg,
+            fetch_from_supabase=False,
+            lookback_days=lookback_days,
+            provider_filter=provider_filter,
+            force_rebuild=True,  # Force rebuild to use new global map
+            save_snapshot=False,
+            global_strength_map=global_strength_map,  # Now with cross-age strengths
+        )
+        pass2_tasks.append(task)
+
+    pass2_results = await asyncio.gather(*pass2_tasks)
+
+    # Merge results from Pass 2
     all_teams = []
     all_games_used = []
 
-    for result in results:
+    for result in pass2_results:
         if not result["teams"].empty:
             all_teams.append(result["teams"])
         if not result.get("games_used", pd.DataFrame()).empty:
@@ -410,13 +452,15 @@ async def compute_all_cohorts(
     teams_combined = pd.concat(all_teams, ignore_index=True) if all_teams else pd.DataFrame()
     games_used_combined = pd.concat(all_games_used, ignore_index=True) if all_games_used else pd.DataFrame()
 
-    # Save one combined snapshot for all cohorts (instead of multiple partial snapshots)
+    # Save one combined snapshot for all cohorts
     if not teams_combined.empty:
         logger.info("💾 Saving combined ranking snapshot for all cohorts...")
         await save_ranking_snapshot(
             supabase_client=supabase_client,
             rankings_df=teams_combined
         )
+
+    logger.info(f"✅ Two-pass SOS complete: {len(teams_combined):,} teams ranked")
 
     return {
         "teams": teams_combined,
