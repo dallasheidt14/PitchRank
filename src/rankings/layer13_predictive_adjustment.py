@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
-from typing import Optional, Dict, List, Tuple, Set
+from typing import Optional, Dict, List, Tuple
 
 # Prefer XGBoost; fall back to RandomForest
 try:
@@ -116,7 +116,7 @@ def _extract_game_residuals(feats: pd.DataFrame, games_df: pd.DataFrame, cfg: La
     logger.info(f"[DEBUG _extract_game_residuals] Input feats: {len(feats)} rows, columns: {list(feats.columns)}")
 
     if feats.empty or 'residual' not in feats.columns:
-        logger.warning(f"[DEBUG _extract_game_residuals] ❌ Feats empty or missing 'residual' column")
+        logger.warning("[DEBUG _extract_game_residuals] Feats empty or missing 'residual' column")
         return pd.DataFrame(columns=['game_id', 'ml_overperformance'])
 
     # Check if v53e format has the required fields (id, team_id, home_team_master_id)
@@ -140,7 +140,7 @@ def _extract_game_residuals(feats: pd.DataFrame, games_df: pd.DataFrame, cfg: La
         logger.warning(f"[DEBUG _extract_game_residuals] Matching count: {(feats['team_id_str'] == feats['home_team_master_id_str']).sum()}")
     
     if home_perspective.empty:
-        logger.warning(f"[DEBUG _extract_game_residuals] ❌ Home perspective is empty after filtering")
+        logger.warning("[DEBUG _extract_game_residuals] Home perspective is empty after filtering")
         return pd.DataFrame(columns=['game_id', 'ml_overperformance'])
 
     # Extract game_id (UUID) and residual
