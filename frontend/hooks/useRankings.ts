@@ -85,8 +85,8 @@ export function useRankings(
         return (data || []) as RankingRow[];
       }
     },
-    staleTime: 5 * 60 * 1000, // 5 minutes - rankings update weekly
-    gcTime: 30 * 60 * 1000, // Keep in cache for 30 minutes
+    staleTime: 30 * 60 * 1000, // 30 minutes - rankings update weekly, no need for frequent refetch
+    gcTime: 60 * 60 * 1000, // Keep in cache for 1 hour
   });
 
   return queryResult;
