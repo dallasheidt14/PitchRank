@@ -1354,6 +1354,71 @@ elif section == "📈 Database Import Stats":
 
         st.divider()
 
+        # Team Scraping Status
+        st.subheader("Team Scraping Status")
+
+        try:
+            seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
+
+            # Teams scraped within last 7 days
+            recent_scraped = db.table('teams').select('id', count='exact').gte('last_scraped_at', seven_days_ago).execute()
+            recent_count = recent_scraped.count or 0
+
+            # Teams scraped more than 7 days ago
+            stale_scraped = db.table('teams').select('id', count='exact').lt('last_scraped_at', seven_days_ago).not_.is_('last_scraped_at', 'null').execute()
+            stale_count = stale_scraped.count or 0
+
+            # Teams never scraped
+            never_scraped = db.table('teams').select('id', count='exact').is_('last_scraped_at', 'null').execute()
+            never_count = never_scraped.count or 0
+
+            # Total teams for percentage calculation
+            total_teams = recent_count + stale_count + never_count
+
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                pct = (recent_count / total_teams * 100) if total_teams > 0 else 0
+                st.metric("Recently Scraped (<7d)", f"{recent_count:,}",
+                         help=f"{pct:.1f}% of all teams")
+            with col2:
+                pct = (stale_count / total_teams * 100) if total_teams > 0 else 0
+                st.metric("Stale (>7d)", f"{stale_count:,}",
+                         help=f"{pct:.1f}% of all teams - need re-scraping")
+            with col3:
+                pct = (never_count / total_teams * 100) if total_teams > 0 else 0
+                st.metric("Never Scraped", f"{never_count:,}",
+                         help=f"{pct:.1f}% of all teams")
+            with col4:
+                up_to_date_pct = (recent_count / total_teams * 100) if total_teams > 0 else 0
+                st.metric("Coverage", f"{up_to_date_pct:.1f}%",
+                         help="Percentage of teams scraped within 7 days")
+
+            # Show list of stale teams in expander
+            if stale_count > 0 or never_count > 0:
+                with st.expander(f"View Teams Needing Scraping ({stale_count + never_count:,} teams)"):
+                    # Get stale teams sorted by last_scraped_at
+                    stale_teams = db.table('teams').select(
+                        'team_name, age_group, gender, state_code, last_scraped_at'
+                    ).or_(
+                        f'last_scraped_at.lt.{seven_days_ago},last_scraped_at.is.null'
+                    ).order('last_scraped_at', desc=False, nullsfirst=True).limit(100).execute()
+
+                    if stale_teams.data:
+                        df = pd.DataFrame(stale_teams.data)
+                        df['last_scraped_at'] = df['last_scraped_at'].apply(
+                            lambda x: pd.to_datetime(x).strftime('%Y-%m-%d') if x else 'Never'
+                        )
+                        df.columns = ['Team Name', 'Age Group', 'Gender', 'State', 'Last Scraped']
+                        st.dataframe(df, use_container_width=True, hide_index=True)
+                        if len(stale_teams.data) == 100:
+                            st.caption("Showing first 100 teams. More teams may need scraping.")
+
+        except Exception as e:
+            st.error(f"Error loading scraping status: {e}")
+
+        st.divider()
+
         # Recent builds
         st.subheader("Recent Build Activity")
 
