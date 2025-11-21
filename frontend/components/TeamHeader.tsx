@@ -33,10 +33,10 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
     }
 
     // Check if team has ranking fields (TeamWithRanking type)
-    const hasRankingData = 'rank_in_cohort_final' in team || 'power_score_final' in team;
+    const hasRankingData = team.rank_in_cohort_final != null || team.power_score_final != null;
 
     // Return team itself if it has ranking data, otherwise null
-    return hasRankingData ? (team as any) : null;
+    return hasRankingData ? team : null;
   }, [team]);
 
   // Check if team is watched
