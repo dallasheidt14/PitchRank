@@ -75,15 +75,38 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
   /**
    * Get background color class for score based on ML over/underperformance
    * @param ml_overperformance - residual value (actual - expected goal margin) from team's perspective
-   * Green shade if ≥ +2 (outperformed by 2+ goals), Red shade if ≤ -2 (underperformed by 2+ goals)
+   * Uses gradient intensity: larger residuals = darker colors to show magnitude of impact
    * Note: Backend only provides ml_overperformance for teams with 6+ games
    */
   const scoreColor = useCallback((ml_overperformance: number | null): string => {
-    if (ml_overperformance !== null && ml_overperformance !== undefined) {
-      if (ml_overperformance >= 2) return "bg-green-100 dark:bg-green-900/30 font-semibold";
-      if (ml_overperformance <= -2) return "bg-red-100 dark:bg-red-900/30 font-semibold";
+    if (ml_overperformance === null || ml_overperformance === undefined) {
+      return ""; // no data available
     }
-    return ""; // no color for neutral performance
+
+    // Gradient intensity based on magnitude
+    // Larger absolute values = more intense colors = bigger potential ranking impact
+    if (ml_overperformance >= 3) {
+      // Exceptional overperformance (+3 or more goals above expected)
+      return "bg-green-300 dark:bg-green-800/50 font-semibold";
+    } else if (ml_overperformance >= 1.5) {
+      // Strong overperformance (+1.5 to +3 goals above expected)
+      return "bg-green-200 dark:bg-green-900/40 font-medium";
+    } else if (ml_overperformance >= 0.5) {
+      // Moderate overperformance (+0.5 to +1.5 goals above expected)
+      return "bg-green-100 dark:bg-green-900/25";
+    } else if (ml_overperformance > -0.5) {
+      // Neutral performance (-0.5 to +0.5)
+      return "";
+    } else if (ml_overperformance > -1.5) {
+      // Moderate underperformance (-0.5 to -1.5 goals below expected)
+      return "bg-red-100 dark:bg-red-900/25";
+    } else if (ml_overperformance > -3) {
+      // Strong underperformance (-1.5 to -3 goals below expected)
+      return "bg-red-200 dark:bg-red-900/40 font-medium";
+    } else {
+      // Exceptional underperformance (-3 or more goals below expected)
+      return "bg-red-300 dark:bg-red-800/50 font-semibold";
+    }
   }, []);
 
   const getResult = useCallback((game: GameWithTeams, currentTeamId: string) => {
