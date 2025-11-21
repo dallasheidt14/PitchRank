@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback } from 'react';
+import { useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { TableSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
@@ -30,8 +30,8 @@ interface GameHistoryTableProps {
  * GameHistoryTable component - displays all games for a team
  */
 export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTableProps) {
-  // Use a very large number to fetch all games when no limit is specified
-  const gamesLimit = limit ?? 10000;
+  // Default to 100 games for better performance - users rarely need all games at once
+  const gamesLimit = limit ?? 100;
   const { data, isLoading, isError, error, refetch } = useTeamGames(teamId, gamesLimit);
   const prefetchTeam = usePrefetchTeam();
   
@@ -44,19 +44,6 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
   const gamesData = data as TeamGamesData | undefined;
   const games: GameWithTeams[] | undefined = gamesData?.games;
   const lastScrapedAt: string | null = gamesData?.lastScrapedAt ?? null;
-
-  // Debug logging
-  useEffect(() => {
-    console.log('[GameHistoryTable] Data state:', {
-      hasData: !!data,
-      dataType: typeof data,
-      gamesLength: games?.length,
-      isLoading,
-      isError,
-      error: error?.message,
-      teamId,
-    });
-  }, [data, games, isLoading, isError, error, teamId]);
 
   /**
    * Get the ML overperformance value from the team's perspective
