@@ -24,10 +24,10 @@ on:
         type: string
         default: '30'
       batch_size:
-        description: 'Batch size for import'
+        description: 'Batch size for import (optimal: 1000-2000)'
         required: false
         type: string
-        default: '5000'
+        default: '1000'
 
 jobs:
   scrape-and-import:
