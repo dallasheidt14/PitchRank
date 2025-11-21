@@ -68,8 +68,6 @@ export const api = {
    * @returns TeamWithRanking object (Team + Ranking data from rankings_view)
    */
   async getTeam(id: string): Promise<TeamWithRanking> {
-    console.log('[api.getTeam] Fetching team with id:', id);
-
     // Fetch team data
     const { data: teamData, error: teamError } = await supabase
       .from('teams')
@@ -78,18 +76,11 @@ export const api = {
       .maybeSingle();
 
     if (teamError) {
-      console.error('[api.getTeam] Supabase error:', teamError);
-      console.error('[api.getTeam] Error details:', {
-        message: teamError.message,
-        details: teamError.details,
-        hint: teamError.hint,
-        code: teamError.code,
-      });
+      console.error('[api.getTeam] Error:', teamError.message);
       throw teamError;
     }
 
     if (!teamData) {
-      console.warn('[api.getTeam] No team found with id:', id);
       throw new Error(`Team with id ${id} not found`);
     }
 
@@ -101,7 +92,6 @@ export const api = {
       .maybeSingle();
 
     if (rankingError) {
-      console.warn('[api.getTeam] Error fetching ranking data:', rankingError);
       // Continue without ranking data rather than failing
     }
 
@@ -113,7 +103,6 @@ export const api = {
       .maybeSingle();
 
     if (stateRankError) {
-      console.warn('[api.getTeam] Error fetching state rank data:', stateRankError);
       // Continue without state rank data
     }
 
@@ -122,10 +111,6 @@ export const api = {
       .from('games')
       .select('home_team_master_id, away_team_master_id, home_score, away_score')
       .or(`home_team_master_id.eq.${id},away_team_master_id.eq.${id}`);
-
-    if (gamesDataError) {
-      console.warn('[api.getTeam] Error fetching games for record calculation:', gamesDataError);
-    }
 
     // Calculate total games count and win/loss/draw record from games
     const totalGamesCount = gamesData?.length ?? 0;
@@ -155,38 +140,6 @@ export const api = {
     const calculatedWinPercentage = totalGamesCount > 0
       ? ((calculatedWins + calculatedDraws * 0.5) / totalGamesCount) * 100
       : null;
-
-    console.log('[api.getTeam] Successfully fetched team:', teamData.team_name);
-    console.log('[api.getTeam] Team data structure:', {
-      hasId: !!teamData.id,
-      hasTeamIdMaster: !!teamData.team_id_master,
-      hasTeamName: !!teamData.team_name,
-      hasRanking: !!rankingData,
-      hasStateRank: !!stateRankData,
-      totalGames: totalGamesCount,
-      keys: Object.keys(teamData),
-    });
-    if (rankingData) {
-      console.log('[api.getTeam] Ranking data received:', {
-        rank_in_cohort_final: rankingData.rank_in_cohort_final,
-        rank_in_state_final: stateRankData?.rank_in_state_final,
-        win_percentage: rankingData.win_percentage,
-        wins: rankingData.wins,
-        losses: rankingData.losses,
-        draws: rankingData.draws,
-        games_played: rankingData.games_played,
-        total_games_played: totalGamesCount,
-        calculated_wins: calculatedWins,
-        calculated_losses: calculatedLosses,
-        calculated_draws: calculatedDraws,
-        calculated_win_percentage: calculatedWinPercentage,
-        power_score_final: rankingData.power_score_final,
-        sos_norm: rankingData.sos_norm,
-        allKeys: Object.keys(rankingData),
-      });
-    } else {
-      console.warn('[api.getTeam] No ranking data found for team:', teamData.team_name);
-    }
 
     // Use calculated values if ranking data is missing or 0
     const finalWins = (rankingData?.wins && rankingData.wins > 0) ? rankingData.wins : calculatedWins;
@@ -244,7 +197,6 @@ export const api = {
       total_games_played: totalGamesCount,
     };
 
-    console.log('[api.getTeam] Returning team data:', teamWithRanking.team_name);
     return teamWithRanking;
   },
 
@@ -333,8 +285,6 @@ export const api = {
     games: GameWithTeams[];
     lastScrapedAt: string | null;
   }> {
-    console.log('[api.getTeamGames] Fetching games for team:', id, 'limit:', limit);
-    
     // Get games where team is either home or away
     const { data: games, error: gamesError } = await supabase
       .from('games')
@@ -344,18 +294,11 @@ export const api = {
       .limit(limit);
 
     if (gamesError) {
-      console.error('[api.getTeamGames] Error fetching team games:', gamesError);
+      console.error('[api.getTeamGames] Error:', gamesError.message);
       throw gamesError;
     }
 
-    console.log('[api.getTeamGames] Raw games data:', {
-      gamesCount: games?.length ?? 0,
-      hasGames: !!games && games.length > 0,
-      firstGame: games?.[0] ? { id: games[0].id, date: games[0].game_date } : null,
-    });
-
     if (!games || games.length === 0) {
-      console.log('[api.getTeamGames] No games found for team:', id);
       return { games: [], lastScrapedAt: null };
     }
 
@@ -381,7 +324,6 @@ export const api = {
       .in('team_id_master', Array.from(teamIds));
 
     if (teamsError) {
-      console.error('Error fetching team names:', teamsError);
       // Continue without team names rather than failing
     }
 
@@ -409,17 +351,10 @@ export const api = {
         : undefined,
     })) as GameWithTeams[];
 
-    const result = {
+    return {
       games: enrichedGames,
       lastScrapedAt: mostRecentScrapedAt,
     };
-    
-    console.log('[api.getTeamGames] Returning enriched games:', {
-      gamesCount: result.games.length,
-      lastScrapedAt: result.lastScrapedAt,
-    });
-    
-    return result;
   },
 
   /**

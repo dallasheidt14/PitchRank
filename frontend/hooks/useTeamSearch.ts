@@ -19,8 +19,6 @@ export function useTeamSearch() {
       let offset = 0;
       let hasMore = true;
 
-      console.log('[useTeamSearch] Starting to fetch all teams with pagination...');
-
       // Fetch teams in batches until we've got them all
       while (hasMore) {
         const { data, error } = await supabase
@@ -30,15 +28,7 @@ export function useTeamSearch() {
           .range(offset, offset + BATCH_SIZE - 1);
 
         if (error) {
-          console.error('[useTeamSearch] Error fetching teams batch:', error);
-          console.error('[useTeamSearch] Error details:', {
-            message: error.message,
-            details: error.details,
-            hint: error.hint,
-            code: error.code,
-            offset,
-            batchSize: BATCH_SIZE,
-          });
+          console.error('[useTeamSearch] Error fetching teams:', error.message);
           throw error;
         }
 
@@ -75,13 +65,6 @@ export function useTeamSearch() {
         });
 
         allTeams.push(...transformedBatch);
-        
-        console.log('[useTeamSearch] Fetched batch:', {
-          batchSize: data.length,
-          totalSoFar: allTeams.length,
-          offset,
-          hasMore: data.length === BATCH_SIZE,
-        });
 
         // If we got fewer than BATCH_SIZE, we've reached the end
         if (data.length < BATCH_SIZE) {
@@ -90,15 +73,6 @@ export function useTeamSearch() {
           offset += BATCH_SIZE;
         }
       }
-
-      console.log('[useTeamSearch] All teams fetched:', {
-        totalCount: allTeams.length,
-        batches: Math.ceil(allTeams.length / BATCH_SIZE),
-        sample: allTeams[0] ? {
-          team_id_master: allTeams[0].team_id_master,
-          team_name: allTeams[0].team_name,
-        } : null,
-      });
 
       return allTeams;
     },
