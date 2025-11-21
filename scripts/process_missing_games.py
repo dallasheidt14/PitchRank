@@ -125,23 +125,23 @@ class MissingGamesProcessor:
             return 'gotsport'  # Default to gotsport
     
     def scrape_games_for_date(self, provider_code: str, team_id: str, game_date: str) -> List[Dict]:
-        """Scrape games for a specific team within a 5-day window (±2 days from selected date)"""
+        """Scrape games for a specific team within a 61-day window (±30 days from selected date)"""
         scraper = self.scrapers.get(provider_code)
         if not scraper:
             raise ValueError(f"No scraper available for provider: {provider_code}")
-        
+
         # Parse the target date
         target_date = datetime.strptime(game_date, '%Y-%m-%d').date()
-        
-        # Define the 5-day window: 2 days before, target date, 2 days after
-        date_window_start = target_date - timedelta(days=2)
-        date_window_end = target_date + timedelta(days=2)
-        
-        # Scrape with a date range starting 2 days before (to catch timezone issues)
-        # The scraper uses since_date, so we'll scrape from 2 days before and filter
+
+        # Define the 61-day window: 30 days before, target date, 30 days after
+        date_window_start = target_date - timedelta(days=30)
+        date_window_end = target_date + timedelta(days=30)
+
+        # Scrape with a date range starting 30 days before (to catch timezone issues)
+        # The scraper uses since_date, so we'll scrape from 30 days before and filter
         start_date = datetime.combine(date_window_start, datetime.min.time())
-        
-        logger.info(f"Scraping games for team {team_id} in 5-day window: {date_window_start} to {date_window_end} (selected date: {game_date})")
+
+        logger.info(f"Scraping games for team {team_id} in 61-day window: {date_window_start} to {date_window_end} (selected date: {game_date})")
         
         try:
             # Use the scraper's method to get games (only takes since_date, not until_date)
@@ -196,7 +196,7 @@ class MissingGamesProcessor:
                     logger.warning(f"Error parsing game date for game: {e}, game_date value: {getattr(game, 'game_date', 'MISSING')}")
                     continue
             
-            logger.info(f"Found {len(filtered_games)} games in 5-day window ({date_window_start} to {date_window_end})")
+            logger.info(f"Found {len(filtered_games)} games in 61-day window ({date_window_start} to {date_window_end})")
             if filtered_games:
                 game_dates = sorted(set(g['game_date'] for g in filtered_games))
                 logger.info(f"Game dates found: {', '.join(game_dates)}")
@@ -382,7 +382,7 @@ class MissingGamesProcessor:
             )
             
             logger.info(f"Successfully processed request {request_id}: "
-                       f"{len(games)} games found in 5-day window, {games_imported} imported")
+                       f"{len(games)} games found in 61-day window, {games_imported} imported")
             
             self.stats['successful'] += 1
             return True
