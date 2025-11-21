@@ -37,7 +37,7 @@ export function useTeam(id: string) {
     queryKey: ['team', id],
     queryFn: () => api.getTeam(id),
     enabled: !!id, // Only run query if id is provided
-    staleTime: 10 * 60 * 1000, // 10 minutes
+    staleTime: 15 * 60 * 1000, // 15 minutes (team data changes infrequently)
     gcTime: 60 * 60 * 1000, // Keep in cache for 1 hour
     retry: 1, // Retry once on failure
   });
@@ -54,8 +54,8 @@ export function useTeamTrajectory(id: string, periodDays: number = 30) {
     queryKey: ['team-trajectory', id, periodDays],
     queryFn: () => api.getTeamTrajectory(id, periodDays),
     enabled: !!id,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    gcTime: 30 * 60 * 1000, // Keep in cache for 30 minutes
+    staleTime: 15 * 60 * 1000, // 15 minutes (calculated from games, updates weekly)
+    gcTime: 60 * 60 * 1000, // Keep in cache for 1 hour
   });
 }
 
@@ -105,8 +105,8 @@ export function useCommonOpponents(team1Id: string | null, team2Id: string | nul
     queryKey: ['common-opponents', team1Id, team2Id],
     queryFn: () => api.getCommonOpponents(team1Id!, team2Id!),
     enabled: !!team1Id && !!team2Id && team1Id !== team2Id,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    gcTime: 30 * 60 * 1000, // Keep in cache for 30 minutes
+    staleTime: 30 * 60 * 1000, // 30 minutes (expensive query, game data updates weekly)
+    gcTime: 60 * 60 * 1000, // Keep in cache for 1 hour
   });
 }
 
@@ -141,8 +141,8 @@ export function useMatchPrediction(teamAId: string | null, teamBId: string | nul
     queryKey: ['match-prediction', teamAId, teamBId],
     queryFn: () => api.getMatchPrediction(teamAId!, teamBId!),
     enabled: !!teamAId && !!teamBId && teamAId !== teamBId,
-    staleTime: 2 * 60 * 1000, // 2 minutes (predictions may change with recent games)
-    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
+    staleTime: 15 * 60 * 1000, // 15 minutes (predictions based on weekly rankings)
+    gcTime: 30 * 60 * 1000, // Keep in cache for 30 minutes
   });
 }
 
