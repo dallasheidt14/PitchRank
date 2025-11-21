@@ -19,9 +19,11 @@ interface RankingsFilterProps {
 export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
   const router = useRouter();
   const pathname = usePathname();
-  
+
   // Track if we're navigating internally to prevent infinite loops
   const isNavigatingRef = useRef(false);
+  // Track the target path we're navigating to
+  const targetPathRef = useRef<string | null>(null);
 
   // Extract current URL parts → /rankings/[region]/[ageGroup]/[gender]
   const pathParts = pathname.split("/").filter(Boolean);
@@ -36,16 +38,23 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
   // Keep dropdowns in sync with the URL when user navigates via links
   // Skip sync if we're the ones causing the navigation (prevents infinite loop)
   useEffect(() => {
+    // Check if we've arrived at our target path - reset navigation flag
+    if (isNavigatingRef.current && targetPathRef.current && pathname === targetPathRef.current) {
+      isNavigatingRef.current = false;
+      targetPathRef.current = null;
+      return;
+    }
+
     // Don't sync state if we're navigating internally
     if (isNavigatingRef.current) {
       return;
     }
-    
+
     // On /rankings page (home), don't sync from URL - let user control filters
     if (pathname === '/rankings') {
       return;
     }
-    
+
     // Only sync if URL params actually changed
     if (
       currentRegion !== region ||
@@ -79,15 +88,11 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
       return;
     }
     
-    // Mark that we're navigating internally
+    // Mark that we're navigating internally and set target
     isNavigatingRef.current = true;
-    
+    targetPathRef.current = targetPath;
+
     router.replace(targetPath);
-    
-    // Reset navigation flag after a short delay to allow URL to update
-    setTimeout(() => {
-      isNavigatingRef.current = false;
-    }, 100);
   }, [region, ageGroup, gender, router, pathname, onFilterChange]);
 
   return (

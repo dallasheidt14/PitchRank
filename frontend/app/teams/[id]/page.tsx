@@ -2,6 +2,7 @@ import { TeamPageShell } from '@/components/TeamPageShell';
 import { TeamPageSkeleton } from '@/components/skeletons/TeamPageSkeleton';
 import { createClient } from '@supabase/supabase-js';
 import { Suspense } from 'react';
+import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 
 interface TeamPageProps {
@@ -55,7 +56,40 @@ export async function generateMetadata({ params }: TeamPageProps): Promise<Metad
 export default async function Page({ params }: TeamPageProps) {
   // In Next.js 16, params is a Promise - await it
   const resolvedParams = await params;
-  
+
+  // Check if team exists before rendering
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (supabaseUrl && supabaseAnonKey) {
+    try {
+      const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+      // Validate UUID format first (basic check)
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(resolvedParams.id)) {
+        notFound();
+      }
+
+      const { data: team, error } = await supabase
+        .from('teams')
+        .select('team_id_master')
+        .eq('team_id_master', resolvedParams.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error checking team existence:', error);
+        // Don't 404 on error, let client-side handle it
+      } else if (!team) {
+        // Team doesn't exist - show 404 page
+        notFound();
+      }
+    } catch (error) {
+      console.error('Error in team existence check:', error);
+      // Don't 404 on error, let client-side handle it
+    }
+  }
+
   return (
     <Suspense fallback={<TeamPageSkeleton />}>
       <TeamPageShell id={resolvedParams.id} />
