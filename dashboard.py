@@ -1426,10 +1426,33 @@ elif section == "📈 Database Import Stats":
             # Get recent game imports (filter to game_import stage for actual imports)
             builds_result = db.table('build_logs').select(
                 'build_id, stage, started_at, completed_at, records_processed, records_succeeded, records_failed'
-            ).eq('stage', 'game_import').order('started_at', desc=True).limit(20).execute()
+            ).eq('stage', 'game_import').order('started_at', desc=True).limit(50).execute()
 
             if builds_result.data:
                 df = pd.DataFrame(builds_result.data)
+
+                # Create chart data - group by date
+                df['date'] = pd.to_datetime(df['started_at']).dt.date
+                chart_df = df.groupby('date').agg({
+                    'records_succeeded': 'sum',
+                    'records_failed': 'sum'
+                }).reset_index()
+                chart_df.columns = ['date', 'Imported', 'Failed']
+
+                # Fill missing dates for complete visualization
+                if len(chart_df) > 0:
+                    date_range = pd.date_range(
+                        start=chart_df['date'].min(),
+                        end=chart_df['date'].max(),
+                        freq='D'
+                    )
+                    full_dates = pd.DataFrame({'date': date_range.date})
+                    chart_df = full_dates.merge(chart_df, on='date', how='left').fillna(0)
+                    chart_df['Imported'] = chart_df['Imported'].astype(int)
+                    chart_df['Failed'] = chart_df['Failed'].astype(int)
+
+                    # Display chart
+                    st.bar_chart(chart_df.set_index('date')[['Imported']])
 
                 # Add status column with proper null handling
                 def get_status(row):
@@ -1449,19 +1472,19 @@ elif section == "📈 Database Import Stats":
                 )
 
                 # Reorder columns for better readability (remove stage since we're filtering to game_import)
-                df = df[['build_id', 'status', 'started_at', 'completed_at',
-                         'records_processed', 'records_succeeded', 'records_failed']]
+                display_df = df[['build_id', 'status', 'started_at', 'completed_at',
+                         'records_processed', 'records_succeeded', 'records_failed']].head(20)
 
                 # Rename columns for display
-                df.columns = ['Build ID', 'Status', 'Started', 'Completed',
+                display_df.columns = ['Build ID', 'Status', 'Started', 'Completed',
                              'Games Processed', 'Games Imported', 'Failed']
 
-                st.dataframe(df, use_container_width=True, hide_index=True)
+                st.dataframe(display_df, use_container_width=True, hide_index=True)
 
                 # Show summary of recent imports
-                total_imported = df['Games Imported'].sum()
-                total_failed = df['Failed'].sum()
-                st.caption(f"Recent totals: {total_imported:,} games imported, {total_failed:,} failed")
+                total_imported = df['records_succeeded'].sum()
+                total_failed = df['records_failed'].sum()
+                st.caption(f"Recent totals: {total_imported:,} games imported, {total_failed:,} failed/duplicates")
             else:
                 st.info("No import logs found. Import activity will appear here after running the import pipeline.")
 
