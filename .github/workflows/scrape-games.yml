@@ -1,0 +1,127 @@
+name: Scrape Games
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit_teams:
+        description: 'Number of teams to scrape (leave empty for all eligible teams)'
+        required: false
+        type: string
+        default: ''
+      null_teams_only:
+        description: 'Only scrape teams with NULL last_scraped_at (bootstrap mode)'
+        required: false
+        type: boolean
+        default: false
+      since_date:
+        description: 'Override since_date (YYYY-MM-DD format, for NULL teams)'
+        required: false
+        type: string
+        default: ''
+      concurrency:
+        description: 'Number of concurrent scrapes'
+        required: false
+        type: string
+        default: '30'
+      batch_size:
+        description: 'Batch size for import (optimal: 1000-2000)'
+        required: false
+        type: string
+        default: '1000'
+
+jobs:
+  scrape-and-import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180  # 3 hour timeout for large scrapes
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # Additional dependencies for scraping
+          pip install beautifulsoup4 lxml openpyxl pyarrow
+
+      - name: Create directories
+        run: |
+          mkdir -p logs
+          mkdir -p data/raw
+          mkdir -p data/cache
+
+      - name: Build scrape command
+        id: build-command
+        run: |
+          CMD="python scripts/scrape_games.py --provider gotsport --auto-import"
+
+          # Add limit-teams if specified
+          if [ -n "${{ inputs.limit_teams }}" ]; then
+            CMD="$CMD --limit-teams ${{ inputs.limit_teams }}"
+            echo "Limiting to ${{ inputs.limit_teams }} teams"
+          fi
+
+          # Add null-teams-only if specified
+          if [ "${{ inputs.null_teams_only }}" == "true" ]; then
+            CMD="$CMD --null-teams-only"
+            echo "Scraping only NULL teams (bootstrap mode)"
+          fi
+
+          # Add since-date if specified
+          if [ -n "${{ inputs.since_date }}" ]; then
+            CMD="$CMD --since-date ${{ inputs.since_date }}"
+            echo "Using since_date: ${{ inputs.since_date }}"
+          fi
+
+          # Add concurrency
+          CMD="$CMD --concurrency ${{ inputs.concurrency }}"
+
+          echo "Command: $CMD"
+          echo "command=$CMD" >> $GITHUB_OUTPUT
+
+      - name: Run Scrape and Import
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          ${{ steps.build-command.outputs.command }}
+
+      - name: Upload scraped data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scraped-games-${{ github.run_number }}
+          path: data/raw/scraped_games_*.jsonl
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scrape-logs-${{ github.run_number }}
+          path: |
+            logs/*.log
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Report results
+        if: always()
+        run: |
+          echo "===================="
+          echo "Scrape workflow completed"
+          echo "===================="
+          echo "Teams limit: ${{ inputs.limit_teams || 'All eligible' }}"
+          echo "Null teams only: ${{ inputs.null_teams_only }}"
+          echo "Concurrency: ${{ inputs.concurrency }}"
+          echo "Check artifacts for scraped data and logs"

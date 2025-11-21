@@ -387,7 +387,7 @@ async def scrape_games(
                 str(output_path),
                 provider,
                 '--stream',
-                '--batch-size', '2000'
+                '--batch-size', '1000'
             ]
             
             result = subprocess.run(cmd, capture_output=False, text=True)
