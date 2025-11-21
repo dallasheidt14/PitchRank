@@ -32,11 +32,6 @@ export function MissingGamesForm({ teamId, teamName }: MissingGamesFormProps) {
   // Set up real-time notifications for completed scrape requests
   useScrapeRequestNotifications();
 
-  // Debug: Log component render
-  useEffect(() => {
-    console.log('[MissingGamesForm] Component rendered', { teamId, teamName });
-  }, [teamId, teamName]);
-
   // Calculate if user can submit (rate limiting: 60 seconds)
   const canSubmit = !lastSubmission || 
     (new Date().getTime() - lastSubmission.getTime() > 60000);

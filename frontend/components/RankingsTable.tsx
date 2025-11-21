@@ -46,25 +46,6 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   const { data: rankings, isLoading, isError, error, refetch } = useRankings(region, ageGroup, gender);
   const prefetchTeam = usePrefetchTeam();
 
-  // Debug: Log first ranking to see what data we're getting
-  if (rankings && rankings.length > 0) {
-    console.log('[RankingsTable] First ranking data:', {
-      team_name: rankings[0].team_name,
-      rank_in_cohort_final: rankings[0].rank_in_cohort_final,
-      rank_in_state_final: rankings[0].rank_in_state_final,
-      win_percentage: rankings[0].win_percentage,
-      wins: rankings[0].wins,
-      losses: rankings[0].losses,
-      draws: rankings[0].draws,
-      games_played: rankings[0].games_played,
-      total_games_played: rankings[0].total_games_played,
-      total_wins: rankings[0].total_wins,
-      total_losses: rankings[0].total_losses,
-      total_draws: rankings[0].total_draws,
-      allKeys: Object.keys(rankings[0]),
-    });
-  }
-
   // Optimized SOS Rank calculation per cohort
   const sortedBySOS = useMemo(() => {
     if (!rankings) return [];

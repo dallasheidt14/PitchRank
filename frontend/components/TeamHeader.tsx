@@ -24,47 +24,17 @@ interface TeamHeaderProps {
 export function TeamHeader({ teamId }: TeamHeaderProps) {
   const { data: team, isLoading: teamLoading, isError: teamError, error: teamErrorObj, refetch: refetchTeam } = useTeam(teamId);
   const [watched, setWatched] = useState(false);
-  
-  // Debug logging
-  useEffect(() => {
-    console.log('[TeamHeader] Component props:', { teamId });
-    console.log('[TeamHeader] React Query state:', {
-      isLoading: teamLoading,
-      isError: teamError,
-      error: teamErrorObj,
-      hasTeam: !!team,
-      team: team ? { name: team.team_name, id: team.team_id_master } : null,
-      queryKey: ['team', teamId],
-    });
-  }, [teamId, teamLoading, teamError, teamErrorObj, team]);
-  
+
   // Team data from api.getTeam already includes ranking data (TeamWithRanking)
   // Use it directly instead of looking it up in rankings list
   const teamRanking = useMemo(() => {
     if (!team) {
-      console.log('[TeamHeader] No team data');
       return null;
     }
-    
+
     // Check if team has ranking fields (TeamWithRanking type)
     const hasRankingData = 'rank_in_cohort_final' in team || 'power_score_final' in team;
-    
-    console.log('[TeamHeader] Team ranking data:', {
-      teamId: team.team_id_master,
-      teamName: team.team_name,
-      hasRankingData,
-      rank_in_cohort_final: (team as any).rank_in_cohort_final,
-      rank_in_state_final: (team as any).rank_in_state_final,
-      win_percentage: (team as any).win_percentage,
-      wins: (team as any).wins,
-      losses: (team as any).losses,
-      draws: (team as any).draws,
-      games_played: (team as any).games_played,
-      power_score_final: (team as any).power_score_final,
-      sos_norm: (team as any).sos_norm,
-      allKeys: Object.keys(team),
-    });
-    
+
     // Return team itself if it has ranking data, otherwise null
     return hasRankingData ? (team as any) : null;
   }, [team]);
