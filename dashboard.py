@@ -1419,52 +1419,6 @@ elif section == "📈 Database Import Stats":
 
         st.divider()
 
-        # Recent builds
-        st.subheader("Recent Import Activity")
-
-        try:
-            # Get recent game imports from build_logs
-            builds_result = db.table('build_logs').select(
-                'build_id, stage, started_at, completed_at, records_processed, records_succeeded, records_failed'
-            ).eq('stage', 'game_import').order('started_at', desc=True).limit(20).execute()
-
-            if builds_result.data:
-                df = pd.DataFrame(builds_result.data)
-
-                # Add status column with proper null handling
-                def get_status(row):
-                    if row['completed_at'] is None or pd.isna(row['completed_at']):
-                        return '🔄 Running'
-                    elif row['records_failed'] and row['records_failed'] > 0:
-                        return '⚠️ Partial'
-                    else:
-                        return '✅ Success'
-
-                df['status'] = df.apply(get_status, axis=1)
-
-                # Format dates with null handling
-                df['started_at'] = pd.to_datetime(df['started_at']).dt.strftime('%Y-%m-%d %H:%M')
-                df['completed_at'] = df['completed_at'].apply(
-                    lambda x: pd.to_datetime(x).strftime('%Y-%m-%d %H:%M') if x and not pd.isna(x) else '—'
-                )
-
-                # Reorder columns for better readability
-                display_df = df[['build_id', 'status', 'started_at', 'completed_at',
-                         'records_processed', 'records_succeeded', 'records_failed']]
-
-                # Rename columns for display
-                display_df.columns = ['Build ID', 'Status', 'Started', 'Completed',
-                             'Processed', 'Succeeded', 'Failed/Dups']
-
-                st.dataframe(display_df, use_container_width=True, hide_index=True)
-            else:
-                st.info("No import logs found. Import activity will appear here after running the import pipeline.")
-
-        except Exception as e:
-            st.error(f"Error loading import activity: {e}")
-
-        st.divider()
-
         # Validation errors summary
         st.subheader("Validation Errors (Last 30 Days)")
 
