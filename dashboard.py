@@ -1354,13 +1354,79 @@ elif section == "📈 Database Import Stats":
 
         st.divider()
 
-        # Recent builds
-        st.subheader("Recent Build Activity")
+        # Team Scraping Status
+        st.subheader("Team Scraping Status")
 
         try:
+            seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
+
+            # Teams scraped within last 7 days
+            recent_scraped = db.table('teams').select('id', count='exact').gte('last_scraped_at', seven_days_ago).execute()
+            recent_count = recent_scraped.count or 0
+
+            # Teams scraped more than 7 days ago
+            stale_scraped = db.table('teams').select('id', count='exact').lt('last_scraped_at', seven_days_ago).not_.is_('last_scraped_at', 'null').execute()
+            stale_count = stale_scraped.count or 0
+
+            # Teams never scraped
+            never_scraped = db.table('teams').select('id', count='exact').is_('last_scraped_at', 'null').execute()
+            never_count = never_scraped.count or 0
+
+            # Total teams for percentage calculation
+            total_teams = recent_count + stale_count + never_count
+
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                pct = (recent_count / total_teams * 100) if total_teams > 0 else 0
+                st.metric("Recently Scraped (<7d)", f"{recent_count:,}",
+                         help=f"{pct:.1f}% of all teams")
+            with col2:
+                pct = (stale_count / total_teams * 100) if total_teams > 0 else 0
+                st.metric("Stale (>7d)", f"{stale_count:,}",
+                         help=f"{pct:.1f}% of all teams - need re-scraping")
+            with col3:
+                pct = (never_count / total_teams * 100) if total_teams > 0 else 0
+                st.metric("Never Scraped", f"{never_count:,}",
+                         help=f"{pct:.1f}% of all teams")
+            with col4:
+                up_to_date_pct = (recent_count / total_teams * 100) if total_teams > 0 else 0
+                st.metric("Coverage", f"{up_to_date_pct:.1f}%",
+                         help="Percentage of teams scraped within 7 days")
+
+            # Show list of stale teams in expander
+            if stale_count > 0 or never_count > 0:
+                with st.expander(f"View Teams Needing Scraping ({stale_count + never_count:,} teams)"):
+                    # Get stale teams sorted by last_scraped_at
+                    stale_teams = db.table('teams').select(
+                        'team_name, age_group, gender, state_code, last_scraped_at'
+                    ).or_(
+                        f'last_scraped_at.lt.{seven_days_ago},last_scraped_at.is.null'
+                    ).order('last_scraped_at', desc=False, nullsfirst=True).limit(100).execute()
+
+                    if stale_teams.data:
+                        df = pd.DataFrame(stale_teams.data)
+                        df['last_scraped_at'] = df['last_scraped_at'].apply(
+                            lambda x: pd.to_datetime(x).strftime('%Y-%m-%d') if x else 'Never'
+                        )
+                        df.columns = ['Team Name', 'Age Group', 'Gender', 'State', 'Last Scraped']
+                        st.dataframe(df, use_container_width=True, hide_index=True)
+                        if len(stale_teams.data) == 100:
+                            st.caption("Showing first 100 teams. More teams may need scraping.")
+
+        except Exception as e:
+            st.error(f"Error loading scraping status: {e}")
+
+        st.divider()
+
+        # Recent builds
+        st.subheader("Recent Import Activity")
+
+        try:
+            # Get recent game imports (filter to game_import stage for actual imports)
             builds_result = db.table('build_logs').select(
                 'build_id, stage, started_at, completed_at, records_processed, records_succeeded, records_failed'
-            ).order('started_at', desc=True).limit(20).execute()
+            ).eq('stage', 'game_import').order('started_at', desc=True).limit(20).execute()
 
             if builds_result.data:
                 df = pd.DataFrame(builds_result.data)
@@ -1382,93 +1448,22 @@ elif section == "📈 Database Import Stats":
                     lambda x: pd.to_datetime(x).strftime('%Y-%m-%d %H:%M') if x and not pd.isna(x) else '—'
                 )
 
-                # Calculate duration for completed builds
-                def calc_duration(row):
-                    if row['completed_at'] == '—':
-                        return '—'
-                    try:
-                        start = pd.to_datetime(row['started_at'])
-                        end = pd.to_datetime(row['completed_at'])
-                        duration = end - start
-                        total_seconds = int(duration.total_seconds())
-                        if total_seconds < 60:
-                            return f"{total_seconds}s"
-                        elif total_seconds < 3600:
-                            return f"{total_seconds // 60}m {total_seconds % 60}s"
-                        else:
-                            return f"{total_seconds // 3600}h {(total_seconds % 3600) // 60}m"
-                    except:
-                        return '—'
-
-                # Reorder columns for better readability
-                df = df[['build_id', 'stage', 'status', 'started_at', 'completed_at',
+                # Reorder columns for better readability (remove stage since we're filtering to game_import)
+                df = df[['build_id', 'status', 'started_at', 'completed_at',
                          'records_processed', 'records_succeeded', 'records_failed']]
 
                 # Rename columns for display
-                df.columns = ['Build ID', 'Stage', 'Status', 'Started', 'Completed',
-                             'Processed', 'Succeeded', 'Failed']
+                df.columns = ['Build ID', 'Status', 'Started', 'Completed',
+                             'Games Processed', 'Games Imported', 'Failed']
 
                 st.dataframe(df, use_container_width=True, hide_index=True)
+
+                # Show summary of recent imports
+                total_imported = df['Games Imported'].sum()
+                total_failed = df['Failed'].sum()
+                st.caption(f"Recent totals: {total_imported:,} games imported, {total_failed:,} failed")
             else:
-                st.info("No build logs found. Builds will appear here after running the import pipeline.")
-
-        except Exception as e:
-            st.error(f"Error loading build logs: {e}")
-
-        st.divider()
-
-        # Import activity by date
-        st.subheader("Import Activity (Last 30 Days)")
-
-        try:
-            thirty_days_ago = (datetime.now() - timedelta(days=30)).date().isoformat()
-
-            # Get games by date
-            games_by_date = db.table('games').select(
-                'created_at'
-            ).gte('created_at', thirty_days_ago).execute()
-
-            if games_by_date.data:
-                # Convert to DataFrame and group by date
-                df = pd.DataFrame(games_by_date.data)
-                df['date'] = pd.to_datetime(df['created_at']).dt.date
-                daily_counts = df.groupby('date').size().reset_index(name='games_imported')
-
-                # Fill in missing dates with zeros for complete visualization
-                date_range = pd.date_range(
-                    start=(datetime.now() - timedelta(days=30)).date(),
-                    end=datetime.now().date(),
-                    freq='D'
-                )
-                full_dates = pd.DataFrame({'date': date_range.date})
-                daily_counts = full_dates.merge(daily_counts, on='date', how='left').fillna(0)
-                daily_counts['games_imported'] = daily_counts['games_imported'].astype(int)
-
-                # Display chart
-                chart_data = daily_counts.set_index('date')
-                st.bar_chart(chart_data)
-
-                # Summary statistics
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    total_imported = daily_counts['games_imported'].sum()
-                    st.metric("Total (30 days)", f"{total_imported:,}")
-                with col2:
-                    peak_day = daily_counts.loc[daily_counts['games_imported'].idxmax()]
-                    st.metric("Peak Day", f"{peak_day['games_imported']:,}",
-                             help=f"On {peak_day['date']}")
-                with col3:
-                    active_days = (daily_counts['games_imported'] > 0).sum()
-                    st.metric("Active Days", f"{active_days}/30")
-
-                # Expandable detailed table
-                with st.expander("View Daily Details"):
-                    # Sort by date descending for recent first
-                    display_df = daily_counts.sort_values('date', ascending=False)
-                    display_df.columns = ['Date', 'Games Imported']
-                    st.dataframe(display_df, use_container_width=True, hide_index=True)
-            else:
-                st.info("No imports in the last 30 days")
+                st.info("No import logs found. Import activity will appear here after running the import pipeline.")
 
         except Exception as e:
             st.error(f"Error loading import activity: {e}")
