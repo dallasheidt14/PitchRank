@@ -1272,20 +1272,20 @@ elif section == "📈 Database Import Stats":
         try:
             # Total teams
             teams_result = db.table('teams').select('id', count='exact').execute()
-            total_teams = teams_result.count
+            total_teams = teams_result.count or 0
 
             # Total games
             games_result = db.table('games').select('id', count='exact').execute()
-            total_games = games_result.count
+            total_games = games_result.count or 0
 
             # Teams added in last 7 days
             seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
             new_teams_result = db.table('teams').select('id', count='exact').gte('created_at', seven_days_ago).execute()
-            new_teams = new_teams_result.count
+            new_teams = new_teams_result.count or 0
 
             # Games added in last 7 days
             new_games_result = db.table('games').select('id', count='exact').gte('created_at', seven_days_ago).execute()
-            new_games = new_games_result.count
+            new_games = new_games_result.count or 0
 
             with col1:
                 st.metric("Total Teams", f"{total_teams:,}")
@@ -1298,6 +1298,59 @@ elif section == "📈 Database Import Stats":
 
         except Exception as e:
             st.error(f"Error loading overview metrics: {e}")
+
+        # Daily import metrics (Today and Yesterday)
+        st.divider()
+        st.subheader("Daily Import Summary")
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        try:
+            # Today's imports
+            today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+            today_result = db.table('games').select('id', count='exact').gte('created_at', today_start).execute()
+            today_games = today_result.count or 0
+
+            # Yesterday's imports
+            yesterday_start = (datetime.now() - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+            yesterday_end = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+            yesterday_result = db.table('games').select('id', count='exact').gte('created_at', yesterday_start).lt('created_at', yesterday_end).execute()
+            yesterday_games = yesterday_result.count or 0
+
+            # Calculate daily average (last 30 days)
+            thirty_days_ago = (datetime.now() - timedelta(days=30)).isoformat()
+            month_result = db.table('games').select('id', count='exact').gte('created_at', thirty_days_ago).execute()
+            month_games = month_result.count or 0
+            daily_avg = month_games / 30 if month_games > 0 else 0
+
+            # Delta comparison
+            delta_vs_yesterday = today_games - yesterday_games if yesterday_games > 0 else None
+            delta_vs_avg = today_games - daily_avg if daily_avg > 0 else None
+
+            with col1:
+                st.metric("Today's Imports", f"{today_games:,}",
+                         delta=f"{delta_vs_yesterday:+,}" if delta_vs_yesterday is not None else None,
+                         help="Games imported today (vs yesterday)")
+            with col2:
+                st.metric("Yesterday's Imports", f"{yesterday_games:,}")
+            with col3:
+                st.metric("Daily Average (30d)", f"{daily_avg:,.0f}")
+            with col4:
+                # Success rate from recent builds
+                recent_builds = db.table('build_logs').select(
+                    'records_succeeded, records_processed'
+                ).order('started_at', desc=True).limit(10).execute()
+
+                if recent_builds.data:
+                    total_processed = sum(b.get('records_processed', 0) or 0 for b in recent_builds.data)
+                    total_succeeded = sum(b.get('records_succeeded', 0) or 0 for b in recent_builds.data)
+                    success_rate = (total_succeeded / total_processed * 100) if total_processed > 0 else 100
+                    st.metric("Success Rate (Recent)", f"{success_rate:.1f}%")
+                else:
+                    st.metric("Success Rate (Recent)", "N/A")
+
+        except Exception as e:
+            st.error(f"Error loading daily metrics: {e}")
 
         st.divider()
 
@@ -1312,19 +1365,52 @@ elif section == "📈 Database Import Stats":
             if builds_result.data:
                 df = pd.DataFrame(builds_result.data)
 
-                # Add status column
-                df['status'] = df.apply(lambda row:
-                    'running' if pd.isna(row['completed_at'])
-                    else 'partial' if row['records_failed'] > 0
-                    else 'success', axis=1)
+                # Add status column with proper null handling
+                def get_status(row):
+                    if row['completed_at'] is None or pd.isna(row['completed_at']):
+                        return '🔄 Running'
+                    elif row['records_failed'] and row['records_failed'] > 0:
+                        return '⚠️ Partial'
+                    else:
+                        return '✅ Success'
 
-                # Format dates
+                df['status'] = df.apply(get_status, axis=1)
+
+                # Format dates with null handling
                 df['started_at'] = pd.to_datetime(df['started_at']).dt.strftime('%Y-%m-%d %H:%M')
-                df['completed_at'] = pd.to_datetime(df['completed_at']).dt.strftime('%Y-%m-%d %H:%M')
+                df['completed_at'] = df['completed_at'].apply(
+                    lambda x: pd.to_datetime(x).strftime('%Y-%m-%d %H:%M') if x and not pd.isna(x) else '—'
+                )
+
+                # Calculate duration for completed builds
+                def calc_duration(row):
+                    if row['completed_at'] == '—':
+                        return '—'
+                    try:
+                        start = pd.to_datetime(row['started_at'])
+                        end = pd.to_datetime(row['completed_at'])
+                        duration = end - start
+                        total_seconds = int(duration.total_seconds())
+                        if total_seconds < 60:
+                            return f"{total_seconds}s"
+                        elif total_seconds < 3600:
+                            return f"{total_seconds // 60}m {total_seconds % 60}s"
+                        else:
+                            return f"{total_seconds // 3600}h {(total_seconds % 3600) // 60}m"
+                    except:
+                        return '—'
+
+                # Reorder columns for better readability
+                df = df[['build_id', 'stage', 'status', 'started_at', 'completed_at',
+                         'records_processed', 'records_succeeded', 'records_failed']]
+
+                # Rename columns for display
+                df.columns = ['Build ID', 'Stage', 'Status', 'Started', 'Completed',
+                             'Processed', 'Succeeded', 'Failed']
 
                 st.dataframe(df, use_container_width=True, hide_index=True)
             else:
-                st.info("No build logs found")
+                st.info("No build logs found. Builds will appear here after running the import pipeline.")
 
         except Exception as e:
             st.error(f"Error loading build logs: {e}")
@@ -1348,11 +1434,39 @@ elif section == "📈 Database Import Stats":
                 df['date'] = pd.to_datetime(df['created_at']).dt.date
                 daily_counts = df.groupby('date').size().reset_index(name='games_imported')
 
-                # Display chart
-                st.bar_chart(daily_counts.set_index('date'))
+                # Fill in missing dates with zeros for complete visualization
+                date_range = pd.date_range(
+                    start=(datetime.now() - timedelta(days=30)).date(),
+                    end=datetime.now().date(),
+                    freq='D'
+                )
+                full_dates = pd.DataFrame({'date': date_range.date})
+                daily_counts = full_dates.merge(daily_counts, on='date', how='left').fillna(0)
+                daily_counts['games_imported'] = daily_counts['games_imported'].astype(int)
 
-                # Summary table
-                st.dataframe(daily_counts, use_container_width=True, hide_index=True)
+                # Display chart
+                chart_data = daily_counts.set_index('date')
+                st.bar_chart(chart_data)
+
+                # Summary statistics
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    total_imported = daily_counts['games_imported'].sum()
+                    st.metric("Total (30 days)", f"{total_imported:,}")
+                with col2:
+                    peak_day = daily_counts.loc[daily_counts['games_imported'].idxmax()]
+                    st.metric("Peak Day", f"{peak_day['games_imported']:,}",
+                             help=f"On {peak_day['date']}")
+                with col3:
+                    active_days = (daily_counts['games_imported'] > 0).sum()
+                    st.metric("Active Days", f"{active_days}/30")
+
+                # Expandable detailed table
+                with st.expander("View Daily Details"):
+                    # Sort by date descending for recent first
+                    display_df = daily_counts.sort_values('date', ascending=False)
+                    display_df.columns = ['Date', 'Games Imported']
+                    st.dataframe(display_df, use_container_width=True, hide_index=True)
             else:
                 st.info("No imports in the last 30 days")
 
@@ -1368,19 +1482,52 @@ elif section == "📈 Database Import Stats":
             thirty_days_ago = (datetime.now() - timedelta(days=30)).isoformat()
 
             errors_result = db.table('validation_errors').select(
-                'error_type, record_type'
+                'error_type, record_type, created_at'
             ).gte('created_at', thirty_days_ago).execute()
 
             if errors_result.data:
                 df = pd.DataFrame(errors_result.data)
 
+                # Total error count
+                total_errors = len(df)
+
                 # Group by error type
                 error_summary = df.groupby(['record_type', 'error_type']).size().reset_index(name='count')
                 error_summary = error_summary.sort_values('count', ascending=False)
 
+                # Show summary metrics
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Errors", f"{total_errors:,}")
+                with col2:
+                    unique_types = len(error_summary)
+                    st.metric("Error Types", f"{unique_types}")
+                with col3:
+                    # Most common error
+                    if len(error_summary) > 0:
+                        top_error = error_summary.iloc[0]
+                        st.metric("Most Common", f"{top_error['error_type'][:20]}...",
+                                 help=f"{top_error['count']} occurrences")
+                    else:
+                        st.metric("Most Common", "N/A")
+
+                # Rename columns for display
+                error_summary.columns = ['Record Type', 'Error Type', 'Count']
                 st.dataframe(error_summary, use_container_width=True, hide_index=True)
+
+                # Show recent errors in expander
+                with st.expander("View Recent Errors"):
+                    recent_errors = db.table('validation_errors').select(
+                        'created_at, record_type, error_type, error_message'
+                    ).gte('created_at', thirty_days_ago).order('created_at', desc=True).limit(10).execute()
+
+                    if recent_errors.data:
+                        recent_df = pd.DataFrame(recent_errors.data)
+                        recent_df['created_at'] = pd.to_datetime(recent_df['created_at']).dt.strftime('%Y-%m-%d %H:%M')
+                        recent_df.columns = ['Time', 'Record Type', 'Error Type', 'Message']
+                        st.dataframe(recent_df, use_container_width=True, hide_index=True)
             else:
-                st.success("No validation errors in the last 30 days! 🎉")
+                st.success("No validation errors in the last 30 days!")
 
         except Exception as e:
             st.error(f"Error loading validation errors: {e}")
