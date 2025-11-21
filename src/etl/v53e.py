@@ -241,7 +241,8 @@ def _adjust_for_opponent_strength(
 def compute_rankings(
     games_df: pd.DataFrame,
     today: Optional[pd.Timestamp] = None,
-    cfg: Optional[V53EConfig] = None
+    cfg: Optional[V53EConfig] = None,
+    global_strength_map: Optional[Dict[str, float]] = None,
 ) -> Dict[str, pd.DataFrame]:
     """
     Returns:
@@ -249,6 +250,13 @@ def compute_rankings(
         "teams": DataFrame[one row per (team_id, age, gender)],
         "games_used": DataFrame[rows used in SOS after repeat-cap]
       }
+
+    Args:
+        games_df: Games in v53e format (one row per team per game)
+        today: Reference date for rankings
+        cfg: V53E configuration
+        global_strength_map: Optional dict of team_id -> abs_strength from all cohorts
+                            Used for cross-age/cross-gender opponent lookups in SOS
     """
     cfg = cfg or V53EConfig()
     
@@ -671,9 +679,18 @@ def compute_rankings(
 
     # Use base strength for initial SOS calculation (Pass 1)
     # This represents how good opponents are at OFF/DEF
-    g_sos["opp_strength"] = g_sos["opp_id"].map(
-        lambda o: base_strength_map.get(o, cfg.UNRANKED_SOS_BASE)
-    )
+    # For cross-age/cross-gender opponents, use global_strength_map if available
+    def get_opponent_strength(opp_id):
+        # Try local cohort first (same age/gender)
+        if opp_id in base_strength_map:
+            return base_strength_map[opp_id]
+        # Fall back to global map (cross-age/cross-gender)
+        if global_strength_map and opp_id in global_strength_map:
+            return global_strength_map[opp_id]
+        # Unknown opponent
+        return cfg.UNRANKED_SOS_BASE
+
+    g_sos["opp_strength"] = g_sos["opp_id"].map(get_opponent_strength)
 
     direct = (
         g_sos.groupby("team_id", group_keys=False).apply(
@@ -701,9 +718,16 @@ def compute_rankings(
         opp_sos_map = dict(zip(sos_curr["team_id"], sos_curr["sos"]))
 
         # Calculate transitive SOS (opponent's SOS - this propagates schedule difficulty)
-        g_sos["opp_sos"] = g_sos["opp_id"].map(
-            lambda o: opp_sos_map.get(o, cfg.UNRANKED_SOS_BASE)
-        )
+        # Use same fallback pattern: local SOS → global strength → unranked
+        def get_opponent_sos(opp_id):
+            if opp_id in opp_sos_map:
+                return opp_sos_map[opp_id]
+            # For cross-age opponents not in SOS map, use their global strength as proxy
+            if global_strength_map and opp_id in global_strength_map:
+                return global_strength_map[opp_id]
+            return cfg.UNRANKED_SOS_BASE
+
+        g_sos["opp_sos"] = g_sos["opp_id"].map(get_opponent_sos)
         trans = (
             g_sos.groupby("team_id", group_keys=False).apply(
                 lambda d: _avg_weighted(d, "opp_sos", "w_sos")
