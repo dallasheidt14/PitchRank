@@ -1423,30 +1423,7 @@ elif section == "📈 Database Import Stats":
         st.subheader("Recent Import Activity")
 
         try:
-            # Get accurate daily import counts from games table (same source as Daily Import Summary)
-            thirty_days_ago = (datetime.now() - timedelta(days=30)).date().isoformat()
-            games_by_date = db.table('games').select('created_at').gte('created_at', thirty_days_ago).execute()
-
-            if games_by_date.data:
-                # Create chart from actual games data
-                games_df = pd.DataFrame(games_by_date.data)
-                games_df['date'] = pd.to_datetime(games_df['created_at']).dt.date
-                chart_df = games_df.groupby('date').size().reset_index(name='Imported')
-
-                # Fill missing dates for complete visualization
-                date_range = pd.date_range(
-                    start=(datetime.now() - timedelta(days=30)).date(),
-                    end=datetime.now().date(),
-                    freq='D'
-                )
-                full_dates = pd.DataFrame({'date': date_range.date})
-                chart_df = full_dates.merge(chart_df, on='date', how='left').fillna(0)
-                chart_df['Imported'] = chart_df['Imported'].astype(int)
-
-                # Display chart
-                st.bar_chart(chart_df.set_index('date')[['Imported']])
-
-            # Get recent game imports from build_logs for the table
+            # Get recent game imports from build_logs
             builds_result = db.table('build_logs').select(
                 'build_id, stage, started_at, completed_at, records_processed, records_succeeded, records_failed'
             ).eq('stage', 'game_import').order('started_at', desc=True).limit(20).execute()
@@ -1479,10 +1456,9 @@ elif section == "📈 Database Import Stats":
                 display_df.columns = ['Build ID', 'Status', 'Started', 'Completed',
                              'Processed', 'Succeeded', 'Failed/Dups']
 
-                st.caption("Build Log Details:")
                 st.dataframe(display_df, use_container_width=True, hide_index=True)
-            elif not games_by_date.data:
-                st.info("No import activity found.")
+            else:
+                st.info("No import logs found. Import activity will appear here after running the import pipeline.")
 
         except Exception as e:
             st.error(f"Error loading import activity: {e}")
