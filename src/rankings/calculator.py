@@ -210,7 +210,7 @@ async def compute_rankings_with_ml(
 
     ml_cfg = layer13_cfg or Layer13Config(
         lookback_days=v53_cfg.WINDOW_DAYS,
-        alpha=0.20,
+        alpha=0.15,
         norm_mode="zscore",
         min_team_games_for_residual=6,
         recency_decay_lambda=0.06,
