@@ -486,14 +486,12 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
                 resultBg = 'bg-red-100';
               }
 
-              // Determine performance quality color
-              let performanceColor = 'text-muted-foreground';
-              if (gameQuality.qualityType === 'dominant-win') {
-                performanceColor = 'text-green-600 font-semibold'; // Dominant win
-              } else if (gameQuality.qualityType === 'quality-win' || gameQuality.qualityType === 'expected-win') {
-                performanceColor = 'text-muted-foreground'; // Neutral/expected performance
-              } else if (gameQuality.qualityType === 'struggle-win' || gameQuality.qualityType === 'bad-loss') {
-                performanceColor = 'text-red-600 font-semibold'; // Underperformance
+              // Determine score highlight based on performance delta (mirrors GameHistoryTable logic)
+              let scoreHighlight = '';
+              if (performanceDelta >= 2) {
+                scoreHighlight = 'bg-green-100 dark:bg-green-900/30 px-2 py-0.5 rounded font-bold'; // Overperformed
+              } else if (performanceDelta <= -2) {
+                scoreHighlight = 'bg-red-100 dark:bg-red-900/30 px-2 py-0.5 rounded font-bold'; // Underperformed
               }
 
               // Quality indicator text
@@ -522,11 +520,11 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
                     <span className="truncate">{opponentName}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className={resultColor}>
+                    <span className={scoreHighlight || resultColor}>
                       {teamScore}-{oppScore}
                     </span>
                     {qualityText && (
-                      <span className={`text-xs italic ${performanceColor}`}>
+                      <span className="text-xs italic text-muted-foreground">
                         {qualityText}
                       </span>
                     )}
