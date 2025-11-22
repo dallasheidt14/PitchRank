@@ -563,15 +563,15 @@ def _aggregate_team_residuals(feats: pd.DataFrame, cfg: Layer13Config) -> pd.Dat
             return 0.0
         return float(np.average(group_df["residual"].values, weights=w))
 
-    # Use groupby + agg with custom function (avoids FutureWarning)
+    # Use groupby + apply to compute weighted average per team
+    # Note: We use include_groups=True (default) so groupby columns are available in lambda
     agg = df.groupby([team_id_col, age_col, gender_col], as_index=False).apply(
         lambda d: pd.DataFrame({
             team_id_col: [d[team_id_col].iloc[0]],
             age_col: [d[age_col].iloc[0]],
             gender_col: [d[gender_col].iloc[0]],
             "ml_overperf": [compute_group_wavg(d)]
-        }),
-        include_groups=False
+        })
     ).reset_index(drop=True)
     
     # require a minimum number of games to avoid yo-yo
