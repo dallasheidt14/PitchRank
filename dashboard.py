@@ -52,7 +52,8 @@ section = st.sidebar.radio(
         "👥 Age Groups",
         "🔧 Environment Variables",
         "🔎 Unknown Teams Mapper",
-        "📈 Database Import Stats"
+        "📈 Database Import Stats",
+        "🗺️ State Coverage"
     ]
 )
 
@@ -1450,6 +1451,173 @@ elif section == "📈 Database Import Stats":
 
         except Exception as e:
             st.error(f"Error loading validation errors: {e}")
+
+# ============================================================================
+# STATE COVERAGE SECTION
+# ============================================================================
+elif section == "🗺️ State Coverage":
+    st.header("State Coverage")
+    st.markdown("Team distribution by state and age group")
+
+    db = get_database()
+
+    if not db:
+        st.error("Database connection not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your .env file.")
+    else:
+        try:
+            # Fetch all teams with state and age group info
+            teams_result = db.table('teams').select(
+                'state_code, age_group, gender'
+            ).execute()
+
+            if teams_result.data:
+                df = pd.DataFrame(teams_result.data)
+
+                # Clean up data
+                df['state_code'] = df['state_code'].fillna('Unknown')
+                df['age_group'] = df['age_group'].fillna('Unknown')
+
+                # Overview metrics
+                st.subheader("Overview")
+                col1, col2, col3, col4 = st.columns(4)
+
+                with col1:
+                    st.metric("Total Teams", f"{len(df):,}")
+                with col2:
+                    st.metric("States", f"{df['state_code'].nunique()}")
+                with col3:
+                    st.metric("Age Groups", f"{df['age_group'].nunique()}")
+                with col4:
+                    # Most covered state
+                    top_state = df['state_code'].value_counts().idxmax()
+                    top_count = df['state_code'].value_counts().max()
+                    st.metric("Top State", f"{top_state}", help=f"{top_count:,} teams")
+
+                st.divider()
+
+                # State by Age Group heatmap/pivot table
+                st.subheader("Teams by State and Age Group")
+
+                # Create pivot table
+                pivot_df = pd.crosstab(
+                    df['state_code'],
+                    df['age_group'],
+                    margins=True,
+                    margins_name='Total'
+                )
+
+                # Sort columns by age group order from AGE_GROUPS
+                age_order = list(AGE_GROUPS.keys()) + ['Unknown', 'Total']
+                available_cols = [col for col in age_order if col in pivot_df.columns]
+                other_cols = [col for col in pivot_df.columns if col not in age_order]
+                pivot_df = pivot_df[available_cols + other_cols]
+
+                # Sort rows by total count (descending), keep 'Total' at bottom
+                if 'Total' in pivot_df.index:
+                    total_row = pivot_df.loc['Total']
+                    pivot_df = pivot_df.drop('Total')
+                    pivot_df = pivot_df.sort_values('Total', ascending=False)
+                    pivot_df = pd.concat([pivot_df, total_row.to_frame().T])
+
+                # Display the pivot table with styling
+                st.dataframe(
+                    pivot_df.style.background_gradient(cmap='Blues', subset=pivot_df.columns[:-1]),
+                    use_container_width=True
+                )
+
+                st.divider()
+
+                # Gender breakdown by state
+                st.subheader("Gender Distribution by State")
+
+                gender_pivot = pd.crosstab(
+                    df['state_code'],
+                    df['gender'],
+                    margins=True,
+                    margins_name='Total'
+                )
+
+                # Sort by total
+                if 'Total' in gender_pivot.index:
+                    total_row = gender_pivot.loc['Total']
+                    gender_pivot = gender_pivot.drop('Total')
+                    gender_pivot = gender_pivot.sort_values('Total', ascending=False)
+                    gender_pivot = pd.concat([gender_pivot, total_row.to_frame().T])
+
+                col1, col2 = st.columns([2, 1])
+
+                with col1:
+                    st.dataframe(
+                        gender_pivot.style.background_gradient(cmap='Greens', subset=gender_pivot.columns[:-1]),
+                        use_container_width=True
+                    )
+
+                with col2:
+                    # Overall gender split
+                    gender_counts = df['gender'].value_counts()
+                    st.markdown("**Overall Gender Split**")
+                    for gender, count in gender_counts.items():
+                        pct = count / len(df) * 100
+                        st.write(f"- {gender}: {count:,} ({pct:.1f}%)")
+
+                st.divider()
+
+                # Top 10 states detailed view
+                st.subheader("Top 10 States - Detailed Breakdown")
+
+                top_states = df['state_code'].value_counts().head(10).index.tolist()
+
+                for state in top_states:
+                    state_df = df[df['state_code'] == state]
+                    total_teams = len(state_df)
+
+                    with st.expander(f"**{state}** - {total_teams:,} teams"):
+                        col1, col2 = st.columns(2)
+
+                        with col1:
+                            st.markdown("**By Age Group**")
+                            age_counts = state_df['age_group'].value_counts().sort_index()
+                            age_df = pd.DataFrame({
+                                'Age Group': age_counts.index,
+                                'Teams': age_counts.values
+                            })
+                            st.dataframe(age_df, use_container_width=True, hide_index=True)
+
+                        with col2:
+                            st.markdown("**By Gender**")
+                            gender_counts = state_df['gender'].value_counts()
+                            gender_df = pd.DataFrame({
+                                'Gender': gender_counts.index,
+                                'Teams': gender_counts.values
+                            })
+                            st.dataframe(gender_df, use_container_width=True, hide_index=True)
+
+                st.divider()
+
+                # States with low coverage
+                st.subheader("States Needing More Coverage")
+
+                state_counts = df['state_code'].value_counts()
+                low_coverage = state_counts[state_counts < 50].sort_values()
+
+                if len(low_coverage) > 0:
+                    st.warning(f"Found {len(low_coverage)} states with fewer than 50 teams")
+
+                    low_df = pd.DataFrame({
+                        'State': low_coverage.index,
+                        'Teams': low_coverage.values
+                    })
+                    st.dataframe(low_df, use_container_width=True, hide_index=True)
+                else:
+                    st.success("All states have at least 50 teams!")
+
+            else:
+                st.info("No teams found in the database.")
+
+        except Exception as e:
+            st.error(f"Error loading state coverage data: {e}")
+            import traceback
+            st.code(traceback.format_exc())
 
 # Footer
 st.divider()
