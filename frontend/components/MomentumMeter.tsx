@@ -26,26 +26,25 @@ interface MomentumResult {
 }
 
 /**
- * Interpolate color from red → gray → lime based on score (0-100)
+ * Get color based on momentum score
+ * Uses shades of green for positive momentum, red for negative
  */
 function interpolateMomentumColor(score: number): string {
   if (score < 25) {
-    // Red for slumping
-    return 'hsl(0, 70%, 45%)';
+    // Dark red for slumping
+    return 'hsl(0, 70%, 35%)';
   } else if (score < 50) {
-    // Orange-red for struggling
-    const t = (score - 25) / 25;
-    return `hsl(${20 * t}, ${70 - 20 * t}%, ${45 + 5 * t}%)`;
+    // Light red for struggling
+    return 'hsl(0, 65%, 50%)';
   } else if (score < 60) {
     // Gray for as expected
     return 'hsl(0, 0%, 50%)';
   } else if (score < 80) {
-    // Yellow-green for building
-    const t = (score - 60) / 20;
-    return `hsl(${60 + 30 * t}, ${50 + 20 * t}%, 45%)`;
+    // Light green for building momentum
+    return 'hsl(120, 50%, 45%)';
   } else {
-    // Green for hot streak
-    return 'hsl(120, 70%, 40%)';
+    // Dark green for hot streak
+    return 'hsl(120, 70%, 32%)';
   }
 }
 
