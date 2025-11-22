@@ -799,37 +799,8 @@ def compute_rankings(
     )
     team["powerscore_adj"] = team["powerscore_core"] * team["provisional_mult"]
 
-    # Apply anchor-based normalization across ages (hierarchical capping)
-    if "anchor" in team.columns and team["anchor"].notna().any():
-        anchor_ref = team.groupby("gender")["anchor"].transform("max")
-        # avoid divide-by-zero
-        anchor_ref = anchor_ref.replace(0, np.nan)
-        team["powerscore_adj"] = (
-            team["powerscore_adj"] * team["anchor"] / anchor_ref
-        ).clip(0.0, 1.0)
-        
-        # Diagnostic: Log anchor scaling results
-        logger.info("⚖️ Anchor scaling diagnostic:")
-        anchor_summary = team.groupby(["age", "gender"])["anchor"].mean().round(3)
-        powerscore_max = team.groupby(["age", "gender"])["powerscore_adj"].max().round(3)
-        
-        logger.info("  Anchor values (mean per age/gender):")
-        for (age, gender), anchor_val in anchor_summary.items():
-            logger.info(f"    {age} {gender}: anchor={anchor_val:.3f}")
-        
-        logger.info("  PowerScore max (per age/gender) after anchor scaling:")
-        for (age, gender), ps_max in powerscore_max.items():
-            logger.info(f"    {age} {gender}: max_powerscore_adj={ps_max:.3f}")
-        
-        # Check max anchor per gender (explicitly show which age/gender provides the reference)
-        max_anchor_per_gender = team.groupby("gender")["anchor"].max()
-        logger.info("  Max anchor per gender (reference for scaling):")
-        for gender, max_anchor in max_anchor_per_gender.items():
-            # Find which age group has this max anchor
-            max_anchor_age = team[team["anchor"] == max_anchor]["age"].iloc[0] if len(team[team["anchor"] == max_anchor]) > 0 else "unknown"
-            logger.info(f"    {gender}: max_anchor={max_anchor:.3f} (from {max_anchor_age})")
-    else:
-        logger.warning("⚠️ Anchor column missing or invalid — skipped anchor normalization step.")
+    # NOTE: Anchor-based scaling is now applied globally in compute_all_cohorts()
+    # after all cohorts are combined. This ensures proper cross-age scaling.
 
     # -------------------------
     # Layer 11: Rank & status
