@@ -18,7 +18,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
-from src.rankings.calculator import compute_rankings_with_ml, compute_rankings_v53e_only
+from src.rankings.calculator import compute_rankings_with_ml, compute_rankings_v53e_only, compute_all_cohorts
 from src.etl.v53e import V53EConfig
 from src.rankings.layer13_predictive_adjustment import Layer13Config
 from src.rankings.data_adapter import v53e_to_supabase_format, v53e_to_rankings_full_format
@@ -341,7 +341,8 @@ async def main():
         console.print("")  # Blank line for spacing
         
         if args.ml:
-            result = await compute_rankings_with_ml(
+            # Use compute_all_cohorts for two-pass SOS + national/state normalization
+            result = await compute_all_cohorts(
                 supabase_client=supabase,
                 today=None,
                 fetch_from_supabase=True,
