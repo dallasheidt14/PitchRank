@@ -29,37 +29,61 @@ export const api = {
     ageGroup?: string,
     gender?: 'M' | 'F' | 'B' | 'G' | null
   ): Promise<RankingWithTeam[]> {
+    // Paginate to get all results (Supabase default limit is 1000)
+    const BATCH_SIZE = 1000;
+    const allResults: RankingWithTeam[] = [];
+    let offset = 0;
+    let hasMore = true;
+
     const table = region ? 'state_rankings_view' : 'rankings_view';
-    let query = supabase.from(table).select('*')
-      .eq('status', 'Active'); // Filter out inactive teams (>180 days since last game)
+    const normalizedRegion = region?.toUpperCase();
+    let normalizedAge: number | null = null;
 
     if (ageGroup) {
-      // Normalize age group to integer
-      const normalizedAge = normalizeAgeGroup(ageGroup);
+      normalizedAge = normalizeAgeGroup(ageGroup);
+    }
+
+    while (hasMore) {
+      let query = supabase.from(table).select('*')
+        .eq('status', 'Active'); // Filter out inactive teams (>180 days since last game)
+
       if (normalizedAge !== null) {
         query = query.eq('age', normalizedAge);
       }
+
+      if (gender) {
+        query = query.eq('gender', gender);
+      }
+
+      if (region) {
+        query = query.eq('state', normalizedRegion);
+      }
+
+      // Sort by ML-adjusted score and paginate
+      query = query
+        .order('power_score_final', { ascending: false })
+        .range(offset, offset + BATCH_SIZE - 1);
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error(`Error fetching rankings from ${table}:`, error);
+        throw error;
+      }
+
+      if (!data || data.length === 0) {
+        hasMore = false;
+      } else {
+        allResults.push(...(data as RankingWithTeam[]));
+        if (data.length < BATCH_SIZE) {
+          hasMore = false;
+        } else {
+          offset += BATCH_SIZE;
+        }
+      }
     }
 
-    if (gender) {
-      query = query.eq('gender', gender);
-    }
-
-    if (region) {
-      query = query.eq('state', region.toUpperCase());
-    }
-
-    // Sort by ML-adjusted score
-    query = query.order('power_score_final', { ascending: false });
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error(`Error fetching rankings from ${table}:`, error);
-      throw error;
-    }
-
-    return (data || []) as RankingWithTeam[];
+    return allResults;
   },
 
   /**
