@@ -1466,12 +1466,29 @@ elif section == "🗺️ State Coverage":
     else:
         try:
             # Fetch all teams with state and age group info
-            teams_result = db.table('teams').select(
-                'state_code, age_group, gender'
-            ).execute()
+            # Paginate to get all results (Supabase default limit is 1000)
+            all_teams = []
+            page_size = 1000
+            offset = 0
 
-            if teams_result.data:
-                df = pd.DataFrame(teams_result.data)
+            with st.spinner("Loading all teams..."):
+                while True:
+                    teams_result = db.table('teams').select(
+                        'state_code, age_group, gender'
+                    ).range(offset, offset + page_size - 1).execute()
+
+                    if not teams_result.data:
+                        break
+
+                    all_teams.extend(teams_result.data)
+
+                    if len(teams_result.data) < page_size:
+                        break
+
+                    offset += page_size
+
+            if all_teams:
+                df = pd.DataFrame(all_teams)
 
                 # Clean up data
                 df['state_code'] = df['state_code'].fillna('Unknown')
@@ -1613,6 +1630,7 @@ elif section == "🗺️ State Coverage":
 
             else:
                 st.info("No teams found in the database.")
+                st.caption("Note: The query fetched 0 teams. Check database connection.")
 
         except Exception as e:
             st.error(f"Error loading state coverage data: {e}")
