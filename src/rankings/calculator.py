@@ -460,7 +460,8 @@ async def compute_all_cohorts(
 
         # Use max anchor per gender as reference (U18/U19 = 1.0)
         anchor_ref = teams_combined.groupby("gender")["anchor"].transform("max")
-        anchor_ref = anchor_ref.replace(0, pd.NA)  # Avoid divide-by-zero
+        # Avoid divide-by-zero: replace 0 with 1.0 (safe fallback)
+        anchor_ref = anchor_ref.replace(0, 1.0).fillna(1.0)
 
         teams_combined["powerscore_adj"] = (
             teams_combined["powerscore_adj"] * teams_combined["anchor"] / anchor_ref
@@ -508,6 +509,8 @@ async def compute_all_cohorts(
         if teams_metadata:
             metadata_df = pd.DataFrame(teams_metadata)
             metadata_df['team_id_master'] = metadata_df['team_id_master'].astype(str)
+            # Drop duplicates to prevent row multiplication during merge
+            metadata_df = metadata_df.drop_duplicates(subset=['team_id_master'])
             teams_combined = teams_combined.merge(
                 metadata_df[['team_id_master', 'state_code']],
                 left_on='team_id',
@@ -537,12 +540,12 @@ async def compute_all_cohorts(
             # National normalization: percentile rank across all states in this cohort
             # rank(pct=True) gives values from 0 to 1
             teams_combined.loc[cohort_idx, 'sos_norm_national'] = (
-                cohort_df['sos_raw'].rank(method='average', pct=True)
+                cohort_df['sos_raw'].rank(method='average', pct=True).fillna(0.5)
             )
 
             # National rank: descending rank (highest SOS = rank 1)
             teams_combined.loc[cohort_idx, 'sos_rank_national'] = (
-                cohort_df['sos_raw'].rank(method='min', ascending=False).astype(int)
+                cohort_df['sos_raw'].rank(method='min', ascending=False).fillna(0).astype(int)
             )
 
             # State-level normalization and ranking within this cohort
@@ -551,12 +554,12 @@ async def compute_all_cohorts(
 
                 # State normalization: percentile rank within state
                 teams_combined.loc[state_idx, 'sos_norm_state'] = (
-                    state_df['sos_raw'].rank(method='average', pct=True)
+                    state_df['sos_raw'].rank(method='average', pct=True).fillna(0.5)
                 )
 
                 # State rank: descending rank within state
                 teams_combined.loc[state_idx, 'sos_rank_state'] = (
-                    state_df['sos_raw'].rank(method='min', ascending=False).astype(int)
+                    state_df['sos_raw'].rank(method='min', ascending=False).fillna(0).astype(int)
                 )
 
         # Log SOS normalization results
