@@ -3,19 +3,17 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChartSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
-import { useTeamGames, useTeam } from '@/lib/hooks';
+import { useTeamGames } from '@/lib/hooks';
 import { useMemo, useState, useEffect } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { api } from '@/lib/api';
 import type { GameWithTeams } from '@/lib/types';
 
 interface MomentumMeterProps {
   teamId: string;
 }
 
-// Constants for momentum calculation
-const PERFORMANCE_GOAL_SCALE = 5.0; // Expected goal margin per 1.0 power difference
-const PERFORMANCE_THRESHOLD = 2.0; // Threshold for over/underperformance
+// Threshold for over/underperformance (same as GameHistoryTable)
+const PERFORMANCE_THRESHOLD = 2.0;
 
 interface MomentumResult {
   score: number;
@@ -49,61 +47,36 @@ function interpolateMomentumColor(score: number): string {
 }
 
 /**
- * Calculate momentum from recent games using simple green/red/neutral point system
+ * Calculate momentum from recent games using ml_overperformance from game data
+ * Uses the same data as GameHistoryTable for consistency
  */
-async function calculateMomentum(
+function calculateMomentum(
   teamId: string,
-  teamPower: number | null,
   games: GameWithTeams[],
   numberOfGames: number = 8
-): Promise<MomentumResult> {
+): MomentumResult {
   const recentGames = games.slice(0, numberOfGames);
 
   if (recentGames.length === 0) {
     return { score: 50, greens: 0, reds: 0, neutrals: 0, totalGames: 0 };
   }
 
-  // Get opponent team IDs
-  const opponentIds = recentGames
-    .map(game => {
-      const oppId = game.home_team_master_id === teamId
-        ? game.away_team_master_id
-        : game.home_team_master_id;
-      return oppId;
-    })
-    .filter((id): id is string => id !== null);
-
-  // Fetch opponent rankings
-  const opponentRankings = await api.getTeamRankings(opponentIds);
-
-  // Count greens, reds, neutrals
+  // Count greens, reds, neutrals based on ml_overperformance
   let greens = 0;
   let reds = 0;
   let neutrals = 0;
 
   for (const game of recentGames) {
     const isHome = game.home_team_master_id === teamId;
-    const teamScore = isHome ? game.home_score : game.away_score;
-    const oppScore = isHome ? game.away_score : game.home_score;
-    const opponentId = isHome ? game.away_team_master_id : game.home_team_master_id;
 
-    if (teamScore === null || oppScore === null || !opponentId) {
-      continue;
-    }
-
-    const goalDiff = teamScore - oppScore;
-    const opponentRanking = opponentRankings.get(opponentId);
-    const opponentPower = opponentRanking?.power_score_final ?? null;
-
-    // Calculate performance delta
+    // Get ml_overperformance from team's perspective (same as GameHistoryTable)
+    // Database stores from home team's perspective, so flip sign for away team
     let performanceDelta = 0;
-    if (teamPower !== null && opponentPower !== null) {
-      const powerDiff = teamPower - opponentPower;
-      const expectedMargin = PERFORMANCE_GOAL_SCALE * powerDiff;
-      performanceDelta = goalDiff - expectedMargin;
+    if (game.ml_overperformance !== null && game.ml_overperformance !== undefined) {
+      performanceDelta = isHome ? game.ml_overperformance : -game.ml_overperformance;
     }
 
-    // Categorize based on performance threshold
+    // Categorize based on performance threshold (same as GameHistoryTable: ±2)
     if (performanceDelta >= PERFORMANCE_THRESHOLD) {
       greens++;
     } else if (performanceDelta <= -PERFORMANCE_THRESHOLD) {
@@ -136,7 +109,6 @@ async function calculateMomentum(
  */
 export function MomentumMeter({ teamId }: MomentumMeterProps) {
   const { data: gamesData, isLoading: gamesLoading, isError: gamesError, error: gamesErrorObj, refetch } = useTeamGames(teamId, 12);
-  const { data: teamData, isLoading: teamLoading } = useTeam(teamId);
 
   const [animatedScore, setAnimatedScore] = useState(50);
   const [momentumData, setMomentumData] = useState<MomentumResult | null>(null);
@@ -148,26 +120,9 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
       return;
     }
 
-    let isMounted = true;
-    const teamPower = teamData?.power_score_final ?? null;
-
-    calculateMomentum(teamId, teamPower, gamesData.games, 8)
-      .then(result => {
-        if (isMounted) {
-          setMomentumData(result);
-        }
-      })
-      .catch(error => {
-        console.error('Error calculating momentum:', error);
-        if (isMounted) {
-          setMomentumData(null);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [gamesData, teamData, teamId]);
+    const result = calculateMomentum(teamId, gamesData.games, 8);
+    setMomentumData(result);
+  }, [gamesData, teamId]);
 
   // Animate score change
   useEffect(() => {
@@ -222,7 +177,7 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
     return interpolateMomentumColor(animatedScore);
   }, [animatedScore]);
 
-  if (gamesLoading || teamLoading) {
+  if (gamesLoading) {
     return (
       <Card>
         <CardHeader>
