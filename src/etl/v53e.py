@@ -6,7 +6,6 @@ from typing import Dict, Optional, List
 import logging
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LinearRegression
 
 logger = logging.getLogger(__name__)
 
@@ -425,117 +424,34 @@ def compute_rankings(
         + cfg.SOS_WEIGHT * team["sos_presos"]
     )
 
-    anchors = (
-        team.groupby(["age", "gender"])["power_presos"]
-        .quantile(cfg.ANCHOR_PERCENTILE)
-        .rename("anchor").reset_index()
-    )
+    # Static age → anchor mapping for U10–U18
+    # This ensures consistent scaling across ages regardless of cohort splitting
+    # Younger teams have lower max PowerScore, older teams can reach 1.0
+    AGE_TO_ANCHOR = {
+        10: 0.400,
+        11: 0.475,
+        12: 0.550,
+        13: 0.625,
+        14: 0.700,
+        15: 0.775,
+        16: 0.850,
+        17: 0.925,
+        18: 1.000,
+        19: 1.000,  # U19 same as U18
+    }
 
-    team = team.merge(anchors, on=["age", "gender"], how="left")
-    # Fix pandas FutureWarning: use assignment instead of inplace
-    team["anchor"] = team["anchor"].replace({0.0: np.nan})
-    team["anchor"] = team["anchor"].fillna(team["power_presos"].median())
-    
-    # Cross-age scaling matrix: smooth anchors across ages using linear regression
-    # Compute median power by age/gender for regression
-    median_power = team.groupby(["age", "gender"])["power_presos"].median().reset_index()
-    median_power = median_power.merge(anchors, on=["age", "gender"], how="left")
-    
-    if len(median_power) > 2:  # Need at least 3 points for regression
-        # Prepare features: age (numeric) and gender (binary)
-        median_power["age_numeric"] = pd.to_numeric(median_power["age"], errors="coerce")
-        median_power["gender_numeric"] = (median_power["gender"].astype(str).str.lower() == "male").astype(int)
-        
-        # Remove rows with missing age
-        median_power_clean = median_power.dropna(subset=["age_numeric", "anchor"])
-        
-        if len(median_power_clean) > 2:
-            # Fit linear regression: anchor ~ age + gender
-            X = median_power_clean[["age_numeric", "gender_numeric"]].values
-            y = median_power_clean["anchor"].values
-            
-            model = LinearRegression()
-            model.fit(X, y)
-            
-            # Predict smoothed anchors for all age/gender combinations
-            team["age_numeric"] = pd.to_numeric(team["age"], errors="coerce")
-            team["gender_numeric"] = (team["gender"].astype(str).str.lower() == "male").astype(int)
-            
-            # Predict smoothed anchor values
-            team_clean = team.dropna(subset=["age_numeric"])
-            if len(team_clean) > 0:
-                X_team = team_clean[["age_numeric", "gender_numeric"]].values
-                team.loc[team_clean.index, "anchor"] = model.predict(X_team)
-            
-            # Gender-specific normalization: fit per-gender regression for better slope calibration
-            # This ensures gender-specific slope calibration and avoids over-smoothing across gender boundaries
-            for gender_val, gender_sub in median_power_clean.groupby("gender_numeric"):
-                if len(gender_sub) > 1:  # Need at least 2 points for regression
-                    # Fit per-gender regression: anchor ~ age
-                    X_gender = gender_sub["age_numeric"].values.reshape(-1, 1)
-                    y_gender = gender_sub["anchor"].values
-                    
-                    model_gender = LinearRegression()
-                    model_gender.fit(X_gender, y_gender)
-                    
-                    # Apply gender-specific adjustment to teams
-                    team_gender_mask = (team_clean["gender_numeric"] == gender_val)
-                    if team_gender_mask.any():
-                        team_gender = team_clean[team_gender_mask]
-                        X_team_gender = team_gender["age_numeric"].values.reshape(-1, 1)
-                        # Blend: 70% global model, 30% gender-specific (to avoid over-fitting)
-                        global_pred = model.predict(team_gender[["age_numeric", "gender_numeric"]].values)
-                        gender_pred = model_gender.predict(X_team_gender)
-                        team.loc[team_gender.index, "anchor"] = 0.7 * global_pred + 0.3 * gender_pred.flatten()
-            
-            # Clean up temporary columns
-            team = team.drop(columns=["age_numeric", "gender_numeric"])
-    
-    # Enforce monotonic positive slope for anchor normalization (older = stronger)
-    logger.info("🔧 Enforcing positive age slope for anchors (older = stronger)")
-    
-    # Check if anchors decrease with age (negative slope) and fix per gender
-    for gender_val in team["gender"].unique():
-        gender_mask = team["gender"] == gender_val
-        gender_team = team[gender_mask].copy()
-        
-        if len(gender_team) < 2:
-            continue
-        
-        # Get age-anchor pairs
-        gender_team["age_numeric"] = pd.to_numeric(gender_team["age"], errors="coerce")
-        age_anchor = gender_team.groupby("age_numeric")["anchor"].mean().sort_index()
-        
-        if len(age_anchor) < 2:
-            continue
-        
-        # Check if slope is negative (younger ages have higher anchors)
-        min_age = age_anchor.index.min()
-        max_age = age_anchor.index.max()
-        min_age_anchor = age_anchor[min_age]
-        max_age_anchor = age_anchor[max_age]
-        
-        if max_age_anchor < min_age_anchor:
-            # Negative slope detected - flip and re-scale
-            logger.info(f"  Detected negative slope for {gender_val}: flipping anchors")
-            # Flip: new_anchor = max - (old - min) = max + min - old
-            anchor_min = gender_team["anchor"].min()
-            anchor_max = gender_team["anchor"].max()
-            team.loc[gender_mask, "anchor"] = anchor_max + anchor_min - team.loc[gender_mask, "anchor"]
-        
-        # Re-scale anchors linearly by age to ensure smooth 0.4–1.0 range per gender
-        gender_team = team[gender_mask].copy()
-        gender_team["age_numeric"] = pd.to_numeric(gender_team["age"], errors="coerce")
-        age_min = gender_team["age_numeric"].min()
-        age_max = gender_team["age_numeric"].max()
-        
-        if age_max > age_min:
-            # Linear scaling: anchor = 0.4 + 0.6 * (age - age_min) / (age_max - age_min)
-            age_normalized = (gender_team["age_numeric"] - age_min) / (age_max - age_min)
-            team.loc[gender_mask, "anchor"] = 0.4 + 0.6 * age_normalized
-    
-    logger.info("✅ Anchor slope corrected and re-scaled to [0.4, 1.0] range")
-    
+    def compute_anchor(age_val):
+        """Map age to static anchor value"""
+        try:
+            age_numeric = int(float(age_val))
+            return AGE_TO_ANCHOR.get(age_numeric, 0.70)  # Default to median if out of range
+        except (ValueError, TypeError):
+            return 0.70  # Default for invalid age
+
+    team["anchor"] = team["age"].apply(compute_anchor)
+
+    logger.info("✅ Static anchor mapping applied (U10=0.40 → U18=1.00)")
+
     team["abs_strength"] = (team["power_presos"] / team["anchor"]).clip(0.0, 1.5)
 
     strength_map = dict(zip(team["team_id"], team["abs_strength"]))
