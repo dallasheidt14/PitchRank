@@ -452,6 +452,99 @@ async def compute_all_cohorts(
     teams_combined = pd.concat(all_teams, ignore_index=True) if all_teams else pd.DataFrame()
     games_used_combined = pd.concat(all_games_used, ignore_index=True) if all_games_used else pd.DataFrame()
 
+    # ========== PASS 3: National/State SOS Normalization ==========
+    # After all cohorts are combined, compute national and state-level SOS rankings
+    if not teams_combined.empty and 'sos' in teams_combined.columns:
+        logger.info("📊 Pass 3: Computing national/state SOS normalization...")
+
+        # Create sos_raw from the post-shrinkage SOS value
+        teams_combined['sos_raw'] = teams_combined['sos'].astype(float)
+
+        # Fetch teams metadata to get state_code
+        team_ids = teams_combined['team_id'].astype(str).tolist()
+        teams_metadata = []
+        batch_size = 100
+
+        logger.info(f"👥 Fetching state metadata for {len(team_ids):,} teams...")
+        for i in range(0, len(team_ids), batch_size):
+            batch = team_ids[i:i + batch_size]
+            try:
+                result = supabase_client.table('teams').select(
+                    'team_id_master, state_code'
+                ).in_('team_id_master', batch).execute()
+                if result.data:
+                    teams_metadata.extend(result.data)
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to fetch state metadata batch {i}: {str(e)[:100]}")
+                continue
+
+        # Merge state_code into teams_combined
+        if teams_metadata:
+            metadata_df = pd.DataFrame(teams_metadata)
+            metadata_df['team_id_master'] = metadata_df['team_id_master'].astype(str)
+            teams_combined = teams_combined.merge(
+                metadata_df[['team_id_master', 'state_code']],
+                left_on='team_id',
+                right_on='team_id_master',
+                how='left'
+            )
+            if 'team_id_master' in teams_combined.columns:
+                teams_combined = teams_combined.drop(columns=['team_id_master'])
+
+            # Fill missing state_code with 'UNKNOWN'
+            teams_combined['state_code'] = teams_combined['state_code'].fillna('UNKNOWN')
+            logger.info(f"✅ Merged state_code for {len(teams_metadata):,} teams")
+        else:
+            teams_combined['state_code'] = 'UNKNOWN'
+            logger.warning("⚠️ No state metadata found - using 'UNKNOWN' for all teams")
+
+        # Initialize new SOS columns
+        teams_combined['sos_norm_national'] = 0.0
+        teams_combined['sos_norm_state'] = 0.0
+        teams_combined['sos_rank_national'] = 0
+        teams_combined['sos_rank_state'] = 0
+
+        # Compute national and state SOS rankings per cohort (age, gender)
+        for (age, gender), cohort_df in teams_combined.groupby(['age', 'gender']):
+            cohort_idx = cohort_df.index
+
+            # National normalization: percentile rank across all states in this cohort
+            # rank(pct=True) gives values from 0 to 1
+            teams_combined.loc[cohort_idx, 'sos_norm_national'] = (
+                cohort_df['sos_raw'].rank(method='average', pct=True)
+            )
+
+            # National rank: descending rank (highest SOS = rank 1)
+            teams_combined.loc[cohort_idx, 'sos_rank_national'] = (
+                cohort_df['sos_raw'].rank(method='min', ascending=False).astype(int)
+            )
+
+            # State-level normalization and ranking within this cohort
+            for state, state_df in cohort_df.groupby('state_code'):
+                state_idx = state_df.index
+
+                # State normalization: percentile rank within state
+                teams_combined.loc[state_idx, 'sos_norm_state'] = (
+                    state_df['sos_raw'].rank(method='average', pct=True)
+                )
+
+                # State rank: descending rank within state
+                teams_combined.loc[state_idx, 'sos_rank_state'] = (
+                    state_df['sos_raw'].rank(method='min', ascending=False).astype(int)
+                )
+
+        # Log SOS normalization results
+        logger.info(
+            f"✅ National/State SOS normalization complete: "
+            f"sos_norm_national range=[{teams_combined['sos_norm_national'].min():.3f}, {teams_combined['sos_norm_national'].max():.3f}], "
+            f"sos_rank_national range=[{teams_combined['sos_rank_national'].min()}, {teams_combined['sos_rank_national'].max()}]"
+        )
+
+        # Sample state distribution for diagnostics
+        state_counts = teams_combined['state_code'].value_counts()
+        top_states = state_counts.head(5).to_dict()
+        logger.info(f"📍 Top states by team count: {top_states}")
+
     # Save one combined snapshot for all cohorts
     if not teams_combined.empty:
         logger.info("💾 Saving combined ranking snapshot for all cohorts...")
