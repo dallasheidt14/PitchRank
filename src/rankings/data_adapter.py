@@ -640,11 +640,48 @@ def v53e_to_rankings_full_format(
     else:
         rankings_df['sos'] = None
         rankings_df['strength_of_schedule'] = None
-    
+
     if 'sos_norm' in rankings_df.columns:
         rankings_df['sos_norm'] = rankings_df['sos_norm'].astype(float)
     else:
         rankings_df['sos_norm'] = None
+
+    # Map National/State SOS fields (computed in calculator.py Pass 3)
+    # sos_raw: post-shrinkage SOS value used for national/state ranking
+    if 'sos_raw' in rankings_df.columns:
+        rankings_df['sos_raw'] = rankings_df['sos_raw'].astype(float)
+    else:
+        rankings_df['sos_raw'] = None
+
+    # sos_norm_national: percentile rank across all states in cohort (age, gender)
+    if 'sos_norm_national' in rankings_df.columns:
+        rankings_df['sos_norm_national'] = rankings_df['sos_norm_national'].astype(float)
+    else:
+        rankings_df['sos_norm_national'] = None
+
+    # sos_norm_state: percentile rank within state for cohort (age, gender, state)
+    if 'sos_norm_state' in rankings_df.columns:
+        rankings_df['sos_norm_state'] = rankings_df['sos_norm_state'].astype(float)
+    else:
+        rankings_df['sos_norm_state'] = None
+
+    # sos_rank_national: descending rank across all states in cohort
+    if 'sos_rank_national' in rankings_df.columns:
+        rankings_df['sos_rank_national'] = rankings_df['sos_rank_national'].fillna(0).astype(int)
+    else:
+        rankings_df['sos_rank_national'] = None
+
+    # sos_rank_state: descending rank within state for cohort
+    if 'sos_rank_state' in rankings_df.columns:
+        rankings_df['sos_rank_state'] = rankings_df['sos_rank_state'].fillna(0).astype(int)
+    else:
+        rankings_df['sos_rank_state'] = None
+
+    # sample_flag: LOW_SAMPLE or OK based on games played threshold
+    if 'sample_flag' in rankings_df.columns:
+        rankings_df['sample_flag'] = rankings_df['sample_flag'].astype(str)
+    else:
+        rankings_df['sample_flag'] = None
     
     # Map Power Score layers (v53E Layer 10)
     for col in ['power_presos', 'anchor', 'abs_strength', 'powerscore_core', 'provisional_mult', 'powerscore_adj']:
@@ -726,9 +763,10 @@ def v53e_to_rankings_full_format(
     expected_columns = [
         'team_id', 'age_group', 'gender', 'state_code',
         'status', 'last_game', 'last_calculated',
-        'games_played', 'wins', 'losses', 'draws', 'goals_for', 'goals_against', 'win_percentage',
+        'games_played', 'games_last_180_days', 'wins', 'losses', 'draws', 'goals_for', 'goals_against', 'win_percentage',
         'off_raw', 'sad_raw', 'off_shrunk', 'sad_shrunk', 'def_shrunk', 'off_norm', 'def_norm',
-        'sos', 'sos_norm', 'strength_of_schedule',
+        'sos', 'sos_norm', 'sos_raw', 'sos_norm_national', 'sos_norm_state', 'sos_rank_national', 'sos_rank_state',
+        'sample_flag', 'strength_of_schedule',
         'power_presos', 'anchor', 'abs_strength', 'powerscore_core', 'provisional_mult', 'powerscore_adj',
         'perf_raw', 'perf_centered',
         'ml_overperf', 'ml_norm', 'powerscore_ml', 'rank_in_cohort_ml',
