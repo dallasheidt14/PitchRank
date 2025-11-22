@@ -452,6 +452,32 @@ async def compute_all_cohorts(
     teams_combined = pd.concat(all_teams, ignore_index=True) if all_teams else pd.DataFrame()
     games_used_combined = pd.concat(all_games_used, ignore_index=True) if all_games_used else pd.DataFrame()
 
+    # ========== Global Anchor Scaling ==========
+    # Apply anchor-based PowerScore scaling using global max anchor per gender
+    # This ensures U12 teams are capped lower than U18 teams
+    if not teams_combined.empty and 'anchor' in teams_combined.columns:
+        logger.info("⚖️ Applying global anchor scaling across all cohorts...")
+
+        # Use max anchor per gender as reference (U18/U19 = 1.0)
+        anchor_ref = teams_combined.groupby("gender")["anchor"].transform("max")
+        anchor_ref = anchor_ref.replace(0, pd.NA)  # Avoid divide-by-zero
+
+        teams_combined["powerscore_adj"] = (
+            teams_combined["powerscore_adj"] * teams_combined["anchor"] / anchor_ref
+        ).clip(0.0, 1.0)
+
+        # Also scale powerscore_ml if it exists
+        if 'powerscore_ml' in teams_combined.columns:
+            teams_combined["powerscore_ml"] = (
+                teams_combined["powerscore_ml"] * teams_combined["anchor"] / anchor_ref
+            ).clip(0.0, 1.0)
+
+        # Log scaling results
+        powerscore_max = teams_combined.groupby(["age", "gender"])["powerscore_adj"].max().round(3)
+        logger.info("  PowerScore max (per age/gender) after global anchor scaling:")
+        for (age, gender), ps_max in powerscore_max.items():
+            logger.info(f"    {age} {gender}: max_powerscore_adj={ps_max:.3f}")
+
     # ========== PASS 3: National/State SOS Normalization ==========
     # After all cohorts are combined, compute national and state-level SOS rankings
     if not teams_combined.empty and 'sos' in teams_combined.columns:
