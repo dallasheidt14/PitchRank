@@ -547,28 +547,32 @@ async def compute_all_cohorts(
         top_states = state_counts.head(5).to_dict()
         logger.info(f"📍 Top states by team count: {top_states}")
 
-    # ========== Recompute PowerScore with National SOS ==========
-    # Use sos_norm_national instead of cohort-level sos_norm for better national accuracy
+    # ========== National SOS Metrics (for display only) ==========
+    # NOTE: PowerScore uses cohort-level sos_norm from v53e.compute_rankings().
+    # National/state SOS metrics (sos_norm_national, sos_rank_national, etc.) are
+    # computed here for display and diagnostic purposes only - they do NOT affect rankings.
+    # This preserves the principle that teams are ranked within their cohort (age/gender).
+
+    # The following block is intentionally disabled to keep PowerScore cohort-based.
+    # If you want to enable national SOS in PowerScore, uncomment this block.
+    """
+    # ========== DISABLED: Recompute PowerScore with National SOS ==========
     if not teams_combined.empty and 'sos_norm_national' in teams_combined.columns:
         logger.info("🔄 Recomputing PowerScore with national SOS normalization...")
 
-        # Get config weights (use defaults if not provided)
         cfg = v53_cfg or V53EConfig()
 
-        # Recompute powerscore_core using sos_norm_national
         teams_combined["powerscore_core"] = (
             cfg.OFF_WEIGHT * teams_combined["off_norm"]
             + cfg.DEF_WEIGHT * teams_combined["def_norm"]
             + cfg.SOS_WEIGHT * teams_combined["sos_norm_national"]
-            + teams_combined["perf_centered"] * cfg.PERFORMANCE_K
+            + teams_combined["perf_centered"] * cfg.PERF_BLEND_WEIGHT
         )
 
-        # Re-apply provisional multiplier
         teams_combined["powerscore_adj"] = (
             teams_combined["powerscore_core"] * teams_combined["provisional_mult"]
         )
 
-        # Re-apply global anchor scaling
         anchor_ref = teams_combined.groupby("gender")["anchor"].transform("max")
         anchor_ref = anchor_ref.replace(0, 1.0).fillna(1.0)
 
@@ -576,24 +580,34 @@ async def compute_all_cohorts(
             teams_combined["powerscore_adj"] * teams_combined["anchor"] / anchor_ref
         ).clip(0.0, 1.0)
 
-        # Also update powerscore_ml if it exists
         if 'powerscore_ml' in teams_combined.columns and 'ml_norm' in teams_combined.columns:
-            # Use layer13 alpha (default 0.15) for ML adjustment
             ml_alpha = layer13_cfg.alpha if layer13_cfg else 0.15
             teams_combined["powerscore_ml"] = (
                 teams_combined["powerscore_adj"] + ml_alpha * teams_combined["ml_norm"]
             ).clip(0.0, 1.0)
 
-            # Re-apply anchor scaling to ML score
             teams_combined["powerscore_ml"] = (
                 teams_combined["powerscore_ml"] * teams_combined["anchor"] / anchor_ref
             ).clip(0.0, 1.0)
 
-        # Log updated PowerScore results
         powerscore_max = teams_combined.groupby(["age", "gender"])["powerscore_adj"].max().round(3)
         logger.info("  PowerScore max (per age/gender) after national SOS recalculation:")
         for (age, gender), ps_max in powerscore_max.items():
             logger.info(f"    {age} {gender}: max_powerscore_adj={ps_max:.3f}")
+    """
+
+    # Diagnostic: Log distribution stats for sos_norm and powerscore_adj per cohort
+    if not teams_combined.empty:
+        logger.info("📊 Distribution diagnostics per age/gender cohort:")
+        for (age, gender), cohort_df in teams_combined.groupby(['age', 'gender']):
+            if 'sos_norm' in cohort_df.columns:
+                sos_stats = cohort_df['sos_norm']
+                logger.info(f"    {age} {gender}: sos_norm min={sos_stats.min():.3f}, "
+                           f"max={sos_stats.max():.3f}, mean={sos_stats.mean():.3f}")
+            if 'powerscore_adj' in cohort_df.columns:
+                ps_stats = cohort_df['powerscore_adj']
+                logger.info(f"    {age} {gender}: powerscore_adj min={ps_stats.min():.3f}, "
+                           f"max={ps_stats.max():.3f}, mean={ps_stats.mean():.3f}")
 
     # Save one combined snapshot for all cohorts
     if not teams_combined.empty:

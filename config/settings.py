@@ -65,16 +65,18 @@ PROVIDERS = {
 }
 
 # Age Groups with metadata
+# NOTE: anchor_score values are aligned with v53e.py AGE_TO_ANCHOR mapping
+# These provide linear progression from U10 (0.40) to U18 (1.00)
 AGE_GROUPS = {
-    'u10': {'birth_year': 2016, 'anchor_score': 0.40},
-    'u11': {'birth_year': 2015, 'anchor_score': 0.44},
-    'u12': {'birth_year': 2014, 'anchor_score': 0.49},
-    'u13': {'birth_year': 2013, 'anchor_score': 0.55},
-    'u14': {'birth_year': 2012, 'anchor_score': 0.62},
-    'u15': {'birth_year': 2011, 'anchor_score': 0.70},
-    'u16': {'birth_year': 2010, 'anchor_score': 0.79},
-    'u17': {'birth_year': 2009, 'anchor_score': 0.89},
-    'u18': {'birth_year': 2008, 'anchor_score': 1.00}
+    'u10': {'birth_year': 2016, 'anchor_score': 0.400},
+    'u11': {'birth_year': 2015, 'anchor_score': 0.475},
+    'u12': {'birth_year': 2014, 'anchor_score': 0.550},
+    'u13': {'birth_year': 2013, 'anchor_score': 0.625},
+    'u14': {'birth_year': 2012, 'anchor_score': 0.700},
+    'u15': {'birth_year': 2011, 'anchor_score': 0.775},
+    'u16': {'birth_year': 2010, 'anchor_score': 0.850},
+    'u17': {'birth_year': 2009, 'anchor_score': 0.925},
+    'u18': {'birth_year': 2008, 'anchor_score': 1.000}
 }
 
 # Ranking Configuration (aligned with v53e V53EConfig)
@@ -105,7 +107,9 @@ RANKING_CONFIG = {
     'team_outlier_guard_zscore': float(os.getenv("TEAM_OUTLIER_GUARD_ZSCORE", 2.5)),  # V53EConfig.TEAM_OUTLIER_GUARD_ZSCORE
     
     # Layer 6 (Performance)
-    'performance_k': float(os.getenv("PERFORMANCE_K", 0.15)),  # V53EConfig.PERFORMANCE_K
+    'performance_k': float(os.getenv("PERFORMANCE_K", 0.15)),  # V53EConfig.PERFORMANCE_K (legacy, use perf_* instead)
+    'perf_game_scale': float(os.getenv("PERF_GAME_SCALE", 0.15)),  # V53EConfig.PERF_GAME_SCALE - scales per-game residual
+    'perf_blend_weight': float(os.getenv("PERF_BLEND_WEIGHT", 0.15)),  # V53EConfig.PERF_BLEND_WEIGHT - weight in powerscore
     'performance_decay_rate': float(os.getenv("PERFORMANCE_DECAY_RATE", 0.08)),  # V53EConfig.PERFORMANCE_DECAY_RATE
     'performance_threshold': float(os.getenv("PERFORMANCE_THRESHOLD", 2.0)),  # V53EConfig.PERFORMANCE_THRESHOLD
     'performance_goal_scale': float(os.getenv("PERFORMANCE_GOAL_SCALE", 5.0)),  # V53EConfig.PERFORMANCE_GOAL_SCALE
