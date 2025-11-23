@@ -7,8 +7,9 @@ import type { RankingRow } from '@/types/RankingRow';
  * Hook to fetch all teams for search functionality
  * Returns all teams from the teams table (not just ranked teams)
  * Transforms to RankingRow format with default/null values for ranking fields
- * 
+ *
  * Uses pagination to fetch all teams (handles >1000 teams by fetching in batches)
+ * Updated: 2024-11-23
  */
 export function useTeamSearch() {
   return useQuery<RankingRow[]>({
