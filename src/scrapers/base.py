@@ -82,22 +82,47 @@ class BaseScraper(BaseProvider, ETLPipeline):
                 # Get full team records for these teams
                 team_ids = [row['team_id'] for row in result.data]
                 if team_ids:
-                    teams_result = self.db.table('teams').select('*').in_(
-                        'team_id_master', team_ids
-                    ).eq('provider_id', provider_id).execute()
-                    return teams_result.data
+                    # Batch fetch to handle >1000 teams and URL length limits
+                    # Each UUID is ~36 chars, so batch size of 100 keeps URLs manageable
+                    all_teams = []
+                    batch_size = 100
+                    for i in range(0, len(team_ids), batch_size):
+                        batch_ids = team_ids[i:i + batch_size]
+                        teams_result = self.db.table('teams').select('*').in_(
+                            'team_id_master', batch_ids
+                        ).eq('provider_id', provider_id).execute()
+                        if teams_result.data:
+                            all_teams.extend(teams_result.data)
+                    return all_teams
             return []
         except Exception as e:
             logger.warning(f"Could not use get_teams_to_scrape function: {e}")
-            # Fallback: get teams not scraped in last 7 days
+            # Fallback: get teams not scraped in last 7 days with pagination
             from datetime import datetime, timedelta
             cutoff_date = (datetime.now() - timedelta(days=7)).isoformat()
-            result = self.db.table('teams').select('*').eq(
-                'provider_id', self._get_provider_id()
-            ).or_(
-                'last_scraped_at.is.null,last_scraped_at.lt.' + cutoff_date
-            ).execute()
-            return result.data
+
+            all_teams = []
+            page_size = 1000
+            offset = 0
+
+            while True:
+                result = self.db.table('teams').select('*').eq(
+                    'provider_id', self._get_provider_id()
+                ).or_(
+                    'last_scraped_at.is.null,last_scraped_at.lt.' + cutoff_date
+                ).range(offset, offset + page_size - 1).execute()
+
+                if not result.data:
+                    break
+
+                all_teams.extend(result.data)
+
+                if len(result.data) < page_size:
+                    break
+
+                offset += page_size
+
+            return all_teams
         
     def _get_last_scrape_date(self, team_id: str) -> Optional[datetime]:
         """Get last successful scrape date for team"""
