@@ -41,10 +41,15 @@ export function useTeamSearch() {
         const transformedBatch = data.map(team => {
           // Convert gender from database format ('Male'|'Female') to API format ('M'|'F')
           const genderCode = team.gender === 'Male' ? 'M' : team.gender === 'Female' ? 'F' : 'M' as 'M' | 'F' | 'B' | 'G';
-          
+
+          // Create searchable name that includes both full years (2015) and short years (15)
+          // This allows "rsl north chacon 15" to match "rsl north chacon 2015"
+          const searchable_name = team.team_name.replace(/20(\d{2})\b/g, '20$1 $1');
+
           return {
             team_id_master: team.team_id_master,
             team_name: team.team_name,
+            searchable_name,
             club_name: team.club_name,
             state: team.state_code, // Map state_code to state
             age: normalizeAgeGroup(team.age_group) ?? 0, // Convert age_group to integer age
