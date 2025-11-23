@@ -1,11 +1,10 @@
-name: Automatic Scrape Games
+name: Automatic Scrape Games (Part 1)
 
 on:
   schedule:
     # Run every Monday at 12:01 AM UTC
     - cron: '1 0 * * 1'
   workflow_dispatch:
-    # Allow manual triggers with same defaults
     inputs:
       concurrency:
         description: 'Number of concurrent scrapes'
@@ -14,7 +13,7 @@ on:
         default: '30'
 
 jobs:
-  scrape-all-teams:
+  scrape-teams-part-1:
     runs-on: ubuntu-latest
     timeout-minutes: 360  # 6 hour timeout (GitHub Actions maximum)
 
@@ -31,7 +30,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          # Additional dependencies for scraping
           pip install beautifulsoup4 lxml openpyxl pyarrow
 
       - name: Create directories
@@ -40,7 +38,7 @@ jobs:
           mkdir -p data/raw
           mkdir -p data/cache
 
-      - name: Run Scrape and Import (All Teams)
+      - name: Run Scrape and Import (Teams 1-29000)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -49,13 +47,13 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: |
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
-          python scripts/scrape_games.py --provider gotsport --auto-import --concurrency ${{ inputs.concurrency || '30' }}
+          python scripts/scrape_games.py --provider gotsport --auto-import --limit-teams 29000 --concurrency ${{ inputs.concurrency || '30' }}
 
       - name: Upload scraped data
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: scraped-games-${{ github.run_number }}
+          name: scraped-games-part1-${{ github.run_number }}
           path: data/raw/scraped_games_*.jsonl
           retention-days: 7
           if-no-files-found: ignore
@@ -64,9 +62,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: scrape-logs-${{ github.run_number }}
-          path: |
-            logs/*.log
+          name: scrape-logs-part1-${{ github.run_number }}
+          path: logs/*.log
           retention-days: 30
           if-no-files-found: ignore
 
@@ -74,9 +71,7 @@ jobs:
         if: always()
         run: |
           echo "===================="
-          echo "Automatic scrape completed"
+          echo "Automatic scrape Part 1 completed"
           echo "===================="
-          echo "Schedule: Every Monday at 12:01 AM UTC"
-          echo "Mode: All eligible teams (not scraped in last 7 days)"
+          echo "Teams: 1 - 29000"
           echo "Concurrency: ${{ inputs.concurrency || '30' }}"
-          echo "Check artifacts for scraped data and logs"
