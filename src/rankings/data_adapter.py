@@ -543,9 +543,9 @@ def v53e_to_rankings_full_format(
         teams_metadata_df['team_id_master'] = teams_metadata_df['team_id_master'].astype(str)
 
         # Determine which metadata columns to merge (skip if already present in rankings_df)
+        # NOTE: Never merge age_group from metadata - always derive from actual 'age' field
+        # to ensure rankings match the age group of games played, not team registration
         merge_cols = ['team_id_master']
-        if 'age_group' not in rankings_df.columns and 'age_group' in teams_metadata_df.columns:
-            merge_cols.append('age_group')
         if 'state_code' not in rankings_df.columns and 'state_code' in teams_metadata_df.columns:
             merge_cols.append('state_code')
 
@@ -559,9 +559,10 @@ def v53e_to_rankings_full_format(
             # Drop duplicate column if it exists
             if 'team_id_master' in rankings_df.columns and 'team_id' in rankings_df.columns:
                 rankings_df = rankings_df.drop(columns=['team_id_master'])
-    
-    # Map age_group from age if not present
-    if 'age_group' not in rankings_df.columns and 'age' in rankings_df.columns:
+
+    # ALWAYS derive age_group from the actual 'age' field used in ranking calculation
+    # This ensures teams are ranked in the age group they actually played in, not their registration
+    if 'age' in rankings_df.columns:
         rankings_df['age_group'] = rankings_df['age'].apply(lambda x: f"u{int(float(x))}" if pd.notna(x) and str(x).strip() else None)
     
     # Normalize gender to match database format (Male/Female)
