@@ -16,7 +16,7 @@ on:
 jobs:
   scrape-all-teams:
     runs-on: ubuntu-latest
-    timeout-minutes: 180  # 3 hour timeout for full scrape
+    timeout-minutes: 360  # 6 hour timeout (GitHub Actions maximum)
 
     steps:
       - name: Checkout repository
