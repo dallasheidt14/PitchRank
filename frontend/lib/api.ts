@@ -217,8 +217,11 @@ export const api = {
       losses: finalLosses,
       draws: finalDraws,
       win_percentage: finalWinPercentage,
-      // Total games from games table
+      // Total games and record from games table
       total_games_played: totalGamesCount,
+      total_wins: calculatedWins,
+      total_losses: calculatedLosses,
+      total_draws: calculatedDraws,
     };
 
     return teamWithRanking;

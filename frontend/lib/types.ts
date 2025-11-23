@@ -116,6 +116,9 @@ export interface TeamWithRanking {
   draws: number;
   games_played: number; // Games used for rankings calculation (last 30)
   total_games_played?: number; // Total games in history (all games)
+  total_wins?: number; // Total wins from all games
+  total_losses?: number; // Total losses from all games
+  total_draws?: number; // Total draws from all games
   win_percentage: number | null; // backend should calculate
   // Deprecated fields (do not use)
   /** @deprecated Use state instead */
