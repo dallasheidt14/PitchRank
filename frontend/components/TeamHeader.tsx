@@ -191,7 +191,7 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
 
           {teamRanking && (
             <div className="pt-4 border-t">
-              <div className="grid grid-cols-3 gap-4 text-sm">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
                 <div>
                   <span className="text-muted-foreground">Record: </span>
                   <span className="font-medium">
@@ -213,6 +213,27 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                       <p>Strength of Schedule normalized within each age group and gender (0 = softest schedule, 100 = toughest).</p>
                     </TooltipContent>
                   </Tooltip>
+                </div>
+                <div>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <span className="text-muted-foreground">SOS Rank: </span>
+                        <span className="font-medium">
+                          {teamRanking.sos_rank_state ? `#${teamRanking.sos_rank_state} ${team.state || ''}` : '—'}
+                        </span>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Strength of Schedule rank within state for this age group and gender.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">National SOS: </span>
+                  <span className="font-medium">
+                    {teamRanking.sos_rank_national ? `#${teamRanking.sos_rank_national}` : '—'}
+                  </span>
                 </div>
               </div>
             </div>
