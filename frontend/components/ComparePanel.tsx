@@ -1,6 +1,4 @@
-'use client';
-
-import { useState, useMemo, memo } from 'react';
+import { useState, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CardSkeleton, ChartSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
@@ -10,57 +8,11 @@ import { Badge } from '@/components/ui/badge';
 import { TeamSelector } from './TeamSelector';
 import { PredictedMatchCard } from './PredictedMatchCard';
 import { EnhancedPredictionCard } from './EnhancedPredictionCard';
-import { useTeam, useRankings, useCommonOpponents, usePredictive, useMatchPrediction } from '@/lib/hooks';
+import { useTeam, useCommonOpponents, usePredictive, useMatchPrediction } from '@/lib/hooks';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
-import { ArrowLeftRight, TrendingUp, TrendingDown } from 'lucide-react';
+import { ArrowLeftRight } from 'lucide-react';
 import { formatPowerScore } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
-
-/**
- * Calculate percentile for a value in a distribution
- */
-function calculatePercentile(value: number, allValues: number[]): number {
-  if (allValues.length === 0) return 0;
-  const sorted = [...allValues].sort((a, b) => a - b);
-  const below = sorted.filter(v => v < value).length;
-  return Math.round((below / sorted.length) * 100);
-}
-
-/**
- * Get percentile label
- */
-function getPercentileLabel(percentile: number): string {
-  if (percentile >= 97) return 'Top 3%';
-  if (percentile >= 95) return 'Top 5%';
-  if (percentile >= 90) return 'Top 10%';
-  if (percentile >= 75) return 'Top 25%';
-  if (percentile >= 50) return 'Top 50%';
-  return `Bottom ${100 - percentile}%`;
-}
-
-/**
- * PercentileBar component - visual representation of percentile
- * Memoized to prevent unnecessary re-renders
- */
-const PercentileBar = memo(({ value, maxValue, percentile }: { value: number; maxValue: number; percentile: number }) => {
-  const percentage = (value / maxValue) * 100;
-  return (
-    <div className="space-y-1">
-      <div className="flex justify-between text-xs">
-        <span className="text-muted-foreground">{value.toFixed(1)}</span>
-        <Badge variant="outline" className="text-xs">
-          {getPercentileLabel(percentile)}
-        </Badge>
-      </div>
-      <div className="w-full bg-muted rounded-full h-2">
-        <div
-          className="bg-primary h-2 rounded-full transition-all duration-300"
-          style={{ width: `${percentage}%` }}
-        />
-      </div>
-    </div>
-  );
-});
 
 /**
  * ComparePanel component - enhanced team comparison with all features
@@ -82,51 +34,6 @@ export function ComparePanel() {
 
   // Fetch enhanced match prediction with explanations
   const { data: matchPrediction, isLoading: predictionLoading } = useMatchPrediction(team1Id, team2Id);
-  
-  // Get rankings for percentile calculation
-  const { data: allRankings, isLoading: rankingsLoading, isError: rankingsError, error: rankingsErrorObj, refetch: refetchRankings } = useRankings(
-    team1Details?.state || undefined,
-    team1Details?.age != null ? `u${team1Details.age}` : undefined,
-    team1Details?.gender
-  );
-
-  // Calculate percentiles for all metrics
-  const percentiles = useMemo(() => {
-    if (!team1Details || !team2Details || !allRankings || allRankings.length === 0) {
-      return {
-        team1: { powerScore: 0, winPercentage: 0, gamesPlayed: 0 },
-        team2: { powerScore: 0, winPercentage: 0, gamesPlayed: 0 },
-      };
-    }
-
-    const powerScores = allRankings.map(r => r.power_score_final);
-    const winPercentages = allRankings.map(r => r.win_percentage ?? 0).filter(v => v > 0);
-    const gamesPlayed = allRankings.map(r => r.games_played);
-
-    return {
-      team1: {
-        powerScore: calculatePercentile(team1Details.power_score_final ?? 0, powerScores),
-        winPercentage: team1Details.win_percentage
-          ? calculatePercentile(team1Details.win_percentage, winPercentages)
-          : 0,
-        gamesPlayed: calculatePercentile(team1Details.games_played, gamesPlayed),
-      },
-      team2: {
-        powerScore: calculatePercentile(team2Details.power_score_final ?? 0, powerScores),
-        winPercentage: team2Details.win_percentage
-          ? calculatePercentile(team2Details.win_percentage, winPercentages)
-          : 0,
-        gamesPlayed: calculatePercentile(team2Details.games_played, gamesPlayed),
-      },
-    };
-  }, [team1Details, team2Details, allRankings]);
-
-  const maxPowerScore = useMemo(() => {
-    return Math.max(
-      team1Details?.power_score_final ?? 0,
-      team2Details?.power_score_final ?? 0
-    );
-  }, [team1Details, team2Details]);
 
   const handleTeam1Change = (id: string | null, team: RankingRow | null) => {
     setTeam1Id(id);
@@ -171,12 +78,15 @@ export function ComparePanel() {
   ] : [];
 
   // Show loading state when teams are being fetched
-  const isLoadingData = (team1Id && (team1Loading || team2Loading)) ||
-                        (team1Id && team2Id && (opponentsLoading || rankingsLoading));
+  const isLoadingTeam1 = team1Id && team1Loading;
+  const isLoadingTeam2 = team2Id && team2Loading;
+  const isLoadingData = isLoadingTeam1 || isLoadingTeam2 || (team1Id && team2Id && opponentsLoading);
 
   // Check for errors
-  const hasErrors = (team1Id && (team1Error || team2Error)) ||
-                    (team1Id && team2Id && (opponentsError || rankingsError));
+  const hasErrors = (team1Id && team1Error) || (team2Id && team2Error) || (team1Id && team2Id && opponentsError);
+
+  // Check if we have partial selection (one team selected, waiting for the other)
+  const hasPartialSelection = (team1Id && !team2Id) || (!team1Id && team2Id);
 
   return (
     <Card className="border-l-4 border-l-accent">
@@ -235,9 +145,6 @@ export function ComparePanel() {
               {team1Id && team2Id && opponentsError && (
                 <ErrorDisplay error={opponentsErrorObj} retry={refetchOpponents} compact />
               )}
-              {team1Id && team2Id && rankingsError && (
-                <ErrorDisplay error={rankingsErrorObj} retry={refetchRankings} compact />
-              )}
             </div>
           )}
 
@@ -290,12 +197,30 @@ export function ComparePanel() {
                         </td>
                       </tr>
                       <tr>
-                        <td className="py-3 px-3 sm:px-4 text-xs sm:text-sm text-muted-foreground whitespace-nowrap">SOS</td>
+                        <td className="py-3 px-3 sm:px-4 text-xs sm:text-sm text-muted-foreground whitespace-nowrap">SOS Rank</td>
                         <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
-                          {team1Details.sos_norm !== null ? team1Details.sos_norm.toFixed(3) : '—'}
+                          {team1Details.sos_rank_state || team1Details.sos_rank_national ? (
+                            <div className="flex flex-col gap-0.5">
+                              {team1Details.sos_rank_state && (
+                                <span>#{team1Details.sos_rank_state} {team1Details.state || ''}</span>
+                              )}
+                              {team1Details.sos_rank_national && (
+                                <span className="text-xs text-muted-foreground">#{team1Details.sos_rank_national} Nat'l</span>
+                              )}
+                            </div>
+                          ) : '—'}
                         </td>
                         <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
-                          {team2Details.sos_norm !== null ? team2Details.sos_norm.toFixed(3) : '—'}
+                          {team2Details.sos_rank_state || team2Details.sos_rank_national ? (
+                            <div className="flex flex-col gap-0.5">
+                              {team2Details.sos_rank_state && (
+                                <span>#{team2Details.sos_rank_state} {team2Details.state || ''}</span>
+                              )}
+                              {team2Details.sos_rank_national && (
+                                <span className="text-xs text-muted-foreground">#{team2Details.sos_rank_national} Nat'l</span>
+                              )}
+                            </div>
+                          ) : '—'}
                         </td>
                       </tr>
                       <tr>
@@ -328,16 +253,20 @@ export function ComparePanel() {
                       <tr>
                         <td className="py-3 px-3 sm:px-4 text-xs sm:text-sm text-muted-foreground">Record</td>
                         <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
-                          {team1Details.wins}-{team1Details.losses}{team1Details.draws > 0 && `-${team1Details.draws}`}
+                          {team1Details.total_wins ?? 0}-{team1Details.total_losses ?? 0}{(team1Details.total_draws ?? 0) > 0 && `-${team1Details.total_draws}`}
                         </td>
                         <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
-                          {team2Details.wins}-{team2Details.losses}{team2Details.draws > 0 && `-${team2Details.draws}`}
+                          {team2Details.total_wins ?? 0}-{team2Details.total_losses ?? 0}{(team2Details.total_draws ?? 0) > 0 && `-${team2Details.total_draws}`}
                         </td>
                       </tr>
                       <tr>
                         <td className="py-3 px-3 sm:px-4 text-xs sm:text-sm text-muted-foreground">Games</td>
-                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">{team1Details.games_played}</td>
-                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">{team2Details.games_played}</td>
+                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
+                          {team1Details.games_played}/{team1Details.total_games_played ?? 0}
+                        </td>
+                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
+                          {team2Details.games_played}/{team2Details.total_games_played ?? 0}
+                        </td>
                       </tr>
                     </tbody>
                   </table>
@@ -481,9 +410,20 @@ export function ComparePanel() {
             </>
           )}
 
-          {(!team1Details || !team2Details) && !isLoadingData && (
+          {(!team1Details || !team2Details) && !isLoadingData && !hasErrors && (
             <div className="text-center py-8 text-muted-foreground">
-              <p>Select two teams to compare their statistics</p>
+              {hasPartialSelection ? (
+                <>
+                  <p className="font-medium">
+                    {team1Id ? `${team1Data?.team_name || 'Team 1'} selected` : `${team2Data?.team_name || 'Team 2'} selected`}
+                  </p>
+                  <p className="text-sm mt-1">
+                    Select {team1Id ? 'Team 2' : 'Team 1'} to see the comparison
+                  </p>
+                </>
+              ) : (
+                <p>Select two teams to compare their statistics</p>
+              )}
             </div>
           )}
         </div>

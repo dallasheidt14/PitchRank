@@ -10,7 +10,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useMemo, useState, useEffect } from 'react';
 import { Star } from 'lucide-react';
 import { addToWatchlist, removeFromWatchlist, isWatched } from '@/lib/watchlist';
-import { formatPowerScore, formatSOSIndex } from '@/lib/utils';
+import { formatPowerScore } from '@/lib/utils';
 import { ShareButtons } from '@/components/ShareButtons';
 import { TeamSchema } from '@/components/TeamSchema';
 
@@ -167,10 +167,19 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
               </div>
             </div>
             <div>
-              <div className="text-xs sm:text-sm text-muted-foreground mb-1">Games Played</div>
-              <div className="text-xl sm:text-2xl font-semibold">
-                {teamRanking?.total_games_played ?? teamRanking?.games_played ?? 0}
-              </div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <div className="text-xs sm:text-sm text-muted-foreground mb-1">Games Played</div>
+                    <div className="text-xl sm:text-2xl font-semibold">
+                      {teamRanking?.games_played ?? 0}/{teamRanking?.total_games_played ?? 0}
+                    </div>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Ranked games (used in rankings) / Total games played</p>
+                </TooltipContent>
+              </Tooltip>
             </div>
             <div>
               <div className="text-xs sm:text-sm text-muted-foreground mb-1">Win %</div>
@@ -186,24 +195,30 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                 <div>
                   <span className="text-muted-foreground">Record: </span>
                   <span className="font-medium">
-                    {teamRanking.wins ?? 0}-{teamRanking.losses ?? 0}
-                    {(teamRanking.draws ?? 0) > 0 && `-${teamRanking.draws}`}
+                    {teamRanking.total_wins ?? 0}-{teamRanking.total_losses ?? 0}
+                    {(teamRanking.total_draws ?? 0) > 0 && `-${teamRanking.total_draws}`}
                   </span>
                 </div>
                 <div>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span>
-                        <span className="text-muted-foreground">SOS Index: </span>
+                        <span className="text-muted-foreground">SOS Rank: </span>
                         <span className="font-medium">
-                          {formatSOSIndex(teamRanking.sos_norm)}
+                          {teamRanking.sos_rank_state ? `#${teamRanking.sos_rank_state} ${team.state || ''}` : '—'}
                         </span>
                       </span>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>Strength of Schedule normalized within each age group and gender (0 = softest schedule, 100 = toughest).</p>
+                      <p>Strength of Schedule rank within state for this age group and gender.</p>
                     </TooltipContent>
                   </Tooltip>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">National SOS: </span>
+                  <span className="font-medium">
+                    {teamRanking.sos_rank_national ? `#${teamRanking.sos_rank_national}` : '—'}
+                  </span>
                 </div>
               </div>
             </div>
