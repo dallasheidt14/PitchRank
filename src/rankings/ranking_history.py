@@ -44,10 +44,17 @@ async def save_ranking_snapshot(
     # Prepare data for insertion
     snapshot_records = []
     for _, row in rankings_df.iterrows():
+        # Always derive age_group from 'age' field to match ranking calculation
+        age_val = row.get("age")
+        if pd.notna(age_val):
+            age_group = f"u{int(float(age_val))}"
+        else:
+            age_group = str(row.get("age_group", ""))
+
         record = {
             "snapshot_date": snapshot_date.isoformat(),
             "team_id": str(row.get("team_id")),
-            "age_group": str(row.get("age_group") or row.get("age", "")),
+            "age_group": age_group,
             "gender": str(row.get("gender", "")),
             "rank_in_cohort": int(row.get("rank_in_cohort")) if pd.notna(row.get("rank_in_cohort")) else None,
             "rank_in_cohort_ml": int(row.get("rank_in_cohort_ml")) if pd.notna(row.get("rank_in_cohort_ml")) else None,
