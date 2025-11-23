@@ -452,33 +452,6 @@ async def compute_all_cohorts(
     teams_combined = pd.concat(all_teams, ignore_index=True) if all_teams else pd.DataFrame()
     games_used_combined = pd.concat(all_games_used, ignore_index=True) if all_games_used else pd.DataFrame()
 
-    # ========== Global Anchor Scaling ==========
-    # Apply anchor-based PowerScore scaling using global max anchor per gender
-    # This ensures U12 teams are capped lower than U18 teams
-    if not teams_combined.empty and 'anchor' in teams_combined.columns:
-        logger.info("⚖️ Applying global anchor scaling across all cohorts...")
-
-        # Use max anchor per gender as reference (U18/U19 = 1.0)
-        anchor_ref = teams_combined.groupby("gender")["anchor"].transform("max")
-        # Avoid divide-by-zero: replace 0 with 1.0 (safe fallback)
-        anchor_ref = anchor_ref.replace(0, 1.0).fillna(1.0)
-
-        teams_combined["powerscore_adj"] = (
-            teams_combined["powerscore_adj"] * teams_combined["anchor"] / anchor_ref
-        ).clip(0.0, 1.0)
-
-        # Also scale powerscore_ml if it exists
-        if 'powerscore_ml' in teams_combined.columns:
-            teams_combined["powerscore_ml"] = (
-                teams_combined["powerscore_ml"] * teams_combined["anchor"] / anchor_ref
-            ).clip(0.0, 1.0)
-
-        # Log scaling results
-        powerscore_max = teams_combined.groupby(["age", "gender"])["powerscore_adj"].max().round(3)
-        logger.info("  PowerScore max (per age/gender) after global anchor scaling:")
-        for (age, gender), ps_max in powerscore_max.items():
-            logger.info(f"    {age} {gender}: max_powerscore_adj={ps_max:.3f}")
-
     # ========== PASS 3: National/State SOS Normalization ==========
     # After all cohorts are combined, compute national and state-level SOS rankings
     if not teams_combined.empty and 'sos' in teams_combined.columns:
@@ -573,6 +546,54 @@ async def compute_all_cohorts(
         state_counts = teams_combined['state_code'].value_counts()
         top_states = state_counts.head(5).to_dict()
         logger.info(f"📍 Top states by team count: {top_states}")
+
+    # ========== Recompute PowerScore with National SOS ==========
+    # Use sos_norm_national instead of cohort-level sos_norm for better national accuracy
+    if not teams_combined.empty and 'sos_norm_national' in teams_combined.columns:
+        logger.info("🔄 Recomputing PowerScore with national SOS normalization...")
+
+        # Get config weights (use defaults if not provided)
+        cfg = v53_cfg or V53EConfig()
+
+        # Recompute powerscore_core using sos_norm_national
+        teams_combined["powerscore_core"] = (
+            cfg.OFF_WEIGHT * teams_combined["off_norm"]
+            + cfg.DEF_WEIGHT * teams_combined["def_norm"]
+            + cfg.SOS_WEIGHT * teams_combined["sos_norm_national"]
+            + teams_combined["perf_centered"] * cfg.PERFORMANCE_K
+        )
+
+        # Re-apply provisional multiplier
+        teams_combined["powerscore_adj"] = (
+            teams_combined["powerscore_core"] * teams_combined["provisional_mult"]
+        )
+
+        # Re-apply global anchor scaling
+        anchor_ref = teams_combined.groupby("gender")["anchor"].transform("max")
+        anchor_ref = anchor_ref.replace(0, 1.0).fillna(1.0)
+
+        teams_combined["powerscore_adj"] = (
+            teams_combined["powerscore_adj"] * teams_combined["anchor"] / anchor_ref
+        ).clip(0.0, 1.0)
+
+        # Also update powerscore_ml if it exists
+        if 'powerscore_ml' in teams_combined.columns and 'ml_norm' in teams_combined.columns:
+            # Use layer13 alpha (default 0.15) for ML adjustment
+            ml_alpha = layer13_cfg.alpha if layer13_cfg else 0.15
+            teams_combined["powerscore_ml"] = (
+                teams_combined["powerscore_adj"] + ml_alpha * teams_combined["ml_norm"]
+            ).clip(0.0, 1.0)
+
+            # Re-apply anchor scaling to ML score
+            teams_combined["powerscore_ml"] = (
+                teams_combined["powerscore_ml"] * teams_combined["anchor"] / anchor_ref
+            ).clip(0.0, 1.0)
+
+        # Log updated PowerScore results
+        powerscore_max = teams_combined.groupby(["age", "gender"])["powerscore_adj"].max().round(3)
+        logger.info("  PowerScore max (per age/gender) after national SOS recalculation:")
+        for (age, gender), ps_max in powerscore_max.items():
+            logger.info(f"    {age} {gender}: max_powerscore_adj={ps_max:.3f}")
 
     # Save one combined snapshot for all cohorts
     if not teams_combined.empty:
