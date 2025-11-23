@@ -64,7 +64,7 @@ export function GlobalSearch() {
 
     return new FuseClass(allTeams, {
       keys: [
-        { name: 'team_name', weight: 0.6 },
+        { name: 'searchable_name', weight: 0.6 }, // Includes year variations (2015 → 2015 15)
         { name: 'club_name', weight: 0.3 },
         { name: 'state', weight: 0.1 },
       ],
