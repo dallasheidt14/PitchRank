@@ -46,21 +46,8 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   const { data: rankings, isLoading, isError, error, refetch } = useRankings(region, ageGroup, gender);
   const prefetchTeam = usePrefetchTeam();
 
-  // Optimized SOS Rank calculation per cohort
-  const sortedBySOS = useMemo(() => {
-    if (!rankings) return [];
-    return [...rankings]
-      .filter(t => typeof t.sos_norm === "number")
-      .sort((a, b) => (b.sos_norm ?? 0) - (a.sos_norm ?? 0));
-  }, [rankings]);
-
-  const sosRanks = useMemo(() => {
-    const map: Record<string, number> = {};
-    sortedBySOS.forEach((t, i) => {
-      map[t.team_id_master] = i + 1;
-    });
-    return map;
-  }, [sortedBySOS]);
+  // Use pre-calculated SOS ranks from database
+  // sos_rank_national for national view, sos_rank_state for state view
 
   // Sort rankings based on selected field
   const sortedRankings = useMemo(() => {
@@ -99,8 +86,13 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
           bValue = b.sos_norm ?? 0;
           break;
         case 'sosRank':
-          aValue = sosRanks[a.team_id_master] ?? Infinity;
-          bValue = sosRanks[b.team_id_master] ?? Infinity;
+          // Use pre-calculated SOS rank from database
+          aValue = region
+            ? (a.sos_rank_state ?? Infinity)
+            : (a.sos_rank_national ?? Infinity);
+          bValue = region
+            ? (b.sos_rank_state ?? Infinity)
+            : (b.sos_rank_national ?? Infinity);
           break;
         default:
           return 0;
@@ -118,7 +110,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     });
 
     return sorted;
-  }, [rankings, sortField, sortDirection, region, sosRanks]);
+  }, [rankings, sortField, sortDirection, region]);
 
   // Virtualizer for rendering only visible rows
   const virtualizer = useVirtualizer({
@@ -407,11 +399,12 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                             {team.win_percentage != null ? `${team.win_percentage.toFixed(1)}%` : '—'}
                           </div>
                           <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm">
-                            {team.total_games_played}
+                            {team.games_played}/{team.total_games_played}
                           </div>
                           <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm">
                             {(() => {
-                              const sosRank = sosRanks[team.team_id_master];
+                              // Use pre-calculated SOS rank from database
+                              const sosRank = region ? team.sos_rank_state : team.sos_rank_national;
                               return sosRank ? `#${sosRank}` : '—';
                             })()}
                           </div>

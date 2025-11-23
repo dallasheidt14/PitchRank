@@ -19,6 +19,9 @@ export interface RankingRow {
   // Ranks (backend contract)
   rank_in_cohort_final: number; // National rank within age/gender cohort
   rank_in_state_final?: number; // State rank - ONLY in state_rankings_view
+  // SOS Ranks (pre-calculated in rankings engine)
+  sos_rank_national?: number; // SOS rank within (age, gender) cohort nationally
+  sos_rank_state?: number; // SOS rank within (age, gender, state)
   // Record (capped at 30 games for rankings algorithm)
   wins: number;
   losses: number;
