@@ -10,7 +10,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useMemo, useState, useEffect } from 'react';
 import { Star } from 'lucide-react';
 import { addToWatchlist, removeFromWatchlist, isWatched } from '@/lib/watchlist';
-import { formatPowerScore, formatSOSIndex } from '@/lib/utils';
+import { formatPowerScore } from '@/lib/utils';
 import { ShareButtons } from '@/components/ShareButtons';
 import { TeamSchema } from '@/components/TeamSchema';
 
@@ -191,28 +191,13 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
 
           {teamRanking && (
             <div className="pt-4 border-t">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+              <div className="grid grid-cols-3 gap-4 text-sm">
                 <div>
                   <span className="text-muted-foreground">Record: </span>
                   <span className="font-medium">
                     {teamRanking.total_wins ?? 0}-{teamRanking.total_losses ?? 0}
                     {(teamRanking.total_draws ?? 0) > 0 && `-${teamRanking.total_draws}`}
                   </span>
-                </div>
-                <div>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <span className="text-muted-foreground">SOS Index: </span>
-                        <span className="font-medium">
-                          {formatSOSIndex(teamRanking.sos_norm)}
-                        </span>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Strength of Schedule normalized within each age group and gender (0 = softest schedule, 100 = toughest).</p>
-                    </TooltipContent>
-                  </Tooltip>
                 </div>
                 <div>
                   <Tooltip>
