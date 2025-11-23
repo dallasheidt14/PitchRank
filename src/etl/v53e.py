@@ -41,7 +41,9 @@ class V53EConfig:
     TEAM_OUTLIER_GUARD_ZSCORE: float = 2.5  # clip aggregated OFF/DEF extremes
 
     # Layer 6 (Performance)
-    PERFORMANCE_K: float = 0.15
+    PERFORMANCE_K: float = 0.15  # Legacy: kept for backward compatibility, use PERF_* instead
+    PERF_GAME_SCALE: float = 0.15  # Scales per-game performance residual
+    PERF_BLEND_WEIGHT: float = 0.15  # Weight of perf_centered in final powerscore
     PERFORMANCE_DECAY_RATE: float = 0.08   # decay per recency index step
     PERFORMANCE_THRESHOLD: float = 2.0     # goals
     PERFORMANCE_GOAL_SCALE: float = 5.0    # goals per 1.0 power diff
@@ -119,31 +121,33 @@ def _clip_outliers_series(s: pd.Series, z: float) -> pd.Series:
 def _recency_weights(n: int, k: int, recent_share: float,
                      tail_start: int, tail_end: int,
                      w_start: float, w_end: float) -> List[float]:
+    """
+    Compute recency weights using exponential decay.
+
+    For games ranked 1..n in recency (1 = most recent), assigns weight exp(-decay_rate * (rank - 1)).
+    Normalizes weights so they sum to 1.0.
+
+    Note: k, recent_share, tail_start, tail_end, w_start, w_end are kept in signature
+    for backward compatibility but are no longer used. Exponential decay provides
+    smoother, more intuitive weighting where each game's weight depends only on its
+    recency, not on how many other games exist.
+    """
     if n <= 0:
         return []
-    r = min(k, n)
-    o = n - r
-    w_recent = [1.0] * r
-    w_old = [1.0] * o
 
-    # linear tail dampening for very old games
-    for i in range(o):
-        global_pos = r + i + 1
-        if tail_start <= global_pos <= tail_end and tail_end > tail_start:
-            t = (global_pos - tail_start) / (tail_end - tail_start)
-            w_old[i] *= (w_start + (w_end - w_start) * t)
+    # Exponential decay: more recent games get higher weight
+    # decay_rate controls how quickly weight drops off (0.05 = gentle decay)
+    decay_rate = 0.05
 
-    # block normalize
-    if r > 0:
-        s = sum(w_recent)
-        if s > 0:
-            w_recent = [w * (recent_share / s) for w in w_recent]
-    if o > 0:
-        s = sum(w_old)
-        if s > 0:
-            w_old = [w * ((1 - recent_share) / s) for w in w_old]
+    # Compute raw exponential weights for each position (1 = most recent)
+    weights = [np.exp(-decay_rate * i) for i in range(n)]
 
-    return w_recent + w_old
+    # Normalize to sum to 1.0
+    total = sum(weights)
+    if total > 0:
+        weights = [w / total for w in weights]
+
+    return weights
 
 
 def _percentile_norm(x: pd.Series) -> pd.Series:
@@ -417,11 +421,11 @@ def compute_rankings(
     # -------------------------
     # Pre-SOS power & anchors (national unification)
     # -------------------------
-    team["sos_presos"] = 0.5
+    # power_presos uses only OFF/DEF (50% each) to avoid circular dependency with SOS.
+    # This provides a stable base strength for opponent adjustment and cross-age SOS lookups.
     team["power_presos"] = (
-        cfg.OFF_WEIGHT * team["off_norm"]
-        + cfg.DEF_WEIGHT * team["def_norm"]
-        + cfg.SOS_WEIGHT * team["sos_presos"]
+        0.5 * team["off_norm"]
+        + 0.5 * team["def_norm"]
     )
 
     # Static age → anchor mapping for U10–U18
@@ -538,11 +542,10 @@ def compute_rankings(
         team = _normalize_by_cohort(team, "off_shrunk", "off_norm", cfg.NORM_MODE)
         team = _normalize_by_cohort(team, "def_shrunk", "def_norm", cfg.NORM_MODE)
 
-        # Recalculate power_presos with adjusted OFF/DEF
+        # Recalculate power_presos with adjusted OFF/DEF (50% each, no SOS to avoid circularity)
         team["power_presos"] = (
-            cfg.OFF_WEIGHT * team["off_norm"]
-            + cfg.DEF_WEIGHT * team["def_norm"]
-            + cfg.SOS_WEIGHT * team["sos_presos"]
+            0.5 * team["off_norm"]
+            + 0.5 * team["def_norm"]
         )
 
         # Update strength_map and power_map with adjusted power
@@ -728,23 +731,31 @@ def compute_rankings(
     # Normalize SOS within cohort
     team = _normalize_by_cohort(team, "sos", "sos_norm", cfg.NORM_MODE)
 
-    # Low sample flagging: cap sos_norm for teams with insufficient games
+    # Low sample handling: smooth shrink toward 0.5 for teams with insufficient games
+    # This prevents teams with few games from having extreme SOS values (high or low)
+    # while avoiding hard caps that create discontinuities.
     team["sample_flag"] = np.where(
         team["gp"] < cfg.MIN_GAMES_FOR_TOP_SOS,
         "LOW_SAMPLE",
         "OK"
     )
-    # Cap sos_norm for low-sample teams to prevent unearned high rankings
+
+    # Soft shrinkage: blend toward neutral (0.5) based on sample size
+    # shrink_factor = 0.0 for 0 games (fully shrunk to 0.5)
+    # shrink_factor = 1.0 for MIN_GAMES_FOR_TOP_SOS+ games (no shrinkage)
     low_sample_mask = team["gp"] < cfg.MIN_GAMES_FOR_TOP_SOS
-    team.loc[low_sample_mask, "sos_norm"] = team.loc[low_sample_mask, "sos_norm"].clip(
-        upper=cfg.SOS_TOP_CAP_FOR_LOW_SAMPLE
+    gp_clipped = team["gp"].clip(lower=0)
+    shrink_factor = (gp_clipped / cfg.MIN_GAMES_FOR_TOP_SOS).clip(0.0, 1.0)
+
+    # Apply shrinkage: sos_norm = 0.5 + shrink_factor * (sos_norm - 0.5)
+    team.loc[low_sample_mask, "sos_norm"] = (
+        0.5 + shrink_factor[low_sample_mask] * (team.loc[low_sample_mask, "sos_norm"] - 0.5)
     )
 
     low_sample_count = low_sample_mask.sum()
     if low_sample_count > 0:
         logger.info(
-            f"🏷️  Low sample flagging: {low_sample_count} teams flagged, "
-            f"sos_norm capped at {cfg.SOS_TOP_CAP_FOR_LOW_SAMPLE}"
+            f"🏷️  Low sample handling: {low_sample_count} teams with soft SOS shrinkage toward 0.5"
         )
 
     # -------------------------
@@ -764,8 +775,9 @@ def compute_rankings(
     g_perf["recency_decay"] = np.exp(-cfg.PERFORMANCE_DECAY_RATE * (g_perf["rank_recency"] - 1.0))
 
     # per-game performance contribution (symmetric)
+    # Uses PERF_GAME_SCALE to scale individual game residuals
     g_perf["perf_contrib"] = (
-        cfg.PERFORMANCE_K
+        cfg.PERF_GAME_SCALE
         * g_perf["perf_delta"]
         * g_perf["recency_decay"]
         * g_perf["k_adapt"]
@@ -787,11 +799,12 @@ def compute_rankings(
     # -------------------------
     # Layer 10: Core PowerScore + Provisional
     # -------------------------
+    # Uses PERF_BLEND_WEIGHT to control how much performance adjustment affects final score
     team["powerscore_core"] = (
         cfg.OFF_WEIGHT * team["off_norm"]
         + cfg.DEF_WEIGHT * team["def_norm"]
         + cfg.SOS_WEIGHT * team["sos_norm"]
-        + team["perf_centered"] * cfg.PERFORMANCE_K  # symmetric tweak
+        + team["perf_centered"] * cfg.PERF_BLEND_WEIGHT
     )
 
     team["provisional_mult"] = team["gp"].apply(
