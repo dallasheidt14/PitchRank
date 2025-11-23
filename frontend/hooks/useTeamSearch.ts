@@ -52,11 +52,11 @@ export function useTeamSearch() {
 
             // For 4-digit years (2009-2019), add 2-digit form
             const fourDigitYears = team.team_name.match(/20(0[9]|1[0-9])\b/g) || [];
-            fourDigitYears.forEach(y => additions.push(y.slice(2)));
+            fourDigitYears.forEach((y: string) => additions.push(y.slice(2)));
 
             // For standalone 2-digit years (not preceded by "20"), add 4-digit form
             const twoDigitYears = team.team_name.match(/(?<!20)(0[9]|1[0-9])\b/g) || [];
-            twoDigitYears.forEach(y => additions.push('20' + y));
+            twoDigitYears.forEach((y: string) => additions.push('20' + y));
 
             return additions.length > 0
               ? team.team_name + ' ' + additions.join(' ')
