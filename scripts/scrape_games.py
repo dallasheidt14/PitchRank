@@ -212,9 +212,10 @@ async def _scrape_team_concurrent(
 
 
 async def scrape_games(
-    provider: str = 'gotsport', 
-    output_file: str = None, 
+    provider: str = 'gotsport',
+    output_file: str = None,
     limit_teams: int = None,
+    skip_teams: int = 0,
     null_teams_only: bool = False,
     since_date: date = None,
     auto_import: bool = False,
@@ -264,12 +265,7 @@ async def scrape_games(
                 break
             
             teams.extend(teams_result.data)
-            
-            # Stop if we've reached the limit or got fewer results than page_size
-            if limit_teams and len(teams) >= limit_teams:
-                teams = teams[:limit_teams]
-                break
-            
+
             if len(teams_result.data) < page_size:
                 break
             
@@ -280,12 +276,19 @@ async def scrape_games(
     else:
         # Steady-state incremental mode: scrape teams not scraped in last 7 days
         teams = scraper._get_teams_to_scrape()
-        if limit_teams:
-            teams = teams[:limit_teams]
         console.print(f"[cyan]Incremental mode: Scraping teams not updated in last 7 days[/cyan]")
         console.print(f"[dim]Each team will use its cached last_scraped_at for incremental updates[/dim]")
-    
-    console.print(f"[bold cyan]Scraping games for {len(teams)} teams[/bold cyan]")
+
+    # Apply skip and limit to teams list
+    total_eligible = len(teams)
+    if skip_teams > 0:
+        teams = teams[skip_teams:]
+        console.print(f"[cyan]Skipping first {skip_teams} teams[/cyan]")
+    if limit_teams:
+        teams = teams[:limit_teams]
+        console.print(f"[cyan]Limiting to {limit_teams} teams[/cyan]")
+
+    console.print(f"[bold cyan]Scraping games for {len(teams)} teams (of {total_eligible} eligible)[/bold cyan]")
     console.print(f"[cyan]Concurrency: {concurrency} teams at once[/cyan]")
     if since_date:
         console.print(f"[cyan]Using override since_date: {since_date}[/cyan]\n")
@@ -415,6 +418,7 @@ def main():
     parser.add_argument('--provider', type=str, default='gotsport', help='Provider code')
     parser.add_argument('--output', type=str, default=None, help='Output file path (default: auto-generated)')
     parser.add_argument('--limit-teams', type=int, default=None, help='Limit number of teams to scrape (for testing)')
+    parser.add_argument('--skip-teams', type=int, default=0, help='Skip first N teams (for splitting large scrapes)')
     parser.add_argument('--null-teams-only', action='store_true', help='Only scrape teams with NULL last_scraped_at')
     parser.add_argument('--since-date', type=str, default=None, help='Override since_date for scraping (YYYY-MM-DD format, used for NULL teams)')
     parser.add_argument('--auto-import', action='store_true', help='Automatically import scraped games after scraping completes')
@@ -436,6 +440,7 @@ def main():
             provider=args.provider,
             output_file=args.output,
             limit_teams=args.limit_teams,
+            skip_teams=args.skip_teams,
             null_teams_only=args.null_teams_only,
             since_date=since_date_obj,
             auto_import=args.auto_import,
