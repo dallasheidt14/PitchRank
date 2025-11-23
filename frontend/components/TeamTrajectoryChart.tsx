@@ -34,7 +34,8 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
   const chartData = useMemo(() => {
     if (!trajectory || trajectory.length === 0) return [];
 
-    return trajectory.map((point) => ({
+    // First pass: calculate base data
+    const baseData = trajectory.map((point) => ({
       period: new Date(point.period_start).toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
@@ -45,6 +46,28 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
       gamesPlayed: point.games_played,
       winPercentage: point.win_percentage,
     }));
+
+    // Second pass: calculate 3-period moving average
+    return baseData.map((point, index) => {
+      let movingAvg: number | null = null;
+
+      if (index >= 2) {
+        // We have at least 3 data points, calculate moving average
+        const sum = baseData[index].goalDifferential +
+                    baseData[index - 1].goalDifferential +
+                    baseData[index - 2].goalDifferential;
+        movingAvg = sum / 3;
+      } else if (index === 1) {
+        // Only 2 points available, use 2-point average
+        movingAvg = (baseData[index].goalDifferential + baseData[index - 1].goalDifferential) / 2;
+      }
+      // For first point (index 0), movingAvg stays null
+
+      return {
+        ...point,
+        movingAverage: movingAvg,
+      };
+    });
   }, [trajectory]);
 
   // Calculate trend: compare first half vs second half of periods
@@ -156,6 +179,8 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
               <p className="text-xs">Shows average goal margin (goals for - goals against) per period.</p>
               <p className="text-xs mt-1">Positive values = winning by that margin on average.</p>
               <p className="text-xs">Negative values = losing by that margin on average.</p>
+              <p className="text-xs mt-2 font-semibold">Trend Line</p>
+              <p className="text-xs">The bold line shows a 3-period moving average to smooth out noise and reveal the underlying trend.</p>
             </TooltipContent>
           </Tooltip>
         </div>
@@ -181,6 +206,13 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
                 style: { fontSize: '12px', fill: 'currentColor' }
               }}
             />
+            <Legend
+              verticalAlign="top"
+              height={36}
+              formatter={(value) => (
+                <span className="text-xs text-muted-foreground">{value}</span>
+              )}
+            />
             <RechartsTooltip
               content={({ active, payload, label }) => {
                 if (!active || !payload || !payload.length) return null;
@@ -192,6 +224,11 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
                       <p className={`font-medium ${data.goalDifferential >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                         Goal Diff: {data.goalDifferential >= 0 ? '+' : ''}{data.goalDifferential.toFixed(2)}
                       </p>
+                      {data.movingAverage !== null && (
+                        <p className="text-muted-foreground">
+                          Trend (3-period avg): {data.movingAverage >= 0 ? '+' : ''}{data.movingAverage.toFixed(2)}
+                        </p>
+                      )}
                       <p className="text-muted-foreground">
                         Goals For: {data.avgGoalsFor.toFixed(2)}
                       </p>
@@ -230,12 +267,13 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
               fill="url(#goalDiffGradient)"
               stroke="none"
             />
-            {/* Main line */}
+            {/* Main line - actual goal differential */}
             <Line
               type="monotone"
               dataKey="goalDifferential"
               stroke="hsl(var(--primary))"
-              strokeWidth={3}
+              strokeWidth={2}
+              strokeOpacity={0.5}
               dot={(props: any) => {
                 const { cx, cy, payload } = props;
                 const color = payload.goalDifferential >= 0
@@ -245,7 +283,7 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
                   <circle
                     cx={cx}
                     cy={cy}
-                    r={5}
+                    r={4}
                     fill={color}
                     stroke="var(--background)"
                     strokeWidth={2}
@@ -253,6 +291,16 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
                 );
               }}
               name="Goal Differential"
+            />
+            {/* Moving average trend line */}
+            <Line
+              type="monotone"
+              dataKey="movingAverage"
+              stroke="hsl(var(--accent))"
+              strokeWidth={3}
+              dot={false}
+              connectNulls={false}
+              name="3-Period Trend"
             />
           </ComposedChart>
         </ResponsiveContainer>

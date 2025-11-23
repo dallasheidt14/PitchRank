@@ -108,6 +108,8 @@ export interface TeamWithRanking {
   rank_in_state_final?: number | null; // State rank - may not exist from rankings_view
   power_score_final: number | null; // ML Adjusted, final score
   sos_norm: number | null; // normalized 0–1 SOS index
+  sos_rank_national?: number | null; // SOS rank within (age, gender) cohort nationally
+  sos_rank_state?: number | null; // SOS rank within (age, gender, state)
   offense_norm: number | null;
   defense_norm: number | null;
   // Record
@@ -116,6 +118,9 @@ export interface TeamWithRanking {
   draws: number;
   games_played: number; // Games used for rankings calculation (last 30)
   total_games_played?: number; // Total games in history (all games)
+  total_wins?: number; // Total wins from all games
+  total_losses?: number; // Total losses from all games
+  total_draws?: number; // Total draws from all games
   win_percentage: number | null; // backend should calculate
   // Deprecated fields (do not use)
   /** @deprecated Use state instead */

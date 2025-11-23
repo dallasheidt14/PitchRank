@@ -111,7 +111,7 @@ export const api = {
     // Fetch ranking data from rankings_view with explicit field list
     const { data: rankingData, error: rankingError } = await supabase
       .from('rankings_view')
-      .select('team_id_master, state, age, gender, power_score_final, sos_norm, offense_norm, defense_norm, games_played, wins, losses, draws, win_percentage, rank_in_cohort_final')
+      .select('team_id_master, state, age, gender, power_score_final, sos_norm, sos_rank_national, offense_norm, defense_norm, games_played, wins, losses, draws, win_percentage, rank_in_cohort_final')
       .eq('team_id_master', id)
       .maybeSingle();
 
@@ -119,10 +119,10 @@ export const api = {
       // Continue without ranking data rather than failing
     }
 
-    // Fetch state rank from state_rankings_view
+    // Fetch state rank and SOS rank from state_rankings_view
     const { data: stateRankData, error: stateRankError } = await supabase
       .from('state_rankings_view')
-      .select('rank_in_state_final')
+      .select('rank_in_state_final, sos_rank_state')
       .eq('team_id_master', id)
       .maybeSingle();
 
@@ -207,6 +207,8 @@ export const api = {
       // Ranking fields (default to null if no ranking data)
       power_score_final: rankingData?.power_score_final ?? null,
       sos_norm: rankingData?.sos_norm ?? null,
+      sos_rank_national: rankingData?.sos_rank_national ?? null,
+      sos_rank_state: stateRankData?.sos_rank_state ?? null,
       offense_norm: rankingData?.offense_norm ?? null,
       defense_norm: rankingData?.defense_norm ?? null,
       rank_in_cohort_final: rankingData?.rank_in_cohort_final ?? null,
@@ -217,8 +219,11 @@ export const api = {
       losses: finalLosses,
       draws: finalDraws,
       win_percentage: finalWinPercentage,
-      // Total games from games table
+      // Total games and record from games table
       total_games_played: totalGamesCount,
+      total_wins: calculatedWins,
+      total_losses: calculatedLosses,
+      total_draws: calculatedDraws,
     };
 
     return teamWithRanking;
