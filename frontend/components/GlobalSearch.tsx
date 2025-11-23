@@ -42,6 +42,7 @@ export function GlobalSearch() {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [FuseClass, setFuseClass] = useState<typeof Fuse | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -63,11 +64,13 @@ export function GlobalSearch() {
 
     return new FuseClass(allTeams, {
       keys: [
-        { name: 'team_name', weight: 0.7 },
-        { name: 'club_name', weight: 0.2 },
+        { name: 'team_name', weight: 0.6 },
+        { name: 'club_name', weight: 0.3 },
         { name: 'state', weight: 0.1 },
       ],
-      threshold: 0.3, // Lower = stricter matching
+      threshold: 0.4, // More forgiving matching (was 0.3)
+      ignoreLocation: true, // Match anywhere in string, not just beginning
+      findAllMatches: true, // Don't stop at first match
       includeScore: true,
       minMatchCharLength: 2,
     });
@@ -140,7 +143,7 @@ export function GlobalSearch() {
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (inputRef.current && !inputRef.current.contains(event.target as Node)) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
         setIsOpen(false);
       }
     };
@@ -150,7 +153,7 @@ export function GlobalSearch() {
   }, []);
 
   return (
-    <div className="relative w-full max-w-md">
+    <div ref={containerRef} className="relative w-full max-w-md">
       <div className="relative">
         <Search className="absolute left-2 sm:left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
         <Input
