@@ -1,4 +1,4 @@
-import { useState, useMemo, memo } from 'react';
+import { useState, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CardSkeleton, ChartSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
@@ -78,12 +78,15 @@ export function ComparePanel() {
   ] : [];
 
   // Show loading state when teams are being fetched
-  const isLoadingData = (team1Id && (team1Loading || team2Loading)) ||
-                        (team1Id && team2Id && opponentsLoading);
+  const isLoadingTeam1 = team1Id && team1Loading;
+  const isLoadingTeam2 = team2Id && team2Loading;
+  const isLoadingData = isLoadingTeam1 || isLoadingTeam2 || (team1Id && team2Id && opponentsLoading);
 
   // Check for errors
-  const hasErrors = (team1Id && (team1Error || team2Error)) ||
-                    (team1Id && team2Id && opponentsError);
+  const hasErrors = (team1Id && team1Error) || (team2Id && team2Error) || (team1Id && team2Id && opponentsError);
+
+  // Check if we have partial selection (one team selected, waiting for the other)
+  const hasPartialSelection = (team1Id && !team2Id) || (!team1Id && team2Id);
 
   return (
     <Card className="border-l-4 border-l-accent">
@@ -407,9 +410,20 @@ export function ComparePanel() {
             </>
           )}
 
-          {(!team1Details || !team2Details) && !isLoadingData && (
+          {(!team1Details || !team2Details) && !isLoadingData && !hasErrors && (
             <div className="text-center py-8 text-muted-foreground">
-              <p>Select two teams to compare their statistics</p>
+              {hasPartialSelection ? (
+                <>
+                  <p className="font-medium">
+                    {team1Id ? `${team1Data?.team_name || 'Team 1'} selected` : `${team2Data?.team_name || 'Team 2'} selected`}
+                  </p>
+                  <p className="text-sm mt-1">
+                    Select {team1Id ? 'Team 2' : 'Team 1'} to see the comparison
+                  </p>
+                </>
+              ) : (
+                <p>Select two teams to compare their statistics</p>
+              )}
             </div>
           )}
         </div>
