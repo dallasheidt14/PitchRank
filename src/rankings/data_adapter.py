@@ -536,19 +536,29 @@ def v53e_to_rankings_full_format(
     # Map team identity fields
     # If teams_metadata_df is provided, merge it; otherwise try to extract from teams_df
     # NOTE: Don't merge gender from metadata - v53e always provides it and it's the source of truth
+    # NOTE: Only merge columns that don't already exist in rankings_df to avoid _x/_y suffix issues
     if teams_metadata_df is not None and not teams_metadata_df.empty:
-        # Merge team metadata (age_group, state_code only - NOT gender)
+        # Merge team metadata (only columns not already in rankings_df)
         teams_metadata_df = teams_metadata_df.copy()
         teams_metadata_df['team_id_master'] = teams_metadata_df['team_id_master'].astype(str)
-        rankings_df = rankings_df.merge(
-            teams_metadata_df[['team_id_master', 'age_group', 'state_code']],  # Exclude gender
-            left_on='team_id',
-            right_on='team_id_master',
-            how='left'
-        )
-        # Drop duplicate column if it exists
-        if 'team_id_master' in rankings_df.columns and 'team_id' in rankings_df.columns:
-            rankings_df = rankings_df.drop(columns=['team_id_master'])
+
+        # Determine which metadata columns to merge (skip if already present in rankings_df)
+        merge_cols = ['team_id_master']
+        if 'age_group' not in rankings_df.columns and 'age_group' in teams_metadata_df.columns:
+            merge_cols.append('age_group')
+        if 'state_code' not in rankings_df.columns and 'state_code' in teams_metadata_df.columns:
+            merge_cols.append('state_code')
+
+        if len(merge_cols) > 1:  # More than just team_id_master
+            rankings_df = rankings_df.merge(
+                teams_metadata_df[merge_cols],
+                left_on='team_id',
+                right_on='team_id_master',
+                how='left'
+            )
+            # Drop duplicate column if it exists
+            if 'team_id_master' in rankings_df.columns and 'team_id' in rankings_df.columns:
+                rankings_df = rankings_df.drop(columns=['team_id_master'])
     
     # Map age_group from age if not present
     if 'age_group' not in rankings_df.columns and 'age' in rankings_df.columns:
