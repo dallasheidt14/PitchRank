@@ -60,6 +60,11 @@ export function useTeamSearch() {
             wins: 0,
             losses: 0,
             draws: 0,
+            // Total record fields (required by RankingRow type)
+            total_games_played: 0,
+            total_wins: 0,
+            total_losses: 0,
+            total_draws: 0,
             win_percentage: null,
           } as RankingRow;
         });
