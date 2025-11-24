@@ -12,9 +12,10 @@ import { PredictedMatchCard } from './PredictedMatchCard';
 import { EnhancedPredictionCard } from './EnhancedPredictionCard';
 import { useTeam, useCommonOpponents, usePredictive, useMatchPrediction } from '@/lib/hooks';
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Legend, Tooltip as RechartsTooltip } from 'recharts';
-import { ArrowLeftRight } from 'lucide-react';
+import { ArrowLeftRight, HelpCircle } from 'lucide-react';
 import { formatPowerScore } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 /**
  * ComparePanel component - enhanced team comparison with all features
@@ -24,6 +25,17 @@ export function ComparePanel() {
   const [team2Id, setTeam2Id] = useState<string | null>(null);
   const [team1Data, setTeam1Data] = useState<RankingRow | null>(null);
   const [team2Data, setTeam2Data] = useState<RankingRow | null>(null);
+  const [showMetricHelp, setShowMetricHelp] = useState(false);
+
+  // Metric descriptions for tooltips
+  const metricDescriptions: Record<string, string> = {
+    'Power Score': 'ML-adjusted overall team strength rating (0-100). Higher = stronger team.',
+    'Win %': 'Win percentage from recent games (0-100%). Shows recent success rate.',
+    'Offense': 'Normalized offensive rating (0-100). Higher = scores more goals.',
+    'Defense': 'Normalized defensive rating (0-100). Higher = allows fewer goals.',
+    'SOS': 'Strength of Schedule (0-100). Higher = faced tougher opponents.',
+    'Form': 'Recent form: average goal differential in last 5 games. 50 = even, >50 = winning, <50 = losing.',
+  };
 
   const { data: team1Details, isLoading: team1Loading, isError: team1Error, error: team1ErrorObj, refetch: refetchTeam1 } = useTeam(team1Id || '');
   const { data: team2Details, isLoading: team2Loading, isError: team2Error, error: team2ErrorObj, refetch: refetchTeam2 } = useTeam(team2Id || '');
@@ -86,31 +98,37 @@ export function ComparePanel() {
     return [
       {
         metric: 'Power Score',
+        description: metricDescriptions['Power Score'],
         team1: normalizePowerScore(team1Details.power_score_final),
         team2: normalizePowerScore(team2Details.power_score_final),
       },
       {
         metric: 'Win %',
+        description: metricDescriptions['Win %'],
         team1: normalizeWinPct(team1Details.win_percentage),
         team2: normalizeWinPct(team2Details.win_percentage),
       },
       {
         metric: 'Offense',
+        description: metricDescriptions['Offense'],
         team1: normalizeRating(team1Details.offense_norm),
         team2: normalizeRating(team2Details.offense_norm),
       },
       {
         metric: 'Defense',
+        description: metricDescriptions['Defense'],
         team1: normalizeRating(team1Details.defense_norm),
         team2: normalizeRating(team2Details.defense_norm),
       },
       {
         metric: 'SOS',
+        description: metricDescriptions['SOS'],
         team1: normalizeSOS(team1Details.sos_norm),
         team2: normalizeSOS(team2Details.sos_norm),
       },
       {
         metric: 'Form',
+        description: metricDescriptions['Form'],
         team1: normalizeForm(formA),
         team2: normalizeForm(formB),
       },
@@ -401,7 +419,39 @@ export function ComparePanel() {
               {/* Radar Chart Comparison */}
               {radarData.length > 0 && (
                 <div className="pt-4 border-t">
-                  <h3 className="font-display text-lg font-bold uppercase tracking-wide text-primary mb-4">Performance Comparison</h3>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-display text-lg font-bold uppercase tracking-wide text-primary">Performance Comparison</h3>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => setShowMetricHelp(!showMetricHelp)}
+                          className="text-muted-foreground hover:text-foreground transition-colors"
+                          aria-label="Show metric descriptions"
+                        >
+                          <HelpCircle className="h-4 w-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Click to see metric descriptions</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                  
+                  {/* Metric Help Section */}
+                  {showMetricHelp && (
+                    <div className="mb-4 p-4 bg-muted/50 rounded-lg border border-border">
+                      <h4 className="text-sm font-semibold mb-3 text-foreground">Metric Descriptions</h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                        {radarData.map((item) => (
+                          <div key={item.metric} className="flex items-start gap-2">
+                            <span className="font-medium text-foreground min-w-[80px]">{item.metric}:</span>
+                            <span className="text-muted-foreground">{item.description}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="w-full h-[400px] sm:h-[450px]">
                     <ResponsiveContainer width="100%" height="100%">
                       <RadarChart
@@ -426,15 +476,47 @@ export function ComparePanel() {
                           tickCount={6}
                         />
                         <RechartsTooltip
-                          contentStyle={{
-                            backgroundColor: 'hsl(var(--card))',
-                            border: '1px solid hsl(var(--border))',
-                            borderRadius: '0.5rem',
-                            fontSize: '12px',
-                            padding: '8px 12px',
+                          content={({ active, payload, label }) => {
+                            if (!active || !payload || !payload.length) return null;
+                            const data = radarData.find((d) => d.metric === label);
+                            return (
+                              <div
+                                style={{
+                                  backgroundColor: 'hsl(var(--card))',
+                                  border: '1px solid hsl(var(--border))',
+                                  borderRadius: '0.5rem',
+                                  padding: '12px',
+                                  fontSize: '12px',
+                                }}
+                              >
+                                <p style={{ fontWeight: 600, marginBottom: '8px', color: 'hsl(var(--foreground))' }}>
+                                  {label}
+                                </p>
+                                {data?.description && (
+                                  <p style={{ marginBottom: '8px', color: 'hsl(var(--muted-foreground))', fontSize: '11px' }}>
+                                    {data.description}
+                                  </p>
+                                )}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                  {payload.map((entry: any, index: number) => (
+                                    <div key={index} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      <div
+                                        style={{
+                                          width: '12px',
+                                          height: '12px',
+                                          backgroundColor: entry.color,
+                                          borderRadius: '2px',
+                                        }}
+                                      />
+                                      <span style={{ color: 'hsl(var(--foreground))' }}>
+                                        {entry.name}: <strong>{entry.value?.toFixed(1)}</strong>
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
                           }}
-                          labelStyle={{ color: 'hsl(var(--foreground))', fontWeight: 600, marginBottom: '4px' }}
-                          formatter={(value: number) => [`${value.toFixed(1)}`, '']}
                         />
                         <Radar
                           name={team1Details.team_name}
@@ -461,7 +543,7 @@ export function ComparePanel() {
                     </ResponsiveContainer>
                   </div>
                   <p className="text-xs text-muted-foreground text-center mt-2">
-                    All metrics normalized to 0-100 scale for comparison
+                    All metrics normalized to 0-100 scale for comparison • Hover over chart points for details
                   </p>
                 </div>
               )}
