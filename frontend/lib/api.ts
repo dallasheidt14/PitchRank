@@ -45,7 +45,7 @@ export const api = {
 
     while (hasMore) {
       let query = supabase.from(table).select('*')
-        .eq('status', 'Active'); // Filter out inactive teams (>180 days since last game)
+        .in('status', ['Active', 'Not Enough Ranked Games']); // Include Active and teams with not enough games, exclude Inactive (>180 days since last game)
 
       if (normalizedAge !== null) {
         query = query.eq('age', normalizedAge);
