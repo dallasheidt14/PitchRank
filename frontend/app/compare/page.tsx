@@ -5,13 +5,13 @@ import { CardSkeleton } from '@/components/ui/skeletons';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Compare Teams',
+  title: 'Compare/Predict Teams',
   description: 'Compare multiple youth soccer teams side-by-side to see their rankings, statistics, and performance metrics across different age groups and states.',
   alternates: {
     canonical: '/compare',
   },
   openGraph: {
-    title: 'Compare Teams | PitchRank',
+    title: 'Compare/Predict Teams | PitchRank',
     description: 'Compare multiple youth soccer teams side-by-side to see their rankings, statistics, and performance metrics.',
     url: '/compare',
     siteName: 'PitchRank',
@@ -21,13 +21,13 @@ export const metadata: Metadata = {
         url: '/logos/pitchrank-wordmark.svg',
         width: 1200,
         height: 630,
-        alt: 'PitchRank Compare Teams',
+        alt: 'PitchRank Compare/Predict Teams',
       },
     ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Compare Teams | PitchRank',
+    title: 'Compare/Predict Teams | PitchRank',
     description: 'Compare multiple youth soccer teams side-by-side to see their rankings and statistics.',
     images: ['/logos/pitchrank-wordmark.svg'],
   },
@@ -41,7 +41,7 @@ export default function ComparePage() {
         <div className="absolute left-0 top-0 w-2 h-full bg-accent -skew-x-12" aria-hidden="true" />
         <div className="container mx-auto px-4">
           <h1 className="font-display text-3xl sm:text-4xl md:text-5xl font-bold uppercase text-primary mb-2">
-            Compare Teams
+            Compare/Predict Teams
           </h1>
           <p className="text-muted-foreground text-base sm:text-lg">
             Select teams to compare rankings, statistics, and performance metrics side-by-side

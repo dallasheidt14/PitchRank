@@ -54,9 +54,9 @@ export function Navigation() {
           <Link
             href="/compare"
             className="text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent"
-            aria-label="Compare teams page"
+            aria-label="Compare/Predict teams page"
           >
-            Compare
+            Compare/Predict
           </Link>
           <Link
             href="/watchlist"
@@ -119,7 +119,7 @@ export function Navigation() {
               className="block text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent hover:bg-accent/10 py-3 px-2 rounded-md min-h-[44px] flex items-center"
               onClick={() => setMobileMenuOpen(false)}
             >
-              Compare
+              Compare/Predict
             </Link>
             <Link
               href="/watchlist"

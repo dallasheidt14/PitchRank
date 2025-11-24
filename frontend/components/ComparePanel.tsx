@@ -149,7 +149,7 @@ export function ComparePanel() {
   return (
     <Card className="border-l-4 border-l-accent">
       <CardHeader>
-        <CardTitle className="font-display text-xl uppercase tracking-wide">Compare Teams</CardTitle>
+        <CardTitle className="font-display text-xl uppercase tracking-wide">Compare/Predict Teams</CardTitle>
         <CardDescription>
           Select two teams to compare their rankings, statistics, and performance metrics side-by-side
         </CardDescription>
