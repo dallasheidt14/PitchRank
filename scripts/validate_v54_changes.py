@@ -134,19 +134,94 @@ async def run_validation_queries(supabase_client):
     console.print("[dim]Expected: Should follow anchor curve (U10=low → U18=high)[/dim]\n")
 
     try:
-        result = supabase_client.table('rankings_full').select('age_group, sos_norm').execute()
-        if result.data:
+        # First, check what age groups exist in source data (teams table)
+        try:
+            # Get ALL teams with pagination
+            all_teams = []
+            page_size = 1000
+            offset = 0
+            while True:
+                teams_result = supabase_client.table('teams').select(
+                    'age_group'
+                ).not_.is_('age_group', 'null').range(offset, offset + page_size - 1).execute()
+                if not teams_result.data:
+                    break
+                all_teams.extend(teams_result.data)
+                if len(teams_result.data) < page_size:
+                    break
+                offset += page_size
+            
+            if all_teams:
+                teams_df = pd.DataFrame(all_teams)
+                source_ages = sorted(teams_df['age_group'].dropna().str.lower().unique())
+                counts = teams_df['age_group'].str.lower().value_counts()
+                console.print(f"  [dim]Age groups in teams table (all {len(teams_df):,} teams):[/dim]")
+                for age in source_ages:
+                    count = counts.get(age, 0)
+                    console.print(f"    [dim]{age}: {count:,} teams[/dim]")
+        except Exception as e:
+            console.print(f"  [dim]Could not check source age groups: {str(e)[:100]}[/dim]")
+        
+        # Now check rankings_full - get ALL data with pagination
+        all_rankings = []
+        page_size = 1000
+        offset = 0
+        while True:
+            result = supabase_client.table('rankings_full').select(
+                'age_group, sos_norm, status'
+            ).range(offset, offset + page_size - 1).execute()
+            if not result.data:
+                break
+            all_rankings.extend(result.data)
+            if len(result.data) < page_size:
+                break
+            offset += page_size
+        
+        if all_rankings:
+            df = pd.DataFrame(all_rankings)
             df = pd.DataFrame(result.data)
-            age_sos = df.groupby('age_group')['sos_norm'].agg(['mean', 'std', 'count'])
+            
+            # Diagnostic: Check for NULL age groups
+            null_age_count = df['age_group'].isna().sum()
+            if null_age_count > 0:
+                console.print(f"  [yellow]⚠ Warning: {null_age_count} teams have NULL age_group[/yellow]")
+            
+            # Get all unique age groups
+            unique_ages = sorted(df['age_group'].dropna().str.lower().unique())
+            console.print(f"  Found {len(unique_ages)} unique age groups in rankings: {', '.join(unique_ages)}")
+            
+            # Expected age groups (U10 through U18)
+            expected_ages = [f"u{i}" for i in range(10, 19)]
+            missing_ages = [age for age in expected_ages if age not in unique_ages]
+            if missing_ages:
+                console.print(f"  [yellow]⚠ Missing expected age groups: {', '.join(missing_ages)}[/yellow]")
+                console.print(f"  [dim]This may indicate incomplete data or filtering in the rankings calculation[/dim]")
+            
+            # Show status breakdown by age group
+            if 'status' in df.columns:
+                console.print(f"\n  Status breakdown by age group:")
+                status_by_age = df.groupby(['age_group', 'status']).size().unstack(fill_value=0)
+                for age in sorted(df['age_group'].str.lower().unique()):
+                    age_df = df[df['age_group'].str.lower() == age]
+                    status_counts = age_df['status'].value_counts().to_dict()
+                    status_str = ', '.join([f"{status}: {count}" for status, count in status_counts.items()])
+                    console.print(f"    {age}: {status_str}")
+            
+            # Normalize age_group for grouping (handle case differences)
+            df['age_group_normalized'] = df['age_group'].str.lower()
+            age_sos = df.groupby('age_group_normalized')['sos_norm'].agg(['mean', 'std', 'count'])
             age_sos = age_sos.sort_index()
 
-            console.print(f"  Average SOS by age group:")
+            console.print(f"\n  Average SOS by age group:")
             for age, row in age_sos.iterrows():
-                console.print(f"    {age}: mean={row['mean']:.4f}, std={row['std']:.4f}, n={int(row['count'])}")
+                std_val = row['std'] if pd.notna(row['std']) else 0.0
+                console.print(f"    {age}: mean={row['mean']:.4f}, std={std_val:.4f}, n={int(row['count'])}")
         else:
             console.print("  No data found")
     except Exception as e:
         console.print(f"  [red]Error: {e}[/red]")
+        import traceback
+        console.print(f"  [dim]{traceback.format_exc()}[/dim]")
 
     console.print("")
 
