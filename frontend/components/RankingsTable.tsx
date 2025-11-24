@@ -10,7 +10,7 @@ import { usePrefetchTeam } from '@/lib/hooks';
 import Link from 'next/link';
 import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { formatPowerScore, formatSOSIndex } from '@/lib/utils';
+import { formatPowerScore, formatSOSIndex, normalizeAgeGroup } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
 
 interface RankingsTableProps {
@@ -43,7 +43,21 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const parentRef = useRef<HTMLDivElement>(null);
 
+  // Debug: Log props received
+  console.log('[RankingsTable] Props received:', { region, ageGroup, gender });
+
   const { data: rankings, isLoading, isError, error, refetch } = useRankings(region, ageGroup, gender);
+
+  // Debug: Log query state
+  console.log('[RankingsTable] Query state:', { 
+    isLoading, 
+    isError, 
+    error: error?.message, 
+    rankingsCount: rankings?.length ?? 0 
+  });
+
+  // Debug: Show query params in UI temporarily
+  const debugInfo = `Region: ${region || 'national'}, Age: ${ageGroup}, Gender: ${gender}, Results: ${rankings?.length ?? 0}`;
   const prefetchTeam = usePrefetchTeam();
 
   // Use pre-calculated SOS ranks from database
@@ -217,7 +231,26 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
       </Card>
     );
   }
-  if (!rankings?.length) return <div>No teams available.</div>;
+  
+  // Debug: Show debug info
+  if (!rankings?.length) {
+    return (
+      <Card>
+        <CardContent className="pt-6">
+          <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-4">
+            <strong>Debug Info:</strong> {debugInfo}
+            <br />
+            <strong>Query:</strong> {region ? `state_rankings_view` : `rankings_view`} 
+            {region && ` WHERE state = '${region.toUpperCase()}'`}
+            {` AND age = ${normalizeAgeGroup(ageGroup)}`}
+            {gender && ` AND gender = '${gender}'`}
+            {` AND status = 'Active'`}
+          </div>
+          <div>No teams available.</div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const virtualItems = virtualizer.getVirtualItems();
   const totalHeight = virtualizer.getTotalSize();
@@ -231,6 +264,15 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
 
   return (
     <Card className="overflow-hidden border-0 shadow-lg">
+      {/* Debug banner - remove after debugging */}
+      <div className="bg-blue-100 border-b border-blue-400 text-blue-800 px-4 py-2 text-xs">
+        <strong>DEBUG:</strong> {debugInfo} | 
+        Query: {region ? `state_rankings_view` : `rankings_view`} 
+        {region && ` WHERE state = '${region.toUpperCase()}'`}
+        {` AND age = ${normalizeAgeGroup(ageGroup)}`}
+        {gender && ` AND gender = '${gender}'`}
+        {` AND status = 'Active'`}
+      </div>
       <CardHeader className="bg-gradient-to-r from-primary to-[oklch(0.28_0.08_165)] text-primary-foreground relative">
         <div className="absolute right-0 top-0 w-2 h-full bg-accent -skew-x-12" aria-hidden="true" />
         <CardTitle className="text-2xl sm:text-3xl font-bold uppercase tracking-wide">
