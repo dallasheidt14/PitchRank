@@ -564,6 +564,8 @@ def v53e_to_rankings_full_format(
     # This ensures teams are ranked in the age group they actually played in, not their registration
     if 'age' in rankings_df.columns:
         rankings_df['age_group'] = rankings_df['age'].apply(lambda x: f"u{int(float(x))}" if pd.notna(x) and str(x).strip() else None)
+        # Create numeric age column for anchor scaling
+        rankings_df['age_num'] = rankings_df['age'].astype(int)
     
     # Normalize gender to match database format (Male/Female)
     # CRITICAL: gender is NOT NULL in rankings_full, so ensure it's always populated

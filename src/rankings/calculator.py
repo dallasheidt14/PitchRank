@@ -547,6 +547,11 @@ async def compute_all_cohorts(
         top_states = state_counts.head(5).to_dict()
         logger.info(f"📍 Top states by team count: {top_states}")
 
+    # Ensure age_num exists after metadata merge (fallback safety check)
+    if 'age_num' not in teams_combined.columns and 'age' in teams_combined.columns:
+        teams_combined['age_num'] = teams_combined['age'].astype(int)
+        logger.info("✅ Recreated age_num from age column after metadata merge")
+
     # ========== National SOS Metrics (for display only) ==========
     # NOTE: PowerScore uses cohort-level sos_norm from v53e.compute_rankings().
     # National/state SOS metrics (sos_norm_national, sos_rank_national, etc.) are
@@ -624,11 +629,11 @@ async def compute_all_cohorts(
             19: 1.000,
         }
         
-        if 'age' not in teams_combined.columns:
-            logger.warning("⚠️ compute_all_cohorts: 'age' column missing; skipping anchor scaling")
+        if 'age_num' not in teams_combined.columns:
+            logger.warning("⚠️ compute_all_cohorts: 'age_num' column missing; skipping anchor scaling")
         else:
-            # age already numeric in v53e output
-            age_nums = teams_combined['age'].astype(int)
+            # age_num is already integer from data adapter
+            age_nums = teams_combined['age_num']
             
             # Log age distribution
             logger.info(
