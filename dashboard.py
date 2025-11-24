@@ -1576,47 +1576,107 @@ elif section == "📈 Database Import Stats":
                 
                 st.dataframe(status_df, use_container_width=True, hide_index=True)
                 
-                # Status breakdown by age group (optional expander)
-                with st.expander("View Status Breakdown by Age Group"):
-                    # Get status by age group
-                    age_status_data = []
-                    offset = 0
-                    
+                # Status breakdown by age group and state
+                st.divider()
+                st.subheader("Status Breakdown by Age Group and State")
+                
+                # Get status by age group and state
+                age_state_status_data = []
+                offset = 0
+                
+                with st.spinner("Loading status breakdown by age group and state..."):
                     while True:
-                        age_status_result = db.table('rankings_view').select(
-                            'age, status'
+                        age_state_status_result = db.table('rankings_view').select(
+                            'age, gender, state, status'
                         ).range(offset, offset + page_size - 1).execute()
                         
-                        if not age_status_result.data:
+                        if not age_state_status_result.data:
                             break
                         
-                        age_status_data.extend([
-                            {'age': r.get('age'), 'status': r.get('status')}
-                            for r in age_status_result.data
+                        age_state_status_data.extend([
+                            {
+                                'age': r.get('age'),
+                                'gender': r.get('gender'),
+                                'state': r.get('state') or 'Unknown',
+                                'status': r.get('status')
+                            }
+                            for r in age_state_status_result.data
                         ])
                         
-                        if len(age_status_result.data) < page_size:
+                        if len(age_state_status_result.data) < page_size:
                             break
                         
                         offset += page_size
+                
+                if age_state_status_data:
+                    age_state_status_df = pd.DataFrame(age_state_status_data)
                     
-                    if age_status_data:
-                        age_status_df = pd.DataFrame(age_status_data)
-                        age_status_pivot = pd.crosstab(
-                            age_status_df['age'],
-                            age_status_df['status'],
-                            margins=True,
-                            margins_name='Total'
-                        )
+                    # Create pivot table: Age Group x State x Status
+                    pivot_3d = pd.crosstab(
+                        [age_state_status_df['age'], age_state_status_df['state']],
+                        age_state_status_df['status'],
+                        margins=True,
+                        margins_name='Total'
+                    )
+                    
+                    # Reorder status columns
+                    col_order = ['Active', 'Not Enough Ranked Games', 'Inactive', 'Total']
+                    available_cols = [c for c in col_order if c in pivot_3d.columns]
+                    other_cols = [c for c in pivot_3d.columns if c not in col_order]
+                    pivot_3d = pivot_3d[available_cols + other_cols]
+                    
+                    # Reset index to make age and state regular columns
+                    pivot_3d = pivot_3d.reset_index()
+                    pivot_3d.columns.name = None
+                    
+                    # Rename columns for display
+                    pivot_3d = pivot_3d.rename(columns={'age': 'Age', 'state': 'State'})
+                    
+                    # Filter out the Total row for the main display (we'll show it separately)
+                    pivot_display = pivot_3d[pivot_3d['Age'] != 'Total'].copy()
+                    total_row = pivot_3d[pivot_3d['Age'] == 'Total'].copy()
+                    
+                    # Sort by Age, then by State
+                    pivot_display['Age'] = pd.to_numeric(pivot_display['Age'], errors='coerce')
+                    pivot_display = pivot_display.sort_values(['Age', 'State'])
+                    pivot_display['Age'] = pivot_display['Age'].apply(lambda x: f'U{int(x)}' if pd.notna(x) else 'Unknown')
+                    
+                    # Display the breakdown
+                    st.dataframe(
+                        pivot_display.style.background_gradient(
+                            cmap='YlOrRd', 
+                            subset=[c for c in pivot_display.columns if c not in ['Age', 'State']]
+                        ),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                    
+                    # Show totals row
+                    if len(total_row) > 0:
+                        st.markdown("**Totals:**")
+                        st.dataframe(total_row, use_container_width=True, hide_index=True)
+                    
+                    # Also show summary by age group only (simpler view)
+                    with st.expander("View Simplified Breakdown by Age Group Only"):
+                        age_only_df = age_state_status_df.groupby(['age', 'status']).size().reset_index(name='count')
+                        age_only_pivot = age_only_df.pivot(index='age', columns='status', values='count').fillna(0)
+                        age_only_pivot = age_only_pivot.astype(int)
+                        
+                        # Add totals
+                        age_only_pivot['Total'] = age_only_pivot.sum(axis=1)
+                        age_only_pivot.loc['Total'] = age_only_pivot.sum(axis=0)
                         
                         # Reorder columns
                         col_order = ['Active', 'Not Enough Ranked Games', 'Inactive', 'Total']
-                        available_cols = [c for c in col_order if c in age_status_pivot.columns]
-                        other_cols = [c for c in age_status_pivot.columns if c not in col_order]
-                        age_status_pivot = age_status_pivot[available_cols + other_cols]
+                        available_cols = [c for c in col_order if c in age_only_pivot.columns]
+                        other_cols = [c for c in age_only_pivot.columns if c not in col_order]
+                        age_only_pivot = age_only_pivot[available_cols + other_cols]
+                        
+                        # Format age labels
+                        age_only_pivot.index = age_only_pivot.index.map(lambda x: f'U{int(x)}' if isinstance(x, (int, float)) and pd.notna(x) else str(x))
                         
                         st.dataframe(
-                            age_status_pivot.style.background_gradient(cmap='YlOrRd', subset=age_status_pivot.columns[:-1]),
+                            age_only_pivot.style.background_gradient(cmap='YlOrRd', subset=age_only_pivot.columns[:-1]),
                             use_container_width=True
                         )
             else:
