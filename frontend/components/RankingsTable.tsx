@@ -271,7 +271,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
         {region && ` WHERE state = '${region.toUpperCase()}'`}
         {` AND age = ${normalizeAgeGroup(ageGroup)}`}
         {gender && ` AND gender = '${gender}'`}
-        {` AND status = 'Active'`}
+        {` AND status IN ('Active', 'Not Enough Ranked Games')`}
         <br />
         <span className="text-xs">Check browser console for status distribution details</span>
       </div>

@@ -51,7 +51,7 @@ export function useRankings(
         let query = supabase
           .from(table)
           .select('*')
-          .eq('status', 'Active'); // Filter out inactive teams (>180 days since last game)
+          .in('status', ['Active', 'Not Enough Ranked Games']); // Include Active and teams with not enough games, exclude Inactive (>180 days since last game)
 
         if (region) {
           // Filter by state - try uppercase first (expected format)
