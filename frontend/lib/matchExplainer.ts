@@ -53,10 +53,23 @@ function getMagnitude(absDiff: number, thresholds = { significant: 0.15, moderat
 }
 
 /**
- * Format percentile (0-1 scale to percentile)
+ * Format percentile (0-1 scale to percentile) with proper ordinal suffix
  */
-function formatPercentile(value: number): number {
-  return Math.round(value * 100);
+function formatPercentile(value: number): string {
+  const percentile = Math.round(value * 100);
+  const lastDigit = percentile % 10;
+  const lastTwoDigits = percentile % 100;
+  
+  // Handle special cases: 11th, 12th, 13th
+  if (lastTwoDigits >= 11 && lastTwoDigits <= 13) {
+    return `${percentile}th`;
+  }
+  
+  // Handle regular cases
+  if (lastDigit === 1) return `${percentile}st`;
+  if (lastDigit === 2) return `${percentile}nd`;
+  if (lastDigit === 3) return `${percentile}rd`;
+  return `${percentile}th`;
 }
 
 /**
@@ -116,9 +129,9 @@ function explainSOS(
 
   let description = '';
   if (magnitude === 'significant') {
-    description = `${strongerSOS} has played MUCH tougher competition (${strongerPercentile}th vs ${weakerPercentile}th percentile schedule strength). Their rating is more battle-tested.`;
+    description = `${strongerSOS} has played MUCH tougher competition (${strongerPercentile} vs ${weakerPercentile} percentile schedule strength). Their rating is more battle-tested.`;
   } else {
-    description = `${strongerSOS} has faced tougher opponents (${strongerPercentile}th vs ${weakerPercentile}th percentile schedule strength)`;
+    description = `${strongerSOS} has faced tougher opponents (${strongerPercentile} vs ${weakerPercentile} percentile schedule strength)`;
   }
 
   return {
@@ -197,11 +210,11 @@ function explainOffensiveMatchup(
   if (matchupDiff > 0) {
     const offPerc = formatPercentile(offenseA);
     const defPerc = formatPercentile(defenseB);
-    description = `${teamA.team_name}'s strong offense (${offPerc}th percentile) faces ${teamB.team_name}'s weaker defense (${defPerc}th percentile)`;
+    description = `${teamA.team_name}'s strong offense (${offPerc} percentile) faces ${teamB.team_name}'s weaker defense (${defPerc} percentile)`;
   } else {
     const offPerc = formatPercentile(teamB.offense_norm || 0.5);
     const defPerc = formatPercentile(teamA.defense_norm || 0.5);
-    description = `${teamB.team_name}'s strong offense (${offPerc}th percentile) faces ${teamA.team_name}'s weaker defense (${defPerc}th percentile)`;
+    description = `${teamB.team_name}'s strong offense (${offPerc} percentile) faces ${teamA.team_name}'s weaker defense (${defPerc} percentile)`;
   }
 
   return {
