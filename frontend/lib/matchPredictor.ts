@@ -52,7 +52,12 @@ const CONFIDENCE_THRESHOLDS = {
 
 /**
  * Calculate recent form from game history
- * Returns average goal differential in last N games
+ * Returns average goal differential in last N games, weighted by sample size
+ *
+ * Sample size weighting prevents overconfidence from small samples:
+ * - 1 game out of 5 needed = 20% weight
+ * - 3 games out of 5 needed = 60% weight
+ * - 5+ games out of 5 needed = 100% weight
  */
 export function calculateRecentForm(
   teamId: string,
@@ -82,7 +87,16 @@ export function calculateRecentForm(
     }
   }
 
-  return gamesWithScores > 0 ? totalGoalDiff / gamesWithScores : 0;
+  if (gamesWithScores === 0) return 0;
+
+  // Calculate average goal differential
+  const avgGoalDiff = totalGoalDiff / gamesWithScores;
+
+  // Weight by sample size to reduce noise from small samples
+  // This prevents a team with 1 game from being treated as reliably as a team with 5 games
+  const sampleSizeWeight = gamesWithScores / n;
+
+  return avgGoalDiff * sampleSizeWeight;
 }
 
 /**
@@ -133,6 +147,23 @@ function getAdaptiveWeights(powerDiff: number): typeof BASE_WEIGHTS {
  */
 function sigmoid(x: number): number {
   return 1 / (1 + Math.exp(-x));
+}
+
+/**
+ * Get age-adjusted league average goals per team
+ * Based on empirical data from youth soccer:
+ * - U10-U11: ~2.0 goals/team
+ * - U12-U14: ~2.5 goals/team
+ * - U15-U18: ~2.8 goals/team
+ * - U19+: ~3.0 goals/team
+ */
+function getLeagueAverageGoals(age: number | null): number {
+  if (!age) return 2.5; // Default to middle range if age unknown
+
+  if (age <= 11) return 2.0;      // U10-U11
+  if (age <= 14) return 2.5;      // U12-U14
+  if (age <= 18) return 2.8;      // U15-U18
+  return 3.0;                     // U19+
 }
 
 /**
@@ -224,8 +255,9 @@ export function predictMatch(
 
   const expectedMargin = compositeDiff * MARGIN_COEFFICIENT * marginMultiplier;
 
-  // 9. Expected scores (league average ~2.5 goals per team)
-  const leagueAvgGoals = 2.5;
+  // 9. Expected scores using age-adjusted league average
+  // Use teamA's age (matchups are typically same-age groups)
+  const leagueAvgGoals = getLeagueAverageGoals(teamA.age);
   const expectedScoreA = Math.max(0, leagueAvgGoals + (expectedMargin / 2));
   const expectedScoreB = Math.max(0, leagueAvgGoals - (expectedMargin / 2));
 
