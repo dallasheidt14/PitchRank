@@ -11,7 +11,7 @@ import { TeamSelector } from './TeamSelector';
 import { PredictedMatchCard } from './PredictedMatchCard';
 import { EnhancedPredictionCard } from './EnhancedPredictionCard';
 import { useTeam, useCommonOpponents, usePredictive, useMatchPrediction } from '@/lib/hooks';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
+import { RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Legend, Tooltip as RechartsTooltip } from 'recharts';
 import { ArrowLeftRight } from 'lucide-react';
 import { formatPowerScore } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
@@ -56,28 +56,66 @@ export function ComparePanel() {
     setTeam2Data(tempData);
   };
 
-  const comparisonData = team1Details && team2Details ? [
-    {
-      metric: 'PowerScore (ML Adjusted)',
-      team1: team1Details.power_score_final ?? 0,
-      team2: team2Details.power_score_final ?? 0,
-    },
-    {
-      metric: 'Win %',
-      team1: team1Details.win_percentage || 0,
-      team2: team2Details.win_percentage || 0,
-    },
-    {
-      metric: 'Games Played',
-      team1: team1Details.games_played,
-      team2: team2Details.games_played,
-    },
-    {
-      metric: 'Wins',
-      team1: team1Details.wins,
-      team2: team2Details.wins,
-    },
-  ] : [];
+  // Normalize metrics to 0-100 scale for radar chart
+  const radarData = useMemo(() => {
+    if (!team1Details || !team2Details) return [];
+
+    // Normalize power score (0-1) to 0-100
+    const normalizePowerScore = (score: number | null) => ((score ?? 0.5) * 100);
+    
+    // Win % is already 0-100
+    const normalizeWinPct = (pct: number | null) => (pct ?? 0);
+    
+    // Normalize offense/defense (0-1) to 0-100
+    const normalizeRating = (rating: number | null) => ((rating ?? 0.5) * 100);
+    
+    // Normalize SOS (0-1) to 0-100
+    const normalizeSOS = (sos: number | null) => ((sos ?? 0.5) * 100);
+    
+    // Normalize recent form (-5 to +5 goal diff range) to 0-100
+    // Use match prediction form data if available, otherwise use 0
+    const normalizeForm = (form: number) => {
+      // Clamp form to -5 to +5 range, then normalize to 0-100
+      const clamped = Math.max(-5, Math.min(5, form));
+      return ((clamped + 5) / 10) * 100;
+    };
+
+    const formA = matchPrediction?.prediction.formA ?? 0;
+    const formB = matchPrediction?.prediction.formB ?? 0;
+
+    return [
+      {
+        metric: 'Power Score',
+        team1: normalizePowerScore(team1Details.power_score_final),
+        team2: normalizePowerScore(team2Details.power_score_final),
+      },
+      {
+        metric: 'Win %',
+        team1: normalizeWinPct(team1Details.win_percentage),
+        team2: normalizeWinPct(team2Details.win_percentage),
+      },
+      {
+        metric: 'Offense',
+        team1: normalizeRating(team1Details.offense_norm),
+        team2: normalizeRating(team2Details.offense_norm),
+      },
+      {
+        metric: 'Defense',
+        team1: normalizeRating(team1Details.defense_norm),
+        team2: normalizeRating(team2Details.defense_norm),
+      },
+      {
+        metric: 'SOS',
+        team1: normalizeSOS(team1Details.sos_norm),
+        team2: normalizeSOS(team2Details.sos_norm),
+      },
+      {
+        metric: 'Form',
+        team1: normalizeForm(formA),
+        team2: normalizeForm(formB),
+      },
+    ];
+  }, [team1Details, team2Details, matchPrediction]);
 
   // Show loading state when teams are being fetched
   const isLoadingTeam1 = team1Id && team1Loading;
@@ -360,55 +398,73 @@ export function ComparePanel() {
                 </div>
               )}
 
-              {/* Side-by-Side Comparison Chart */}
-              <div className="pt-4 border-t">
-                <h3 className="font-display text-lg font-bold uppercase tracking-wide text-primary mb-4">Side-by-Side Comparison</h3>
-                <div className="w-full h-[300px] sm:h-[350px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={comparisonData}
-                      margin={{
-                        top: 20,
-                        right: 10,
-                        left: 0,
-                        bottom: 5
-                      }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis
-                        dataKey="metric"
-                        className="text-xs"
-                        tick={{ fill: 'currentColor', fontSize: 11 }}
-                        stroke="currentColor"
-                        angle={-15}
-                        textAnchor="end"
-                        height={60}
-                      />
-                      <YAxis
-                        className="text-xs"
-                        tick={{ fill: 'currentColor', fontSize: 11 }}
-                        stroke="currentColor"
-                        width={40}
-                      />
-                      <RechartsTooltip
-                        contentStyle={{
-                          backgroundColor: 'hsl(var(--card))',
-                          border: '1px solid hsl(var(--border))',
-                          borderRadius: '0.5rem',
-                          fontSize: '12px',
+              {/* Radar Chart Comparison */}
+              {radarData.length > 0 && (
+                <div className="pt-4 border-t">
+                  <h3 className="font-display text-lg font-bold uppercase tracking-wide text-primary mb-4">Performance Comparison</h3>
+                  <div className="w-full h-[400px] sm:h-[450px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RadarChart
+                        data={radarData}
+                        margin={{
+                          top: 20,
+                          right: 30,
+                          bottom: 20,
+                          left: 20,
                         }}
-                        labelStyle={{ color: 'hsl(var(--foreground))' }}
-                      />
-                      <Legend
-                        wrapperStyle={{ fontSize: '12px' }}
-                        iconSize={12}
-                      />
-                      <Bar dataKey="team1" fill="hsl(var(--chart-1))" name={team1Details.team_name} radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="team2" fill="hsl(var(--chart-2))" name={team2Details.team_name} radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
+                      >
+                        <PolarGrid stroke="hsl(var(--muted))" strokeOpacity={0.3} />
+                        <PolarAngleAxis
+                          dataKey="metric"
+                          tick={{ fill: 'hsl(var(--foreground))', fontSize: 12, fontWeight: 500 }}
+                          className="text-xs"
+                        />
+                        <PolarRadiusAxis
+                          angle={90}
+                          domain={[0, 100]}
+                          tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
+                          tickCount={6}
+                        />
+                        <RechartsTooltip
+                          contentStyle={{
+                            backgroundColor: 'hsl(var(--card))',
+                            border: '1px solid hsl(var(--border))',
+                            borderRadius: '0.5rem',
+                            fontSize: '12px',
+                            padding: '8px 12px',
+                          }}
+                          labelStyle={{ color: 'hsl(var(--foreground))', fontWeight: 600, marginBottom: '4px' }}
+                          formatter={(value: number) => [`${value.toFixed(1)}`, '']}
+                        />
+                        <Radar
+                          name={team1Details.team_name}
+                          dataKey="team1"
+                          stroke="hsl(var(--chart-1))"
+                          fill="hsl(var(--chart-1))"
+                          fillOpacity={0.6}
+                          strokeWidth={2}
+                        />
+                        <Radar
+                          name={team2Details.team_name}
+                          dataKey="team2"
+                          stroke="hsl(var(--chart-2))"
+                          fill="hsl(var(--chart-2))"
+                          fillOpacity={0.6}
+                          strokeWidth={2}
+                        />
+                        <Legend
+                          wrapperStyle={{ fontSize: '12px', paddingTop: '16px' }}
+                          iconSize={12}
+                          formatter={(value) => <span style={{ color: 'hsl(var(--foreground))' }}>{value}</span>}
+                        />
+                      </RadarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <p className="text-xs text-muted-foreground text-center mt-2">
+                    All metrics normalized to 0-100 scale for comparison
+                  </p>
                 </div>
-              </div>
+              )}
             </>
           )}
 
