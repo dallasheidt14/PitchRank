@@ -240,7 +240,7 @@ export function explainMatch(
   teamB: TeamWithRanking,
   prediction: MatchPrediction
 ): MatchExplanation {
-  const { components, formA, formB, winProbabilityA, confidence } = prediction;
+  const { components, formA, formB, winProbabilityA, confidence, confidence_score, expectedMargin, expectedScore } = prediction;
 
   // Generate all possible explanations
   const allExplanations: (Explanation | null)[] = [
@@ -270,31 +270,103 @@ export function explainMatch(
     summary = `${favoredTeam} is favored with a ${probPercent}% win probability`;
   }
 
-  // Generate key insights
+  // Generate enhanced key insights
   const keyInsights: string[] = [];
 
-  // Add prediction confidence context
+  // 1. Enhanced confidence insight with context
+  const confidenceScore = confidence_score ?? 0.5;
   if (confidence === 'high') {
-    keyInsights.push('High confidence: Strong indicators favor this outcome');
+    if (confidenceScore >= 0.80) {
+      keyInsights.push('Very high confidence: Multiple strong indicators align with clear advantage');
+    } else {
+      keyInsights.push('High confidence: Strong indicators favor this outcome');
+    }
   } else if (confidence === 'medium') {
-    keyInsights.push('Medium confidence: Moderate but meaningful advantage detected');
+    if (confidenceScore >= 0.60) {
+      keyInsights.push('Medium-high confidence: Meaningful advantage detected with good data quality');
+    } else {
+      keyInsights.push('Medium confidence: Moderate but meaningful advantage detected');
+    }
   } else {
-    keyInsights.push('Low confidence: Limited edge; result unpredictable');
+    if (confidenceScore < 0.40) {
+      keyInsights.push('Low confidence: Limited data or high variance makes prediction uncertain');
+    } else {
+      keyInsights.push('Low confidence: Limited edge; result unpredictable');
+    }
   }
 
-  // Add top 2 factors as insights
-  factors.slice(0, 2).forEach(factor => {
-    keyInsights.push(factor.description);
-  });
+  // 2. Data quality insights
+  const minGamesPlayed = Math.min(teamA.games_played || 0, teamB.games_played || 0);
+  const maxGamesPlayed = Math.max(teamA.games_played || 0, teamB.games_played || 0);
+  
+  if (minGamesPlayed < 10) {
+    keyInsights.push(`Limited data: One or both teams have fewer than 10 recent games, reducing prediction reliability`);
+  } else if (minGamesPlayed < 20) {
+    keyInsights.push(`Moderate sample size: Both teams have ${minGamesPlayed}+ recent games, providing reasonable data quality`);
+  } else {
+    keyInsights.push(`Strong data foundation: Both teams have ${minGamesPlayed}+ recent games, enhancing prediction reliability`);
+  }
 
-  // Prediction quality
+  // 3. Expected margin interpretation
+  const absMargin = Math.abs(expectedMargin);
+  const roundedMargin = Math.round(absMargin * 10) / 10;
+  
+  if (absMargin < 0.5) {
+    keyInsights.push(`Expected to be a very close match (predicted margin: ${roundedMargin.toFixed(1)} goals)`);
+  } else if (absMargin < 1.5) {
+    keyInsights.push(`Expected to be a tight contest (predicted margin: ${roundedMargin.toFixed(1)} goals)`);
+  } else if (absMargin < 3.0) {
+    keyInsights.push(`Expected to be a competitive match (predicted margin: ${roundedMargin.toFixed(1)} goals)`);
+  } else {
+    const expectedWinner = expectedMargin > 0 ? teamA.team_name : teamB.team_name;
+    keyInsights.push(`Expected to be a decisive result (${expectedWinner} favored by ${roundedMargin.toFixed(1)} goals)`);
+  }
+
+  // 4. Scoreline context
+  const totalExpectedGoals = expectedScore.teamA + expectedScore.teamB;
+  const age = teamA.age || teamB.age;
+  if (age) {
+    // Age-specific context
+    if (age <= 11 && totalExpectedGoals > 5) {
+      keyInsights.push(`High-scoring match expected for U${age} (${totalExpectedGoals.toFixed(1)} total goals)`);
+    } else if (age >= 15 && totalExpectedGoals < 3) {
+      keyInsights.push(`Low-scoring defensive match expected for U${age} (${totalExpectedGoals.toFixed(1)} total goals)`);
+    }
+  }
+
+  // 5. Top factor insight (most important)
+  if (factors.length > 0) {
+    const topFactor = factors[0];
+    if (topFactor.magnitude === 'significant') {
+      keyInsights.push(`Primary factor: ${topFactor.description}`);
+    }
+  }
+
+  // Prediction quality with enhanced reliability message
+  let reliabilityMessage = '';
+  if (confidence === 'high') {
+    if (minGamesPlayed >= 20) {
+      reliabilityMessage = 'Prediction based on multiple strong factors with excellent data quality';
+    } else {
+      reliabilityMessage = 'Prediction based on multiple strong factors with clear advantage';
+    }
+  } else if (confidence === 'medium') {
+    if (minGamesPlayed >= 15) {
+      reliabilityMessage = 'Prediction based on moderate advantages with good data quality';
+    } else {
+      reliabilityMessage = 'Prediction based on moderate advantages across key metrics';
+    }
+  } else {
+    if (minGamesPlayed < 10) {
+      reliabilityMessage = 'Limited data available; prediction reliability reduced';
+    } else {
+      reliabilityMessage = 'Close matchup with minimal separation across all factors';
+    }
+  }
+
   const predictionQuality = {
     confidence,
-    reliability: confidence === 'high'
-      ? 'Prediction based on multiple strong factors with clear advantage'
-      : confidence === 'medium'
-      ? 'Prediction based on moderate advantages across key metrics'
-      : 'Close matchup with minimal separation across all factors',
+    reliability: reliabilityMessage,
   };
 
   return {
