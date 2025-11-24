@@ -10,6 +10,7 @@ import { usePrefetchTeam } from '@/lib/hooks';
 import Link from 'next/link';
 import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Badge } from '@/components/ui/badge';
 import { formatPowerScore, formatSOSIndex, normalizeAgeGroup } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
 
@@ -43,35 +44,28 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const parentRef = useRef<HTMLDivElement>(null);
 
-  // Debug: Log props received
-  console.log('[RankingsTable] Props received:', { region, ageGroup, gender });
-
   const { data: rankings, isLoading, isError, error, refetch } = useRankings(region, ageGroup, gender);
-
-  // Debug: Log query state
-  console.log('[RankingsTable] Query state:', { 
-    isLoading, 
-    isError, 
-    error: error?.message, 
-    rankingsCount: rankings?.length ?? 0 
-  });
-
-  // Debug: Show query params in UI temporarily
-  const debugInfo = `Region: ${region || 'national'}, Age: ${ageGroup}, Gender: ${gender}, Results: ${rankings?.length ?? 0}`;
   const prefetchTeam = usePrefetchTeam();
 
   // Use pre-calculated SOS ranks from database
   // sos_rank_national for national view, sos_rank_state for state view
 
   // Sort rankings based on selected field
+  // Teams with "Not Enough Ranked Games" are sorted separately (after Active teams)
   const sortedRankings = useMemo(() => {
     if (!rankings) return [];
 
-    const sorted = [...rankings].sort((a, b) => {
-      let aValue: number | string;
-      let bValue: number | string;
+    // Separate teams by status
+    const activeTeams = rankings.filter(t => t.status === 'Active');
+    const unrankedTeams = rankings.filter(t => t.status === 'Not Enough Ranked Games');
+    const inactiveTeams = rankings.filter(t => t.status === 'Inactive');
 
-      switch (sortField) {
+    const sortTeams = (teams: RankingRow[]) => {
+      return [...teams].sort((a, b) => {
+        let aValue: number | string;
+        let bValue: number | string;
+
+        switch (sortField) {
         case 'rank':
           // Use rank_in_state_final if region is set, otherwise rank_in_cohort_final
           aValue = region ? (a.rank_in_state_final ?? Infinity) : (a.rank_in_cohort_final ?? Infinity);
@@ -108,22 +102,28 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
             ? (b.sos_rank_state ?? Infinity)
             : (b.sos_rank_national ?? Infinity);
           break;
-        default:
-          return 0;
-      }
+          default:
+            return 0;
+        }
 
-      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        if (typeof aValue === 'string' && typeof bValue === 'string') {
+          return sortDirection === 'asc'
+            ? aValue.localeCompare(bValue)
+            : bValue.localeCompare(aValue);
+        }
+
         return sortDirection === 'asc'
-          ? aValue.localeCompare(bValue)
-          : bValue.localeCompare(aValue);
-      }
+          ? (aValue as number) - (bValue as number)
+          : (bValue as number) - (aValue as number);
+      });
+    };
 
-      return sortDirection === 'asc'
-        ? (aValue as number) - (bValue as number)
-        : (bValue as number) - (aValue as number);
-    });
+    // Sort each group and combine: Active first, then Unranked, then Inactive
+    const sortedActive = sortTeams(activeTeams);
+    const sortedUnranked = sortTeams(unrankedTeams);
+    const sortedInactive = sortTeams(inactiveTeams);
 
-    return sorted;
+    return [...sortedActive, ...sortedUnranked, ...sortedInactive];
   }, [rankings, sortField, sortDirection, region]);
 
   // Virtualizer for rendering only visible rows
@@ -237,16 +237,9 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     return (
       <Card>
         <CardContent className="pt-6">
-          <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-4">
-            <strong>Debug Info:</strong> {debugInfo}
-            <br />
-            <strong>Query:</strong> {region ? `state_rankings_view` : `rankings_view`} 
-            {region && ` WHERE state = '${region.toUpperCase()}'`}
-            {` AND age = ${normalizeAgeGroup(ageGroup)}`}
-            {gender && ` AND gender = '${gender}'`}
-            {` AND status = 'Active'`}
+          <div className="text-sm text-muted-foreground text-center py-8">
+            No teams available for the selected filters.
           </div>
-          <div>No teams available.</div>
         </CardContent>
       </Card>
     );
@@ -264,17 +257,6 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
 
   return (
     <Card className="overflow-hidden border-0 shadow-lg">
-      {/* Debug banner - remove after debugging */}
-      <div className="bg-blue-100 border-b border-blue-400 text-blue-800 px-4 py-2 text-xs">
-        <strong>DEBUG:</strong> {debugInfo} | 
-        Query: {region ? `state_rankings_view` : `rankings_view`} 
-        {region && ` WHERE state = '${region.toUpperCase()}'`}
-        {` AND age = ${normalizeAgeGroup(ageGroup)}`}
-        {gender && ` AND gender = '${gender}'`}
-        {` AND status IN ('Active', 'Not Enough Ranked Games')`}
-        <br />
-        <span className="text-xs">Check browser console for status distribution details</span>
-      </div>
       <CardHeader className="bg-gradient-to-r from-primary to-[oklch(0.28_0.08_165)] text-primary-foreground relative">
         <div className="absolute right-0 top-0 w-2 h-full bg-accent -skew-x-12" aria-hidden="true" />
         <CardTitle className="text-2xl sm:text-3xl font-bold uppercase tracking-wide">
@@ -419,14 +401,31 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                             })()}
                           </div>
                           <div className="px-2 sm:px-4 py-2 sm:py-3 min-w-0">
-                            <Link
-                              href={`/teams/${team.team_id_master}?region=${region || 'national'}&ageGroup=${ageGroup}&gender=${gender?.toLowerCase() || 'male'}`}
-                              onMouseEnter={() => prefetchTeam(team.team_id_master)}
-                              className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block text-xs sm:text-sm truncate block"
-                              aria-label={`View ${team.team_name} team details`}
-                            >
-                              {team.team_name}
-                            </Link>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Link
+                                href={`/teams/${team.team_id_master}?region=${region || 'national'}&ageGroup=${ageGroup}&gender=${gender?.toLowerCase() || 'male'}`}
+                                onMouseEnter={() => prefetchTeam(team.team_id_master)}
+                                className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block text-xs sm:text-sm truncate"
+                                aria-label={`View ${team.team_name} team details`}
+                              >
+                                {team.team_name}
+                              </Link>
+                              {team.status === 'Not Enough Ranked Games' && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge 
+                                      variant="outline" 
+                                      className="text-xs bg-yellow-50 text-yellow-700 border-yellow-300 hover:bg-yellow-100"
+                                    >
+                                      Unranked
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>This team has fewer than 5 ranked games. Rankings are provisional until more games are played.</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                            </div>
                             <div className="text-xs sm:text-sm text-muted-foreground truncate">
                               {team.club_name && <span>{team.club_name}</span>}
                               {team.state && (
