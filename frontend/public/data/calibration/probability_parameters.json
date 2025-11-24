@@ -1,0 +1,50 @@
+{
+  "sensitivity": 4.341787968049807,
+  "calibration_error": 0.10154647078518728,
+  "bucket_accuracy": {
+    "50-55%": {
+      "predicted_prob": 0.5236141621166838,
+      "actual_win_rate": 0.4652089805967525,
+      "games": 153531,
+      "calibration_error": 0.05840518151993129
+    },
+    "55-60%": {
+      "predicted_prob": 0.5743440733136108,
+      "actual_win_rate": 0.5869967278417982,
+      "games": 168696,
+      "calibration_error": 0.012652654528187424
+    },
+    "60-65%": {
+      "predicted_prob": 0.6226417678055307,
+      "actual_win_rate": 0.7385842372980128,
+      "games": 120119,
+      "calibration_error": 0.1159424694924821
+    },
+    "65-70%": {
+      "predicted_prob": 0.6775373480878241,
+      "actual_win_rate": 0.6690647482014388,
+      "games": 139,
+      "calibration_error": 0.008472599886385268
+    },
+    "70-75%": {
+      "predicted_prob": 0.7315374070809263,
+      "actual_win_rate": 0.37271341463414637,
+      "games": 2624,
+      "calibration_error": 0.3588239924467799
+    },
+    "75-80%": {
+      "predicted_prob": 0.7769861916951172,
+      "actual_win_rate": 0.6319683413626979,
+      "games": 5812,
+      "calibration_error": 0.14501785033241932
+    },
+    "80-90%": {
+      "predicted_prob": 0.8074701432497216,
+      "actual_win_rate": 0.795959595959596,
+      "games": 1485,
+      "calibration_error": 0.011510547290125572
+    }
+  },
+  "current_sensitivity": 4.5,
+  "improvement": 0.04453570716147598
+}
