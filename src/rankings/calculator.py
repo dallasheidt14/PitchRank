@@ -659,6 +659,8 @@ async def compute_all_cohorts(
             
             # Treat current power_score_final as "within-age relative strength" in [0, 1],
             # then scale it by the age anchor to get a cross-age comparable score.
+            # Store original for debugging
+            teams_combined['power_score_final_original'] = teams_combined['power_score_final'].copy()
             teams_combined['power_score_final'] = (
                 teams_combined['power_score_final'] * teams_combined['anchor']
             )
@@ -667,7 +669,18 @@ async def compute_all_cohorts(
             logger.info("📊 PowerScore max AFTER anchor scaling (per age):")
             for age, ps_max in after_anchor_max.items():
                 anchor_val = ANCHORS.get(age, 1.0)
-                logger.info(f"    Age {age}: max={ps_max:.4f} (anchor={anchor_val:.3f})")
+                before_val = before_anchor_max.get(age, 0)
+                logger.info(f"    Age {age}: before={before_val:.4f}, after={ps_max:.4f}, anchor={anchor_val:.3f}")
+            
+            # Verify anchor scaling worked
+            for age in sorted(teams_combined['age_num'].unique()):
+                age_df = teams_combined[teams_combined['age_num'] == age]
+                max_ps = age_df['power_score_final'].max()
+                expected_max = ANCHORS.get(age, 1.0)
+                if max_ps > expected_max + 0.01:  # Allow small floating point error
+                    logger.warning(f"⚠️  Age {age}: max PowerScore {max_ps:.4f} exceeds anchor {expected_max:.3f}")
+        else:
+            logger.warning("⚠️  power_score_final column not found, skipping anchor scaling")
     
     # 🔒 Ensure PowerScore is fully clipped to [0, 1] after all operations
     if not teams_combined.empty:
