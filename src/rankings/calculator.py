@@ -609,6 +609,19 @@ async def compute_all_cohorts(
                 logger.info(f"    {age} {gender}: powerscore_adj min={ps_stats.min():.3f}, "
                            f"max={ps_stats.max():.3f}, mean={ps_stats.mean():.3f}")
 
+    # 🔒 Ensure PowerScore is fully clipped to [0, 1] after all operations
+    if not teams_combined.empty:
+        cols_to_clip = ["powerscore_core", "powerscore_adj", "powerscore_ml", "power_score_final"]
+        for col in cols_to_clip:
+            if col in teams_combined.columns:
+                before_min = teams_combined[col].min()
+                before_max = teams_combined[col].max()
+                teams_combined[col] = teams_combined[col].clip(0.0, 1.0)
+                after_min = teams_combined[col].min()
+                after_max = teams_combined[col].max()
+                if before_min < 0.0 or before_max > 1.0:
+                    logger.info(f"  🔒 Clipped {col}: [{before_min:.4f}, {before_max:.4f}] → [{after_min:.4f}, {after_max:.4f}]")
+
     # Save one combined snapshot for all cohorts
     if not teams_combined.empty:
         logger.info("💾 Saving combined ranking snapshot for all cohorts...")
