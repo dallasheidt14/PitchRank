@@ -15,6 +15,145 @@
 
 import type { TeamWithRanking } from './types';
 import type { Game } from './types';
+import { computeConfidence } from './confidenceEngine';
+
+// Age group parameters (loaded from JSON, fallback to defaults)
+interface AgeGroupParameters {
+  avg_goals: number;
+  margin_mult: number;
+  blowout_freq: number;
+}
+
+// Probability calibration parameters
+interface ProbabilityParameters {
+  sensitivity: number;
+  calibration_error: number;
+  bucket_accuracy?: Record<string, any>;
+}
+
+// Margin calibration v2 parameters
+interface MarginParametersV2 {
+  margin_scale: number;
+  age_groups: Record<string, { margin_mult: number; mae: number }>;
+  overall_mae: number;
+}
+
+let ageGroupParams: Record<string, AgeGroupParameters> | null = null;
+let ageGroupParamsLoading: Promise<void> | null = null;
+let probabilityParams: ProbabilityParameters | null = null;
+let probabilityParamsLoading: Promise<void> | null = null;
+let marginParamsV2: MarginParametersV2 | null = null;
+let marginParamsV2Loading: Promise<void> | null = null;
+
+/**
+ * Load age group parameters from JSON file
+ * Caches result after first load
+ */
+async function loadAgeGroupParameters(): Promise<Record<string, AgeGroupParameters>> {
+  if (ageGroupParams) {
+    return ageGroupParams;
+  }
+
+  if (ageGroupParamsLoading) {
+    await ageGroupParamsLoading;
+    return ageGroupParams!;
+  }
+
+  ageGroupParamsLoading = (async () => {
+    try {
+      const response = await fetch('/data/calibration/age_group_parameters.json');
+      if (response.ok) {
+        ageGroupParams = await response.json();
+      } else {
+        // Fallback to defaults if file not found
+        ageGroupParams = {};
+      }
+    } catch (error) {
+      // Fallback to defaults on error
+      ageGroupParams = {};
+    }
+  })();
+
+  await ageGroupParamsLoading;
+  return ageGroupParams!;
+}
+
+/**
+ * Load probability calibration parameters from JSON file
+ * Caches result after first load
+ */
+async function loadProbabilityParameters(): Promise<ProbabilityParameters | null> {
+  if (probabilityParams) {
+    return probabilityParams;
+  }
+
+  if (probabilityParamsLoading) {
+    await probabilityParamsLoading;
+    return probabilityParams;
+  }
+
+  probabilityParamsLoading = (async () => {
+    try {
+      const response = await fetch('/data/calibration/probability_parameters.json');
+      if (response.ok) {
+        probabilityParams = await response.json();
+      } else {
+        // File not found - will use defaults
+        probabilityParams = null;
+      }
+    } catch (error) {
+      // Fallback to defaults on error
+      probabilityParams = null;
+    }
+  })();
+
+  await probabilityParamsLoading;
+  return probabilityParams;
+}
+
+/**
+ * Load margin calibration v2 parameters from JSON file
+ * Caches result after first load
+ */
+async function loadMarginParametersV2(): Promise<MarginParametersV2 | null> {
+  if (marginParamsV2) {
+    return marginParamsV2;
+  }
+
+  if (marginParamsV2Loading) {
+    await marginParamsV2Loading;
+    return marginParamsV2;
+  }
+
+  marginParamsV2Loading = (async () => {
+    try {
+      const response = await fetch('/data/calibration/margin_parameters_v2.json');
+      if (response.ok) {
+        marginParamsV2 = await response.json();
+      } else {
+        // File not found - will use defaults
+        marginParamsV2 = null;
+      }
+    } catch (error) {
+      // Fallback to defaults on error
+      marginParamsV2 = null;
+    }
+  })();
+
+  await marginParamsV2Loading;
+  return marginParamsV2;
+}
+
+// Load parameters on module load (non-blocking)
+loadAgeGroupParameters().catch(() => {
+  // Silently fail - will use defaults
+});
+loadProbabilityParameters().catch(() => {
+  // Silently fail - will use defaults
+});
+loadMarginParametersV2().catch(() => {
+  // Silently fail - will use defaults
+});
 
 // Base feature weights (optimized for close matchups - 74.7% accuracy)
 const BASE_WEIGHTS = {
@@ -38,10 +177,21 @@ const SKILL_GAP_THRESHOLDS = {
   MEDIUM: 0.10,  // 10-15 percentile points = transition zone
 };
 
-// Prediction parameters
-const SENSITIVITY = 4.5;
+// Prediction parameters (with calibration overrides)
+const DEFAULT_SENSITIVITY = 4.5;
 const MARGIN_COEFFICIENT = 8.0;
 const RECENT_GAMES_COUNT = 5;
+
+/**
+ * Get calibrated SENSITIVITY value
+ * Uses probability_parameters.json if available, otherwise defaults to 4.5
+ */
+function getSensitivity(): number {
+  if (probabilityParams && probabilityParams.sensitivity) {
+    return probabilityParams.sensitivity;
+  }
+  return DEFAULT_SENSITIVITY;
+}
 
 // Confidence thresholds
 const CONFIDENCE_THRESHOLDS = {
@@ -151,19 +301,59 @@ function sigmoid(x: number): number {
 
 /**
  * Get age-adjusted league average goals per team
- * Based on empirical data from youth soccer:
- * - U10-U11: ~2.0 goals/team
- * - U12-U14: ~2.5 goals/team
- * - U15-U18: ~2.8 goals/team
- * - U19+: ~3.0 goals/team
+ * Uses calibrated parameters from age_group_parameters.json if available,
+ * otherwise falls back to empirical defaults
  */
 function getLeagueAverageGoals(age: number | null): number {
   if (!age) return 2.5; // Default to middle range if age unknown
 
+  // Try to use calibrated parameters
+  const ageKey = `u${age}`;
+  if (ageGroupParams && ageGroupParams[ageKey]?.avg_goals) {
+    return ageGroupParams[ageKey].avg_goals;
+  }
+
+  // Fallback to empirical defaults
   if (age <= 11) return 2.0;      // U10-U11
   if (age <= 14) return 2.5;      // U12-U14
   if (age <= 18) return 2.8;      // U15-U18
   return 3.0;                     // U19+
+}
+
+/**
+ * Get age-specific margin multiplier
+ * Uses calibrated parameters from margin_parameters_v2.json and age_group_parameters.json if available,
+ * otherwise uses compositeDiff-based calculation
+ */
+function getAgeSpecificMarginMultiplier(
+  age: number | null,
+  absCompositeDiff: number
+): number {
+  // Try to use margin calibration v2 parameters first
+  const ageKey = age ? `u${age}` : null;
+  let baseMultiplier = 1.0;
+  
+  if (ageKey && marginParamsV2 && marginParamsV2.age_groups[ageKey]?.margin_mult) {
+    // Use refined margin_mult from v2 calibration
+    baseMultiplier = marginParamsV2.age_groups[ageKey].margin_mult;
+  } else if (ageKey && ageGroupParams && ageGroupParams[ageKey]?.margin_mult) {
+    // Fallback to age_group_parameters.json
+    baseMultiplier = ageGroupParams[ageKey].margin_mult;
+  }
+  
+  // Apply compositeDiff-based scaling on top of base multiplier
+  let compositeScaling = 1.0;
+  if (absCompositeDiff > 0.12) {
+    compositeScaling = 2.5;
+  } else if (absCompositeDiff > 0.08) {
+    const transitionProgress = (absCompositeDiff - 0.08) / (0.12 - 0.08);
+    compositeScaling = 1.0 + (1.5 * transitionProgress);
+  }
+  
+  // Apply global margin_scale from v2 calibration if available
+  const marginScale = marginParamsV2?.margin_scale ?? 1.0;
+  
+  return baseMultiplier * compositeScaling * marginScale;
 }
 
 /**
@@ -180,6 +370,7 @@ export interface MatchPrediction {
   };
   expectedMargin: number;
   confidence: 'high' | 'medium' | 'low';
+  confidence_score?: number; // Optional: include confidence score for debugging
 
   // Component breakdowns
   components: {
@@ -234,25 +425,14 @@ export function predictMatch(
     weights.RECENT_FORM * formDiffNorm +
     weights.MATCHUP * matchupAdvantage;
 
-  // 7. Win probability
-  const winProbA = sigmoid(SENSITIVITY * compositeDiff);
+  // 7. Win probability (using calibrated sensitivity)
+  const sensitivity = getSensitivity();
+  const winProbA = sigmoid(sensitivity * compositeDiff);
   const winProbB = 1 - winProbA;
 
-  // 8. Expected goal margin with non-linear amplification for blowouts
-  // For close games: use base coefficient
-  // For blowouts: amplify margin to reflect larger skill gaps
+  // 8. Expected goal margin with age-specific and compositeDiff-based amplification
   const absCompositeDiff = Math.abs(compositeDiff);
-  let marginMultiplier = 1.0;
-
-  if (absCompositeDiff > 0.12) {
-    // Large gap (>0.12): amplify margin by 2.5x for realistic blowouts
-    marginMultiplier = 2.5;
-  } else if (absCompositeDiff > 0.08) {
-    // Medium gap (0.08-0.12): interpolate from 1.0x to 2.5x
-    const transitionProgress = (absCompositeDiff - 0.08) / (0.12 - 0.08);
-    marginMultiplier = 1.0 + (1.5 * transitionProgress);
-  }
-
+  const marginMultiplier = getAgeSpecificMarginMultiplier(teamA.age, absCompositeDiff);
   const expectedMargin = compositeDiff * MARGIN_COEFFICIENT * marginMultiplier;
 
   // 9. Expected scores using age-adjusted league average
@@ -267,16 +447,9 @@ export function predictMatch(
   else if (winProbA < 0.45) predictedWinner = 'team_b';
   else predictedWinner = 'draw';
 
-  // 11. Confidence level
-  let confidence: 'high' | 'medium' | 'low';
-  const probDiff = Math.abs(winProbA - 0.5);
-  if (probDiff >= (CONFIDENCE_THRESHOLDS.HIGH - 0.5)) {
-    confidence = 'high';
-  } else if (probDiff >= (CONFIDENCE_THRESHOLDS.MEDIUM - 0.5)) {
-    confidence = 'medium';
-  } else {
-    confidence = 'low';
-  }
+  // 11. Confidence level (using variance-based confidence engine)
+  const confidenceResult = computeConfidence(teamA, teamB, compositeDiff, allGames);
+  const confidence = confidenceResult.confidence;
 
   return {
     predictedWinner,
@@ -288,6 +461,7 @@ export function predictMatch(
     },
     expectedMargin,
     confidence,
+    confidence_score: confidenceResult.confidence_score,
     components: {
       powerDiff,
       sosDiff,

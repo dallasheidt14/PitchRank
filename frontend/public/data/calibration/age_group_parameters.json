@@ -1,0 +1,83 @@
+{
+  "u10": {
+    "avg_goals": 3.06,
+    "margin_mult": 1.42,
+    "blowout_freq": 0.279,
+    "median_margin": 3.0,
+    "variance_margins": 8.36,
+    "variance_goals": 7.53,
+    "games_count": 30535
+  },
+  "u11": {
+    "avg_goals": 2.73,
+    "margin_mult": 1.35,
+    "blowout_freq": 0.237,
+    "median_margin": 2.0,
+    "variance_margins": 7.12,
+    "variance_goals": 6.39,
+    "games_count": 84138
+  },
+  "u12": {
+    "avg_goals": 2.44,
+    "margin_mult": 1.29,
+    "blowout_freq": 0.196,
+    "median_margin": 2.0,
+    "variance_margins": 5.94,
+    "variance_goals": 5.34,
+    "games_count": 97725
+  },
+  "u13": {
+    "avg_goals": 2.22,
+    "margin_mult": 1.27,
+    "blowout_freq": 0.182,
+    "median_margin": 2.0,
+    "variance_margins": 5.68,
+    "variance_goals": 5.0,
+    "games_count": 86608
+  },
+  "u14": {
+    "avg_goals": 2.02,
+    "margin_mult": 1.25,
+    "blowout_freq": 0.166,
+    "median_margin": 2.0,
+    "variance_margins": 5.25,
+    "variance_goals": 4.54,
+    "games_count": 76257
+  },
+  "u15": {
+    "avg_goals": 1.95,
+    "margin_mult": 1.23,
+    "blowout_freq": 0.152,
+    "median_margin": 2.0,
+    "variance_margins": 4.99,
+    "variance_goals": 4.3,
+    "games_count": 61058
+  },
+  "u16": {
+    "avg_goals": 1.9,
+    "margin_mult": 1.23,
+    "blowout_freq": 0.152,
+    "median_margin": 2.0,
+    "variance_margins": 4.77,
+    "variance_goals": 4.11,
+    "games_count": 12335
+  },
+  "u17": {
+    "avg_goals": 1.97,
+    "margin_mult": 1.24,
+    "blowout_freq": 0.158,
+    "median_margin": 2.0,
+    "variance_margins": 5.48,
+    "variance_goals": 4.6,
+    "games_count": 3173
+  },
+  "u18": {
+    "avg_goals": 2.06,
+    "margin_mult": 1.24,
+    "blowout_freq": 0.161,
+    "median_margin": 2.0,
+    "variance_margins": 5.99,
+    "variance_goals": 5.03,
+    "games_count": 577
+  }
+}
