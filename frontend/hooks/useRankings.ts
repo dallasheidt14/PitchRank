@@ -119,6 +119,30 @@ export function useRankings(
               })));
             }
           }
+          
+          // Always check status distribution when we have results but want to see if more exist
+          if (region && offset === 0 && data && data.length > 0) {
+            // Check how many teams exist without status filter
+            const statusCheckQuery = supabase
+              .from(table)
+              .select('status')
+              .eq('state', normalizedRegion)
+              .eq('age', normalizedAge!)
+              .eq('gender', gender!);
+            
+            const { data: statusData } = await statusCheckQuery;
+            
+            if (statusData) {
+              const statusCounts = statusData.reduce((acc: Record<string, number>, item: any) => {
+                const status = item.status || 'NULL';
+                acc[status] = (acc[status] || 0) + 1;
+                return acc;
+              }, {});
+              
+              console.log(`[useRankings] Status distribution for ${normalizedRegion} U${normalizedAge} ${gender}:`, statusCounts);
+              console.log(`[useRankings] Active teams: ${data.length}, Total teams: ${statusData.length}`);
+            }
+          }
         }
 
         if (!data || data.length === 0) {

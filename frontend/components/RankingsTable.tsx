@@ -272,6 +272,8 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
         {` AND age = ${normalizeAgeGroup(ageGroup)}`}
         {gender && ` AND gender = '${gender}'`}
         {` AND status = 'Active'`}
+        <br />
+        <span className="text-xs">Check browser console for status distribution details</span>
       </div>
       <CardHeader className="bg-gradient-to-r from-primary to-[oklch(0.28_0.08_165)] text-primary-foreground relative">
         <div className="absolute right-0 top-0 w-2 h-full bg-accent -skew-x-12" aria-hidden="true" />
