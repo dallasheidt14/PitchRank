@@ -5,61 +5,142 @@ import { ListSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { useRankings } from '@/lib/hooks';
 import Link from 'next/link';
-import { ArrowUp, ArrowDown } from 'lucide-react';
+import { ArrowUp, ArrowDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { usePrefetchTeam } from '@/lib/hooks';
-import { useEffect, useRef } from 'react';
-import { getWatchedTeams } from '@/lib/watchlist';
-import { launchConfetti } from '@/components/ui/confetti';
+import { useState, useEffect } from 'react';
 import { formatPowerScore } from '@/lib/utils';
-import { getErrorMessage } from '@/lib/errors';
+import { Button } from '@/components/ui/button';
 
 /**
- * HomeLeaderboard component - displays featured rankings on the home page
- * Shows top 10 national teams for U12 Male as default
- * Triggers confetti when a watched team reaches #1
+ * Cohort configuration for carousel
+ */
+interface Cohort {
+  age: string;
+  gender: 'M' | 'F';
+  displayAge: string;
+  displayGender: string;
+}
+
+const COHORTS: Cohort[] = [
+  { age: 'u10', gender: 'M', displayAge: 'U10', displayGender: 'Boys' },
+  { age: 'u10', gender: 'F', displayAge: 'U10', displayGender: 'Girls' },
+  { age: 'u11', gender: 'M', displayAge: 'U11', displayGender: 'Boys' },
+  { age: 'u11', gender: 'F', displayAge: 'U11', displayGender: 'Girls' },
+  { age: 'u12', gender: 'M', displayAge: 'U12', displayGender: 'Boys' },
+  { age: 'u12', gender: 'F', displayAge: 'U12', displayGender: 'Girls' },
+  { age: 'u13', gender: 'M', displayAge: 'U13', displayGender: 'Boys' },
+  { age: 'u13', gender: 'F', displayAge: 'U13', displayGender: 'Girls' },
+  { age: 'u14', gender: 'M', displayAge: 'U14', displayGender: 'Boys' },
+  { age: 'u14', gender: 'F', displayAge: 'U14', displayGender: 'Girls' },
+  { age: 'u15', gender: 'M', displayAge: 'U15', displayGender: 'Boys' },
+  { age: 'u15', gender: 'F', displayAge: 'U15', displayGender: 'Girls' },
+  { age: 'u16', gender: 'M', displayAge: 'U16', displayGender: 'Boys' },
+  { age: 'u16', gender: 'F', displayAge: 'U16', displayGender: 'Girls' },
+  { age: 'u17', gender: 'M', displayAge: 'U17', displayGender: 'Boys' },
+  { age: 'u17', gender: 'F', displayAge: 'U17', displayGender: 'Girls' },
+  { age: 'u18', gender: 'M', displayAge: 'U18', displayGender: 'Boys' },
+  { age: 'u18', gender: 'F', displayAge: 'U18', displayGender: 'Girls' },
+];
+
+/**
+ * HomeLeaderboard component - displays featured rankings carousel on the home page
+ * Shows top 10 national teams rotating through age groups U10-U18, Male & Female
+ * Auto-rotates every 15 seconds, pauses on hover
  */
 export function HomeLeaderboard() {
-  const { data: rankings, isLoading, isError, error, refetch } = useRankings(null, 'u12', 'M');
+  const [currentIndex, setCurrentIndex] = useState(4); // Start at U12 Male (index 4)
+  const [isPaused, setIsPaused] = useState(false);
   const prefetchTeam = usePrefetchTeam();
-  const confettiTriggeredRef = useRef<Set<string>>(new Set());
+
+  const currentCohort = COHORTS[currentIndex];
+  const { data: rankings, isLoading, isError, error, refetch } = useRankings(
+    null,
+    currentCohort.age,
+    currentCohort.gender
+  );
 
   // Get top 10 teams
   const topTeams = rankings?.slice(0, 10) || [];
 
-  // Check for watched teams reaching #1 and trigger confetti
+  // Auto-rotation every 15 seconds
   useEffect(() => {
-    if (!rankings || rankings.length === 0) return;
-    
-    const watchedTeams = getWatchedTeams();
-    const topTeam = rankings[0];
-    
-    if (topTeam && topTeam.rank_in_cohort_final === 1 && watchedTeams.includes(topTeam.team_id_master)) {
-      // Check if we've already triggered confetti for this team in this session
-      const sessionKey = `confetti_${topTeam.team_id_master}`;
-      const lastConfettiTeamId = sessionStorage.getItem('lastConfettiTeamId');
-      
-      if (lastConfettiTeamId !== topTeam.team_id_master && !confettiTriggeredRef.current.has(sessionKey)) {
-        launchConfetti();
-        sessionStorage.setItem('lastConfettiTeamId', topTeam.team_id_master);
-        confettiTriggeredRef.current.add(sessionKey);
-      }
-    }
-  }, [rankings]);
+    if (isPaused) return;
+
+    const interval = setInterval(() => {
+      setCurrentIndex((prev) => (prev + 1) % COHORTS.length);
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, [isPaused]);
+
+  const handlePrevious = () => {
+    setCurrentIndex((prev) => (prev - 1 + COHORTS.length) % COHORTS.length);
+  };
+
+  const handleNext = () => {
+    setCurrentIndex((prev) => (prev + 1) % COHORTS.length);
+  };
 
   return (
-    <Card className="overflow-hidden border-0 shadow-lg">
+    <Card
+      className="overflow-hidden border-0 shadow-lg"
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => setIsPaused(false)}
+    >
       {/* Header with gradient background */}
       <CardHeader className="bg-gradient-to-r from-primary to-[oklch(0.28_0.08_165)] text-primary-foreground relative overflow-hidden">
         <div className="absolute right-0 top-0 w-2 h-full bg-accent -skew-x-12" aria-hidden="true" />
-        <CardTitle className="text-2xl sm:text-3xl font-bold uppercase tracking-wide">
-          Top 10 Rankings
-        </CardTitle>
-        <CardDescription className="text-primary-foreground/80 text-base">
-          U12 Male • National • Power Score
-        </CardDescription>
+        <div className="flex items-center justify-between">
+          <div className="flex-1">
+            <CardTitle className="text-2xl sm:text-3xl font-bold uppercase tracking-wide">
+              Top 10 Rankings
+            </CardTitle>
+            <CardDescription className="text-primary-foreground/80 text-base">
+              {currentCohort.displayAge} {currentCohort.displayGender} • National • Power Score
+            </CardDescription>
+          </div>
+
+          {/* Carousel Controls */}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handlePrevious}
+              className="h-8 w-8 text-primary-foreground hover:bg-primary-foreground/20"
+              aria-label="Previous cohort"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleNext}
+              className="h-8 w-8 text-primary-foreground hover:bg-primary-foreground/20"
+              aria-label="Next cohort"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Carousel Indicators */}
+        <div className="flex gap-1.5 mt-3 justify-center">
+          {COHORTS.map((_, index) => (
+            <button
+              key={index}
+              onClick={() => setCurrentIndex(index)}
+              className={`h-1.5 rounded-full transition-all ${
+                index === currentIndex
+                  ? 'w-6 bg-primary-foreground'
+                  : 'w-1.5 bg-primary-foreground/30 hover:bg-primary-foreground/50'
+              }`}
+              aria-label={`Go to ${COHORTS[index].displayAge} ${COHORTS[index].displayGender}`}
+            />
+          ))}
+        </div>
       </CardHeader>
       <CardContent className="p-0">
-        {isLoading && <ListSkeleton items={5} />}
+        {isLoading && <ListSkeleton items={10} />}
 
         {isError && (
           <ErrorDisplay error={error} retry={refetch} />
@@ -69,17 +150,7 @@ export function HomeLeaderboard() {
           <div className="divide-y divide-border">
             {topTeams.length === 0 ? (
               <div className="text-sm text-muted-foreground text-center py-8 px-4">
-                <p>No rankings data available</p>
-                <p className="text-xs mt-2">
-                  Rankings count: {rankings?.length || 0} |
-                  Loading: {isLoading ? 'Yes' : 'No'} |
-                  Error: {isError ? 'Yes' : 'No'}
-                </p>
-                {error && (
-                  <p className="text-xs text-red-500 mt-2">
-                    Error: {getErrorMessage(error)}
-                  </p>
-                )}
+                <p>No rankings data available for this cohort</p>
               </div>
             ) : (
               topTeams.map((team, index) => {
