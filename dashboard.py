@@ -1452,6 +1452,182 @@ elif section == "📈 Database Import Stats":
         except Exception as e:
             st.error(f"Error loading validation errors: {e}")
 
+        st.divider()
+
+        # Team Status Distribution
+        st.subheader("Team Status Distribution")
+        st.markdown("Breakdown of teams by ranking status (Active, Inactive, Not Enough Ranked Games)")
+
+        try:
+            # Query rankings_full or rankings_view for status distribution
+            # Try rankings_view first (includes all teams with rankings)
+            status_query = """
+                SELECT 
+                    status,
+                    COUNT(*) as team_count
+                FROM rankings_view
+                GROUP BY status
+                ORDER BY 
+                    CASE status 
+                        WHEN 'Active' THEN 1 
+                        WHEN 'Not Enough Ranked Games' THEN 2 
+                        WHEN 'Inactive' THEN 3 
+                        ELSE 4 
+                    END
+            """
+            
+            # Use RPC call or direct query
+            # Since Supabase Python client doesn't support raw SQL easily, we'll use table queries
+            # Get all unique statuses and count them
+            all_statuses = []
+            page_size = 1000
+            offset = 0
+            
+            with st.spinner("Loading team status data..."):
+                while True:
+                    status_result = db.table('rankings_view').select(
+                        'status'
+                    ).range(offset, offset + page_size - 1).execute()
+                    
+                    if not status_result.data:
+                        break
+                    
+                    all_statuses.extend([r.get('status') for r in status_result.data])
+                    
+                    if len(status_result.data) < page_size:
+                        break
+                    
+                    offset += page_size
+            
+            if all_statuses:
+                # Count statuses
+                from collections import Counter
+                status_counts = Counter(all_statuses)
+                total_teams = len(all_statuses)
+                
+                # Display metrics
+                col1, col2, col3, col4 = st.columns(4)
+                
+                active_count = status_counts.get('Active', 0)
+                inactive_count = status_counts.get('Inactive', 0)
+                not_enough_count = status_counts.get('Not Enough Ranked Games', 0)
+                other_count = total_teams - active_count - inactive_count - not_enough_count
+                
+                with col1:
+                    active_pct = (active_count / total_teams * 100) if total_teams > 0 else 0
+                    st.metric(
+                        "Active Teams",
+                        f"{active_count:,}",
+                        help=f"{active_pct:.1f}% of all teams"
+                    )
+                    st.caption("Teams with enough ranked games")
+                
+                with col2:
+                    not_enough_pct = (not_enough_count / total_teams * 100) if total_teams > 0 else 0
+                    st.metric(
+                        "Not Enough Ranked Games",
+                        f"{not_enough_count:,}",
+                        help=f"{not_enough_pct:.1f}% of all teams"
+                    )
+                    st.caption("Teams with <5 ranked games")
+                
+                with col3:
+                    inactive_pct = (inactive_count / total_teams * 100) if total_teams > 0 else 0
+                    st.metric(
+                        "Inactive Teams",
+                        f"{inactive_count:,}",
+                        help=f"{inactive_pct:.1f}% of all teams"
+                    )
+                    st.caption("No games in last 180 days")
+                
+                with col4:
+                    st.metric(
+                        "Total Teams",
+                        f"{total_teams:,}"
+                    )
+                    st.caption("All teams in rankings")
+                
+                # Display as table
+                st.divider()
+                status_df = pd.DataFrame([
+                    {
+                        'Status': 'Active',
+                        'Count': active_count,
+                        'Percentage': f"{(active_count / total_teams * 100):.1f}%"
+                    },
+                    {
+                        'Status': 'Not Enough Ranked Games',
+                        'Count': not_enough_count,
+                        'Percentage': f"{(not_enough_count / total_teams * 100):.1f}%"
+                    },
+                    {
+                        'Status': 'Inactive',
+                        'Count': inactive_count,
+                        'Percentage': f"{(inactive_count / total_teams * 100):.1f}%"
+                    }
+                ])
+                
+                if other_count > 0:
+                    status_df = pd.concat([status_df, pd.DataFrame([{
+                        'Status': 'Other/Unknown',
+                        'Count': other_count,
+                        'Percentage': f"{(other_count / total_teams * 100):.1f}%"
+                    }])], ignore_index=True)
+                
+                st.dataframe(status_df, use_container_width=True, hide_index=True)
+                
+                # Status breakdown by age group (optional expander)
+                with st.expander("View Status Breakdown by Age Group"):
+                    # Get status by age group
+                    age_status_data = []
+                    offset = 0
+                    
+                    while True:
+                        age_status_result = db.table('rankings_view').select(
+                            'age, status'
+                        ).range(offset, offset + page_size - 1).execute()
+                        
+                        if not age_status_result.data:
+                            break
+                        
+                        age_status_data.extend([
+                            {'age': r.get('age'), 'status': r.get('status')}
+                            for r in age_status_result.data
+                        ])
+                        
+                        if len(age_status_result.data) < page_size:
+                            break
+                        
+                        offset += page_size
+                    
+                    if age_status_data:
+                        age_status_df = pd.DataFrame(age_status_data)
+                        age_status_pivot = pd.crosstab(
+                            age_status_df['age'],
+                            age_status_df['status'],
+                            margins=True,
+                            margins_name='Total'
+                        )
+                        
+                        # Reorder columns
+                        col_order = ['Active', 'Not Enough Ranked Games', 'Inactive', 'Total']
+                        available_cols = [c for c in col_order if c in age_status_pivot.columns]
+                        other_cols = [c for c in age_status_pivot.columns if c not in col_order]
+                        age_status_pivot = age_status_pivot[available_cols + other_cols]
+                        
+                        st.dataframe(
+                            age_status_pivot.style.background_gradient(cmap='YlOrRd', subset=age_status_pivot.columns[:-1]),
+                            use_container_width=True
+                        )
+            else:
+                st.warning("No team status data found. Rankings may not have been calculated yet.")
+                
+        except Exception as e:
+            st.error(f"Error loading team status distribution: {e}")
+            import traceback
+            with st.expander("View Error Details"):
+                st.code(traceback.format_exc())
+
 # ============================================================================
 # STATE COVERAGE SECTION
 # ============================================================================
