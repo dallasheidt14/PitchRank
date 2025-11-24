@@ -439,16 +439,16 @@ export function ComparePanel() {
                         <Radar
                           name={team1Details.team_name}
                           dataKey="team1"
-                          stroke="hsl(var(--chart-1))"
-                          fill="hsl(var(--chart-1))"
+                          stroke="#16a34a"
+                          fill="#16a34a"
                           fillOpacity={0.6}
                           strokeWidth={2}
                         />
                         <Radar
                           name={team2Details.team_name}
                           dataKey="team2"
-                          stroke="hsl(var(--chart-2))"
-                          fill="hsl(var(--chart-2))"
+                          stroke="#2563eb"
+                          fill="#2563eb"
                           fillOpacity={0.6}
                           strokeWidth={2}
                         />
