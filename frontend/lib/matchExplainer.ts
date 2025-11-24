@@ -273,13 +273,13 @@ export function explainMatch(
   // Generate key insights
   const keyInsights: string[] = [];
 
-  // Add prediction accuracy context
+  // Add prediction confidence context
   if (confidence === 'high') {
-    keyInsights.push('High confidence prediction: Similar matchups are 98% accurate historically');
+    keyInsights.push('High confidence: Strong indicators favor this outcome');
   } else if (confidence === 'medium') {
-    keyInsights.push('Medium confidence: Similar matchups are 66% accurate historically');
+    keyInsights.push('Medium confidence: Moderate but meaningful advantage detected');
   } else {
-    keyInsights.push('Low confidence: Teams are evenly matched, outcome is uncertain');
+    keyInsights.push('Low confidence: Limited edge; result unpredictable');
   }
 
   // Add top 2 factors as insights
@@ -291,10 +291,10 @@ export function explainMatch(
   const predictionQuality = {
     confidence,
     reliability: confidence === 'high'
-      ? 'Based on 1000+ similar matchups, 98% accurate'
+      ? 'Prediction based on multiple strong factors with clear advantage'
       : confidence === 'medium'
-      ? 'Based on 1000+ similar matchups, 66% accurate'
-      : 'Close matchups are inherently unpredictable',
+      ? 'Prediction based on moderate advantages across key metrics'
+      : 'Close matchup with minimal separation across all factors',
   };
 
   return {

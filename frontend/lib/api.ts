@@ -542,7 +542,9 @@ export const api = {
     const teamA = await this.getTeam(teamAId);
     const teamB = await this.getTeam(teamBId);
 
-    // Fetch recent games for form calculation (last 60 days, limit 500)
+    // Fetch recent games for form calculation (last 60 days, only for Team A/B)
+    // This optimized query only fetches games involving the two teams being compared,
+    // eliminating the need for a hard limit and ensuring we get all relevant games
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - 60);
 
@@ -552,8 +554,8 @@ export const api = {
       .gte('game_date', cutoffDate.toISOString().split('T')[0])
       .not('home_score', 'is', null)
       .not('away_score', 'is', null)
-      .order('game_date', { ascending: false })
-      .limit(500);
+      .or(`home_team_master_id.in.(${teamAId},${teamBId}),away_team_master_id.in.(${teamAId},${teamBId})`)
+      .order('game_date', { ascending: false });
 
     if (gamesError) {
       console.error('[api.getMatchPrediction] Error fetching games:', gamesError);
