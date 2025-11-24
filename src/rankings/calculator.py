@@ -609,6 +609,66 @@ async def compute_all_cohorts(
                 logger.info(f"    {age} {gender}: powerscore_adj min={ps_stats.min():.3f}, "
                            f"max={ps_stats.max():.3f}, mean={ps_stats.mean():.3f}")
 
+    # ---- Final age-anchor scaling for PowerScore ----
+    if not teams_combined.empty and 'age_group' in teams_combined.columns:
+        ANCHORS = {
+            10: 0.400,
+            11: 0.475,
+            12: 0.550,
+            13: 0.625,
+            14: 0.700,
+            15: 0.775,
+            16: 0.850,
+            17: 0.925,
+            18: 1.000,
+            19: 1.000,
+        }
+        
+        # Extract numeric age from age_group like 'u12'
+        if 'age_num' not in teams_combined.columns:
+            teams_combined['age_num'] = (
+                teams_combined['age_group']
+                .astype(str)
+                .str.extract(r'(\d+)')
+                .astype(int)
+            )
+        
+        teams_combined['anchor'] = teams_combined['age_num'].map(ANCHORS)
+        # If anchor is missing for some age, default to 1.0 (no scaling)
+        teams_combined['anchor'] = teams_combined['anchor'].fillna(1.0)
+        
+        # Ensure power_score_final exists (use fallback logic if not present)
+        if 'power_score_final' not in teams_combined.columns:
+            # Use powerscore_ml if available, otherwise powerscore_adj, otherwise national_power_score
+            if 'powerscore_ml' in teams_combined.columns:
+                teams_combined['power_score_final'] = teams_combined['powerscore_ml']
+            elif 'powerscore_adj' in teams_combined.columns:
+                teams_combined['power_score_final'] = teams_combined['powerscore_adj']
+            elif 'national_power_score' in teams_combined.columns:
+                teams_combined['power_score_final'] = teams_combined['national_power_score']
+            else:
+                # Fallback: use powerscore_adj if it exists
+                logger.warning("⚠️  No power_score_final source found, skipping anchor scaling")
+        
+        # Apply anchor scaling to power_score_final
+        if 'power_score_final' in teams_combined.columns:
+            before_anchor_max = teams_combined.groupby('age_num')['power_score_final'].max()
+            logger.info("📊 PowerScore max BEFORE anchor scaling (per age):")
+            for age, ps_max in before_anchor_max.items():
+                logger.info(f"    Age {age}: max={ps_max:.4f}")
+            
+            # Treat current power_score_final as "within-age relative strength" in [0, 1],
+            # then scale it by the age anchor to get a cross-age comparable score.
+            teams_combined['power_score_final'] = (
+                teams_combined['power_score_final'] * teams_combined['anchor']
+            )
+            
+            after_anchor_max = teams_combined.groupby('age_num')['power_score_final'].max()
+            logger.info("📊 PowerScore max AFTER anchor scaling (per age):")
+            for age, ps_max in after_anchor_max.items():
+                anchor_val = ANCHORS.get(age, 1.0)
+                logger.info(f"    Age {age}: max={ps_max:.4f} (anchor={anchor_val:.3f})")
+    
     # 🔒 Ensure PowerScore is fully clipped to [0, 1] after all operations
     if not teams_combined.empty:
         cols_to_clip = ["powerscore_core", "powerscore_adj", "powerscore_ml", "power_score_final"]
