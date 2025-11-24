@@ -755,15 +755,21 @@ def v53e_to_rankings_full_format(
         rankings_df['global_power_score'] = None
     
     # Calculate power_score_final with fallback
-    rankings_df['power_score_final'] = rankings_df.apply(
-        lambda row: (
-            row['powerscore_ml'] if pd.notna(row.get('powerscore_ml')) else
-            row['global_power_score'] if pd.notna(row.get('global_power_score')) else
-            row['powerscore_adj'] if pd.notna(row.get('powerscore_adj')) else
-            row['national_power_score']
-        ),
-        axis=1
-    ).clip(0.0, 1.0)
+    # If power_score_final already exists (e.g., from anchor scaling in compute_all_cohorts),
+    # preserve it instead of recalculating
+    if 'power_score_final' not in rankings_df.columns or rankings_df['power_score_final'].isna().all():
+        rankings_df['power_score_final'] = rankings_df.apply(
+            lambda row: (
+                row['powerscore_ml'] if pd.notna(row.get('powerscore_ml')) else
+                row['global_power_score'] if pd.notna(row.get('global_power_score')) else
+                row['powerscore_adj'] if pd.notna(row.get('powerscore_adj')) else
+                row['national_power_score']
+            ),
+            axis=1
+        ).clip(0.0, 1.0)
+    else:
+        # power_score_final already exists (likely anchor-scaled), just ensure it's clipped
+        rankings_df['power_score_final'] = rankings_df['power_score_final'].clip(0.0, 1.0)
     
     # Rename team_id to match database column name
     rankings_df = rankings_df.rename(columns={'team_id': 'team_id'})
