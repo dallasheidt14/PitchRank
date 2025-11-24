@@ -366,6 +366,19 @@ async def main():
             console.print("[yellow]No teams found for ranking[/yellow]")
             return
         
+        # Debug: Check if power_score_final exists and has anchor scaling applied
+        if 'power_score_final' in teams_df.columns:
+            console.print(f"[dim]✓ power_score_final exists in teams_df with {teams_df['power_score_final'].notna().sum()} non-null values[/dim]")
+            if 'age_group' in teams_df.columns:
+                # Extract age and check max per age
+                age_nums = teams_df['age_group'].astype(str).str.extract(r'(\d+)').astype(int)
+                max_by_age = teams_df.groupby(age_nums)['power_score_final'].max()
+                console.print(f"[dim]Max power_score_final by age:[/dim]")
+                for age, max_ps in max_by_age.items():
+                    console.print(f"[dim]  Age {age}: {max_ps:.4f}[/dim]")
+        else:
+            console.print("[yellow]⚠ power_score_final not found in teams_df - will be calculated by data adapter[/yellow]")
+        
         # Track total teams before filtering
         total_teams = len(teams_df)
         

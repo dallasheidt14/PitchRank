@@ -758,10 +758,13 @@ def v53e_to_rankings_full_format(
     # If power_score_final already exists and has non-null values (e.g., from anchor scaling in compute_all_cohorts),
     # preserve it instead of recalculating
     if 'power_score_final' in rankings_df.columns and rankings_df['power_score_final'].notna().any():
-        # power_score_final already exists (likely anchor-scaled), just ensure it's clipped
+        # power_score_final already exists (likely anchor-scaled), preserve it
+        logger.info(f"✅ Preserving existing power_score_final (anchor-scaled) - {rankings_df['power_score_final'].notna().sum()} values")
+        # Just ensure it's clipped (should already be, but safety check)
         rankings_df['power_score_final'] = rankings_df['power_score_final'].clip(0.0, 1.0)
     else:
         # Calculate power_score_final from fallback sources
+        logger.info("⚠️  power_score_final not found or all null - calculating from fallback sources")
         rankings_df['power_score_final'] = rankings_df.apply(
             lambda row: (
                 row['powerscore_ml'] if pd.notna(row.get('powerscore_ml')) else
