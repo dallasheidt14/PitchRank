@@ -74,14 +74,15 @@ function explainPowerScore(
 
   const advantage = powerDiff > 0 ? 'team_a' : 'team_b';
   const strongerTeam = powerDiff > 0 ? teamA.team_name : teamB.team_name;
-  const powerA = teamA.power_score_final || 0.5;
-  const powerB = teamB.power_score_final || 0.5;
+  const weakerTeam = powerDiff > 0 ? teamB.team_name : teamA.team_name;
+  const strongerPower = powerDiff > 0 ? (teamA.power_score_final || 0.5) : (teamB.power_score_final || 0.5);
+  const weakerPower = powerDiff > 0 ? (teamB.power_score_final || 0.5) : (teamA.power_score_final || 0.5);
 
   let description = '';
   if (magnitude === 'significant') {
-    description = `${strongerTeam} is significantly stronger overall (power score: ${powerA.toFixed(2)} vs ${powerB.toFixed(2)})`;
+    description = `${strongerTeam} is significantly stronger overall (power score: ${strongerPower.toFixed(2)} vs ${weakerPower.toFixed(2)})`;
   } else {
-    description = `${strongerTeam} has a moderate edge in overall strength (power score: ${powerA.toFixed(2)} vs ${powerB.toFixed(2)})`;
+    description = `${strongerTeam} has a moderate edge in overall strength (power score: ${strongerPower.toFixed(2)} vs ${weakerPower.toFixed(2)})`;
   }
 
   return {
@@ -109,14 +110,15 @@ function explainSOS(
 
   const advantage = sosDiff > 0 ? 'team_a' : 'team_b';
   const strongerSOS = sosDiff > 0 ? teamA.team_name : teamB.team_name;
-  const percentileA = formatPercentile(teamA.sos_norm || 0.5);
-  const percentileB = formatPercentile(teamB.sos_norm || 0.5);
+  const weakerSOS = sosDiff > 0 ? teamB.team_name : teamA.team_name;
+  const strongerPercentile = formatPercentile(sosDiff > 0 ? (teamA.sos_norm || 0.5) : (teamB.sos_norm || 0.5));
+  const weakerPercentile = formatPercentile(sosDiff > 0 ? (teamB.sos_norm || 0.5) : (teamA.sos_norm || 0.5));
 
   let description = '';
   if (magnitude === 'significant') {
-    description = `${strongerSOS} has played MUCH tougher competition (${percentileA}th vs ${percentileB}th percentile schedule strength). Their rating is more battle-tested.`;
+    description = `${strongerSOS} has played MUCH tougher competition (${strongerPercentile}th vs ${weakerPercentile}th percentile schedule strength). Their rating is more battle-tested.`;
   } else {
-    description = `${strongerSOS} has faced tougher opponents (${percentileA}th vs ${percentileB}th percentile schedule strength)`;
+    description = `${strongerSOS} has faced tougher opponents (${strongerPercentile}th vs ${weakerPercentile}th percentile schedule strength)`;
   }
 
   return {
