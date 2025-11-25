@@ -95,9 +95,9 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
           bValue = b.total_games_played;
           break;
         case 'sos':
-          // Use sos_norm for sorting (normalized within cohort)
-          aValue = a.sos_norm ?? 0;
-          bValue = b.sos_norm ?? 0;
+          // Use sos_norm_state for state rankings, sos_norm for national rankings
+          aValue = region ? (a.sos_norm_state ?? a.sos_norm ?? 0) : (a.sos_norm ?? 0);
+          bValue = region ? (b.sos_norm_state ?? b.sos_norm ?? 0) : (b.sos_norm ?? 0);
           break;
         case 'sosRank':
           // Use pre-calculated SOS rank from database
@@ -453,7 +453,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                             })()}
                           </div>
                           <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm">
-                            {formatSOSIndex(team.sos_norm)}
+                            {formatSOSIndex(region ? (team.sos_norm_state ?? team.sos_norm) : team.sos_norm)}
                           </div>
                         </div>
                       );

@@ -122,7 +122,7 @@ export const api = {
     // Fetch state rank and SOS rank from state_rankings_view
     const { data: stateRankData, error: stateRankError } = await supabase
       .from('state_rankings_view')
-      .select('rank_in_state_final, sos_rank_state')
+      .select('rank_in_state_final, sos_rank_state, sos_norm_state')
       .eq('team_id_master', id)
       .maybeSingle();
 
@@ -207,6 +207,7 @@ export const api = {
       // Ranking fields (default to null if no ranking data)
       power_score_final: rankingData?.power_score_final ?? null,
       sos_norm: rankingData?.sos_norm ?? null,
+      sos_norm_state: stateRankData?.sos_norm_state ?? null,
       sos_rank_national: rankingData?.sos_rank_national ?? null,
       sos_rank_state: stateRankData?.sos_rank_state ?? null,
       offense_norm: rankingData?.offense_norm ?? null,
