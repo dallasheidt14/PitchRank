@@ -48,9 +48,14 @@ export function useRankings(
       });
 
       while (hasMore) {
+        // Explicitly select sos_norm_state for state rankings to ensure it's included
+        const selectFields = region 
+          ? '*, sos_norm_state' // Explicitly include sos_norm_state for state rankings
+          : '*'; // National rankings don't need sos_norm_state
+        
         let query = supabase
           .from(table)
-          .select('*')
+          .select(selectFields)
           .in('status', ['Active', 'Not Enough Ranked Games']); // Include Active and teams with not enough games, exclude Inactive (>180 days since last game)
 
         if (region) {
@@ -82,19 +87,27 @@ export function useRankings(
         if (offset === 0) {
           console.log(`[useRankings] First batch returned ${data?.length || 0} results`);
           if (data && data.length > 0) {
-            // Log first few results to see actual state values
+            // Log first few results to see actual state values and SOS fields
             const sampleStates = [...new Set(data.slice(0, 10).map(r => r.state))];
+            const firstResult = data[0] as any;
             console.log('[useRankings] Sample results:', {
               count: data.length,
               sample_states: sampleStates,
               first_result: {
-                team_name: data[0].team_name,
-                state: data[0].state,
-                age: data[0].age,
-                gender: data[0].gender,
-                status: data[0].status,
+                team_name: firstResult.team_name,
+                state: firstResult.state,
+                age: firstResult.age,
+                gender: firstResult.gender,
+                status: firstResult.status,
+                sos_norm: firstResult.sos_norm,
+                sos_norm_state: firstResult.sos_norm_state,
+                has_sos_norm_state: 'sos_norm_state' in firstResult,
+                sos_norm_display: firstResult.sos_norm ? (firstResult.sos_norm * 100).toFixed(1) : null,
+                sos_norm_state_display: firstResult.sos_norm_state ? (firstResult.sos_norm_state * 100).toFixed(1) : null,
               },
             });
+            // Log all column names from first result
+            console.log('[useRankings] Available columns in first result:', Object.keys(firstResult));
           } else if (region && offset === 0) {
             // If no results on first batch with region filter, try case-insensitive search
             console.warn(`[useRankings] No results with uppercase state="${normalizedRegion}", trying case-insensitive...`);
