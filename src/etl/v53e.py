@@ -728,8 +728,30 @@ def compute_rankings(
         f"range=[{team['sos'].min():.4f}, {team['sos'].max():.4f}]"
     )
 
-    # Normalize SOS within cohort
-    team = _normalize_by_cohort(team, "sos", "sos_norm", cfg.NORM_MODE)
+    # Option B: Age-relative SOS Z-score normalization
+    # Normalize SOS by age only (not age+gender) to preserve variance and accuracy
+    # This ensures U11 SOS values can't exceed U16 within age group
+    logger.info("🔄 Computing age-relative SOS normalization (Option B)")
+    
+    # Compute age-relative SOS z-score (normalize by age only)
+    team['sos_norm'] = team.groupby('age')['sos'].transform(
+        lambda x: (x - x.mean()) / x.std(ddof=0) if x.std(ddof=0) > 0 else x - x.mean()
+    )
+    
+    # Handle edge case: if all teams in an age group have same SOS, z-score is NaN
+    team['sos_norm'] = team['sos_norm'].fillna(0.0)
+    
+    # Convert to 0–1 scale (preserve relative differences)
+    sos_norm_min = team['sos_norm'].min()
+    sos_norm_max = team['sos_norm'].max()
+    if sos_norm_max > sos_norm_min:
+        team['sos_norm'] = (team['sos_norm'] - sos_norm_min) / (sos_norm_max - sos_norm_min)
+    else:
+        # All teams have same z-score (edge case), set to 0.5
+        team['sos_norm'] = 0.5
+    
+    # Log SOS norms by age group
+    logger.info("📊 SOS norms by age:\n%s", team.groupby('age')['sos_norm'].describe())
 
     # Low sample handling: smooth shrink toward 0.5 for teams with insufficient games
     # This prevents teams with few games from having extreme SOS values (high or low)
