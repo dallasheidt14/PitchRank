@@ -894,4 +894,42 @@ def compute_rankings(
     ]
     teams = team[keep_cols].copy()
 
+    # === Restore legacy frontend fields ===
+    # Map powerscore_adj to power_score_final
+    teams["power_score_final"] = teams["powerscore_adj"]
+
+    # Map rank_in_cohort to rank_in_cohort_final (convert to float, handle None)
+    teams["rank_in_cohort_final"] = teams["rank_in_cohort"].astype("float")
+
+    # State rank must be computed — fallback to cohort rank for now
+    # (State information is not available in v53e output, will be computed later in pipeline)
+    teams["rank_in_state_final"] = teams["rank_in_cohort_final"]
+
+    # SOS rankings: compute ranks within each (age, gender) cohort
+    teams["sos_rank_national"] = teams.groupby(["age", "gender"])["sos_norm"].rank(
+        ascending=False, method="min"
+    ).astype(int)
+
+    # State rank: fallback to national rank if state unavailable
+    # (State information is not available in v53e output, will be computed later in pipeline)
+    teams["sos_rank_state"] = teams["sos_rank_national"]
+
+    # Map offense/defense norm fields
+    teams["offense_norm"] = teams["off_norm"]
+    teams["defense_norm"] = teams["def_norm"]
+
+    # For data freshness
+    teams["last_calculated"] = pd.Timestamp.utcnow()
+
+    # Games played summary for the frontend
+    teams["games_played"] = teams["gp"]
+    teams["wins"] = None
+    teams["losses"] = None
+    teams["draws"] = None
+    teams["total_games_played"] = teams["gp"]
+    teams["total_wins"] = None
+    teams["total_losses"] = None
+    teams["total_draws"] = None
+    teams["win_percentage"] = None
+
     return {"teams": teams, "games_used": games_used}
