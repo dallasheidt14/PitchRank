@@ -43,38 +43,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const parentRef = useRef<HTMLDivElement>(null);
 
-  // Debug: Log props received
-  console.log('[RankingsTable] Props received:', { region, ageGroup, gender });
-
   const { data: rankings, isLoading, isError, error, refetch } = useRankings(region, ageGroup, gender);
-
-  // Debug: Log query state and sample SOS values
-  console.log('[RankingsTable] Query state:', { 
-    isLoading, 
-    isError, 
-    error: error?.message, 
-    rankingsCount: rankings?.length ?? 0,
-    region,
-  });
-  
-  // Debug: Log SOS values from first few teams
-  if (rankings && rankings.length > 0) {
-    const sampleTeams = rankings.slice(0, 5).map((team: any) => ({
-      team_name: team.team_name,
-      sos_norm: team.sos_norm,
-      sos_norm_state: team.sos_norm_state,
-      sos_norm_display: team.sos_norm ? (team.sos_norm * 100).toFixed(1) : null,
-      sos_norm_state_display: team.sos_norm_state ? (team.sos_norm_state * 100).toFixed(1) : null,
-      using_value: region ? (team.sos_norm_state ?? team.sos_norm) : team.sos_norm,
-      using_display: region 
-        ? (team.sos_norm_state ?? team.sos_norm) ? ((team.sos_norm_state ?? team.sos_norm) * 100).toFixed(1) : null
-        : team.sos_norm ? (team.sos_norm * 100).toFixed(1) : null,
-    }));
-    console.log('[RankingsTable] Sample SOS values:', sampleTeams);
-  }
-
-  // Debug: Show query params in UI temporarily
-  const debugInfo = `Region: ${region || 'national'}, Age: ${ageGroup}, Gender: ${gender}, Results: ${rankings?.length ?? 0}`;
   const prefetchTeam = usePrefetchTeam();
 
   // Use pre-calculated SOS ranks from database
@@ -249,20 +218,10 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     );
   }
   
-  // Debug: Show debug info
   if (!rankings?.length) {
     return (
       <Card>
         <CardContent className="pt-6">
-          <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-4">
-            <strong>Debug Info:</strong> {debugInfo}
-            <br />
-            <strong>Query:</strong> {region ? `state_rankings_view` : `rankings_view`} 
-            {region && ` WHERE state = '${region.toUpperCase()}'`}
-            {` AND age = ${normalizeAgeGroup(ageGroup)}`}
-            {gender && ` AND gender = '${gender}'`}
-            {` AND status = 'Active'`}
-          </div>
           <div>No teams available.</div>
         </CardContent>
       </Card>
@@ -281,17 +240,6 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
 
   return (
     <Card className="overflow-hidden border-0 shadow-lg">
-      {/* Debug banner - remove after debugging */}
-      <div className="bg-blue-100 border-b border-blue-400 text-blue-800 px-4 py-2 text-xs">
-        <strong>DEBUG:</strong> {debugInfo} | 
-        Query: {region ? `state_rankings_view` : `rankings_view`} 
-        {region && ` WHERE state = '${region.toUpperCase()}'`}
-        {` AND age = ${normalizeAgeGroup(ageGroup)}`}
-        {gender && ` AND gender = '${gender}'`}
-        {` AND status IN ('Active', 'Not Enough Ranked Games')`}
-        <br />
-        <span className="text-xs">Check browser console for status distribution details</span>
-      </div>
       <CardHeader className="bg-gradient-to-r from-primary to-[oklch(0.28_0.08_165)] text-primary-foreground relative">
         <div className="absolute right-0 top-0 w-2 h-full bg-accent -skew-x-12" aria-hidden="true" />
         <CardTitle className="text-2xl sm:text-3xl font-bold uppercase tracking-wide">
@@ -475,28 +423,6 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                               const sosValue = region 
                                 ? (team.sos_norm_state ?? team.sos_norm) 
                                 : team.sos_norm;
-                              
-                              // Warn if we're using fallback for state rankings
-                              if (region && virtualRow.index < 3 && team.sos_norm_state == null) {
-                                console.warn(`[RankingsTable] WARNING: sos_norm_state is missing for ${team.team_name}, falling back to sos_norm`, {
-                                  team_name: team.team_name,
-                                  sos_norm: team.sos_norm,
-                                  sos_norm_state: team.sos_norm_state,
-                                  region,
-                                });
-                              }
-                              
-                              // Debug logging for first few teams
-                              if (virtualRow.index < 3) {
-                                console.log(`[RankingsTable] Team ${team.team_name}:`, {
-                                  region,
-                                  sos_norm: team.sos_norm,
-                                  sos_norm_state: team.sos_norm_state,
-                                  using_value: sosValue,
-                                  display: formatSOSIndex(sosValue),
-                                  is_fallback: region && team.sos_norm_state == null,
-                                });
-                              }
                               
                               return formatSOSIndex(sosValue);
                             })()}
