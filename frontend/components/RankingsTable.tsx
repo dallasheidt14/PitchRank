@@ -476,6 +476,16 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                                 ? (team.sos_norm_state ?? team.sos_norm) 
                                 : team.sos_norm;
                               
+                              // Warn if we're using fallback for state rankings
+                              if (region && virtualRow.index < 3 && team.sos_norm_state == null) {
+                                console.warn(`[RankingsTable] WARNING: sos_norm_state is missing for ${team.team_name}, falling back to sos_norm`, {
+                                  team_name: team.team_name,
+                                  sos_norm: team.sos_norm,
+                                  sos_norm_state: team.sos_norm_state,
+                                  region,
+                                });
+                              }
+                              
                               // Debug logging for first few teams
                               if (virtualRow.index < 3) {
                                 console.log(`[RankingsTable] Team ${team.team_name}:`, {
@@ -484,6 +494,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                                   sos_norm_state: team.sos_norm_state,
                                   using_value: sosValue,
                                   display: formatSOSIndex(sosValue),
+                                  is_fallback: region && team.sos_norm_state == null,
                                 });
                               }
                               
