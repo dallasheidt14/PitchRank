@@ -99,14 +99,14 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
         draws={teamRanking?.draws || undefined}
       />
 
-      <Card className="border-l-4 border-l-accent overflow-hidden !py-0 !gap-0">
+      <Card className="border-l-4 border-l-accent overflow-hidden">
         {/* Team Name Header with Green Gradient */}
         <div className="relative bg-gradient-to-r from-primary to-primary/90 px-4 sm:px-6 py-4">
           <div className="absolute left-0 top-0 w-1.5 h-full bg-accent -skew-x-12" aria-hidden="true" />
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <h1 className="text-xl sm:text-2xl md:text-3xl font-display font-bold uppercase text-primary-foreground tracking-wide">
-                {team.team_name || 'Unknown Team'}
+                {team.team_name}
               </h1>
               <Button
                 variant={watched ? "secondary" : "outline"}
