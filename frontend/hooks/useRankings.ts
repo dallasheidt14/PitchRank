@@ -90,9 +90,22 @@ export function useRankings(
             // Log first few results to see actual state values and SOS fields
             const sampleStates = [...new Set(data.slice(0, 10).map(r => r.state))];
             const firstResult = data[0] as any;
+            
+            // Check if sos_norm_state is missing and warn
+            const missingSosNormState = region && data.some((r: any) => !('sos_norm_state' in r));
+            if (missingSosNormState) {
+              console.error('[useRankings] WARNING: sos_norm_state is missing from results for state rankings!', {
+                region,
+                table,
+                first_result_keys: Object.keys(firstResult),
+              });
+            }
+            
             console.log('[useRankings] Sample results:', {
               count: data.length,
               sample_states: sampleStates,
+              region,
+              table,
               first_result: {
                 team_name: firstResult.team_name,
                 state: firstResult.state,
@@ -104,6 +117,16 @@ export function useRankings(
                 has_sos_norm_state: 'sos_norm_state' in firstResult,
                 sos_norm_display: firstResult.sos_norm ? (firstResult.sos_norm * 100).toFixed(1) : null,
                 sos_norm_state_display: firstResult.sos_norm_state ? (firstResult.sos_norm_state * 100).toFixed(1) : null,
+                would_use: region 
+                  ? (firstResult.sos_norm_state ?? firstResult.sos_norm)
+                  : firstResult.sos_norm,
+                would_display: region 
+                  ? (firstResult.sos_norm_state ?? firstResult.sos_norm) 
+                    ? ((firstResult.sos_norm_state ?? firstResult.sos_norm) * 100).toFixed(1) 
+                    : null
+                  : firstResult.sos_norm 
+                    ? (firstResult.sos_norm * 100).toFixed(1) 
+                    : null,
               },
             });
             // Log all column names from first result
@@ -173,7 +196,7 @@ export function useRankings(
       console.log('[useRankings] queryFn returning', allResults.length, 'results');
       return allResults;
     },
-    staleTime: 30 * 60 * 1000, // 30 minutes - rankings update weekly, no need for frequent refetch
+    staleTime: 0, // Force fresh data - rankings may have been updated
     gcTime: 60 * 60 * 1000, // Keep in cache for 1 hour
   });
 
