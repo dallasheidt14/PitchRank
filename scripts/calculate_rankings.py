@@ -522,27 +522,40 @@ async def main():
         
         # Show top 10 teams
         if not teams_df.empty:
-            top_teams = teams_df.nlargest(10, power_col)
-            table = Table(title="Top 10 Teams")
-            table.add_column("Rank", style="cyan")
-            table.add_column("Team Name", style="cyan")
-            table.add_column("Club", style="blue")
-            table.add_column("Age", style="yellow")
-            table.add_column("Gender", style="yellow")
-            table.add_column("PowerScore", style="green", justify="right")
-            
-            for _, team in top_teams.iterrows():
-                table.add_row(
-                    str(int(team[rank_col])),
-                    str(team.get('team_name', 'Unknown'))[:40],
-                    str(team.get('club_name', ''))[:25],
-                    str(team['age']),
-                    str(team['gender']),
-                    f"{team[power_col]:.4f}"
-                )
-            
-            console.print("\n")
-            console.print(table)
+            # Restrict to teams that actually have a rank to avoid int(None) errors
+            if rank_col in teams_df.columns:
+                ranked_df = teams_df[teams_df[rank_col].notna()].copy()
+            else:
+                ranked_df = pd.DataFrame()
+
+            if ranked_df.empty:
+                console.print("[yellow]No ranked teams available for Top 10 preview (all teams unranked / provisional).[/yellow]")
+            else:
+                top_teams = ranked_df.nlargest(10, power_col)
+                table = Table(title="Top 10 Teams")
+                table.add_column("Rank", style="cyan")
+                table.add_column("Team Name", style="cyan")
+                table.add_column("Club", style="blue")
+                table.add_column("Age", style="yellow")
+                table.add_column("Gender", style="yellow")
+                table.add_column("PowerScore", style="green", justify="right")
+
+                for _, team in top_teams.iterrows():
+                    rank_val = team.get(rank_col)
+                    # Safe rank display fallback
+                    rank_display = "—" if pd.isna(rank_val) else str(int(rank_val))
+
+                    table.add_row(
+                        rank_display,
+                        str(team.get("team_name", "Unknown"))[:40],
+                        str(team.get("club_name", ""))[:25],
+                        str(team["age"]),
+                        str(team["gender"]),
+                        f"{team[power_col]:.4f}",
+                    )
+
+                console.print("\n")
+                console.print(table)
         
         # Save to database
         saved_count = 0
