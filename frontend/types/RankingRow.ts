@@ -13,7 +13,8 @@ export interface RankingRow {
   gender: 'M' | 'F' | 'B' | 'G'; // Backend returns single letter codes
   // Scores (backend contract)
   power_score_final: number;
-  sos_norm: number;
+  sos_norm: number; // National normalization (for national rankings)
+  sos_norm_state?: number | null; // State normalization (for state rankings)
   offense_norm: number | null;
   defense_norm: number | null;
   // Ranks (backend contract)
