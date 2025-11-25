@@ -48,14 +48,11 @@ export function useRankings(
       });
 
       while (hasMore) {
-        // Explicitly select sos_norm_state for state rankings to ensure it's included
-        const selectFields = region 
-          ? '*, sos_norm_state' // Explicitly include sos_norm_state for state rankings
-          : '*'; // National rankings don't need sos_norm_state
-        
+        // For state rankings, explicitly select sos_norm_state to ensure it's included
+        // Using '*' should include all columns, but being explicit helps with debugging
         let query = supabase
           .from(table)
-          .select(selectFields)
+          .select('*')
           .in('status', ['Active', 'Not Enough Ranked Games']); // Include Active and teams with not enough games, exclude Inactive (>180 days since last game)
 
         if (region) {
