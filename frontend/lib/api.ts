@@ -130,6 +130,22 @@ export const api = {
       console.warn('[api.getTeam] state_rankings_view error, continuing without state ranking data:', stateRankError.message);
     }
 
+    // Fallback: If views returned no data, try querying rankings_full directly
+    // This handles cases where teams exist in rankings_full but are filtered out by view WHERE clauses
+    let rankingsFullData = null;
+    if (!rankingData && !stateRankData) {
+      const { data: rfData, error: rfError } = await supabase
+        .from('rankings_full')
+        .select('*')
+        .eq('team_id', id)
+        .maybeSingle();
+      
+      if (!rfError && rfData) {
+        rankingsFullData = rfData;
+        console.log('[api.getTeam] Found team in rankings_full directly (not in views)');
+      }
+    }
+
     // Fetch all games to calculate total games and win/loss/draw record
     const { data: gamesData, error: gamesDataError } = await supabase
       .from('games')
@@ -185,22 +201,31 @@ export const api = {
     };
 
     // Merge ranking data if available (match TeamWithRanking contract)
-    // Ensure age is always set (from rankingData or converted from team.age_group)
-    const age = rankingData?.age ?? (team.age_group ? normalizeAgeGroup(team.age_group) : null);
-    const gender = rankingData?.gender ?? (team.gender === 'Male' ? 'M' : team.gender === 'Female' ? 'F' : 'M') as 'M' | 'F' | 'B' | 'G';
+    // Ensure age is always set (from rankingData, rankingsFullData, or converted from team.age_group)
+    const age = rankingData?.age ?? 
+      (rankingsFullData?.age_group ? normalizeAgeGroup(rankingsFullData.age_group) : null) ??
+      (team.age_group ? normalizeAgeGroup(team.age_group) : null);
+    
+    // Normalize gender from various sources
+    const genderFromRankings = rankingData?.gender ?? 
+      (rankingsFullData?.gender ? (rankingsFullData.gender === 'Male' ? 'M' : rankingsFullData.gender === 'Female' ? 'F' : rankingsFullData.gender === 'Boys' ? 'M' : rankingsFullData.gender === 'Girls' ? 'F' : rankingsFullData.gender) : null);
+    const gender = genderFromRankings ?? (team.gender === 'Male' ? 'M' : team.gender === 'Female' ? 'F' : 'M') as 'M' | 'F' | 'B' | 'G';
 
     // Create TeamWithRanking with state rank, total games, and calculated record
+    // Use rankings_full as final fallback if views didn't return data
     const powerScoreFinal =
       rankingData?.power_score_final ??
       rankingData?.power_score ??
       stateRankData?.power_score_final ??
       stateRankData?.power_score ??
+      rankingsFullData?.power_score_final ??
       null;
 
     const sosNorm =
       rankingData?.sos_norm ??
       rankingData?.strength_of_schedule ??
       stateRankData?.sos_norm ??
+      rankingsFullData?.sos_norm ??
       null;
 
     const offenseNorm =
@@ -208,6 +233,7 @@ export const api = {
       rankingData?.offense ??
       stateRankData?.offense_norm ??
       stateRankData?.offense ??
+      rankingsFullData?.off_norm ??
       null;
 
     const defenseNorm =
@@ -215,6 +241,7 @@ export const api = {
       rankingData?.defense ??
       stateRankData?.defense_norm ??
       stateRankData?.defense ??
+      rankingsFullData?.def_norm ??
       null;
 
     const rankInCohortFinal =
@@ -222,6 +249,7 @@ export const api = {
       rankingData?.national_rank ??
       stateRankData?.rank_in_cohort_final ??
       stateRankData?.national_rank ??
+      rankingsFullData?.rank_in_cohort_final ??
       null;
 
     const gamesPlayed =
@@ -229,21 +257,25 @@ export const api = {
       rankingData?.games ??
       stateRankData?.games_played ??
       stateRankData?.games ??
+      rankingsFullData?.games_played ??
       0;
 
     const winsValue =
       rankingData?.wins ??
       stateRankData?.wins ??
+      rankingsFullData?.wins ??
       calculatedWins;
 
     const lossesValue =
       rankingData?.losses ??
       stateRankData?.losses ??
+      rankingsFullData?.losses ??
       calculatedLosses;
 
     const drawsValue =
       rankingData?.draws ??
       stateRankData?.draws ??
+      rankingsFullData?.draws ??
       calculatedDraws;
 
     const winPctValue =
