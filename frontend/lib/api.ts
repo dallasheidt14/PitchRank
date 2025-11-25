@@ -111,23 +111,23 @@ export const api = {
     // Fetch ranking data from rankings_view with explicit field list
     const { data: rankingData, error: rankingError } = await supabase
       .from('rankings_view')
-      .select('team_id_master, state, age, gender, power_score_final, sos_norm, sos_rank_national, offense_norm, defense_norm, games_played, wins, losses, draws, win_percentage, rank_in_cohort_final')
+      .select('*')
       .eq('team_id_master', id)
       .maybeSingle();
 
     if (rankingError) {
-      // Continue without ranking data rather than failing
+      console.warn('[api.getTeam] rankings_view error, continuing without ranking data:', rankingError.message);
     }
 
     // Fetch state rank and SOS rank from state_rankings_view
     const { data: stateRankData, error: stateRankError } = await supabase
       .from('state_rankings_view')
-      .select('rank_in_state_final, sos_rank_state, sos_norm_state, power_score_final, sos_norm, offense_norm, defense_norm, games_played, wins, losses, draws, win_percentage, rank_in_cohort_final')
+      .select('*')
       .eq('team_id_master', id)
       .maybeSingle();
 
     if (stateRankError) {
-      // Continue without state rank data
+      console.warn('[api.getTeam] state_rankings_view error, continuing without state ranking data:', stateRankError.message);
     }
 
     // Fetch all games to calculate total games and win/loss/draw record
@@ -190,16 +190,68 @@ export const api = {
     const gender = rankingData?.gender ?? (team.gender === 'Male' ? 'M' : team.gender === 'Female' ? 'F' : 'M') as 'M' | 'F' | 'B' | 'G';
 
     // Create TeamWithRanking with state rank, total games, and calculated record
-    const powerScoreFinal = rankingData?.power_score_final ?? stateRankData?.power_score_final ?? null;
-    const sosNorm = rankingData?.sos_norm ?? stateRankData?.sos_norm ?? null;
-    const offenseNorm = rankingData?.offense_norm ?? stateRankData?.offense_norm ?? null;
-    const defenseNorm = rankingData?.defense_norm ?? stateRankData?.defense_norm ?? null;
-    const rankInCohortFinal = rankingData?.rank_in_cohort_final ?? stateRankData?.rank_in_cohort_final ?? null;
-    const gamesPlayed = rankingData?.games_played ?? stateRankData?.games_played ?? 0;
-    const winsValue = rankingData?.wins ?? stateRankData?.wins ?? calculatedWins;
-    const lossesValue = rankingData?.losses ?? stateRankData?.losses ?? calculatedLosses;
-    const drawsValue = rankingData?.draws ?? stateRankData?.draws ?? calculatedDraws;
-    const winPctValue = rankingData?.win_percentage ?? stateRankData?.win_percentage ?? calculatedWinPercentage;
+    const powerScoreFinal =
+      rankingData?.power_score_final ??
+      rankingData?.power_score ??
+      stateRankData?.power_score_final ??
+      stateRankData?.power_score ??
+      null;
+
+    const sosNorm =
+      rankingData?.sos_norm ??
+      rankingData?.strength_of_schedule ??
+      stateRankData?.sos_norm ??
+      null;
+
+    const offenseNorm =
+      rankingData?.offense_norm ??
+      rankingData?.offense ??
+      stateRankData?.offense_norm ??
+      stateRankData?.offense ??
+      null;
+
+    const defenseNorm =
+      rankingData?.defense_norm ??
+      rankingData?.defense ??
+      stateRankData?.defense_norm ??
+      stateRankData?.defense ??
+      null;
+
+    const rankInCohortFinal =
+      rankingData?.rank_in_cohort_final ??
+      rankingData?.national_rank ??
+      stateRankData?.rank_in_cohort_final ??
+      stateRankData?.national_rank ??
+      null;
+
+    const gamesPlayed =
+      rankingData?.games_played ??
+      rankingData?.games ??
+      stateRankData?.games_played ??
+      stateRankData?.games ??
+      0;
+
+    const winsValue =
+      rankingData?.wins ??
+      stateRankData?.wins ??
+      calculatedWins;
+
+    const lossesValue =
+      rankingData?.losses ??
+      stateRankData?.losses ??
+      calculatedLosses;
+
+    const drawsValue =
+      rankingData?.draws ??
+      stateRankData?.draws ??
+      calculatedDraws;
+
+    const winPctValue =
+      rankingData?.win_percentage ??
+      rankingData?.win_pct ??
+      stateRankData?.win_percentage ??
+      stateRankData?.win_pct ??
+      calculatedWinPercentage;
 
     const teamWithRanking: TeamWithRanking = {
       team_id_master: team.team_id_master,
@@ -212,12 +264,12 @@ export const api = {
       power_score_final: powerScoreFinal,
       sos_norm: sosNorm,
       sos_norm_state: stateRankData?.sos_norm_state ?? null,
-      sos_rank_national: rankingData?.sos_rank_national ?? null,
-      sos_rank_state: stateRankData?.sos_rank_state ?? null,
+      sos_rank_national: rankingData?.sos_rank_national ?? rankingData?.national_sos_rank ?? null,
+      sos_rank_state: stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? null,
       offense_norm: offenseNorm,
       defense_norm: defenseNorm,
       rank_in_cohort_final: rankInCohortFinal,
-      rank_in_state_final: stateRankData?.rank_in_state_final ?? null,
+      rank_in_state_final: stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? null,
       // Record fields (use calculated values as fallback)
       games_played: gamesPlayed,
       wins: winsValue,
