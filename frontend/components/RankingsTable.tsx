@@ -48,13 +48,30 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
 
   const { data: rankings, isLoading, isError, error, refetch } = useRankings(region, ageGroup, gender);
 
-  // Debug: Log query state
+  // Debug: Log query state and sample SOS values
   console.log('[RankingsTable] Query state:', { 
     isLoading, 
     isError, 
     error: error?.message, 
-    rankingsCount: rankings?.length ?? 0 
+    rankingsCount: rankings?.length ?? 0,
+    region,
   });
+  
+  // Debug: Log SOS values from first few teams
+  if (rankings && rankings.length > 0) {
+    const sampleTeams = rankings.slice(0, 5).map((team: any) => ({
+      team_name: team.team_name,
+      sos_norm: team.sos_norm,
+      sos_norm_state: team.sos_norm_state,
+      sos_norm_display: team.sos_norm ? (team.sos_norm * 100).toFixed(1) : null,
+      sos_norm_state_display: team.sos_norm_state ? (team.sos_norm_state * 100).toFixed(1) : null,
+      using_value: region ? (team.sos_norm_state ?? team.sos_norm) : team.sos_norm,
+      using_display: region 
+        ? (team.sos_norm_state ?? team.sos_norm) ? ((team.sos_norm_state ?? team.sos_norm) * 100).toFixed(1) : null
+        : team.sos_norm ? (team.sos_norm * 100).toFixed(1) : null,
+    }));
+    console.log('[RankingsTable] Sample SOS values:', sampleTeams);
+  }
 
   // Debug: Show query params in UI temporarily
   const debugInfo = `Region: ${region || 'national'}, Age: ${ageGroup}, Gender: ${gender}, Results: ${rankings?.length ?? 0}`;
@@ -453,7 +470,25 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                             })()}
                           </div>
                           <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm">
-                            {formatSOSIndex(region ? (team.sos_norm_state ?? team.sos_norm) : team.sos_norm)}
+                            {(() => {
+                              // Use sos_norm_state for state rankings, sos_norm for national rankings
+                              const sosValue = region 
+                                ? (team.sos_norm_state ?? team.sos_norm) 
+                                : team.sos_norm;
+                              
+                              // Debug logging for first few teams
+                              if (virtualRow.index < 3) {
+                                console.log(`[RankingsTable] Team ${team.team_name}:`, {
+                                  region,
+                                  sos_norm: team.sos_norm,
+                                  sos_norm_state: team.sos_norm_state,
+                                  using_value: sosValue,
+                                  display: formatSOSIndex(sosValue),
+                                });
+                              }
+                              
+                              return formatSOSIndex(sosValue);
+                            })()}
                           </div>
                         </div>
                       );
