@@ -55,7 +55,8 @@ export interface RankingWithTeam {
   gender: 'M' | 'F' | 'B' | 'G'; // Backend returns single letter codes
   // Scores (backend contract)
   power_score_final: number;
-  sos_norm: number;
+  sos_norm: number; // normalized 0–1 SOS index (national normalization)
+  sos_norm_state?: number | null; // normalized 0–1 SOS index (state normalization, for state rankings)
   offense_norm: number | null;
   defense_norm: number | null;
   // Ranks (backend contract)
@@ -107,7 +108,8 @@ export interface TeamWithRanking {
   rank_in_cohort_final: number | null; // National rank within age/gender cohort
   rank_in_state_final?: number | null; // State rank - may not exist from rankings_view
   power_score_final: number | null; // ML Adjusted, final score
-  sos_norm: number | null; // normalized 0–1 SOS index
+  sos_norm: number | null; // normalized 0–1 SOS index (national normalization)
+  sos_norm_state?: number | null; // normalized 0–1 SOS index (state normalization, for state rankings)
   sos_rank_national?: number | null; // SOS rank within (age, gender) cohort nationally
   sos_rank_state?: number | null; // SOS rank within (age, gender, state)
   offense_norm: number | null;
