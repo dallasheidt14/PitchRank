@@ -122,7 +122,7 @@ export const api = {
     // Fetch state rank and SOS rank from state_rankings_view
     const { data: stateRankData, error: stateRankError } = await supabase
       .from('state_rankings_view')
-      .select('rank_in_state_final, sos_rank_state, sos_norm_state')
+      .select('rank_in_state_final, sos_rank_state, sos_norm_state, power_score_final, sos_norm, offense_norm, defense_norm, games_played, wins, losses, draws, win_percentage, rank_in_cohort_final')
       .eq('team_id_master', id)
       .maybeSingle();
 
@@ -166,13 +166,6 @@ export const api = {
       : null;
 
     // Use calculated values if ranking data is missing or 0
-    const finalWins = (rankingData?.wins && rankingData.wins > 0) ? rankingData.wins : calculatedWins;
-    const finalLosses = (rankingData?.losses && rankingData.losses > 0) ? rankingData.losses : calculatedLosses;
-    const finalDraws = (rankingData?.draws && rankingData.draws > 0) ? rankingData.draws : calculatedDraws;
-    const finalWinPercentage = (rankingData?.win_percentage && rankingData.win_percentage > 0)
-      ? rankingData.win_percentage
-      : calculatedWinPercentage;
-
     // Ensure all required Team fields exist
     const team: Team = {
       id: teamData.id,
@@ -197,6 +190,17 @@ export const api = {
     const gender = rankingData?.gender ?? (team.gender === 'Male' ? 'M' : team.gender === 'Female' ? 'F' : 'M') as 'M' | 'F' | 'B' | 'G';
 
     // Create TeamWithRanking with state rank, total games, and calculated record
+    const powerScoreFinal = rankingData?.power_score_final ?? stateRankData?.power_score_final ?? null;
+    const sosNorm = rankingData?.sos_norm ?? stateRankData?.sos_norm ?? null;
+    const offenseNorm = rankingData?.offense_norm ?? stateRankData?.offense_norm ?? null;
+    const defenseNorm = rankingData?.defense_norm ?? stateRankData?.defense_norm ?? null;
+    const rankInCohortFinal = rankingData?.rank_in_cohort_final ?? stateRankData?.rank_in_cohort_final ?? null;
+    const gamesPlayed = rankingData?.games_played ?? stateRankData?.games_played ?? 0;
+    const winsValue = rankingData?.wins ?? stateRankData?.wins ?? calculatedWins;
+    const lossesValue = rankingData?.losses ?? stateRankData?.losses ?? calculatedLosses;
+    const drawsValue = rankingData?.draws ?? stateRankData?.draws ?? calculatedDraws;
+    const winPctValue = rankingData?.win_percentage ?? stateRankData?.win_percentage ?? calculatedWinPercentage;
+
     const teamWithRanking: TeamWithRanking = {
       team_id_master: team.team_id_master,
       team_name: team.team_name,
@@ -205,21 +209,21 @@ export const api = {
       age: age,
       gender: gender,
       // Ranking fields (default to null if no ranking data)
-      power_score_final: rankingData?.power_score_final ?? null,
-      sos_norm: rankingData?.sos_norm ?? null,
+      power_score_final: powerScoreFinal,
+      sos_norm: sosNorm,
       sos_norm_state: stateRankData?.sos_norm_state ?? null,
       sos_rank_national: rankingData?.sos_rank_national ?? null,
       sos_rank_state: stateRankData?.sos_rank_state ?? null,
-      offense_norm: rankingData?.offense_norm ?? null,
-      defense_norm: rankingData?.defense_norm ?? null,
-      rank_in_cohort_final: rankingData?.rank_in_cohort_final ?? null,
+      offense_norm: offenseNorm,
+      defense_norm: defenseNorm,
+      rank_in_cohort_final: rankInCohortFinal,
       rank_in_state_final: stateRankData?.rank_in_state_final ?? null,
       // Record fields (use calculated values as fallback)
-      games_played: rankingData?.games_played ?? 0,
-      wins: finalWins,
-      losses: finalLosses,
-      draws: finalDraws,
-      win_percentage: finalWinPercentage,
+      games_played: gamesPlayed,
+      wins: winsValue,
+      losses: lossesValue,
+      draws: drawsValue,
+      win_percentage: winPctValue,
       // Total games and record from games table
       total_games_played: totalGamesCount,
       total_wins: calculatedWins,
