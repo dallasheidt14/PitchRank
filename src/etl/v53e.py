@@ -899,20 +899,27 @@ def compute_rankings(
     teams["power_score_final"] = teams["powerscore_adj"]
 
     # Map rank_in_cohort to rank_in_cohort_final (convert to float, handle None)
-    teams["rank_in_cohort_final"] = teams["rank_in_cohort"].astype("float")
+    # Use pd.to_numeric to handle None values properly (converts None to NaN, which becomes NULL in DB)
+    teams["rank_in_cohort_final"] = pd.to_numeric(teams["rank_in_cohort"], errors='coerce')
 
     # State rank must be computed — fallback to cohort rank for now
     # (State information is not available in v53e output, will be computed later in pipeline)
     teams["rank_in_state_final"] = teams["rank_in_cohort_final"]
 
     # SOS rankings: compute ranks within each (age, gender) cohort
+    # Handle NULL values: rank() will assign NaN to NULL values, which is correct
     teams["sos_rank_national"] = teams.groupby(["age", "gender"])["sos_norm"].rank(
         ascending=False, method="min"
-    ).astype(int)
+    )
+    # Convert to int, but preserve NaN (which becomes NULL in database)
+    teams["sos_rank_national"] = teams["sos_rank_national"].where(
+        teams["sos_rank_national"].notna(),
+        None
+    ).astype("Int64")  # Nullable integer type
 
     # State rank: fallback to national rank if state unavailable
     # (State information is not available in v53e output, will be computed later in pipeline)
-    teams["sos_rank_state"] = teams["sos_rank_national"]
+    teams["sos_rank_state"] = teams["sos_rank_national"].copy()
 
     # Map offense/defense norm fields
     teams["offense_norm"] = teams["off_norm"]
