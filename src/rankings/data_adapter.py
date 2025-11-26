@@ -634,7 +634,7 @@ def v53e_to_rankings_full_format(
         rankings_df['win_percentage'] = (
             rankings_df.apply(
                 lambda row: (row['wins'] / row['games_played'] * 100) 
-                if row['games_played'] > 0 else None,
+                if pd.notna(row.get('wins')) and pd.notna(row.get('games_played')) and row['games_played'] > 0 else None,
                 axis=1
             )
         )
