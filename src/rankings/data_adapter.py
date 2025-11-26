@@ -679,14 +679,18 @@ def v53e_to_rankings_full_format(
         rankings_df['sos_norm_state'] = None
 
     # sos_rank_national: descending rank across all states in cohort
+    # Preserve NULL values (don't convert to 0, as 0 is not a valid rank)
     if 'sos_rank_national' in rankings_df.columns:
-        rankings_df['sos_rank_national'] = rankings_df['sos_rank_national'].fillna(0).astype(int)
+        # Use nullable Int64 type to preserve NULL values
+        rankings_df['sos_rank_national'] = pd.to_numeric(rankings_df['sos_rank_national'], errors='coerce').astype('Int64')
     else:
         rankings_df['sos_rank_national'] = None
 
     # sos_rank_state: descending rank within state for cohort
+    # Preserve NULL values (don't convert to 0, as 0 is not a valid rank)
     if 'sos_rank_state' in rankings_df.columns:
-        rankings_df['sos_rank_state'] = rankings_df['sos_rank_state'].fillna(0).astype(int)
+        # Use nullable Int64 type to preserve NULL values
+        rankings_df['sos_rank_state'] = pd.to_numeric(rankings_df['sos_rank_state'], errors='coerce').astype('Int64')
     else:
         rankings_df['sos_rank_state'] = None
 
