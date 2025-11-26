@@ -840,10 +840,27 @@ def compute_rankings(
     # -------------------------
     # Layer 11: Rank & status
     # -------------------------
-    team["days_since_last"] = (pd.Timestamp(today) - pd.to_datetime(team["last_game"])).dt.days
-    # Filter teams based on games in last 180 days (must have at least 5 games in last 180 days)
+    # Calculate days since last game (handle NULL last_game)
+    team["days_since_last"] = (
+        pd.Timestamp(today) - pd.to_datetime(team["last_game"], errors='coerce')
+    ).dt.days
+    
+    # Filter teams based on games in last 180 days
+    # Status priority:
+    # 1. "Inactive" - No games in last 180 days (gp_last_180 == 0) OR last_game is NULL OR days_since_last >= 180
+    #    Note: Use >= to match the gp_last_180 calculation which uses >= cutoff (includes games exactly 180 days ago)
+    # 2. "Not Enough Ranked Games" - Has games in last 180 days but < MIN_GAMES_PROVISIONAL (5 games)
+    # 3. "Active" - Has >= MIN_GAMES_PROVISIONAL games in last 180 days
     team["status"] = np.where(
-        team["gp_last_180"] < cfg.MIN_GAMES_PROVISIONAL, "Not Enough Ranked Games", "Active"
+        (team["gp_last_180"] == 0) | 
+        (team["last_game"].isna()) | 
+        (team["days_since_last"].fillna(999) >= cfg.INACTIVE_HIDE_DAYS),
+        "Inactive",
+        np.where(
+            team["gp_last_180"] < cfg.MIN_GAMES_PROVISIONAL,
+            "Not Enough Ranked Games",
+            "Active"
+        )
     )
 
     # Initialize rank_in_cohort as NULL for all teams
