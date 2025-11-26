@@ -24,13 +24,8 @@ class V53EConfig:
     GOAL_DIFF_CAP: int = 6
     OUTLIER_GUARD_ZSCORE: float = 2.5  # per-team, per-game GF/GA clip
 
-    # Layer 3 (recency)
-    RECENT_K: int = 15
-    RECENT_SHARE: float = 0.65
-    DAMPEN_TAIL_START: int = 26
-    DAMPEN_TAIL_END: int = 30
-    DAMPEN_TAIL_START_WEIGHT: float = 0.8
-    DAMPEN_TAIL_END_WEIGHT: float = 0.4
+    # Layer 3 (recency) - uses exponential decay
+    RECENCY_DECAY_RATE: float = 0.05  # Controls how quickly weight drops off for older games
 
     # Layer 4 (defense ridge)
     RIDGE_GA: float = 0.25
@@ -77,10 +72,6 @@ class V53EConfig:
     # Provisional
     MIN_GAMES_PROVISIONAL: int = 5
 
-    # Context multipliers
-    TOURNAMENT_KO_MULT: float = 1.10
-    SEMIS_FINALS_MULT: float = 1.05
-
     # Cross-age anchors (national unification)
     ANCHOR_PERCENTILE: float = 0.98
 
@@ -118,28 +109,26 @@ def _clip_outliers_series(s: pd.Series, z: float) -> pd.Series:
     return s.clip(mu - z * sd, mu + z * sd)
 
 
-def _recency_weights(n: int, k: int, recent_share: float,
-                     tail_start: int, tail_end: int,
-                     w_start: float, w_end: float) -> List[float]:
+def _recency_weights(n: int, decay_rate: float = 0.05) -> List[float]:
     """
     Compute recency weights using exponential decay.
 
     For games ranked 1..n in recency (1 = most recent), assigns weight exp(-decay_rate * (rank - 1)).
     Normalizes weights so they sum to 1.0.
 
-    Note: k, recent_share, tail_start, tail_end, w_start, w_end are kept in signature
-    for backward compatibility but are no longer used. Exponential decay provides
-    smoother, more intuitive weighting where each game's weight depends only on its
-    recency, not on how many other games exist.
+    Args:
+        n: Number of games
+        decay_rate: Controls how quickly weight drops off (0.05 = gentle decay)
+                   Higher values = more emphasis on recent games
+
+    Returns:
+        List of weights summing to 1.0, most recent game first
     """
     if n <= 0:
         return []
 
     # Exponential decay: more recent games get higher weight
-    # decay_rate controls how quickly weight drops off (0.05 = gentle decay)
-    decay_rate = 0.05
-
-    # Compute raw exponential weights for each position (1 = most recent)
+    # Example with decay_rate=0.05: game 1 = 1.0, game 10 = 0.64, game 30 = 0.22
     weights = [np.exp(-decay_rate * i) for i in range(n)]
 
     # Normalize to sum to 1.0
@@ -309,32 +298,15 @@ def compute_rankings(
     # -------------------------
     def apply_recency(df: pd.DataFrame) -> pd.DataFrame:
         n = len(df)
-        w = _recency_weights(
-            n, cfg.RECENT_K, cfg.RECENT_SHARE,
-            cfg.DAMPEN_TAIL_START, cfg.DAMPEN_TAIL_END,
-            cfg.DAMPEN_TAIL_START_WEIGHT, cfg.DAMPEN_TAIL_END_WEIGHT
-        )
+        w = _recency_weights(n, cfg.RECENCY_DECAY_RATE)
         out = df.copy()
         out["w_base"] = w
         return out
 
     g = g.groupby("team_id").apply(apply_recency).reset_index(drop=True)
 
-    # -------------------------
-    # Context multipliers (tournament/KO)
-    # -------------------------
-    def context_mult(row) -> float:
-        mult = 1.0
-        it = str(row.get("is_tournament", "")).lower()
-        ko = str(row.get("is_knockout", "")).lower()
-        if it in ("1", "true", "yes"):
-            mult *= cfg.TOURNAMENT_KO_MULT
-        if ko in ("1", "true", "yes"):
-            mult *= cfg.SEMIS_FINALS_MULT
-        return mult
-
-    g["w_context"] = g.apply(context_mult, axis=1)
-    g["w_game"] = g["w_base"] * g["w_context"]
+    # Game weight is the recency weight (no additional context multipliers)
+    g["w_game"] = g["w_base"]
 
     # -------------------------
     # OFF/SAD aggregation (vectorized)
@@ -891,7 +863,7 @@ def compute_rankings(
         "game_id", "date", "team_id", "opp_id",
         "age", "gender", "opp_age", "opp_gender",
         "gf", "ga", "gd",
-        "w_base", "w_context", "k_adapt", "w_game", "w_sos", "rank_recency"
+        "w_base", "k_adapt", "w_game", "w_sos", "rank_recency"
     ]
     # For transparency, return all used games (pre repeat-cap) or the capped set.
     # Here we return the capped set that actually fed SOS.

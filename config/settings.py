@@ -90,14 +90,9 @@ RANKING_CONFIG = {
     'goal_diff_cap': int(os.getenv("GOAL_DIFF_CAP", 6)),  # V53EConfig.GOAL_DIFF_CAP
     'outlier_guard_zscore': float(os.getenv("OUTLIER_GUARD_ZSCORE", 2.5)),  # V53EConfig.OUTLIER_GUARD_ZSCORE
     
-    # Layer 3 (recency)
-    'recent_k': int(os.getenv("RECENT_K", 15)),  # V53EConfig.RECENT_K
-    'recent_share': float(os.getenv("RECENT_SHARE", 0.65)),  # V53EConfig.RECENT_SHARE
-    'dampen_tail_start': int(os.getenv("DAMPEN_TAIL_START", 26)),  # V53EConfig.DAMPEN_TAIL_START
-    'dampen_tail_end': int(os.getenv("DAMPEN_TAIL_END", 30)),  # V53EConfig.DAMPEN_TAIL_END
-    'dampen_tail_start_weight': float(os.getenv("DAMPEN_TAIL_START_WEIGHT", 0.8)),  # V53EConfig.DAMPEN_TAIL_START_WEIGHT
-    'dampen_tail_end_weight': float(os.getenv("DAMPEN_TAIL_END_WEIGHT", 0.4)),  # V53EConfig.DAMPEN_TAIL_END_WEIGHT
-    
+    # Layer 3 (recency) - uses exponential decay
+    'recency_decay_rate': float(os.getenv("RECENCY_DECAY_RATE", 0.05)),  # V53EConfig.RECENCY_DECAY_RATE
+
     # Layer 4 (defense ridge)
     'ridge_ga': float(os.getenv("RIDGE_GA", 0.25)),  # V53EConfig.RIDGE_GA
     
@@ -136,11 +131,7 @@ RANKING_CONFIG = {
     
     # Provisional
     'min_games_for_ranking': int(os.getenv("MIN_GAMES_FOR_RANKING", 5)),  # V53EConfig.MIN_GAMES_PROVISIONAL
-    
-    # Context multipliers
-    'tournament_ko_mult': float(os.getenv("TOURNAMENT_KO_MULT", 1.10)),  # V53EConfig.TOURNAMENT_KO_MULT
-    'semis_finals_mult': float(os.getenv("SEMIS_FINALS_MULT", 1.05)),  # V53EConfig.SEMIS_FINALS_MULT
-    
+
     # Cross-age anchors
     'anchor_percentile': float(os.getenv("ANCHOR_PERCENTILE", 0.98)),  # V53EConfig.ANCHOR_PERCENTILE
     
