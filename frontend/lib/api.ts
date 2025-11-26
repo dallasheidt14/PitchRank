@@ -255,6 +255,16 @@ export const api = {
     // Compute rank_in_state_final if missing from stateRankData
     // Fallback: count teams in same state/age/gender with higher power_score_final
     let rankInStateFinal = stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? null;
+    
+    // Debug: Log stateRankData to help diagnose missing rank_in_state_final
+    if (stateRankData && !rankInStateFinal) {
+      console.warn('[api.getTeam] stateRankData exists but rank_in_state_final is missing:', {
+        hasStateRankData: !!stateRankData,
+        rankInStateFinal: stateRankData.rank_in_state_final,
+        stateRank: stateRankData.state_rank,
+        stateRankDataKeys: Object.keys(stateRankData || {})
+      });
+    }
     if (!rankInStateFinal && rankingData && rankingData.state && rankingData.age && rankingData.gender && powerScoreFinal !== null) {
       // Query rankings_view to compute state rank
       const { data: stateRankings, error: stateRankError } = await supabase
