@@ -297,7 +297,7 @@ export const api = {
       sos_norm: sosNorm,
       sos_norm_state: stateRankData?.sos_norm_state ?? null,
       sos_rank_national: rankingData?.sos_rank_national ?? rankingData?.national_sos_rank ?? null,
-      sos_rank_state: stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? null,
+      sos_rank_state: stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? rankingData?.sos_rank_state ?? null,
       offense_norm: offenseNorm,
       defense_norm: defenseNorm,
       rank_in_cohort_final: rankInCohortFinal,
