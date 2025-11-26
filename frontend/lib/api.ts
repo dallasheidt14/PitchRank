@@ -252,6 +252,26 @@ export const api = {
       rankingsFullData?.rank_in_cohort_final ??
       null;
 
+    // Compute rank_in_state_final if missing from stateRankData
+    // Fallback: count teams in same state/age/gender with higher power_score_final
+    let rankInStateFinal = stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? null;
+    if (!rankInStateFinal && rankingData && rankingData.state && rankingData.age && rankingData.gender && powerScoreFinal !== null) {
+      // Query rankings_view to compute state rank
+      const { data: stateRankings, error: stateRankError } = await supabase
+        .from('rankings_view')
+        .select('team_id_master, power_score_final')
+        .eq('state', rankingData.state)
+        .eq('age', rankingData.age)
+        .eq('gender', rankingData.gender)
+        .gt('power_score_final', powerScoreFinal)
+        .limit(10000); // Reasonable limit
+      
+      if (!stateRankError && stateRankings) {
+        // Rank is 1 + number of teams with higher power score
+        rankInStateFinal = stateRankings.length + 1;
+      }
+    }
+
     const gamesPlayed =
       rankingData?.games_played ??
       rankingData?.games ??
@@ -301,7 +321,7 @@ export const api = {
       offense_norm: offenseNorm,
       defense_norm: defenseNorm,
       rank_in_cohort_final: rankInCohortFinal,
-      rank_in_state_final: stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? null,
+      rank_in_state_final: rankInStateFinal,
       // Record fields (use calculated values as fallback)
       games_played: gamesPlayed,
       wins: winsValue,
