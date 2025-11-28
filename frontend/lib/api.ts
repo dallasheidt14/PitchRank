@@ -252,34 +252,37 @@ export const api = {
       rankingsFullData?.rank_in_cohort_final ??
       null;
 
-    // Compute rank_in_state_final if missing from stateRankData
-    // Fallback: count teams in same state/age/gender with higher power_score_final
-    let rankInStateFinal = stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? null;
+    // Compute rank_in_state_final with status filter to match rankings list display
+    // IMPORTANT: The rankings list filters by status, so we must compute ranks the same way
+    // to ensure consistency between list view and comparison view
+    // The state_rankings_view computes ranks for ALL teams (including inactive),
+    // but the rankings list only shows Active/Not Enough Ranked Games teams
+    let rankInStateFinal: number | null = null;
     
-    // Debug: Log stateRankData to help diagnose missing rank_in_state_final
-    if (stateRankData && !rankInStateFinal) {
-      console.warn('[api.getTeam] stateRankData exists but rank_in_state_final is missing:', {
-        hasStateRankData: !!stateRankData,
-        rankInStateFinal: stateRankData.rank_in_state_final,
-        stateRank: stateRankData.state_rank,
-        stateRankDataKeys: Object.keys(stateRankData || {})
-      });
-    }
-    if (!rankInStateFinal && rankingData && rankingData.state && rankingData.age && rankingData.gender && powerScoreFinal !== null) {
-      // Query rankings_view to compute state rank
+    if (rankingData && rankingData.state && rankingData.age && rankingData.gender && powerScoreFinal !== null) {
+      // Always recompute state rank with status filter to match rankings list
+      // This ensures inactive teams don't affect the displayed ranks
       const { data: stateRankings, error: stateRankError } = await supabase
-        .from('rankings_view')
-        .select('team_id_master, power_score_final')
+        .from('state_rankings_view')
+        .select('team_id_master, power_score_final, status')
         .eq('state', rankingData.state)
         .eq('age', rankingData.age)
         .eq('gender', rankingData.gender)
+        .in('status', ['Active', 'Not Enough Ranked Games']) // Match rankings list filter
         .gt('power_score_final', powerScoreFinal)
         .limit(10000); // Reasonable limit
       
       if (!stateRankError && stateRankings) {
-        // Rank is 1 + number of teams with higher power score
+        // Rank is 1 + number of teams with higher power score (only counting Active/Not Enough Ranked Games teams)
         rankInStateFinal = stateRankings.length + 1;
+      } else if (stateRankError) {
+        console.warn('[api.getTeam] Error computing filtered state rank, falling back to view rank:', stateRankError.message);
+        // Fallback to rank from view if computation fails
+        rankInStateFinal = stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? null;
       }
+    } else {
+      // Fallback if we don't have enough data to compute
+      rankInStateFinal = stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? null;
     }
 
     const gamesPlayed =
