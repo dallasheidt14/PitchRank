@@ -318,6 +318,37 @@ export const api = {
       stateRankData?.win_pct ??
       calculatedWinPercentage;
 
+    // Compute sos_rank_state with status filter to match rankings list display
+    // Similar to state rank, SOS ranks are pre-calculated for ALL teams (including inactive)
+    // but the rankings list only shows Active/Not Enough Ranked Games teams
+    let sosRankState: number | null = null;
+    const sosNormState = stateRankData?.sos_norm_state ?? null;
+    
+    if (rankingData && rankingData.state && rankingData.age && rankingData.gender && sosNormState !== null) {
+      // Recompute SOS rank with status filter to match rankings list
+      const { data: sosRankings, error: sosRankError } = await supabase
+        .from('state_rankings_view')
+        .select('team_id_master, sos_norm_state, status')
+        .eq('state', rankingData.state)
+        .eq('age', rankingData.age)
+        .eq('gender', rankingData.gender)
+        .in('status', ['Active', 'Not Enough Ranked Games']) // Match rankings list filter
+        .gt('sos_norm_state', sosNormState)
+        .limit(10000);
+      
+      if (!sosRankError && sosRankings) {
+        // Rank is 1 + number of teams with higher SOS (only counting Active/Not Enough Ranked Games teams)
+        sosRankState = sosRankings.length + 1;
+      } else if (sosRankError) {
+        console.warn('[api.getTeam] Error computing filtered SOS rank, falling back to view rank:', sosRankError.message);
+        // Fallback to rank from view if computation fails
+        sosRankState = stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? rankingData?.sos_rank_state ?? null;
+      }
+    } else {
+      // Fallback if we don't have enough data to compute
+      sosRankState = stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? rankingData?.sos_rank_state ?? null;
+    }
+
     const teamWithRanking: TeamWithRanking = {
       team_id_master: team.team_id_master,
       team_name: team.team_name,
@@ -328,9 +359,9 @@ export const api = {
       // Ranking fields (default to null if no ranking data)
       power_score_final: powerScoreFinal,
       sos_norm: sosNorm,
-      sos_norm_state: stateRankData?.sos_norm_state ?? null,
+      sos_norm_state: sosNormState,
       sos_rank_national: rankingData?.sos_rank_national ?? rankingData?.national_sos_rank ?? null,
-      sos_rank_state: stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? rankingData?.sos_rank_state ?? null,
+      sos_rank_state: sosRankState,
       offense_norm: offenseNorm,
       defense_norm: defenseNorm,
       rank_in_cohort_final: rankInCohortFinal,
