@@ -43,9 +43,50 @@ export async function generateMetadata({ params }: TeamPageProps): Promise<Metad
       return { title: 'Team Not Found | PitchRank' };
     }
 
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
+    const teamUrl = `${baseUrl}/teams/${resolvedParams.id}`;
+    const title = `${team.team_name}${team.state_code ? ` (${team.state_code})` : ''} | PitchRank`;
+    const description = `View rankings, trajectory, momentum, and full profile for ${team.team_name}${team.club_name ? ` from ${team.club_name}` : ''}.`;
+
+    // Build keywords array
+    const keywords = [
+      `${team.team_name} soccer rankings`,
+      `${team.team_name} ${team.state_code || ''} soccer`,
+      ...(team.club_name ? [`${team.club_name} soccer teams`, `${team.club_name} ${team.state_code || ''}`] : []),
+      ...(team.state_code ? [`${team.state_code} youth soccer`, `${team.state_code} soccer rankings`] : []),
+      'youth soccer rankings',
+      'soccer team rankings',
+      'club soccer rankings',
+    ].filter(Boolean); // Remove any undefined/null values
+
     return {
-      title: `${team.team_name}${team.state_code ? ` (${team.state_code})` : ''} | PitchRank`,
-      description: `View rankings, trajectory, momentum, and full profile for ${team.team_name}${team.club_name ? ` from ${team.club_name}` : ''}.`,
+      title,
+      description,
+      keywords,
+      alternates: {
+        canonical: teamUrl,
+      },
+      openGraph: {
+        title: `${team.team_name} | PitchRank`,
+        description: `View comprehensive rankings and performance metrics for ${team.team_name}${team.club_name ? ` from ${team.club_name}` : ''}.`,
+        url: teamUrl,
+        siteName: 'PitchRank',
+        type: 'website',
+        images: [
+          {
+            url: '/logos/pitchrank-wordmark.svg',
+            width: 1200,
+            height: 630,
+            alt: `${team.team_name} - PitchRank`,
+          },
+        ],
+      },
+      twitter: {
+        card: 'summary_large_image',
+        title: `${team.team_name} | PitchRank`,
+        description: `View rankings and performance metrics for ${team.team_name}.`,
+        images: ['/logos/pitchrank-wordmark.svg'],
+      },
     };
   } catch (error) {
     console.error('Error in generateMetadata:', error);
