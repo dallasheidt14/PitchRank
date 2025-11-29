@@ -64,15 +64,16 @@ export function GlobalSearch() {
 
     return new FuseClass(allTeams, {
       keys: [
-        { name: 'searchable_name', weight: 0.6 }, // Includes year variations (2015 → 2015 15)
-        { name: 'club_name', weight: 0.3 },
+        { name: 'searchable_name', weight: 0.5 }, // Includes team name, year variations, and word tokens
+        { name: 'club_name', weight: 0.4 }, // Increased weight for better club name matching
         { name: 'state', weight: 0.1 },
       ],
-      threshold: 0.4, // More forgiving matching (was 0.3)
+      threshold: 0.6, // More lenient matching - allows typos and partial matches (0.0 = exact, 1.0 = anything)
       ignoreLocation: true, // Match anywhere in string, not just beginning
       findAllMatches: true, // Don't stop at first match
       includeScore: true,
       minMatchCharLength: 2,
+      shouldSort: true, // Sort by relevance score
     });
   }, [allTeams, FuseClass]);
 

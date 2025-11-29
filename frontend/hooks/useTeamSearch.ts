@@ -43,10 +43,16 @@ export function useTeamSearch() {
           // Convert gender from database format ('Male'|'Female') to API format ('M'|'F')
           const genderCode = team.gender === 'Male' ? 'M' : team.gender === 'Female' ? 'F' : 'M' as 'M' | 'F' | 'B' | 'G';
 
-          // Create searchable name that includes both full years (2015) and short years (15)
-          // This allows bidirectional matching:
+          // Create searchable name that includes:
+          // 1. Year variations (2015 → 2015 15) for bidirectional matching
+          // 2. Word tokens from team name for better partial word matching
+          // 3. Club name tokens for searching by club name
+          // This allows matching like:
           // - "rsl north chacon 15" matches "rsl north chacon 2015"
-          // - "rsl north chacon 2015" matches "rsl north chacon 15"
+          // - "rsl north" matches "RSL North Chacon 2015"
+          // - "north chacon" matches "RSL North Chacon 2015"
+          // - "real salt lake" matches teams from "Real Salt Lake" club
+          // - "rsl" matches teams from "RSL" or "Real Salt Lake" club
           const searchable_name = (() => {
             const additions: string[] = [];
 
@@ -57,6 +63,29 @@ export function useTeamSearch() {
             // For standalone 2-digit years (not preceded by "20"), add 4-digit form
             const twoDigitYears = team.team_name.match(/(?<!20)(0[9]|1[0-9])\b/g) || [];
             twoDigitYears.forEach((y: string) => additions.push('20' + y));
+
+            // Add individual words from team name for better partial matching
+            // Split on spaces and non-word characters, filter out empty strings and years
+            const teamWords = team.team_name
+              .toLowerCase()
+              .split(/[\s\-_.,;:!?()]+/)
+              .filter(word => word.length > 2 && !/^\d+$/.test(word)); // Exclude short words and pure numbers
+            
+            additions.push(...teamWords);
+
+            // Add club name and its word tokens if club_name exists
+            // This allows searching by club name even when searching the searchable_name field
+            if (team.club_name) {
+              additions.push(team.club_name.toLowerCase());
+              
+              // Add individual words from club name
+              const clubWords = team.club_name
+                .toLowerCase()
+                .split(/[\s\-_.,;:!?()]+/)
+                .filter(word => word.length > 2 && !/^\d+$/.test(word));
+              
+              additions.push(...clubWords);
+            }
 
             return additions.length > 0
               ? team.team_name + ' ' + additions.join(' ')
