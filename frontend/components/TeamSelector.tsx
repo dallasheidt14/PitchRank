@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { InlineLoader } from '@/components/ui/LoadingStates';
+import type Fuse from 'fuse.js';
 import type { RankingRow } from '@/types/RankingRow';
 
 interface TeamSelectorProps {
@@ -45,30 +46,58 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
   const [searchQuery, setSearchQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [FuseClass, setFuseClass] = useState<typeof Fuse | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   
   // Fetch all teams for autocomplete (not just ranked teams)
   const { data: allTeams, isLoading, isError, error, refetch } = useTeamSearch();
 
+  // Dynamically load Fuse.js only when needed
+  useEffect(() => {
+    if (!FuseClass) {
+      import('fuse.js').then((module) => {
+        setFuseClass(() => module.default);
+      });
+    }
+  }, [FuseClass]);
+
   const selectedTeam = useMemo(() => {
     if (!value || !allTeams) return null;
     return allTeams.find(r => r.team_id_master === value) || null;
   }, [value, allTeams]);
 
+  // Configure Fuse.js for fuzzy search (same as GlobalSearch)
+  const fuse = useMemo(() => {
+    if (!allTeams || !FuseClass) return null;
+
+    // Filter out excluded team before creating Fuse instance
+    const teamsToSearch = excludeTeamId 
+      ? allTeams.filter(team => team.team_id_master !== excludeTeamId)
+      : allTeams;
+
+    return new FuseClass(teamsToSearch, {
+      keys: [
+        { name: 'searchable_name', weight: 0.5 }, // Includes team name, year variations, and word tokens
+        { name: 'club_name', weight: 0.4 }, // Increased weight for better club name matching
+        { name: 'state', weight: 0.1 },
+      ],
+      threshold: 0.6, // More lenient matching - allows typos and partial matches
+      ignoreLocation: true, // Match anywhere in string, not just beginning
+      findAllMatches: true, // Don't stop at first match
+      includeScore: true,
+      minMatchCharLength: 2,
+      shouldSort: true, // Sort by relevance score
+    });
+  }, [allTeams, FuseClass, excludeTeamId]);
+
+  // Perform fuzzy search using Fuse.js
   const filteredTeams = useMemo(() => {
-    if (!allTeams || !searchQuery) return [];
+    if (!searchQuery || !fuse || searchQuery.length < 2) return [];
     
-    const query = searchQuery.toLowerCase();
-    return allTeams
-      .filter(team => 
-        team.team_id_master !== excludeTeamId &&
-        (team.team_name.toLowerCase().includes(query) ||
-         team.club_name?.toLowerCase().includes(query) ||
-         team.state?.toLowerCase().includes(query))
-      )
-      .slice(0, 10); // Limit to 10 results
-  }, [allTeams, searchQuery, excludeTeamId]);
+    const results = fuse.search(searchQuery);
+    return results.slice(0, 10).map(result => result.item); // Limit to 10 results
+  }, [searchQuery, fuse]);
 
   // Reset selected index when filtered teams change
   useEffect(() => {
@@ -83,7 +112,16 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (!isOpen || filteredTeams.length === 0) return;
+    if (!isOpen || filteredTeams.length === 0) {
+      // Allow Enter to search even if dropdown isn't open
+      if (e.key === 'Enter' && searchQuery.length >= 2 && fuse) {
+        const results = fuse.search(searchQuery);
+        if (results && results.length > 0) {
+          handleSelect(results[0].item);
+        }
+      }
+      return;
+    }
 
     switch (e.key) {
       case 'ArrowDown':
