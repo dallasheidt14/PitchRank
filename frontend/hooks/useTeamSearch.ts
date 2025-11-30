@@ -69,7 +69,7 @@ export function useTeamSearch() {
             const teamWords = team.team_name
               .toLowerCase()
               .split(/[\s\-_.,;:!?()]+/)
-              .filter(word => word.length > 2 && !/^\d+$/.test(word)); // Exclude short words and pure numbers
+              .filter((word: string) => word.length > 2 && !/^\d+$/.test(word)); // Exclude short words and pure numbers
             
             additions.push(...teamWords);
 
@@ -82,7 +82,7 @@ export function useTeamSearch() {
               const clubWords = team.club_name
                 .toLowerCase()
                 .split(/[\s\-_.,;:!?()]+/)
-                .filter(word => word.length > 2 && !/^\d+$/.test(word));
+                .filter((word: string) => word.length > 2 && !/^\d+$/.test(word));
               
               additions.push(...clubWords);
             }
