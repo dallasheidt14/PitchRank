@@ -46,7 +46,7 @@ export function Footer() {
   };
 
   return (
-    <footer className="border-t border-border bg-muted/30 mt-auto">
+    <footer className="border-t border-border bg-muted/30 mt-auto safe-bottom">
       <div className="container mx-auto px-4 py-8 md:py-12">
         {/* Main Footer Content */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 md:gap-8 mb-8">
@@ -71,9 +71,9 @@ export function Footer() {
                     target="_blank"
                     rel="noopener noreferrer"
                     aria-label={social.ariaLabel}
-                    className="text-muted-foreground hover:text-foreground transition-colors p-2 hover:bg-muted rounded-md"
+                    className="text-muted-foreground hover:text-foreground transition-colors p-3 sm:p-2 hover:bg-muted rounded-md min-w-[44px] min-h-[44px] flex items-center justify-center"
                   >
-                    <Icon className="h-5 w-5" />
+                    <Icon className="h-6 w-6 sm:h-5 sm:w-5" />
                   </a>
                 );
               })}

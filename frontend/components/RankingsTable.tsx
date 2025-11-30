@@ -263,7 +263,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
           <div className="rounded-md border overflow-hidden">
             {/* Mobile: Horizontal scroll wrapper with momentum scrolling */}
             <div className="overflow-x-auto -mx-4 sm:mx-0 touch-pan-x">
-              <div className="inline-block min-w-full align-middle" style={{ minWidth: region ? '700px' : '750px' }}>
+              <div className={`inline-block min-w-full align-middle ${region ? 'min-w-[600px] sm:min-w-[700px]' : 'min-w-[600px] sm:min-w-[700px] md:min-w-[750px]'}`}>
                 {/* Table Header */}
                 <div className="grid border-b-2 border-primary bg-secondary/50 sticky top-0 z-10" style={{ gridTemplateColumns: region ? '60px 2fr 1fr 0.9fr 0.8fr 0.9fr 1fr' : '60px 2fr 1fr 0.9fr 0.8fr 0.9fr 1fr 1fr' }}>
                   <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide">
@@ -336,8 +336,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                 {/* Virtualized Table Body */}
                 <div
                   ref={parentRef}
-                  className="overflow-auto"
-                  style={{ height: '600px' }}
+                  className="overflow-auto h-[400px] sm:h-[500px] md:h-[600px]"
                 >
                   <div
                     style={{

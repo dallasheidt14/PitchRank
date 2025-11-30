@@ -163,7 +163,9 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
         <Input
           ref={inputRef}
           id={`team-selector-${label}`}
-          type="text"
+          type="search"
+          inputMode="search"
+          autoComplete="off"
           placeholder="Search for a team..."
           value={searchQuery}
           onChange={(e) => {
