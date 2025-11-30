@@ -266,16 +266,16 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
               <div className={`inline-block min-w-full align-middle ${region ? 'min-w-[600px] sm:min-w-[700px]' : 'min-w-[600px] sm:min-w-[700px] md:min-w-[750px]'}`}>
                 {/* Table Header */}
                 <div className="grid border-b-2 border-primary bg-secondary/50 sticky top-0 z-10" style={{ gridTemplateColumns: region ? '60px 2fr 1fr 0.9fr 0.8fr 0.9fr 1fr' : '60px 2fr 1fr 0.9fr 0.8fr 0.9fr 1fr 1fr' }}>
-                  <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide">
+                  <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <SortButton field="rank" label="Rank" />
                   </div>
-                  <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide">
+                  <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <SortButton field="team" label="Team" />
                   </div>
-                  <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide">
+                  <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <div>
+                        <div className="min-w-0 overflow-hidden">
                           <SortButton field="powerScore" label={<><span className="hidden sm:inline">PowerScore (ML Adjusted)</span><span className="sm:hidden">PS</span></>} />
                         </div>
                       </TooltipTrigger>
@@ -284,13 +284,13 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                       </TooltipContent>
                     </Tooltip>
                   </div>
-                  <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide">
+                  <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <SortButton field="winPercentage" label="Win %" />
                   </div>
-                  <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide">
+                  <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <div>
+                        <div className="min-w-0 overflow-hidden">
                           <SortButton field="gamesPlayed" label="Games" />
                         </div>
                       </TooltipTrigger>
@@ -307,10 +307,10 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                       </TooltipContent>
                     </Tooltip>
                   </div>
-                  <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide">
+                  <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <div>
+                        <div className="min-w-0 overflow-hidden">
                           <SortButton field="sosRank" label={<><span className="hidden sm:inline">SOS Rank</span><span className="sm:hidden">SOS R</span></>} />
                         </div>
                       </TooltipTrigger>
@@ -319,10 +319,10 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                       </TooltipContent>
                     </Tooltip>
                   </div>
-                  <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide">
+                  <div className="px-2 sm:px-4 py-3 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <div>
+                        <div className="min-w-0 overflow-hidden">
                           <SortButton field="sos" label="SOS" />
                         </div>
                       </TooltipTrigger>
@@ -376,22 +376,22 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                             minHeight: '60px',
                           }}
                         >
-                          <div className="px-2 sm:px-4 py-2 sm:py-3 font-semibold flex items-center text-xs sm:text-base">
+                          <div className="px-2 sm:px-4 py-2 sm:py-3 font-semibold flex items-center text-xs sm:text-base min-w-0 overflow-hidden">
                             {(() => {
                               const rank = region ? team.rank_in_state_final : team.rank_in_cohort_final;
                               return rank != null ? `#${rank}` : '—';
                             })()}
                           </div>
-                          <div className="px-2 sm:px-4 py-2 sm:py-3 min-w-0">
+                          <div className="px-2 sm:px-4 py-2 sm:py-3 min-w-0 overflow-hidden">
                             <Link
                               href={`/teams/${team.team_id_master}?region=${region || 'national'}&ageGroup=${ageGroup}&gender=${gender?.toLowerCase() || 'male'}`}
                               onMouseEnter={() => prefetchTeam(team.team_id_master)}
-                              className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block text-xs sm:text-sm truncate block"
+                              className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block text-xs sm:text-sm truncate block w-full"
                               aria-label={`View ${team.team_name} team details`}
                             >
                               {team.team_name}
                             </Link>
-                            <div className="text-xs sm:text-sm text-muted-foreground truncate">
+                            <div className="text-xs sm:text-sm text-muted-foreground truncate w-full">
                               {team.club_name && <span>{team.club_name}</span>}
                               {team.state && (
                                 <span className={team.club_name ? ' • ' : ''}>
@@ -400,31 +400,35 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                               )}
                             </div>
                           </div>
-                          <div className="px-2 sm:px-4 py-2 sm:py-3 text-right font-semibold flex items-center justify-end text-xs sm:text-sm">
-                            {formatPowerScore(team.power_score_final)}
+                          <div className="px-2 sm:px-4 py-2 sm:py-3 text-right font-semibold flex items-center justify-end text-xs sm:text-sm min-w-0 overflow-hidden">
+                            <span className="truncate">{formatPowerScore(team.power_score_final)}</span>
                           </div>
-                          <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm">
-                            {team.win_percentage != null ? `${team.win_percentage.toFixed(1)}%` : '—'}
+                          <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm min-w-0 overflow-hidden">
+                            <span className="truncate">{team.win_percentage != null ? `${team.win_percentage.toFixed(1)}%` : '—'}</span>
                           </div>
-                          <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm">
-                            {team.games_played}/{team.total_games_played}
+                          <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm min-w-0 overflow-hidden">
+                            <span className="truncate">{team.games_played}/{team.total_games_played}</span>
                           </div>
-                          <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm">
-                            {(() => {
-                              // Use pre-calculated SOS rank from database
-                              const sosRank = region ? team.sos_rank_state : team.sos_rank_national;
-                              return sosRank ? `#${sosRank}` : '—';
-                            })()}
+                          <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm min-w-0 overflow-hidden">
+                            <span className="truncate">
+                              {(() => {
+                                // Use pre-calculated SOS rank from database
+                                const sosRank = region ? team.sos_rank_state : team.sos_rank_national;
+                                return sosRank ? `#${sosRank}` : '—';
+                              })()}
+                            </span>
                           </div>
-                          <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm">
-                            {(() => {
-                              // Use sos_norm_state for state rankings, sos_norm for national rankings
-                              const sosValue = region 
-                                ? (team.sos_norm_state ?? team.sos_norm) 
-                                : team.sos_norm;
-                              
-                              return formatSOSIndex(sosValue);
-                            })()}
+                          <div className="px-2 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm min-w-0 overflow-hidden">
+                            <span className="truncate">
+                              {(() => {
+                                // Use sos_norm_state for state rankings, sos_norm for national rankings
+                                const sosValue = region 
+                                  ? (team.sos_norm_state ?? team.sos_norm) 
+                                  : team.sos_norm;
+                                
+                                return formatSOSIndex(sosValue);
+                              })()}
+                            </span>
                           </div>
                         </div>
                       );
