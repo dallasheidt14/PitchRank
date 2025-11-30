@@ -157,6 +157,33 @@
     overscroll-behavior: contain;
   }
 
+  /* Safe area insets for notched devices (iPhone X+, Android) */
+  @supports (padding: max(0px)) {
+    .safe-top {
+      padding-top: max(1rem, env(safe-area-inset-top));
+    }
+    .safe-bottom {
+      padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    }
+    .safe-left {
+      padding-left: max(1rem, env(safe-area-inset-left));
+    }
+    .safe-right {
+      padding-right: max(1rem, env(safe-area-inset-right));
+    }
+  }
+
+  /* Prevent iOS zoom on input focus - ensure inputs are at least 16px */
+  input, select, textarea {
+    font-size: 16px; /* Prevents iOS zoom on focus */
+  }
+
+  @media (min-width: 640px) {
+    input, select, textarea {
+      font-size: 14px; /* Smaller on desktop */
+    }
+  }
+
   /* Athletic Editorial Typography */
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-oswald), sans-serif;
