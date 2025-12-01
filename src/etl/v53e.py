@@ -728,30 +728,42 @@ def compute_rankings(
         f"range=[{team['sos'].min():.4f}, {team['sos'].max():.4f}]"
     )
 
-    # Option B: Age-relative SOS Z-score normalization
-    # Normalize SOS by age only (not age+gender) to preserve variance and accuracy
-    # This ensures U11 SOS values can't exceed U16 within age group
-    logger.info("🔄 Computing age-relative SOS normalization (Option B)")
-    
-    # Compute age-relative SOS z-score (normalize by age only)
-    team['sos_norm'] = team.groupby('age')['sos'].transform(
-        lambda x: (x - x.mean()) / x.std(ddof=0) if x.std(ddof=0) > 0 else x - x.mean()
-    )
-    
-    # Handle edge case: if all teams in an age group have same SOS, z-score is NaN
-    team['sos_norm'] = team['sos_norm'].fillna(0.0)
-    
-    # Convert to 0–1 scale (preserve relative differences)
-    sos_norm_min = team['sos_norm'].min()
-    sos_norm_max = team['sos_norm'].max()
-    if sos_norm_max > sos_norm_min:
-        team['sos_norm'] = (team['sos_norm'] - sos_norm_min) / (sos_norm_max - sos_norm_min)
-    else:
-        # All teams have same z-score (edge case), set to 0.5
-        team['sos_norm'] = 0.5
-    
-    # Log SOS norms by age group
-    logger.info("📊 SOS norms by age:\n%s", team.groupby('age')['sos_norm'].describe())
+    # SOS Normalization: Per-cohort percentile ranking
+    #
+    # IMPORTANT: We normalize SOS within each cohort (age + gender) to ensure
+    # SOS has the full [0, 1] range within each ranking group. This guarantees
+    # that SOS contributes its intended 50% weight to PowerScore differentiation.
+    #
+    # Previous approach (global scaling) caused SOS compression where some cohorts
+    # had sos_norm ranges like [0.3, 0.5] instead of [0, 1], effectively reducing
+    # SOS contribution to ~10% instead of 50%.
+    logger.info("🔄 Computing per-cohort SOS normalization (percentile within age+gender)")
+
+    # Percentile rank within each cohort - ensures full [0, 1] range per cohort
+    # Teams are ranked against peers in the same age group and gender
+    def percentile_within_cohort(x):
+        if len(x) <= 1:
+            return pd.Series([0.5] * len(x), index=x.index)
+        # rank(pct=True) gives values from 1/n to 1.0
+        # We want 0.0 to 1.0, so we adjust
+        ranks = x.rank(method='average')
+        return (ranks - 1) / (len(x) - 1) if len(x) > 1 else pd.Series([0.5], index=x.index)
+
+    team['sos_norm'] = team.groupby(['age', 'gender'])['sos'].transform(percentile_within_cohort)
+
+    # Handle edge cases (NaN from single-team cohorts)
+    team['sos_norm'] = team['sos_norm'].fillna(0.5)
+
+    # Ensure values are clipped to [0, 1]
+    team['sos_norm'] = team['sos_norm'].clip(0.0, 1.0)
+
+    # Log SOS norms by cohort to verify full range
+    logger.info("📊 SOS norms by cohort (should show ~0.0-1.0 range in each):")
+    for (age, gender), grp in team.groupby(['age', 'gender']):
+        if len(grp) >= 5:
+            logger.info(f"    {age} {gender}: min={grp['sos_norm'].min():.3f}, "
+                       f"max={grp['sos_norm'].max():.3f}, "
+                       f"mean={grp['sos_norm'].mean():.3f}, n={len(grp)}")
 
     # Low sample handling: smooth shrink toward 0.5 for teams with insufficient games
     # This prevents teams with few games from having extreme SOS values (high or low)
