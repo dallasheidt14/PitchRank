@@ -1,10 +1,9 @@
 'use client';
 
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, useDeferredValue } from 'react';
 import { Input } from '@/components/ui/input';
 import { useTeamSearch } from '@/hooks/useTeamSearch';
 import { Card, CardContent } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { InlineLoader } from '@/components/ui/LoadingStates';
 import type Fuse from 'fuse.js';
@@ -18,25 +17,37 @@ interface TeamSelectorProps {
 }
 
 /**
- * Highlight matching text in a string
+ * Escape special regex characters in a string
+ */
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Highlight matching text in a string (with safe regex escaping)
  */
 function highlightMatch(text: string, query: string): React.ReactNode {
-  if (!query) return text;
-  
-  const parts = text.split(new RegExp(`(${query})`, 'gi'));
-  return (
-    <>
-      {parts.map((part, index) => 
-        part.toLowerCase() === query.toLowerCase() ? (
-          <mark key={index} className="bg-yellow-200 px-1 rounded">
-            {part}
-          </mark>
-        ) : (
-          part
-        )
-      )}
-    </>
-  );
+  if (!query || query.length < 2) return text;
+
+  try {
+    const escapedQuery = escapeRegex(query);
+    const parts = text.split(new RegExp(`(${escapedQuery})`, 'gi'));
+    return (
+      <>
+        {parts.map((part, index) =>
+          part.toLowerCase() === query.toLowerCase() ? (
+            <mark key={index} className="bg-yellow-200 px-1 rounded">
+              {part}
+            </mark>
+          ) : (
+            part
+          )
+        )}
+      </>
+    );
+  } catch {
+    return text;
+  }
 }
 
 /**
@@ -49,7 +60,11 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
   const [FuseClass, setFuseClass] = useState<typeof Fuse | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  
+
+  // Defer the search query to prevent UI jank during typing
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const isSearchPending = searchQuery !== deferredSearchQuery;
+
   // Fetch all teams for autocomplete (not just ranked teams)
   const { data: allTeams, isLoading, isError, error, refetch } = useTeamSearch();
 
@@ -67,37 +82,39 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
     return allTeams.find(r => r.team_id_master === value) || null;
   }, [value, allTeams]);
 
-  // Configure Fuse.js for fuzzy search (same as GlobalSearch)
+  // Configure Fuse.js for fuzzy search with optimized settings
   const fuse = useMemo(() => {
     if (!allTeams || !FuseClass) return null;
 
     // Filter out excluded team before creating Fuse instance
-    const teamsToSearch = excludeTeamId 
+    const teamsToSearch = excludeTeamId
       ? allTeams.filter(team => team.team_id_master !== excludeTeamId)
       : allTeams;
 
     return new FuseClass(teamsToSearch, {
       keys: [
-        { name: 'searchable_name', weight: 0.5 }, // Includes team name, year variations, and word tokens
-        { name: 'club_name', weight: 0.4 }, // Increased weight for better club name matching
+        { name: 'searchable_name', weight: 0.5 },
+        { name: 'club_name', weight: 0.4 },
         { name: 'state', weight: 0.1 },
       ],
-      threshold: 0.6, // More lenient matching - allows typos and partial matches
-      ignoreLocation: true, // Match anywhere in string, not just beginning
-      findAllMatches: true, // Don't stop at first match
+      threshold: 0.4, // Tighter threshold for faster, more accurate results
+      ignoreLocation: true,
+      findAllMatches: false, // Stop at first match for better performance
       includeScore: true,
       minMatchCharLength: 2,
-      shouldSort: true, // Sort by relevance score
+      shouldSort: true,
+      useExtendedSearch: false,
+      isCaseSensitive: false,
     });
   }, [allTeams, FuseClass, excludeTeamId]);
 
-  // Perform fuzzy search using Fuse.js
+  // Perform fuzzy search using deferred query for smoother typing
   const filteredTeams = useMemo(() => {
-    if (!searchQuery || !fuse || searchQuery.length < 2) return [];
-    
-    const results = fuse.search(searchQuery);
-    return results.slice(0, 10).map(result => result.item); // Limit to 10 results
-  }, [searchQuery, fuse]);
+    if (!deferredSearchQuery || !fuse || deferredSearchQuery.length < 2) return [];
+
+    const results = fuse.search(deferredSearchQuery);
+    return results.slice(0, 10).map(result => result.item);
+  }, [deferredSearchQuery, fuse]);
 
   // Reset selected index when filtered teams change
   useEffect(() => {
@@ -183,8 +200,8 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
         {isOpen && searchQuery && (
           <Card className="absolute z-50 w-full mt-1 max-h-60 overflow-y-auto shadow-lg">
             <CardContent className="p-2" ref={listRef}>
-              {isLoading ? (
-                <InlineLoader text="Loading teams..." />
+              {isLoading || isSearchPending ? (
+                <InlineLoader text="Searching teams..." />
               ) : isError ? (
                 <ErrorDisplay error={error} retry={refetch} compact />
               ) : filteredTeams.length === 0 ? (
@@ -205,11 +222,11 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
                       aria-label={`Select ${team.team_name}`}
                     >
                       <div className="font-medium">
-                        {highlightMatch(team.team_name, searchQuery)}
+                        {highlightMatch(team.team_name, deferredSearchQuery)}
                       </div>
                       <div className="text-xs text-muted-foreground">
                         {team.club_name && (
-                          <span>{highlightMatch(team.club_name, searchQuery)}</span>
+                          <span>{highlightMatch(team.club_name, deferredSearchQuery)}</span>
                         )}
                         {team.state && (
                           <span className={team.club_name ? ' • ' : ''}>
