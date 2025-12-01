@@ -50,7 +50,13 @@ export default function InfographicsPage() {
   const [selectedRegion, setSelectedRegion] = useState<string | null>(null); // null = national
   const [isGenerating, setIsGenerating] = useState(false);
   const [previewScale, setPreviewScale] = useState(0.4);
+  const [canShare, setCanShare] = useState(false);
   const infographicRef = useRef<HTMLDivElement>(null);
+
+  // Check if Web Share API is available
+  useEffect(() => {
+    setCanShare(typeof navigator !== 'undefined' && !!navigator.share && !!navigator.canShare);
+  }, []);
 
   // Fetch rankings based on selections
   const { data: rankings, isLoading, error, refetch } = useRankings(
@@ -88,44 +94,144 @@ export default function InfographicsPage() {
     return `pitchrank-${selectedAgeGroup}-${genderLabel}-top10-${regionLabel}-${selectedPlatform}-${timestamp}.png`;
   };
 
-  const handleDownload = useCallback(async () => {
-    if (!infographicRef.current || !rankings?.length) return;
+  // Generate the infographic canvas
+  const generateCanvas = useCallback(async () => {
+    if (!infographicRef.current || !rankings?.length) return null;
 
-    setIsGenerating(true);
+    const dimensions = PLATFORM_DIMENSIONS[selectedPlatform];
+
+    // Create a full-size clone for rendering
+    const clone = infographicRef.current.cloneNode(true) as HTMLElement;
+    clone.style.transform = 'scale(1)';
+    clone.style.transformOrigin = 'top left';
+    clone.style.position = 'fixed';
+    clone.style.left = '-9999px';
+    clone.style.top = '0';
+    clone.style.width = `${dimensions.width}px`;
+    clone.style.height = `${dimensions.height}px`;
+    document.body.appendChild(clone);
+
     try {
-      const dimensions = PLATFORM_DIMENSIONS[selectedPlatform];
-
-      // Create a full-size clone for rendering
-      const clone = infographicRef.current.cloneNode(true) as HTMLElement;
-      clone.style.transform = 'scale(1)';
-      clone.style.transformOrigin = 'top left';
-      clone.style.position = 'fixed';
-      clone.style.left = '-9999px';
-      clone.style.top = '0';
-      document.body.appendChild(clone);
-
       const canvas = await html2canvas(clone, {
         width: dimensions.width,
         height: dimensions.height,
         scale: 2, // 2x for high resolution
         useCORS: true,
-        backgroundColor: null,
+        backgroundColor: '#052E27', // Dark green background
         logging: false,
       });
-
+      return canvas;
+    } finally {
       document.body.removeChild(clone);
+    }
+  }, [rankings, selectedPlatform]);
 
-      // Download the image
-      const link = document.createElement('a');
-      link.download = getFilename();
-      link.href = canvas.toDataURL('image/png', 1.0);
-      link.click();
+  // Convert canvas to blob
+  const canvasToBlob = (canvas: HTMLCanvasElement): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(new Error('Failed to create blob'));
+        }
+      }, 'image/png', 1.0);
+    });
+  };
+
+  // Handle share (uses Web Share API on mobile)
+  const handleShare = useCallback(async () => {
+    if (!rankings?.length) return;
+
+    setIsGenerating(true);
+    try {
+      const canvas = await generateCanvas();
+      if (!canvas) return;
+
+      const blob = await canvasToBlob(canvas);
+      const file = new File([blob], getFilename(), { type: 'image/png' });
+
+      const genderText = selectedGender === 'M' ? 'Boys' : 'Girls';
+      const shareText = `Check out the Top 10 ${selectedAgeGroup.toUpperCase()} ${genderText} ${getRegionName()} Soccer Rankings on PitchRank! #YouthSoccer #${selectedAgeGroup.toUpperCase()}Soccer`;
+
+      if (canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          title: `PitchRank - ${selectedAgeGroup.toUpperCase()} ${genderText} Rankings`,
+          text: shareText,
+          files: [file],
+        });
+      } else {
+        // Fallback to download
+        const link = document.createElement('a');
+        link.download = getFilename();
+        link.href = canvas.toDataURL('image/png', 1.0);
+        link.click();
+      }
     } catch (err) {
-      console.error('Error generating infographic:', err);
+      // User cancelled share or error occurred
+      if ((err as Error).name !== 'AbortError') {
+        console.error('Error sharing infographic:', err);
+        // Fallback to download on error
+        try {
+          const canvas = await generateCanvas();
+          if (canvas) {
+            const link = document.createElement('a');
+            link.download = getFilename();
+            link.href = canvas.toDataURL('image/png', 1.0);
+            link.click();
+          }
+        } catch (downloadErr) {
+          console.error('Error downloading:', downloadErr);
+        }
+      }
     } finally {
       setIsGenerating(false);
     }
-  }, [rankings, selectedPlatform, selectedAgeGroup, selectedGender, selectedRegion]);
+  }, [rankings, selectedPlatform, selectedAgeGroup, selectedGender, selectedRegion, canShare, generateCanvas]);
+
+  // Handle download only
+  const handleDownload = useCallback(async () => {
+    if (!rankings?.length) return;
+
+    setIsGenerating(true);
+    try {
+      const canvas = await generateCanvas();
+      if (!canvas) return;
+
+      // For mobile Safari/iOS, we need to open in new tab
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+      if (isMobile) {
+        // Convert to blob and create object URL for better mobile support
+        const blob = await canvasToBlob(canvas);
+        const url = URL.createObjectURL(blob);
+
+        // Open image in new tab - user can long press to save
+        const newTab = window.open(url, '_blank');
+        if (!newTab) {
+          // If popup blocked, try download link
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = getFilename();
+          link.click();
+        }
+
+        // Clean up URL after delay
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+      } else {
+        // Desktop: direct download
+        const link = document.createElement('a');
+        link.download = getFilename();
+        link.href = canvas.toDataURL('image/png', 1.0);
+        link.click();
+      }
+    } catch (err) {
+      console.error('Error generating infographic:', err);
+      alert('Error generating image. Please try again.');
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [rankings, generateCanvas]);
 
   const top10Teams = rankings?.slice(0, 10) || [];
   const dimensions = PLATFORM_DIMENSIONS[selectedPlatform];
@@ -271,8 +377,9 @@ export default function InfographicsPage() {
 
           {/* Actions */}
           <div className="space-y-3">
+            {/* Share Button (primary on mobile) */}
             <Button
-              onClick={handleDownload}
+              onClick={handleShare}
               disabled={isGenerating || isLoading || !rankings?.length}
               className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
               size="lg"
@@ -284,11 +391,25 @@ export default function InfographicsPage() {
                 </>
               ) : (
                 <>
-                  <Download className="mr-2 h-4 w-4" />
-                  Download PNG
+                  <Share2 className="mr-2 h-4 w-4" />
+                  {canShare ? 'Share to Apps' : 'Download PNG'}
                 </>
               )}
             </Button>
+
+            {/* Download Button (secondary) */}
+            {canShare && (
+              <Button
+                onClick={handleDownload}
+                disabled={isGenerating || isLoading || !rankings?.length}
+                variant="outline"
+                className="w-full"
+                size="lg"
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Save Image
+              </Button>
+            )}
 
             <Button
               onClick={() => refetch()}
@@ -309,10 +430,10 @@ export default function InfographicsPage() {
                 Sharing Tips
               </h4>
               <ul className="text-sm space-y-2 text-muted-foreground">
-                <li>Use relevant hashtags: #YouthSoccer #{selectedAgeGroup.toUpperCase()}Soccer #SoccerRankings</li>
+                <li>Tap &quot;Share to Apps&quot; to post directly to Instagram, Twitter, etc.</li>
+                <li>Use hashtags: #YouthSoccer #{selectedAgeGroup.toUpperCase()}Soccer</li>
                 <li>Post on Tuesday-Thursday for best engagement</li>
                 <li>Tag team accounts for increased reach</li>
-                <li>Add a compelling caption with the full rankings link</li>
               </ul>
             </CardContent>
           </Card>
@@ -420,30 +541,42 @@ export default function InfographicsPage() {
         </div>
       </div>
 
-      {/* Mobile Sticky Download Button */}
+      {/* Mobile Sticky Share Button */}
       <div className="lg:hidden fixed bottom-0 left-0 right-0 p-4 bg-background/95 backdrop-blur border-t z-50">
-        <Button
-          onClick={handleDownload}
-          disabled={isGenerating || isLoading || !rankings?.length}
-          className="w-full bg-forest-green hover:bg-forest-green/90"
-          size="lg"
-        >
-          {isGenerating ? (
-            <>
-              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-              Generating...
-            </>
-          ) : (
-            <>
-              <Download className="mr-2 h-4 w-4" />
-              Download PNG
-            </>
+        <div className="flex gap-2">
+          <Button
+            onClick={handleShare}
+            disabled={isGenerating || isLoading || !rankings?.length}
+            className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground"
+            size="lg"
+          >
+            {isGenerating ? (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <Share2 className="mr-2 h-4 w-4" />
+                {canShare ? 'Share' : 'Download'}
+              </>
+            )}
+          </Button>
+          {canShare && (
+            <Button
+              onClick={handleDownload}
+              disabled={isGenerating || isLoading || !rankings?.length}
+              variant="outline"
+              size="lg"
+            >
+              <Download className="h-4 w-4" />
+            </Button>
           )}
-        </Button>
+        </div>
       </div>
 
       {/* Bottom padding for mobile to account for sticky button */}
-      <div className="lg:hidden h-20" />
+      <div className="lg:hidden h-24" />
     </div>
   );
 }
