@@ -58,11 +58,16 @@ export default function InfographicsPage() {
 
   // Check Web Share API availability
   useEffect(() => {
-    if (typeof navigator !== 'undefined' && navigator.share) {
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
       // Test if we can share files
-      const testFile = new File(['test'], 'test.png', { type: 'image/png' });
-      if (navigator.canShare && navigator.canShare({ files: [testFile] })) {
-        setCanShare(true);
+      try {
+        const testFile = new File(['test'], 'test.png', { type: 'image/png' });
+        if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [testFile] })) {
+          setCanShare(true);
+        }
+      } catch {
+        // Share API not fully supported
+        setCanShare(false);
       }
     }
   }, []);
