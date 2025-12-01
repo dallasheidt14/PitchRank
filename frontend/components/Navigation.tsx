@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Menu, X, Star } from "lucide-react";
+import { Menu, X, Star, Share2 } from "lucide-react";
 import { GlobalSearch } from "./GlobalSearch";
 import { Button } from "./ui/button";
 
@@ -74,6 +74,14 @@ export function Navigation() {
           >
             Methodology
           </Link>
+          <Link
+            href="/infographics"
+            className="text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent flex items-center gap-1.5"
+            aria-label="Social media infographics"
+          >
+            <Share2 className="h-3.5 w-3.5" />
+            Infographics
+          </Link>
         </nav>
 
         {/* Mobile: Search + Menu Button */}
@@ -136,6 +144,14 @@ export function Navigation() {
               onClick={() => setMobileMenuOpen(false)}
             >
               Methodology
+            </Link>
+            <Link
+              href="/infographics"
+              className="block text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent hover:bg-accent/10 py-3 px-2 rounded-md min-h-[44px] flex items-center gap-2"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              <Share2 className="h-4 w-4" />
+              Infographics
             </Link>
           </nav>
         </div>
