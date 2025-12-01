@@ -54,6 +54,10 @@ def validate_v53e_config():
         file_path,
         r'SOS_WEIGHT:\s*float\s*=\s*([\d.]+)'
     )
+    perf_blend_weight = extract_value_from_file(
+        file_path,
+        r'PERF_BLEND_WEIGHT:\s*float\s*=\s*([\d.]+)'
+    )
 
     print(f"  SOS_TRANSITIVITY_LAMBDA: {transitivity_lambda}")
     print(f"  SOS_ITERATIONS: {sos_iterations}")
@@ -62,6 +66,7 @@ def validate_v53e_config():
     print(f"  OFF_WEIGHT: {off_weight}")
     print(f"  DEF_WEIGHT: {def_weight}")
     print(f"  SOS_WEIGHT: {sos_weight}")
+    print(f"  PERF_BLEND_WEIGHT: {perf_blend_weight}")
 
     # Validate
     errors = []
@@ -215,7 +220,8 @@ def main():
         print("Configuration Summary:")
         print("  • 3-pass iterative SOS system")
         print("  • Lambda = 0.20 (80% direct, 20% transitive)")
-        print("  • PowerScore: 25% OFF + 25% DEF + 50% SOS")
+        print("  • PowerScore: 25% OFF + 25% DEF + 50% SOS + 15% perf_centered (additive)")
+        print("  • perf_centered ranges from -0.5 to +0.5, so ±7.5% adjustment")
         print("  • All config files are consistent")
         print()
         sys.exit(0)
