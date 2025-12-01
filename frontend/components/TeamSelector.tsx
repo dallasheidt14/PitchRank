@@ -108,13 +108,34 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
     });
   }, [allTeams, FuseClass, excludeTeamId]);
 
-  // Perform fuzzy search using deferred query for smoother typing
+  // Perform search using word-based matching for better multi-word queries
   const filteredTeams = useMemo(() => {
-    if (!deferredSearchQuery || !fuse || deferredSearchQuery.length < 2) return [];
+    if (!deferredSearchQuery || !allTeams || deferredSearchQuery.length < 2) return [];
 
-    const results = fuse.search(deferredSearchQuery);
-    return results.slice(0, 10).map(result => result.item);
-  }, [deferredSearchQuery, fuse]);
+    const queryWords = deferredSearchQuery.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+
+    // Get teams to search (excluding the excluded team)
+    const teamsToSearch = excludeTeamId
+      ? allTeams.filter(team => team.team_id_master !== excludeTeamId)
+      : allTeams;
+
+    // Filter teams where ALL query words appear in searchable_name or club_name
+    const matchingTeams = teamsToSearch.filter(team => {
+      const searchText = ((team.searchable_name || team.team_name) + ' ' + (team.club_name || '')).toLowerCase();
+      return queryWords.every(word => searchText.includes(word));
+    });
+
+    // Sort by how early the first match appears (better relevance)
+    matchingTeams.sort((a, b) => {
+      const aText = ((a.searchable_name || a.team_name) + ' ' + (a.club_name || '')).toLowerCase();
+      const bText = ((b.searchable_name || b.team_name) + ' ' + (b.club_name || '')).toLowerCase();
+      const aIndex = Math.min(...queryWords.map(w => aText.indexOf(w)));
+      const bIndex = Math.min(...queryWords.map(w => bText.indexOf(w)));
+      return aIndex - bIndex;
+    });
+
+    return matchingTeams.slice(0, 10);
+  }, [deferredSearchQuery, allTeams, excludeTeamId]);
 
   // Reset selected index when filtered teams change
   useEffect(() => {
