@@ -2,9 +2,10 @@
 
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import html2canvas from 'html2canvas';
-import { U12Top10Infographic, PLATFORM_DIMENSIONS, Platform } from '@/components/infographics';
+import { Top10Infographic, PLATFORM_DIMENSIONS, Platform } from '@/components/infographics';
 import { useRankings } from '@/hooks/useRankings';
-import { Download, Share2, RefreshCw, Instagram, Facebook } from 'lucide-react';
+import { US_STATES } from '@/lib/constants';
+import { Download, Share2, RefreshCw, Instagram, Facebook, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '@/components/PageHeader';
@@ -23,14 +24,40 @@ const platforms: { id: Platform; label: string; icon: React.ReactNode }[] = [
   { id: 'facebook', label: 'Facebook Post', icon: <Facebook size={18} /> },
 ];
 
+const AGE_GROUPS = [
+  { value: 'u10', label: 'U10' },
+  { value: 'u11', label: 'U11' },
+  { value: 'u12', label: 'U12' },
+  { value: 'u13', label: 'U13' },
+  { value: 'u14', label: 'U14' },
+  { value: 'u15', label: 'U15' },
+  { value: 'u16', label: 'U16' },
+  { value: 'u17', label: 'U17' },
+  { value: 'u18', label: 'U18' },
+];
+
+const GENDERS = [
+  { value: 'M' as const, label: 'Boys' },
+  { value: 'F' as const, label: 'Girls' },
+];
+
+type GenderType = 'M' | 'F';
+
 export default function InfographicsPage() {
   const [selectedPlatform, setSelectedPlatform] = useState<Platform>('instagram');
+  const [selectedAgeGroup, setSelectedAgeGroup] = useState('u12');
+  const [selectedGender, setSelectedGender] = useState<GenderType>('M');
+  const [selectedRegion, setSelectedRegion] = useState<string | null>(null); // null = national
   const [isGenerating, setIsGenerating] = useState(false);
   const [previewScale, setPreviewScale] = useState(0.4);
   const infographicRef = useRef<HTMLDivElement>(null);
 
-  // Fetch U12 Boys national rankings
-  const { data: rankings, isLoading, error, refetch } = useRankings(null, 'u12', 'B');
+  // Fetch rankings based on selections
+  const { data: rankings, isLoading, error, refetch } = useRankings(
+    selectedRegion,
+    selectedAgeGroup,
+    selectedGender
+  );
 
   // Calculate preview scale based on viewport
   useEffect(() => {
@@ -45,6 +72,21 @@ export default function InfographicsPage() {
     window.addEventListener('resize', updateScale);
     return () => window.removeEventListener('resize', updateScale);
   }, [selectedPlatform]);
+
+  // Get region name for display
+  const getRegionName = () => {
+    if (!selectedRegion) return 'National';
+    const state = US_STATES.find(s => s.code.toLowerCase() === selectedRegion.toLowerCase());
+    return state?.name || selectedRegion.toUpperCase();
+  };
+
+  // Generate filename
+  const getFilename = () => {
+    const timestamp = new Date().toISOString().split('T')[0];
+    const genderLabel = selectedGender === 'M' ? 'boys' : 'girls';
+    const regionLabel = selectedRegion || 'national';
+    return `pitchrank-${selectedAgeGroup}-${genderLabel}-top10-${regionLabel}-${selectedPlatform}-${timestamp}.png`;
+  };
 
   const handleDownload = useCallback(async () => {
     if (!infographicRef.current || !rankings?.length) return;
@@ -75,8 +117,7 @@ export default function InfographicsPage() {
 
       // Download the image
       const link = document.createElement('a');
-      const timestamp = new Date().toISOString().split('T')[0];
-      link.download = `pitchrank-u12-boys-top10-${selectedPlatform}-${timestamp}.png`;
+      link.download = getFilename();
       link.href = canvas.toDataURL('image/png', 1.0);
       link.click();
     } catch (err) {
@@ -84,10 +125,12 @@ export default function InfographicsPage() {
     } finally {
       setIsGenerating(false);
     }
-  }, [rankings, selectedPlatform]);
+  }, [rankings, selectedPlatform, selectedAgeGroup, selectedGender, selectedRegion]);
 
   const top10Teams = rankings?.slice(0, 10) || [];
   const dimensions = PLATFORM_DIMENSIONS[selectedPlatform];
+  const genderLabel = selectedGender === 'M' ? 'Boys' : 'Girls';
+  const categoryLabel = `${selectedAgeGroup.toUpperCase()} ${genderLabel} - ${getRegionName()}`;
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">
@@ -99,6 +142,77 @@ export default function InfographicsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
         {/* Controls Panel */}
         <div className="lg:col-span-1 space-y-6">
+          {/* Rankings Selection */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Select Rankings</CardTitle>
+              <CardDescription>
+                Choose age group, gender, and region
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Age Group Dropdown */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Age Group</label>
+                <div className="relative">
+                  <select
+                    value={selectedAgeGroup}
+                    onChange={(e) => setSelectedAgeGroup(e.target.value)}
+                    className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-forest-green"
+                  >
+                    {AGE_GROUPS.map((age) => (
+                      <option key={age.value} value={age.value}>
+                        {age.label}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Gender Dropdown */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Gender</label>
+                <div className="relative">
+                  <select
+                    value={selectedGender}
+                    onChange={(e) => setSelectedGender(e.target.value as GenderType)}
+                    className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-forest-green"
+                  >
+                    {GENDERS.map((gender) => (
+                      <option key={gender.value} value={gender.value}>
+                        {gender.label}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Region Dropdown */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Region</label>
+                <div className="relative">
+                  <select
+                    value={selectedRegion || ''}
+                    onChange={(e) => setSelectedRegion(e.target.value || null)}
+                    className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-forest-green"
+                  >
+                    <option value="">National</option>
+                    <optgroup label="States">
+                      {US_STATES.map((state) => (
+                        <option key={state.code} value={state.code}>
+                          {state.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Platform Selection */}
           <Card>
             <CardHeader>
@@ -136,7 +250,7 @@ export default function InfographicsPage() {
             <CardContent className="space-y-3">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Category</span>
-                <span className="font-medium">U12 Boys - National</span>
+                <span className="font-medium">{categoryLabel}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Teams Shown</span>
@@ -195,7 +309,7 @@ export default function InfographicsPage() {
                 Sharing Tips
               </h4>
               <ul className="text-sm space-y-2 text-muted-foreground">
-                <li>Use relevant hashtags: #YouthSoccer #U12Soccer #SoccerRankings</li>
+                <li>Use relevant hashtags: #YouthSoccer #{selectedAgeGroup.toUpperCase()}Soccer #SoccerRankings</li>
                 <li>Post on Tuesday-Thursday for best engagement</li>
                 <li>Tag team accounts for increased reach</li>
                 <li>Add a compelling caption with the full rankings link</li>
@@ -214,7 +328,7 @@ export default function InfographicsPage() {
                   ? 'Loading rankings data...'
                   : error
                   ? 'Error loading data'
-                  : `Showing top ${top10Teams.length} U12 Boys teams nationally`}
+                  : `Showing top ${top10Teams.length} ${categoryLabel} teams`}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -233,8 +347,13 @@ export default function InfographicsPage() {
                     Failed to load rankings. Please try again.
                   </div>
                 ) : top10Teams.length === 0 ? (
-                  <div className="flex items-center justify-center h-96 text-muted-foreground">
-                    No U12 Boys teams found. Try refreshing.
+                  <div className="flex items-center justify-center h-96 text-muted-foreground text-center px-4">
+                    <div>
+                      <p className="font-medium mb-2">No teams found</p>
+                      <p className="text-sm">
+                        No {categoryLabel} teams found. Try selecting a different age group, gender, or region.
+                      </p>
+                    </div>
                   </div>
                 ) : (
                   <div
@@ -244,12 +363,16 @@ export default function InfographicsPage() {
                       overflow: 'hidden',
                     }}
                   >
-                    <U12Top10Infographic
+                    <Top10Infographic
                       ref={infographicRef}
                       teams={top10Teams}
                       platform={selectedPlatform}
                       scale={previewScale}
                       generatedDate={new Date().toISOString()}
+                      ageGroup={selectedAgeGroup}
+                      gender={selectedGender}
+                      region={selectedRegion}
+                      regionName={getRegionName()}
                     />
                   </div>
                 )}
@@ -262,7 +385,7 @@ export default function InfographicsPage() {
             <Card className="mt-6">
               <CardHeader>
                 <CardTitle className="text-lg">Featured Teams</CardTitle>
-                <CardDescription>The top 10 U12 Boys teams shown in this infographic</CardDescription>
+                <CardDescription>The top 10 {categoryLabel} teams shown in this infographic</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
