@@ -419,6 +419,31 @@ export default function InfographicsPage() {
           )}
         </div>
       </div>
+
+      {/* Mobile Sticky Download Button */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 p-4 bg-background/95 backdrop-blur border-t z-50">
+        <Button
+          onClick={handleDownload}
+          disabled={isGenerating || isLoading || !rankings?.length}
+          className="w-full bg-forest-green hover:bg-forest-green/90"
+          size="lg"
+        >
+          {isGenerating ? (
+            <>
+              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+              Generating...
+            </>
+          ) : (
+            <>
+              <Download className="mr-2 h-4 w-4" />
+              Download PNG
+            </>
+          )}
+        </Button>
+      </div>
+
+      {/* Bottom padding for mobile to account for sticky button */}
+      <div className="lg:hidden h-20" />
     </div>
   );
 }
