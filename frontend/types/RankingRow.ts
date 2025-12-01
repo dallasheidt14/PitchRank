@@ -7,6 +7,7 @@
 export interface RankingRow {
   team_id_master: string;
   team_name: string;
+  searchable_name?: string; // Computed field for search (team_name + club_name + year variations)
   club_name: string | null;
   state: string | null; // alias for state_code
   age: number; // INTEGER age group number (e.g., 11)
