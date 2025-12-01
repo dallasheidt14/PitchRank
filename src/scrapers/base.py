@@ -75,25 +75,45 @@ class BaseScraper(BaseProvider, ETLPipeline):
         """Get teams that need scraping (not scraped in last 7 days)"""
         # Use the database function to get teams needing scraping
         try:
-            result = self.db.rpc('get_teams_to_scrape').execute()
-            if result.data:
+            # Paginate RPC call to handle >1000 teams (Supabase default limit)
+            all_team_ids = []
+            page_size = 1000
+            offset = 0
+
+            while True:
+                result = self.db.rpc('get_teams_to_scrape').range(
+                    offset, offset + page_size - 1
+                ).execute()
+
+                if not result.data:
+                    break
+
+                all_team_ids.extend([row['team_id'] for row in result.data])
+
+                if len(result.data) < page_size:
+                    break
+
+                offset += page_size
+                logger.info(f"Fetched {len(all_team_ids)} teams to scrape so far...")
+
+            if all_team_ids:
                 # Filter by provider_id
                 provider_id = self._get_provider_id()
                 # Get full team records for these teams
-                team_ids = [row['team_id'] for row in result.data]
-                if team_ids:
-                    # Batch fetch to handle >1000 teams and URL length limits
-                    # Each UUID is ~36 chars, so batch size of 100 keeps URLs manageable
-                    all_teams = []
-                    batch_size = 100
-                    for i in range(0, len(team_ids), batch_size):
-                        batch_ids = team_ids[i:i + batch_size]
-                        teams_result = self.db.table('teams').select('*').in_(
-                            'team_id_master', batch_ids
-                        ).eq('provider_id', provider_id).execute()
-                        if teams_result.data:
-                            all_teams.extend(teams_result.data)
-                    return all_teams
+                # Batch fetch to handle >1000 teams and URL length limits
+                # Each UUID is ~36 chars, so batch size of 100 keeps URLs manageable
+                all_teams = []
+                batch_size = 100
+                for i in range(0, len(all_team_ids), batch_size):
+                    batch_ids = all_team_ids[i:i + batch_size]
+                    teams_result = self.db.table('teams').select('*').in_(
+                        'team_id_master', batch_ids
+                    ).eq('provider_id', provider_id).execute()
+                    if teams_result.data:
+                        all_teams.extend(teams_result.data)
+
+                logger.info(f"Total teams to scrape: {len(all_teams)}")
+                return all_teams
             return []
         except Exception as e:
             logger.warning(f"Could not use get_teams_to_scrape function: {e}")
