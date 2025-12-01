@@ -5,12 +5,12 @@ import html2canvas from 'html2canvas';
 import { Top10Infographic, PLATFORM_DIMENSIONS, Platform } from '@/components/infographics';
 import { useRankings } from '@/hooks/useRankings';
 import { US_STATES } from '@/lib/constants';
-import { Download, Share2, RefreshCw, Instagram, Facebook, ChevronDown } from 'lucide-react';
+import { Download, Share2, RefreshCw, Instagram, Facebook, ChevronDown, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '@/components/PageHeader';
 
-// X/Twitter icon (Lucide doesn't have the new X logo)
+// X/Twitter icon
 const XIcon = () => (
   <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
     <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
@@ -47,25 +47,34 @@ export default function InfographicsPage() {
   const [selectedPlatform, setSelectedPlatform] = useState<Platform>('instagram');
   const [selectedAgeGroup, setSelectedAgeGroup] = useState('u12');
   const [selectedGender, setSelectedGender] = useState<GenderType>('M');
-  const [selectedRegion, setSelectedRegion] = useState<string | null>(null); // null = national
+  const [selectedRegion, setSelectedRegion] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [previewScale, setPreviewScale] = useState(0.4);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [canShare, setCanShare] = useState(false);
-  const infographicRef = useRef<HTMLDivElement>(null);
 
-  // Check if Web Share API is available
+  // Ref for the HIDDEN full-size capture element
+  const captureRef = useRef<HTMLDivElement>(null);
+
+  // Check Web Share API availability
   useEffect(() => {
-    setCanShare(typeof navigator !== 'undefined' && !!navigator.share && !!navigator.canShare);
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      // Test if we can share files
+      const testFile = new File(['test'], 'test.png', { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [testFile] })) {
+        setCanShare(true);
+      }
+    }
   }, []);
 
-  // Fetch rankings based on selections
+  // Fetch rankings
   const { data: rankings, isLoading, error, refetch } = useRankings(
     selectedRegion,
     selectedAgeGroup,
     selectedGender
   );
 
-  // Calculate preview scale based on viewport
+  // Calculate preview scale
   useEffect(() => {
     const updateScale = () => {
       const maxWidth = Math.min(window.innerWidth - 80, 600);
@@ -73,165 +82,191 @@ export default function InfographicsPage() {
       const scale = maxWidth / dimensions.width;
       setPreviewScale(Math.min(scale, 0.6));
     };
-
     updateScale();
     window.addEventListener('resize', updateScale);
     return () => window.removeEventListener('resize', updateScale);
   }, [selectedPlatform]);
 
-  // Get region name for display
-  const getRegionName = () => {
+  const getRegionName = useCallback(() => {
     if (!selectedRegion) return 'National';
     const state = US_STATES.find(s => s.code.toLowerCase() === selectedRegion.toLowerCase());
     return state?.name || selectedRegion.toUpperCase();
-  };
+  }, [selectedRegion]);
 
-  // Generate filename
-  const getFilename = () => {
+  const getFilename = useCallback(() => {
     const timestamp = new Date().toISOString().split('T')[0];
     const genderLabel = selectedGender === 'M' ? 'boys' : 'girls';
     const regionLabel = selectedRegion || 'national';
     return `pitchrank-${selectedAgeGroup}-${genderLabel}-top10-${regionLabel}-${selectedPlatform}-${timestamp}.png`;
-  };
+  }, [selectedAgeGroup, selectedGender, selectedRegion, selectedPlatform]);
 
-  // Generate the infographic canvas
-  const generateCanvas = useCallback(async () => {
-    if (!infographicRef.current || !rankings?.length) return null;
+  // Generate canvas from the hidden full-size element
+  const generateImage = useCallback(async (): Promise<Blob | null> => {
+    setErrorMessage(null);
+
+    // Check if we have data
+    if (!rankings || rankings.length === 0) {
+      setErrorMessage('No team data available to generate image.');
+      return null;
+    }
+
+    // Check if capture element exists
+    if (!captureRef.current) {
+      setErrorMessage('Capture element not ready. Please try again.');
+      return null;
+    }
 
     const dimensions = PLATFORM_DIMENSIONS[selectedPlatform];
 
-    // Create a full-size clone for rendering
-    const clone = infographicRef.current.cloneNode(true) as HTMLElement;
-    clone.style.transform = 'scale(1)';
-    clone.style.transformOrigin = 'top left';
-    clone.style.position = 'fixed';
-    clone.style.left = '-9999px';
-    clone.style.top = '0';
-    clone.style.width = `${dimensions.width}px`;
-    clone.style.height = `${dimensions.height}px`;
-    document.body.appendChild(clone);
-
     try {
-      const canvas = await html2canvas(clone, {
+      console.log('Starting image generation...');
+      console.log('Capture element:', captureRef.current);
+      console.log('Dimensions:', dimensions);
+
+      const canvas = await html2canvas(captureRef.current, {
         width: dimensions.width,
         height: dimensions.height,
-        scale: 2, // 2x for high resolution
+        scale: 2,
         useCORS: true,
-        backgroundColor: '#052E27', // Dark green background
-        logging: false,
+        allowTaint: true,
+        backgroundColor: '#052E27',
+        logging: true, // Enable logging for debugging
+        onclone: (clonedDoc, element) => {
+          console.log('Cloned element:', element);
+          // Ensure the cloned element has proper dimensions
+          element.style.transform = 'none';
+          element.style.width = `${dimensions.width}px`;
+          element.style.height = `${dimensions.height}px`;
+        }
       });
-      return canvas;
-    } finally {
-      document.body.removeChild(clone);
+
+      console.log('Canvas generated:', canvas.width, 'x', canvas.height);
+
+      // Convert canvas to blob
+      return new Promise((resolve, reject) => {
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              console.log('Blob created:', blob.size, 'bytes');
+              resolve(blob);
+            } else {
+              reject(new Error('Failed to create image blob'));
+            }
+          },
+          'image/png',
+          1.0
+        );
+      });
+    } catch (err) {
+      console.error('Error in generateImage:', err);
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error occurred';
+      setErrorMessage(`Failed to generate image: ${errorMsg}`);
+      return null;
     }
   }, [rankings, selectedPlatform]);
 
-  // Convert canvas to blob
-  const canvasToBlob = (canvas: HTMLCanvasElement): Promise<Blob> => {
-    return new Promise((resolve, reject) => {
-      canvas.toBlob((blob) => {
-        if (blob) {
-          resolve(blob);
-        } else {
-          reject(new Error('Failed to create blob'));
-        }
-      }, 'image/png', 1.0);
-    });
-  };
-
-  // Handle share (uses Web Share API on mobile)
-  const handleShare = useCallback(async () => {
-    if (!rankings?.length) return;
+  // Handle download
+  const handleDownload = useCallback(async () => {
+    if (isGenerating) return;
 
     setIsGenerating(true);
+    setErrorMessage(null);
+
     try {
-      const canvas = await generateCanvas();
-      if (!canvas) return;
+      const blob = await generateImage();
+      if (!blob) {
+        setIsGenerating(false);
+        return;
+      }
 
-      const blob = await canvasToBlob(canvas);
+      // Create download link
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = getFilename();
+
+      // Append to body, click, and remove
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Clean up URL after a delay
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+      console.log('Download initiated');
+    } catch (err) {
+      console.error('Download error:', err);
+      setErrorMessage('Failed to download. Please try again.');
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [isGenerating, generateImage, getFilename]);
+
+  // Handle share
+  const handleShare = useCallback(async () => {
+    if (isGenerating) return;
+
+    setIsGenerating(true);
+    setErrorMessage(null);
+
+    try {
+      const blob = await generateImage();
+      if (!blob) {
+        setIsGenerating(false);
+        return;
+      }
+
       const file = new File([blob], getFilename(), { type: 'image/png' });
-
       const genderText = selectedGender === 'M' ? 'Boys' : 'Girls';
-      const shareText = `Check out the Top 10 ${selectedAgeGroup.toUpperCase()} ${genderText} ${getRegionName()} Soccer Rankings on PitchRank! #YouthSoccer #${selectedAgeGroup.toUpperCase()}Soccer`;
+      const shareText = `Check out the Top 10 ${selectedAgeGroup.toUpperCase()} ${genderText} ${getRegionName()} Soccer Rankings! #YouthSoccer #${selectedAgeGroup.toUpperCase()}Soccer`;
 
-      if (canShare && navigator.canShare({ files: [file] })) {
+      if (canShare && navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({
           title: `PitchRank - ${selectedAgeGroup.toUpperCase()} ${genderText} Rankings`,
           text: shareText,
           files: [file],
         });
+        console.log('Share completed');
       } else {
         // Fallback to download
-        const link = document.createElement('a');
-        link.download = getFilename();
-        link.href = canvas.toDataURL('image/png', 1.0);
-        link.click();
-      }
-    } catch (err) {
-      // User cancelled share or error occurred
-      if ((err as Error).name !== 'AbortError') {
-        console.error('Error sharing infographic:', err);
-        // Fallback to download on error
-        try {
-          const canvas = await generateCanvas();
-          if (canvas) {
-            const link = document.createElement('a');
-            link.download = getFilename();
-            link.href = canvas.toDataURL('image/png', 1.0);
-            link.click();
-          }
-        } catch (downloadErr) {
-          console.error('Error downloading:', downloadErr);
-        }
-      }
-    } finally {
-      setIsGenerating(false);
-    }
-  }, [rankings, selectedPlatform, selectedAgeGroup, selectedGender, selectedRegion, canShare, generateCanvas]);
-
-  // Handle download only
-  const handleDownload = useCallback(async () => {
-    if (!rankings?.length) return;
-
-    setIsGenerating(true);
-    try {
-      const canvas = await generateCanvas();
-      if (!canvas) return;
-
-      // For mobile Safari/iOS, we need to open in new tab
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-
-      if (isMobile) {
-        // Convert to blob and create object URL for better mobile support
-        const blob = await canvasToBlob(canvas);
+        console.log('Share not available, falling back to download');
         const url = URL.createObjectURL(blob);
-
-        // Open image in new tab - user can long press to save
-        const newTab = window.open(url, '_blank');
-        if (!newTab) {
-          // If popup blocked, try download link
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = getFilename();
-          link.click();
-        }
-
-        // Clean up URL after delay
-        setTimeout(() => URL.revokeObjectURL(url), 10000);
-      } else {
-        // Desktop: direct download
         const link = document.createElement('a');
+        link.href = url;
         link.download = getFilename();
-        link.href = canvas.toDataURL('image/png', 1.0);
+        document.body.appendChild(link);
         link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
       }
     } catch (err) {
-      console.error('Error generating infographic:', err);
-      alert('Error generating image. Please try again.');
+      // Don't show error if user just cancelled the share
+      if (err instanceof Error && err.name === 'AbortError') {
+        console.log('Share cancelled by user');
+      } else {
+        console.error('Share error:', err);
+        setErrorMessage('Failed to share. Trying download instead...');
+        // Try download as fallback
+        try {
+          const blob = await generateImage();
+          if (blob) {
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = getFilename();
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+          }
+        } catch {
+          setErrorMessage('Failed to share or download. Please try again.');
+        }
+      }
     } finally {
       setIsGenerating(false);
     }
-  }, [rankings, generateCanvas]);
+  }, [isGenerating, generateImage, getFilename, selectedGender, selectedAgeGroup, getRegionName, canShare]);
 
   const top10Teams = rankings?.slice(0, 10) || [];
   const dimensions = PLATFORM_DIMENSIONS[selectedPlatform];
@@ -245,6 +280,44 @@ export default function InfographicsPage() {
         description="Generate shareable rankings graphics for Twitter, Instagram, and Facebook"
       />
 
+      {/* HIDDEN: Full-size capture element - this is what we actually capture */}
+      <div
+        style={{
+          position: 'absolute',
+          left: '-9999px',
+          top: 0,
+          width: `${dimensions.width}px`,
+          height: `${dimensions.height}px`,
+          overflow: 'hidden',
+        }}
+        aria-hidden="true"
+      >
+        {top10Teams.length > 0 && (
+          <Top10Infographic
+            ref={captureRef}
+            teams={top10Teams}
+            platform={selectedPlatform}
+            scale={1} // Full size for capture
+            generatedDate={new Date().toISOString()}
+            ageGroup={selectedAgeGroup}
+            gender={selectedGender}
+            region={selectedRegion}
+            regionName={getRegionName()}
+          />
+        )}
+      </div>
+
+      {/* Error Message */}
+      {errorMessage && (
+        <div className="mb-4 p-4 bg-destructive/10 border border-destructive/30 rounded-lg flex items-start gap-3">
+          <AlertCircle className="h-5 w-5 text-destructive flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm text-destructive font-medium">Error</p>
+            <p className="text-sm text-destructive/80">{errorMessage}</p>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
         {/* Controls Panel */}
         <div className="lg:col-span-1 space-y-6">
@@ -252,12 +325,10 @@ export default function InfographicsPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Select Rankings</CardTitle>
-              <CardDescription>
-                Choose age group, gender, and region
-              </CardDescription>
+              <CardDescription>Choose age group, gender, and region</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Age Group Dropdown */}
+              {/* Age Group */}
               <div>
                 <label className="block text-sm font-medium mb-2">Age Group</label>
                 <div className="relative">
@@ -267,16 +338,14 @@ export default function InfographicsPage() {
                     className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-primary"
                   >
                     {AGE_GROUPS.map((age) => (
-                      <option key={age.value} value={age.value}>
-                        {age.label}
-                      </option>
+                      <option key={age.value} value={age.value}>{age.label}</option>
                     ))}
                   </select>
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
                 </div>
               </div>
 
-              {/* Gender Dropdown */}
+              {/* Gender */}
               <div>
                 <label className="block text-sm font-medium mb-2">Gender</label>
                 <div className="relative">
@@ -285,17 +354,15 @@ export default function InfographicsPage() {
                     onChange={(e) => setSelectedGender(e.target.value as GenderType)}
                     className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-primary"
                   >
-                    {GENDERS.map((gender) => (
-                      <option key={gender.value} value={gender.value}>
-                        {gender.label}
-                      </option>
+                    {GENDERS.map((g) => (
+                      <option key={g.value} value={g.value}>{g.label}</option>
                     ))}
                   </select>
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
                 </div>
               </div>
 
-              {/* Region Dropdown */}
+              {/* Region */}
               <div>
                 <label className="block text-sm font-medium mb-2">Region</label>
                 <div className="relative">
@@ -307,9 +374,7 @@ export default function InfographicsPage() {
                     <option value="">National</option>
                     <optgroup label="States">
                       {US_STATES.map((state) => (
-                        <option key={state.code} value={state.code}>
-                          {state.name}
-                        </option>
+                        <option key={state.code} value={state.code}>{state.name}</option>
                       ))}
                     </optgroup>
                   </select>
@@ -323,9 +388,7 @@ export default function InfographicsPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Select Platform</CardTitle>
-              <CardDescription>
-                Choose the social media platform format
-              </CardDescription>
+              <CardDescription>Choose the social media format</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
               {platforms.map((platform) => (
@@ -341,73 +404,60 @@ export default function InfographicsPage() {
                   {platform.icon}
                   <span className="font-medium">{platform.label}</span>
                   <span className="ml-auto text-xs opacity-70">
-                    {PLATFORM_DIMENSIONS[platform.id].width} x {PLATFORM_DIMENSIONS[platform.id].height}
+                    {PLATFORM_DIMENSIONS[platform.id].width}x{PLATFORM_DIMENSIONS[platform.id].height}
                   </span>
                 </button>
               ))}
             </CardContent>
           </Card>
 
-          {/* Infographic Info */}
+          {/* Info */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Infographic Details</CardTitle>
+              <CardTitle className="text-lg">Details</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex justify-between text-sm">
+            <CardContent className="space-y-3 text-sm">
+              <div className="flex justify-between">
                 <span className="text-muted-foreground">Category</span>
                 <span className="font-medium">{categoryLabel}</span>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Teams Shown</span>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Teams</span>
                 <span className="font-medium">Top 10</span>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Dimensions</span>
-                <span className="font-mono text-xs">
-                  {dimensions.width} x {dimensions.height}px
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Aspect Ratio</span>
-                <span className="font-mono text-xs">{dimensions.aspectRatio}</span>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Size</span>
+                <span className="font-mono text-xs">{dimensions.width}x{dimensions.height}px</span>
               </div>
             </CardContent>
           </Card>
 
-          {/* Actions */}
-          <div className="space-y-3">
-            {/* Share Button (primary on mobile) */}
+          {/* Actions - Desktop */}
+          <div className="hidden lg:block space-y-3">
             <Button
-              onClick={handleShare}
-              disabled={isGenerating || isLoading || !rankings?.length}
+              onClick={canShare ? handleShare : handleDownload}
+              disabled={isGenerating || isLoading || top10Teams.length === 0}
               className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
               size="lg"
             >
               {isGenerating ? (
-                <>
-                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                  Generating...
-                </>
+                <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Generating...</>
+              ) : canShare ? (
+                <><Share2 className="mr-2 h-4 w-4" />Share to Apps</>
               ) : (
-                <>
-                  <Share2 className="mr-2 h-4 w-4" />
-                  {canShare ? 'Share to Apps' : 'Download PNG'}
-                </>
+                <><Download className="mr-2 h-4 w-4" />Download PNG</>
               )}
             </Button>
 
-            {/* Download Button (secondary) */}
             {canShare && (
               <Button
                 onClick={handleDownload}
-                disabled={isGenerating || isLoading || !rankings?.length}
+                disabled={isGenerating || isLoading || top10Teams.length === 0}
                 variant="outline"
                 className="w-full"
                 size="lg"
               >
-                <Download className="mr-2 h-4 w-4" />
-                Save Image
+                <Download className="mr-2 h-4 w-4" />Save to Device
               </Button>
             )}
 
@@ -426,14 +476,12 @@ export default function InfographicsPage() {
           <Card className="bg-accent/10 border-accent/30">
             <CardContent className="pt-6">
               <h4 className="font-semibold mb-2 flex items-center gap-2">
-                <Share2 size={16} />
-                Sharing Tips
+                <Share2 size={16} />Tips
               </h4>
               <ul className="text-sm space-y-2 text-muted-foreground">
-                <li>Tap &quot;Share to Apps&quot; to post directly to Instagram, Twitter, etc.</li>
+                <li>Tap the button to {canShare ? 'share directly to Instagram, Twitter, etc.' : 'download the image'}</li>
                 <li>Use hashtags: #YouthSoccer #{selectedAgeGroup.toUpperCase()}Soccer</li>
-                <li>Post on Tuesday-Thursday for best engagement</li>
-                <li>Tag team accounts for increased reach</li>
+                <li>Best posting times: Tuesday-Thursday</li>
               </ul>
             </CardContent>
           </Card>
@@ -445,47 +493,26 @@ export default function InfographicsPage() {
             <CardHeader>
               <CardTitle className="text-lg">Preview</CardTitle>
               <CardDescription>
-                {isLoading
-                  ? 'Loading rankings data...'
-                  : error
-                  ? 'Error loading data'
-                  : `Showing top ${top10Teams.length} ${categoryLabel} teams`}
+                {isLoading ? 'Loading...' : error ? 'Error loading data' : `Top ${top10Teams.length} ${categoryLabel} teams`}
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div
-                className="overflow-auto bg-muted/30 rounded-lg p-4 flex justify-center"
-                style={{
-                  minHeight: `${PLATFORM_DIMENSIONS[selectedPlatform].height * previewScale + 40}px`,
-                }}
+                className="overflow-auto bg-muted/30 rounded-lg p-4 flex justify-center items-center"
+                style={{ minHeight: `${dimensions.height * previewScale + 40}px` }}
               >
                 {isLoading ? (
-                  <div className="flex items-center justify-center h-96">
-                    <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
-                  </div>
+                  <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
                 ) : error ? (
-                  <div className="flex items-center justify-center h-96 text-destructive">
-                    Failed to load rankings. Please try again.
-                  </div>
+                  <p className="text-destructive">Failed to load rankings</p>
                 ) : top10Teams.length === 0 ? (
-                  <div className="flex items-center justify-center h-96 text-muted-foreground text-center px-4">
-                    <div>
-                      <p className="font-medium mb-2">No teams found</p>
-                      <p className="text-sm">
-                        No {categoryLabel} teams found. Try selecting a different age group, gender, or region.
-                      </p>
-                    </div>
+                  <div className="text-center text-muted-foreground">
+                    <p className="font-medium mb-2">No teams found</p>
+                    <p className="text-sm">Try a different selection</p>
                   </div>
                 ) : (
-                  <div
-                    style={{
-                      width: `${dimensions.width * previewScale}px`,
-                      height: `${dimensions.height * previewScale}px`,
-                      overflow: 'hidden',
-                    }}
-                  >
+                  <div style={{ width: dimensions.width * previewScale, height: dimensions.height * previewScale, overflow: 'hidden' }}>
                     <Top10Infographic
-                      ref={infographicRef}
                       teams={top10Teams}
                       platform={selectedPlatform}
                       scale={previewScale}
@@ -501,36 +528,24 @@ export default function InfographicsPage() {
             </CardContent>
           </Card>
 
-          {/* Top 10 Teams List */}
-          {!isLoading && !error && top10Teams.length > 0 && (
+          {/* Teams List */}
+          {top10Teams.length > 0 && (
             <Card className="mt-6">
               <CardHeader>
                 <CardTitle className="text-lg">Featured Teams</CardTitle>
-                <CardDescription>The top 10 {categoryLabel} teams shown in this infographic</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {top10Teams.map((team, index) => (
-                    <div
-                      key={team.team_id_master}
-                      className="flex items-center gap-4 py-2 px-3 rounded-lg bg-muted/30"
-                    >
-                      <span className="font-mono font-bold text-lg w-8 text-center text-primary">
-                        {index + 1}
-                      </span>
+                  {top10Teams.map((team, i) => (
+                    <div key={team.team_id_master} className="flex items-center gap-4 py-2 px-3 rounded-lg bg-muted/30">
+                      <span className="font-mono font-bold text-lg w-8 text-center text-primary">{i + 1}</span>
                       <div className="flex-1 min-w-0">
                         <div className="font-semibold truncate">{team.team_name}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {team.club_name ? `${team.club_name} | ` : ''}{team.state || 'N/A'}
-                        </div>
+                        <div className="text-sm text-muted-foreground">{team.club_name ? `${team.club_name} | ` : ''}{team.state || 'N/A'}</div>
                       </div>
-                      <div className="text-right">
-                        <div className="font-mono text-sm">
-                          {team.total_wins ?? team.wins}-{team.total_losses ?? team.losses}-{team.total_draws ?? team.draws}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          Score: {(team.power_score_final * 100).toFixed(1)}
-                        </div>
+                      <div className="text-right text-sm">
+                        <div className="font-mono">{team.total_wins ?? team.wins}-{team.total_losses ?? team.losses}-{team.total_draws ?? team.draws}</div>
+                        <div className="text-xs text-muted-foreground">Score: {(team.power_score_final * 100).toFixed(1)}</div>
                       </div>
                     </div>
                   ))}
@@ -541,31 +556,27 @@ export default function InfographicsPage() {
         </div>
       </div>
 
-      {/* Mobile Sticky Share Button */}
+      {/* Mobile Sticky Buttons */}
       <div className="lg:hidden fixed bottom-0 left-0 right-0 p-4 bg-background/95 backdrop-blur border-t z-50">
         <div className="flex gap-2">
           <Button
-            onClick={handleShare}
-            disabled={isGenerating || isLoading || !rankings?.length}
+            onClick={canShare ? handleShare : handleDownload}
+            disabled={isGenerating || isLoading || top10Teams.length === 0}
             className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground"
             size="lg"
           >
             {isGenerating ? (
-              <>
-                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                Generating...
-              </>
+              <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Generating...</>
+            ) : canShare ? (
+              <><Share2 className="mr-2 h-4 w-4" />Share</>
             ) : (
-              <>
-                <Share2 className="mr-2 h-4 w-4" />
-                {canShare ? 'Share' : 'Download'}
-              </>
+              <><Download className="mr-2 h-4 w-4" />Download</>
             )}
           </Button>
           {canShare && (
             <Button
               onClick={handleDownload}
-              disabled={isGenerating || isLoading || !rankings?.length}
+              disabled={isGenerating || isLoading || top10Teams.length === 0}
               variant="outline"
               size="lg"
             >
@@ -575,7 +586,6 @@ export default function InfographicsPage() {
         </div>
       </div>
 
-      {/* Bottom padding for mobile to account for sticky button */}
       <div className="lg:hidden h-24" />
     </div>
   );
