@@ -158,7 +158,7 @@ export default function InfographicsPage() {
                   <select
                     value={selectedAgeGroup}
                     onChange={(e) => setSelectedAgeGroup(e.target.value)}
-                    className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-forest-green"
+                    className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-primary"
                   >
                     {AGE_GROUPS.map((age) => (
                       <option key={age.value} value={age.value}>
@@ -177,7 +177,7 @@ export default function InfographicsPage() {
                   <select
                     value={selectedGender}
                     onChange={(e) => setSelectedGender(e.target.value as GenderType)}
-                    className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-forest-green"
+                    className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-primary"
                   >
                     {GENDERS.map((gender) => (
                       <option key={gender.value} value={gender.value}>
@@ -196,7 +196,7 @@ export default function InfographicsPage() {
                   <select
                     value={selectedRegion || ''}
                     onChange={(e) => setSelectedRegion(e.target.value || null)}
-                    className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-forest-green"
+                    className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-primary"
                   >
                     <option value="">National</option>
                     <optgroup label="States">
@@ -228,7 +228,7 @@ export default function InfographicsPage() {
                   onClick={() => setSelectedPlatform(platform.id)}
                   className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
                     selectedPlatform === platform.id
-                      ? 'bg-forest-green text-white'
+                      ? 'bg-primary text-primary-foreground'
                       : 'bg-muted hover:bg-muted/80 text-foreground'
                   }`}
                 >
@@ -274,7 +274,7 @@ export default function InfographicsPage() {
             <Button
               onClick={handleDownload}
               disabled={isGenerating || isLoading || !rankings?.length}
-              className="w-full bg-forest-green hover:bg-forest-green/90"
+              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
               size="lg"
             >
               {isGenerating ? (
@@ -302,7 +302,7 @@ export default function InfographicsPage() {
           </div>
 
           {/* Tips */}
-          <Card className="bg-electric-yellow/10 border-electric-yellow/30">
+          <Card className="bg-accent/10 border-accent/30">
             <CardContent className="pt-6">
               <h4 className="font-semibold mb-2 flex items-center gap-2">
                 <Share2 size={16} />
@@ -394,7 +394,7 @@ export default function InfographicsPage() {
                       key={team.team_id_master}
                       className="flex items-center gap-4 py-2 px-3 rounded-lg bg-muted/30"
                     >
-                      <span className="font-mono font-bold text-lg w-8 text-center text-forest-green">
+                      <span className="font-mono font-bold text-lg w-8 text-center text-primary">
                         {index + 1}
                       </span>
                       <div className="flex-1 min-w-0">
