@@ -10,7 +10,7 @@ interface Top10InfographicProps {
   scale?: number;
   generatedDate?: string;
   ageGroup: string; // e.g., "U12", "U14"
-  gender: 'M' | 'F' | 'B' | 'G';
+  gender: 'M' | 'F';
   region: string | null; // null for national, state code for state
   regionName?: string; // Full state name for display
 }
@@ -41,7 +41,7 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
     };
 
     // Generate dynamic title
-    const genderLabel = gender === 'M' || gender === 'B' ? 'BOYS' : 'GIRLS';
+    const genderLabel = gender === 'M' ? 'BOYS' : 'GIRLS';
     const regionLabel = region ? (regionName || region.toUpperCase()) : 'NATIONAL';
     const title = `TOP 10 ${ageGroup.toUpperCase()} ${genderLabel} - ${regionLabel}`;
 

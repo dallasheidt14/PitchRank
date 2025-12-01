@@ -37,16 +37,16 @@ const AGE_GROUPS = [
 ];
 
 const GENDERS = [
-  { value: 'B' as const, label: 'Boys' },
-  { value: 'G' as const, label: 'Girls' },
+  { value: 'M' as const, label: 'Boys' },
+  { value: 'F' as const, label: 'Girls' },
 ];
 
-type GenderType = 'B' | 'G';
+type GenderType = 'M' | 'F';
 
 export default function InfographicsPage() {
   const [selectedPlatform, setSelectedPlatform] = useState<Platform>('instagram');
   const [selectedAgeGroup, setSelectedAgeGroup] = useState('u12');
-  const [selectedGender, setSelectedGender] = useState<GenderType>('B');
+  const [selectedGender, setSelectedGender] = useState<GenderType>('M');
   const [selectedRegion, setSelectedRegion] = useState<string | null>(null); // null = national
   const [isGenerating, setIsGenerating] = useState(false);
   const [previewScale, setPreviewScale] = useState(0.4);
@@ -83,7 +83,7 @@ export default function InfographicsPage() {
   // Generate filename
   const getFilename = () => {
     const timestamp = new Date().toISOString().split('T')[0];
-    const genderLabel = selectedGender === 'B' ? 'boys' : 'girls';
+    const genderLabel = selectedGender === 'M' ? 'boys' : 'girls';
     const regionLabel = selectedRegion || 'national';
     return `pitchrank-${selectedAgeGroup}-${genderLabel}-top10-${regionLabel}-${selectedPlatform}-${timestamp}.png`;
   };
@@ -129,7 +129,7 @@ export default function InfographicsPage() {
 
   const top10Teams = rankings?.slice(0, 10) || [];
   const dimensions = PLATFORM_DIMENSIONS[selectedPlatform];
-  const genderLabel = selectedGender === 'B' ? 'Boys' : 'Girls';
+  const genderLabel = selectedGender === 'M' ? 'Boys' : 'Girls';
   const categoryLabel = `${selectedAgeGroup.toUpperCase()} ${genderLabel} - ${getRegionName()}`;
 
   return (
