@@ -103,7 +103,7 @@ class TestSOSValueRanges:
         """Verify raw SOS values are between 0 and 1"""
         cfg = V53EConfig()
         result = compute_rankings(
-            games=sample_games_df,
+            games_df=sample_games_df,
             cfg=cfg,
             today=pd.Timestamp('2024-06-01')
         )
@@ -123,7 +123,7 @@ class TestSOSValueRanges:
         """Verify normalized SOS values are between 0 and 1"""
         cfg = V53EConfig()
         result = compute_rankings(
-            games=sample_games_df,
+            games_df=sample_games_df,
             cfg=cfg,
             today=pd.Timestamp('2024-06-01')
         )
@@ -143,7 +143,7 @@ class TestSOSValueRanges:
         """Verify PowerScore calculation uses sos_norm, not raw sos"""
         cfg = V53EConfig()
         result = compute_rankings(
-            games=sample_games_df,
+            games_df=sample_games_df,
             cfg=cfg,
             today=pd.Timestamp('2024-06-01')
         )
@@ -155,11 +155,12 @@ class TestSOSValueRanges:
             team = teams_df.iloc[0]
 
             # Calculate expected powerscore_core
+            # Formula: OFF_WEIGHT*off_norm + DEF_WEIGHT*def_norm + SOS_WEIGHT*sos_norm + PERF_BLEND_WEIGHT*perf_centered
             expected_ps = (
                 cfg.OFF_WEIGHT * team.get('off_norm', 0) +
                 cfg.DEF_WEIGHT * team.get('def_norm', 0) +
                 cfg.SOS_WEIGHT * team['sos_norm'] +  # Uses sos_norm!
-                team.get('perf_centered', 0) * cfg.PERFORMANCE_K
+                team.get('perf_centered', 0) * cfg.PERF_BLEND_WEIGHT  # Performance adjustment
             )
 
             actual_ps = team['powerscore_core']
