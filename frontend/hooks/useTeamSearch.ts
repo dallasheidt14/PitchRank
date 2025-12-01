@@ -43,20 +43,23 @@ export function useTeamSearch() {
           // Convert gender from database format ('Male'|'Female') to API format ('M'|'F')
           const genderCode = team.gender === 'Male' ? 'M' : team.gender === 'Female' ? 'F' : 'M' as 'M' | 'F' | 'B' | 'G';
 
-          // Create searchable name - simplified for better performance
-          // Only add year variations which are the most valuable for search
+          // Create searchable name that combines team name + club name for cross-field matching
+          // This allows "rebels san diego romero" to match team "B2014 Pre-ECNL (Romero)" from club "Rebels San Diego"
           const searchable_name = (() => {
-            // Quick year normalization: "2015" ↔ "15"
             let name = team.team_name;
 
-            // Add 2-digit version of 4-digit years (2015 → also matches 15)
-            const fourDigitMatch = name.match(/20(0[9]|1[0-9]|2[0-9])\b/);
+            // Add club name for combined searches (e.g., "rebels romero")
+            if (team.club_name) {
+              name += ' ' + team.club_name;
+            }
+
+            // Add year variations: "2015" ↔ "15"
+            const fourDigitMatch = team.team_name.match(/20(0[9]|1[0-9]|2[0-9])\b/);
             if (fourDigitMatch) {
               name += ' ' + fourDigitMatch[1];
             }
 
-            // Add 4-digit version of 2-digit years (15 → also matches 2015)
-            const twoDigitMatch = name.match(/\b(0[9]|1[0-9]|2[0-9])\b(?![\d])/);
+            const twoDigitMatch = team.team_name.match(/\b(0[9]|1[0-9]|2[0-9])\b(?![\d])/);
             if (twoDigitMatch && !fourDigitMatch) {
               name += ' 20' + twoDigitMatch[1];
             }
