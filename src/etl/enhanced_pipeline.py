@@ -330,6 +330,9 @@ class EnhancedETLPipeline:
                 batch_metrics.games_accepted = inserted_count  # Batch-specific count
                 self.metrics.games_accepted += inserted_count  # Also update shared for logging
                 logger.info(f"Inserted {inserted_count} games successfully (batch accepted: {inserted_count})")
+                
+                # Step 5b: Update last_scraped_at for teams based on imported games
+                await self._update_team_scrape_dates(valid_game_records)
             elif self.dry_run:
                 batch_metrics.games_accepted = len(valid_game_records)
                 self.metrics.games_accepted += len(valid_game_records)  # Also update shared for logging
@@ -972,6 +975,84 @@ class EnhancedETLPipeline:
             logger.info(f"📊 Summary: Inserted {inserted} new games, {duplicate_violations} were duplicates (already in DB)")
         
         return inserted
+    
+    async def _update_team_scrape_dates(self, game_records: List[Dict]):
+        """
+        Update last_scraped_at for teams based on scraped_at timestamps from imported games.
+        
+        This ensures that teams show as recently scraped even when importing from files,
+        which helps the dashboard track which teams have recent data.
+        
+        Args:
+            game_records: List of game records that were successfully inserted
+        """
+        if not game_records or self.dry_run:
+            return
+        
+        try:
+            # Extract unique team IDs and their most recent scraped_at timestamps
+            team_scrape_dates: Dict[str, datetime] = {}
+            
+            for game in game_records:
+                scraped_at_str = game.get('scraped_at')
+                if not scraped_at_str:
+                    continue
+                
+                # Parse scraped_at timestamp
+                try:
+                    # Handle ISO format with or without timezone
+                    scraped_at = datetime.fromisoformat(scraped_at_str.replace('Z', '+00:00'))
+                except (ValueError, TypeError):
+                    try:
+                        # Fallback: try parsing as standard format
+                        scraped_at = datetime.strptime(scraped_at_str, '%Y-%m-%dT%H:%M:%S.%f')
+                    except (ValueError, TypeError):
+                        logger.debug(f"Could not parse scraped_at: {scraped_at_str}")
+                        continue
+                
+                # Track most recent scraped_at for each team
+                home_team_id = game.get('home_team_master_id')
+                away_team_id = game.get('away_team_master_id')
+                
+                if home_team_id:
+                    if home_team_id not in team_scrape_dates or scraped_at > team_scrape_dates[home_team_id]:
+                        team_scrape_dates[home_team_id] = scraped_at
+                
+                if away_team_id:
+                    if away_team_id not in team_scrape_dates or scraped_at > team_scrape_dates[away_team_id]:
+                        team_scrape_dates[away_team_id] = scraped_at
+            
+            if not team_scrape_dates:
+                logger.debug("No valid scraped_at timestamps found in imported games")
+                return
+            
+            # Update teams.last_scraped_at in batches
+            batch_size = 100
+            updated_count = 0
+            
+            team_ids = list(team_scrape_dates.keys())
+            for i in range(0, len(team_ids), batch_size):
+                batch_ids = team_ids[i:i + batch_size]
+                
+                for team_id in batch_ids:
+                    scraped_at = team_scrape_dates[team_id]
+                    scraped_at_iso = scraped_at.isoformat()
+                    
+                    try:
+                        # Update last_scraped_at for this team
+                        self.supabase.table('teams').update({
+                            'last_scraped_at': scraped_at_iso
+                        }).eq('team_id_master', team_id).eq('provider_id', self.provider_id).execute()
+                        updated_count += 1
+                    except Exception as e:
+                        logger.warning(f"Error updating last_scraped_at for team {team_id}: {e}")
+            
+            if updated_count > 0:
+                logger.info(f"Updated last_scraped_at for {updated_count} teams based on imported games")
+        
+        except Exception as e:
+            logger.warning(f"Error updating team scrape dates: {e}")
+            # Don't fail the import if this step fails
     
     async def _process_team_matching_stats(self):
         """Process team matching statistics from alias map"""

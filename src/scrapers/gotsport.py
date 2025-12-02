@@ -124,7 +124,12 @@ class GotSportScraper(BaseScraper):
         
         # For incremental scraping: use last scrape date if available
         # For first-time scraping: use October 17, 2025 baseline
-        if since_date:
+        # If since_date is explicitly None, get all games
+        if since_date is None:
+            # Explicitly None means get all games (no date filter)
+            since_date_obj = None
+            logger.debug(f"Fetching all games (no date filter)")
+        elif since_date:
             # Use the last scrape date (incremental update)
             since_date_obj = since_date.date() if isinstance(since_date, datetime) else since_date
             logger.debug(f"Incremental scrape: fetching games since {since_date_obj}")

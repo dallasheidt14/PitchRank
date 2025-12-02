@@ -61,6 +61,18 @@ PROVIDERS = {
         'name': 'US Club Soccer',
         'base_url': 'https://www.usclubsoccer.org',
         'adapter': 'src.scrapers.usclub'
+    },
+    'sincsports': {
+        'code': 'sincsports',
+        'name': 'SincSports',
+        'base_url': 'https://soccer.sincsports.com',
+        'adapter': 'src.scrapers.sincsports'
+    },
+    'athleteone': {
+        'code': 'athleteone',
+        'name': 'AthleteOne / TGS',
+        'base_url': 'https://api.athleteone.com',
+        'adapter': 'src.scrapers.athleteone'
     }
 }
 
