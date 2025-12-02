@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useRef, memo, useCallback } from 'react';
+import { useMemo, useState, useRef, memo, useCallback, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { RankingsTableSkeleton } from '@/components/skeletons/RankingsTableSkeleton';
@@ -12,6 +12,7 @@ import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { formatPowerScore, formatSOSIndex, normalizeAgeGroup } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
+import { trackRankingsViewed, trackSortUsed, trackTeamRowClicked } from '@/lib/events';
 
 interface RankingsTableProps {
   region: string | null; // null = national
@@ -45,6 +46,18 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
 
   const { data: rankings, isLoading, isError, error, refetch } = useRankings(region, ageGroup, gender);
   const prefetchTeam = usePrefetchTeam();
+
+  // Track rankings viewed when data loads
+  useEffect(() => {
+    if (rankings && rankings.length > 0) {
+      trackRankingsViewed({
+        region,
+        age_group: ageGroup,
+        gender,
+        total_teams: rankings.length,
+      });
+    }
+  }, [rankings?.length, region, ageGroup, gender]);
 
   // Use pre-calculated SOS ranks from database
   // sos_rank_national for national view, sos_rank_state for state view
@@ -121,13 +134,26 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   });
 
   const handleSort = useCallback((field: SortField) => {
+    const newDirection = sortField === field
+      ? (sortDirection === 'asc' ? 'desc' : 'asc')
+      : 'asc';
+
+    // Track sort event
+    trackSortUsed({
+      column: field,
+      direction: newDirection,
+      region,
+      age_group: ageGroup,
+      gender,
+    });
+
     if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+      setSortDirection(newDirection);
     } else {
       setSortField(field);
       setSortDirection('asc');
     }
-  }, [sortField, sortDirection]);
+  }, [sortField, sortDirection, region, ageGroup, gender]);
 
   const SortButton = memo(({ field, label }: { field: SortField; label: string | React.ReactNode }) => {
     const isActive = sortField === field;
@@ -383,6 +409,16 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                             <Link
                               href={`/teams/${team.team_id_master}?region=${region || 'national'}&ageGroup=${ageGroup}&gender=${gender?.toLowerCase() || 'male'}`}
                               onMouseEnter={() => prefetchTeam(team.team_id_master)}
+                              onClick={() => trackTeamRowClicked({
+                                team_id_master: team.team_id_master,
+                                team_name: team.team_name,
+                                club_name: team.club_name,
+                                state: team.state,
+                                age: team.age,
+                                gender: team.gender,
+                                rank_in_cohort_final: team.rank_in_cohort_final,
+                                rank_in_state_final: team.rank_in_state_final,
+                              })}
                               className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block text-xs sm:text-sm truncate block w-full"
                               aria-label={`View ${team.team_name} team details`}
                             >

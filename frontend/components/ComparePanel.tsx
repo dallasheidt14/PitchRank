@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CardSkeleton, ChartSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
@@ -16,6 +16,12 @@ import { ArrowLeftRight, HelpCircle } from 'lucide-react';
 import { formatPowerScore } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  trackCompareOpened,
+  trackComparisonGenerated,
+  trackPredictionViewed,
+  trackTeamsSwapped,
+} from '@/lib/events';
 
 /**
  * ComparePanel component - enhanced team comparison with all features
@@ -26,6 +32,10 @@ export function ComparePanel() {
   const [team1Data, setTeam1Data] = useState<RankingRow | null>(null);
   const [team2Data, setTeam2Data] = useState<RankingRow | null>(null);
   const [showMetricHelp, setShowMetricHelp] = useState(false);
+
+  // Track whether we've already tracked certain events
+  const hasTrackedComparison = useRef(false);
+  const hasTrackedPrediction = useRef(false);
 
   // Metric descriptions for tooltips
   const metricDescriptions: Record<string, string> = {
@@ -50,16 +60,39 @@ export function ComparePanel() {
   const { data: matchPrediction, isLoading: predictionLoading } = useMatchPrediction(team1Id, team2Id);
 
   const handleTeam1Change = (id: string | null, team: RankingRow | null) => {
+    // Track compare opened when first team is selected
+    if (id && team && !team1Id && !team2Id) {
+      trackCompareOpened({
+        team_id_master: id,
+        team_name: team.team_name,
+        rank_in_cohort_final: team.rank_in_cohort_final,
+      });
+    }
+    // Reset tracking refs when teams change
+    hasTrackedComparison.current = false;
+    hasTrackedPrediction.current = false;
     setTeam1Id(id);
     setTeam1Data(team);
   };
 
   const handleTeam2Change = (id: string | null, team: RankingRow | null) => {
+    // Track compare opened when first team is selected (in case team2 is selected first)
+    if (id && team && !team1Id && !team2Id) {
+      trackCompareOpened({
+        team_id_master: id,
+        team_name: team.team_name,
+        rank_in_cohort_final: team.rank_in_cohort_final,
+      });
+    }
+    // Reset tracking refs when teams change
+    hasTrackedComparison.current = false;
+    hasTrackedPrediction.current = false;
     setTeam2Id(id);
     setTeam2Data(team);
   };
 
   const handleSwap = () => {
+    trackTeamsSwapped();
     const tempId = team1Id;
     const tempData = team1Data;
     setTeam1Id(team2Id);
@@ -67,6 +100,43 @@ export function ComparePanel() {
     setTeam2Id(tempId);
     setTeam2Data(tempData);
   };
+
+  // Track comparison generated when both team details load
+  useEffect(() => {
+    if (team1Details && team2Details && !hasTrackedComparison.current) {
+      hasTrackedComparison.current = true;
+      trackComparisonGenerated({
+        team_count: 2,
+        team_ids: [team1Details.team_id_master, team2Details.team_id_master],
+        team_names: [team1Details.team_name, team2Details.team_name],
+      });
+    }
+  }, [team1Details, team2Details]);
+
+  // Track prediction viewed when match prediction loads
+  useEffect(() => {
+    if (matchPrediction && team1Details && team2Details && !hasTrackedPrediction.current) {
+      hasTrackedPrediction.current = true;
+      const prediction = matchPrediction.prediction;
+      const predictedWinner =
+        prediction.winA > prediction.winB
+          ? team1Details.team_name
+          : prediction.winB > prediction.winA
+          ? team2Details.team_name
+          : 'Draw';
+
+      trackPredictionViewed({
+        team_a_id: team1Details.team_id_master,
+        team_a_name: team1Details.team_name,
+        team_b_id: team2Details.team_id_master,
+        team_b_name: team2Details.team_name,
+        win_probability_a: prediction.winA,
+        win_probability_b: prediction.winB,
+        draw_probability: prediction.draw,
+        predicted_winner: predictedWinner,
+      });
+    }
+  }, [matchPrediction, team1Details, team2Details]);
 
   // Normalize metrics to 0-100 scale for radar chart
   const radarData = useMemo(() => {
