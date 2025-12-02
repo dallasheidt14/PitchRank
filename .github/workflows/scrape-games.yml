@@ -27,7 +27,7 @@ on:
         description: 'Batch size for import (optimal: 1000-2000)'
         required: false
         type: string
-        default: '1000'
+        default: '2000'
 
 jobs:
   scrape-and-import:
