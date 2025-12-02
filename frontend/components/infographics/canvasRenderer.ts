@@ -8,29 +8,29 @@ interface RenderOptions {
   gender: 'M' | 'F';
   region: string | null;
   regionName: string;
-  generatedDate: string;
+  generatedDate?: string;
 }
 
 /**
- * Renders a Top 10 infographic directly to canvas using Canvas 2D API.
- * This bypasses html2canvas issues with modern CSS color functions.
+ * Renders the infographic directly to a canvas element.
+ * This bypasses html2canvas issues with modern CSS.
  */
 export async function renderInfographicToCanvas(options: RenderOptions): Promise<HTMLCanvasElement> {
-  const { teams, platform, ageGroup, gender, regionName, generatedDate } = options;
+  const { teams, platform, ageGroup, gender, region, regionName, generatedDate } = options;
   const dimensions = PLATFORM_DIMENSIONS[platform];
   const isVertical = platform === 'instagramStory';
   const isSquare = platform === 'instagram';
 
-  // Create canvas with 2x scale for retina
+  // Create canvas
   const canvas = document.createElement('canvas');
-  const scale = 2;
+  const scale = 2; // For high DPI
   canvas.width = dimensions.width * scale;
   canvas.height = dimensions.height * scale;
 
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Could not get canvas context');
 
-  // Scale for retina
+  // Scale for high DPI
   ctx.scale(scale, scale);
 
   // Draw background gradient
@@ -40,7 +40,7 @@ export async function renderInfographicToCanvas(options: RenderOptions): Promise
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, dimensions.width, dimensions.height);
 
-  // Draw scan lines texture
+  // Draw subtle scan lines for texture
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.02)';
   ctx.lineWidth = 1;
   for (let y = 0; y < dimensions.height; y += 3) {
@@ -51,125 +51,182 @@ export async function renderInfographicToCanvas(options: RenderOptions): Promise
   }
 
   // Font sizes based on platform
-  const logoSize = isVertical ? 48 : isSquare ? 44 : 40;
-  const titleSize = isVertical ? 28 : isSquare ? 24 : 22;
-  const subtitleSize = isVertical ? 18 : isSquare ? 16 : 14;
-  const teamNameSize = isVertical ? 22 : isSquare ? 20 : 18;
-  const rankSize = isVertical ? 32 : isSquare ? 28 : 24;
-  const scoreSize = isVertical ? 16 : isSquare ? 14 : 12;
-  const footerSize = isVertical ? 14 : isSquare ? 12 : 11;
-  const padding = isVertical ? 50 : isSquare ? 45 : 40;
+  const titleSize = isVertical ? 72 : isSquare ? 64 : 56;
+  const subtitleSize = isVertical ? 32 : isSquare ? 28 : 24;
+  const rankSize = isVertical ? 36 : isSquare ? 32 : 28;
+  const teamNameSize = isVertical ? 26 : isSquare ? 22 : 18;
+  const statsSize = isVertical ? 20 : isSquare ? 18 : 16;
+  const padding = isVertical ? 60 : isSquare ? 50 : 40;
 
   let currentY = padding;
 
   // ===== HEADER SECTION =====
 
-  // Draw logo - "PITCHRANK" with yellow slash
+  // Draw logo: /PITCHRANK
   ctx.textAlign = 'center';
-  ctx.font = `800 ${logoSize}px Oswald, "Arial Black", sans-serif`;
   ctx.textBaseline = 'middle';
 
-  const logoY = currentY + logoSize / 2;
+  // Draw the slash
+  const logoY = currentY + titleSize / 2;
   const logoText = 'PITCHRANK';
+  ctx.font = `800 ${titleSize}px Oswald, "Arial Black", sans-serif`;
   const logoWidth = ctx.measureText(logoText).width;
   const logoStartX = (dimensions.width - logoWidth) / 2;
 
-  // Yellow slash before P
+  // Yellow slash bar
   ctx.save();
-  ctx.translate(logoStartX - 16, logoY);
-  ctx.transform(1, 0, -0.2, 1, 0, 0);
+  ctx.translate(logoStartX - 20, logoY);
+  ctx.transform(1, 0, -0.2, 1, 0, 0); // Skew
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillRect(-5, -logoSize * 0.35, 8, logoSize * 0.7);
+  ctx.fillRect(-6, -titleSize * 0.4, 10, titleSize * 0.8);
   ctx.restore();
 
-  // "PITCH" in white
+  // Draw PITCH in white
   ctx.fillStyle = BRAND_COLORS.brightWhite;
+  ctx.font = `800 ${titleSize}px Oswald, "Arial Black", sans-serif`;
   const pitchWidth = ctx.measureText('PITCH').width;
   ctx.fillText('PITCH', logoStartX + pitchWidth / 2, logoY);
 
-  // "RANK" in yellow
+  // Draw RANK in yellow
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  const rankWidth = ctx.measureText('RANK').width;
-  ctx.fillText('RANK', logoStartX + pitchWidth + rankWidth / 2, logoY);
+  ctx.fillText('RANK', logoStartX + pitchWidth + ctx.measureText('RANK').width / 2, logoY);
 
-  currentY += logoSize + (isVertical ? 30 : 25);
+  currentY += titleSize + 16;
 
-  // Title - "TOP 10 RANKINGS"
-  ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.font = `700 ${titleSize}px Oswald, "Arial Black", sans-serif`;
-  ctx.fillText('TOP 10 RANKINGS', dimensions.width / 2, currentY);
-
-  currentY += titleSize + 8;
-
-  // Subtitle - Age group and region
+  // Draw title (TOP 10 U12 BOYS - NATIONAL)
   const genderLabel = gender === 'M' ? 'BOYS' : 'GIRLS';
+  const regionLabel = region ? regionName.toUpperCase() : 'NATIONAL';
+  const title = `TOP 10 ${ageGroup.toUpperCase()} ${genderLabel} - ${regionLabel}`;
+
+  ctx.fillStyle = BRAND_COLORS.electricYellow;
+  ctx.font = `700 ${subtitleSize}px Oswald, "Arial Black", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(title, dimensions.width / 2, currentY + subtitleSize / 2);
+
+  currentY += subtitleSize + 8;
+
+  // Draw date
+  const formatDate = (date?: string) => {
+    const d = date ? new Date(date) : new Date();
+    return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  };
+
   ctx.fillStyle = '#AAAAAA';
-  ctx.font = `400 ${subtitleSize}px "DM Sans", Arial, sans-serif`;
-  ctx.fillText(`${ageGroup.toUpperCase()} ${genderLabel} • ${regionName.toUpperCase()}`, dimensions.width / 2, currentY);
+  ctx.font = `400 ${statsSize}px "DM Sans", Arial, sans-serif`;
+  ctx.fillText(`Rankings as of ${formatDate(generatedDate)}`, dimensions.width / 2, currentY + statsSize / 2);
 
-  currentY += subtitleSize + (isVertical ? 30 : 20);
+  currentY += statsSize + (isVertical ? 48 : 32);
 
-  // ===== TEAMS LIST =====
-  const teamsToShow = teams.slice(0, 10);
-  const availableHeight = dimensions.height - currentY - (isVertical ? 100 : 80);
-  const rowHeight = Math.min(availableHeight / 10, isVertical ? 70 : isSquare ? 60 : 55);
-  const rowGap = (availableHeight - rowHeight * 10) / 9;
+  // ===== RANKINGS LIST =====
+  const top10 = teams.slice(0, 10);
+  const rowHeight = isVertical ? 70 : isSquare ? 62 : 52;
+  const rowGap = isVertical ? 12 : isSquare ? 8 : 6;
+  const rowPaddingX = isVertical ? 20 : 16;
 
-  teamsToShow.forEach((team, index) => {
-    const rowY = currentY + index * (rowHeight + rowGap);
-    const rowCenterY = rowY + rowHeight / 2;
+  const medalColors: Record<number, string> = {
+    1: '#FFD700', // Gold
+    2: '#C0C0C0', // Silver
+    3: '#CD7F32', // Bronze
+  };
+
+  top10.forEach((team, index) => {
+    const rank = index + 1;
+    const isTopThree = rank <= 3;
+    const rowY = currentY;
 
     // Row background
-    ctx.fillStyle = index % 2 === 0 ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.02)';
-    roundRect(ctx, padding, rowY, dimensions.width - padding * 2, rowHeight, 8);
-    ctx.fill();
-
-    // Top 3 gold accent
-    if (index < 3) {
-      ctx.fillStyle = 'rgba(244, 208, 63, 0.15)';
-      ctx.fillRect(padding, rowY, 4, rowHeight);
+    if (isTopThree) {
+      const rowGradient = ctx.createLinearGradient(padding, rowY, dimensions.width - padding, rowY);
+      rowGradient.addColorStop(0, 'rgba(244, 208, 63, 0.25)');
+      rowGradient.addColorStop(1, 'rgba(244, 208, 63, 0.05)');
+      ctx.fillStyle = rowGradient;
+    } else {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
     }
 
-    // Rank number
+    // Draw rounded rect
+    const rowX = padding;
+    const rowWidth = dimensions.width - padding * 2;
+    const radius = 8;
+
+    ctx.beginPath();
+    ctx.moveTo(rowX + radius, rowY);
+    ctx.lineTo(rowX + rowWidth - radius, rowY);
+    ctx.quadraticCurveTo(rowX + rowWidth, rowY, rowX + rowWidth, rowY + radius);
+    ctx.lineTo(rowX + rowWidth, rowY + rowHeight - radius);
+    ctx.quadraticCurveTo(rowX + rowWidth, rowY + rowHeight, rowX + rowWidth - radius, rowY + rowHeight);
+    ctx.lineTo(rowX + radius, rowY + rowHeight);
+    ctx.quadraticCurveTo(rowX, rowY + rowHeight, rowX, rowY + rowHeight - radius);
+    ctx.lineTo(rowX, rowY + radius);
+    ctx.quadraticCurveTo(rowX, rowY, rowX + radius, rowY);
+    ctx.fill();
+
+    // Left border for top 3
+    if (isTopThree) {
+      ctx.fillStyle = medalColors[rank];
+      ctx.fillRect(rowX, rowY, 4, rowHeight);
+    }
+
+    // Draw rank number
+    const rankX = rowX + rowPaddingX + 25;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = index < 3 ? BRAND_COLORS.electricYellow : BRAND_COLORS.brightWhite;
-    ctx.font = `700 ${rankSize}px Oswald, "Arial Black", sans-serif`;
-    ctx.fillText(String(index + 1), padding + 40, rowCenterY);
+    ctx.fillStyle = isTopThree ? medalColors[rank] : BRAND_COLORS.brightWhite;
+    ctx.font = `800 ${rankSize}px Oswald, "Arial Black", sans-serif`;
+    ctx.fillText(String(rank), rankX, rowY + rowHeight / 2);
 
-    // Team name
+    // Draw team name
+    const teamInfoX = rankX + 50;
     ctx.textAlign = 'left';
     ctx.fillStyle = BRAND_COLORS.brightWhite;
     ctx.font = `600 ${teamNameSize}px Oswald, "Arial Black", sans-serif`;
 
+    // Truncate team name if too long
     let teamName = team.team_name.toUpperCase();
-    const maxNameWidth = dimensions.width - padding * 2 - 200;
-    while (ctx.measureText(teamName).width > maxNameWidth && teamName.length > 10) {
+    const maxTeamWidth = dimensions.width - teamInfoX - 180;
+    while (ctx.measureText(teamName).width > maxTeamWidth && teamName.length > 10) {
       teamName = teamName.slice(0, -4) + '...';
     }
+    ctx.fillText(teamName, teamInfoX, rowY + rowHeight / 2 - 8);
 
-    ctx.fillText(teamName, padding + 80, rowCenterY - (scoreSize / 2 + 2));
+    // Draw club name & state
+    const clubText = `${team.club_name || ''} | ${team.state || 'N/A'}`;
+    ctx.fillStyle = '#999999';
+    ctx.font = `400 ${statsSize - 2}px "DM Sans", Arial, sans-serif`;
 
-    // Club name and state
+    let displayClubText = clubText;
+    while (ctx.measureText(displayClubText).width > maxTeamWidth && displayClubText.length > 10) {
+      displayClubText = displayClubText.slice(0, -4) + '...';
+    }
+    ctx.fillText(displayClubText, teamInfoX, rowY + rowHeight / 2 + 12);
+
+    // Draw stats (right side)
+    const statsRightX = dimensions.width - padding - rowPaddingX;
+
+    // Power Score
+    const score = team.power_score_final ? (team.power_score_final * 100).toFixed(1) : 'N/A';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = BRAND_COLORS.electricYellow;
+    ctx.font = `700 ${statsSize}px "DM Sans", Arial, sans-serif`;
+    ctx.fillText(score, statsRightX - 30, rowY + rowHeight / 2 - 6);
     ctx.fillStyle = '#888888';
-    ctx.font = `400 ${scoreSize}px "DM Sans", Arial, sans-serif`;
-    const clubText = team.club_name ? `${team.club_name} | ${team.state || 'N/A'}` : team.state || 'N/A';
-    ctx.fillText(clubText, padding + 80, rowCenterY + (scoreSize / 2 + 4));
+    ctx.font = `400 ${statsSize - 4}px "DM Sans", Arial, sans-serif`;
+    ctx.fillText('SCORE', statsRightX - 30, rowY + rowHeight / 2 + 10);
 
-    // Record
-    ctx.textAlign = 'right';
-    ctx.fillStyle = BRAND_COLORS.brightWhite;
-    ctx.font = `500 ${scoreSize + 2}px "JetBrains Mono", monospace`;
+    // Record (W-L-D)
     const wins = team.total_wins ?? team.wins ?? 0;
     const losses = team.total_losses ?? team.losses ?? 0;
     const draws = team.total_draws ?? team.draws ?? 0;
-    ctx.fillText(`${wins}-${losses}-${draws}`, dimensions.width - padding - 15, rowCenterY - 6);
+    const record = `${wins}-${losses}-${draws}`;
 
-    // Power score
-    ctx.fillStyle = BRAND_COLORS.electricYellow;
-    ctx.font = `600 ${scoreSize}px "JetBrains Mono", monospace`;
-    const score = team.power_score_final ? (team.power_score_final * 100).toFixed(1) : 'N/A';
-    ctx.fillText(score, dimensions.width - padding - 15, rowCenterY + 10);
+    ctx.fillStyle = BRAND_COLORS.brightWhite;
+    ctx.font = `700 ${statsSize}px "DM Sans", Arial, sans-serif`;
+    ctx.fillText(record, statsRightX - 100, rowY + rowHeight / 2 - 6);
+    ctx.fillStyle = '#888888';
+    ctx.font = `400 ${statsSize - 4}px "DM Sans", Arial, sans-serif`;
+    ctx.fillText('W-L-D', statsRightX - 100, rowY + rowHeight / 2 + 10);
+
+    currentY += rowHeight + rowGap;
   });
 
   // ===== FOOTER =====
@@ -183,48 +240,36 @@ export async function renderInfographicToCanvas(options: RenderOptions): Promise
   ctx.lineTo(dimensions.width - padding, currentY - 16);
   ctx.stroke();
 
-  // Date
+  // pitchrank.com
   ctx.textAlign = 'left';
   ctx.fillStyle = '#999999';
-  ctx.font = `400 ${footerSize}px "DM Sans", Arial, sans-serif`;
-  const date = new Date(generatedDate);
-  const formattedDate = date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-  ctx.fillText(formattedDate, padding, currentY);
+  ctx.font = `400 ${statsSize - 2}px "DM Sans", Arial, sans-serif`;
+  ctx.fillText('pitchrank.com', padding, currentY);
 
-  // Website URL
+  // Hashtags
+  const hashtags = `#YouthSoccer #${ageGroup}Soccer${region ? ` #${regionName}Soccer` : ''}`;
   ctx.textAlign = 'right';
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillText('pitchrank.com', dimensions.width - padding, currentY);
+  ctx.fillText(hashtags, dimensions.width - padding, currentY);
 
   return canvas;
 }
 
 /**
- * Converts a canvas to a PNG Blob.
+ * Converts a canvas to a Blob
  */
-export function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+export function canvasToBlob(canvas: HTMLCanvasElement, type = 'image/png', quality = 1.0): Promise<Blob> {
   return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (blob) {
-        resolve(blob);
-      } else {
-        reject(new Error('Failed to convert canvas to blob'));
-      }
-    }, 'image/png', 1.0);
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(new Error('Failed to create blob from canvas'));
+        }
+      },
+      type,
+      quality
+    );
   });
-}
-
-// Helper function to draw rounded rectangles
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
 }
