@@ -646,9 +646,43 @@ def import_games(games_file: str, provider: str) -> bool:
             '--checkpoint'
         ]
         
+        # Run import script and capture output to parse metrics
         result = subprocess.run(cmd, capture_output=True, text=True)
         
+        # Print the import script output (includes metrics)
+        if result.stdout:
+            console.print(result.stdout)
+        
         if result.returncode == 0:
+            # Parse metrics from output for summary
+            import re
+            games_processed = None
+            games_accepted = None
+            duplicates_skipped = None
+            
+            if result.stdout:
+                # Extract metrics from output
+                processed_match = re.search(r'Games processed:\s*([\d,]+)', result.stdout)
+                accepted_match = re.search(r'Games accepted:\s*([\d,]+)', result.stdout)
+                duplicates_match = re.search(r'Duplicates skipped:\s*([\d,]+)', result.stdout)
+                
+                if processed_match:
+                    games_processed = int(processed_match.group(1).replace(',', ''))
+                if accepted_match:
+                    games_accepted = int(accepted_match.group(1).replace(',', ''))
+                if duplicates_match:
+                    duplicates_skipped = int(duplicates_match.group(1).replace(',', ''))
+            
+            # Display summary
+            if games_processed is not None:
+                console.print(f"\n[bold cyan]Import Summary:[/bold cyan]")
+                console.print(f"  [green]Games processed: {games_processed:,}[/green]")
+                if games_accepted is not None:
+                    console.print(f"  [green]New games imported: {games_accepted:,}[/green]")
+                if duplicates_skipped is not None:
+                    dedup_rate = (duplicates_skipped / games_processed * 100) if games_processed > 0 else 0
+                    console.print(f"  [yellow]Duplicates skipped: {duplicates_skipped:,} ({dedup_rate:.1f}%)[/yellow]")
+            
             console.print("[green]✅ Games imported successfully[/green]")
             return True
         else:
