@@ -438,8 +438,27 @@ export function predictMatch(
   // 9. Expected scores using age-adjusted league average
   // Use teamA's age (matchups are typically same-age groups)
   const leagueAvgGoals = getLeagueAverageGoals(teamA.age);
-  const expectedScoreA = Math.max(0, leagueAvgGoals + (expectedMargin / 2));
-  const expectedScoreB = Math.max(0, leagueAvgGoals - (expectedMargin / 2));
+
+  // Round scores in a way that preserves the expected margin
+  // This prevents rounding artifacts (e.g., 2.7-2.3 becoming 3-2 instead of 2-2)
+  const rawScoreA = leagueAvgGoals + (expectedMargin / 2);
+  const rawScoreB = leagueAvgGoals - (expectedMargin / 2);
+  const roundedMargin = Math.round(Math.abs(expectedMargin));
+
+  // Round the underdog's score, then add the rounded margin for the favorite
+  // This ensures the displayed margin matches the rounded expected margin
+  let expectedScoreA: number;
+  let expectedScoreB: number;
+
+  if (expectedMargin >= 0) {
+    // Team A is favored
+    expectedScoreB = Math.max(0, Math.round(rawScoreB));
+    expectedScoreA = Math.max(0, expectedScoreB + roundedMargin);
+  } else {
+    // Team B is favored
+    expectedScoreA = Math.max(0, Math.round(rawScoreA));
+    expectedScoreB = Math.max(0, expectedScoreA + roundedMargin);
+  }
 
   // 10. Predicted winner
   let predictedWinner: 'team_a' | 'team_b' | 'draw';
