@@ -104,10 +104,10 @@ export async function renderStoryTemplateToCanvas(options: StoryTemplateOptions)
 
   // Yellow slash - positioned right before the P
   ctx.save();
-  ctx.translate(logoStartX - 4, currentY - logoSize * 0.35);
+  ctx.translate(logoStartX, currentY - logoSize * 0.35);
   ctx.transform(1, 0, -0.2, 1, 0, 0);
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillRect(-9, 0, 9, logoSize * 0.7);
+  ctx.fillRect(-13, 0, 9, logoSize * 0.7);
   ctx.restore();
 
   // Logo text

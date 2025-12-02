@@ -99,10 +99,10 @@ export async function renderCoverImageToCanvas(options: CoverImageOptions): Prom
 
   // Yellow slash (larger and more prominent for cover images) - positioned right before the P
   ctx.save();
-  ctx.translate(logoStartX - 4, logoY - logoSize * 0.35);
+  ctx.translate(logoStartX, logoY - logoSize * 0.35);
   ctx.transform(1, 0, -0.2, 1, 0, 0);
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillRect(-12, 0, 12, logoSize * 0.7);
+  ctx.fillRect(-16, 0, 12, logoSize * 0.7);
   ctx.restore();
 
   // Logo text
