@@ -119,8 +119,9 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
                 fontFamily: "Arial, sans-serif",
                 fontSize: `${statsSize}px`,
                 fontWeight: 400,
-                color: 'rgba(255, 255, 255, 0.7)',
+                color: '#AAAAAA',
                 marginTop: 8,
+                textDecoration: 'none',
               }}
             >
               Rankings as of {formatDate(generatedDate)}
@@ -157,7 +158,7 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
               alignItems: 'center',
               marginTop: isVertical ? 32 : 24,
               paddingTop: 16,
-              borderTop: `2px solid rgba(255, 255, 255, 0.1)`,
+              borderTop: '2px solid #1a4a3f',
             }}
           >
             <div
@@ -165,7 +166,8 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
                 fontFamily: "Arial, sans-serif",
                 fontSize: `${statsSize - 2}px`,
                 fontWeight: 400,
-                color: 'rgba(255, 255, 255, 0.6)',
+                color: '#999999',
+                textDecoration: 'none',
               }}
             >
               pitchrank.com
@@ -176,6 +178,7 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
                 fontSize: `${statsSize - 2}px`,
                 fontWeight: 400,
                 color: BRAND_COLORS.electricYellow,
+                textDecoration: 'none',
               }}
             >
               {hashtags}
@@ -224,8 +227,8 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
         alignItems: 'center',
         padding: isVertical ? '16px 20px' : '12px 16px',
         background: isTopThree
-          ? `linear-gradient(90deg, rgba(244, 208, 63, 0.2) 0%, rgba(244, 208, 63, 0.05) 100%)`
-          : 'rgba(255, 255, 255, 0.05)',
+          ? 'linear-gradient(90deg, #3d5a2e 0%, #0f3d32 100%)'
+          : '#0f3d32',
         borderRadius: '8px',
         borderLeft: isTopThree ? `4px solid ${medalColors[rank]}` : '4px solid transparent',
       }}
@@ -272,8 +275,11 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
             fontFamily: "Arial, sans-serif",
             fontSize: `${statsSize - 2}px`,
             fontWeight: 400,
-            color: 'rgba(255, 255, 255, 0.6)',
+            color: '#999999',
             marginTop: 4,
+            textDecoration: 'none',
+            textTransform: 'none',
+            letterSpacing: 'normal',
           }}
         >
           {team.club_name ? `${team.club_name} | ` : ''}{team.state || 'N/A'}
@@ -296,6 +302,7 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
               fontSize: `${statsSize}px`,
               fontWeight: 700,
               color: BRAND_COLORS.brightWhite,
+              textDecoration: 'none',
             }}
           >
             {getRecord()}
@@ -305,8 +312,9 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
               fontFamily: "Arial, sans-serif",
               fontSize: `${statsSize - 4}px`,
               fontWeight: 400,
-              color: 'rgba(255, 255, 255, 0.5)',
+              color: '#888888',
               textTransform: 'uppercase',
+              textDecoration: 'none',
             }}
           >
             W-L-D
@@ -321,6 +329,7 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
               fontSize: `${statsSize}px`,
               fontWeight: 700,
               color: BRAND_COLORS.electricYellow,
+              textDecoration: 'none',
             }}
           >
             {getPowerScore()}
@@ -330,8 +339,9 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
               fontFamily: "Arial, sans-serif",
               fontSize: `${statsSize - 4}px`,
               fontWeight: 400,
-              color: 'rgba(255, 255, 255, 0.5)',
+              color: '#888888',
               textTransform: 'uppercase',
+              textDecoration: 'none',
             }}
           >
             Score
