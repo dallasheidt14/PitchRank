@@ -170,7 +170,7 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
                 textDecoration: 'none',
               }}
             >
-              pitchrank.com
+              pitchrank.io
             </div>
             <div
               style={{
