@@ -1,5 +1,7 @@
 import type { RankingRow } from '@/types/RankingRow';
 import { PLATFORM_DIMENSIONS, BRAND_COLORS, Platform } from './InfographicWrapper';
+import { predictMatch } from '@/lib/matchPredictor';
+import type { Game } from '@/lib/types';
 
 interface HeadToHeadOptions {
   team1: RankingRow & { rank?: number };
@@ -9,13 +11,14 @@ interface HeadToHeadOptions {
   gender: 'M' | 'F';
   regionName: string;
   generatedDate?: string;
+  allGames?: Game[];
 }
 
 /**
  * Renders a Head-to-Head comparison graphic between two teams.
  */
 export async function renderHeadToHeadToCanvas(options: HeadToHeadOptions): Promise<HTMLCanvasElement> {
-  const { team1, team2, platform, ageGroup, gender, regionName, generatedDate } = options;
+  const { team1, team2, platform, ageGroup, gender, regionName, generatedDate, allGames = [] } = options;
   const dimensions = PLATFORM_DIMENSIONS[platform];
   const isVertical = platform === 'instagramStory';
   const isSquare = platform === 'instagram';
@@ -205,15 +208,10 @@ export async function renderHeadToHeadToCanvas(options: HeadToHeadOptions): Prom
       team1: getWinPct(team1),
       team2: getWinPct(team2),
     },
-    {
-      label: 'TOTAL GAMES',
-      team1: String(getTotalGames(team1)),
-      team2: String(getTotalGames(team2)),
-    },
   ];
 
-  const statRowHeight = isVertical ? 55 : isSquare ? 50 : 45;
-  const statGap = isVertical ? 12 : 10;
+  const statRowHeight = isVertical ? 50 : isSquare ? 45 : 40;
+  const statGap = isVertical ? 10 : 8;
 
   stats.forEach((stat, i) => {
     const rowY = currentY + i * (statRowHeight + statGap);
@@ -242,6 +240,62 @@ export async function renderHeadToHeadToCanvas(options: HeadToHeadOptions): Prom
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
   });
+
+  // ===== PROJECTED SCORE =====
+  const matchPrediction = predictMatch(
+    { ...team1, team_id_master: team1.team_id_master || '' } as any,
+    { ...team2, team_id_master: team2.team_id_master || '' } as any,
+    allGames
+  );
+  const prediction = {
+    winProbability1: matchPrediction.winProbabilityA,
+    winProbability2: matchPrediction.winProbabilityB,
+    expectedScore1: Math.round(matchPrediction.expectedScore.teamA),
+    expectedScore2: Math.round(matchPrediction.expectedScore.teamB),
+  };
+  currentY = currentY + stats.length * (statRowHeight + statGap) + (isVertical ? 30 : 25);
+
+  // Label
+  ctx.fillStyle = '#888888';
+  ctx.font = `500 ${statLabelSize}px "DM Sans", Arial, sans-serif`;
+  ctx.fillText('PROJECTED SCORE', centerX, currentY);
+
+  currentY += isVertical ? 35 : 30;
+
+  // Predicted scores
+  const predScoreSize = isVertical ? 56 : isSquare ? 48 : 40;
+  ctx.font = `800 ${predScoreSize}px Oswald, "Arial Black", sans-serif`;
+  ctx.textBaseline = 'middle';
+
+  // Team 1 score
+  ctx.textAlign = 'right';
+  ctx.fillStyle = prediction.winProbability1 > 0.5 ? BRAND_COLORS.electricYellow : BRAND_COLORS.brightWhite;
+  ctx.fillText(String(prediction.expectedScore1), centerX - 30, currentY);
+
+  // Dash separator
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#888888';
+  ctx.font = `700 ${predScoreSize * 0.5}px Oswald, "Arial Black", sans-serif`;
+  ctx.fillText('-', centerX, currentY);
+
+  // Team 2 score
+  ctx.textAlign = 'left';
+  ctx.font = `800 ${predScoreSize}px Oswald, "Arial Black", sans-serif`;
+  ctx.fillStyle = prediction.winProbability2 > 0.5 ? BRAND_COLORS.electricYellow : BRAND_COLORS.brightWhite;
+  ctx.fillText(String(prediction.expectedScore2), centerX + 30, currentY);
+
+  ctx.textBaseline = 'alphabetic';
+
+  // Win probability line
+  currentY += predScoreSize * 0.6 + 10;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#666666';
+  ctx.font = `400 ${smallTextSize - 2}px "DM Sans", Arial, sans-serif`;
+  ctx.fillText(
+    `Win Probability: ${Math.round(prediction.winProbability1 * 100)}% - ${Math.round(prediction.winProbability2 * 100)}%`,
+    centerX,
+    currentY
+  );
 
   // ===== FOOTER =====
   currentY = dimensions.height - padding - 20;
