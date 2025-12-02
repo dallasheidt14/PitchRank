@@ -63,33 +63,34 @@ export async function renderInfographicToCanvas(options: RenderOptions): Promise
   // ===== HEADER SECTION =====
 
   // Draw logo: /PITCHRANK
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-
-  // Draw the slash
-  const logoY = currentY + titleSize / 2;
-  const logoText = 'PITCHRANK';
+  const logoY = currentY + titleSize * 0.8;
   ctx.font = `800 ${titleSize}px Oswald, "Arial Black", sans-serif`;
-  const logoWidth = ctx.measureText(logoText).width;
-  const logoStartX = (dimensions.width - logoWidth) / 2;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
 
-  // Yellow slash bar
+  const pitchWidth = ctx.measureText('PITCH').width;
+  const rankWidth = ctx.measureText('RANK').width;
+  const totalLogoWidth = pitchWidth + rankWidth;
+  const logoStartX = (dimensions.width - totalLogoWidth) / 2;
+
+  // Yellow slash bar - positioned right before the P
   ctx.save();
-  ctx.translate(logoStartX - 20, logoY);
+  ctx.translate(logoStartX - 10, logoY - titleSize * 0.4);
   ctx.transform(1, 0, -0.2, 1, 0, 0); // Skew
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillRect(-6, -titleSize * 0.4, 10, titleSize * 0.8);
+  ctx.fillRect(0, 0, 10, titleSize * 0.8);
   ctx.restore();
 
   // Draw PITCH in white
   ctx.fillStyle = BRAND_COLORS.brightWhite;
-  ctx.font = `800 ${titleSize}px Oswald, "Arial Black", sans-serif`;
-  const pitchWidth = ctx.measureText('PITCH').width;
-  ctx.fillText('PITCH', logoStartX + pitchWidth / 2, logoY);
+  ctx.fillText('PITCH', logoStartX, logoY);
 
   // Draw RANK in yellow
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillText('RANK', logoStartX + pitchWidth + ctx.measureText('RANK').width / 2, logoY);
+  ctx.fillText('RANK', logoStartX + pitchWidth, logoY);
+
+  // Reset alignment
+  ctx.textAlign = 'center';
 
   currentY += titleSize + 16;
 

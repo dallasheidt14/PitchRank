@@ -62,29 +62,35 @@ export async function renderTeamSpotlightToCanvas(options: TeamSpotlightOptions)
   let currentY = padding;
 
   // ===== HEADER: Logo =====
-  ctx.textAlign = 'center';
-
-  // Draw logo
-  const logoY = currentY + logoSize / 2;
+  // Draw logo - using left alignment for precise positioning
+  const logoY = currentY + logoSize * 0.8;
   ctx.font = `800 ${logoSize}px Oswald, "Arial Black", sans-serif`;
-  const logoText = 'PITCHRANK';
-  const logoWidth = ctx.measureText(logoText).width;
-  const logoStartX = (dimensions.width - logoWidth) / 2;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
 
-  // Yellow slash
+  const pitchWidth = ctx.measureText('PITCH').width;
+  const rankWidth = ctx.measureText('RANK').width;
+  const totalLogoWidth = pitchWidth + rankWidth;
+  const logoStartX = (dimensions.width - totalLogoWidth) / 2;
+
+  // Yellow slash - positioned right before the P
   ctx.save();
-  ctx.translate(logoStartX - 16, logoY);
+  ctx.translate(logoStartX - 8, logoY - logoSize * 0.35);
   ctx.transform(1, 0, -0.2, 1, 0, 0);
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillRect(-5, -logoSize * 0.35, 8, logoSize * 0.7);
+  ctx.fillRect(0, 0, 8, logoSize * 0.7);
   ctx.restore();
 
-  // Logo text
+  // Logo text - PITCH in white
   ctx.fillStyle = BRAND_COLORS.brightWhite;
-  const pitchWidth = ctx.measureText('PITCH').width;
-  ctx.fillText('PITCH', logoStartX + pitchWidth / 2, logoY);
+  ctx.fillText('PITCH', logoStartX, logoY);
+
+  // Logo text - RANK in yellow
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillText('RANK', logoStartX + pitchWidth + ctx.measureText('RANK').width / 2, logoY);
+  ctx.fillText('RANK', logoStartX + pitchWidth, logoY);
+
+  // Reset to center alignment for remaining elements
+  ctx.textAlign = 'center';
 
   currentY += logoSize + (isVertical ? 40 : 30);
 
@@ -112,11 +118,12 @@ export async function renderTeamSpotlightToCanvas(options: TeamSpotlightOptions)
   ctx.fillText(`#${team.rank || 1}`, dimensions.width / 2, badgeY);
   ctx.textBaseline = 'alphabetic';
 
-  currentY += badgeSize + (isVertical ? 40 : 30);
+  currentY += badgeSize + (isVertical ? 50 : 45);
 
   // ===== TEAM NAME =====
   ctx.fillStyle = BRAND_COLORS.brightWhite;
   ctx.font = `800 ${teamNameSize}px Oswald, "Arial Black", sans-serif`;
+  ctx.textBaseline = 'top';
 
   // Truncate if needed
   let teamName = team.team_name.toUpperCase();
@@ -125,8 +132,9 @@ export async function renderTeamSpotlightToCanvas(options: TeamSpotlightOptions)
     teamName = teamName.slice(0, -4) + '...';
   }
   ctx.fillText(teamName, dimensions.width / 2, currentY);
+  ctx.textBaseline = 'alphabetic';
 
-  currentY += teamNameSize * 0.3 + 10;
+  currentY += teamNameSize + 10;
 
   // ===== CLUB & LOCATION =====
   ctx.fillStyle = '#AAAAAA';
