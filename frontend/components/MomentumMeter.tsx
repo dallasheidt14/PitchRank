@@ -4,9 +4,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { ChartSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { useTeamGames } from '@/lib/hooks';
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { GameWithTeams } from '@/lib/types';
+import { trackChartViewed } from '@/lib/events';
 
 interface MomentumMeterProps {
   teamId: string;
@@ -112,6 +113,18 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
 
   const [animatedScore, setAnimatedScore] = useState(50);
   const [momentumData, setMomentumData] = useState<MomentumResult | null>(null);
+  const hasTrackedView = useRef(false);
+
+  // Track chart view when momentum data is available
+  useEffect(() => {
+    if (momentumData && momentumData.totalGames > 0 && !hasTrackedView.current) {
+      hasTrackedView.current = true;
+      trackChartViewed({
+        chart_type: 'momentum',
+        team_id_master: teamId,
+      });
+    }
+  }, [momentumData, teamId]);
 
   // Calculate momentum when games data is available
   useEffect(() => {

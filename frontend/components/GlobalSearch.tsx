@@ -10,6 +10,7 @@ import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { Search, X } from 'lucide-react';
 import { useTeamSearch } from '@/hooks/useTeamSearch';
 import type { RankingRow } from '@/types/RankingRow';
+import { trackSearchUsed, trackSearchResultClicked } from '@/lib/events';
 
 /**
  * Escape special regex characters in a string
@@ -128,7 +129,25 @@ export function GlobalSearch() {
     setSelectedIndex(0);
   }, [searchResults.length]);
 
+  // Track search query after a debounce period (when user stops typing)
+  const lastTrackedQuery = useRef<string>('');
+  useEffect(() => {
+    if (deferredSearchQuery.length >= 2 && deferredSearchQuery !== lastTrackedQuery.current) {
+      lastTrackedQuery.current = deferredSearchQuery;
+      trackSearchUsed({
+        query: deferredSearchQuery,
+        results_count: searchResults.length,
+      });
+    }
+  }, [deferredSearchQuery, searchResults.length]);
+
   const handleSelect = (team: RankingRow) => {
+    // Track search result click
+    trackSearchResultClicked({
+      team_id_master: team.team_id_master,
+      team_name: team.team_name,
+      rank_in_cohort_final: team.rank_in_cohort_final,
+    });
     router.push(`/teams/${team.team_id_master}`);
     setSearchQuery('');
     setIsOpen(false);

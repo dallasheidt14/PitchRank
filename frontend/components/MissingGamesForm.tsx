@@ -15,6 +15,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { useScrapeRequestNotifications, trackScrapeRequest } from '@/hooks/useScrapeRequestNotifications';
+import { trackMissingGameClicked, trackMissingGameSubmitted } from '@/lib/events';
 
 interface MissingGamesFormProps {
   teamId: string;
@@ -39,14 +40,18 @@ export function MissingGamesForm({ teamId, teamName }: MissingGamesFormProps) {
   // Get today's date in YYYY-MM-DD format for max attribute
   const today = new Date().toISOString().split('T')[0];
 
-  // Reset form when dialog opens
+  // Reset form and track when dialog opens
   useEffect(() => {
     if (open) {
       setGameDate('');
       setError(null);
       setSuccess(false);
+      trackMissingGameClicked({
+        team_id_master: teamId,
+        team_name: teamName,
+      });
     }
-  }, [open]);
+  }, [open, teamId, teamName]);
 
   // Auto-close dialog 3 seconds after successful submission
   useEffect(() => {
@@ -100,6 +105,13 @@ export function MissingGamesForm({ teamId, teamName }: MissingGamesFormProps) {
       if (data.requestId) {
         trackScrapeRequest(data.requestId);
       }
+
+      // Track successful submission for analytics
+      trackMissingGameSubmitted({
+        team_id_master: teamId,
+        team_name: teamName,
+        game_date: gameDate,
+      });
 
       setSuccess(true);
       setLastSubmission(new Date());
