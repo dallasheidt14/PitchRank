@@ -70,8 +70,8 @@ export const HeadToHeadPreview = forwardRef<HTMLDivElement, HeadToHeadPreviewPro
     const prediction = {
       winProbability1: matchPrediction.winProbabilityA,
       winProbability2: matchPrediction.winProbabilityB,
-      expectedScore1: Math.round(matchPrediction.expectedScore.teamA * 10) / 10,
-      expectedScore2: Math.round(matchPrediction.expectedScore.teamB * 10) / 10,
+      expectedScore1: Math.round(matchPrediction.expectedScore.teamA),
+      expectedScore2: Math.round(matchPrediction.expectedScore.teamB),
     };
 
     const stats = [
@@ -318,7 +318,7 @@ export const HeadToHeadPreview = forwardRef<HTMLDivElement, HeadToHeadPreviewPro
                   color: prediction.winProbability1 > 0.5 ? BRAND_COLORS.electricYellow : BRAND_COLORS.brightWhite,
                 }}
               >
-                {prediction.expectedScore1.toFixed(1)}
+                {prediction.expectedScore1}
               </div>
               <div
                 style={{
@@ -338,7 +338,7 @@ export const HeadToHeadPreview = forwardRef<HTMLDivElement, HeadToHeadPreviewPro
                   color: prediction.winProbability2 > 0.5 ? BRAND_COLORS.electricYellow : BRAND_COLORS.brightWhite,
                 }}
               >
-                {prediction.expectedScore2.toFixed(1)}
+                {prediction.expectedScore2}
               </div>
             </div>
             <div
