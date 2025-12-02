@@ -182,15 +182,47 @@ export default function InfographicsPage() {
         onclone: (clonedDoc, element) => {
           console.log('Cloned element:', element);
 
-          // Remove all stylesheets from the cloned document to avoid oklch/lab parsing
-          const stylesheets = clonedDoc.querySelectorAll('style, link[rel="stylesheet"]');
-          stylesheets.forEach(sheet => sheet.remove());
+          // Remove only internal stylesheets that contain oklch/lab colors
+          // Keep Google Fonts stylesheets (external links to fonts.googleapis.com)
+          const stylesheets = clonedDoc.querySelectorAll('style');
+          stylesheets.forEach(sheet => {
+            // Remove internal style tags that might have oklch colors
+            if (sheet.textContent && (
+              sheet.textContent.includes('oklch') ||
+              sheet.textContent.includes('lab(') ||
+              sheet.textContent.includes('lch(')
+            )) {
+              sheet.remove();
+            }
+          });
 
-          // Inject a minimal reset stylesheet for the cloned document
+          // For link stylesheets, only remove non-font ones
+          const linkSheets = clonedDoc.querySelectorAll('link[rel="stylesheet"]');
+          linkSheets.forEach(link => {
+            const href = link.getAttribute('href') || '';
+            // Keep Google Fonts, remove others that might have oklch
+            if (!href.includes('fonts.googleapis.com') && !href.includes('fonts.gstatic.com')) {
+              link.remove();
+            }
+          });
+
+          // Inject a minimal reset stylesheet with safe fallback colors
           const resetStyle = clonedDoc.createElement('style');
           resetStyle.textContent = `
             * {
               box-sizing: border-box;
+            }
+            /* Override any CSS variables that might use oklch */
+            :root {
+              --background: #052E27;
+              --foreground: #FDFEFE;
+              --primary: #0B5345;
+              --primary-foreground: #FDFEFE;
+              --secondary: #F4D03F;
+              --muted: #2C3E50;
+              --muted-foreground: rgba(255, 255, 255, 0.6);
+              --accent: #F4D03F;
+              --border: rgba(255, 255, 255, 0.1);
             }
           `;
           clonedDoc.head.appendChild(resetStyle);

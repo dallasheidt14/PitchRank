@@ -79,17 +79,19 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
                 textTransform: 'uppercase',
                 letterSpacing: '3px',
                 display: 'flex',
-                alignItems: 'center',
+                alignItems: 'baseline',
                 marginBottom: 16,
               }}
             >
               <span
                 style={{
+                  display: 'inline-block',
                   width: '8px',
-                  height: `${titleSize * 1.2}px`,
+                  height: `${titleSize * 0.85}px`,
                   background: BRAND_COLORS.electricYellow,
-                  marginRight: '16px',
-                  transform: 'skewX(-10deg)',
+                  marginRight: '12px',
+                  transform: 'skewX(-12deg) translateY(-5%)',
+                  verticalAlign: 'middle',
                 }}
               />
               <span>PITCH</span>
