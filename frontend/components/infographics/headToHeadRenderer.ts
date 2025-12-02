@@ -140,7 +140,7 @@ export async function renderHeadToHeadToCanvas(options: HeadToHeadOptions): Prom
   ctx.fillStyle = BRAND_COLORS.darkGreen;
   ctx.font = `800 ${badgeSize * 0.45}px Oswald, "Arial Black", sans-serif`;
   ctx.textBaseline = 'middle';
-  ctx.fillText(`#${team1.rank || '?'}`, team1X, badge1Y);
+  ctx.fillText(`#${team1.rank || '?'} ${team1.state || ''}`, team1X, badge1Y);
   ctx.textBaseline = 'alphabetic';
 
   // Team 1 Name
@@ -170,7 +170,7 @@ export async function renderHeadToHeadToCanvas(options: HeadToHeadOptions): Prom
   ctx.fillStyle = BRAND_COLORS.darkGreen;
   ctx.font = `800 ${badgeSize * 0.45}px Oswald, "Arial Black", sans-serif`;
   ctx.textBaseline = 'middle';
-  ctx.fillText(`#${team2.rank || '?'}`, team2X, badge1Y);
+  ctx.fillText(`#${team2.rank || '?'} ${team2.state || ''}`, team2X, badge1Y);
   ctx.textBaseline = 'alphabetic';
 
   // Team 2 Name

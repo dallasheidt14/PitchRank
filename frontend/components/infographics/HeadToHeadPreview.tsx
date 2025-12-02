@@ -99,7 +99,7 @@ export const HeadToHeadPreview = forwardRef<HTMLDivElement, HeadToHeadPreviewPro
             lineHeight: 1,
           }}
         >
-          #{rank}
+          #{rank} {team.state || ''}
         </div>
         <div
           style={{
