@@ -75,10 +75,10 @@ export async function renderInfographicToCanvas(options: RenderOptions): Promise
 
   // Yellow slash bar - positioned right before the P
   ctx.save();
-  ctx.translate(logoStartX - 10, logoY - titleSize * 0.4);
+  ctx.translate(logoStartX - 4, logoY - titleSize * 0.4);
   ctx.transform(1, 0, -0.2, 1, 0, 0); // Skew
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillRect(0, 0, 10, titleSize * 0.8);
+  ctx.fillRect(-10, 0, 10, titleSize * 0.8);
   ctx.restore();
 
   // Draw PITCH in white
@@ -241,11 +241,11 @@ export async function renderInfographicToCanvas(options: RenderOptions): Promise
   ctx.lineTo(dimensions.width - padding, currentY - 16);
   ctx.stroke();
 
-  // pitchrank.com
+  // pitchrank.io
   ctx.textAlign = 'left';
   ctx.fillStyle = '#999999';
   ctx.font = `400 ${statsSize - 2}px "DM Sans", Arial, sans-serif`;
-  ctx.fillText('pitchrank.com', padding, currentY);
+  ctx.fillText('pitchrank.io', padding, currentY);
 
   // Hashtags
   const hashtags = `#YouthSoccer #${ageGroup}Soccer${region ? ` #${regionName}Soccer` : ''}`;

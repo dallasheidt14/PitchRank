@@ -75,10 +75,10 @@ export async function renderTeamSpotlightToCanvas(options: TeamSpotlightOptions)
 
   // Yellow slash - positioned right before the P
   ctx.save();
-  ctx.translate(logoStartX - 8, logoY - logoSize * 0.35);
+  ctx.translate(logoStartX - 4, logoY - logoSize * 0.35);
   ctx.transform(1, 0, -0.2, 1, 0, 0);
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillRect(0, 0, 8, logoSize * 0.7);
+  ctx.fillRect(-8, 0, 8, logoSize * 0.7);
   ctx.restore();
 
   // Logo text - PITCH in white
@@ -215,7 +215,7 @@ export async function renderTeamSpotlightToCanvas(options: TeamSpotlightOptions)
   // URL
   ctx.textAlign = 'right';
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillText('pitchrank.com', dimensions.width - padding, currentY);
+  ctx.fillText('pitchrank.io', dimensions.width - padding, currentY);
 
   return canvas;
 }
