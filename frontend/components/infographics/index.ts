@@ -4,6 +4,12 @@ export { Top10Infographic } from './Top10Infographic';
 // Legacy export for backwards compatibility
 export { U12Top10Infographic } from './U12Top10Infographic';
 
+// Preview components
+export { TeamSpotlightPreview } from './TeamSpotlightPreview';
+export { BiggestMoversPreview } from './BiggestMoversPreview';
+export { HeadToHeadPreview } from './HeadToHeadPreview';
+export { StateChampionsPreview } from './StateChampionsPreview';
+
 // Canvas renderers
 export { renderInfographicToCanvas, canvasToBlob } from './canvasRenderer';
 export { renderTeamSpotlightToCanvas } from './teamSpotlightRenderer';
