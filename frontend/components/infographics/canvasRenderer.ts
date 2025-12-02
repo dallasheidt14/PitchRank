@@ -122,7 +122,6 @@ export async function renderInfographicToCanvas(options: RenderOptions): Promise
   const rowHeight = isVertical ? 70 : isSquare ? 62 : 52;
   const rowGap = isVertical ? 12 : isSquare ? 8 : 6;
   const rowPaddingX = isVertical ? 20 : 16;
-  const rowPaddingY = isVertical ? 16 : 12;
 
   const medalColors: Record<number, string> = {
     1: '#FFD700', // Gold
