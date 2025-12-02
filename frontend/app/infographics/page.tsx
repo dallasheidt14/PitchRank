@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useRef, useState, useCallback, useEffect } from 'react';
-import html2canvas from 'html2canvas';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Top10Infographic, PLATFORM_DIMENSIONS, Platform } from '@/components/infographics';
+import { renderInfographicToCanvas, canvasToBlob } from '@/components/infographics/canvasRenderer';
 import { useRankings } from '@/hooks/useRankings';
 import { US_STATES } from '@/lib/constants';
 import { Download, Share2, RefreshCw, Instagram, Facebook, ChevronDown, AlertCircle } from 'lucide-react';
@@ -53,9 +53,6 @@ export default function InfographicsPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [canShare, setCanShare] = useState(false);
 
-  // Ref for the HIDDEN full-size capture element
-  const captureRef = useRef<HTMLDivElement>(null);
-
   // Check Web Share API availability
   useEffect(() => {
     if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
@@ -105,50 +102,7 @@ export default function InfographicsPage() {
     return `pitchrank-${selectedAgeGroup}-${genderLabel}-top10-${regionLabel}-${selectedPlatform}-${timestamp}.png`;
   }, [selectedAgeGroup, selectedGender, selectedRegion, selectedPlatform]);
 
-  // Helper function to sanitize CSS values that use unsupported color functions
-  const sanitizeElement = useCallback((element: Element) => {
-    if (element instanceof HTMLElement) {
-      const style = element.style;
-      const computedStyle = window.getComputedStyle(element);
-
-      // List of CSS properties that might contain color values
-      const colorProperties = [
-        'color', 'backgroundColor', 'borderColor', 'borderTopColor',
-        'borderRightColor', 'borderBottomColor', 'borderLeftColor',
-        'outlineColor', 'textDecorationColor', 'caretColor',
-        'boxShadow', 'textShadow', 'fill', 'stroke'
-      ];
-
-      colorProperties.forEach(prop => {
-        const cssProperty = prop.replace(/([A-Z])/g, '-$1').toLowerCase();
-        const value = computedStyle.getPropertyValue(cssProperty);
-        if (value && (value.includes('oklch') || value.includes('lab(') || value.includes('lch('))) {
-          // Reset to a safe fallback color or transparent
-          if (prop === 'backgroundColor') {
-            style.backgroundColor = 'transparent';
-          } else if (prop === 'color') {
-            style.color = '#FFFFFF';
-          } else if (prop.includes('border')) {
-            style.setProperty(cssProperty, 'transparent');
-          } else {
-            style.setProperty(cssProperty, 'none');
-          }
-        }
-      });
-
-      // Also check CSS variables in the style attribute
-      const cssText = style.cssText;
-      if (cssText && (cssText.includes('oklch') || cssText.includes('lab(') || cssText.includes('lch('))) {
-        // Remove problematic CSS variables
-        style.cssText = cssText.replace(/[^;]*(?:oklch|lab\(|lch\()[^;]*/g, '');
-      }
-    }
-
-    // Recursively process children
-    Array.from(element.children).forEach(child => sanitizeElement(child));
-  }, []);
-
-  // Generate canvas from the hidden full-size element
+  // Generate image using Canvas API directly (bypasses html2canvas issues)
   const generateImage = useCallback(async (): Promise<Blob | null> => {
     setErrorMessage(null);
 
@@ -158,81 +112,32 @@ export default function InfographicsPage() {
       return null;
     }
 
-    // Check if capture element exists
-    if (!captureRef.current) {
-      setErrorMessage('Capture element not ready. Please try again.');
-      return null;
-    }
-
-    const dimensions = PLATFORM_DIMENSIONS[selectedPlatform];
-
     try {
-      console.log('Starting image generation...');
-      console.log('Capture element:', captureRef.current);
-      console.log('Dimensions:', dimensions);
+      console.log('Starting canvas-based image generation...');
 
-      const canvas = await html2canvas(captureRef.current, {
-        width: dimensions.width,
-        height: dimensions.height,
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#052E27',
-        logging: false,
-        onclone: (clonedDoc, element) => {
-          // Remove ALL stylesheets to avoid oklch/lab color parsing issues
-          // We use system fonts (Arial) so no external fonts needed
-          const allStyles = clonedDoc.querySelectorAll('style, link[rel="stylesheet"]');
-          allStyles.forEach(sheet => sheet.remove());
-
-          // Inject minimal reset - only system fonts used
-          const resetStyle = clonedDoc.createElement('style');
-          resetStyle.textContent = `
-            * { box-sizing: border-box; }
-            :root {
-              --background: #052E27;
-              --foreground: #FDFEFE;
-            }
-          `;
-          clonedDoc.head.appendChild(resetStyle);
-
-          // Sanitize any inline styles with problematic colors
-          sanitizeElement(element);
-
-          // Ensure the cloned element has proper dimensions
-          element.style.transform = 'none';
-          element.style.width = `${dimensions.width}px`;
-          element.style.height = `${dimensions.height}px`;
-          element.style.position = 'relative';
-          element.style.left = '0';
-          element.style.top = '0';
-        }
+      const canvas = await renderInfographicToCanvas({
+        teams: rankings.slice(0, 10),
+        platform: selectedPlatform,
+        ageGroup: selectedAgeGroup,
+        gender: selectedGender,
+        region: selectedRegion,
+        regionName: getRegionName(),
+        generatedDate: new Date().toISOString(),
       });
 
       console.log('Canvas generated:', canvas.width, 'x', canvas.height);
 
-      // Convert canvas to blob
-      return new Promise((resolve, reject) => {
-        canvas.toBlob(
-          (blob) => {
-            if (blob) {
-              console.log('Blob created:', blob.size, 'bytes');
-              resolve(blob);
-            } else {
-              reject(new Error('Failed to create image blob'));
-            }
-          },
-          'image/png',
-          1.0
-        );
-      });
+      const blob = await canvasToBlob(canvas);
+      console.log('Blob created:', blob.size, 'bytes');
+
+      return blob;
     } catch (err) {
       console.error('Error in generateImage:', err);
       const errorMsg = err instanceof Error ? err.message : 'Unknown error occurred';
       setErrorMessage(`Failed to generate image: ${errorMsg}`);
       return null;
     }
-  }, [rankings, selectedPlatform, sanitizeElement]);
+  }, [rankings, selectedPlatform, selectedAgeGroup, selectedGender, selectedRegion, getRegionName]);
 
   // Handle download
   const handleDownload = useCallback(async () => {
@@ -348,33 +253,6 @@ export default function InfographicsPage() {
         title="Social Media Infographics"
         description="Generate shareable rankings graphics for Twitter, Instagram, and Facebook"
       />
-
-      {/* HIDDEN: Full-size capture element - this is what we actually capture */}
-      <div
-        style={{
-          position: 'absolute',
-          left: '-9999px',
-          top: 0,
-          width: `${dimensions.width}px`,
-          height: `${dimensions.height}px`,
-          overflow: 'hidden',
-        }}
-        aria-hidden="true"
-      >
-        {top10Teams.length > 0 && (
-          <Top10Infographic
-            ref={captureRef}
-            teams={top10Teams}
-            platform={selectedPlatform}
-            scale={1} // Full size for capture
-            generatedDate={new Date().toISOString()}
-            ageGroup={selectedAgeGroup}
-            gender={selectedGender}
-            region={selectedRegion}
-            regionName={getRegionName()}
-          />
-        )}
-      </div>
 
       {/* Error Message */}
       {errorMessage && (
