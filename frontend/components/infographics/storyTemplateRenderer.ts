@@ -93,24 +93,30 @@ export async function renderStoryTemplateToCanvas(options: StoryTemplateOptions)
   let currentY = padding + 40;
   const logoSize = 52;
 
-  ctx.textAlign = 'center';
   ctx.font = `800 ${logoSize}px Oswald, "Arial Black", sans-serif`;
-  const logoWidth = ctx.measureText('PITCHRANK').width;
-  const logoStartX = centerX - logoWidth / 2;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
 
-  // Yellow slash
+  const pitchWidth = ctx.measureText('PITCH').width;
+  const rankWidth = ctx.measureText('RANK').width;
+  const totalLogoWidth = pitchWidth + rankWidth;
+  const logoStartX = centerX - totalLogoWidth / 2;
+
+  // Yellow slash - positioned right before the P
   ctx.save();
-  ctx.translate(logoStartX - 18, currentY);
+  ctx.translate(logoStartX - 10, currentY - logoSize * 0.35);
   ctx.transform(1, 0, -0.2, 1, 0, 0);
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillRect(-5, -logoSize * 0.35, 9, logoSize * 0.7);
+  ctx.fillRect(0, 0, 9, logoSize * 0.7);
   ctx.restore();
 
+  // Logo text
   ctx.fillStyle = BRAND_COLORS.brightWhite;
-  const pitchWidth = ctx.measureText('PITCH').width;
-  ctx.fillText('PITCH', logoStartX + pitchWidth / 2, currentY);
+  ctx.fillText('PITCH', logoStartX, currentY);
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillText('RANK', logoStartX + pitchWidth + ctx.measureText('RANK').width / 2, currentY);
+  ctx.fillText('RANK', logoStartX + pitchWidth, currentY);
+
+  ctx.textAlign = 'center';
 
   // ===== MAIN CONTENT (CENTER) =====
   const centerY = dimensions.height / 2;

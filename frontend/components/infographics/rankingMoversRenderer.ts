@@ -59,26 +59,34 @@ export async function renderRankingMoversToCanvas(options: RankingMoversOptions)
   let currentY = padding;
 
   // ===== LOGO =====
-  ctx.textAlign = 'center';
-  const logoY = currentY + logoSize / 2;
+  const logoY = currentY + logoSize * 0.8;
   ctx.font = `800 ${logoSize}px Oswald, "Arial Black", sans-serif`;
-  const logoText = 'PITCHRANK';
-  const logoWidth = ctx.measureText(logoText).width;
-  const logoStartX = (dimensions.width - logoWidth) / 2;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
 
-  // Yellow slash
+  const pitchWidth = ctx.measureText('PITCH').width;
+  const rankWidth = ctx.measureText('RANK').width;
+  const totalLogoWidth = pitchWidth + rankWidth;
+  const logoStartX = (dimensions.width - totalLogoWidth) / 2;
+
+  // Yellow slash - positioned right before the P
   ctx.save();
-  ctx.translate(logoStartX - 16, logoY);
+  ctx.translate(logoStartX - 8, logoY - logoSize * 0.35);
   ctx.transform(1, 0, -0.2, 1, 0, 0);
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillRect(-5, -logoSize * 0.35, 8, logoSize * 0.7);
+  ctx.fillRect(0, 0, 8, logoSize * 0.7);
   ctx.restore();
 
+  // Logo text - PITCH in white
   ctx.fillStyle = BRAND_COLORS.brightWhite;
-  const pitchWidth = ctx.measureText('PITCH').width;
-  ctx.fillText('PITCH', logoStartX + pitchWidth / 2, logoY);
+  ctx.fillText('PITCH', logoStartX, logoY);
+
+  // Logo text - RANK in yellow
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillText('RANK', logoStartX + pitchWidth + ctx.measureText('RANK').width / 2, logoY);
+  ctx.fillText('RANK', logoStartX + pitchWidth, logoY);
+
+  // Reset alignment
+  ctx.textAlign = 'center';
 
   currentY += logoSize + 20;
 
