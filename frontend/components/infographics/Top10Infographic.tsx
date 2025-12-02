@@ -81,16 +81,16 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
                 display: 'flex',
                 alignItems: 'center',
                 marginBottom: 16,
-                lineHeight: 1,
+                lineHeight: 1.1,
               }}
             >
               <span
                 style={{
                   display: 'inline-block',
-                  width: '8px',
-                  height: `${titleSize * 0.75}px`,
+                  width: '10px',
+                  height: '1em',
                   background: BRAND_COLORS.electricYellow,
-                  marginRight: '12px',
+                  marginRight: '14px',
                   transform: 'skewX(-12deg)',
                 }}
               />
@@ -117,7 +117,7 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
             {/* Date */}
             <div
               style={{
-                fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
+                fontFamily: "Helvetica Neue, Arial, sans-serif",
                 fontSize: `${statsSize}px`,
                 color: 'rgba(255, 255, 255, 0.7)',
                 marginTop: 8,
@@ -162,7 +162,7 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
           >
             <div
               style={{
-                fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
+                fontFamily: "Helvetica Neue, Arial, sans-serif",
                 fontSize: `${statsSize - 2}px`,
                 color: 'rgba(255, 255, 255, 0.6)',
               }}
@@ -171,7 +171,7 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
             </div>
             <div
               style={{
-                fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
+                fontFamily: "Helvetica Neue, Arial, sans-serif",
                 fontSize: `${statsSize - 2}px`,
                 color: BRAND_COLORS.electricYellow,
               }}
@@ -267,10 +267,11 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
         </div>
         <div
           style={{
-            fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
+            fontFamily: "Helvetica Neue, Arial, sans-serif",
             fontSize: `${statsSize - 2}px`,
             color: 'rgba(255, 255, 255, 0.6)',
             marginTop: 2,
+            lineHeight: 1.3,
           }}
         >
           {team.club_name ? `${team.club_name} | ` : ''}{team.state || 'N/A'}
@@ -289,7 +290,7 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
         <div style={{ textAlign: 'center' }}>
           <div
             style={{
-              fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Consolas', monospace",
+              fontFamily: "Monaco, Consolas, 'Courier New', monospace",
               fontSize: `${statsSize}px`,
               fontWeight: 600,
               color: BRAND_COLORS.brightWhite,
@@ -300,7 +301,7 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
           </div>
           <div
             style={{
-              fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
+              fontFamily: "Helvetica Neue, Arial, sans-serif",
               fontSize: `${statsSize - 4}px`,
               color: 'rgba(255, 255, 255, 0.5)',
               textTransform: 'uppercase',
@@ -314,7 +315,7 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
         <div style={{ textAlign: 'center', minWidth: isVertical ? '70px' : '60px' }}>
           <div
             style={{
-              fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Consolas', monospace",
+              fontFamily: "Monaco, Consolas, 'Courier New', monospace",
               fontSize: `${statsSize}px`,
               fontWeight: 700,
               color: BRAND_COLORS.electricYellow,
@@ -325,7 +326,7 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
           </div>
           <div
             style={{
-              fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
+              fontFamily: "Helvetica Neue, Arial, sans-serif",
               fontSize: `${statsSize - 4}px`,
               color: 'rgba(255, 255, 255, 0.5)',
               textTransform: 'uppercase',
