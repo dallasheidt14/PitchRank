@@ -79,6 +79,10 @@ export default function InfographicsPage() {
   const [selectedStoryType, setSelectedStoryType] = useState<'newRankings' | 'comingSoon' | 'teamAnnouncement' | 'weeklyUpdate'>('newRankings');
   const [selectedCoverPlatform, setSelectedCoverPlatform] = useState<'twitter' | 'facebook' | 'linkedin'>('twitter');
 
+  // Preview image for canvas-based infographics
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+
   // Check Web Share API availability
   useEffect(() => {
     if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
@@ -112,6 +116,100 @@ export default function InfographicsPage() {
     window.addEventListener('resize', updateScale);
     return () => window.removeEventListener('resize', updateScale);
   }, [selectedPlatform]);
+
+  // Generate preview for canvas-based infographics
+  useEffect(() => {
+    // Skip for top10 (uses React component), covers, and stories
+    if (selectedInfographicType === 'top10' || selectedInfographicType === 'covers' || selectedInfographicType === 'stories') {
+      setPreviewImageUrl(null);
+      return;
+    }
+
+    // Need rankings for other types
+    if (!rankings || rankings.length === 0) {
+      setPreviewImageUrl(null);
+      return;
+    }
+
+    const generatePreview = async () => {
+      setIsPreviewLoading(true);
+      try {
+        let canvas: HTMLCanvasElement;
+        const regionName = selectedRegion
+          ? (US_STATES.find(s => s.code.toLowerCase() === selectedRegion.toLowerCase())?.name || selectedRegion.toUpperCase())
+          : 'National';
+
+        switch (selectedInfographicType) {
+          case 'spotlight':
+            const spotlightTeam = rankings[selectedSpotlightTeamIndex] || rankings[0];
+            canvas = await renderTeamSpotlightToCanvas({
+              team: { ...spotlightTeam, rank: selectedSpotlightTeamIndex + 1 },
+              platform: selectedPlatform,
+              ageGroup: selectedAgeGroup,
+              gender: selectedGender,
+              region: selectedRegion,
+              regionName,
+              generatedDate: new Date().toISOString(),
+            });
+            break;
+
+          case 'movers':
+            const { climbers, fallers } = generateMoverData(rankings);
+            canvas = await renderRankingMoversToCanvas({
+              climbers,
+              fallers,
+              platform: selectedPlatform,
+              ageGroup: selectedAgeGroup,
+              gender: selectedGender,
+              regionName,
+              generatedDate: new Date().toISOString(),
+            });
+            break;
+
+          case 'headToHead':
+            const team1 = rankings[headToHeadTeam1Index] || rankings[0];
+            const team2 = rankings[headToHeadTeam2Index] || rankings[1];
+            canvas = await renderHeadToHeadToCanvas({
+              team1: { ...team1, rank: headToHeadTeam1Index + 1 },
+              team2: { ...team2, rank: headToHeadTeam2Index + 1 },
+              platform: selectedPlatform,
+              ageGroup: selectedAgeGroup,
+              gender: selectedGender,
+              regionName,
+              generatedDate: new Date().toISOString(),
+            });
+            break;
+
+          case 'stateChampions':
+            const stateChampions = generateStateChampions(rankings);
+            canvas = await renderStateChampionsToCanvas({
+              champions: stateChampions,
+              platform: selectedPlatform,
+              ageGroup: selectedAgeGroup,
+              gender: selectedGender,
+              generatedDate: new Date().toISOString(),
+            });
+            break;
+
+          default:
+            setIsPreviewLoading(false);
+            return;
+        }
+
+        // Convert canvas to data URL for preview
+        const dataUrl = canvas.toDataURL('image/png');
+        setPreviewImageUrl(dataUrl);
+      } catch (err) {
+        console.error('Error generating preview:', err);
+        setPreviewImageUrl(null);
+      }
+      setIsPreviewLoading(false);
+    };
+
+    // Debounce the preview generation
+    const timer = setTimeout(generatePreview, 300);
+    return () => clearTimeout(timer);
+  }, [selectedInfographicType, selectedPlatform, selectedAgeGroup, selectedGender, selectedRegion, rankings, selectedSpotlightTeamIndex, headToHeadTeam1Index, headToHeadTeam2Index]);
 
   const getRegionName = useCallback(() => {
     if (!selectedRegion) return 'National';
@@ -697,19 +795,25 @@ export default function InfographicsPage() {
                       regionName={getRegionName()}
                     />
                   </div>
+                ) : isPreviewLoading ? (
+                  <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+                ) : previewImageUrl ? (
+                  <img
+                    src={previewImageUrl}
+                    alt={`${INFOGRAPHIC_TYPES.find(t => t.id === selectedInfographicType)?.label} Preview`}
+                    style={{
+                      width: dimensions.width * previewScale,
+                      height: dimensions.height * previewScale,
+                      objectFit: 'contain',
+                    }}
+                  />
                 ) : (
                   <div className="text-center text-muted-foreground">
                     <div className="mb-4">
                       {INFOGRAPHIC_TYPES.find(t => t.id === selectedInfographicType)?.icon}
                     </div>
                     <p className="font-medium mb-2">{INFOGRAPHIC_TYPES.find(t => t.id === selectedInfographicType)?.label}</p>
-                    <p className="text-sm">Click Download to generate this infographic</p>
-                    {selectedInfographicType === 'spotlight' && rankings && rankings[selectedSpotlightTeamIndex] && (
-                      <p className="text-xs mt-2 text-primary">Featuring: {rankings[selectedSpotlightTeamIndex].team_name}</p>
-                    )}
-                    {selectedInfographicType === 'headToHead' && rankings && rankings[headToHeadTeam1Index] && rankings[headToHeadTeam2Index] && (
-                      <p className="text-xs mt-2 text-primary">{rankings[headToHeadTeam1Index].team_name} vs {rankings[headToHeadTeam2Index].team_name}</p>
-                    )}
+                    <p className="text-sm">Loading preview...</p>
                   </div>
                 )}
               </div>

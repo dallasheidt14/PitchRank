@@ -75,10 +75,10 @@ export async function renderInfographicToCanvas(options: RenderOptions): Promise
 
   // Yellow slash bar - positioned right before the P
   ctx.save();
-  ctx.translate(logoStartX - 4, logoY - titleSize * 0.4);
-  ctx.transform(1, 0, -0.2, 1, 0, 0); // Skew
+  ctx.translate(logoStartX, logoY - titleSize * 0.4);
+  ctx.transform(1, 0, -0.2, 1, 0, 0);
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillRect(-10, 0, 10, titleSize * 0.8);
+  ctx.fillRect(-14, 0, 10, titleSize * 0.8);
   ctx.restore();
 
   // Draw PITCH in white
