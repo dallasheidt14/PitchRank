@@ -250,8 +250,8 @@ export async function renderHeadToHeadToCanvas(options: HeadToHeadOptions): Prom
   const prediction = {
     winProbability1: matchPrediction.winProbabilityA,
     winProbability2: matchPrediction.winProbabilityB,
-    expectedScore1: Math.round(matchPrediction.expectedScore.teamA * 10) / 10,
-    expectedScore2: Math.round(matchPrediction.expectedScore.teamB * 10) / 10,
+    expectedScore1: Math.round(matchPrediction.expectedScore.teamA),
+    expectedScore2: Math.round(matchPrediction.expectedScore.teamB),
   };
   currentY = currentY + stats.length * (statRowHeight + statGap) + (isVertical ? 30 : 25);
 
@@ -270,7 +270,7 @@ export async function renderHeadToHeadToCanvas(options: HeadToHeadOptions): Prom
   // Team 1 score
   ctx.textAlign = 'right';
   ctx.fillStyle = prediction.winProbability1 > 0.5 ? BRAND_COLORS.electricYellow : BRAND_COLORS.brightWhite;
-  ctx.fillText(prediction.expectedScore1.toFixed(1), centerX - 30, currentY);
+  ctx.fillText(String(prediction.expectedScore1), centerX - 30, currentY);
 
   // Dash separator
   ctx.textAlign = 'center';
@@ -282,7 +282,7 @@ export async function renderHeadToHeadToCanvas(options: HeadToHeadOptions): Prom
   ctx.textAlign = 'left';
   ctx.font = `800 ${predScoreSize}px Oswald, "Arial Black", sans-serif`;
   ctx.fillStyle = prediction.winProbability2 > 0.5 ? BRAND_COLORS.electricYellow : BRAND_COLORS.brightWhite;
-  ctx.fillText(prediction.expectedScore2.toFixed(1), centerX + 30, currentY);
+  ctx.fillText(String(prediction.expectedScore2), centerX + 30, currentY);
 
   ctx.textBaseline = 'alphabetic';
 
