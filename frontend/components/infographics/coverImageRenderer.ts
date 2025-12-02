@@ -99,10 +99,10 @@ export async function renderCoverImageToCanvas(options: CoverImageOptions): Prom
 
   // Yellow slash (larger and more prominent for cover images) - positioned right before the P
   ctx.save();
-  ctx.translate(logoStartX - 14, logoY - logoSize * 0.35);
+  ctx.translate(logoStartX - 4, logoY - logoSize * 0.35);
   ctx.transform(1, 0, -0.2, 1, 0, 0);
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillRect(0, 0, 12, logoSize * 0.7);
+  ctx.fillRect(-12, 0, 12, logoSize * 0.7);
   ctx.restore();
 
   // Logo text
@@ -197,7 +197,7 @@ export async function renderCoverImageToCanvas(options: CoverImageOptions): Prom
   ctx.textAlign = 'right';
   ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
   ctx.font = `400 ${subtitleSize - 2}px "DM Sans", Arial, sans-serif`;
-  ctx.fillText('pitchrank.com', dimensions.width - 60, dimensions.height - 25);
+  ctx.fillText('pitchrank.io', dimensions.width - 60, dimensions.height - 25);
 
   return canvas;
 }

@@ -152,7 +152,7 @@ export const U12Top10Infographic = forwardRef<HTMLDivElement, U12Top10Infographi
                 color: 'rgba(255, 255, 255, 0.6)',
               }}
             >
-              pitchrank.com
+              pitchrank.io
             </div>
             <div
               style={{
