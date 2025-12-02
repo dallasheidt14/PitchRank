@@ -3,6 +3,8 @@
 import React, { forwardRef } from 'react';
 import { InfographicWrapper, Platform, BRAND_COLORS, PLATFORM_DIMENSIONS } from './InfographicWrapper';
 import type { RankingRow } from '@/types/RankingRow';
+import { predictMatch, type MatchPrediction } from '@/lib/matchPredictor';
+import type { Game } from '@/lib/types';
 
 interface HeadToHeadPreviewProps {
   team1: RankingRow & { rank?: number };
@@ -13,10 +15,11 @@ interface HeadToHeadPreviewProps {
   ageGroup: string;
   gender: 'M' | 'F';
   regionName: string;
+  allGames?: Game[];
 }
 
 export const HeadToHeadPreview = forwardRef<HTMLDivElement, HeadToHeadPreviewProps>(
-  ({ team1, team2, platform, scale = 0.5, generatedDate, ageGroup, gender, regionName }, ref) => {
+  ({ team1, team2, platform, scale = 0.5, generatedDate, ageGroup, gender, regionName, allGames = [] }, ref) => {
     const dimensions = PLATFORM_DIMENSIONS[platform];
     const isVertical = platform === 'instagramStory';
     const isSquare = platform === 'instagram';
@@ -57,6 +60,19 @@ export const HeadToHeadPreview = forwardRef<HTMLDivElement, HeadToHeadPreviewPro
     };
 
     const genderLabel = gender === 'M' ? 'BOYS' : 'GIRLS';
+
+    // Get prediction using the same logic as compare tab
+    const matchPrediction = predictMatch(
+      { ...team1, team_id_master: team1.team_id_master || '' } as any,
+      { ...team2, team_id_master: team2.team_id_master || '' } as any,
+      allGames
+    );
+    const prediction = {
+      winProbability1: matchPrediction.winProbabilityA,
+      winProbability2: matchPrediction.winProbabilityB,
+      expectedScore1: Math.round(matchPrediction.expectedScore.teamA),
+      expectedScore2: Math.round(matchPrediction.expectedScore.teamB),
+    };
 
     const stats = [
       { label: 'RECORD', team1: getRecord(team1), team2: getRecord(team2) },
@@ -216,7 +232,7 @@ export const HeadToHeadPreview = forwardRef<HTMLDivElement, HeadToHeadPreviewPro
           </div>
 
           {/* Stats Comparison */}
-          <div style={{ flex: 1 }}>
+          <div>
             {stats.map((stat) => (
               <div
                 key={stat.label}
@@ -267,6 +283,78 @@ export const HeadToHeadPreview = forwardRef<HTMLDivElement, HeadToHeadPreviewPro
               </div>
             ))}
           </div>
+
+          {/* Predicted Score */}
+          <div
+            style={{
+              marginTop: isVertical ? 24 : 20,
+              textAlign: 'center',
+            }}
+          >
+            <div
+              style={{
+                fontFamily: "'DM Sans', Arial, sans-serif",
+                fontSize: `${statLabelSize}px`,
+                color: '#888888',
+                textTransform: 'uppercase',
+                marginBottom: 8,
+              }}
+            >
+              PROJECTED SCORE
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: isVertical ? 24 : 20,
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: "Oswald, 'Arial Black', sans-serif",
+                  fontSize: `${isVertical ? 56 : isSquare ? 48 : 40}px`,
+                  fontWeight: 800,
+                  color: prediction.winProbability1 > 0.5 ? BRAND_COLORS.electricYellow : BRAND_COLORS.brightWhite,
+                }}
+              >
+                {prediction.expectedScore1}
+              </div>
+              <div
+                style={{
+                  fontFamily: "Oswald, 'Arial Black', sans-serif",
+                  fontSize: `${isVertical ? 28 : isSquare ? 24 : 20}px`,
+                  fontWeight: 700,
+                  color: '#888888',
+                }}
+              >
+                -
+              </div>
+              <div
+                style={{
+                  fontFamily: "Oswald, 'Arial Black', sans-serif",
+                  fontSize: `${isVertical ? 56 : isSquare ? 48 : 40}px`,
+                  fontWeight: 800,
+                  color: prediction.winProbability2 > 0.5 ? BRAND_COLORS.electricYellow : BRAND_COLORS.brightWhite,
+                }}
+              >
+                {prediction.expectedScore2}
+              </div>
+            </div>
+            <div
+              style={{
+                fontFamily: "'DM Sans', Arial, sans-serif",
+                fontSize: `${smallTextSize - 2}px`,
+                color: '#666666',
+                marginTop: 4,
+              }}
+            >
+              Win Probability: {Math.round(prediction.winProbability1 * 100)}% - {Math.round(prediction.winProbability2 * 100)}%
+            </div>
+          </div>
+
+          {/* Spacer */}
+          <div style={{ flex: 1 }} />
 
           {/* Footer */}
           <div
