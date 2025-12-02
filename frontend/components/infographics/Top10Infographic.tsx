@@ -73,39 +73,41 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
             {/* Logo */}
             <div
               style={{
-                fontFamily: "'Oswald', sans-serif",
+                position: 'relative',
+                fontFamily: "Oswald, 'Arial Black', sans-serif",
                 fontSize: `${titleSize}px`,
                 fontWeight: 800,
                 textTransform: 'uppercase',
                 letterSpacing: '3px',
-                display: 'flex',
-                alignItems: 'center',
                 marginBottom: 16,
               }}
             >
               <span
                 style={{
-                  width: '8px',
-                  height: `${titleSize * 1.2}px`,
+                  position: 'absolute',
+                  left: '-24px',
+                  top: '50%',
+                  transform: 'translateY(-50%) skewX(-12deg)',
+                  width: '10px',
+                  height: '70%',
                   background: BRAND_COLORS.electricYellow,
-                  marginRight: '16px',
-                  transform: 'skewX(-10deg)',
                 }}
               />
-              <span>PITCH</span>
+              <span style={{ color: BRAND_COLORS.brightWhite }}>PITCH</span>
               <span style={{ color: BRAND_COLORS.electricYellow }}>RANK</span>
             </div>
 
             {/* Title */}
             <div
               style={{
-                fontFamily: "'Oswald', sans-serif",
+                fontFamily: "Oswald, 'Arial Black', 'Helvetica Neue', sans-serif",
                 fontSize: `${subtitleSize}px`,
                 fontWeight: 700,
                 textTransform: 'uppercase',
                 letterSpacing: '2px',
                 color: BRAND_COLORS.electricYellow,
                 textAlign: 'center',
+                lineHeight: 1.2,
               }}
             >
               {title}
@@ -114,10 +116,12 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
             {/* Date */}
             <div
               style={{
-                fontFamily: "'DM Sans', sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: `${statsSize}px`,
-                color: 'rgba(255, 255, 255, 0.7)',
+                fontWeight: 400,
+                color: '#AAAAAA',
                 marginTop: 8,
+                textDecoration: 'none',
               }}
             >
               Rankings as of {formatDate(generatedDate)}
@@ -154,23 +158,27 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
               alignItems: 'center',
               marginTop: isVertical ? 32 : 24,
               paddingTop: 16,
-              borderTop: `2px solid rgba(255, 255, 255, 0.1)`,
+              borderTop: '2px solid #1a4a3f',
             }}
           >
             <div
               style={{
-                fontFamily: "'DM Sans', sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: `${statsSize - 2}px`,
-                color: 'rgba(255, 255, 255, 0.6)',
+                fontWeight: 400,
+                color: '#999999',
+                textDecoration: 'none',
               }}
             >
               pitchrank.com
             </div>
             <div
               style={{
-                fontFamily: "'DM Sans', sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: `${statsSize - 2}px`,
+                fontWeight: 400,
                 color: BRAND_COLORS.electricYellow,
+                textDecoration: 'none',
               }}
             >
               {hashtags}
@@ -219,8 +227,8 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
         alignItems: 'center',
         padding: isVertical ? '16px 20px' : '12px 16px',
         background: isTopThree
-          ? `linear-gradient(90deg, rgba(244, 208, 63, 0.2) 0%, rgba(244, 208, 63, 0.05) 100%)`
-          : 'rgba(255, 255, 255, 0.05)',
+          ? 'linear-gradient(90deg, #3d5a2e 0%, #0f3d32 100%)'
+          : '#0f3d32',
         borderRadius: '8px',
         borderLeft: isTopThree ? `4px solid ${medalColors[rank]}` : '4px solid transparent',
       }}
@@ -229,11 +237,12 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
       <div
         style={{
           width: isVertical ? '60px' : '50px',
-          fontFamily: "'Oswald', sans-serif",
+          fontFamily: "Oswald, 'Arial Black', 'Helvetica Neue', sans-serif",
           fontSize: `${rankSize}px`,
           fontWeight: 800,
           color: isTopThree ? medalColors[rank] : BRAND_COLORS.brightWhite,
           textAlign: 'center',
+          lineHeight: 1,
         }}
       >
         {rank}
@@ -245,29 +254,32 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
           flex: 1,
           marginLeft: isVertical ? 16 : 12,
           minWidth: 0,
+          overflow: 'hidden',
         }}
       >
         <div
           style={{
-            fontFamily: "'Oswald', sans-serif",
+            fontFamily: "Oswald, 'Arial Black', 'Helvetica Neue', sans-serif",
             fontSize: `${teamNameSize}px`,
             fontWeight: 600,
             color: BRAND_COLORS.brightWhite,
             textTransform: 'uppercase',
             letterSpacing: '0.5px',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
+            lineHeight: 1.2,
           }}
         >
           {team.team_name}
         </div>
         <div
           style={{
-            fontFamily: "'DM Sans', sans-serif",
+            fontFamily: "Arial, sans-serif",
             fontSize: `${statsSize - 2}px`,
-            color: 'rgba(255, 255, 255, 0.6)',
-            marginTop: 2,
+            fontWeight: 400,
+            color: '#999999',
+            marginTop: 4,
+            textDecoration: 'none',
+            textTransform: 'none',
+            letterSpacing: 'normal',
           }}
         >
           {team.club_name ? `${team.club_name} | ` : ''}{team.state || 'N/A'}
@@ -286,20 +298,23 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
         <div style={{ textAlign: 'center' }}>
           <div
             style={{
-              fontFamily: "'JetBrains Mono', monospace",
+              fontFamily: "Arial, sans-serif",
               fontSize: `${statsSize}px`,
-              fontWeight: 600,
+              fontWeight: 700,
               color: BRAND_COLORS.brightWhite,
+              textDecoration: 'none',
             }}
           >
             {getRecord()}
           </div>
           <div
             style={{
-              fontFamily: "'DM Sans', sans-serif",
+              fontFamily: "Arial, sans-serif",
               fontSize: `${statsSize - 4}px`,
-              color: 'rgba(255, 255, 255, 0.5)',
+              fontWeight: 400,
+              color: '#888888',
               textTransform: 'uppercase',
+              textDecoration: 'none',
             }}
           >
             W-L-D
@@ -310,20 +325,23 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
         <div style={{ textAlign: 'center', minWidth: isVertical ? '70px' : '60px' }}>
           <div
             style={{
-              fontFamily: "'JetBrains Mono', monospace",
+              fontFamily: "Arial, sans-serif",
               fontSize: `${statsSize}px`,
               fontWeight: 700,
               color: BRAND_COLORS.electricYellow,
+              textDecoration: 'none',
             }}
           >
             {getPowerScore()}
           </div>
           <div
             style={{
-              fontFamily: "'DM Sans', sans-serif",
+              fontFamily: "Arial, sans-serif",
               fontSize: `${statsSize - 4}px`,
-              color: 'rgba(255, 255, 255, 0.5)',
+              fontWeight: 400,
+              color: '#888888',
               textTransform: 'uppercase',
+              textDecoration: 'none',
             }}
           >
             Score
