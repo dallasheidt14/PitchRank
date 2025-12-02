@@ -125,7 +125,7 @@ export const HeadToHeadPreview = forwardRef<HTMLDivElement, HeadToHeadPreviewPro
             marginTop: 4,
           }}
         >
-          {team.state || 'N/A'}
+          {team.club_name || team.state || 'N/A'}
         </div>
       </div>
     );

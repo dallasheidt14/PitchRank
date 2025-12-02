@@ -158,7 +158,7 @@ export async function renderHeadToHeadToCanvas(options: HeadToHeadOptions): Prom
   // Team 1 Club
   ctx.fillStyle = '#AAAAAA';
   ctx.font = `400 ${smallTextSize}px "DM Sans", Arial, sans-serif`;
-  ctx.fillText(team1.state || 'N/A', team1X, currentY + teamNameSize * 0.4 + 5);
+  ctx.fillText(team1.club_name || team1.state || 'N/A', team1X, currentY + teamNameSize * 0.4 + 5);
 
   // ===== TEAM 2 (RIGHT) =====
   // Team 2 Rank Badge
@@ -186,7 +186,7 @@ export async function renderHeadToHeadToCanvas(options: HeadToHeadOptions): Prom
   // Team 2 Club
   ctx.fillStyle = '#AAAAAA';
   ctx.font = `400 ${smallTextSize}px "DM Sans", Arial, sans-serif`;
-  ctx.fillText(team2.state || 'N/A', team2X, currentY + teamNameSize * 0.4 + 5);
+  ctx.fillText(team2.club_name || team2.state || 'N/A', team2X, currentY + teamNameSize * 0.4 + 5);
 
   // ===== STATS COMPARISON =====
   currentY = vsY + vsSize * 0.7 + 30;
