@@ -80,3 +80,4 @@ GRANT SELECT ON rankings_view TO anon;
 GRANT SELECT ON state_rankings_view TO authenticated;
 GRANT SELECT ON state_rankings_view TO anon;
 
+
