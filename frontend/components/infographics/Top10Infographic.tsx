@@ -73,28 +73,27 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
             {/* Logo */}
             <div
               style={{
-                fontFamily: "Oswald, 'Arial Black', 'Helvetica Neue', sans-serif",
+                position: 'relative',
+                fontFamily: "Oswald, 'Arial Black', sans-serif",
                 fontSize: `${titleSize}px`,
                 fontWeight: 800,
                 textTransform: 'uppercase',
                 letterSpacing: '3px',
-                display: 'flex',
-                alignItems: 'center',
                 marginBottom: 16,
-                lineHeight: 1.1,
               }}
             >
               <span
                 style={{
-                  display: 'inline-block',
+                  position: 'absolute',
+                  left: '-24px',
+                  top: '50%',
+                  transform: 'translateY(-50%) skewX(-12deg)',
                   width: '10px',
-                  height: '1em',
+                  height: '70%',
                   background: BRAND_COLORS.electricYellow,
-                  marginRight: '14px',
-                  transform: 'skewX(-12deg)',
                 }}
               />
-              <span>PITCH</span>
+              <span style={{ color: BRAND_COLORS.brightWhite }}>PITCH</span>
               <span style={{ color: BRAND_COLORS.electricYellow }}>RANK</span>
             </div>
 
@@ -117,8 +116,9 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
             {/* Date */}
             <div
               style={{
-                fontFamily: "Helvetica Neue, Arial, sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: `${statsSize}px`,
+                fontWeight: 400,
                 color: 'rgba(255, 255, 255, 0.7)',
                 marginTop: 8,
               }}
@@ -162,8 +162,9 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
           >
             <div
               style={{
-                fontFamily: "Helvetica Neue, Arial, sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: `${statsSize - 2}px`,
+                fontWeight: 400,
                 color: 'rgba(255, 255, 255, 0.6)',
               }}
             >
@@ -171,8 +172,9 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
             </div>
             <div
               style={{
-                fontFamily: "Helvetica Neue, Arial, sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: `${statsSize - 2}px`,
+                fontWeight: 400,
                 color: BRAND_COLORS.electricYellow,
               }}
             >
@@ -267,11 +269,11 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
         </div>
         <div
           style={{
-            fontFamily: "Helvetica Neue, Arial, sans-serif",
+            fontFamily: "Arial, sans-serif",
             fontSize: `${statsSize - 2}px`,
+            fontWeight: 400,
             color: 'rgba(255, 255, 255, 0.6)',
-            marginTop: 2,
-            lineHeight: 1.3,
+            marginTop: 4,
           }}
         >
           {team.club_name ? `${team.club_name} | ` : ''}{team.state || 'N/A'}
@@ -290,19 +292,19 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
         <div style={{ textAlign: 'center' }}>
           <div
             style={{
-              fontFamily: "Monaco, Consolas, 'Courier New', monospace",
+              fontFamily: "Arial, sans-serif",
               fontSize: `${statsSize}px`,
-              fontWeight: 600,
+              fontWeight: 700,
               color: BRAND_COLORS.brightWhite,
-              lineHeight: 1.2,
             }}
           >
             {getRecord()}
           </div>
           <div
             style={{
-              fontFamily: "Helvetica Neue, Arial, sans-serif",
+              fontFamily: "Arial, sans-serif",
               fontSize: `${statsSize - 4}px`,
+              fontWeight: 400,
               color: 'rgba(255, 255, 255, 0.5)',
               textTransform: 'uppercase',
             }}
@@ -315,19 +317,19 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
         <div style={{ textAlign: 'center', minWidth: isVertical ? '70px' : '60px' }}>
           <div
             style={{
-              fontFamily: "Monaco, Consolas, 'Courier New', monospace",
+              fontFamily: "Arial, sans-serif",
               fontSize: `${statsSize}px`,
               fontWeight: 700,
               color: BRAND_COLORS.electricYellow,
-              lineHeight: 1.2,
             }}
           >
             {getPowerScore()}
           </div>
           <div
             style={{
-              fontFamily: "Helvetica Neue, Arial, sans-serif",
+              fontFamily: "Arial, sans-serif",
               fontSize: `${statsSize - 4}px`,
+              fontWeight: 400,
               color: 'rgba(255, 255, 255, 0.5)',
               textTransform: 'uppercase',
             }}

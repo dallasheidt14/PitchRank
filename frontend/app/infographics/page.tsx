@@ -180,60 +180,23 @@ export default function InfographicsPage() {
         backgroundColor: '#052E27',
         logging: false,
         onclone: (clonedDoc, element) => {
-          console.log('Cloned element:', element);
+          // Remove ALL stylesheets to avoid oklch/lab color parsing issues
+          // We use system fonts (Arial) so no external fonts needed
+          const allStyles = clonedDoc.querySelectorAll('style, link[rel="stylesheet"]');
+          allStyles.forEach(sheet => sheet.remove());
 
-          // Remove only internal stylesheets that contain oklch/lab colors
-          // Keep Google Fonts stylesheets (external links to fonts.googleapis.com)
-          const stylesheets = clonedDoc.querySelectorAll('style');
-          stylesheets.forEach(sheet => {
-            // Remove internal style tags that might have oklch colors
-            if (sheet.textContent && (
-              sheet.textContent.includes('oklch') ||
-              sheet.textContent.includes('lab(') ||
-              sheet.textContent.includes('lch(')
-            )) {
-              sheet.remove();
-            }
-          });
-
-          // For link stylesheets, only remove non-font ones
-          const linkSheets = clonedDoc.querySelectorAll('link[rel="stylesheet"]');
-          linkSheets.forEach(link => {
-            const href = link.getAttribute('href') || '';
-            // Keep Google Fonts, remove others that might have oklch
-            if (!href.includes('fonts.googleapis.com') && !href.includes('fonts.gstatic.com')) {
-              link.remove();
-            }
-          });
-
-          // Inject Google Fonts and reset stylesheet
+          // Inject minimal reset - only system fonts used
           const resetStyle = clonedDoc.createElement('style');
           resetStyle.textContent = `
-            @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700;800&display=swap');
-            @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
-            @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
-
-            * {
-              box-sizing: border-box;
-              -webkit-font-smoothing: antialiased;
-              -moz-osx-font-smoothing: grayscale;
-            }
-            /* Override any CSS variables that might use oklch */
+            * { box-sizing: border-box; }
             :root {
               --background: #052E27;
               --foreground: #FDFEFE;
-              --primary: #0B5345;
-              --primary-foreground: #FDFEFE;
-              --secondary: #F4D03F;
-              --muted: #2C3E50;
-              --muted-foreground: rgba(255, 255, 255, 0.6);
-              --accent: #F4D03F;
-              --border: rgba(255, 255, 255, 0.1);
             }
           `;
           clonedDoc.head.appendChild(resetStyle);
 
-          // Sanitize any remaining inline styles that might have problematic colors
+          // Sanitize any inline styles with problematic colors
           sanitizeElement(element);
 
           // Ensure the cloned element has proper dimensions
