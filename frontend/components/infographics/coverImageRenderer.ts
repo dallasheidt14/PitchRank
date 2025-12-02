@@ -87,25 +87,31 @@ export async function renderCoverImageToCanvas(options: CoverImageOptions): Prom
   const centerY = dimensions.height / 2;
 
   // ===== MAIN LOGO =====
-  ctx.textAlign = 'center';
   ctx.font = `800 ${logoSize}px Oswald, "Arial Black", sans-serif`;
-  const logoWidth = ctx.measureText('PITCHRANK').width;
-  const logoStartX = centerX - logoWidth / 2;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
 
-  // Yellow slash (larger and more prominent for cover images)
+  const pitchWidth = ctx.measureText('PITCH').width;
+  const rankWidth = ctx.measureText('RANK').width;
+  const totalLogoWidth = pitchWidth + rankWidth;
+  const logoStartX = centerX - totalLogoWidth / 2;
+  const logoY = centerY - 10;
+
+  // Yellow slash (larger and more prominent for cover images) - positioned right before the P
   ctx.save();
-  ctx.translate(logoStartX - 24, centerY - 15);
+  ctx.translate(logoStartX - 14, logoY - logoSize * 0.35);
   ctx.transform(1, 0, -0.2, 1, 0, 0);
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillRect(-6, -logoSize * 0.35, 12, logoSize * 0.7);
+  ctx.fillRect(0, 0, 12, logoSize * 0.7);
   ctx.restore();
 
   // Logo text
   ctx.fillStyle = BRAND_COLORS.brightWhite;
-  const pitchWidth = ctx.measureText('PITCH').width;
-  ctx.fillText('PITCH', logoStartX + pitchWidth / 2, centerY - 10);
+  ctx.fillText('PITCH', logoStartX, logoY);
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillText('RANK', logoStartX + pitchWidth + ctx.measureText('RANK').width / 2, centerY - 10);
+  ctx.fillText('RANK', logoStartX + pitchWidth, logoY);
+
+  ctx.textAlign = 'center';
 
   // ===== TAGLINE =====
   const displayTagline = tagline || 'Youth Soccer Rankings That Matter';
