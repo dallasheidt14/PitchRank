@@ -4,12 +4,12 @@ on:
   schedule:
     # Run every Sunday night at 11pm Mountain Time
     # GitHub Actions cron uses UTC timezone
-    # MST (UTC-7): 11:00 PM MST = 6:00 AM UTC (Monday)
-    # MDT (UTC-6): 11:00 PM MDT = 5:00 AM UTC (Monday)
-    # Using 6:00 AM UTC means:
+    # MST (UTC-7): 11:00 PM MST Sunday = 6:00 AM UTC Monday
+    # MDT (UTC-6): 11:00 PM MDT Sunday = 5:00 AM UTC Monday
+    # Using 6:00 AM UTC Monday means:
     #   - During MST: runs at 11:00 PM Sunday ✅
     #   - During MDT: runs at 12:00 AM Monday (1 hour later, acceptable)
-    - cron: '0 6 * * 0'  # Every Sunday at 6:00 AM UTC (≈11:00 PM Mountain Time)
+    - cron: '0 6 * * 1'  # Every Monday at 6:00 AM UTC (≈11:00 PM Mountain Time Sunday)
   workflow_dispatch: # Allow manual trigger from GitHub Actions tab
 
 jobs:
