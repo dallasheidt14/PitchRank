@@ -105,6 +105,49 @@ export default function InfographicsPage() {
     return `pitchrank-${selectedAgeGroup}-${genderLabel}-top10-${regionLabel}-${selectedPlatform}-${timestamp}.png`;
   }, [selectedAgeGroup, selectedGender, selectedRegion, selectedPlatform]);
 
+  // Helper function to sanitize CSS values that use unsupported color functions
+  const sanitizeElement = useCallback((element: Element) => {
+    if (element instanceof HTMLElement) {
+      const style = element.style;
+      const computedStyle = window.getComputedStyle(element);
+
+      // List of CSS properties that might contain color values
+      const colorProperties = [
+        'color', 'backgroundColor', 'borderColor', 'borderTopColor',
+        'borderRightColor', 'borderBottomColor', 'borderLeftColor',
+        'outlineColor', 'textDecorationColor', 'caretColor',
+        'boxShadow', 'textShadow', 'fill', 'stroke'
+      ];
+
+      colorProperties.forEach(prop => {
+        const cssProperty = prop.replace(/([A-Z])/g, '-$1').toLowerCase();
+        const value = computedStyle.getPropertyValue(cssProperty);
+        if (value && (value.includes('oklch') || value.includes('lab(') || value.includes('lch('))) {
+          // Reset to a safe fallback color or transparent
+          if (prop === 'backgroundColor') {
+            style.backgroundColor = 'transparent';
+          } else if (prop === 'color') {
+            style.color = '#FFFFFF';
+          } else if (prop.includes('border')) {
+            style.setProperty(cssProperty, 'transparent');
+          } else {
+            style.setProperty(cssProperty, 'none');
+          }
+        }
+      });
+
+      // Also check CSS variables in the style attribute
+      const cssText = style.cssText;
+      if (cssText && (cssText.includes('oklch') || cssText.includes('lab(') || cssText.includes('lch('))) {
+        // Remove problematic CSS variables
+        style.cssText = cssText.replace(/[^;]*(?:oklch|lab\(|lch\()[^;]*/g, '');
+      }
+    }
+
+    // Recursively process children
+    Array.from(element.children).forEach(child => sanitizeElement(child));
+  }, []);
+
   // Generate canvas from the hidden full-size element
   const generateImage = useCallback(async (): Promise<Blob | null> => {
     setErrorMessage(null);
@@ -135,13 +178,33 @@ export default function InfographicsPage() {
         useCORS: true,
         allowTaint: true,
         backgroundColor: '#052E27',
-        logging: true, // Enable logging for debugging
+        logging: false,
         onclone: (clonedDoc, element) => {
           console.log('Cloned element:', element);
+
+          // Remove all stylesheets from the cloned document to avoid oklch/lab parsing
+          const stylesheets = clonedDoc.querySelectorAll('style, link[rel="stylesheet"]');
+          stylesheets.forEach(sheet => sheet.remove());
+
+          // Inject a minimal reset stylesheet for the cloned document
+          const resetStyle = clonedDoc.createElement('style');
+          resetStyle.textContent = `
+            * {
+              box-sizing: border-box;
+            }
+          `;
+          clonedDoc.head.appendChild(resetStyle);
+
+          // Sanitize any remaining inline styles that might have problematic colors
+          sanitizeElement(element);
+
           // Ensure the cloned element has proper dimensions
           element.style.transform = 'none';
           element.style.width = `${dimensions.width}px`;
           element.style.height = `${dimensions.height}px`;
+          element.style.position = 'relative';
+          element.style.left = '0';
+          element.style.top = '0';
         }
       });
 
@@ -168,7 +231,7 @@ export default function InfographicsPage() {
       setErrorMessage(`Failed to generate image: ${errorMsg}`);
       return null;
     }
-  }, [rankings, selectedPlatform]);
+  }, [rankings, selectedPlatform, sanitizeElement]);
 
   // Handle download
   const handleDownload = useCallback(async () => {
