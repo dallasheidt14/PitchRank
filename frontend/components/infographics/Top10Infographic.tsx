@@ -73,25 +73,25 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
             {/* Logo */}
             <div
               style={{
-                fontFamily: "'Oswald', sans-serif",
+                fontFamily: "Oswald, 'Arial Black', 'Helvetica Neue', sans-serif",
                 fontSize: `${titleSize}px`,
                 fontWeight: 800,
                 textTransform: 'uppercase',
                 letterSpacing: '3px',
                 display: 'flex',
-                alignItems: 'baseline',
+                alignItems: 'center',
                 marginBottom: 16,
+                lineHeight: 1,
               }}
             >
               <span
                 style={{
                   display: 'inline-block',
                   width: '8px',
-                  height: `${titleSize * 0.85}px`,
+                  height: `${titleSize * 0.75}px`,
                   background: BRAND_COLORS.electricYellow,
                   marginRight: '12px',
-                  transform: 'skewX(-12deg) translateY(-5%)',
-                  verticalAlign: 'middle',
+                  transform: 'skewX(-12deg)',
                 }}
               />
               <span>PITCH</span>
@@ -101,13 +101,14 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
             {/* Title */}
             <div
               style={{
-                fontFamily: "'Oswald', sans-serif",
+                fontFamily: "Oswald, 'Arial Black', 'Helvetica Neue', sans-serif",
                 fontSize: `${subtitleSize}px`,
                 fontWeight: 700,
                 textTransform: 'uppercase',
                 letterSpacing: '2px',
                 color: BRAND_COLORS.electricYellow,
                 textAlign: 'center',
+                lineHeight: 1.2,
               }}
             >
               {title}
@@ -116,7 +117,7 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
             {/* Date */}
             <div
               style={{
-                fontFamily: "'DM Sans', sans-serif",
+                fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
                 fontSize: `${statsSize}px`,
                 color: 'rgba(255, 255, 255, 0.7)',
                 marginTop: 8,
@@ -161,7 +162,7 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
           >
             <div
               style={{
-                fontFamily: "'DM Sans', sans-serif",
+                fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
                 fontSize: `${statsSize - 2}px`,
                 color: 'rgba(255, 255, 255, 0.6)',
               }}
@@ -170,7 +171,7 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
             </div>
             <div
               style={{
-                fontFamily: "'DM Sans', sans-serif",
+                fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
                 fontSize: `${statsSize - 2}px`,
                 color: BRAND_COLORS.electricYellow,
               }}
@@ -231,11 +232,12 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
       <div
         style={{
           width: isVertical ? '60px' : '50px',
-          fontFamily: "'Oswald', sans-serif",
+          fontFamily: "Oswald, 'Arial Black', 'Helvetica Neue', sans-serif",
           fontSize: `${rankSize}px`,
           fontWeight: 800,
           color: isTopThree ? medalColors[rank] : BRAND_COLORS.brightWhite,
           textAlign: 'center',
+          lineHeight: 1,
         }}
       >
         {rank}
@@ -247,26 +249,25 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
           flex: 1,
           marginLeft: isVertical ? 16 : 12,
           minWidth: 0,
+          overflow: 'hidden',
         }}
       >
         <div
           style={{
-            fontFamily: "'Oswald', sans-serif",
+            fontFamily: "Oswald, 'Arial Black', 'Helvetica Neue', sans-serif",
             fontSize: `${teamNameSize}px`,
             fontWeight: 600,
             color: BRAND_COLORS.brightWhite,
             textTransform: 'uppercase',
             letterSpacing: '0.5px',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
+            lineHeight: 1.2,
           }}
         >
           {team.team_name}
         </div>
         <div
           style={{
-            fontFamily: "'DM Sans', sans-serif",
+            fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
             fontSize: `${statsSize - 2}px`,
             color: 'rgba(255, 255, 255, 0.6)',
             marginTop: 2,
@@ -288,17 +289,18 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
         <div style={{ textAlign: 'center' }}>
           <div
             style={{
-              fontFamily: "'JetBrains Mono', monospace",
+              fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Consolas', monospace",
               fontSize: `${statsSize}px`,
               fontWeight: 600,
               color: BRAND_COLORS.brightWhite,
+              lineHeight: 1.2,
             }}
           >
             {getRecord()}
           </div>
           <div
             style={{
-              fontFamily: "'DM Sans', sans-serif",
+              fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
               fontSize: `${statsSize - 4}px`,
               color: 'rgba(255, 255, 255, 0.5)',
               textTransform: 'uppercase',
@@ -312,17 +314,18 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
         <div style={{ textAlign: 'center', minWidth: isVertical ? '70px' : '60px' }}>
           <div
             style={{
-              fontFamily: "'JetBrains Mono', monospace",
+              fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Consolas', monospace",
               fontSize: `${statsSize}px`,
               fontWeight: 700,
               color: BRAND_COLORS.electricYellow,
+              lineHeight: 1.2,
             }}
           >
             {getPowerScore()}
           </div>
           <div
             style={{
-              fontFamily: "'DM Sans', sans-serif",
+              fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
               fontSize: `${statsSize - 4}px`,
               color: 'rgba(255, 255, 255, 0.5)',
               textTransform: 'uppercase',

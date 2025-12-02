@@ -206,11 +206,17 @@ export default function InfographicsPage() {
             }
           });
 
-          // Inject a minimal reset stylesheet with safe fallback colors
+          // Inject Google Fonts and reset stylesheet
           const resetStyle = clonedDoc.createElement('style');
           resetStyle.textContent = `
+            @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700;800&display=swap');
+            @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+            @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
             * {
               box-sizing: border-box;
+              -webkit-font-smoothing: antialiased;
+              -moz-osx-font-smoothing: grayscale;
             }
             /* Override any CSS variables that might use oklch */
             :root {
