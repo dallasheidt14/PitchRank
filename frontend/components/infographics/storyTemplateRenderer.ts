@@ -104,10 +104,10 @@ export async function renderStoryTemplateToCanvas(options: StoryTemplateOptions)
 
   // Yellow slash - positioned right before the P
   ctx.save();
-  ctx.translate(logoStartX - 10, currentY - logoSize * 0.35);
+  ctx.translate(logoStartX - 4, currentY - logoSize * 0.35);
   ctx.transform(1, 0, -0.2, 1, 0, 0);
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillRect(0, 0, 9, logoSize * 0.7);
+  ctx.fillRect(-9, 0, 9, logoSize * 0.7);
   ctx.restore();
 
   // Logo text
@@ -180,7 +180,7 @@ export async function renderStoryTemplateToCanvas(options: StoryTemplateOptions)
   // ===== BOTTOM URL =====
   ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
   ctx.font = `400 18px "DM Sans", Arial, sans-serif`;
-  ctx.fillText('pitchrank.com', centerX, dimensions.height - padding);
+  ctx.fillText('pitchrank.io', centerX, dimensions.height - padding);
 
   return canvas;
 }
