@@ -767,10 +767,10 @@ elif section == "🔎 Unknown Teams Mapper":
         st.subheader("Step 1: Find Unmapped Teams")
 
         try:
-            # Get games with null master IDs
+            # Get games with null master IDs (only use columns that exist in games table)
             null_games = db.table('games').select(
                 'home_provider_id, away_provider_id, home_team_master_id, away_team_master_id, '
-                'age_group, game_date, provider_id'
+                'game_date, provider_id'
             ).or_('home_team_master_id.is.null,away_team_master_id.is.null').order(
                 'game_date', desc=True
             ).limit(500).execute()
@@ -784,7 +784,6 @@ elif section == "🔎 Unknown Teams Mapper":
                         if pid not in unmapped_teams:
                             unmapped_teams[pid] = {
                                 'provider_id': pid,
-                                'age_group': game.get('age_group', ''),
                                 'provider': game.get('provider_id', ''),
                                 'game_count': 0
                             }
@@ -795,7 +794,6 @@ elif section == "🔎 Unknown Teams Mapper":
                         if pid not in unmapped_teams:
                             unmapped_teams[pid] = {
                                 'provider_id': pid,
-                                'age_group': game.get('age_group', ''),
                                 'provider': game.get('provider_id', ''),
                                 'game_count': 0
                             }
@@ -808,15 +806,17 @@ elif section == "🔎 Unknown Teams Mapper":
                     # Sort by game count
                     sorted_teams = sorted(unmapped_teams.values(), key=lambda x: x['game_count'], reverse=True)
                     
-                    # Try to look up team names from teams table
+                    # Try to look up team names and age groups from teams table
                     for team in sorted_teams:
-                        team_lookup = db.table('teams').select('team_name').eq(
+                        team_lookup = db.table('teams').select('team_name, age_group').eq(
                             'provider_team_id', team['provider_id']
                         ).limit(1).execute()
                         if team_lookup.data:
                             team['team_name'] = team_lookup.data[0].get('team_name', f"ID: {team['provider_id']}")
+                            team['age_group'] = team_lookup.data[0].get('age_group', '')
                         else:
                             team['team_name'] = f"ID: {team['provider_id']}"
+                            team['age_group'] = ''
 
                     # Display as table with more info
                     unmapped_df = pd.DataFrame([
