@@ -586,14 +586,17 @@ def compute_rankings(
     team_off_norm_map = dict(zip(team["team_id"], team["off_norm"]))
     team_def_norm_map = dict(zip(team["team_id"], team["def_norm"]))
     team_gp_map = dict(zip(team["team_id"], team["gp"]))
+    team_anchor_map = dict(zip(team["team_id"], team["anchor"]))  # Need anchor for scale matching
 
     # Calculate cohort average strength for shrinkage
     # Using (age, gender) as cohort key
     cohort_avg_strength = {}
     for (age, gender), grp in team.groupby(["age", "gender"]):
-        # Base power uses only OFF and DEF (50% each)
+        # Base power uses only OFF and DEF (50% each), scaled by anchor
+        # This matches the scale of global_strength_map (which uses abs_strength = power_presos * anchor)
         grp_base_power = 0.5 * grp["off_norm"] + 0.5 * grp["def_norm"]
-        cohort_avg_strength[(age, gender)] = float(grp_base_power.mean())
+        grp_anchor = grp["anchor"]
+        cohort_avg_strength[(age, gender)] = float((grp_base_power * grp_anchor).mean())
 
     # Map team_id to cohort for quick lookup
     team_cohort_map = dict(zip(
@@ -604,6 +607,7 @@ def compute_rankings(
     # Calculate BASE strength for each team (OFF/DEF only, normalized to avoid drift)
     # This represents opponent quality independent of their schedule
     # Apply sample size weighting: shrink toward cohort mean for low-game opponents
+    # IMPORTANT: Apply anchor to match scale with global_strength_map (which uses abs_strength)
     base_strength_map = {}
     for tid in team["team_id"]:
         # Base power uses only OFF and DEF (50% each of the non-SOS weight)
@@ -611,7 +615,9 @@ def compute_rankings(
             0.5 * team_off_norm_map.get(tid, 0.5) +
             0.5 * team_def_norm_map.get(tid, 0.5)
         )
-        raw_strength = float(np.clip(base_power, 0.0, 1.0))
+        # Apply anchor to match global_strength_map scale
+        anchor = team_anchor_map.get(tid, 0.7)
+        raw_strength = float(np.clip(base_power * anchor, 0.0, 1.0))
 
         # Apply sample size weighting for opponent strength
         opp_gp = team_gp_map.get(tid, 0)
