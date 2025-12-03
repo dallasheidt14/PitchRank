@@ -3,16 +3,7 @@
  * Core utilities for tracking events and page views
  */
 
-// Declare gtag function for TypeScript
-declare global {
-  interface Window {
-    gtag?: (
-      command: 'event' | 'config' | 'js' | 'set',
-      targetIdOrEventName: string,
-      config?: Record<string, unknown>
-    ) => void;
-  }
-}
+// gtag type is declared in types/gtag.d.ts
 
 /**
  * Check if analytics is available and not in development mode
