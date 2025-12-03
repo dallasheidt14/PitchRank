@@ -766,96 +766,124 @@ elif section == "🔎 Unknown Teams Mapper":
         st.subheader("Step 1: Find Unmapped Teams")
 
         try:
-            # Get unique provider team IDs from games that have NULL master IDs
-            unmapped_query = """
-                SELECT DISTINCT
-                    COALESCE(home_provider_id, away_provider_id) as provider_team_id,
-                    COUNT(*) as game_count
-                FROM games
-                WHERE home_team_master_id IS NULL OR away_team_master_id IS NULL
-                GROUP BY provider_team_id
-                ORDER BY game_count DESC
-                LIMIT 50
-            """
-
-            # Simpler approach - get games with null IDs and extract provider IDs
+            # Get games with null master IDs - include team names
             null_games = db.table('games').select(
-                'home_provider_id, away_provider_id, home_team_master_id, away_team_master_id, game_date'
+                'home_provider_id, away_provider_id, home_team_master_id, away_team_master_id, '
+                'home_team_name, away_team_name, age_group, game_date, provider_id'
             ).or_('home_team_master_id.is.null,away_team_master_id.is.null').order(
                 'game_date', desc=True
-            ).limit(200).execute()
+            ).limit(500).execute()
 
             if null_games.data:
-                # Extract unique unmapped provider IDs
-                unmapped_ids = {}
+                # Extract unique unmapped provider IDs with team info
+                unmapped_teams = {}
                 for game in null_games.data:
                     if not game.get('home_team_master_id') and game.get('home_provider_id'):
                         pid = str(game['home_provider_id'])
-                        unmapped_ids[pid] = unmapped_ids.get(pid, 0) + 1
+                        if pid not in unmapped_teams:
+                            unmapped_teams[pid] = {
+                                'provider_id': pid,
+                                'team_name': game.get('home_team_name', 'Unknown'),
+                                'age_group': game.get('age_group', ''),
+                                'provider': game.get('provider_id', ''),
+                                'game_count': 0
+                            }
+                        unmapped_teams[pid]['game_count'] += 1
+                    
                     if not game.get('away_team_master_id') and game.get('away_provider_id'):
                         pid = str(game['away_provider_id'])
-                        unmapped_ids[pid] = unmapped_ids.get(pid, 0) + 1
+                        if pid not in unmapped_teams:
+                            unmapped_teams[pid] = {
+                                'provider_id': pid,
+                                'team_name': game.get('away_team_name', 'Unknown'),
+                                'age_group': game.get('age_group', ''),
+                                'provider': game.get('provider_id', ''),
+                                'game_count': 0
+                            }
+                        unmapped_teams[pid]['game_count'] += 1
 
-                if unmapped_ids:
-                    st.info(f"Found **{len(unmapped_ids)}** unique unmapped provider team IDs affecting **{sum(unmapped_ids.values())}** games")
+                if unmapped_teams:
+                    total_games = sum(t['game_count'] for t in unmapped_teams.values())
+                    st.info(f"Found **{len(unmapped_teams)}** unmapped teams affecting **{total_games}** games")
 
-                    # Sort by frequency
-                    sorted_ids = sorted(unmapped_ids.items(), key=lambda x: x[1], reverse=True)
+                    # Sort by game count
+                    sorted_teams = sorted(unmapped_teams.values(), key=lambda x: x['game_count'], reverse=True)
 
-                    # Display as table
-                    unmapped_df = pd.DataFrame(sorted_ids, columns=['Provider Team ID', 'Games Affected'])
+                    # Display as table with more info
+                    unmapped_df = pd.DataFrame([
+                        {
+                            'Team Name': t['team_name'],
+                            'Provider ID': t['provider_id'],
+                            'Age Group': t['age_group'],
+                            'Games': t['game_count']
+                        }
+                        for t in sorted_teams
+                    ])
                     st.dataframe(unmapped_df, use_container_width=True, hide_index=True)
+                    
+                    # Keep sorted_ids for backwards compatibility with Step 2
+                    sorted_ids = [(t['provider_id'], t['game_count']) for t in sorted_teams]
+                    unmapped_ids = {t['provider_id']: t['game_count'] for t in sorted_teams}
 
                     st.divider()
 
                     # Step 2: Select a team to map
-                    st.subheader("Step 2: Map a Team")
+                    st.subheader("Step 2: Select Team to Map")
+                    st.markdown("*Select an unmapped team from the list above to find a matching master team*")
 
                     # Add search/filter box
                     search_filter = st.text_input(
-                        "🔍 Search Provider Team ID:",
-                        placeholder="Type to filter (e.g., 615537)",
-                        help="Filter the list below by typing part of the Provider Team ID"
+                        "🔍 Search by Team Name or ID:",
+                        placeholder="Type team name or provider ID...",
+                        help="Filter the list below by team name or provider ID"
                     )
 
-                    # Filter the list based on search
+                    # Filter the list based on search (now searches team names too)
                     if search_filter:
-                        filtered_ids = [(pid, count) for pid, count in sorted_ids if search_filter in str(pid)]
-                        if not filtered_ids:
-                            st.warning(f"No Provider Team IDs found matching '{search_filter}'")
+                        search_lower = search_filter.lower()
+                        filtered_teams = [
+                            t for t in sorted_teams 
+                            if search_lower in str(t['provider_id']).lower() or 
+                               search_lower in str(t['team_name']).lower()
+                        ]
+                        if not filtered_teams:
+                            st.warning(f"No teams found matching '{search_filter}'")
                             st.stop()
                     else:
-                        filtered_ids = sorted_ids
+                        filtered_teams = sorted_teams
 
-                    st.caption(f"Showing {len(filtered_ids)} of {len(sorted_ids)} unmapped teams")
+                    st.caption(f"Showing {len(filtered_teams)} of {len(sorted_teams)} unmapped teams")
 
+                    # Create lookup dict for display
+                    team_display = {t['provider_id']: t for t in filtered_teams}
+                    
                     selected_provider_id = st.selectbox(
-                        "Select Provider Team ID to map:",
-                        options=[pid for pid, _ in filtered_ids],
-                        format_func=lambda x: f"{x} ({unmapped_ids[x]} games affected)"
+                        "Select team to map:",
+                        options=[t['provider_id'] for t in filtered_teams],
+                        format_func=lambda x: f"{team_display[x]['team_name']} ({team_display[x]['age_group']}) - {team_display[x]['game_count']} games"
                     )
 
                     if selected_provider_id:
-                        st.info(f"Mapping Provider Team ID: **{selected_provider_id}**")
+                        selected_team = team_display[selected_provider_id]
+                        
+                        st.success(f"**Selected:** {selected_team['team_name']} ({selected_team['age_group']})")
+                        st.write(f"Provider ID: `{selected_provider_id}` | Games affected: **{selected_team['game_count']}**")
 
-                        # Try to get team name from teams table (in case it exists but isn't mapped)
+                        # Try to get more details from teams table
                         team_lookup = db.table('teams').select(
                             'team_name, club_name, age_group, gender, state_code'
                         ).eq('provider_team_id', selected_provider_id).execute()
 
                         if team_lookup.data and len(team_lookup.data) > 0:
                             team_info = team_lookup.data[0]
-                            st.success(f"✓ Found team in database: **{team_info['team_name']}**")
-                            st.write(f"Club: {team_info.get('club_name', 'N/A')}")
-                            st.write(f"Age/Gender: {team_info['age_group']} {team_info['gender']}")
-                            st.write(f"State: {team_info.get('state_code', 'N/A')}")
+                            st.write(f"Club: {team_info.get('club_name', 'N/A')} | State: {team_info.get('state_code', 'N/A')}")
                             search_name_default = team_info['team_name']
                             search_age_default = team_info['age_group']
                             search_gender_default = team_info['gender']
                         else:
-                            st.warning("⚠️ Team name not found in database. Search manually below.")
-                            search_name_default = ""
-                            search_age_default = ""
+                            # Use info from games table
+                            search_name_default = selected_team['team_name']
+                            search_age_default = selected_team['age_group']
                             search_gender_default = ""
 
                         st.divider()
@@ -863,7 +891,7 @@ elif section == "🔎 Unknown Teams Mapper":
                         # Step 3: Search for matches
                         st.subheader("Step 3: Find Master Team Match")
 
-                        col1, col2, col3 = st.columns(3)
+                        col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
 
                         with col1:
                             search_name = st.text_input(
@@ -872,15 +900,21 @@ elif section == "🔎 Unknown Teams Mapper":
                                 placeholder="Enter team name..."
                             )
                         with col2:
+                            search_club = st.text_input(
+                                "Club Name (optional)",
+                                value="",
+                                placeholder="Enter club name..."
+                            )
+                        with col3:
                             age_options = [""] + list(AGE_GROUPS.keys())
                             default_age_idx = age_options.index(search_age_default) if search_age_default in age_options else 0
                             search_age = st.selectbox("Age Group", age_options, index=default_age_idx)
-                        with col3:
+                        with col4:
                             gender_options = ["", "Male", "Female"]
                             default_gender_idx = gender_options.index(search_gender_default) if search_gender_default in gender_options else 0
                             search_gender = st.selectbox("Gender", gender_options, index=default_gender_idx)
 
-                        if st.button("🔍 Search for Matches", type="primary") and search_name:
+                        if st.button("🔍 Search for Matches", type="primary") and (search_name or search_club):
                             with st.spinner("Searching..."):
                                 # Build query
                                 query = db.table('teams').select('team_id_master, team_name, club_name, age_group, gender, state_code')
@@ -896,7 +930,23 @@ elif section == "🔎 Unknown Teams Mapper":
                                     # Calculate similarity scores
                                     matches = []
                                     for team in result.data:
-                                        similarity = calculate_similarity(search_name, team['team_name'])
+                                        # Calculate team name similarity
+                                        name_similarity = calculate_similarity(search_name, team['team_name']) if search_name else 0
+                                        
+                                        # Calculate club name similarity
+                                        club_similarity = 0
+                                        if search_club and team.get('club_name'):
+                                            club_similarity = calculate_similarity(search_club, team['club_name'])
+                                        
+                                        # Use best of team name or club name match
+                                        # If both are provided, weight them
+                                        if search_name and search_club:
+                                            similarity = max(name_similarity, club_similarity, (name_similarity + club_similarity) / 2)
+                                        elif search_club:
+                                            similarity = club_similarity
+                                        else:
+                                            similarity = name_similarity
+                                        
                                         if similarity >= 0.3:  # 30%+ similarity
                                             matches.append({
                                                 'team_id_master': team['team_id_master'],
