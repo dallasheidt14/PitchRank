@@ -8,16 +8,7 @@ interface GoogleAnalyticsProps {
   measurementId?: string;
 }
 
-// Declare gtag function for TypeScript
-declare global {
-  interface Window {
-    gtag?: (
-      command: string,
-      targetId: string,
-      config?: Record<string, unknown>
-    ) => void;
-  }
-}
+// gtag type is declared in lib/analytics.ts
 
 /**
  * Google Analytics component (internal - uses useSearchParams)
