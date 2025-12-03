@@ -368,19 +368,48 @@ class GameHistoryMatcher:
                         'confidence': confidence
                     }
                 
-                # Reject matches below 0.75 (don't create alias)
+                # Low confidence - still add to review queue with suggestion
                 else:
-                    logger.debug(f"Match rejected: confidence {confidence} below threshold {self.review_threshold}")
+                    logger.debug(f"Low confidence match ({confidence:.2f}), adding to review queue")
+                    self._create_review_queue_entry(
+                        provider_id=provider_id,
+                        provider_team_id=provider_team_id,
+                        provider_team_name=team_name,
+                        suggested_master_team_id=fuzzy_match['team_id'],
+                        confidence_score=confidence,
+                        match_details={
+                            'age_group': age_group,
+                            'gender': gender,
+                            'club_name': club_name,
+                            'match_method': 'fuzzy_low_confidence'
+                        }
+                    )
                     return {
                         'matched': False,
                         'team_id': None,
-                        'method': None,
+                        'method': 'fuzzy_review_low',
                         'confidence': confidence
                     }
         
-        # No match found
-        if not team_name or not age_group or not gender:
+        # No fuzzy match found at all - still add to review queue without suggestion
+        if team_name and age_group and gender:
+            logger.debug(f"No fuzzy match found for {team_name}, adding to review queue")
+            self._create_review_queue_entry(
+                provider_id=provider_id,
+                provider_team_id=provider_team_id,
+                provider_team_name=team_name,
+                suggested_master_team_id=None,
+                confidence_score=0.75,  # DB constraint requires >= 0.75 for review queue
+                match_details={
+                    'age_group': age_group,
+                    'gender': gender,
+                    'club_name': club_name,
+                    'match_method': 'no_match'
+                }
+            )
+        else:
             logger.debug(f"Cannot fuzzy match: missing required fields (team_name={bool(team_name)}, age_group={bool(age_group)}, gender={bool(gender)})")
+        
         return {
             'matched': False,
             'team_id': None,
@@ -492,10 +521,13 @@ class GameHistoryMatcher:
     ) -> Optional[Dict]:
         """Fuzzy match team name against master teams with club name weighting"""
         try:
+            # Normalize age_group to lowercase (DB uses 'u13', source may have 'U13')
+            age_group_normalized = age_group.lower() if age_group else age_group
+            
             # Get candidate teams including club_name
             result = self.db.table('teams').select(
                 'team_id_master, team_name, club_name, age_group, gender, state_code'
-            ).eq('age_group', age_group).eq('gender', gender).execute()
+            ).eq('age_group', age_group_normalized).eq('gender', gender).execute()
             
             best_match = None
             best_score = 0.0
@@ -612,12 +644,65 @@ class GameHistoryMatcher:
         candidate_club = candidate.get('club_name')
         
         if provider_club and candidate_club:
-            # Both club names present - calculate similarity
-            club_similarity = self._calculate_similarity(provider_club, candidate_club)
+            # Both club names present - calculate similarity with smart normalization
+            from rapidfuzz import fuzz
+            
+            def normalize_club_name(name):
+                """Normalize club name by removing common suffixes/prefixes"""
+                name_lower = name.lower().strip()
+                
+                # Remove common suffixes (FC, SC, SA, etc.)
+                suffixes_to_strip = [' sa', ' sc', ' fc', ' cf', ' ac', ' afc', 
+                                     ' soccer club', ' football club', ' soccer academy', 
+                                     ' futbol club', ' athletic club', ' soccer', ' academy']
+                for suffix in sorted(suffixes_to_strip, key=len, reverse=True):
+                    if name_lower.endswith(suffix):
+                        name_lower = name_lower[:-len(suffix)].strip()
+                        break
+                
+                # Remove common prefixes (FC, CF, etc.)
+                prefixes_to_strip = ['fc ', 'cf ', 'ac ', 'afc ']
+                for prefix in prefixes_to_strip:
+                    if name_lower.startswith(prefix):
+                        name_lower = name_lower[len(prefix):].strip()
+                        break
+                
+                return name_lower
+            
+            provider_club_norm = normalize_club_name(provider_club)
+            candidate_club_norm = normalize_club_name(candidate_club)
+            
+            # Multiple matching strategies, take the best
+            scores = []
+            
+            # 1. Direct match after normalization (highest priority)
+            if provider_club_norm == candidate_club_norm:
+                scores.append(1.0)
+            
+            # 2. Partial ratio (handles "IMG" vs "IMG Academy")
+            scores.append(fuzz.partial_ratio(provider_club_norm, candidate_club_norm) / 100.0)
+            
+            # 3. Token set ratio (handles word reordering)
+            scores.append(fuzz.token_set_ratio(provider_club_norm, candidate_club_norm) / 100.0)
+            
+            # 4. One contains the other entirely
+            if provider_club_norm in candidate_club_norm or candidate_club_norm in provider_club_norm:
+                scores.append(0.95)
+            
+            # 5. First word match (strong signal for club identity)
+            if provider_club_norm.split() and candidate_club_norm.split():
+                first_word_match = fuzz.ratio(
+                    provider_club_norm.split()[0], 
+                    candidate_club_norm.split()[0]
+                ) / 100.0
+                if first_word_match >= 0.9:
+                    scores.append(0.9)
+            
+            club_similarity = max(scores)
             club_score = club_similarity * weights['club']
             
-            # Boost for identical clubs (after normalization)
-            if club_similarity == 1.0:
+            # Boost for high confidence clubs
+            if club_similarity >= 0.90:
                 club_boost = MATCHING_CONFIG.get('club_boost_identical', 0.05)
                 club_score += club_boost
         # If either club missing, ignore club weighting (no penalty)
@@ -665,9 +750,10 @@ class GameHistoryMatcher:
                     'provider_team_id', provider_team_id
                 )
             else:
+                age_group_normalized = age_group.lower() if age_group else age_group
                 query = query.eq('provider_id', provider_id).eq(
                     'team_name', team_name
-                ).eq('age_group', age_group).eq('gender', gender)
+                ).eq('age_group', age_group_normalized).eq('gender', gender)
             
             existing = query.execute()
             
@@ -701,11 +787,14 @@ class GameHistoryMatcher:
         provider_id: str,
         provider_team_id: Optional[str],
         provider_team_name: str,
-        suggested_master_team_id: str,
+        suggested_master_team_id: Optional[str],
         confidence_score: float,
         match_details: Dict
     ):
-        """Insert match into team_match_review_queue for manual review"""
+        """Insert match into team_match_review_queue for manual review.
+        
+        All unmatched teams go here - with or without suggested matches.
+        """
         try:
             # Get provider code (team_match_review_queue uses VARCHAR provider_id)
             provider_result = self.db.table('providers').select('code').eq('id', provider_id).single().execute()

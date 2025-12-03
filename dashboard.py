@@ -52,6 +52,7 @@ section = st.sidebar.radio(
         "👥 Age Groups",
         "🔧 Environment Variables",
         "🔎 Unknown Teams Mapper",
+        "📋 Modular11 Team Review",
         "📈 Database Import Stats",
         "🗺️ State Coverage"
     ]
@@ -766,16 +767,16 @@ elif section == "🔎 Unknown Teams Mapper":
         st.subheader("Step 1: Find Unmapped Teams")
 
         try:
-            # Get games with null master IDs - include team names
+            # Get games with null master IDs
             null_games = db.table('games').select(
                 'home_provider_id, away_provider_id, home_team_master_id, away_team_master_id, '
-                'home_team_name, away_team_name, age_group, game_date, provider_id'
+                'age_group, game_date, provider_id'
             ).or_('home_team_master_id.is.null,away_team_master_id.is.null').order(
                 'game_date', desc=True
             ).limit(500).execute()
 
             if null_games.data:
-                # Extract unique unmapped provider IDs with team info
+                # Extract unique unmapped provider IDs
                 unmapped_teams = {}
                 for game in null_games.data:
                     if not game.get('home_team_master_id') and game.get('home_provider_id'):
@@ -783,7 +784,6 @@ elif section == "🔎 Unknown Teams Mapper":
                         if pid not in unmapped_teams:
                             unmapped_teams[pid] = {
                                 'provider_id': pid,
-                                'team_name': game.get('home_team_name', 'Unknown'),
                                 'age_group': game.get('age_group', ''),
                                 'provider': game.get('provider_id', ''),
                                 'game_count': 0
@@ -795,7 +795,6 @@ elif section == "🔎 Unknown Teams Mapper":
                         if pid not in unmapped_teams:
                             unmapped_teams[pid] = {
                                 'provider_id': pid,
-                                'team_name': game.get('away_team_name', 'Unknown'),
                                 'age_group': game.get('age_group', ''),
                                 'provider': game.get('provider_id', ''),
                                 'game_count': 0
@@ -808,6 +807,16 @@ elif section == "🔎 Unknown Teams Mapper":
 
                     # Sort by game count
                     sorted_teams = sorted(unmapped_teams.values(), key=lambda x: x['game_count'], reverse=True)
+                    
+                    # Try to look up team names from teams table
+                    for team in sorted_teams:
+                        team_lookup = db.table('teams').select('team_name').eq(
+                            'provider_team_id', team['provider_id']
+                        ).limit(1).execute()
+                        if team_lookup.data:
+                            team['team_name'] = team_lookup.data[0].get('team_name', f"ID: {team['provider_id']}")
+                        else:
+                            team['team_name'] = f"ID: {team['provider_id']}"
 
                     # Display as table with more info
                     unmapped_df = pd.DataFrame([
@@ -1277,6 +1286,189 @@ elif section == "🔎 Unknown Teams Mapper":
 
             st.markdown("---")
             st.caption("**Note:** Only use this when the team truly doesn't exist in the master database. For existing teams, use the mapping tool above.")
+
+# ============================================================================
+# MODULAR11 TEAM REVIEW SECTION
+# ============================================================================
+elif section == "📋 Modular11 Team Review":
+    st.header("📋 Modular11 Team Review Queue")
+    st.markdown("**Review and map unmatched Modular11 teams to your database**")
+    
+    db = get_database()
+    
+    if not db:
+        st.error("Database connection not configured.")
+    else:
+        provider_code = 'modular11'
+        provider_id = 'b376e2a4-4b81-47be-b2aa-a06ba0616110'
+        
+        # Get review queue items
+        try:
+            queue = db.table('team_match_review_queue').select('*').eq(
+                'provider_id', provider_code
+            ).eq('status', 'pending').order('confidence_score', desc=True).execute()
+            
+            if not queue.data:
+                st.success("✅ No pending team matches to review!")
+                st.info("Run an import and unmatched teams will appear here.")
+                
+                # Show stats
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    games = db.table('games').select('*', count='exact').eq('provider_id', provider_id).execute()
+                    st.metric("Modular11 Games", games.count or 0)
+                with col2:
+                    aliases = db.table('team_alias_map').select('*', count='exact').eq('provider_id', provider_id).execute()
+                    st.metric("Team Aliases", aliases.count or 0)
+                with col3:
+                    unmatched = db.table('games').select('*', count='exact').eq('provider_id', provider_id).is_('home_team_master_id', 'null').execute()
+                    st.metric("Unmatched Games", unmatched.count or 0)
+            else:
+                st.info(f"**{len(queue.data)}** teams need review")
+                
+                # Display as cards
+                for idx, item in enumerate(queue.data):
+                    conf = item.get('confidence_score', 0) or 0
+                    conf_pct = conf * 100 if conf <= 1 else conf
+                    conf_color = "🟢" if conf_pct >= 75 else "🟡" if conf_pct >= 50 else "🔴"
+                    
+                    with st.expander(
+                        f"{conf_color} {item.get('provider_team_name', 'Unknown')} ({conf_pct:.0f}%)",
+                        expanded=idx < 3
+                    ):
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.markdown("**From Import:**")
+                            st.write(f"• Team: {item.get('provider_team_name', 'N/A')}")
+                            st.write(f"• Provider ID: {item.get('provider_team_id', 'N/A')}")
+                            details = item.get('match_details') or {}
+                            st.write(f"• Age: {details.get('age_group', 'N/A')}")
+                            st.write(f"• Club: {details.get('club_name', 'N/A')}")
+                        
+                        with col2:
+                            st.markdown("**Suggested Match:**")
+                            suggested_id = item.get('suggested_master_team_id')
+                            if suggested_id:
+                                suggested = db.table('teams').select(
+                                    'team_name, club_name, age_group, gender'
+                                ).eq('team_id_master', suggested_id).limit(1).execute()
+                                
+                                if suggested.data:
+                                    s = suggested.data[0]
+                                    st.write(f"• Team: {s['team_name']}")
+                                    st.write(f"• Club: {s.get('club_name', 'N/A')}")
+                                    st.write(f"• Age: {s['age_group']}")
+                                else:
+                                    st.write(f"• UUID: {suggested_id[:8]}...")
+                            else:
+                                st.warning("No suggestion - search below")
+                        
+                        st.divider()
+                        
+                        # Action buttons
+                        col1, col2, col3 = st.columns([1, 1, 2])
+                        
+                        with col1:
+                            if suggested_id and st.button(f"✅ Approve", key=f"approve_{item['id']}", type="primary"):
+                                try:
+                                    db.table('team_alias_map').insert({
+                                        'provider_id': provider_id,
+                                        'provider_team_id': item['provider_team_id'],
+                                        'team_id_master': suggested_id,
+                                        'match_method': 'manual',
+                                        'match_confidence': conf,
+                                        'review_status': 'approved'
+                                    }).execute()
+                                    
+                                    db.table('team_match_review_queue').update({
+                                        'status': 'approved'
+                                    }).eq('id', item['id']).execute()
+                                    
+                                    st.success("✅ Approved!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error: {e}")
+                        
+                        with col2:
+                            if st.button(f"❌ Skip", key=f"skip_{item['id']}"):
+                                try:
+                                    db.table('team_match_review_queue').update({
+                                        'status': 'skipped'
+                                    }).eq('id', item['id']).execute()
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error: {e}")
+                        
+                        with col3:
+                            # Search for different match
+                            search_term = st.text_input(
+                                "🔍 Search team:",
+                                key=f"search_{item['id']}",
+                                placeholder="Type team or club name..."
+                            )
+                            
+                            if search_term and len(search_term) >= 2:
+                                age = details.get('age_group', '').lower()
+                                search_results = db.table('teams').select(
+                                    'team_id_master, team_name, club_name, age_group'
+                                ).or_(f"team_name.ilike.%{search_term}%,club_name.ilike.%{search_term}%").limit(10).execute()
+                                
+                                if search_results.data:
+                                    for team in search_results.data:
+                                        btn_label = f"{team['team_name']} ({team['age_group']})"
+                                        if st.button(f"→ {btn_label[:50]}", key=f"sel_{item['id']}_{team['team_id_master'][:8]}"):
+                                            try:
+                                                db.table('team_alias_map').insert({
+                                                    'provider_id': provider_id,
+                                                    'provider_team_id': item['provider_team_id'],
+                                                    'team_id_master': team['team_id_master'],
+                                                    'match_method': 'manual',
+                                                    'match_confidence': 1.0,
+                                                    'review_status': 'approved'
+                                                }).execute()
+                                                
+                                                db.table('team_match_review_queue').update({
+                                                    'status': 'approved'
+                                                }).eq('id', item['id']).execute()
+                                                
+                                                st.success(f"✅ Mapped!")
+                                                st.rerun()
+                                            except Exception as e:
+                                                st.error(f"Error: {e}")
+                                else:
+                                    st.caption("No teams found")
+                
+                st.divider()
+                st.markdown("### Bulk Actions")
+                col1, col2 = st.columns(2)
+                with col1:
+                    high_conf = [q for q in queue.data if (q.get('confidence_score') or 0) >= 0.75 and q.get('suggested_master_team_id')]
+                    if st.button(f"✅ Approve All 75%+ ({len(high_conf)})", type="secondary"):
+                        if high_conf:
+                            progress = st.progress(0)
+                            for i, item in enumerate(high_conf):
+                                try:
+                                    db.table('team_alias_map').insert({
+                                        'provider_id': provider_id,
+                                        'provider_team_id': item['provider_team_id'],
+                                        'team_id_master': item['suggested_master_team_id'],
+                                        'match_method': 'manual_bulk',
+                                        'match_confidence': item.get('confidence_score', 0),
+                                        'review_status': 'approved'
+                                    }).execute()
+                                    db.table('team_match_review_queue').update({'status': 'approved'}).eq('id', item['id']).execute()
+                                except:
+                                    pass
+                                progress.progress((i + 1) / len(high_conf))
+                            st.success(f"✅ Approved {len(high_conf)} matches!")
+                            st.rerun()
+                        else:
+                            st.info("No matches with 75%+ confidence")
+                            
+        except Exception as e:
+            st.error(f"Error loading review queue: {e}")
+            st.code(str(e))
 
 # ============================================================================
 # DATABASE IMPORT STATS SECTION
