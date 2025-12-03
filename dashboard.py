@@ -1519,7 +1519,7 @@ elif section == "📋 Modular11 Team Review":
                                             'provider_id': provider_id,
                                             'provider_team_id': item['provider_team_id'],
                                             'team_id_master': new_team_id,
-                                            'match_method': 'manual_created',
+                                            'match_method': 'manual',
                                             'match_confidence': 1.0,
                                             'review_status': 'approved'
                                         }).execute()
