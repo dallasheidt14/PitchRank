@@ -96,6 +96,49 @@ class Layer13Config:
 
 
 # ----------------------------
+# Ranking helper with SOS tiebreaker
+# ----------------------------
+def _rank_with_sos_tiebreaker(
+    df: pd.DataFrame,
+    cohort_cols: List[str],
+    score_col: str,
+    sos_col: str = "sos"
+) -> pd.Series:
+    """
+    Calculate ranks with SOS as tiebreaker for teams with same score.
+
+    Args:
+        df: DataFrame with teams
+        cohort_cols: Columns defining cohorts (e.g., ["age", "gender"])
+        score_col: Column to rank by (e.g., "powerscore_ml")
+        sos_col: Column to use as tiebreaker (default: "sos")
+
+    Returns:
+        Series of integer ranks (1-based, no ties)
+    """
+    if df.empty:
+        return pd.Series(dtype=int)
+
+    # If SOS column doesn't exist, fall back to original ranking
+    if sos_col not in df.columns:
+        return df.groupby(list(cohort_cols))[score_col].rank(
+            ascending=False, method="min"
+        ).astype(int)
+
+    # Sort by cohort, then score DESC, then SOS DESC (tiebreaker)
+    sort_cols = list(cohort_cols) + [score_col, sos_col]
+    ascending = [True] * len(cohort_cols) + [False, False]
+
+    df_sorted = df.sort_values(sort_cols, ascending=ascending).copy()
+
+    # Assign unique ranks within each cohort
+    df_sorted["_rank"] = df_sorted.groupby(list(cohort_cols)).cumcount() + 1
+
+    # Return ranks in original order
+    return df_sorted["_rank"].reindex(df.index).astype(int)
+
+
+# ----------------------------
 # Game residual extraction
 # ----------------------------
 def _extract_game_residuals(feats: pd.DataFrame, games_df: pd.DataFrame, cfg: Layer13Config) -> pd.DataFrame:
@@ -189,14 +232,11 @@ async def apply_predictive_adjustment(
         out["powerscore_ml"] = out.get("powerscore_adj", out.get("powerscore_core", 0.0))
         # Clamp PowerScore within [0.0, 1.0] to preserve normalization bounds
         out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
-        out["rank_in_cohort_ml"] = (
-            out.groupby(list(cfg.cohort_key_cols))["powerscore_ml"]
-               .rank(ascending=False, method="min")
-        ).astype(int)
+        out["rank_in_cohort_ml"] = _rank_with_sos_tiebreaker(out, cfg.cohort_key_cols, "powerscore_ml")
         if return_game_residuals:
             return out, pd.DataFrame(columns=['game_id', 'residual'])
         return out
-    
+
     # 1) Acquire training data
     if games_used_df is None or games_used_df.empty:
         games_df = await _fetch_games_from_supabase(
@@ -239,14 +279,11 @@ async def apply_predictive_adjustment(
         out["powerscore_ml"] = out.get("powerscore_adj", out.get("powerscore_core", 0.0))
         # Clamp PowerScore within [0.0, 1.0] to preserve normalization bounds
         out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
-        out["rank_in_cohort_ml"] = (
-            out.groupby(list(cfg.cohort_key_cols))["powerscore_ml"]
-               .rank(ascending=False, method="min")
-        ).astype(int)
+        out["rank_in_cohort_ml"] = _rank_with_sos_tiebreaker(out, cfg.cohort_key_cols, "powerscore_ml")
         if return_game_residuals:
             return out, pd.DataFrame(columns=['game_id', 'residual'])
         return out
-    
+
     # 2) Build feature matrix from games + current powers
     base_power_col = "powerscore_adj" if "powerscore_adj" in out.columns else "powerscore_core"
     power_map = dict(zip(out["team_id"].astype(str), out[base_power_col].astype(float)))
@@ -288,14 +325,11 @@ async def apply_predictive_adjustment(
         out["powerscore_ml"] = out[base_power_col]
         # Clamp PowerScore within [0.0, 1.0] to preserve normalization bounds
         out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
-        out["rank_in_cohort_ml"] = (
-            out.groupby(list(cfg.cohort_key_cols))["powerscore_ml"]
-               .rank(ascending=False, method="min")
-        ).astype(int)
+        out["rank_in_cohort_ml"] = _rank_with_sos_tiebreaker(out, cfg.cohort_key_cols, "powerscore_ml")
         if return_game_residuals:
             return out, pd.DataFrame(columns=['game_id', 'ml_overperformance'])
         return out
-    
+
     # 3) Fit model and compute residuals (with ML leakage protection)
     # 30-day time-based split to prevent leakage
     if "date" in feats.columns and len(feats) > 0:
@@ -314,10 +348,7 @@ async def apply_predictive_adjustment(
             out["ml_norm"] = 0.0
             out["powerscore_ml"] = out.get("powerscore_adj", out.get("powerscore_core", 0.0))
             out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
-            out["rank_in_cohort_ml"] = (
-                out.groupby(list(cfg.cohort_key_cols))["powerscore_ml"]
-                   .rank(ascending=False, method="min")
-            ).astype(int)
+            out["rank_in_cohort_ml"] = _rank_with_sos_tiebreaker(out, cfg.cohort_key_cols, "powerscore_ml")
             if return_game_residuals:
                 return out, pd.DataFrame(columns=['game_id', 'ml_overperformance'])
             return out
@@ -330,10 +361,7 @@ async def apply_predictive_adjustment(
         out["ml_norm"] = 0.0
         out["powerscore_ml"] = out.get("powerscore_adj", out.get("powerscore_core", 0.0))
         out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
-        out["rank_in_cohort_ml"] = (
-            out.groupby(list(cfg.cohort_key_cols))["powerscore_ml"]
-               .rank(ascending=False, method="min")
-        ).astype(int)
+        out["rank_in_cohort_ml"] = _rank_with_sos_tiebreaker(out, cfg.cohort_key_cols, "powerscore_ml")
         if return_game_residuals:
             return out, pd.DataFrame(columns=['game_id', 'ml_overperformance'])
         return out
@@ -357,10 +385,7 @@ async def apply_predictive_adjustment(
     out["powerscore_ml"] = out[base_power_col] + cfg.alpha * out["ml_norm"]
     # Clamp PowerScore within [0.0, 1.0] to preserve normalization bounds
     out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
-    out["rank_in_cohort_ml"] = (
-        out.groupby(list(cfg.cohort_key_cols))["powerscore_ml"]
-           .rank(ascending=False, method="min")
-    ).astype(int)
+    out["rank_in_cohort_ml"] = _rank_with_sos_tiebreaker(out, cfg.cohort_key_cols, "powerscore_ml")
 
     # 7) Extract per-game residuals if requested
     if return_game_residuals:
