@@ -1,6 +1,7 @@
 /**
  * Analytics Event Payload Types
  * Type definitions for GA4 custom event payloads
+ * Note: These types use `| null` to match database types (TeamWithRanking, etc.)
  */
 
 /**
@@ -11,11 +12,11 @@ export interface TeamEventPayload {
   team_name: string;
   club_name?: string | null;
   state?: string | null;
-  age?: number;
-  gender?: 'M' | 'F' | 'B' | 'G';
+  age?: number | null;
+  gender?: 'M' | 'F' | 'B' | 'G' | null;
   rank_in_cohort_final?: number | null;
   rank_in_state_final?: number | null;
-  power_score_final?: number;
+  power_score_final?: number | null;
 }
 
 /**
@@ -34,7 +35,7 @@ export interface SortEventPayload {
   column: string;
   direction: 'asc' | 'desc';
   region?: string | null;
-  age_group?: string;
+  age_group?: string | null;
   gender?: string | null;
 }
 
@@ -63,10 +64,10 @@ export interface PredictionEventPayload {
   team_a_name: string;
   team_b_id: string;
   team_b_name: string;
-  win_probability_a?: number;
-  win_probability_b?: number;
-  draw_probability?: number;
-  predicted_winner?: string;
+  win_probability_a?: number | null;
+  win_probability_b?: number | null;
+  draw_probability?: number | null;
+  predicted_winner?: string | null;
 }
 
 /**
@@ -75,7 +76,7 @@ export interface PredictionEventPayload {
 export interface ChartViewEventPayload {
   chart_type: 'momentum' | 'trajectory';
   team_id_master: string;
-  team_name?: string;
+  team_name?: string | null;
 }
 
 /**
@@ -84,5 +85,5 @@ export interface ChartViewEventPayload {
 export interface MissingGameEventPayload {
   team_id_master: string;
   team_name: string;
-  game_date?: string;
+  game_date?: string | null;
 }
