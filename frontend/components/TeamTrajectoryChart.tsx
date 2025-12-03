@@ -17,9 +17,10 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { useTeamTrajectory } from '@/lib/hooks';
-import { useMemo } from 'react';
+import { useMemo, useEffect, useRef } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { trackChartViewed } from '@/lib/events';
 
 interface TeamTrajectoryChartProps {
   teamId: string;
@@ -30,6 +31,18 @@ interface TeamTrajectoryChartProps {
  */
 export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
   const { data: trajectory, isLoading, isError, error, refetch } = useTeamTrajectory(teamId, 30);
+  const hasTrackedView = useRef(false);
+
+  // Track chart view when trajectory data loads
+  useEffect(() => {
+    if (trajectory && trajectory.length > 0 && !hasTrackedView.current) {
+      hasTrackedView.current = true;
+      trackChartViewed({
+        chart_type: 'trajectory',
+        team_id_master: teamId,
+      });
+    }
+  }, [trajectory, teamId]);
 
   const chartData = useMemo(() => {
     if (!trajectory || trajectory.length === 0) return [];

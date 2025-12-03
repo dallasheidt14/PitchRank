@@ -11,6 +11,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { US_STATES } from "@/lib/constants";
+import { trackFilterApplied } from "@/lib/events";
 
 interface RankingsFilterProps {
   onFilterChange?: (region: string, ageGroup: string, gender: string) => void;
@@ -34,6 +35,22 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
   const [region, setRegion] = useState(currentRegion);
   const [ageGroup, setAgeGroup] = useState(currentAgeGroup);
   const [gender, setGender] = useState(currentGender);
+
+  // Handlers that track filter changes
+  const handleRegionChange = (newRegion: string) => {
+    setRegion(newRegion);
+    trackFilterApplied({ region: newRegion, age_group: ageGroup, gender });
+  };
+
+  const handleAgeGroupChange = (newAgeGroup: string) => {
+    setAgeGroup(newAgeGroup);
+    trackFilterApplied({ region, age_group: newAgeGroup, gender });
+  };
+
+  const handleGenderChange = (newGender: string) => {
+    setGender(newGender);
+    trackFilterApplied({ region, age_group: ageGroup, gender: newGender });
+  };
 
   // Keep dropdowns in sync with the URL when user navigates via links
   // Skip sync if we're the ones causing the navigation (prevents infinite loop)
@@ -101,7 +118,7 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
         {/* Region */}
         <div className="flex flex-col w-full sm:w-auto min-w-[200px]">
           <label className="text-sm font-semibold text-foreground uppercase tracking-wide mb-2">Region</label>
-          <Select value={region} onValueChange={setRegion}>
+          <Select value={region} onValueChange={handleRegionChange}>
             <SelectTrigger className="w-full h-11 font-medium">
               <SelectValue placeholder="Select region" />
             </SelectTrigger>
@@ -119,7 +136,7 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
         {/* Age Group */}
         <div className="flex flex-col w-full sm:w-auto min-w-[160px]">
           <label className="text-sm font-semibold text-foreground uppercase tracking-wide mb-2">Age Group</label>
-          <Select value={ageGroup} onValueChange={setAgeGroup}>
+          <Select value={ageGroup} onValueChange={handleAgeGroupChange}>
             <SelectTrigger className="w-full h-11 font-medium">
               <SelectValue placeholder="Select age group" />
             </SelectTrigger>
@@ -140,7 +157,7 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
         {/* Gender */}
         <div className="flex flex-col w-full sm:w-auto min-w-[160px]">
           <label className="text-sm font-semibold text-foreground uppercase tracking-wide mb-2">Gender</label>
-          <Select value={gender} onValueChange={setGender}>
+          <Select value={gender} onValueChange={handleGenderChange}>
             <SelectTrigger className="w-full h-11 font-medium">
               <SelectValue placeholder="Select gender" />
             </SelectTrigger>
