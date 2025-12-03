@@ -118,10 +118,10 @@ export function ComparePanel() {
     if (matchPrediction && team1Details && team2Details && !hasTrackedPrediction.current) {
       hasTrackedPrediction.current = true;
       const prediction = matchPrediction.prediction;
-      const predictedWinner =
-        prediction.winA > prediction.winB
+      const predictedWinnerName =
+        prediction.predictedWinner === 'team_a'
           ? team1Details.team_name
-          : prediction.winB > prediction.winA
+          : prediction.predictedWinner === 'team_b'
           ? team2Details.team_name
           : 'Draw';
 
@@ -130,10 +130,10 @@ export function ComparePanel() {
         team_a_name: team1Details.team_name,
         team_b_id: team2Details.team_id_master,
         team_b_name: team2Details.team_name,
-        win_probability_a: prediction.winA,
-        win_probability_b: prediction.winB,
-        draw_probability: prediction.draw,
-        predicted_winner: predictedWinner,
+        win_probability_a: prediction.winProbabilityA,
+        win_probability_b: prediction.winProbabilityB,
+        draw_probability: prediction.predictedWinner === 'draw' ? 1 : 0,
+        predicted_winner: predictedWinnerName,
       });
     }
   }, [matchPrediction, team1Details, team2Details]);
