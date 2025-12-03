@@ -626,7 +626,13 @@ def compute_rankings(
     # Use base strength for initial SOS calculation (Pass 1)
     # This represents how good opponents are at OFF/DEF
     # For cross-age/cross-gender opponents, use global_strength_map if available
+
+    # Diagnostic: track cross-age lookups
+    cross_age_found = 0
+    cross_age_missing = 0
+
     def get_opponent_strength(opp_id):
+        nonlocal cross_age_found, cross_age_missing
         # Try local cohort first (same age/gender)
         if opp_id in base_strength_map:
             return base_strength_map[opp_id]
@@ -634,11 +640,19 @@ def compute_rankings(
         # global_strength_map uses string keys, so convert opp_id to string
         opp_id_str = str(opp_id)
         if global_strength_map and opp_id_str in global_strength_map:
+            cross_age_found += 1
             return global_strength_map[opp_id_str]
         # Unknown opponent
+        cross_age_missing += 1
         return cfg.UNRANKED_SOS_BASE
 
     g_sos["opp_strength"] = g_sos["opp_id"].map(get_opponent_strength)
+
+    # Log cross-age lookup stats
+    logger.info(
+        f"🔍 Cross-age SOS lookups: global_map_size={len(global_strength_map) if global_strength_map else 0}, "
+        f"found={cross_age_found}, missing={cross_age_missing}"
+    )
 
     direct = (
         g_sos.groupby("team_id", group_keys=False).apply(
