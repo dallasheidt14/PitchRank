@@ -906,21 +906,25 @@ def compute_rankings(
     # Filter active teams, sort, rank, then merge back using team_id as key
     active_mask = team["status"] == "Active"
     active_teams = team[active_mask].copy()
-    
+
     if not active_teams.empty:
-        # Sort active teams for ranking
-        active_teams = active_teams.sort_values(["gender", "age", "powerscore_adj"], ascending=[True, True, False]).reset_index(drop=True)
-        # Calculate ranks for active teams only
-        active_teams["rank_in_cohort"] = active_teams.groupby(["age", "gender"])["powerscore_adj"].rank(
-            ascending=False, method="min"
-        ).astype(int)
-        
+        # Sort active teams for ranking: powerscore DESC, then SOS DESC (tiebreaker)
+        # This ensures teams with same PowerScore are differentiated by schedule strength
+        active_teams = active_teams.sort_values(
+            ["gender", "age", "powerscore_adj", "sos"],
+            ascending=[True, True, False, False]
+        ).reset_index(drop=True)
+
+        # Calculate unique ranks based on sort order (no ties)
+        # Teams with same PowerScore but different SOS get different ranks
+        active_teams["rank_in_cohort"] = active_teams.groupby(["age", "gender"]).cumcount() + 1
+
         # Merge ranks back into full team DataFrame using team_id as key
         rank_map = dict(zip(active_teams["team_id"], active_teams["rank_in_cohort"]))
         team.loc[active_mask, "rank_in_cohort"] = team.loc[active_mask, "team_id"].map(rank_map)
-    
-    # Sort full team DataFrame for consistent output order
-    team = team.sort_values(["gender", "age", "powerscore_adj"], ascending=[True, True, False]).reset_index(drop=True)
+
+    # Sort full team DataFrame for consistent output order (with SOS tiebreaker)
+    team = team.sort_values(["gender", "age", "powerscore_adj", "sos"], ascending=[True, True, False, False]).reset_index(drop=True)
 
     # outputs
     games_used_cols = [
