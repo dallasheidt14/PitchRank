@@ -1438,6 +1438,101 @@ elif section == "📋 Modular11 Team Review":
                                                 st.error(f"Error: {e}")
                                 else:
                                     st.caption("No teams found")
+                        
+                        # Create New Team section
+                        st.divider()
+                        with st.expander("➕ Create New Team", expanded=False):
+                            st.markdown("*Create a new team in the database and map this Modular11 team to it*")
+                            
+                            # Pre-fill from Modular11 data
+                            m11_name = item.get('provider_team_name', '')
+                            m11_club = details.get('club_name', '')
+                            m11_age = details.get('age_group', 'U13')
+                            
+                            col_a, col_b = st.columns(2)
+                            with col_a:
+                                new_team_name = st.text_input(
+                                    "Team Name *",
+                                    value=f"{m11_club} {m11_age} MLS NEXT",
+                                    key=f"new_name_{item['id']}",
+                                    help="e.g., 'City SC Southwest 2013 MLS NEXT'"
+                                )
+                                new_club_name = st.text_input(
+                                    "Club Name *",
+                                    value=m11_club,
+                                    key=f"new_club_{item['id']}"
+                                )
+                                new_age = st.selectbox(
+                                    "Age Group *",
+                                    options=['u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'u19'],
+                                    index=['u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'u19'].index(m11_age.lower()) if m11_age.lower() in ['u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'u19'] else 0,
+                                    key=f"new_age_{item['id']}"
+                                )
+                            with col_b:
+                                new_gender = st.selectbox(
+                                    "Gender *",
+                                    options=['Male', 'Female'],
+                                    index=0,
+                                    key=f"new_gender_{item['id']}"
+                                )
+                                new_state = st.text_input(
+                                    "State",
+                                    value="",
+                                    key=f"new_state_{item['id']}",
+                                    placeholder="e.g., California"
+                                )
+                                new_state_code = st.text_input(
+                                    "State Code",
+                                    value="",
+                                    key=f"new_state_code_{item['id']}",
+                                    placeholder="e.g., CA",
+                                    max_chars=2
+                                )
+                            
+                            if st.button("✅ Create Team & Map", key=f"create_{item['id']}", type="primary"):
+                                if not new_team_name or not new_club_name:
+                                    st.error("Team Name and Club Name are required!")
+                                else:
+                                    try:
+                                        import uuid
+                                        new_team_id = str(uuid.uuid4())
+                                        
+                                        # Create the new team
+                                        new_team_data = {
+                                            'team_id_master': new_team_id,
+                                            'team_name': new_team_name,
+                                            'club_name': new_club_name,
+                                            'age_group': new_age,
+                                            'gender': new_gender,
+                                            'provider_id': provider_id,
+                                            'provider_team_id': item['provider_team_id']
+                                        }
+                                        if new_state:
+                                            new_team_data['state'] = new_state
+                                        if new_state_code:
+                                            new_team_data['state_code'] = new_state_code.upper()
+                                        
+                                        db.table('teams').insert(new_team_data).execute()
+                                        
+                                        # Create the alias
+                                        db.table('team_alias_map').insert({
+                                            'provider_id': provider_id,
+                                            'provider_team_id': item['provider_team_id'],
+                                            'team_id_master': new_team_id,
+                                            'match_method': 'manual_created',
+                                            'match_confidence': 1.0,
+                                            'review_status': 'approved'
+                                        }).execute()
+                                        
+                                        # Update queue status
+                                        db.table('team_match_review_queue').update({
+                                            'status': 'approved'
+                                        }).eq('id', item['id']).execute()
+                                        
+                                        st.success(f"✅ Created team '{new_team_name}' and mapped!")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error creating team: {e}")
                 
                 st.divider()
                 st.markdown("### Bulk Actions")
