@@ -7,12 +7,13 @@ import { useTeam } from '@/lib/hooks';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { Star } from 'lucide-react';
 import { addToWatchlist, removeFromWatchlist, isWatched } from '@/lib/watchlist';
 import { formatPowerScore } from '@/lib/utils';
 import { ShareButtons } from '@/components/ShareButtons';
 import { TeamSchema } from '@/components/TeamSchema';
+import { trackTeamPageViewed, trackWatchlistAdded, trackWatchlistRemoved } from '@/lib/events';
 
 interface TeamHeaderProps {
   teamId: string;
@@ -24,6 +25,7 @@ interface TeamHeaderProps {
 export function TeamHeader({ teamId }: TeamHeaderProps) {
   const { data: team, isLoading: teamLoading, isError: teamError, error: teamErrorObj, refetch: refetchTeam } = useTeam(teamId);
   const [watched, setWatched] = useState(false);
+  const hasTrackedPageView = useRef(false);
 
   // Team data from api.getTeam already includes ranking data (TeamWithRanking)
   // Use it directly instead of looking it up in rankings list
@@ -46,13 +48,42 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
     }
   }, [teamId]);
 
+  // Track team page viewed once when team data loads
+  useEffect(() => {
+    if (team && !hasTrackedPageView.current) {
+      hasTrackedPageView.current = true;
+      trackTeamPageViewed({
+        team_id_master: team.team_id_master,
+        team_name: team.team_name,
+        club_name: team.club_name,
+        state: team.state,
+        age: team.age,
+        gender: team.gender,
+        rank_in_cohort_final: team.rank_in_cohort_final,
+        power_score_final: team.power_score_final,
+      });
+    }
+  }, [team]);
+
   const handleWatchToggle = () => {
+    if (!team) return;
+
+    const eventPayload = {
+      team_id_master: teamId,
+      team_name: team.team_name,
+      club_name: team.club_name,
+      state: team.state,
+      rank_in_cohort_final: team.rank_in_cohort_final,
+    };
+
     if (watched) {
       removeFromWatchlist(teamId);
       setWatched(false);
+      trackWatchlistRemoved(eventPayload);
     } else {
       addToWatchlist(teamId);
       setWatched(true);
+      trackWatchlistAdded(eventPayload);
     }
   };
 
