@@ -631,8 +631,10 @@ def compute_rankings(
         if opp_id in base_strength_map:
             return base_strength_map[opp_id]
         # Fall back to global map (cross-age/cross-gender)
-        if global_strength_map and opp_id in global_strength_map:
-            return global_strength_map[opp_id]
+        # global_strength_map uses string keys, so convert opp_id to string
+        opp_id_str = str(opp_id)
+        if global_strength_map and opp_id_str in global_strength_map:
+            return global_strength_map[opp_id_str]
         # Unknown opponent
         return cfg.UNRANKED_SOS_BASE
 
@@ -669,8 +671,10 @@ def compute_rankings(
             if opp_id in opp_sos_map:
                 return opp_sos_map[opp_id]
             # For cross-age opponents not in SOS map, use their global strength as proxy
-            if global_strength_map and opp_id in global_strength_map:
-                return global_strength_map[opp_id]
+            # global_strength_map uses string keys, so convert opp_id to string
+            opp_id_str = str(opp_id)
+            if global_strength_map and opp_id_str in global_strength_map:
+                return global_strength_map[opp_id_str]
             return cfg.UNRANKED_SOS_BASE
 
         g_sos["opp_sos"] = g_sos["opp_id"].map(get_opponent_sos)
