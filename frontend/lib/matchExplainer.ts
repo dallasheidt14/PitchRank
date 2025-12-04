@@ -214,12 +214,14 @@ function explainOffensiveMatchup(
 
   // Find the most significant offensive mismatch where offense beats defense
   let bestMatchup: { team: 'a' | 'b'; diff: number } | null = null;
+  let bestDiff = 0;
 
   // Only consider mismatches where offense is actually stronger than defense
-  if (matchupA > 0 && matchupA > (bestMatchup?.diff ?? 0)) {
+  if (matchupA > 0 && matchupA > bestDiff) {
     bestMatchup = { team: 'a', diff: matchupA };
+    bestDiff = matchupA;
   }
-  if (matchupB > 0 && matchupB > (bestMatchup?.diff ?? 0)) {
+  if (matchupB > 0 && matchupB > bestDiff) {
     bestMatchup = { team: 'b', diff: matchupB };
   }
 
