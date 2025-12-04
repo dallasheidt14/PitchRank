@@ -190,31 +190,58 @@ function explainRecentForm(
 
 /**
  * Generate explanation for offensive matchup
+ *
+ * Checks both offensive matchups:
+ * 1. Team A's offense vs Team B's defense
+ * 2. Team B's offense vs Team A's defense
+ *
+ * Only reports a mismatch when an offense is STRONGER than the opposing defense
+ * (i.e., offense percentile > defense percentile)
  */
 function explainOffensiveMatchup(
   teamA: TeamWithRanking,
   teamB: TeamWithRanking
 ): Explanation | null {
   const offenseA = teamA.offense_norm || 0.5;
+  const defenseA = teamA.defense_norm || 0.5;
+  const offenseB = teamB.offense_norm || 0.5;
   const defenseB = teamB.defense_norm || 0.5;
 
-  const matchupDiff = offenseA - defenseB;
-  const absDiff = Math.abs(matchupDiff);
+  // Calculate both offensive matchup advantages
+  // Positive means offense has advantage over opposing defense
+  const matchupA = offenseA - defenseB; // Team A offense vs Team B defense
+  const matchupB = offenseB - defenseA; // Team B offense vs Team A defense
 
-  const magnitude = getMagnitude(absDiff, { significant: 0.25, moderate: 0.15 });
+  // Find the most significant offensive mismatch where offense beats defense
+  let bestMatchup: { team: 'a' | 'b'; diff: number } | null = null;
+
+  // Only consider mismatches where offense is actually stronger than defense
+  if (matchupA > 0 && matchupA > (bestMatchup?.diff ?? 0)) {
+    bestMatchup = { team: 'a', diff: matchupA };
+  }
+  if (matchupB > 0 && matchupB > (bestMatchup?.diff ?? 0)) {
+    bestMatchup = { team: 'b', diff: matchupB };
+  }
+
+  // No significant offensive advantage found
+  if (!bestMatchup) return null;
+
+  const magnitude = getMagnitude(bestMatchup.diff, { significant: 0.25, moderate: 0.15 });
   if (magnitude === 'minimal') return null;
 
-  const advantage = matchupDiff > 0 ? 'team_a' : 'team_b';
-
   let description = '';
-  if (matchupDiff > 0) {
+  let advantage: 'team_a' | 'team_b';
+
+  if (bestMatchup.team === 'a') {
     const offPerc = formatPercentile(offenseA);
     const defPerc = formatPercentile(defenseB);
-    description = `${teamA.team_name}'s strong offense (${offPerc} percentile) faces ${teamB.team_name}'s weaker defense (${defPerc} percentile)`;
+    description = `${teamA.team_name}'s strong offense (${offPerc} percentile) should exploit ${teamB.team_name}'s weaker defense (${defPerc} percentile)`;
+    advantage = 'team_a';
   } else {
-    const offPerc = formatPercentile(teamB.offense_norm || 0.5);
-    const defPerc = formatPercentile(teamA.defense_norm || 0.5);
-    description = `${teamB.team_name}'s strong offense (${offPerc} percentile) faces ${teamA.team_name}'s weaker defense (${defPerc} percentile)`;
+    const offPerc = formatPercentile(offenseB);
+    const defPerc = formatPercentile(defenseA);
+    description = `${teamB.team_name}'s strong offense (${offPerc} percentile) should exploit ${teamA.team_name}'s weaker defense (${defPerc} percentile)`;
+    advantage = 'team_b';
   }
 
   return {
@@ -223,7 +250,7 @@ function explainOffensiveMatchup(
     magnitude,
     description,
     icon: '⚔️',
-    score: absDiff * 0.8,
+    score: bestMatchup.diff * 0.8,
   };
 }
 
