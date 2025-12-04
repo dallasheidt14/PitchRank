@@ -549,8 +549,20 @@ async def compute_all_cohorts(
 
     # Ensure age_num exists after metadata merge (fallback safety check)
     if 'age_num' not in teams_combined.columns and 'age' in teams_combined.columns:
-        teams_combined['age_num'] = teams_combined['age'].astype(int)
-        logger.info("✅ Recreated age_num from age column after metadata merge")
+        try:
+            # Convert age to numeric, coercing errors to NaN
+            age_numeric = pd.to_numeric(teams_combined['age'], errors='coerce')
+            teams_combined['age_num'] = age_numeric.fillna(0).astype(int)
+
+            # Log any teams with invalid ages
+            invalid_count = age_numeric.isna().sum()
+            if invalid_count > 0:
+                logger.warning(f"⚠️ {invalid_count} teams had invalid age values, defaulting to 0")
+
+            logger.info("✅ Recreated age_num from age column after metadata merge")
+        except Exception as e:
+            logger.error(f"❌ Failed to create age_num column: {e}")
+            teams_combined['age_num'] = 0  # Default to 0, will get no anchor scaling
 
     # ========== National SOS Metrics (for display only) ==========
     # NOTE: PowerScore uses cohort-level sos_norm from v53e.compute_rankings().
@@ -674,7 +686,29 @@ async def compute_all_cohorts(
                 
                 # Update power_score_final for this age group
                 teams_combined.loc[mask, 'power_score_final'] = ps_scaled.values
-    
+
+            # Check for teams that didn't get anchor scaling (ages outside 10-19 range)
+            if 'power_score_final' in teams_combined.columns:
+                unscaled_mask = teams_combined['power_score_final'].isna()
+                unscaled_count = unscaled_mask.sum()
+                if unscaled_count > 0:
+                    logger.warning(f"⚠️ {unscaled_count} teams didn't match any anchor age - applying fallback scaling")
+                    # For teams outside age range, use median anchor (0.70) and apply scaling
+                    fallback_anchor = 0.70
+                    for idx in teams_combined[unscaled_mask].index:
+                        if 'powerscore_ml' in teams_combined.columns and pd.notna(teams_combined.loc[idx, 'powerscore_ml']):
+                            base_score = float(teams_combined.loc[idx, 'powerscore_ml'])
+                        elif 'powerscore_adj' in teams_combined.columns and pd.notna(teams_combined.loc[idx, 'powerscore_adj']):
+                            base_score = float(teams_combined.loc[idx, 'powerscore_adj'])
+                        else:
+                            base_score = 0.5
+                        teams_combined.loc[idx, 'power_score_final'] = min(base_score * fallback_anchor, fallback_anchor)
+
+                # Verify all teams have anchor-scaled power_score_final
+                still_null = teams_combined['power_score_final'].isna().sum()
+                if still_null > 0:
+                    logger.error(f"❌ {still_null} teams still have NULL power_score_final after anchor scaling!")
+
     # 🔒 Ensure PowerScore is fully clipped to [0, 1] after all operations
     if not teams_combined.empty:
         cols_to_clip = ["powerscore_core", "powerscore_adj", "powerscore_ml", "power_score_final"]
