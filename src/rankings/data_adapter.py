@@ -564,8 +564,9 @@ def v53e_to_rankings_full_format(
     # This ensures teams are ranked in the age group they actually played in, not their registration
     if 'age' in rankings_df.columns:
         rankings_df['age_group'] = rankings_df['age'].apply(lambda x: f"u{int(float(x))}" if pd.notna(x) and str(x).strip() else None)
-        # Create numeric age column for anchor scaling
-        rankings_df['age_num'] = rankings_df['age'].astype(int)
+        # Create numeric age column for anchor scaling (safely handle non-numeric values)
+        age_numeric = pd.to_numeric(rankings_df['age'], errors='coerce')
+        rankings_df['age_num'] = age_numeric.fillna(0).astype(int)
     
     # Normalize gender to match database format (Male/Female)
     # CRITICAL: gender is NOT NULL in rankings_full, so ensure it's always populated
@@ -760,6 +761,13 @@ def v53e_to_rankings_full_format(
     if 'global_power_score' not in rankings_df.columns:
         rankings_df['global_power_score'] = None
     
+    # Anchor values for age-based power score scaling
+    AGE_ANCHORS = {
+        10: 0.400, 11: 0.475, 12: 0.550, 13: 0.625,
+        14: 0.700, 15: 0.775, 16: 0.850, 17: 0.925,
+        18: 1.000, 19: 1.000,
+    }
+
     # Calculate power_score_final with fallback
     # If power_score_final already exists and has non-null values (e.g., from anchor scaling in compute_all_cohorts),
     # preserve it instead of recalculating
@@ -769,17 +777,36 @@ def v53e_to_rankings_full_format(
         # Just ensure it's clipped (should already be, but safety check)
         rankings_df['power_score_final'] = rankings_df['power_score_final'].clip(0.0, 1.0)
     else:
-        # Calculate power_score_final from fallback sources
-        logger.info("⚠️  power_score_final not found or all null - calculating from fallback sources")
-        rankings_df['power_score_final'] = rankings_df.apply(
-            lambda row: (
-                row['powerscore_ml'] if pd.notna(row.get('powerscore_ml')) else
-                row['global_power_score'] if pd.notna(row.get('global_power_score')) else
-                row['powerscore_adj'] if pd.notna(row.get('powerscore_adj')) else
-                row['national_power_score']
-            ),
-            axis=1
-        ).clip(0.0, 1.0)
+        # Calculate power_score_final from fallback sources WITH anchor scaling
+        logger.warning("⚠️  power_score_final not found or all null - calculating from fallback sources WITH anchor scaling")
+
+        def calculate_anchor_scaled_power(row):
+            # Get base power score
+            if pd.notna(row.get('powerscore_ml')):
+                base = float(row['powerscore_ml'])
+            elif pd.notna(row.get('global_power_score')):
+                base = float(row['global_power_score'])
+            elif pd.notna(row.get('powerscore_adj')):
+                base = float(row['powerscore_adj'])
+            elif pd.notna(row.get('national_power_score')):
+                base = float(row['national_power_score'])
+            else:
+                base = 0.5
+
+            # Clip base to [0, 1]
+            base = max(0.0, min(1.0, base))
+
+            # Get anchor for this age
+            age_num = row.get('age_num', 0)
+            if pd.isna(age_num):
+                age_num = 0
+            age_num = int(age_num)
+            anchor = AGE_ANCHORS.get(age_num, 0.70)  # Default to median anchor
+
+            # Apply anchor scaling and clip
+            return min(base * anchor, anchor)
+
+        rankings_df['power_score_final'] = rankings_df.apply(calculate_anchor_scaled_power, axis=1)
     
     # Rename team_id to match database column name
     rankings_df = rankings_df.rename(columns={'team_id': 'team_id'})
