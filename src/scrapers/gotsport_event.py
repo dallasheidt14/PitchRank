@@ -539,17 +539,29 @@ class GotSportEventScraper:
                                         team_id = match.group(1)
                                         team_name = link.get_text(strip=True) or link.get('title', '') or f"Team {team_id}"
                                         
-                                        # Extract age/gender from bracket name if possible
+                                        # Extract age_group - prioritize birth year in team name
                                         age_group = None
                                         gender = None
-                                        if re.search(r'U(\d+)', header_text, re.I):
+
+                                        # Method 1: Extract birth year from team name (priority)
+                                        birth_year_match = re.search(r'\b(20\d{2})\b', team_name)
+                                        if birth_year_match:
+                                            birth_year = int(birth_year_match.group(1))
+                                            current_year = 2025
+                                            age_group_number = current_year - birth_year + 1
+                                            if 7 <= age_group_number <= 19:
+                                                age_group = f"U{age_group_number}"
+
+                                        # Method 2: Fall back to bracket/header age
+                                        if not age_group and re.search(r'U(\d+)', header_text, re.I):
                                             age_match = re.search(r'U(\d+)', header_text, re.I)
                                             age_group = f"U{age_match.group(1)}"
+
                                         if re.search(r'\b(B|Boys|M|Male)\b', header_text, re.I):
                                             gender = 'M'
                                         elif re.search(r'\b(G|Girls|F|Female)\b', header_text, re.I):
                                             gender = 'F'
-                                        
+
                                         brackets[current_bracket].append(EventTeam(
                                             team_id=team_id,
                                             team_name=team_name,
@@ -590,11 +602,33 @@ class GotSportEventScraper:
                             
                             if bracket_name not in brackets:
                                 brackets[bracket_name] = []
-                            
+
+                            # Extract age_group from team name's birth year (priority)
+                            age_group = None
+                            gender = None
+                            birth_year_match = re.search(r'\b(20\d{2})\b', team_name)
+                            if birth_year_match:
+                                birth_year = int(birth_year_match.group(1))
+                                current_year = 2025
+                                age_group_number = current_year - birth_year + 1
+                                if 7 <= age_group_number <= 19:
+                                    age_group = f"U{age_group_number}"
+
+                            # Fall back to bracket name for age/gender
+                            if not age_group and re.search(r'U(\d+)', bracket_name, re.I):
+                                age_match = re.search(r'U(\d+)', bracket_name, re.I)
+                                age_group = f"U{age_match.group(1)}"
+                            if re.search(r'\b(B|Boys|M|Male)\b', bracket_name, re.I):
+                                gender = 'M'
+                            elif re.search(r'\b(G|Girls|F|Female)\b', bracket_name, re.I):
+                                gender = 'F'
+
                             brackets[bracket_name].append(EventTeam(
                                 team_id=team_id,
                                 team_name=team_name,
                                 bracket_name=bracket_name,
+                                age_group=age_group,
+                                gender=gender,
                                 division=bracket_name
                             ))
                 
