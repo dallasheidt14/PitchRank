@@ -15,12 +15,19 @@ import sys
 import re
 import argparse
 from datetime import datetime
+from pathlib import Path
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
-load_dotenv()
+
+# Load .env.local first if it exists
+env_local = Path('.env.local')
+if env_local.exists():
+    load_dotenv(env_local, override=True)
+else:
+    load_dotenv()
 
 from supabase import create_client
 
@@ -43,11 +50,40 @@ def calculate_age_group(birth_year: int) -> str:
 def extract_birth_year(team_name: str) -> int:
     """Extract birth year from team name.
 
-    Looks for 4-digit years starting with 20 (e.g., 2014, 2013).
+    Handles multiple formats:
+    - Single year: "Team 2014" → 2014
+    - Two years with slash: "Team 2013/2014" → 2013 (use older/first year)
+    - Two years with dash: "Team 2009-2010" → 2009 (use older/first year)
+    - Two years after letter: "B2013/2014" → 2013 (use older/first year)
+    
     Returns the birth year if found and valid, None otherwise.
     """
-    # Match years like 2014, 2013, 2015, etc.
-    match = re.search(r'\b(20\d{2})\b', team_name)
+    # First, check for two-year patterns like "2013/2014" or "2009-2010" or "B2013/2014"
+    # Use the FIRST (older) year in these cases
+    # Note: Using (?<![0-9]) instead of \b to allow patterns like "B2013/2014"
+    two_year_match = re.search(r'(?<![0-9])(20\d{2})[/-](20\d{2})(?![0-9])', team_name)
+    if two_year_match:
+        year1 = int(two_year_match.group(1))
+        year2 = int(two_year_match.group(2))
+        # Use the older (smaller) year
+        year = min(year1, year2)
+        if 2005 <= year <= 2018:
+            return year
+    
+    # Also check for patterns like "2013/14" or "2009/10" or "B2007/08" (short second year)
+    short_year_match = re.search(r'(?<![0-9])(20\d{2})[/-](\d{2})(?![0-9])', team_name)
+    if short_year_match:
+        year1 = int(short_year_match.group(1))
+        year2_short = int(short_year_match.group(2))
+        # Convert short year to full year (e.g., 14 -> 2014)
+        year2 = 2000 + year2_short
+        # Use the older (smaller) year
+        year = min(year1, year2)
+        if 2005 <= year <= 2018:
+            return year
+    
+    # Fall back to single year match
+    match = re.search(r'(?<![0-9])(20\d{2})(?![0-9])', team_name)
     if match:
         year = int(match.group(1))
         # Validate it's a reasonable birth year (2005-2018 for youth soccer)
@@ -79,18 +115,34 @@ def main():
     print(f"Mode: {'DRY RUN (no changes)' if args.dry_run else 'LIVE (applying changes)'}")
     print()
 
-    # Fetch all teams
+    # Fetch all teams with pagination
     print("📥 Fetching teams from database...")
 
-    query = client.table('teams').select('team_id_master, team_name, age_group, birth_year, gender, state_code')
+    teams = []
+    offset = 0
+    batch_size = 1000
 
-    if args.team_name:
-        query = query.ilike('team_name', f'%{args.team_name}%')
+    while True:
+        query = client.table('teams').select('team_id_master, team_name, age_group, birth_year, gender, state_code')
+        
+        if args.team_name:
+            query = query.ilike('team_name', f'%{args.team_name}%')
+        
+        query = query.range(offset, offset + batch_size - 1)
+        result = query.execute()
+        
+        if not result.data:
+            break
+        
+        teams.extend(result.data)
+        print(f"   Fetched {len(teams)} teams...")
+        
+        if len(result.data) < batch_size:
+            break
+        
+        offset += batch_size
 
-    result = query.execute()
-    teams = result.data if result.data else []
-
-    print(f"✅ Found {len(teams)} teams")
+    print(f"✅ Found {len(teams)} teams total")
     print()
 
     # Find mismatches
