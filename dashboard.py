@@ -4,6 +4,7 @@ import pandas as pd
 import os
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
+import time
 from supabase import create_client
 from config.settings import (
     RANKING_CONFIG,
@@ -40,6 +41,34 @@ def get_database():
     except Exception as e:
         st.error(f"Failed to connect to database: {e}")
         return None
+
+
+def execute_with_retry(query_func, max_retries=3, base_delay=1.0):
+    """
+    Execute a database query with exponential backoff retry logic.
+
+    Args:
+        query_func: A callable that returns a Supabase query builder with .execute()
+        max_retries: Maximum number of retry attempts
+        base_delay: Initial delay in seconds (doubles each retry)
+
+    Returns:
+        The query result on success
+
+    Raises:
+        The last exception if all retries fail
+    """
+    last_exception = None
+    for attempt in range(max_retries + 1):
+        try:
+            return query_func().execute()
+        except Exception as e:
+            last_exception = e
+            if attempt < max_retries:
+                delay = base_delay * (2 ** attempt)
+                time.sleep(delay)
+            else:
+                raise last_exception
 
 # Sidebar navigation
 st.sidebar.title("Navigation")
@@ -768,12 +797,15 @@ elif section == "🔎 Unknown Teams Mapper":
 
         try:
             # Get games with null master IDs (only use columns that exist in games table)
-            null_games = db.table('games').select(
-                'home_provider_id, away_provider_id, home_team_master_id, away_team_master_id, '
-                'game_date, provider_id'
-            ).or_('home_team_master_id.is.null,away_team_master_id.is.null').order(
-                'game_date', desc=True
-            ).limit(500).execute()
+            # Use retry logic to handle transient connection errors
+            null_games = execute_with_retry(
+                lambda: db.table('games').select(
+                    'home_provider_id, away_provider_id, home_team_master_id, away_team_master_id, '
+                    'game_date, provider_id'
+                ).or_('home_team_master_id.is.null,away_team_master_id.is.null').order(
+                    'game_date', desc=True
+                ).limit(500)
+            )
 
             if null_games.data:
                 # Extract unique unmapped provider IDs
@@ -806,14 +838,38 @@ elif section == "🔎 Unknown Teams Mapper":
                     # Sort by game count
                     sorted_teams = sorted(unmapped_teams.values(), key=lambda x: x['game_count'], reverse=True)
                     
-                    # Try to look up team names and age groups from teams table
+                    # Batch lookup: Get all team names and age groups in a single query
+                    # This replaces the N+1 query pattern that caused connection exhaustion
+                    provider_ids = [team['provider_id'] for team in sorted_teams]
+                    team_lookup_map = {}
+
+                    # Query in batches of 500 to stay within PostgREST limits
+                    batch_size = 500
+                    for i in range(0, len(provider_ids), batch_size):
+                        batch_ids = provider_ids[i:i + batch_size]
+                        try:
+                            batch_result = execute_with_retry(
+                                lambda ids=batch_ids: db.table('teams').select(
+                                    'provider_team_id, team_name, age_group'
+                                ).in_('provider_team_id', ids)
+                            )
+                            if batch_result.data:
+                                for row in batch_result.data:
+                                    pid = str(row.get('provider_team_id', ''))
+                                    team_lookup_map[pid] = {
+                                        'team_name': row.get('team_name', ''),
+                                        'age_group': row.get('age_group', '')
+                                    }
+                        except Exception as e:
+                            st.warning(f"Failed to fetch team details for batch {i//batch_size + 1}: {e}")
+
+                    # Apply lookup results to sorted_teams
                     for team in sorted_teams:
-                        team_lookup = db.table('teams').select('team_name, age_group').eq(
-                            'provider_team_id', team['provider_id']
-                        ).limit(1).execute()
-                        if team_lookup.data:
-                            team['team_name'] = team_lookup.data[0].get('team_name', f"ID: {team['provider_id']}")
-                            team['age_group'] = team_lookup.data[0].get('age_group', '')
+                        if team['provider_id'] in team_lookup_map:
+                            team['team_name'] = team_lookup_map[team['provider_id']].get(
+                                'team_name', f"ID: {team['provider_id']}"
+                            ) or f"ID: {team['provider_id']}"
+                            team['age_group'] = team_lookup_map[team['provider_id']].get('age_group', '')
                         else:
                             team['team_name'] = f"ID: {team['provider_id']}"
                             team['age_group'] = ''
