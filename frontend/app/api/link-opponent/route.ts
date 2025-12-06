@@ -76,25 +76,26 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. Create or update alias mapping (upsert)
+    // Ensure provider_team_id is a string (database column is TEXT)
+    const providerTeamIdStr = String(opponentProviderId);
+
     const { error: aliasError } = await supabase
       .from('team_alias_map')
       .upsert({
         provider_id: game.provider_id,
-        provider_team_id: opponentProviderId,
+        provider_team_id: providerTeamIdStr,
         team_id_master: teamIdMaster,
         match_method: 'manual_frontend',
         match_confidence: 1.0,
         review_status: 'approved',
-        created_at: new Date().toISOString(),
       }, {
-        onConflict: 'provider_id,provider_team_id',
-        ignoreDuplicates: false
+        onConflict: 'provider_id,provider_team_id'
       });
 
     if (aliasError) {
       console.error('[link-opponent] Failed to create alias:', aliasError);
       return NextResponse.json(
-        { error: 'Failed to create team alias mapping' },
+        { error: `Failed to create team alias mapping: ${aliasError.message}` },
         { status: 500 }
       );
     }
@@ -109,7 +110,7 @@ export async function POST(request: NextRequest) {
       const { count: homeCount } = await supabase
         .from('games')
         .select('id', { count: 'exact', head: true })
-        .eq('home_provider_id', opponentProviderId)
+        .eq('home_provider_id', providerTeamIdStr)
         .eq('provider_id', game.provider_id)
         .is('home_team_master_id', null);
 
@@ -117,7 +118,7 @@ export async function POST(request: NextRequest) {
       const { error: homeUpdateError } = await supabase
         .from('games')
         .update({ home_team_master_id: teamIdMaster })
-        .eq('home_provider_id', opponentProviderId)
+        .eq('home_provider_id', providerTeamIdStr)
         .eq('provider_id', game.provider_id)
         .is('home_team_master_id', null);
 
@@ -132,7 +133,7 @@ export async function POST(request: NextRequest) {
       const { count: awayCount } = await supabase
         .from('games')
         .select('id', { count: 'exact', head: true })
-        .eq('away_provider_id', opponentProviderId)
+        .eq('away_provider_id', providerTeamIdStr)
         .eq('provider_id', game.provider_id)
         .is('away_team_master_id', null);
 
@@ -140,7 +141,7 @@ export async function POST(request: NextRequest) {
       const { error: awayUpdateError } = await supabase
         .from('games')
         .update({ away_team_master_id: teamIdMaster })
-        .eq('away_provider_id', opponentProviderId)
+        .eq('away_provider_id', providerTeamIdStr)
         .eq('provider_id', game.provider_id)
         .is('away_team_master_id', null);
 
@@ -157,7 +158,7 @@ export async function POST(request: NextRequest) {
       const { error: auditError } = await supabase
         .from('team_link_audit')
         .insert({
-          provider_team_id: opponentProviderId,
+          provider_team_id: providerTeamIdStr,
           team_id_master: teamIdMaster,
           provider_id: game.provider_id,
           games_updated: gamesUpdated,
