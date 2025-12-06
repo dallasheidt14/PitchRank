@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
         provider_id: game.provider_id,
         provider_team_id: providerTeamIdStr,
         team_id_master: teamIdMaster,
-        match_method: 'manual_frontend',
+        match_method: 'manual',  // Valid values: auto, manual, import, direct_id, fuzzy_auto, fuzzy_review
         match_confidence: 1.0,
         review_status: 'approved',
       }, {
