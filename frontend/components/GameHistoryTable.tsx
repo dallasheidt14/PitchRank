@@ -19,6 +19,7 @@ import Link from 'next/link';
 import { usePrefetchTeam } from '@/lib/hooks';
 import type { GameWithTeams } from '@/lib/types';
 import { MissingGamesForm } from '@/components/MissingGamesForm';
+import { UnknownOpponentLink } from '@/components/UnknownOpponentLink';
 
 interface GameHistoryTableProps {
   teamId: string;
@@ -102,6 +103,11 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
   const getOpponentId = useCallback((game: GameWithTeams, currentTeamId: string) => {
     const isHome = game.home_team_master_id === currentTeamId;
     return isHome ? game.away_team_master_id : game.home_team_master_id;
+  }, []);
+
+  const getOpponentProviderId = useCallback((game: GameWithTeams, currentTeamId: string) => {
+    const isHome = game.home_team_master_id === currentTeamId;
+    return isHome ? game.away_provider_id : game.home_provider_id;
   }, []);
 
   const getScore = useCallback((game: GameWithTeams, currentTeamId: string) => {
@@ -219,6 +225,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
               const opponent = getOpponent(game, teamId);
               const opponentClub = getOpponentClub(game, teamId);
               const opponentId = getOpponentId(game, teamId);
+              const opponentProviderId = getOpponentProviderId(game, teamId);
               const score = getScore(game, teamId);
 
               return (
@@ -247,6 +254,13 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                           </span>
                         )}
                       </div>
+                    ) : opponentProviderId ? (
+                      <UnknownOpponentLink
+                        game={game}
+                        currentTeamId={teamId}
+                        opponentProviderId={opponentProviderId}
+                        onLinked={() => refetch()}
+                      />
                     ) : (
                       <span className="text-muted-foreground">{opponent || 'Unknown'}</span>
                     )}
