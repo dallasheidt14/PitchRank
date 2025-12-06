@@ -31,6 +31,7 @@ interface PreviewData {
   totalGamesAffected: number;
   asHomeTeam: number;
   asAwayTeam: number;
+  providerName?: string;
   previewGames: Array<{
     id: string;
     gameDate: string;
@@ -321,6 +322,9 @@ export function UnknownOpponentLink({
               <div className="col-span-2">
                 <span className="text-muted-foreground">Provider ID:</span>{' '}
                 <code className="text-xs bg-muted px-1 py-0.5 rounded">{opponentProviderId}</code>
+                {previewData?.providerName && (
+                  <span className="text-xs text-muted-foreground ml-1">({previewData.providerName})</span>
+                )}
               </div>
             </div>
           </div>
