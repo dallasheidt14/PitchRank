@@ -55,6 +55,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Get the provider name for display
+    let providerName = 'Unknown';
+    if (game.provider_id) {
+      const { data: provider } = await supabase
+        .from('providers')
+        .select('name, code')
+        .eq('id', game.provider_id)
+        .single();
+
+      if (provider) {
+        providerName = provider.name || provider.code || 'Unknown';
+      }
+    }
+
     // Count games that would be affected
     const { data: homeGames, error: homeError } = await supabase
       .from('games')
@@ -152,6 +166,7 @@ export async function POST(request: NextRequest) {
       success: true,
       opponentProviderId,
       providerId: game.provider_id,
+      providerName,
       totalGamesAffected: (homeCount || 0) + (awayCount || 0),
       asHomeTeam: homeCount || 0,
       asAwayTeam: awayCount || 0,
