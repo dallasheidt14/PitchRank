@@ -21,6 +21,7 @@ import { useMemo, useEffect, useRef } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { trackChartViewed } from '@/lib/events';
+import { formatChartDate } from '@/lib/dateUtils';
 
 interface TeamTrajectoryChartProps {
   teamId: string;
@@ -49,10 +50,7 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
 
     // First pass: calculate base data
     const baseData = trajectory.map((point) => ({
-      period: new Date(point.period_start).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-      }),
+      period: formatChartDate(point.period_start),
       goalDifferential: point.avg_goals_for - point.avg_goals_against,
       avgGoalsFor: point.avg_goals_for,
       avgGoalsAgainst: point.avg_goals_against,
