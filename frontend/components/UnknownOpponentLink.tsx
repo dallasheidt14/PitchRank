@@ -27,6 +27,7 @@ import {
 import type Fuse from 'fuse.js';
 import type { RankingRow } from '@/types/RankingRow';
 import type { GameWithTeams } from '@/lib/types';
+import { formatGameDate } from '@/lib/dateUtils';
 
 interface UnknownOpponentLinkProps {
   game: GameWithTeams;
@@ -176,12 +177,8 @@ export function UnknownOpponentLink({
     }
   }, [FuseClass]);
 
-  // Format game date
-  const gameDate = new Date(game.game_date).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  // Format game date (using timezone-safe utility)
+  const gameDate = formatGameDate(game.game_date);
 
   // Get score
   const isHome = game.home_team_master_id === currentTeamId;
