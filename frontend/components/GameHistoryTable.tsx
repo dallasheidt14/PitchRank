@@ -14,7 +14,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useTeamGames, useTeam } from '@/lib/hooks';
-// Using native Date formatting instead of date-fns
+import { formatGameDate } from '@/lib/dateUtils';
 import Link from 'next/link';
 import { usePrefetchTeam } from '@/lib/hooks';
 import type { GameWithTeams } from '@/lib/types';
@@ -231,11 +231,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
               return (
                 <TableRow key={game.id}>
                   <TableCell className="text-sm">
-                    {new Date(game.game_date).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })}
+                    {formatGameDate(game.game_date)}
                   </TableCell>
                   <TableCell>
                     {opponentId && opponent ? (
