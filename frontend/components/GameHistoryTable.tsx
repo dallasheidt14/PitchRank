@@ -260,6 +260,8 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                         currentTeamId={teamId}
                         opponentProviderId={opponentProviderId}
                         onLinked={() => refetch()}
+                        defaultAge={team?.age}
+                        defaultGender={team?.gender}
                       />
                     ) : (
                       <span className="text-muted-foreground">{opponent || 'Unknown'}</span>
