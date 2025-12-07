@@ -7,13 +7,27 @@ import { useTeam } from '@/lib/hooks';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useMemo, useState, useEffect, useRef } from 'react';
-import { Star } from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import { Star, ChevronDown, Loader2 } from 'lucide-react';
 import { addToWatchlist, removeFromWatchlist, isWatched } from '@/lib/watchlist';
 import { formatPowerScore } from '@/lib/utils';
 import { ShareButtons } from '@/components/ShareButtons';
 import { TeamSchema } from '@/components/TeamSchema';
 import { trackTeamPageViewed, trackWatchlistAdded, trackWatchlistRemoved } from '@/lib/events';
+
+interface TeamAlias {
+  id: string;
+  provider_team_id: string;
+  match_method: string;
+  match_confidence: number;
+  review_status: string;
+  created_at: string;
+  provider: {
+    id: string;
+    name: string;
+  } | null;
+}
 
 interface TeamHeaderProps {
   teamId: string;
@@ -26,6 +40,38 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
   const { data: team, isLoading: teamLoading, isError: teamError, error: teamErrorObj, refetch: refetchTeam } = useTeam(teamId);
   const [watched, setWatched] = useState(false);
   const hasTrackedPageView = useRef(false);
+
+  // Aliases popover state
+  const [aliasesOpen, setAliasesOpen] = useState(false);
+  const [aliases, setAliases] = useState<TeamAlias[]>([]);
+  const [aliasesLoading, setAliasesLoading] = useState(false);
+  const [aliasesFetched, setAliasesFetched] = useState(false);
+
+  // Fetch aliases when popover opens
+  const fetchAliases = useCallback(async () => {
+    if (aliasesFetched || aliasesLoading) return;
+
+    setAliasesLoading(true);
+    try {
+      const response = await fetch(`/api/team-aliases/${teamId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setAliases(data.aliases || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch aliases:', error);
+    } finally {
+      setAliasesLoading(false);
+      setAliasesFetched(true);
+    }
+  }, [teamId, aliasesFetched, aliasesLoading]);
+
+  // Fetch aliases when popover opens
+  useEffect(() => {
+    if (aliasesOpen && !aliasesFetched) {
+      fetchAliases();
+    }
+  }, [aliasesOpen, aliasesFetched, fetchAliases]);
 
   // Team data from api.getTeam already includes ranking data (TeamWithRanking)
   // Use it directly instead of looking it up in rankings list
@@ -136,9 +182,74 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
           <div className="absolute left-0 top-0 w-1.5 h-full bg-accent -skew-x-12" aria-hidden="true" />
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <h1 className="text-xl sm:text-2xl md:text-3xl font-display font-bold uppercase text-primary-foreground tracking-wide">
-                {team.team_name}
-              </h1>
+              <div className="relative">
+                <button
+                  onClick={() => setAliasesOpen(!aliasesOpen)}
+                  className="flex items-center gap-1.5 text-xl sm:text-2xl md:text-3xl font-display font-bold uppercase text-primary-foreground tracking-wide hover:text-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
+                  aria-label="View team aliases"
+                  aria-expanded={aliasesOpen}
+                >
+                  {team.team_name}
+                  <ChevronDown className={`h-4 w-4 sm:h-5 sm:w-5 opacity-70 transition-transform ${aliasesOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {/* Aliases Dropdown */}
+                {aliasesOpen && (
+                  <>
+                    {/* Backdrop to close dropdown when clicking outside */}
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setAliasesOpen(false)}
+                    />
+                    <Card className="absolute left-0 top-full mt-2 w-80 z-50 shadow-lg border">
+                      <div className="p-3 border-b">
+                        <h3 className="font-semibold text-sm">Team Aliases</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Provider IDs linked to this team
+                        </p>
+                      </div>
+                      <div className="max-h-64 overflow-y-auto">
+                        {aliasesLoading ? (
+                          <div className="flex items-center justify-center p-4">
+                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                            <span className="text-sm text-muted-foreground">Loading aliases...</span>
+                          </div>
+                        ) : aliases.length === 0 ? (
+                          <div className="p-4 text-center text-sm text-muted-foreground">
+                            No aliases found
+                          </div>
+                        ) : (
+                          <div className="divide-y">
+                            {aliases.map((alias) => (
+                              <div key={alias.id} className="p-3 hover:bg-muted/50 transition-colors">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-mono text-sm font-medium truncate">
+                                        {alias.provider_team_id}
+                                      </span>
+                                      {alias.provider?.name && (
+                                        <Badge variant="secondary" className="text-xs shrink-0">
+                                          {alias.provider.name}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                                      <span className="capitalize">{alias.match_method.replace('_', ' ')}</span>
+                                      <span>•</span>
+                                      <span>{Math.round(alias.match_confidence * 100)}% confidence</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </Card>
+                  </>
+                )}
+              </div>
               <Button
                 variant={watched ? "secondary" : "outline"}
                 size="sm"
