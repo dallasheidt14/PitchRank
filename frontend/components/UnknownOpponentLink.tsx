@@ -561,6 +561,17 @@ export function UnknownOpponentLink({
                   </Card>
                 )}
               </div>
+
+              {/* Always visible link to create new team */}
+              <div className="text-center pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateForm(true)}
+                  className="text-sm text-muted-foreground hover:text-primary transition-colors"
+                >
+                  Can&apos;t find the team? <span className="underline">Create new team</span>
+                </button>
+              </div>
             </div>
           )}
 
