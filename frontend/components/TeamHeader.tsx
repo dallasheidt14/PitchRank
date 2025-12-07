@@ -7,7 +7,6 @@ import { useTeam } from '@/lib/hooks';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { Card } from '@/components/ui/card';
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { Star, ChevronDown, Loader2 } from 'lucide-react';
 import { addToWatchlist, removeFromWatchlist, isWatched } from '@/lib/watchlist';
