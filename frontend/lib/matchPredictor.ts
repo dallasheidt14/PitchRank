@@ -1,11 +1,12 @@
 /**
- * Match Prediction Engine v2.3
+ * Match Prediction Engine v2.4
  *
  * Enhanced prediction model using multiple features with adaptive weighting:
  * - Power Score Differential (50-85% adaptive based on skill gap)
  * - SOS Differential (18-6% adaptive)
  * - Recent Form (28-7% adaptive)
  * - Matchup Asymmetry (4-2% adaptive)
+ * - Head-to-Head History (0-15% based on sample size)
  *
  * For large skill gaps (>8 percentile points), power score dominates at 85%.
  * For close matchups (<5 percentile points), recent form and SOS matter more.
@@ -25,6 +26,11 @@
  * - Teams with 15%+ offense/defense gaps now correctly identified as mismatches
  * - Mismatch amplification: boosts probability and margin for clear mismatches
  * - Fixes cases like Excel vs PRFC (7% power gap but 19% offense gap = mismatch, not close)
+ *
+ * v2.4 Improvements:
+ * - Head-to-head history factor: incorporates past matchup results (highly predictive)
+ * - Improved underdog score calculation: reduces inflated scores in blowouts
+ * - Better score predictions: 5-1, 6-0 now possible instead of always 4-2, 3-2
  *
  * Validated at 74.7% direction accuracy (target: 77-79% with calibration)
  */
@@ -273,6 +279,64 @@ export function calculateRecentForm(
 function normalizeRecentForm(goalDiff: number): number {
   // Sigmoid normalization: goalDiff of +2 -> ~0.73, -2 -> ~0.27
   return 1 / (1 + Math.exp(-goalDiff * 0.5));
+}
+
+/**
+ * Calculate head-to-head history between two teams
+ * Returns { advantage: number, gamesPlayed: number }
+ * - advantage > 0 means team A has historical edge
+ * - advantage < 0 means team B has historical edge
+ * - gamesPlayed is number of H2H meetings found
+ *
+ * Head-to-head is HIGHLY predictive - a team that consistently beats
+ * another has proven they match up well against that specific opponent.
+ */
+export function calculateHeadToHead(
+  teamAId: string,
+  teamBId: string,
+  allGames: Game[]
+): { advantage: number; gamesPlayed: number; avgMargin: number } {
+  // Find all games between these two teams
+  const h2hGames = allGames.filter(g =>
+    (g.home_team_master_id === teamAId && g.away_team_master_id === teamBId) ||
+    (g.home_team_master_id === teamBId && g.away_team_master_id === teamAId)
+  );
+
+  if (h2hGames.length === 0) {
+    return { advantage: 0, gamesPlayed: 0, avgMargin: 0 };
+  }
+
+  // Calculate Team A's average goal differential in H2H meetings
+  let totalGoalDiff = 0;
+  let gamesWithScores = 0;
+
+  for (const game of h2hGames) {
+    const isTeamAHome = game.home_team_master_id === teamAId;
+    const teamAScore = isTeamAHome ? game.home_score : game.away_score;
+    const teamBScore = isTeamAHome ? game.away_score : game.home_score;
+
+    if (teamAScore !== null && teamBScore !== null) {
+      totalGoalDiff += (teamAScore - teamBScore);
+      gamesWithScores++;
+    }
+  }
+
+  if (gamesWithScores === 0) {
+    return { advantage: 0, gamesPlayed: 0, avgMargin: 0 };
+  }
+
+  const avgMargin = totalGoalDiff / gamesWithScores;
+
+  // Convert to normalized advantage (scaled like other features)
+  // Each goal of H2H advantage translates to ~0.05 advantage in normalized space
+  // This is significant but not overwhelming - still leaves room for other factors
+  const advantage = avgMargin * 0.04;
+
+  return {
+    advantage,
+    gamesPlayed: gamesWithScores,
+    avgMargin,
+  };
 }
 
 /**
@@ -534,11 +598,18 @@ export interface MatchPrediction {
     formDiffNorm: number;
     matchupAdvantage: number;
     compositeDiff: number;
+    mismatchScore: number;
   };
 
   // Raw data for explanation generator
   formA: number;
   formB: number;
+
+  // Head-to-head history (if available)
+  h2h?: {
+    gamesPlayed: number;
+    avgMargin: number;  // Team A's average goal margin in H2H meetings
+  };
 }
 
 /**
@@ -576,12 +647,20 @@ export function predictMatch(
   // 6. Matchup asymmetry (how much A's offense exploits B's defense)
   const matchupAdvantage = (offenseA - defenseB) - (offenseB - defenseA);
 
-  // 7. Composite differential (weighted combination with adaptive weights)
+  // 7. Head-to-head history (HIGHLY predictive if available)
+  const h2h = calculateHeadToHead(teamA.team_id_master, teamB.team_id_master, allGames);
+  // H2H weight: increases with more historical meetings (max 0.15 for 3+ games)
+  const h2hWeight = h2h.gamesPlayed > 0 ? Math.min(0.05 * h2h.gamesPlayed, 0.15) : 0;
+
+  // 8. Composite differential (weighted combination with adaptive weights)
+  // Reduce other weights proportionally when H2H data is available
+  const h2hAdjustment = 1 - h2hWeight;
   let compositeDiff =
-    weights.POWER_SCORE * powerDiff +
-    weights.SOS * sosDiff +
-    weights.RECENT_FORM * formDiffNorm +
-    weights.MATCHUP * matchupAdvantage;
+    weights.POWER_SCORE * powerDiff * h2hAdjustment +
+    weights.SOS * sosDiff * h2hAdjustment +
+    weights.RECENT_FORM * formDiffNorm * h2hAdjustment +
+    weights.MATCHUP * matchupAdvantage * h2hAdjustment +
+    h2hWeight * h2h.advantage * 10; // Scale H2H advantage to be comparable
 
   // 8. Mismatch amplification: boost composite diff for clear mismatches
   // This ensures large offense/defense gaps translate to higher probabilities
@@ -610,14 +689,31 @@ export function predictMatch(
   const mismatchMarginBoost = mismatchScore > 0.5 ? 1.0 + (mismatchScore - 0.5) * 0.8 : 1.0;
   const expectedMargin = compositeDiff * MARGIN_COEFFICIENT * marginMultiplier * mismatchMarginBoost;
 
-  // 9. Expected scores using age-adjusted league average
+  // 11. Expected scores using age-adjusted league average
   const leagueAvgGoals = getLeagueAverageGoals(effectiveAge);
 
+  // For severe mismatches, reduce the underdog's expected goals
+  // In blowouts, underdogs often score 0-1 goals, not 2+
+  // Underdog reduction: mismatchScore 0.5 -> 0%, 0.8 -> 30%, 1.0 -> 50%
+  const underdogReduction = mismatchScore > 0.5 ? (mismatchScore - 0.5) * 1.0 : 0;
+  const underdogBaseline = leagueAvgGoals * (1 - underdogReduction);
+
   // Round scores in a way that preserves the expected margin
-  // This prevents rounding artifacts (e.g., 2.7-2.3 becoming 3-2 instead of 2-2)
-  const rawScoreA = leagueAvgGoals + (expectedMargin / 2);
-  const rawScoreB = leagueAvgGoals - (expectedMargin / 2);
-  const roundedMargin = Math.round(Math.abs(expectedMargin));
+  const absExpectedMargin = Math.abs(expectedMargin);
+  let rawScoreA: number;
+  let rawScoreB: number;
+
+  if (expectedMargin >= 0) {
+    // Team A is favored - B is underdog
+    rawScoreB = Math.max(0, underdogBaseline - (absExpectedMargin * 0.3)); // Underdog gets reduced baseline
+    rawScoreA = rawScoreB + absExpectedMargin;
+  } else {
+    // Team B is favored - A is underdog
+    rawScoreA = Math.max(0, underdogBaseline - (absExpectedMargin * 0.3));
+    rawScoreB = rawScoreA + absExpectedMargin;
+  }
+
+  const roundedMargin = Math.round(absExpectedMargin);
 
   // Round the underdog's score, then add the rounded margin for the favorite
   // This ensures the displayed margin matches the rounded expected margin
@@ -670,8 +766,16 @@ export function predictMatch(
       formDiffNorm,
       matchupAdvantage,
       compositeDiff,
+      mismatchScore,
     },
     formA,
     formB,
+    // Include H2H if we have historical data
+    ...(h2h.gamesPlayed > 0 && {
+      h2h: {
+        gamesPlayed: h2h.gamesPlayed,
+        avgMargin: h2h.avgMargin,
+      },
+    }),
   };
 }
