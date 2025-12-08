@@ -1,19 +1,24 @@
 /**
- * Match Prediction Engine v2.1
+ * Match Prediction Engine v2.2
  *
  * Enhanced prediction model using multiple features with adaptive weighting:
- * - Power Score Differential (50-75% adaptive based on skill gap)
- * - SOS Differential (18-10% adaptive)
- * - Recent Form (28-12% adaptive)
- * - Matchup Asymmetry (4-3% adaptive)
+ * - Power Score Differential (50-85% adaptive based on skill gap)
+ * - SOS Differential (18-6% adaptive)
+ * - Recent Form (28-7% adaptive)
+ * - Matchup Asymmetry (4-2% adaptive)
  *
- * For large skill gaps (>15 percentile points), power score dominates.
- * For close matchups (<10 percentile points), recent form and SOS matter more.
+ * For large skill gaps (>8 percentile points), power score dominates at 85%.
+ * For close matchups (<5 percentile points), recent form and SOS matter more.
  *
  * v2.1 Improvements:
  * - Per-bucket probability calibration (fixes 50-55% and 60-65% bias)
  * - Draw threshold for close matchups (captures ~16% draw rate)
  * - Age-specific margin calibration for all age groups (U10-U18)
+ *
+ * v2.2 Improvements:
+ * - Lowered skill gap thresholds: 8%/5% (was 15%/10%) - fixes "close match" misclassification
+ * - Increased blowout power weight: 85% (was 75%) - power score now dominates for mismatches
+ * - Fixed birth year age extraction: "14B" = 2014 birth year = U11/U12, not U14
  *
  * Validated at 74.7% direction accuracy (target: 77-79% with calibration)
  */
@@ -169,18 +174,19 @@ const BASE_WEIGHTS = {
   MATCHUP: 0.04,      // Offense vs defense
 };
 
-// Adaptive weights for large skill gaps (>0.15 power diff = 15 percentile points)
+// Adaptive weights for large skill gaps (>0.08 power diff = 8 percentile points)
 const BLOWOUT_WEIGHTS = {
-  POWER_SCORE: 0.75,  // Power dominates in mismatches
-  SOS: 0.10,          // Schedule matters less
-  RECENT_FORM: 0.12,  // Recent form matters less
-  MATCHUP: 0.03,      // Matchup details matter less
+  POWER_SCORE: 0.85,  // Power dominates in mismatches (increased from 0.75)
+  SOS: 0.06,          // Schedule matters less
+  RECENT_FORM: 0.07,  // Recent form matters less
+  MATCHUP: 0.02,      // Matchup details matter less
 };
 
-// Thresholds for adaptive weighting
+// Thresholds for adaptive weighting (lowered in v2.1 for more responsive predictions)
+// A 12 percentile point gap should NOT be treated as "close"
 const SKILL_GAP_THRESHOLDS = {
-  LARGE: 0.15,   // >15 percentile points = large gap, use blowout weights
-  MEDIUM: 0.10,  // 10-15 percentile points = transition zone
+  LARGE: 0.08,   // >8 percentile points = large gap, use blowout weights
+  MEDIUM: 0.05,  // 5-8 percentile points = transition zone
 };
 
 // Prediction parameters (with calibration overrides)
