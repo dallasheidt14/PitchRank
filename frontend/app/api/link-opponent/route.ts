@@ -127,42 +127,67 @@ export async function POST(request: NextRequest) {
     const isOpponentHome = String(game.home_provider_id) === providerTeamIdStr;
     const isOpponentAway = String(game.away_provider_id) === providerTeamIdStr;
 
+    // Use loose equality (== null) to match both null and undefined
+    const homeNeedsLink = game.home_team_master_id == null;
+    const awayNeedsLink = game.away_team_master_id == null;
+
+    console.log('[link-opponent] Pre-update check:', {
+      isOpponentHome,
+      isOpponentAway,
+      homeNeedsLink,
+      awayNeedsLink,
+      home_team_master_id_value: game.home_team_master_id,
+      home_team_master_id_type: typeof game.home_team_master_id,
+      away_team_master_id_value: game.away_team_master_id,
+      away_team_master_id_type: typeof game.away_team_master_id,
+    });
+
     // 4. FIRST: Always update the specific game the user clicked on (by ID)
     // This ensures the clicked game gets updated regardless of any type issues with provider_id matching
-    if (isOpponentHome && game.home_team_master_id === null) {
+    if (isOpponentHome && homeNeedsLink) {
       console.log('[link-opponent] Updating specific game (home team) by ID:', gameId);
-      const { error: specificUpdateError } = await supabase
+      const { error: specificUpdateError, data: updateData } = await supabase
         .from('games')
         .update({ home_team_master_id: teamIdMaster })
-        .eq('id', gameId);
+        .eq('id', gameId)
+        .select('id');
+
+      console.log('[link-opponent] Specific game update result:', { specificUpdateError, updateData });
 
       if (specificUpdateError) {
         console.error('[link-opponent] Failed to update specific game:', specificUpdateError);
-      } else {
+      } else if (updateData && updateData.length > 0) {
         specificGameUpdated = true;
         homeUpdated = 1;
         console.log('[link-opponent] Successfully updated specific game (home team)');
+      } else {
+        console.warn('[link-opponent] Update returned no rows - possible RLS issue or game already updated');
       }
-    } else if (isOpponentAway && game.away_team_master_id === null) {
+    } else if (isOpponentAway && awayNeedsLink) {
       console.log('[link-opponent] Updating specific game (away team) by ID:', gameId);
-      const { error: specificUpdateError } = await supabase
+      const { error: specificUpdateError, data: updateData } = await supabase
         .from('games')
         .update({ away_team_master_id: teamIdMaster })
-        .eq('id', gameId);
+        .eq('id', gameId)
+        .select('id');
+
+      console.log('[link-opponent] Specific game update result:', { specificUpdateError, updateData });
 
       if (specificUpdateError) {
         console.error('[link-opponent] Failed to update specific game:', specificUpdateError);
-      } else {
+      } else if (updateData && updateData.length > 0) {
         specificGameUpdated = true;
         awayUpdated = 1;
         console.log('[link-opponent] Successfully updated specific game (away team)');
+      } else {
+        console.warn('[link-opponent] Update returned no rows - possible RLS issue or game already updated');
       }
     } else {
       console.log('[link-opponent] Specific game already linked or no match:', {
         isOpponentHome,
         isOpponentAway,
-        home_team_master_id: game.home_team_master_id,
-        away_team_master_id: game.away_team_master_id,
+        homeNeedsLink,
+        awayNeedsLink,
       });
     }
 
@@ -296,11 +321,14 @@ export async function POST(request: NextRequest) {
         specificGameUpdated,
         isOpponentHome,
         isOpponentAway,
+        homeNeedsLink,
+        awayNeedsLink,
         game: {
           provider_id: game.provider_id,
           home_provider_id: game.home_provider_id,
           away_provider_id: game.away_provider_id,
           home_team_master_id: game.home_team_master_id,
+          home_team_master_id_type: typeof game.home_team_master_id,
           away_team_master_id: game.away_team_master_id,
         },
         homeUpdated,
