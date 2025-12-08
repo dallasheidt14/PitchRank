@@ -302,7 +302,7 @@ export function TeamMergePanel() {
                   <span>{result.message}</span>
                 </div>
               ) : (
-                <ErrorDisplay error={result.error || 'Unknown error'} variant="inline" />
+                <ErrorDisplay error={result.error || 'Unknown error'} compact />
               )}
             </div>
           )}
