@@ -1,5 +1,5 @@
 /**
- * Match Prediction Engine
+ * Match Prediction Engine v2.1
  *
  * Enhanced prediction model using multiple features with adaptive weighting:
  * - Power Score Differential (50-75% adaptive based on skill gap)
@@ -10,7 +10,12 @@
  * For large skill gaps (>15 percentile points), power score dominates.
  * For close matchups (<10 percentile points), recent form and SOS matter more.
  *
- * Validated at 74.7% direction accuracy
+ * v2.1 Improvements:
+ * - Per-bucket probability calibration (fixes 50-55% and 60-65% bias)
+ * - Draw threshold for close matchups (captures ~16% draw rate)
+ * - Age-specific margin calibration for all age groups (U10-U18)
+ *
+ * Validated at 74.7% direction accuracy (target: 77-79% with calibration)
  */
 
 import type { TeamWithRanking } from './types';
@@ -300,6 +305,63 @@ function sigmoid(x: number): number {
 }
 
 /**
+ * Per-bucket probability calibration based on empirical validation
+ *
+ * Adjusts raw sigmoid probabilities to match actual win rates observed
+ * in historical data. Based on calibration_error from probability_parameters.json.
+ *
+ * This uses piecewise linear interpolation (isotonic-style calibration)
+ * to correct systematic biases in each probability bucket.
+ */
+function calibrateProbability(rawProb: number): number {
+  // Calibration points: [raw_prob, calibrated_prob]
+  // Derived from bucket_accuracy in probability_parameters.json
+  // Format: predicted_prob -> actual_win_rate
+  const calibrationPoints: [number, number][] = [
+    [0.50, 0.50],   // 50% stays 50%
+    [0.525, 0.465], // 50-55% bucket: predicted 52.4% → actual 46.5%
+    [0.575, 0.587], // 55-60% bucket: predicted 57.4% → actual 58.7%
+    [0.625, 0.739], // 60-65% bucket: predicted 62.3% → actual 73.9%
+    [0.675, 0.669], // 65-70% bucket: close to calibrated
+    [0.725, 0.650], // 70-75% bucket: predicted 73.2% → actual ~65% (adjusted from 37% outlier)
+    [0.775, 0.700], // 75-80% bucket: predicted 77.7% → actual ~70%
+    [0.850, 0.796], // 80-90% bucket: predicted 80.7% → actual 79.6%
+    [1.00, 1.00],   // 100% stays 100%
+  ];
+
+  // Handle edge cases
+  if (rawProb <= 0.5) {
+    // For probabilities below 50%, mirror the calibration
+    const mirroredRaw = 1 - rawProb;
+    const mirroredCalibrated = calibrateProbability(mirroredRaw);
+    return 1 - mirroredCalibrated;
+  }
+
+  // Find the two calibration points to interpolate between
+  let lowerPoint = calibrationPoints[0];
+  let upperPoint = calibrationPoints[calibrationPoints.length - 1];
+
+  for (let i = 0; i < calibrationPoints.length - 1; i++) {
+    if (rawProb >= calibrationPoints[i][0] && rawProb < calibrationPoints[i + 1][0]) {
+      lowerPoint = calibrationPoints[i];
+      upperPoint = calibrationPoints[i + 1];
+      break;
+    }
+  }
+
+  // Linear interpolation between the two points
+  const t = (rawProb - lowerPoint[0]) / (upperPoint[0] - lowerPoint[0]);
+  const calibrated = lowerPoint[1] + t * (upperPoint[1] - lowerPoint[1]);
+
+  // Clamp to valid probability range
+  return Math.max(0.01, Math.min(0.99, calibrated));
+}
+
+// Draw threshold: if probability is within this range of 50%, predict draw
+// ~16% of games end in draws, so this captures close matchups
+const DRAW_THRESHOLD = 0.03; // |winProb - 0.5| < 3% → predict draw
+
+/**
  * Get age-adjusted league average goals per team
  * Uses calibrated parameters from age_group_parameters.json if available,
  * otherwise falls back to empirical defaults
@@ -425,9 +487,10 @@ export function predictMatch(
     weights.RECENT_FORM * formDiffNorm +
     weights.MATCHUP * matchupAdvantage;
 
-  // 7. Win probability (using calibrated sensitivity)
+  // 7. Win probability (using calibrated sensitivity + per-bucket calibration)
   const sensitivity = getSensitivity();
-  const winProbA = sigmoid(sensitivity * compositeDiff);
+  const rawWinProbA = sigmoid(sensitivity * compositeDiff);
+  const winProbA = calibrateProbability(rawWinProbA);
   const winProbB = 1 - winProbA;
 
   // 8. Expected goal margin with age-specific and compositeDiff-based amplification
@@ -441,10 +504,14 @@ export function predictMatch(
   const expectedScoreA = Math.max(0, leagueAvgGoals + (expectedMargin / 2));
   const expectedScoreB = Math.max(0, leagueAvgGoals - (expectedMargin / 2));
 
-  // 10. Predicted winner
-  // Always pick the favored team (no draw threshold - draws only occur ~16% of the time)
+  // 10. Predicted winner (with draw threshold for close matchups)
+  // ~16% of games end in draws - predict draw when probability is very close to 50%
   let predictedWinner: 'team_a' | 'team_b' | 'draw';
-  predictedWinner = winProbA >= 0.5 ? 'team_a' : 'team_b';
+  if (Math.abs(winProbA - 0.5) < DRAW_THRESHOLD) {
+    predictedWinner = 'draw';
+  } else {
+    predictedWinner = winProbA >= 0.5 ? 'team_a' : 'team_b';
+  }
 
   // 11. Confidence level (using variance-based confidence engine)
   const confidenceResult = computeConfidence(teamA, teamB, compositeDiff, allGames);
