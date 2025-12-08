@@ -2688,6 +2688,7 @@ elif section == "🔀 Team Merge Manager":
                                                         team_a_id = s['team_a_id']
                                                         team_b_id = s['team_b_id']
                                                         conf = s['confidence']
+                                                        st.info(f"Attempting merge: {team_a_id} → {team_b_id}")
                                                         result = execute_with_retry(
                                                             lambda: db.rpc('execute_team_merge', {
                                                                 'p_deprecated_team_id': team_a_id,
@@ -2696,15 +2697,21 @@ elif section == "🔀 Team Merge Manager":
                                                                 'p_merge_reason': f"AI suggestion ({conf:.0%} confidence)"
                                                             })
                                                         )
+                                                        st.write(f"DEBUG - Result: {result}")
+                                                        st.write(f"DEBUG - Result.data: {result.data}")
                                                         # Check if RPC returned success
                                                         if result.data and isinstance(result.data, dict) and result.data.get('success') == False:
                                                             st.error(f"❌ Merge failed: {result.data.get('error', 'Unknown error')}")
                                                         else:
                                                             st.session_state.dismissed_suggestions.add(s['key'])
                                                             st.session_state.last_merge_success = f"✅ Merged! {s['team_a_name']} → {s['team_b_name']}"
-                                                            st.rerun()
+                                                            st.success(f"✅ Merged! Check Merge History tab.")
+                                                            # Don't rerun immediately so we can see the result
+                                                            # st.rerun()
                                                     except Exception as e:
                                                         st.error(f"❌ Merge failed: {e}")
+                                                        import traceback
+                                                        st.code(traceback.format_exc())
 
                                             with action_cols[1]:
                                                 if st.button(f"🔗 Merge B→A", key=f"merge_ba_{idx}",
