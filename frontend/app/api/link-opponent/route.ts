@@ -124,16 +124,6 @@ export async function POST(request: NextRequest) {
 
     // 4. Optionally backfill all games with this provider_id
     if (applyToAllGames) {
-      // Helper to build query with proper provider_id handling
-      // Note: .eq('col', null) doesn't work in SQL (NULL = NULL is false)
-      // So we need to use .is() for null values
-      const addProviderFilter = (query: ReturnType<typeof supabase.from>) => {
-        if (game.provider_id === null) {
-          return query.is('provider_id', null);
-        }
-        return query.eq('provider_id', game.provider_id);
-      };
-
       // Check: Is the opponentProviderId matching home or away?
       const isOpponentHome = String(game.home_provider_id) === providerTeamIdStr;
       const isOpponentAway = String(game.away_provider_id) === providerTeamIdStr;
@@ -147,24 +137,37 @@ export async function POST(request: NextRequest) {
         away_already_linked: game.away_team_master_id !== null,
       });
 
-      // Count games where opponent is HOME team first
-      let homeCountQuery = supabase
-        .from('games')
-        .select('id', { count: 'exact', head: true })
-        .eq('home_provider_id', providerTeamIdStr)
-        .is('home_team_master_id', null);
-      homeCountQuery = addProviderFilter(homeCountQuery);
+      // Build queries with proper provider_id handling
+      // Note: .eq('col', null) doesn't work in SQL (NULL = NULL is false)
+      // So we need to use .is() for null values
+      const providerIdIsNull = game.provider_id === null;
+
+      // Count and update games where opponent is HOME team
+      const homeCountQuery = providerIdIsNull
+        ? supabase.from('games').select('id', { count: 'exact', head: true })
+            .eq('home_provider_id', providerTeamIdStr)
+            .is('home_team_master_id', null)
+            .is('provider_id', null)
+        : supabase.from('games').select('id', { count: 'exact', head: true })
+            .eq('home_provider_id', providerTeamIdStr)
+            .is('home_team_master_id', null)
+            .eq('provider_id', game.provider_id);
       const { count: homeCount, error: homeCountError } = await homeCountQuery;
       console.log('[link-opponent] Home count query result:', { homeCount, homeCountError });
 
       // Update games where opponent is HOME team
-      let homeUpdateQuery = supabase
-        .from('games')
-        .update({ home_team_master_id: teamIdMaster })
-        .eq('home_provider_id', providerTeamIdStr)
-        .is('home_team_master_id', null);
-      homeUpdateQuery = addProviderFilter(homeUpdateQuery);
-      const { error: homeUpdateError, data: homeUpdateData } = await homeUpdateQuery.select('id');
+      const homeUpdateQuery = providerIdIsNull
+        ? supabase.from('games').update({ home_team_master_id: teamIdMaster })
+            .eq('home_provider_id', providerTeamIdStr)
+            .is('home_team_master_id', null)
+            .is('provider_id', null)
+            .select('id')
+        : supabase.from('games').update({ home_team_master_id: teamIdMaster })
+            .eq('home_provider_id', providerTeamIdStr)
+            .is('home_team_master_id', null)
+            .eq('provider_id', game.provider_id)
+            .select('id');
+      const { error: homeUpdateError, data: homeUpdateData } = await homeUpdateQuery;
       console.log('[link-opponent] Home update result:', { homeUpdateError, updatedCount: homeUpdateData?.length });
 
       if (homeUpdateError) {
@@ -174,24 +177,32 @@ export async function POST(request: NextRequest) {
         homeUpdated = homeUpdateData?.length || 0;
       }
 
-      // Count games where opponent is AWAY team first
-      let awayCountQuery = supabase
-        .from('games')
-        .select('id', { count: 'exact', head: true })
-        .eq('away_provider_id', providerTeamIdStr)
-        .is('away_team_master_id', null);
-      awayCountQuery = addProviderFilter(awayCountQuery);
+      // Count games where opponent is AWAY team
+      const awayCountQuery = providerIdIsNull
+        ? supabase.from('games').select('id', { count: 'exact', head: true })
+            .eq('away_provider_id', providerTeamIdStr)
+            .is('away_team_master_id', null)
+            .is('provider_id', null)
+        : supabase.from('games').select('id', { count: 'exact', head: true })
+            .eq('away_provider_id', providerTeamIdStr)
+            .is('away_team_master_id', null)
+            .eq('provider_id', game.provider_id);
       const { count: awayCount, error: awayCountError } = await awayCountQuery;
       console.log('[link-opponent] Away count query result:', { awayCount, awayCountError });
 
       // Update games where opponent is AWAY team
-      let awayUpdateQuery = supabase
-        .from('games')
-        .update({ away_team_master_id: teamIdMaster })
-        .eq('away_provider_id', providerTeamIdStr)
-        .is('away_team_master_id', null);
-      awayUpdateQuery = addProviderFilter(awayUpdateQuery);
-      const { error: awayUpdateError, data: awayUpdateData } = await awayUpdateQuery.select('id');
+      const awayUpdateQuery = providerIdIsNull
+        ? supabase.from('games').update({ away_team_master_id: teamIdMaster })
+            .eq('away_provider_id', providerTeamIdStr)
+            .is('away_team_master_id', null)
+            .is('provider_id', null)
+            .select('id')
+        : supabase.from('games').update({ away_team_master_id: teamIdMaster })
+            .eq('away_provider_id', providerTeamIdStr)
+            .is('away_team_master_id', null)
+            .eq('provider_id', game.provider_id)
+            .select('id');
+      const { error: awayUpdateError, data: awayUpdateData } = await awayUpdateQuery;
       console.log('[link-opponent] Away update result:', { awayUpdateError, updatedCount: awayUpdateData?.length });
 
       if (awayUpdateError) {
