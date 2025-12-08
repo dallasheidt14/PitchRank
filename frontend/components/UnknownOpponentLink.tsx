@@ -317,20 +317,28 @@ export function UnknownOpponentLink({
         throw new Error(data.error || 'Failed to link team');
       }
 
+      // Check if any games were actually updated
+      if (data.gamesUpdated === 0) {
+        console.warn('[UnknownOpponentLink] No games were updated. Response:', data);
+      }
+
       setLinkSuccess(true);
 
-      // Invalidate the games cache to ensure fresh data is fetched
-      // This is more reliable than just refetch() as it clears the cache entirely
-      await queryClient.invalidateQueries({ queryKey: ['team-games', currentTeamId] });
+      // Force refetch and wait for it to complete before closing modal
+      // This ensures the UI has the latest data when the modal closes
+      await queryClient.refetchQueries({
+        queryKey: ['team-games', currentTeamId],
+        type: 'active'
+      });
 
       // Also invalidate the team search cache in case a new team was somehow involved
-      await queryClient.invalidateQueries({ queryKey: ['team-search'] });
+      queryClient.invalidateQueries({ queryKey: ['team-search'] });
 
       // Close modal after short delay and call onLinked callback
       setTimeout(() => {
         setIsOpen(false);
         onLinked?.();
-      }, 1000);
+      }, 500);
     } catch (err) {
       setLinkError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
@@ -368,20 +376,28 @@ export function UnknownOpponentLink({
         throw new Error(data.error || 'Failed to create team');
       }
 
+      // Check if any games were actually updated
+      if (data.gamesUpdated === 0) {
+        console.warn('[UnknownOpponentLink] No games were updated after team creation. Response:', data);
+      }
+
       setLinkSuccess(true);
 
-      // Invalidate the games cache to ensure fresh data is fetched
-      // This is more reliable than just refetch() as it clears the cache entirely
-      await queryClient.invalidateQueries({ queryKey: ['team-games', currentTeamId] });
+      // Force refetch and wait for it to complete before closing modal
+      // This ensures the UI has the latest data when the modal closes
+      await queryClient.refetchQueries({
+        queryKey: ['team-games', currentTeamId],
+        type: 'active'
+      });
 
       // Invalidate team search cache so the new team appears in searches
-      await queryClient.invalidateQueries({ queryKey: ['team-search'] });
+      queryClient.invalidateQueries({ queryKey: ['team-search'] });
 
       // Close modal after short delay and call onLinked callback
       setTimeout(() => {
         setIsOpen(false);
         onLinked?.();
-      }, 1000);
+      }, 500);
     } catch (err) {
       setLinkError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
