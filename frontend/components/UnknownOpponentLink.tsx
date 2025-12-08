@@ -317,9 +317,12 @@ export function UnknownOpponentLink({
         throw new Error(data.error || 'Failed to link team');
       }
 
+      // Log the full response for debugging
+      console.log('[UnknownOpponentLink] API Response:', data);
+
       // Check if any games were actually updated
       if (data.gamesUpdated === 0) {
-        console.warn('[UnknownOpponentLink] No games were updated. Response:', data);
+        console.warn('[UnknownOpponentLink] No games were updated! Debug info:', data.debug);
       }
 
       setLinkSuccess(true);
