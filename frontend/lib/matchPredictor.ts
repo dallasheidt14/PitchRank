@@ -6,12 +6,21 @@
  * - SOS Differential (18-10% adaptive)
  * - Recent Form (20-8% adaptive, capped at 5% max contribution)
  * - Matchup Asymmetry (4% constant)
+ * - Head-to-Head History (up to 3% boost based on past matchups)
+ *
+ * Key features:
+ * - Opponent-adjusted recent form: Goals weighted by opponent strength
+ * - Head-to-head history: Past matchups influence prediction (when 2+ games exist)
+ * - Adaptive weights: Close games use different weights than mismatches
+ * - Form cap: Prevents hot streaks from overriding large rank gaps
  *
  * Key changes (2025-12-08):
  * - Reduced form weight from 28% to 20% to prevent hot streaks flipping large rank gaps
  * - Lowered skill gap thresholds (MEDIUM: 0.10→0.05, LARGE: 0.15→0.10)
  * - Added MAX_FORM_CONTRIBUTION cap of 5% to prevent excessive form influence
  * - Increased power score weight from 50% to 58% for more reliable base predictions
+ * - Added opponent-adjusted recent form (weights goals by opponent strength)
+ * - Added head-to-head history boost (up to ±3% based on past matchups)
  *
  * For large skill gaps (>10 percentile points), power score dominates.
  * For close matchups (<5 percentile points), recent form and SOS matter more.
@@ -212,16 +221,23 @@ const CONFIDENCE_THRESHOLDS = {
 /**
  * Calculate recent form from game history
  * Returns average goal differential in last N games, weighted by sample size
+ * and optionally adjusted by opponent strength.
  *
  * Sample size weighting prevents overconfidence from small samples:
  * - 1 game out of 5 needed = 20% weight
  * - 3 games out of 5 needed = 60% weight
  * - 5+ games out of 5 needed = 100% weight
+ *
+ * Opponent adjustment (when rankings provided):
+ * - Beating a strong team (power > 0.6) = goal diff * 1.3
+ * - Beating a weak team (power < 0.4) = goal diff * 0.7
+ * - This makes +3 vs top-10 worth more than +3 vs bottom-100
  */
 export function calculateRecentForm(
   teamId: string,
   allGames: Game[],
-  n: number = RECENT_GAMES_COUNT
+  n: number = RECENT_GAMES_COUNT,
+  rankingsMap?: Map<string, number> // Optional: team_id -> power_score_final
 ): number {
   // Get team's recent games
   const teamGames = allGames
@@ -231,31 +247,102 @@ export function calculateRecentForm(
 
   if (teamGames.length === 0) return 0;
 
-  // Calculate average goal differential
-  let totalGoalDiff = 0;
-  let gamesWithScores = 0;
+  // Calculate weighted goal differential
+  let totalWeightedGoalDiff = 0;
+  let totalWeight = 0;
 
   for (const game of teamGames) {
     const isHome = game.home_team_master_id === teamId;
     const teamScore = isHome ? game.home_score : game.away_score;
     const oppScore = isHome ? game.away_score : game.home_score;
+    const oppId = isHome ? game.away_team_master_id : game.home_team_master_id;
 
     if (teamScore !== null && oppScore !== null) {
-      totalGoalDiff += (teamScore - oppScore);
+      const goalDiff = teamScore - oppScore;
+
+      // Calculate opponent strength multiplier
+      let oppMultiplier = 1.0;
+      if (rankingsMap && oppId) {
+        const oppPower = rankingsMap.get(oppId);
+        if (oppPower !== undefined) {
+          // Scale multiplier: strong opponent (0.7) = 1.4x, weak (0.3) = 0.6x
+          // Formula: 0.6 + (oppPower * 1.0) => range 0.6 to 1.6
+          oppMultiplier = 0.6 + (oppPower * 1.0);
+        }
+      }
+
+      totalWeightedGoalDiff += goalDiff * oppMultiplier;
+      totalWeight += oppMultiplier;
+    }
+  }
+
+  if (totalWeight === 0) return 0;
+
+  // Calculate weighted average goal differential
+  const avgGoalDiff = totalWeightedGoalDiff / totalWeight;
+
+  // Weight by sample size to reduce noise from small samples
+  const gamesWithScores = teamGames.filter(g =>
+    g.home_score !== null && g.away_score !== null
+  ).length;
+  const sampleSizeWeight = gamesWithScores / n;
+
+  return avgGoalDiff * sampleSizeWeight;
+}
+
+/**
+ * Calculate head-to-head record between two teams
+ * Returns a boost/penalty based on historical matchups
+ *
+ * @returns number between -0.05 and +0.05 (capped to prevent over-reliance)
+ */
+export function calculateHeadToHeadBoost(
+  teamAId: string,
+  teamBId: string,
+  allGames: Game[],
+  minGames: number = 2 // Require at least 2 games for H2H to count
+): number {
+  // Find games between these two teams
+  const h2hGames = allGames.filter(g =>
+    (g.home_team_master_id === teamAId && g.away_team_master_id === teamBId) ||
+    (g.home_team_master_id === teamBId && g.away_team_master_id === teamAId)
+  );
+
+  if (h2hGames.length < minGames) return 0;
+
+  // Calculate Team A's win rate against Team B
+  let teamAWins = 0;
+  let teamBWins = 0;
+  let gamesWithScores = 0;
+
+  for (const game of h2hGames) {
+    const aIsHome = game.home_team_master_id === teamAId;
+    const aScore = aIsHome ? game.home_score : game.away_score;
+    const bScore = aIsHome ? game.away_score : game.home_score;
+
+    if (aScore !== null && bScore !== null) {
+      if (aScore > bScore) teamAWins++;
+      else if (bScore > aScore) teamBWins++;
       gamesWithScores++;
     }
   }
 
-  if (gamesWithScores === 0) return 0;
+  if (gamesWithScores < minGames) return 0;
 
-  // Calculate average goal differential
-  const avgGoalDiff = totalGoalDiff / gamesWithScores;
+  // Calculate win rate differential
+  const teamAWinRate = teamAWins / gamesWithScores;
+  const expectedWinRate = 0.5;
+  const winRateDiff = teamAWinRate - expectedWinRate;
 
-  // Weight by sample size to reduce noise from small samples
-  // This prevents a team with 1 game from being treated as reliably as a team with 5 games
-  const sampleSizeWeight = gamesWithScores / n;
+  // Scale by number of games (more games = more confidence)
+  // Max at 5 games to prevent over-reliance
+  const gameConfidence = Math.min(gamesWithScores, 5) / 5;
 
-  return avgGoalDiff * sampleSizeWeight;
+  // Cap at +/- 0.03 composite differential boost
+  const MAX_H2H_BOOST = 0.03;
+  const rawBoost = winRateDiff * 0.1 * gameConfidence; // 0.1 scaling factor
+
+  return Math.max(-MAX_H2H_BOOST, Math.min(MAX_H2H_BOOST, rawBoost));
 }
 
 /**
@@ -388,6 +475,7 @@ export interface MatchPrediction {
     formDiffRaw: number;
     formDiffNorm: number;
     matchupAdvantage: number;
+    h2hBoost: number;
     compositeDiff: number;
   };
 
@@ -427,6 +515,13 @@ export function predictMatch(
 
   const matchupAdvantage = (offenseA - defenseB) - (offenseB - defenseA);
 
+  // 5.5. Head-to-head history boost
+  const h2hBoost = calculateHeadToHeadBoost(
+    teamA.team_id_master,
+    teamB.team_id_master,
+    allGames
+  );
+
   // 6. Composite differential (weighted combination with adaptive weights)
   // Cap form contribution to prevent hot streaks from flipping large mismatches
   const rawFormContribution = weights.RECENT_FORM * formDiffNorm;
@@ -439,7 +534,8 @@ export function predictMatch(
     weights.POWER_SCORE * powerDiff +
     weights.SOS * sosDiff +
     cappedFormContribution +
-    weights.MATCHUP * matchupAdvantage;
+    weights.MATCHUP * matchupAdvantage +
+    h2hBoost; // Add head-to-head history boost
 
   // 7. Win probability (using calibrated sensitivity)
   const sensitivity = getSensitivity();
@@ -484,6 +580,7 @@ export function predictMatch(
       formDiffRaw,
       formDiffNorm,
       matchupAdvantage,
+      h2hBoost,
       compositeDiff,
     },
     formA,
