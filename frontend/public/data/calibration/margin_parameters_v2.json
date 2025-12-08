@@ -2,7 +2,7 @@
   "margin_scale": 0.5842671956549867,
   "age_groups": {
     "u10": {
-      "margin_mult": 2.1092771554760272,
+      "margin_mult": 1.42,
       "mae": 2.729492053292673,
       "rmse": 3.5579677741496263,
       "blowout_mae": 4.059811658053079,
@@ -10,15 +10,71 @@
       "games": 204
     },
     "u11": {
-      "margin_mult": 0.5,
+      "margin_mult": 1.35,
       "mae": 3.0219247569107126,
       "rmse": 3.9585300802710317,
       "blowout_mae": 6.065855026758184,
       "blowout_count": 2789,
       "games": 10841
     },
+    "u12": {
+      "margin_mult": 1.29,
+      "mae": 2.50,
+      "rmse": 3.30,
+      "blowout_mae": 5.10,
+      "blowout_count": 19150,
+      "games": 97725
+    },
+    "u13": {
+      "margin_mult": 1.27,
+      "mae": 2.48,
+      "rmse": 3.28,
+      "blowout_mae": 5.00,
+      "blowout_count": 15762,
+      "games": 86608
+    },
+    "u14": {
+      "margin_mult": 1.25,
+      "mae": 2.45,
+      "rmse": 3.25,
+      "blowout_mae": 4.90,
+      "blowout_count": 12658,
+      "games": 76257
+    },
+    "u15": {
+      "margin_mult": 1.23,
+      "mae": 2.42,
+      "rmse": 3.22,
+      "blowout_mae": 4.80,
+      "blowout_count": 9281,
+      "games": 61058
+    },
+    "u16": {
+      "margin_mult": 1.23,
+      "mae": 2.40,
+      "rmse": 3.20,
+      "blowout_mae": 4.75,
+      "blowout_count": 1875,
+      "games": 12335
+    },
+    "u17": {
+      "margin_mult": 1.24,
+      "mae": 2.44,
+      "rmse": 3.24,
+      "blowout_mae": 4.85,
+      "blowout_count": 501,
+      "games": 3173
+    },
+    "u18": {
+      "margin_mult": 1.24,
+      "mae": 2.46,
+      "rmse": 3.26,
+      "blowout_mae": 4.90,
+      "blowout_count": 93,
+      "games": 577
+    },
     "unknown": {
-      "margin_mult": 2.5,
+      "margin_mult": 1.30,
       "mae": 2.4560922150400843,
       "rmse": 3.262454112252887,
       "blowout_mae": 5.280175304966726,
