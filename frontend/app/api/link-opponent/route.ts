@@ -231,6 +231,21 @@ export async function POST(request: NextRequest) {
       message: gamesUpdated > 0
         ? `Successfully linked ${gamesUpdated} game(s) to ${team.team_name}`
         : `Alias created for ${team.team_name}. Future games will be linked automatically.`,
+      // Debug info to help diagnose issues
+      debug: {
+        gameId,
+        opponentProviderId,
+        teamIdMaster,
+        game: {
+          provider_id: game.provider_id,
+          home_provider_id: game.home_provider_id,
+          away_provider_id: game.away_provider_id,
+          home_team_master_id: game.home_team_master_id,
+          away_team_master_id: game.away_team_master_id,
+        },
+        homeUpdated,
+        awayUpdated,
+      }
     });
   } catch (error) {
     console.error('[link-opponent] Unexpected error:', error);
