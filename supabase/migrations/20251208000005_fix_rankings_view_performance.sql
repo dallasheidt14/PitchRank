@@ -175,7 +175,10 @@ GRANT SELECT ON state_rankings_view TO anon;
 -- Step 5: Recreate merged_teams_view (preserved from previous migration)
 -- =====================================================
 
-CREATE OR REPLACE VIEW merged_teams_view AS
+-- Must DROP first because CREATE OR REPLACE cannot change column order
+DROP VIEW IF EXISTS merged_teams_view CASCADE;
+
+CREATE VIEW merged_teams_view AS
 SELECT
     mm.id as merge_id,
     mm.deprecated_team_id,
