@@ -28,6 +28,39 @@ export function formatSOSIndex(sosNorm?: number | null): string {
 }
 
 /**
+ * Extract age from team name (fallback when age field is missing/wrong)
+ * Handles formats like "14B Engilman" → 14, "Excel Soccer Academy 14B Red" → 14
+ * Also handles "U14" format in team names
+ * @param teamName - Team name string
+ * @returns Integer age or null if not found
+ */
+export function extractAgeFromTeamName(teamName: string | null | undefined): number | null {
+  if (!teamName) return null;
+
+  // Pattern 1: "14B", "14G", "14" followed by space or end
+  const agePattern = /\b(\d{1,2})[BG]?\b/i;
+  const match = teamName.match(agePattern);
+  if (match) {
+    const age = parseInt(match[1], 10);
+    if (age >= 8 && age <= 19) {
+      return age;
+    }
+  }
+
+  // Pattern 2: "U14", "u14" format
+  const uPattern = /\bU(\d{1,2})\b/i;
+  const uMatch = teamName.match(uPattern);
+  if (uMatch) {
+    const age = parseInt(uMatch[1], 10);
+    if (age >= 8 && age <= 19) {
+      return age;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Normalize age group string to integer age
  * Handles formats like "u11" → 11, "2014" → calculate age from birth year
  * @param ageGroup - Age group string (e.g., "u11", "2014") or number
