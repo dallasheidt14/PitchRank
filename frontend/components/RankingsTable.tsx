@@ -291,7 +291,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
             <div className="overflow-x-auto -mx-4 sm:mx-0 touch-pan-x">
               <div className={`inline-block min-w-full align-middle ${region ? 'min-w-[500px] sm:min-w-[600px]' : 'min-w-[550px] sm:min-w-[650px] md:min-w-[700px]'}`}>
                 {/* Table Header */}
-                <div className="grid border-b-2 border-primary bg-secondary/50 sticky top-0 z-10" style={{ gridTemplateColumns: region ? '50px 2fr 1fr 0.9fr 0.9fr 1fr' : '50px 2fr 1fr 0.9fr 0.9fr 1fr 1fr' }}>
+                <div className="grid border-b-2 border-primary bg-secondary/50 sticky top-0 z-10" style={{ gridTemplateColumns: '50px 2fr 1fr 0.9fr 0.9fr 1fr' }}>
                   <div className="px-1.5 sm:px-4 py-2 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <SortButton field="rank" label="Rank" />
                   </div>
@@ -389,7 +389,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                             ${borderClass}
                           `}
                           style={{
-                            gridTemplateColumns: region ? '50px 2fr 1fr 0.9fr 0.9fr 1fr' : '50px 2fr 1fr 0.9fr 0.9fr 1fr 1fr',
+                            gridTemplateColumns: '50px 2fr 1fr 0.9fr 0.9fr 1fr',
                             position: 'absolute',
                             top: 0,
                             left: 0,
