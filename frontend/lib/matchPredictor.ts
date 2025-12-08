@@ -2,15 +2,19 @@
  * Match Prediction Engine
  *
  * Enhanced prediction model using multiple features with adaptive weighting:
- * - Power Score Differential (50-75% adaptive based on skill gap)
+ * - Power Score Differential (58-78% adaptive based on skill gap)
  * - SOS Differential (18-10% adaptive)
- * - Recent Form (28-12% adaptive)
- * - Matchup Asymmetry (4-3% adaptive)
+ * - Recent Form (20-8% adaptive, capped at 5% max contribution)
+ * - Matchup Asymmetry (4% constant)
  *
- * For large skill gaps (>15 percentile points), power score dominates.
- * For close matchups (<10 percentile points), recent form and SOS matter more.
+ * Key changes (2025-12-08):
+ * - Reduced form weight from 28% to 20% to prevent hot streaks flipping large rank gaps
+ * - Lowered skill gap thresholds (MEDIUM: 0.10→0.05, LARGE: 0.15→0.10)
+ * - Added MAX_FORM_CONTRIBUTION cap of 5% to prevent excessive form influence
+ * - Increased power score weight from 50% to 58% for more reliable base predictions
  *
- * Validated at 74.7% direction accuracy
+ * For large skill gaps (>10 percentile points), power score dominates.
+ * For close matchups (<5 percentile points), recent form and SOS matter more.
  */
 
 import type { TeamWithRanking } from './types';
@@ -155,27 +159,32 @@ loadMarginParametersV2().catch(() => {
   // Silently fail - will use defaults
 });
 
-// Base feature weights (optimized for close matchups - 74.7% accuracy)
+// Base feature weights (rebalanced - reduced form influence to prevent upsets)
+// Previous 28% form weight allowed hot streaks to flip large rank gaps
 const BASE_WEIGHTS = {
-  POWER_SCORE: 0.50,  // Base strength
-  SOS: 0.18,          // Schedule strength
-  RECENT_FORM: 0.28,  // Last 5 games momentum - KEY PREDICTOR for close games!
-  MATCHUP: 0.04,      // Offense vs defense
+  POWER_SCORE: 0.58,  // Increased from 0.50 - power score is more reliable
+  SOS: 0.18,          // Schedule strength (unchanged)
+  RECENT_FORM: 0.20,  // Reduced from 0.28 - prevents 5 games from overriding 30+ games
+  MATCHUP: 0.04,      // Offense vs defense (unchanged)
 };
 
-// Adaptive weights for large skill gaps (>0.15 power diff = 15 percentile points)
+// Adaptive weights for large skill gaps (>0.10 power diff = 10 percentile points)
 const BLOWOUT_WEIGHTS = {
-  POWER_SCORE: 0.75,  // Power dominates in mismatches
+  POWER_SCORE: 0.78,  // Increased from 0.75 - power dominates in mismatches
   SOS: 0.10,          // Schedule matters less
-  RECENT_FORM: 0.12,  // Recent form matters less
-  MATCHUP: 0.03,      // Matchup details matter less
+  RECENT_FORM: 0.08,  // Reduced from 0.12 - form rarely matters in mismatches
+  MATCHUP: 0.04,      // Matchup details
 };
 
-// Thresholds for adaptive weighting
+// Thresholds for adaptive weighting (lowered to trigger earlier)
+// Previous thresholds treated 8-percentile gaps as "close games"
 const SKILL_GAP_THRESHOLDS = {
-  LARGE: 0.15,   // >15 percentile points = large gap, use blowout weights
-  MEDIUM: 0.10,  // 10-15 percentile points = transition zone
+  LARGE: 0.10,   // Lowered from 0.15 - 10 percentile points = large gap
+  MEDIUM: 0.05,  // Lowered from 0.10 - start transitioning at 5 points
 };
+
+// Maximum contribution from recent form (prevents form from flipping large mismatches)
+const MAX_FORM_CONTRIBUTION = 0.05;
 
 // Prediction parameters (with calibration overrides)
 const DEFAULT_SENSITIVITY = 4.5;
@@ -419,10 +428,17 @@ export function predictMatch(
   const matchupAdvantage = (offenseA - defenseB) - (offenseB - defenseA);
 
   // 6. Composite differential (weighted combination with adaptive weights)
+  // Cap form contribution to prevent hot streaks from flipping large mismatches
+  const rawFormContribution = weights.RECENT_FORM * formDiffNorm;
+  const cappedFormContribution = Math.max(
+    -MAX_FORM_CONTRIBUTION,
+    Math.min(MAX_FORM_CONTRIBUTION, rawFormContribution)
+  );
+
   const compositeDiff =
     weights.POWER_SCORE * powerDiff +
     weights.SOS * sosDiff +
-    weights.RECENT_FORM * formDiffNorm +
+    cappedFormContribution +
     weights.MATCHUP * matchupAdvantage;
 
   // 7. Win probability (using calibrated sensitivity)
