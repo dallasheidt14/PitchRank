@@ -121,12 +121,53 @@ export async function POST(request: NextRequest) {
     let gamesUpdated = 0;
     let homeUpdated = 0;
     let awayUpdated = 0;
+    let specificGameUpdated = false;
 
-    // 4. Optionally backfill all games with this provider_id
+    // Check: Is the opponentProviderId matching home or away?
+    const isOpponentHome = String(game.home_provider_id) === providerTeamIdStr;
+    const isOpponentAway = String(game.away_provider_id) === providerTeamIdStr;
+
+    // 4. FIRST: Always update the specific game the user clicked on (by ID)
+    // This ensures the clicked game gets updated regardless of any type issues with provider_id matching
+    if (isOpponentHome && game.home_team_master_id === null) {
+      console.log('[link-opponent] Updating specific game (home team) by ID:', gameId);
+      const { error: specificUpdateError } = await supabase
+        .from('games')
+        .update({ home_team_master_id: teamIdMaster })
+        .eq('id', gameId);
+
+      if (specificUpdateError) {
+        console.error('[link-opponent] Failed to update specific game:', specificUpdateError);
+      } else {
+        specificGameUpdated = true;
+        homeUpdated = 1;
+        console.log('[link-opponent] Successfully updated specific game (home team)');
+      }
+    } else if (isOpponentAway && game.away_team_master_id === null) {
+      console.log('[link-opponent] Updating specific game (away team) by ID:', gameId);
+      const { error: specificUpdateError } = await supabase
+        .from('games')
+        .update({ away_team_master_id: teamIdMaster })
+        .eq('id', gameId);
+
+      if (specificUpdateError) {
+        console.error('[link-opponent] Failed to update specific game:', specificUpdateError);
+      } else {
+        specificGameUpdated = true;
+        awayUpdated = 1;
+        console.log('[link-opponent] Successfully updated specific game (away team)');
+      }
+    } else {
+      console.log('[link-opponent] Specific game already linked or no match:', {
+        isOpponentHome,
+        isOpponentAway,
+        home_team_master_id: game.home_team_master_id,
+        away_team_master_id: game.away_team_master_id,
+      });
+    }
+
+    // 5. Optionally backfill OTHER games with this provider_id
     if (applyToAllGames) {
-      // Check: Is the opponentProviderId matching home or away?
-      const isOpponentHome = String(game.home_provider_id) === providerTeamIdStr;
-      const isOpponentAway = String(game.away_provider_id) === providerTeamIdStr;
       console.log('[link-opponent] Provider ID match check:', {
         providerTeamIdStr,
         game_home_provider_id: game.home_provider_id,
@@ -174,7 +215,8 @@ export async function POST(request: NextRequest) {
         console.error('[link-opponent] Failed to update home games:', homeUpdateError);
         // Don't fail - alias was created, just log the error
       } else {
-        homeUpdated = homeUpdateData?.length || 0;
+        // Add to homeUpdated (don't overwrite - we may have already updated the specific game)
+        homeUpdated += homeUpdateData?.length || 0;
       }
 
       // Count games where opponent is AWAY team
@@ -209,7 +251,8 @@ export async function POST(request: NextRequest) {
         console.error('[link-opponent] Failed to update away games:', awayUpdateError);
         // Don't fail - alias was created, just log the error
       } else {
-        awayUpdated = awayUpdateData?.length || 0;
+        // Add to awayUpdated (don't overwrite - we may have already updated the specific game)
+        awayUpdated += awayUpdateData?.length || 0;
       }
 
       gamesUpdated = homeUpdated + awayUpdated;
@@ -231,6 +274,9 @@ export async function POST(request: NextRequest) {
         console.error('[link-opponent] Failed to create audit log:', auditError);
         // Don't fail - the main operation succeeded
       }
+    } else {
+      // If not applying to all games, just count the specific game update
+      gamesUpdated = specificGameUpdated ? 1 : 0;
     }
 
     return NextResponse.json({
@@ -247,6 +293,9 @@ export async function POST(request: NextRequest) {
         gameId,
         opponentProviderId,
         teamIdMaster,
+        specificGameUpdated,
+        isOpponentHome,
+        isOpponentAway,
         game: {
           provider_id: game.provider_id,
           home_provider_id: game.home_provider_id,
