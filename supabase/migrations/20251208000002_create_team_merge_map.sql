@@ -80,8 +80,7 @@ BEGIN
             'Cannot deprecate team % - other teams are already merged into it. '
             'You must first re-merge those teams to a different canonical team.',
             NEW.deprecated_team_id
-        USING HINT = 'Query: SELECT deprecated_team_id FROM team_merge_map WHERE canonical_team_id = ''%''',
-            NEW.deprecated_team_id;
+        USING HINT = 'Query: SELECT deprecated_team_id FROM team_merge_map WHERE canonical_team_id = <team_id>';
     END IF;
 
     -- RULE 3: Validate both teams exist and canonical is not deprecated
