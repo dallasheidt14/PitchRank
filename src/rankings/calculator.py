@@ -91,6 +91,7 @@ async def compute_rankings_with_ml(
     force_rebuild: bool = False,
     save_snapshot: bool = True,  # Set to False when called from compute_all_cohorts
     global_strength_map: Optional[Dict] = None,  # For cross-age SOS lookups
+    merge_version: Optional[str] = None,  # For cache invalidation when merges change
 ) -> Dict[str, pd.DataFrame]:
     """
     Runs your deterministic v53E engine, then applies the Supabase-aware ML adjustment.
@@ -104,6 +105,7 @@ async def compute_rankings_with_ml(
         fetch_from_supabase: If True and games_df is None, fetch from Supabase
         lookback_days: Days to look back for rankings
         provider_filter: Optional provider code filter
+        merge_version: Version hash from MergeResolver for cache invalidation
 
     Returns:
         {
@@ -140,8 +142,11 @@ async def compute_rankings_with_ml(
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     # Generate hash key from ALL game IDs (not just first 1000 - that caused stale cache issues)
+    # Include merge_version to invalidate cache when team merges change
     game_ids = games_df["game_id"].astype(str).tolist() if "game_id" in games_df.columns else []
     hash_input = "".join(sorted(game_ids)) + str(lookback_days) + (provider_filter or "")
+    if merge_version:
+        hash_input += f"_merge_{merge_version}"
     cache_key = hashlib.md5(hash_input.encode()).hexdigest()
     cache_file_teams = cache_dir / f"rankings_{cache_key}_teams.parquet"
     cache_file_games = cache_dir / f"rankings_{cache_key}_games.parquet"
@@ -353,6 +358,7 @@ async def compute_all_cohorts(
     lookback_days: int = 365,
     provider_filter: Optional[str] = None,
     force_rebuild: bool = False,
+    merge_resolver=None,  # Optional MergeResolver for team merge resolution
 ) -> Dict[str, pd.DataFrame]:
     """
     Compute rankings for all cohorts using two-pass architecture.
@@ -361,7 +367,13 @@ async def compute_all_cohorts(
     Pass 2: Re-run with global_strength_map for accurate cross-age SOS
 
     This ensures cross-age opponents get their real strength instead of 0.35.
+
+    Args:
+        merge_resolver: Optional MergeResolver instance for resolving merged teams
     """
+    # Get merge version for cache invalidation
+    merge_version = merge_resolver.version if merge_resolver else None
+
     # Get games data if not provided
     if games_df is None or games_df.empty:
         if fetch_from_supabase:
@@ -369,7 +381,8 @@ async def compute_all_cohorts(
                 supabase_client=supabase_client,
                 lookback_days=lookback_days,
                 provider_filter=provider_filter,
-                today=today
+                today=today,
+                merge_resolver=merge_resolver,  # Apply merge resolution
             )
         else:
             raise ValueError("games_df is required if fetch_from_supabase is False")
@@ -400,6 +413,7 @@ async def compute_all_cohorts(
             force_rebuild=force_rebuild,
             save_snapshot=False,
             global_strength_map=None,  # No global map yet
+            merge_version=merge_version,  # For cache invalidation
         )
         pass1_tasks.append(task)
 
@@ -433,6 +447,7 @@ async def compute_all_cohorts(
             force_rebuild=True,  # Force rebuild to use new global map
             save_snapshot=False,
             global_strength_map=global_strength_map,  # Now with cross-age strengths
+            merge_version=merge_version,  # For cache invalidation
         )
         pass2_tasks.append(task)
 

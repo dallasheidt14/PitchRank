@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import pandas as pd
 import re
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, TYPE_CHECKING
 from datetime import datetime, timedelta
 import logging
 import time
+
+if TYPE_CHECKING:
+    from src.utils.merge_resolver import MergeResolver
 
 logger = logging.getLogger(__name__)
 
@@ -95,17 +98,19 @@ async def fetch_games_for_rankings(
     supabase_client,
     lookback_days: int = 365,
     provider_filter: Optional[str] = None,
-    today: Optional[pd.Timestamp] = None
+    today: Optional[pd.Timestamp] = None,
+    merge_resolver: Optional['MergeResolver'] = None
 ) -> pd.DataFrame:
     """
     Fetch games from Supabase and convert to v53e format
-    
+
     Args:
         supabase_client: Supabase client instance
         lookback_days: Number of days to look back
         provider_filter: Optional provider code filter
         today: Reference date (defaults to today)
-    
+        merge_resolver: Optional MergeResolver for resolving deprecated team IDs
+
     Returns:
         DataFrame in v53e format with columns:
         - game_id, date, team_id, opp_id, age, gender, opp_age, opp_gender, gf, ga
@@ -332,10 +337,15 @@ async def fetch_games_for_rankings(
     if not v53e_rows:
         logger.warning("⚠️  No valid games after conversion")
         return pd.DataFrame()
-    
+
     v53e_df = pd.DataFrame(v53e_rows)
     logger.info(f"📋 Created {len(v53e_df):,} perspective rows from {processed_count:,} games")
-    
+
+    # Apply merge resolution if resolver provided
+    if merge_resolver is not None and merge_resolver.has_merges:
+        logger.info(f"🔀 Applying merge resolution ({merge_resolver.merge_count} merges, version: {merge_resolver.version})")
+        v53e_df = merge_resolver.resolve_dataframe(v53e_df, ['team_id', 'opp_id'])
+
     # Filter out rows with missing scores
     before_filter = len(v53e_df)
     v53e_df = v53e_df.dropna(subset=['gf', 'ga'])
