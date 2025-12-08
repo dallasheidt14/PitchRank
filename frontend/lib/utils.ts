@@ -29,30 +29,56 @@ export function formatSOSIndex(sosNorm?: number | null): string {
 
 /**
  * Extract age from team name (fallback when age field is missing/wrong)
- * Handles formats like "14B Engilman" → 14, "Excel Soccer Academy 14B Red" → 14
- * Also handles "U14" format in team names
+ *
+ * IMPORTANT: In youth soccer, "14B" means BIRTH YEAR 2014, NOT age 14!
+ * - "14B Engilman" → birth year 2014 → U11 (in 2025 season)
+ * - "08G Excel" → birth year 2008 → U17 (in 2025 season)
+ * - "U14 Phoenix" → directly specified as U14 → age 14
+ *
+ * Birth year format: 2-digit year (08-19) followed by B (boys) or G (girls)
+ * Direct age format: "U" followed by age (U10, U14, etc.)
+ *
  * @param teamName - Team name string
- * @returns Integer age or null if not found
+ * @returns Integer age (for U-age lookup) or null if not found
  */
 export function extractAgeFromTeamName(teamName: string | null | undefined): number | null {
   if (!teamName) return null;
 
-  // Pattern 1: "14B", "14G", "14" followed by space or end
-  const agePattern = /\b(\d{1,2})[BG]?\b/i;
-  const match = teamName.match(agePattern);
-  if (match) {
-    const age = parseInt(match[1], 10);
-    if (age >= 8 && age <= 19) {
-      return age;
-    }
-  }
-
-  // Pattern 2: "U14", "u14" format
+  // Pattern 1: "U14", "u14" format - direct age specification (check first)
   const uPattern = /\bU(\d{1,2})\b/i;
   const uMatch = teamName.match(uPattern);
   if (uMatch) {
     const age = parseInt(uMatch[1], 10);
     if (age >= 8 && age <= 19) {
+      return age;
+    }
+  }
+
+  // Pattern 2: "14B", "14G" format - this is BIRTH YEAR, not age!
+  // Valid birth years: 08-19 (2008-2019) for youth soccer
+  const birthYearPattern = /\b(0[89]|1[0-9])[BG]\b/i;
+  const birthYearMatch = teamName.match(birthYearPattern);
+  if (birthYearMatch) {
+    const birthYearSuffix = parseInt(birthYearMatch[1], 10);
+    const birthYear = 2000 + birthYearSuffix;
+    const currentYear = new Date().getFullYear();
+    // Calculate age: how old the player turns this calendar year
+    const age = currentYear - birthYear;
+    if (age >= 5 && age <= 19) {
+      return age;
+    }
+  }
+
+  // Pattern 3: Standalone 2-digit number that could be birth year (without B/G suffix)
+  // Be more conservative - only match if it looks like a birth year (08-19)
+  const standaloneYearPattern = /\b(0[89]|1[0-9])\b/;
+  const standaloneMatch = teamName.match(standaloneYearPattern);
+  if (standaloneMatch) {
+    const birthYearSuffix = parseInt(standaloneMatch[1], 10);
+    const birthYear = 2000 + birthYearSuffix;
+    const currentYear = new Date().getFullYear();
+    const age = currentYear - birthYear;
+    if (age >= 5 && age <= 19) {
       return age;
     }
   }
