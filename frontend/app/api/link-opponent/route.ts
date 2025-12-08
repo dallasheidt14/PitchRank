@@ -109,7 +109,8 @@ export async function POST(request: NextRequest) {
       // Helper to build query with proper provider_id handling
       // Note: .eq('col', null) doesn't work in SQL (NULL = NULL is false)
       // So we need to use .is() for null values
-      const addProviderFilter = (query: ReturnType<typeof supabase.from>) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const addProviderFilter = <T extends { is: (col: string, val: null) => T; eq: (col: string, val: string) => T }>(query: T): T => {
         if (game.provider_id === null) {
           return query.is('provider_id', null);
         }
