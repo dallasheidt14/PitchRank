@@ -21,6 +21,7 @@
 import type { TeamWithRanking } from './types';
 import type { Game } from './types';
 import { computeConfidence } from './confidenceEngine';
+import { extractAgeFromTeamName } from './utils';
 
 // Age group parameters (loaded from JSON, fallback to defaults)
 interface AgeGroupParameters {
@@ -495,14 +496,31 @@ export function predictMatch(
 
   // 8. Expected goal margin with age-specific and compositeDiff-based amplification
   const absCompositeDiff = Math.abs(compositeDiff);
-  const marginMultiplier = getAgeSpecificMarginMultiplier(teamA.age, absCompositeDiff);
+  // Get age: prefer extracting from team name (handles "14B" format), fallback to database age
+  const effectiveAge = extractAgeFromTeamName(teamA.team_name) ||
+                       extractAgeFromTeamName(teamB.team_name) ||
+                       teamA.age ||
+                       teamB.age;
+  const marginMultiplier = getAgeSpecificMarginMultiplier(effectiveAge, absCompositeDiff);
   const expectedMargin = compositeDiff * MARGIN_COEFFICIENT * marginMultiplier;
 
   // 9. Expected scores using age-adjusted league average
-  // Use teamA's age (matchups are typically same-age groups)
-  const leagueAvgGoals = getLeagueAverageGoals(teamA.age);
-  const expectedScoreA = Math.max(0, leagueAvgGoals + (expectedMargin / 2));
-  const expectedScoreB = Math.max(0, leagueAvgGoals - (expectedMargin / 2));
+  const leagueAvgGoals = getLeagueAverageGoals(effectiveAge);
+
+  // For close matches (margin < 0.5), show same score for both teams to avoid misleading 3-2 displays
+  let expectedScoreA: number;
+  let expectedScoreB: number;
+
+  if (Math.abs(expectedMargin) < 0.5) {
+    // Close match - show same score (round to nearest integer)
+    const avgScore = Math.round(leagueAvgGoals);
+    expectedScoreA = avgScore;
+    expectedScoreB = avgScore;
+  } else {
+    // Clear margin - show differentiated scores
+    expectedScoreA = Math.max(0, leagueAvgGoals + (expectedMargin / 2));
+    expectedScoreB = Math.max(0, leagueAvgGoals - (expectedMargin / 2));
+  }
 
   // 10. Predicted winner (with draw threshold for close matchups)
   // ~16% of games end in draws - predict draw when probability is very close to 50%
