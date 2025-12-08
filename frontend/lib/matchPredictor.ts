@@ -686,31 +686,39 @@ export function predictMatch(
   const absPowerDiff = Math.abs(powerDiff);
   const marginMultiplier = getAgeSpecificMarginMultiplier(effectiveAge, absPowerDiff);
   // For mismatches, increase the margin to better reflect blowout potential
-  const mismatchMarginBoost = mismatchScore > 0.5 ? 1.0 + (mismatchScore - 0.5) * 0.8 : 1.0;
+  // Stronger boost: 0.5 mismatch = 1x, 0.75 = 1.75x, 1.0 = 2.5x
+  const mismatchMarginBoost = mismatchScore > 0.5 ? 1.0 + (mismatchScore - 0.5) * 3.0 : 1.0;
   const expectedMargin = compositeDiff * MARGIN_COEFFICIENT * marginMultiplier * mismatchMarginBoost;
 
   // 11. Expected scores using age-adjusted league average
   const leagueAvgGoals = getLeagueAverageGoals(effectiveAge);
-
-  // For severe mismatches, reduce the underdog's expected goals
-  // In blowouts, underdogs often score 0-1 goals, not 2+
-  // Underdog reduction: mismatchScore 0.5 -> 0%, 0.8 -> 30%, 1.0 -> 50%
-  const underdogReduction = mismatchScore > 0.5 ? (mismatchScore - 0.5) * 1.0 : 0;
-  const underdogBaseline = leagueAvgGoals * (1 - underdogReduction);
-
-  // Round scores in a way that preserves the expected margin
   const absExpectedMargin = Math.abs(expectedMargin);
+
+  // For mismatches, use a different scoring model:
+  // - Underdog scores 0-1 goals in blowouts
+  // - Favorite scores underdog + margin
   let rawScoreA: number;
   let rawScoreB: number;
 
-  if (expectedMargin >= 0) {
-    // Team A is favored - B is underdog
-    rawScoreB = Math.max(0, underdogBaseline - (absExpectedMargin * 0.3)); // Underdog gets reduced baseline
-    rawScoreA = rawScoreB + absExpectedMargin;
+  if (mismatchScore > 0.6) {
+    // Clear mismatch: underdog gets reduced score (0-1.5 range)
+    const underdogScore = Math.max(0, 1.5 - (mismatchScore - 0.6) * 2.5);
+    if (expectedMargin >= 0) {
+      rawScoreB = underdogScore;
+      rawScoreA = underdogScore + absExpectedMargin;
+    } else {
+      rawScoreA = underdogScore;
+      rawScoreB = underdogScore + absExpectedMargin;
+    }
   } else {
-    // Team B is favored - A is underdog
-    rawScoreA = Math.max(0, underdogBaseline - (absExpectedMargin * 0.3));
-    rawScoreB = rawScoreA + absExpectedMargin;
+    // Competitive match: both teams score around league average
+    if (expectedMargin >= 0) {
+      rawScoreB = leagueAvgGoals - (absExpectedMargin / 2);
+      rawScoreA = leagueAvgGoals + (absExpectedMargin / 2);
+    } else {
+      rawScoreA = leagueAvgGoals - (absExpectedMargin / 2);
+      rawScoreB = leagueAvgGoals + (absExpectedMargin / 2);
+    }
   }
 
   const roundedMargin = Math.round(absExpectedMargin);
