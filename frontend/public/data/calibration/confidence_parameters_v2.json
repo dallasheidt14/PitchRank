@@ -1,20 +1,26 @@
 {
   "weights": {
     "composite_diff": 16.580185793897275,
-    "variance": -0.059596022589836754,
-    "sample_strength": -0.6024861075092446
+    "variance": -0.10,
+    "sample_strength": 0.40
   },
-  "intercept": -0.629569663842416,
+  "intercept": -0.80,
   "thresholds": {
-    "high": 0.5680501839990721,
-    "medium": 0.3798088736988595
+    "high": 0.65,
+    "medium": 0.50
   },
   "accuracy_improvement": 0.21399999999999997,
   "fitted_accuracy": 0.697,
   "baseline_accuracy": 0.483,
-  "current_weights": {
-    "composite_diff": 1.6,
-    "variance": -1.0,
-    "sample_strength": 0.6
+  "notes": {
+    "sample_strength_fix": "Changed from -0.60 to +0.40 - more games should increase confidence",
+    "variance_adjustment": "Increased weight to -0.10 for stronger variance penalty",
+    "thresholds_fix": "Raised thresholds - 'high' confidence should mean >65%, not 56.8%"
+  },
+  "original_fitted_weights": {
+    "composite_diff": 16.580185793897275,
+    "variance": -0.059596022589836754,
+    "sample_strength": -0.6024861075092446,
+    "intercept": -0.629569663842416
   }
 }
