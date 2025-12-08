@@ -21,6 +21,8 @@
  * - Increased power score weight from 50% to 58% for more reliable base predictions
  * - Added opponent-adjusted recent form (weights goals by opponent strength)
  * - Added head-to-head history boost (up to ±3% based on past matchups)
+ * - CRITICAL FIX: Removed 45-55% "draw" zone - draws only occur ~16% of time,
+ *   so always pick the favored team (this was causing 50-55% bucket to show 16% accuracy)
  *
  * For large skill gaps (>10 percentile points), power score dominates.
  * For close matchups (<5 percentile points), recent form and SOS matter more.
@@ -553,11 +555,12 @@ export function predictMatch(
   const expectedScoreA = Math.max(0, leagueAvgGoals + (expectedMargin / 2));
   const expectedScoreB = Math.max(0, leagueAvgGoals - (expectedMargin / 2));
 
-  // 10. Predicted winner
+  // 10. Predicted winner - always pick the favored team
+  // Previous logic used 45-55% as "draw" zone, but draws only happen ~16% of time
+  // In the 50-55% bucket, actual team_a win rate was ~55-60%, not 50%
+  // Predicting "draw" for those games caused terrible accuracy (16% vs expected 50%+)
   let predictedWinner: 'team_a' | 'team_b' | 'draw';
-  if (winProbA > 0.55) predictedWinner = 'team_a';
-  else if (winProbA < 0.45) predictedWinner = 'team_b';
-  else predictedWinner = 'draw';
+  predictedWinner = winProbA >= 0.5 ? 'team_a' : 'team_b';
 
   // 11. Confidence level (using variance-based confidence engine)
   const confidenceResult = computeConfidence(teamA, teamB, compositeDiff, allGames);
