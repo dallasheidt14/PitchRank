@@ -67,6 +67,7 @@ SELECT
     -- Metrics (ONLY from rankings_full)
     rf.power_score_final,
     rf.sos_norm,
+    rf.sos_norm_state,  -- State normalization (for state rankings display)
     rf.off_norm AS offense_norm,
     rf.def_norm AS defense_norm,
 
@@ -128,6 +129,7 @@ SELECT
     -- Metrics
     rv.power_score_final,
     rv.sos_norm,
+    rv.sos_norm_state,  -- State normalization (for state rankings display)
     rv.offense_norm,
     rv.defense_norm,
 
