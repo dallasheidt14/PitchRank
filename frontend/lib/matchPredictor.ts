@@ -1,5 +1,5 @@
 /**
- * Match Prediction Engine v2.2
+ * Match Prediction Engine v2.3
  *
  * Enhanced prediction model using multiple features with adaptive weighting:
  * - Power Score Differential (50-85% adaptive based on skill gap)
@@ -19,6 +19,12 @@
  * - Lowered skill gap thresholds: 8%/5% (was 15%/10%) - fixes "close match" misclassification
  * - Increased blowout power weight: 85% (was 75%) - power score now dominates for mismatches
  * - Fixed birth year age extraction: "14B" = 2014 birth year = U12 (turns 11 + 1), not U14
+ *
+ * v2.3 Improvements:
+ * - Multi-metric mismatch detection: uses offense, defense, and matchup asymmetry gaps
+ * - Teams with 15%+ offense/defense gaps now correctly identified as mismatches
+ * - Mismatch amplification: boosts probability and margin for clear mismatches
+ * - Fixes cases like Excel vs PRFC (7% power gap but 19% offense gap = mismatch, not close)
  *
  * Validated at 74.7% direction accuracy (target: 77-79% with calibration)
  */
@@ -270,29 +276,95 @@ function normalizeRecentForm(goalDiff: number): number {
 }
 
 /**
- * Calculate adaptive weights based on power score differential
+ * Detect if this is a mismatch based on multiple metrics
+ * Returns a mismatch score from 0 (close game) to 1 (clear mismatch)
+ *
+ * A mismatch can be detected via:
+ * - Power score gap (>6-8 percentile points)
+ * - Offense gap (>12 percentile points)
+ * - Defense gap (>12 percentile points)
+ * - Matchup asymmetry (>0.20)
+ */
+function detectMismatch(
+  powerDiff: number,
+  offenseA: number,
+  offenseB: number,
+  defenseA: number,
+  defenseB: number
+): { isMismatch: boolean; mismatchScore: number } {
+  const absPowerDiff = Math.abs(powerDiff);
+  const offenseGap = Math.abs(offenseA - offenseB);
+  const defenseGap = Math.abs(defenseA - defenseB);
+  // Matchup asymmetry: how much does A's offense exploit B's defense vs reverse
+  const matchupAsymmetry = Math.abs((offenseA - defenseB) - (offenseB - defenseA));
+
+  // Score each metric (0-1 scale)
+  const powerScore = Math.min(absPowerDiff / 0.12, 1.0);        // 12% gap = max
+  const offenseScore = Math.min(offenseGap / 0.18, 1.0);        // 18% gap = max
+  const defenseScore = Math.min(defenseGap / 0.18, 1.0);        // 18% gap = max
+  const asymmetryScore = Math.min(matchupAsymmetry / 0.30, 1.0); // 0.30 asymmetry = max
+
+  // Weighted combination - offense/defense gaps are strong indicators
+  const mismatchScore = (
+    powerScore * 0.35 +
+    offenseScore * 0.25 +
+    defenseScore * 0.25 +
+    asymmetryScore * 0.15
+  );
+
+  // Mismatch if score > 0.4 OR any single metric is extreme
+  const isMismatch = mismatchScore > 0.4 ||
+    absPowerDiff > 0.10 ||
+    offenseGap > 0.15 ||
+    defenseGap > 0.15 ||
+    matchupAsymmetry > 0.25;
+
+  return { isMismatch, mismatchScore };
+}
+
+/**
+ * Calculate adaptive weights based on skill gap
  * Large skill gaps → power score dominates
  * Close matchups → recent form and SOS matter more
+ *
+ * v2.3: Now uses multi-metric mismatch detection, not just power score
  */
-function getAdaptiveWeights(powerDiff: number): typeof BASE_WEIGHTS {
+function getAdaptiveWeights(
+  powerDiff: number,
+  offenseA: number,
+  offenseB: number,
+  defenseA: number,
+  defenseB: number
+): { weights: typeof BASE_WEIGHTS; mismatchScore: number } {
+  const { isMismatch, mismatchScore } = detectMismatch(
+    powerDiff, offenseA, offenseB, defenseA, defenseB
+  );
+
   const absPowerDiff = Math.abs(powerDiff);
 
-  // Small gap (<10 percentile points): use base weights optimized for close games
-  if (absPowerDiff < SKILL_GAP_THRESHOLDS.MEDIUM) {
-    return BASE_WEIGHTS;
+  // Clear mismatch detected - use blowout weights
+  if (isMismatch && mismatchScore > 0.6) {
+    return { weights: BLOWOUT_WEIGHTS, mismatchScore };
   }
 
-  // Large gap (>15 percentile points): use blowout weights
+  // Large power gap alone also triggers blowout
   if (absPowerDiff >= SKILL_GAP_THRESHOLDS.LARGE) {
-    return BLOWOUT_WEIGHTS;
+    return { weights: BLOWOUT_WEIGHTS, mismatchScore };
   }
 
-  // Transition zone (10-15 percentile points): interpolate between base and blowout
-  const transitionProgress =
-    (absPowerDiff - SKILL_GAP_THRESHOLDS.MEDIUM) /
-    (SKILL_GAP_THRESHOLDS.LARGE - SKILL_GAP_THRESHOLDS.MEDIUM);
+  // Small gap and no mismatch signals: use base weights
+  if (absPowerDiff < SKILL_GAP_THRESHOLDS.MEDIUM && !isMismatch) {
+    return { weights: BASE_WEIGHTS, mismatchScore };
+  }
 
-  return {
+  // Transition zone: interpolate based on mismatch score
+  const transitionProgress = Math.max(
+    (absPowerDiff - SKILL_GAP_THRESHOLDS.MEDIUM) /
+      (SKILL_GAP_THRESHOLDS.LARGE - SKILL_GAP_THRESHOLDS.MEDIUM),
+    mismatchScore
+  );
+
+  const weights = {
     POWER_SCORE: BASE_WEIGHTS.POWER_SCORE +
       (BLOWOUT_WEIGHTS.POWER_SCORE - BASE_WEIGHTS.POWER_SCORE) * transitionProgress,
     SOS: BASE_WEIGHTS.SOS +
@@ -302,6 +374,8 @@ function getAdaptiveWeights(powerDiff: number): typeof BASE_WEIGHTS {
     MATCHUP: BASE_WEIGHTS.MATCHUP +
       (BLOWOUT_WEIGHTS.MATCHUP - BASE_WEIGHTS.MATCHUP) * transitionProgress,
   };
+
+  return { weights, mismatchScore };
 }
 
 /**
@@ -469,6 +543,7 @@ export interface MatchPrediction {
 
 /**
  * Predict match outcome with enhanced model using adaptive weights
+ * v2.3: Multi-metric mismatch detection for better blowout prediction
  */
 export function predictMatch(
   teamA: TeamWithRanking,
@@ -478,40 +553,51 @@ export function predictMatch(
   // 1. Base power score differential
   const powerDiff = (teamA.power_score_final || 0.5) - (teamB.power_score_final || 0.5);
 
-  // 2. Calculate adaptive weights based on skill gap
-  const weights = getAdaptiveWeights(powerDiff);
-
-  // 3. SOS differential
-  const sosDiff = (teamA.sos_norm || 0.5) - (teamB.sos_norm || 0.5);
-
-  // 4. Recent form
-  const formA = calculateRecentForm(teamA.team_id_master, allGames);
-  const formB = calculateRecentForm(teamB.team_id_master, allGames);
-  const formDiffRaw = formA - formB;
-  const formDiffNorm = normalizeRecentForm(formDiffRaw) - 0.5;
-
-  // 5. Offense vs Defense matchup asymmetry
+  // 2. Offense vs Defense values (needed for mismatch detection)
   const offenseA = teamA.offense_norm || 0.5;
   const defenseA = teamA.defense_norm || 0.5;
   const offenseB = teamB.offense_norm || 0.5;
   const defenseB = teamB.defense_norm || 0.5;
 
+  // 3. Calculate adaptive weights based on multi-metric mismatch detection
+  const { weights, mismatchScore } = getAdaptiveWeights(
+    powerDiff, offenseA, offenseB, defenseA, defenseB
+  );
+
+  // 4. SOS differential
+  const sosDiff = (teamA.sos_norm || 0.5) - (teamB.sos_norm || 0.5);
+
+  // 5. Recent form
+  const formA = calculateRecentForm(teamA.team_id_master, allGames);
+  const formB = calculateRecentForm(teamB.team_id_master, allGames);
+  const formDiffRaw = formA - formB;
+  const formDiffNorm = normalizeRecentForm(formDiffRaw) - 0.5;
+
+  // 6. Matchup asymmetry (how much A's offense exploits B's defense)
   const matchupAdvantage = (offenseA - defenseB) - (offenseB - defenseA);
 
-  // 6. Composite differential (weighted combination with adaptive weights)
-  const compositeDiff =
+  // 7. Composite differential (weighted combination with adaptive weights)
+  let compositeDiff =
     weights.POWER_SCORE * powerDiff +
     weights.SOS * sosDiff +
     weights.RECENT_FORM * formDiffNorm +
     weights.MATCHUP * matchupAdvantage;
 
-  // 7. Win probability (using calibrated sensitivity + per-bucket calibration)
+  // 8. Mismatch amplification: boost composite diff for clear mismatches
+  // This ensures large offense/defense gaps translate to higher probabilities
+  if (mismatchScore > 0.5) {
+    // Amplify by up to 1.5x for extreme mismatches
+    const amplification = 1.0 + (mismatchScore - 0.5) * 1.0;
+    compositeDiff *= amplification;
+  }
+
+  // 9. Win probability (using calibrated sensitivity + per-bucket calibration)
   const sensitivity = getSensitivity();
   const rawWinProbA = sigmoid(sensitivity * compositeDiff);
   const winProbA = calibrateProbability(rawWinProbA);
   const winProbB = 1 - winProbA;
 
-  // 8. Expected goal margin with age-specific and power-gap-based amplification
+  // 10. Expected goal margin with age-specific and mismatch-based amplification
   // Get age: prefer extracting from team name (handles "14B" = U12 format), fallback to database age
   const effectiveAge = extractAgeFromTeamName(teamA.team_name) ||
                        extractAgeFromTeamName(teamB.team_name) ||
@@ -520,7 +606,9 @@ export function predictMatch(
   // Use raw powerDiff for margin scaling - ensures large skill gaps produce larger margins
   const absPowerDiff = Math.abs(powerDiff);
   const marginMultiplier = getAgeSpecificMarginMultiplier(effectiveAge, absPowerDiff);
-  const expectedMargin = compositeDiff * MARGIN_COEFFICIENT * marginMultiplier;
+  // For mismatches, increase the margin to better reflect blowout potential
+  const mismatchMarginBoost = mismatchScore > 0.5 ? 1.0 + (mismatchScore - 0.5) * 0.8 : 1.0;
+  const expectedMargin = compositeDiff * MARGIN_COEFFICIENT * marginMultiplier * mismatchMarginBoost;
 
   // 9. Expected scores using age-adjusted league average
   const leagueAvgGoals = getLeagueAverageGoals(effectiveAge);
