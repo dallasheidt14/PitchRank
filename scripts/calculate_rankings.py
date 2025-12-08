@@ -317,7 +317,12 @@ async def main():
         action='store_true',
         help='Ignore cached v53e rankings and rebuild from raw data'
     )
-    
+    parser.add_argument(
+        '--clear-cache',
+        action='store_true',
+        help='Clear all cached ranking files before running (recommended after first team merge)'
+    )
+
     args = parser.parse_args()
     
     # Initialize Supabase client
@@ -330,11 +335,36 @@ async def main():
     
     supabase = create_client(supabase_url, supabase_key)
 
+    # Handle cache clearing
+    cache_dir = Path("data/cache")
+    if args.clear_cache:
+        if cache_dir.exists():
+            import shutil
+            cache_files = list(cache_dir.glob("rankings_*.parquet"))
+            if cache_files:
+                console.print(f"[yellow]🗑️  Clearing {len(cache_files)} cached ranking files...[/yellow]")
+                for f in cache_files:
+                    f.unlink()
+                console.print(f"[green]✅ Cache cleared successfully[/green]")
+            else:
+                console.print(f"[dim]Cache directory exists but no ranking cache files found[/dim]")
+        else:
+            console.print(f"[dim]Cache directory doesn't exist yet[/dim]")
+
     # Initialize merge resolver for team merge support
     merge_resolver = MergeResolver(supabase)
     merge_resolver.load_merge_map()
     if merge_resolver.has_merges:
         console.print(f"[dim]Loaded {merge_resolver.merge_count} team merges (version: {merge_resolver.version})[/dim]")
+
+        # Check for potentially stale cache files (without merge version suffix)
+        if cache_dir.exists() and not args.clear_cache and not args.force_rebuild:
+            old_cache_files = [f for f in cache_dir.glob("rankings_*.parquet")
+                              if "_merge_" not in f.name]
+            if old_cache_files:
+                console.print(f"\n[yellow]⚠️  WARNING: Found {len(old_cache_files)} cache files created BEFORE team merges existed.[/yellow]")
+                console.print(f"[yellow]   These may contain stale rankings with deprecated team IDs.[/yellow]")
+                console.print(f"[yellow]   Recommendation: Run with --clear-cache or --force-rebuild to ensure accurate rankings.[/yellow]\n")
 
     # Run rankings calculation
     try:
@@ -366,6 +396,7 @@ async def main():
                 lookback_days=args.lookback_days,
                 provider_filter=args.provider,
                 force_rebuild=args.force_rebuild,
+                merge_resolver=merge_resolver,  # Apply merge resolution
             )
         
         teams_df = result["teams"]

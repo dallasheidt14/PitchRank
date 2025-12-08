@@ -312,11 +312,15 @@ async def compute_rankings_v53e_only(
     lookback_days: int = 365,
     provider_filter: Optional[str] = None,
     force_rebuild: bool = False,
+    merge_resolver=None,  # Optional MergeResolver for team merge resolution
 ) -> Dict[str, pd.DataFrame]:
     """
     Run v53e rankings engine only (without ML layer).
 
     Useful for comparison or when ML is disabled.
+
+    Args:
+        merge_resolver: Optional MergeResolver instance for resolving merged teams
     """
     v53_cfg = v53_cfg or V53EConfig()
 
@@ -328,7 +332,8 @@ async def compute_rankings_v53e_only(
                 supabase_client=supabase_client,
                 lookback_days=lookback_days,
                 provider_filter=provider_filter,
-                today=today
+                today=today,
+                merge_resolver=merge_resolver,  # Apply merge resolution
             )
         else:
             raise ValueError("games_df is required if fetch_from_supabase is False")
