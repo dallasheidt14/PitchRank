@@ -1,19 +1,24 @@
 /**
- * Match Prediction Engine v2.1
+ * Match Prediction Engine v2.2
  *
  * Enhanced prediction model using multiple features with adaptive weighting:
- * - Power Score Differential (50-75% adaptive based on skill gap)
- * - SOS Differential (18-10% adaptive)
- * - Recent Form (28-12% adaptive)
- * - Matchup Asymmetry (4-3% adaptive)
+ * - Power Score Differential (50-85% adaptive based on skill gap)
+ * - SOS Differential (18-6% adaptive)
+ * - Recent Form (28-7% adaptive)
+ * - Matchup Asymmetry (4-2% adaptive)
  *
- * For large skill gaps (>15 percentile points), power score dominates.
- * For close matchups (<10 percentile points), recent form and SOS matter more.
+ * For large skill gaps (>8 percentile points), power score dominates at 85%.
+ * For close matchups (<5 percentile points), recent form and SOS matter more.
  *
  * v2.1 Improvements:
  * - Per-bucket probability calibration (fixes 50-55% and 60-65% bias)
  * - Draw threshold for close matchups (captures ~16% draw rate)
  * - Age-specific margin calibration for all age groups (U10-U18)
+ *
+ * v2.2 Improvements:
+ * - Lowered skill gap thresholds: 8%/5% (was 15%/10%) - fixes "close match" misclassification
+ * - Increased blowout power weight: 85% (was 75%) - power score now dominates for mismatches
+ * - Fixed birth year age extraction: "14B" = 2014 birth year = U12 (turns 11 + 1), not U14
  *
  * Validated at 74.7% direction accuracy (target: 77-79% with calibration)
  */
@@ -21,6 +26,7 @@
 import type { TeamWithRanking } from './types';
 import type { Game } from './types';
 import { computeConfidence } from './confidenceEngine';
+import { extractAgeFromTeamName } from './utils';
 
 // Age group parameters (loaded from JSON, fallback to defaults)
 interface AgeGroupParameters {
@@ -168,18 +174,19 @@ const BASE_WEIGHTS = {
   MATCHUP: 0.04,      // Offense vs defense
 };
 
-// Adaptive weights for large skill gaps (>0.15 power diff = 15 percentile points)
+// Adaptive weights for large skill gaps (>0.08 power diff = 8 percentile points)
 const BLOWOUT_WEIGHTS = {
-  POWER_SCORE: 0.75,  // Power dominates in mismatches
-  SOS: 0.10,          // Schedule matters less
-  RECENT_FORM: 0.12,  // Recent form matters less
-  MATCHUP: 0.03,      // Matchup details matter less
+  POWER_SCORE: 0.85,  // Power dominates in mismatches (increased from 0.75)
+  SOS: 0.06,          // Schedule matters less
+  RECENT_FORM: 0.07,  // Recent form matters less
+  MATCHUP: 0.02,      // Matchup details matter less
 };
 
-// Thresholds for adaptive weighting
+// Thresholds for adaptive weighting (lowered in v2.1 for more responsive predictions)
+// A 12 percentile point gap should NOT be treated as "close"
 const SKILL_GAP_THRESHOLDS = {
-  LARGE: 0.15,   // >15 percentile points = large gap, use blowout weights
-  MEDIUM: 0.10,  // 10-15 percentile points = transition zone
+  LARGE: 0.08,   // >8 percentile points = large gap, use blowout weights
+  MEDIUM: 0.05,  // 5-8 percentile points = transition zone
 };
 
 // Prediction parameters (with calibration overrides)
@@ -505,15 +512,18 @@ export function predictMatch(
   const winProbB = 1 - winProbA;
 
   // 8. Expected goal margin with age-specific and power-gap-based amplification
-  // Use raw powerDiff (not weighted compositeDiff) for margin scaling
-  // This ensures large skill gaps produce appropriately larger margins
+  // Get age: prefer extracting from team name (handles "14B" = U12 format), fallback to database age
+  const effectiveAge = extractAgeFromTeamName(teamA.team_name) ||
+                       extractAgeFromTeamName(teamB.team_name) ||
+                       teamA.age ||
+                       teamB.age;
+  // Use raw powerDiff for margin scaling - ensures large skill gaps produce larger margins
   const absPowerDiff = Math.abs(powerDiff);
-  const marginMultiplier = getAgeSpecificMarginMultiplier(teamA.age, absPowerDiff);
+  const marginMultiplier = getAgeSpecificMarginMultiplier(effectiveAge, absPowerDiff);
   const expectedMargin = compositeDiff * MARGIN_COEFFICIENT * marginMultiplier;
 
   // 9. Expected scores using age-adjusted league average
-  // Use teamA's age (matchups are typically same-age groups)
-  const leagueAvgGoals = getLeagueAverageGoals(teamA.age);
+  const leagueAvgGoals = getLeagueAverageGoals(effectiveAge);
 
   // Round scores in a way that preserves the expected margin
   // This prevents rounding artifacts (e.g., 2.7-2.3 becoming 3-2 instead of 2-2)
@@ -526,7 +536,12 @@ export function predictMatch(
   let expectedScoreA: number;
   let expectedScoreB: number;
 
-  if (expectedMargin >= 0) {
+  if (roundedMargin === 0) {
+    // Close match - show same score
+    const avgScore = Math.round(leagueAvgGoals);
+    expectedScoreA = avgScore;
+    expectedScoreB = avgScore;
+  } else if (expectedMargin >= 0) {
     // Team A is favored
     expectedScoreB = Math.max(0, Math.round(rawScoreB));
     expectedScoreA = Math.max(0, expectedScoreB + roundedMargin);

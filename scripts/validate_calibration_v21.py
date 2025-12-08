@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """
-Validation Script for Match Predictor v2.1 Calibration Changes
+Validation Script for Match Predictor v2.2 Calibration Changes
 
 This script validates the calibration improvements made to the match predictor:
 1. Per-bucket probability calibration
 2. Draw threshold accuracy
 3. Margin multiplier corrections
+4. Lowered skill gap thresholds (v2.2): 8%/5% instead of 15%/10%
+5. Increased blowout power weight (v2.2): 85% instead of 75%
+6. Fixed birth year age extraction: "14B" = 2014 birth year = U12 (age + 1)
 
 Run: python scripts/validate_calibration_v21.py
 """
