@@ -2487,7 +2487,7 @@ elif section == "🔀 Team Merge Manager":
                                     .eq('is_deprecated', False)
                                     .eq('gender', gender_filter)
                                     .or_(f"age_group.eq.{age_num},age_group.eq.u{age_num},age_group.eq.U{age_num}")
-                                    .limit(500)
+                                    .limit(2000)
                             )
                             teams = teams_result.data or []
 
@@ -2567,15 +2567,22 @@ elif section == "🔀 Team Merge Manager":
                                         # Apply Roman numeral penalty
                                         roman_penalty = 0.5 if roman_diff else 1.0
 
-                                        # Weighted score with opponent overlap
-                                        # Weights: opponent_overlap=40%, name=20%, schedule/club=25%, geography=10%, performance=5%
-                                        score = (
-                                            0.40 * opponent_overlap +
-                                            0.20 * name_sim * roman_penalty +  # Penalized if Roman numeral diff
+                                        # Weighted score - name similarity is PRIMARY signal
+                                        # Opponent overlap is a BONUS (true duplicates often have 0 overlap
+                                        # because they ARE the same team, not opponents!)
+                                        # Base weights: name=50%, club=25%, state=15%, performance=5%
+                                        base_score = (
+                                            0.50 * name_sim * roman_penalty +
                                             0.25 * club_sim +
-                                            0.10 * state_match +
-                                            0.05 * 0.5  # Default performance (not calculated for speed)
+                                            0.15 * state_match +
+                                            0.05 * 0.5  # Default performance
                                         )
+
+                                        # Opponent overlap as confirming bonus (up to +10%)
+                                        # High overlap confirms they're likely duplicates
+                                        overlap_bonus = 0.10 * opponent_overlap
+
+                                        score = min(1.0, base_score + overlap_bonus)
 
                                         if score >= min_confidence:
                                             suggestion_key = f"{team_a['team_id_master']}_{team_b['team_id_master']}"
