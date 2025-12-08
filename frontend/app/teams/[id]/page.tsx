@@ -2,7 +2,7 @@ import { TeamPageShell } from '@/components/TeamPageShell';
 import { TeamPageSkeleton } from '@/components/skeletons/TeamPageSkeleton';
 import { createClient } from '@supabase/supabase-js';
 import { Suspense } from 'react';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import type { Metadata } from 'next';
 
 interface TeamPageProps {
@@ -114,7 +114,7 @@ export default async function Page({ params }: TeamPageProps) {
 
       const { data: team, error } = await supabase
         .from('teams')
-        .select('team_id_master')
+        .select('team_id_master, is_deprecated')
         .eq('team_id_master', resolvedParams.id)
         .maybeSingle();
 
@@ -123,6 +123,20 @@ export default async function Page({ params }: TeamPageProps) {
         // Don't 404 on error, let client-side handle it
       } else if (!team) {
         // Team doesn't exist - show 404 page
+        notFound();
+      } else if (team.is_deprecated) {
+        // Team is deprecated - check for canonical redirect
+        const { data: mergeInfo } = await supabase
+          .from('team_merge_map')
+          .select('canonical_team_id')
+          .eq('deprecated_team_id', resolvedParams.id)
+          .maybeSingle();
+
+        if (mergeInfo?.canonical_team_id) {
+          // Redirect to the canonical team page
+          redirect(`/teams/${mergeInfo.canonical_team_id}`);
+        }
+        // If no merge info found but team is deprecated, show 404
         notFound();
       }
     } catch (error) {
