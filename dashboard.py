@@ -2379,13 +2379,18 @@ elif section == "🔀 Team Merge Manager":
         # ========================
         with suggestions_tab:
             st.subheader("AI-Powered Merge Suggestions")
+
+            # Show success message if we just merged
+            if 'last_merge_success' in st.session_state and st.session_state.last_merge_success:
+                st.success(st.session_state.last_merge_success)
+                st.session_state.last_merge_success = None
+
             st.markdown("""
             Find potential duplicate teams using multiple signals:
-            - **Opponent Overlap (40%)** - Shared opponents suggest same team
-            - **Name Similarity (20%)** - Fuzzy name matching (penalizes Roman numeral differences)
-            - **Schedule Alignment (25%)** - Similar game dates
-            - **Geography (10%)** - Same state/club
-            - **Performance (5%)** - Similar win rates
+            - **Name Similarity (55%)** - Fuzzy name matching (penalizes Roman numeral differences)
+            - **Club Match (30%)** - Same club name
+            - **Geography (15%)** - Same state
+            - **Opponent Overlap (+10% bonus)** - Shared opponents confirm duplicates
             """)
 
             # Initialize session state for dismissed suggestions
@@ -2680,17 +2685,24 @@ elif section == "🔀 Team Merge Manager":
                                                 if st.button(f"🔗 Merge A→B", key=f"merge_ab_{idx}",
                                                            disabled=not merge_email or s['roman_diff']):
                                                     try:
+                                                        team_a_id = s['team_a_id']
+                                                        team_b_id = s['team_b_id']
+                                                        conf = s['confidence']
                                                         result = execute_with_retry(
                                                             lambda: db.rpc('execute_team_merge', {
-                                                                'p_deprecated_team_id': s['team_a_id'],
-                                                                'p_canonical_team_id': s['team_b_id'],
+                                                                'p_deprecated_team_id': team_a_id,
+                                                                'p_canonical_team_id': team_b_id,
                                                                 'p_merged_by': merge_email,
-                                                                'p_merge_reason': f"AI suggestion ({s['confidence']:.0%} confidence)"
+                                                                'p_merge_reason': f"AI suggestion ({conf:.0%} confidence)"
                                                             })
                                                         )
-                                                        st.success(f"✅ Merged! {s['team_a_name']} → {s['team_b_name']}")
-                                                        st.session_state.dismissed_suggestions.add(s['key'])
-                                                        st.rerun()
+                                                        # Check if RPC returned success
+                                                        if result.data and isinstance(result.data, dict) and result.data.get('success') == False:
+                                                            st.error(f"❌ Merge failed: {result.data.get('error', 'Unknown error')}")
+                                                        else:
+                                                            st.session_state.dismissed_suggestions.add(s['key'])
+                                                            st.session_state.last_merge_success = f"✅ Merged! {s['team_a_name']} → {s['team_b_name']}"
+                                                            st.rerun()
                                                     except Exception as e:
                                                         st.error(f"❌ Merge failed: {e}")
 
@@ -2698,17 +2710,24 @@ elif section == "🔀 Team Merge Manager":
                                                 if st.button(f"🔗 Merge B→A", key=f"merge_ba_{idx}",
                                                            disabled=not merge_email or s['roman_diff']):
                                                     try:
+                                                        team_a_id = s['team_a_id']
+                                                        team_b_id = s['team_b_id']
+                                                        conf = s['confidence']
                                                         result = execute_with_retry(
                                                             lambda: db.rpc('execute_team_merge', {
-                                                                'p_deprecated_team_id': s['team_b_id'],
-                                                                'p_canonical_team_id': s['team_a_id'],
+                                                                'p_deprecated_team_id': team_b_id,
+                                                                'p_canonical_team_id': team_a_id,
                                                                 'p_merged_by': merge_email,
-                                                                'p_merge_reason': f"AI suggestion ({s['confidence']:.0%} confidence)"
+                                                                'p_merge_reason': f"AI suggestion ({conf:.0%} confidence)"
                                                             })
                                                         )
-                                                        st.success(f"✅ Merged! {s['team_b_name']} → {s['team_a_name']}")
-                                                        st.session_state.dismissed_suggestions.add(s['key'])
-                                                        st.rerun()
+                                                        # Check if RPC returned success
+                                                        if result.data and isinstance(result.data, dict) and result.data.get('success') == False:
+                                                            st.error(f"❌ Merge failed: {result.data.get('error', 'Unknown error')}")
+                                                        else:
+                                                            st.session_state.dismissed_suggestions.add(s['key'])
+                                                            st.session_state.last_merge_success = f"✅ Merged! {s['team_b_name']} → {s['team_a_name']}"
+                                                            st.rerun()
                                                     except Exception as e:
                                                         st.error(f"❌ Merge failed: {e}")
 
@@ -2742,11 +2761,16 @@ elif section == "🔀 Team Merge Manager":
         with history_tab:
             st.subheader("Recent Merge Activity")
 
+            # Show success message if we just merged
+            if 'last_merge_success' in st.session_state and st.session_state.last_merge_success:
+                st.success(st.session_state.last_merge_success)
+                st.session_state.last_merge_success = None
+
             try:
-                # Try to fetch from merged_teams_view
+                # Fetch from team_merge_map (the actual merge records)
                 history_result = execute_with_retry(
-                    lambda: db.table('merged_teams_view')
-                        .select('*')
+                    lambda: db.table('team_merge_map')
+                        .select('*, deprecated_team:teams!team_merge_map_deprecated_team_id_fkey(team_name), canonical_team:teams!team_merge_map_canonical_team_id_fkey(team_name)')
                         .order('merged_at', desc=True)
                         .limit(50)
                 )
@@ -2756,20 +2780,23 @@ elif section == "🔀 Team Merge Manager":
                 if merges:
                     st.info(f"Found {len(merges)} team merges")
 
-                    for merge in merges:
+                    for idx, merge in enumerate(merges):
+                        deprecated_name = merge.get('deprecated_team', {}).get('team_name', 'Unknown') if merge.get('deprecated_team') else 'Unknown'
+                        canonical_name = merge.get('canonical_team', {}).get('team_name', 'Unknown') if merge.get('canonical_team') else 'Unknown'
+
                         with st.expander(
-                            f"~~{merge.get('deprecated_team_name', 'Unknown')}~~ → **{merge.get('canonical_team_name', 'Unknown')}**"
+                            f"~~{deprecated_name}~~ → **{canonical_name}**"
                         ):
                             col1, col2 = st.columns(2)
 
                             with col1:
                                 st.markdown("**Deprecated Team**")
-                                st.write(f"Name: {merge.get('deprecated_team_name', 'N/A')}")
+                                st.write(f"Name: {deprecated_name}")
                                 st.write(f"ID: `{merge.get('deprecated_team_id', 'N/A')[:8]}...`")
 
                             with col2:
                                 st.markdown("**Canonical Team**")
-                                st.write(f"Name: {merge.get('canonical_team_name', 'N/A')}")
+                                st.write(f"Name: {canonical_name}")
                                 st.write(f"ID: `{merge.get('canonical_team_id', 'N/A')[:8]}...`")
 
                             st.divider()
@@ -2777,28 +2804,28 @@ elif section == "🔀 Team Merge Manager":
                             st.write(f"**Merged by:** {merge.get('merged_by', 'N/A')}")
                             st.write(f"**Merged at:** {merge.get('merged_at', 'N/A')}")
                             st.write(f"**Reason:** {merge.get('merge_reason', 'No reason provided')}")
-                            st.write(f"**Games affected:** {merge.get('games_with_deprecated_id', 0)}")
 
                             # Revert button
                             revert_email = st.text_input(
                                 "Your email to revert",
-                                key=f"revert_email_{merge.get('deprecated_team_id', idx)}"
+                                key=f"revert_email_{idx}"
                             )
 
                             if st.button(
                                 "⏪ Revert This Merge",
-                                key=f"revert_{merge.get('deprecated_team_id', idx)}",
+                                key=f"revert_{idx}",
                                 disabled=not revert_email
                             ):
                                 try:
+                                    merge_id = merge.get('id')
                                     revert_result = execute_with_retry(
-                                        lambda: db.rpc('revert_team_merge', {
-                                            'p_deprecated_team_id': merge['deprecated_team_id'],
+                                        lambda mid=merge_id: db.rpc('revert_team_merge', {
+                                            'p_merge_id': mid,
                                             'p_reverted_by': revert_email,
                                             'p_revert_reason': 'Reverted via dashboard'
                                         })
                                     )
-                                    st.success("✅ Merge reverted successfully!")
+                                    st.session_state.last_merge_success = f"✅ Merge reverted: {deprecated_name} is now active again"
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"❌ Revert failed: {e}")
@@ -2806,18 +2833,9 @@ elif section == "🔀 Team Merge Manager":
                     st.info("No team merges found yet. Use the Manual Merge or AI Suggestions tab to merge duplicate teams.")
 
             except Exception as e:
-                # If merged_teams_view doesn't exist, show helpful message
-                if "merged_teams_view" in str(e).lower() or "does not exist" in str(e).lower():
-                    st.warning("The merged_teams_view doesn't exist yet. Run the Phase 1 migrations first.")
-                    st.code("""
--- Run these migrations in order:
--- 1. 20251208000001_add_team_deprecation.sql
--- 2. 20251208000002_create_team_merge_map.sql
--- 3. 20251208000003_create_team_merge_audit.sql
--- 4. 20251208000004_add_merge_resolution_to_views.sql
-                    """)
-                else:
-                    st.error(f"Error loading merge history: {e}")
+                st.error(f"Error loading merge history: {e}")
+                import traceback
+                st.code(traceback.format_exc())
 
 # Footer
 st.divider()
