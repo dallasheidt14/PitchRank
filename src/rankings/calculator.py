@@ -145,7 +145,9 @@ async def compute_rankings_with_ml(
     # Include merge_version to invalidate cache when team merges change
     game_ids = games_df["game_id"].astype(str).tolist() if "game_id" in games_df.columns else []
     hash_input = "".join(sorted(game_ids)) + str(lookback_days) + (provider_filter or "")
-    if merge_version:
+    # Only include merge_version when merges actually exist (not "no_merges")
+    # This ensures cache key stays identical when no merges are configured
+    if merge_version and merge_version != "no_merges":
         hash_input += f"_merge_{merge_version}"
     cache_key = hashlib.md5(hash_input.encode()).hexdigest()
     cache_file_teams = cache_dir / f"rankings_{cache_key}_teams.parquet"
