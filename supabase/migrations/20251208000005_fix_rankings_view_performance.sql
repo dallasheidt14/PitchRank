@@ -142,9 +142,10 @@ SELECT
     rv.rank_in_cohort_final,
 
     -- State rank (computed live in view - this is fast with proper indexes)
+    -- Secondary sort by sos_norm DESC to break ties when power_score is equal
     ROW_NUMBER() OVER (
         PARTITION BY rv.state, rv.age, rv.gender
-        ORDER BY rv.power_score_final DESC
+        ORDER BY rv.power_score_final DESC, rv.sos_norm DESC NULLS LAST
     ) AS rank_in_state_final,
 
     -- SOS Ranks

@@ -62,7 +62,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   // Use pre-calculated SOS ranks from database
   // sos_rank_national for national view, sos_rank_state for state view
 
-  // Sort rankings based on selected field
+  // Sort rankings based on selected field with SOS tie-breaking
   const sortedRankings = useMemo(() => {
     if (!rankings) return [];
 
@@ -85,19 +85,6 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
           aValue = a.power_score_final;
           bValue = b.power_score_final;
           break;
-        case 'winPercentage':
-          aValue = a.win_percentage ?? 0;
-          bValue = b.win_percentage ?? 0;
-          break;
-        case 'gamesPlayed':
-          aValue = a.total_games_played;
-          bValue = b.total_games_played;
-          break;
-        case 'sos':
-          // Use sos_norm_state for state rankings, sos_norm for national rankings
-          aValue = region ? (a.sos_norm_state ?? a.sos_norm ?? 0) : (a.sos_norm ?? 0);
-          bValue = region ? (b.sos_norm_state ?? b.sos_norm ?? 0) : (b.sos_norm ?? 0);
-          break;
         case 'sosRank':
           // Use pre-calculated SOS rank from database
           aValue = region
@@ -117,9 +104,18 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
           : bValue.localeCompare(aValue);
       }
 
-      return sortDirection === 'asc'
+      const primaryCompare = sortDirection === 'asc'
         ? (aValue as number) - (bValue as number)
         : (bValue as number) - (aValue as number);
+
+      // If primary values are equal, use SOS as tie-breaker (higher SOS = harder schedule = better)
+      if (primaryCompare === 0 && (sortField === 'rank' || sortField === 'powerScore')) {
+        const aSos = region ? (a.sos_norm_state ?? a.sos_norm ?? 0) : (a.sos_norm ?? 0);
+        const bSos = region ? (b.sos_norm_state ?? b.sos_norm ?? 0) : (b.sos_norm ?? 0);
+        return bSos - aSos; // Higher SOS ranks higher (tie-breaker always descending)
+      }
+
+      return primaryCompare;
     });
 
     return sorted;
