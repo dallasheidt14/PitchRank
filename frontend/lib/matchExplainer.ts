@@ -9,6 +9,7 @@
 
 import type { TeamWithRanking } from './types';
 import type { MatchPrediction } from './matchPredictor';
+import { extractAgeFromTeamName } from './utils';
 
 export type ExplanationMagnitude = 'significant' | 'moderate' | 'minimal';
 export type ExplanationFactor =
@@ -313,11 +314,25 @@ export function explainMatch(
     explainCloseMatch(teamA, teamB, components.compositeDiff, winProbabilityA),
   ];
 
-  // Filter out nulls and sort by importance (score)
-  const factors = allExplanations
-    .filter((e): e is Explanation => e !== null)
+  // Filter out nulls
+  const allFactors = allExplanations.filter((e): e is Explanation => e !== null);
+
+  // Separate factors by who they favor
+  const favoredSide = prediction.predictedWinner === 'team_a' ? 'team_a' :
+                      prediction.predictedWinner === 'team_b' ? 'team_b' : null;
+
+  // For "Why X is Favored", only show factors that favor the predicted winner (or neutral)
+  // This prevents confusing displays like "Why Excel is Favored: [Engilman has momentum]"
+  const factors = allFactors
+    .filter(f => f.advantage === favoredSide || f.advantage === 'neutral')
     .sort((a, b) => b.score - a.score)
-    .slice(0, 4); // Top 4 factors
+    .slice(0, 4);
+
+  // If no factors favor the winner, fall back to showing top factors by score
+  // (This can happen in very close matches)
+  const displayFactors = factors.length > 0 ? factors : allFactors
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 4);
 
   // Generate summary
   const favoredTeam = prediction.predictedWinner === 'team_a' ? teamA.team_name :
@@ -395,7 +410,10 @@ export function explainMatch(
 
   // 4. Scoreline context with age-specific calibration insights
   const totalExpectedGoals = expectedScore.teamA + expectedScore.teamB;
-  const age = teamA.age || teamB.age;
+  // Try database age first, then extract from team name as fallback
+  const dbAge = teamA.age || teamB.age;
+  const nameAge = extractAgeFromTeamName(teamA.team_name) || extractAgeFromTeamName(teamB.team_name);
+  const age = nameAge || dbAge; // Prefer name-extracted age (more reliable for "14B" format)
   if (age) {
     // Age-specific context - reference our calibration data
     if (age <= 11 && totalExpectedGoals > 5) {
@@ -407,13 +425,16 @@ export function explainMatch(
     }
   }
 
-  // 5. Top factor insight (most important) - make it feel decisive
-  if (factors.length > 0) {
-    const topFactor = factors[0];
-    if (topFactor.magnitude === 'significant') {
-      keyInsights.push(`🔑 Key differentiator: ${topFactor.description}`);
-    } else if (factors.length >= 2 && topFactor.magnitude === 'moderate') {
-      keyInsights.push(`📌 Primary edge: ${topFactor.description}`);
+  // 5. Top factor insight (most important) - only show factors that favor the winner
+  if (displayFactors.length > 0) {
+    const topFactor = displayFactors[0];
+    // Only show if it actually favors the winner (not neutral like "close match")
+    if (topFactor.advantage !== 'neutral') {
+      if (topFactor.magnitude === 'significant') {
+        keyInsights.push(`🔑 Key differentiator: ${topFactor.description}`);
+      } else if (displayFactors.length >= 2 && topFactor.magnitude === 'moderate') {
+        keyInsights.push(`📌 Primary edge: ${topFactor.description}`);
+      }
     }
   }
 
@@ -446,7 +467,7 @@ export function explainMatch(
 
   return {
     summary,
-    factors,
+    factors: displayFactors,
     keyInsights,
     predictionQuality,
   };
