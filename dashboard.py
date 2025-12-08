@@ -2487,6 +2487,7 @@ elif section == "🔀 Team Merge Manager":
                 union = len(opponents_a | opponents_b)
                 return intersection / union if union > 0 else 0.0
 
+            # Button to trigger search - stores results in session state
             if st.button("🔍 Find Potential Duplicates", type="primary"):
                 if not age_filter or not gender_filter:
                     st.warning("Please select both age group and gender")
@@ -2506,7 +2507,8 @@ elif section == "🔀 Team Merge Manager":
                             teams = teams_result.data or []
 
                             if len(teams) < 2:
-                                st.info(f"Only {len(teams)} teams found - need at least 2 for comparison")
+                                st.session_state.suggestions = []
+                                st.session_state.suggestions_message = f"Only {len(teams)} teams found - need at least 2 for comparison"
                             else:
                                 st.info(f"Analyzing {len(teams)} teams...")
                                 progress_bar = st.progress(0)
@@ -2625,135 +2627,145 @@ elif section == "🔀 Team Merge Manager":
                                 # Sort by confidence
                                 suggestions.sort(key=lambda x: x['confidence'], reverse=True)
 
-                                # Store suggestions in session state for one-click merge
+                                # Store suggestions in session state for persistent display
                                 st.session_state.suggestions = suggestions
-
                                 if suggestions:
-                                    st.success(f"Found {len(suggestions)} potential duplicates")
-
-                                    for idx, s in enumerate(suggestions[:30]):
-                                        # Color based on confidence and warnings
-                                        if s['roman_diff']:
-                                            confidence_color = "⚠️"  # Warning - likely different squads
-                                        elif s['confidence'] >= 0.8:
-                                            confidence_color = "🟢"
-                                        elif s['confidence'] >= 0.6:
-                                            confidence_color = "🟡"
-                                        else:
-                                            confidence_color = "🟠"
-
-                                        # Add warning text if Roman numeral difference detected
-                                        warning_text = " ⚠️ DIFFERENT SQUADS?" if s['roman_diff'] else ""
-
-                                        with st.expander(f"{confidence_color} {s['team_a_name']} ↔ {s['team_b_name']} ({s['confidence']:.0%} match){warning_text}"):
-
-                                            # Warning banner for Roman numeral differences
-                                            if s['roman_diff']:
-                                                st.warning("⚠️ These teams have different Roman numerals (I, II, III, etc.) - likely different squads within the same club. NOT recommended to merge!")
-
-                                            col1, col2 = st.columns(2)
-
-                                            with col1:
-                                                st.markdown(f"**Team A:** {s['team_a_name']}")
-                                                st.caption(f"Club: {s['team_a_club'] or 'N/A'}")
-                                                st.caption(f"ID: `{s['team_a_id'][:8]}...`")
-
-                                            with col2:
-                                                st.markdown(f"**Team B:** {s['team_b_name']}")
-                                                st.caption(f"Club: {s['team_b_club'] or 'N/A'}")
-                                                st.caption(f"ID: `{s['team_b_id'][:8]}...`")
-
-                                            st.divider()
-
-                                            st.markdown("**Signal Breakdown:**")
-                                            signal_cols = st.columns(4)
-                                            with signal_cols[0]:
-                                                st.metric("Opponent Overlap", f"{s['opponent_overlap']:.0%}")
-                                            with signal_cols[1]:
-                                                st.metric("Name Match", f"{s['name_sim']:.0%}")
-                                            with signal_cols[2]:
-                                                st.metric("Club Match", f"{s['club_sim']:.0%}")
-                                            with signal_cols[3]:
-                                                st.metric("Same State", "Yes" if s['state_match'] else "No")
-
-                                            st.divider()
-
-                                            # Action buttons
-                                            action_cols = st.columns(4)
-
-                                            with action_cols[0]:
-                                                if st.button(f"🔗 Merge A→B", key=f"merge_ab_{idx}",
-                                                           disabled=not merge_email or s['roman_diff']):
-                                                    try:
-                                                        team_a_id = s['team_a_id']
-                                                        team_b_id = s['team_b_id']
-                                                        conf = s['confidence']
-                                                        st.info(f"Attempting merge: {team_a_id} → {team_b_id}")
-                                                        result = execute_with_retry(
-                                                            lambda: db.rpc('execute_team_merge', {
-                                                                'p_deprecated_team_id': team_a_id,
-                                                                'p_canonical_team_id': team_b_id,
-                                                                'p_merged_by': merge_email,
-                                                                'p_merge_reason': f"AI suggestion ({conf:.0%} confidence)"
-                                                            })
-                                                        )
-                                                        st.write(f"DEBUG - Result: {result}")
-                                                        st.write(f"DEBUG - Result.data: {result.data}")
-                                                        # Check if RPC returned success
-                                                        if result.data and isinstance(result.data, dict) and result.data.get('success') == False:
-                                                            st.error(f"❌ Merge failed: {result.data.get('error', 'Unknown error')}")
-                                                        else:
-                                                            st.session_state.dismissed_suggestions.add(s['key'])
-                                                            st.session_state.last_merge_success = f"✅ Merged! {s['team_a_name']} → {s['team_b_name']}"
-                                                            st.success(f"✅ Merged! Check Merge History tab.")
-                                                            # Don't rerun immediately so we can see the result
-                                                            # st.rerun()
-                                                    except Exception as e:
-                                                        st.error(f"❌ Merge failed: {e}")
-                                                        import traceback
-                                                        st.code(traceback.format_exc())
-
-                                            with action_cols[1]:
-                                                if st.button(f"🔗 Merge B→A", key=f"merge_ba_{idx}",
-                                                           disabled=not merge_email or s['roman_diff']):
-                                                    try:
-                                                        team_a_id = s['team_a_id']
-                                                        team_b_id = s['team_b_id']
-                                                        conf = s['confidence']
-                                                        result = execute_with_retry(
-                                                            lambda: db.rpc('execute_team_merge', {
-                                                                'p_deprecated_team_id': team_b_id,
-                                                                'p_canonical_team_id': team_a_id,
-                                                                'p_merged_by': merge_email,
-                                                                'p_merge_reason': f"AI suggestion ({conf:.0%} confidence)"
-                                                            })
-                                                        )
-                                                        # Check if RPC returned success
-                                                        if result.data and isinstance(result.data, dict) and result.data.get('success') == False:
-                                                            st.error(f"❌ Merge failed: {result.data.get('error', 'Unknown error')}")
-                                                        else:
-                                                            st.session_state.dismissed_suggestions.add(s['key'])
-                                                            st.session_state.last_merge_success = f"✅ Merged! {s['team_b_name']} → {s['team_a_name']}"
-                                                            st.rerun()
-                                                    except Exception as e:
-                                                        st.error(f"❌ Merge failed: {e}")
-
-                                            with action_cols[2]:
-                                                if st.button(f"❌ Not a Duplicate", key=f"dismiss_{idx}"):
-                                                    st.session_state.dismissed_suggestions.add(s['key'])
-                                                    st.info(f"Dismissed. Will be hidden on next search.")
-                                                    st.rerun()
-
-                                            with action_cols[3]:
-                                                if not merge_email:
-                                                    st.caption("Enter email above to enable merge")
+                                    st.session_state.suggestions_message = f"Found {len(suggestions)} potential duplicates"
                                 else:
-                                    st.info(f"No potential duplicates found above {min_confidence:.0%} confidence")
+                                    st.session_state.suggestions_message = f"No potential duplicates found above {min_confidence:.0%} confidence"
+
+                                # Rerun to display the suggestions outside the button block
+                                st.rerun()
 
                         except Exception as e:
                             st.error(f"Error analyzing teams: {e}")
                             import traceback
                             st.code(traceback.format_exc())
+
+            # ========================
+            # DISPLAY SUGGESTIONS FROM SESSION STATE (persists across reruns)
+            # ========================
+            if 'suggestions' in st.session_state:
+                # Show status message
+                if 'suggestions_message' in st.session_state and st.session_state.suggestions_message:
+                    if st.session_state.suggestions:
+                        st.success(st.session_state.suggestions_message)
+                    else:
+                        st.info(st.session_state.suggestions_message)
+
+                suggestions = st.session_state.suggestions
+
+                if suggestions:
+                    # Filter out dismissed suggestions on each render
+                    suggestions = [s for s in suggestions if s['key'] not in st.session_state.dismissed_suggestions]
+
+                    for idx, s in enumerate(suggestions[:30]):
+                        # Color based on confidence and warnings
+                        if s['roman_diff']:
+                            confidence_color = "⚠️"  # Warning - likely different squads
+                        elif s['confidence'] >= 0.8:
+                            confidence_color = "🟢"
+                        elif s['confidence'] >= 0.6:
+                            confidence_color = "🟡"
+                        else:
+                            confidence_color = "🟠"
+
+                        # Add warning text if Roman numeral difference detected
+                        warning_text = " ⚠️ DIFFERENT SQUADS?" if s['roman_diff'] else ""
+
+                        with st.expander(f"{confidence_color} {s['team_a_name']} ↔ {s['team_b_name']} ({s['confidence']:.0%} match){warning_text}"):
+
+                            # Warning banner for Roman numeral differences
+                            if s['roman_diff']:
+                                st.warning("⚠️ These teams have different Roman numerals (I, II, III, etc.) - likely different squads within the same club. NOT recommended to merge!")
+
+                            col1, col2 = st.columns(2)
+
+                            with col1:
+                                st.markdown(f"**Team A:** {s['team_a_name']}")
+                                st.caption(f"Club: {s['team_a_club'] or 'N/A'}")
+                                st.caption(f"ID: `{s['team_a_id'][:8]}...`")
+
+                            with col2:
+                                st.markdown(f"**Team B:** {s['team_b_name']}")
+                                st.caption(f"Club: {s['team_b_club'] or 'N/A'}")
+                                st.caption(f"ID: `{s['team_b_id'][:8]}...`")
+
+                            st.divider()
+
+                            st.markdown("**Signal Breakdown:**")
+                            signal_cols = st.columns(4)
+                            with signal_cols[0]:
+                                st.metric("Opponent Overlap", f"{s['opponent_overlap']:.0%}")
+                            with signal_cols[1]:
+                                st.metric("Name Match", f"{s['name_sim']:.0%}")
+                            with signal_cols[2]:
+                                st.metric("Club Match", f"{s['club_sim']:.0%}")
+                            with signal_cols[3]:
+                                st.metric("Same State", "Yes" if s['state_match'] else "No")
+
+                            st.divider()
+
+                            # Action buttons
+                            action_cols = st.columns(4)
+
+                            with action_cols[0]:
+                                # Capture values in default args to avoid closure issues
+                                if st.button(f"🔗 Merge A→B", key=f"merge_ab_{idx}",
+                                           disabled=not merge_email or s['roman_diff']):
+                                    try:
+                                        # Use values directly from suggestion dict
+                                        result = execute_with_retry(
+                                            lambda tid_a=s['team_a_id'], tid_b=s['team_b_id'], conf=s['confidence']: db.rpc('execute_team_merge', {
+                                                'p_deprecated_team_id': tid_a,
+                                                'p_canonical_team_id': tid_b,
+                                                'p_merged_by': merge_email,
+                                                'p_merge_reason': f"AI suggestion ({conf:.0%} confidence)"
+                                            })
+                                        )
+                                        # Check if RPC returned success
+                                        if result.data and isinstance(result.data, dict) and result.data.get('success') == False:
+                                            st.error(f"❌ Merge failed: {result.data.get('error', 'Unknown error')}")
+                                        else:
+                                            st.session_state.dismissed_suggestions.add(s['key'])
+                                            st.session_state.last_merge_success = f"✅ Merged! {s['team_a_name']} → {s['team_b_name']}"
+                                            st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ Merge failed: {e}")
+                                        import traceback
+                                        st.code(traceback.format_exc())
+
+                            with action_cols[1]:
+                                # Capture values in default args to avoid closure issues
+                                if st.button(f"🔗 Merge B→A", key=f"merge_ba_{idx}",
+                                           disabled=not merge_email or s['roman_diff']):
+                                    try:
+                                        result = execute_with_retry(
+                                            lambda tid_a=s['team_a_id'], tid_b=s['team_b_id'], conf=s['confidence']: db.rpc('execute_team_merge', {
+                                                'p_deprecated_team_id': tid_b,
+                                                'p_canonical_team_id': tid_a,
+                                                'p_merged_by': merge_email,
+                                                'p_merge_reason': f"AI suggestion ({conf:.0%} confidence)"
+                                            })
+                                        )
+                                        # Check if RPC returned success
+                                        if result.data and isinstance(result.data, dict) and result.data.get('success') == False:
+                                            st.error(f"❌ Merge failed: {result.data.get('error', 'Unknown error')}")
+                                        else:
+                                            st.session_state.dismissed_suggestions.add(s['key'])
+                                            st.session_state.last_merge_success = f"✅ Merged! {s['team_b_name']} → {s['team_a_name']}"
+                                            st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ Merge failed: {e}")
+
+                            with action_cols[2]:
+                                if st.button(f"❌ Not a Duplicate", key=f"dismiss_{idx}"):
+                                    st.session_state.dismissed_suggestions.add(s['key'])
+                                    st.rerun()
+
+                            with action_cols[3]:
+                                if not merge_email:
+                                    st.caption("Enter email above to enable merge")
 
             # Show dismissed count
             if st.session_state.dismissed_suggestions:
