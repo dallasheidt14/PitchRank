@@ -27,6 +27,8 @@ requests>=2.31.0
 certifi>=2023.0.0  # SSL certificates for better SSL error handling
 beautifulsoup4>=4.12.0
 lxml>=4.9.0
+scrapy>=2.13.0  # For Modular11 scraper
+twisted>=25.0.0  # Required by Scrapy
 
 # Machine Learning (for rankings ML layer)
 xgboost>=2.0.0

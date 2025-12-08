@@ -13,6 +13,10 @@ data/cache/
 # But track sample data
 !data/samples/
 
+# Track backtest results (must come after *.csv)
+!data/backtest_results/
+!data/backtest_results/**/*.csv
+
 # Database
 *.db
 *.sqlite

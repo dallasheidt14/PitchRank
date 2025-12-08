@@ -17,6 +17,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from supabase import Client
 from config.settings import MATCHING_CONFIG, BUILD_ID
 from src.models.game_matcher import GameHistoryMatcher
+from src.models.modular11_matcher import Modular11GameMatcher
 from src.utils.enhanced_validators import EnhancedDataValidator, parse_game_date
 
 logger = logging.getLogger(__name__)
@@ -76,11 +77,12 @@ class ImportMetrics:
 class EnhancedETLPipeline:
     """Enhanced ETL pipeline with bulk operations, validation, and metrics tracking"""
     
-    def __init__(self, supabase: Client, provider_code: str, dry_run: bool = False, skip_validation: bool = False):
+    def __init__(self, supabase: Client, provider_code: str, dry_run: bool = False, skip_validation: bool = False, summary_only: bool = False):
         self.supabase = supabase
         self.provider_code = provider_code
         self.dry_run = dry_run
         self.skip_validation = skip_validation
+        self.summary_only = summary_only
         self.metrics = ImportMetrics()
         # Dynamic batch size based on total games for optimal performance
         # Larger batches = fewer DB round trips, but watch for 429/timeout errors
@@ -139,7 +141,17 @@ class EnhancedETLPipeline:
             logger.warning(f"Could not preload alias cache: {e}")
             self.alias_cache = {}
         
-        self.matcher = GameHistoryMatcher(supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
+        # Use Modular11-specific matcher for Modular11 provider (with age_group validation)
+        # Use standard matcher for all other providers (GotSport, etc.)
+        if provider_code.lower() == 'modular11':
+            logger.info("Using Modular11GameMatcher (with age_group validation)")
+            # Enable debug mode for dry runs OR summary_only mode (to track summary data)
+            # But suppress per-team logs if summary_only is True
+            debug_mode = dry_run or summary_only
+            self.matcher = Modular11GameMatcher(supabase, provider_id=self.provider_id, alias_cache=self.alias_cache, debug=debug_mode, summary_only=summary_only)
+        else:
+            logger.info(f"Using standard GameHistoryMatcher for provider: {provider_code}")
+            self.matcher = GameHistoryMatcher(supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
     
     def _has_valid_scores(self, game: Dict) -> bool:
         """
@@ -281,6 +293,9 @@ class EnhancedETLPipeline:
             for game in new_games:
                 try:
                     # Match game history to get structured game record
+                    # Pass dry_run flag to game_data for diagnostic mode
+                    if self.dry_run:
+                        game['dry_run'] = True
                     matched_game = self.matcher.match_game_history(game)
                     match_status = matched_game.get('match_status')
                     
@@ -677,10 +692,31 @@ class EnhancedETLPipeline:
         transformed['home_score'] = home_score_int
         transformed['away_score'] = away_score_int
         
+        # Transform team names based on home/away
+        team_name = game.get('team_name', '')
+        opponent_name = game.get('opponent_name', '')
+        club_name = game.get('club_name', '')
+        opponent_club_name = game.get('opponent_club_name', '')
+        
+        if home_away == 'H':
+            transformed['home_team_name'] = team_name
+            transformed['away_team_name'] = opponent_name
+            transformed['home_club_name'] = club_name
+            transformed['away_club_name'] = opponent_club_name
+        else:
+            transformed['home_team_name'] = opponent_name
+            transformed['away_team_name'] = team_name
+            transformed['home_club_name'] = opponent_club_name
+            transformed['away_club_name'] = club_name
+        
         # Keep original fields for reference
         transformed['_source_team_id'] = team_id
         transformed['_source_opponent_id'] = opponent_id
         transformed['_source_home_away'] = home_away
+        
+        # Preserve mls_division for Modular11 (needed for division-aware matching)
+        if 'mls_division' in game:
+            transformed['mls_division'] = game['mls_division']
         
         return transformed
     
@@ -1148,6 +1184,89 @@ class EnhancedETLPipeline:
                 
         except Exception as e:
             logger.error(f"Error logging build metrics: {e}")
+    
+    def print_modular11_summary(self, metrics: ImportMetrics) -> None:
+        """
+        Print a clean structured summary for Modular11 imports.
+        
+        Includes:
+        - Total games processed
+        - Unique games, imported, duplicates
+        - Teams matched, fuzzy matches, new teams
+        - Age breakdown
+        - Rejected fuzzy matches (top candidate only)
+        - New teams created
+        """
+        if not hasattr(self.matcher, 'summary') or self.provider_code.lower() != 'modular11':
+            return
+        
+        summary = self.matcher.summary
+        
+        print("\n" + "=" * 70)
+        print("MODULAR11 IMPORT SUMMARY")
+        print("=" * 70)
+        
+        # Game Statistics
+        print("\nGAME STATISTICS:")
+        print(f"  Total Games Processed: {metrics.games_processed:,}")
+        unique_games = metrics.games_processed - metrics.duplicates_skipped
+        print(f"  Unique Games: {unique_games:,}")
+        print(f"  Imported: {metrics.games_accepted:,}")
+        print(f"  Already in Database: {metrics.duplicates_found:,}")
+        print(f"  Duplicates Skipped: {metrics.duplicates_skipped:,}")
+        print(f"  Quarantined: {metrics.games_quarantined:,}")
+        
+        # Team Matching Statistics
+        print("\nTEAM MATCHING:")
+        print(f"  Total Teams Seen: {summary['processed']:,}")
+        print(f"  Alias Matches: {summary['alias_matches']:,}")
+        print(f"  Fuzzy Matches: {summary['fuzzy_matches']:,}")
+        print(f"  New Teams Created: {summary['new_teams']:,}")
+        print(f"  Review Queue Entries (Optional): {summary['review_queue']:,}")
+        
+        # Age Breakdown
+        if summary['by_age']:
+            print("\nBy Age:")
+            for age in sorted(summary['by_age'].keys()):
+                stats = summary['by_age'][age]
+                matched = stats.get('matched', 0)
+                new = stats.get('new', 0)
+                print(f"  {age.upper()}: {new} created, {matched} matched")
+        
+        # Rejected Fuzzy Matches (top candidate only)
+        if summary['fuzzy_reject_details']:
+            print("\nFUZZY MATCHES REJECTED (Top Candidate Only):")
+            for i, detail in enumerate(summary['fuzzy_reject_details'], 1):
+                print(f"\n  {i}. {detail['incoming']}")
+                print(f"     Age: {detail['age']}, Division: {detail.get('division', 'N/A')}")
+                if detail.get('top_candidates') and len(detail['top_candidates']) > 0:
+                    top = detail['top_candidates'][0]
+                    div_info = f" (div: {top.get('division', 'N/A')})" if top.get('division') else ""
+                    print(f"     Best Candidate: {top['team_name']}{div_info}")
+                    print(f"       Score: {top['score']:.4f} (need >= 0.93)")
+                    print(f"       Division Match: {'Yes' if top.get('division_match') else 'No'}")
+                    print(f"       Token Overlap: {'Yes' if top.get('token_overlap') else 'No'}")
+                    if detail.get('second_team'):
+                        print(f"       Gap to 2nd: {detail.get('score_gap', 0):.4f} (need >= 0.07)")
+                print(f"     Reason: {detail['reason']}")
+        
+        # New Teams Created
+        if summary['new_team_details']:
+            print("\nNEW TEAMS CREATED:")
+            for i, detail in enumerate(summary['new_team_details'], 1):
+                print(f"  {i}. {detail['clean_name']}")
+                print(f"     ID: {detail['team_id']}")
+                print(f"     Age: {detail['age']}, Division: {detail.get('division', 'N/A')}")
+        
+        # Accepted Fuzzy Matches
+        if summary['fuzzy_details']:
+            print("\nFUZZY MATCHES ACCEPTED:")
+            for i, detail in enumerate(summary['fuzzy_details'], 1):
+                print(f"  {i}. {detail['incoming']} → {detail['matched_team']}")
+                print(f"     Score: {detail['score']:.4f}, Gap: {detail['gap']:.4f}")
+                print(f"     Age: {detail['age']}, Division: {detail.get('division', 'N/A')}")
+        
+        print("\n" + "=" * 70 + "\n")
     
     @staticmethod
     def _chunks(lst: List, size: int):

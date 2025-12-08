@@ -103,7 +103,8 @@ def stream_games_csv(file_path: Path, batch_size: int = 1000, limit: Optional[in
                     'goals_against': row.get('goals_against', ''),
                     'result': row.get('result', '').strip(),
                     'source_url': row.get('source_url', '').strip(),
-                    'scraped_at': row.get('scraped_at', '').strip()
+                    'scraped_at': row.get('scraped_at', '').strip(),
+                    'mls_division': row.get('mls_division', '').strip()  # Modular11 division (HD/AD)
                 }
                 
                 # Convert numeric fields
@@ -170,7 +171,8 @@ def load_games_csv(file_path: Path, limit: Optional[int] = None) -> List[Dict]:
                     'goals_against': row.get('goals_against', ''),
                     'result': row.get('result', '').strip(),
                     'source_url': row.get('source_url', '').strip(),
-                    'scraped_at': row.get('scraped_at', '').strip()
+                    'scraped_at': row.get('scraped_at', '').strip(),
+                    'mls_division': row.get('mls_division', '').strip()  # Modular11 division (HD/AD)
                 }
                 
                 # Convert numeric fields
@@ -239,6 +241,7 @@ async def main():
     parser.add_argument('--checkpoint', action='store_true', help='Enable progress checkpointing')
     parser.add_argument('--skip-validation', action='store_true', help='Skip validation during import')
     parser.add_argument('--limit', type=int, default=None, help='Limit number of games to process (for testing)')
+    parser.add_argument('--summary-only', action='store_true', help='Suppress per-team logs and show only summary (Modular11)')
     
     args = parser.parse_args()
     
@@ -403,7 +406,7 @@ async def main():
     supabase = create_client(supabase_url, supabase_key)
     
     # Initialize pipeline
-    pipeline = EnhancedETLPipeline(supabase, args.provider, dry_run=args.dry_run, skip_validation=args.skip_validation)
+    pipeline = EnhancedETLPipeline(supabase, args.provider, dry_run=args.dry_run, skip_validation=args.skip_validation, summary_only=args.summary_only)
     pipeline.batch_size = args.batch_size
     
     # Run import
@@ -565,7 +568,11 @@ async def main():
         
         if args.dry_run:
             console.print("\n[yellow]Dry run completed - no changes were made[/yellow]")
-        else:
+        
+        # Print Modular11 summary (for both dry-run and real imports)
+        pipeline.print_modular11_summary(aggregated_metrics)
+        
+        if not args.dry_run:
             console.print("\n[green]Check build_logs table for detailed metrics[/green]")
         
         # Exit code based on success/failure
