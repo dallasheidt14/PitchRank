@@ -18,7 +18,7 @@
  * v2.2 Improvements:
  * - Lowered skill gap thresholds: 8%/5% (was 15%/10%) - fixes "close match" misclassification
  * - Increased blowout power weight: 85% (was 75%) - power score now dominates for mismatches
- * - Fixed birth year age extraction: "14B" = 2014 birth year = U11/U12, not U14
+ * - Fixed birth year age extraction: "14B" = 2014 birth year = U12 (turns 11 + 1), not U14
  *
  * Validated at 74.7% direction accuracy (target: 77-79% with calibration)
  */

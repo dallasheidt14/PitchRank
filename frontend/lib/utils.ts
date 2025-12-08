@@ -28,18 +28,20 @@ export function formatSOSIndex(sosNorm?: number | null): string {
 }
 
 /**
- * Extract age from team name (fallback when age field is missing/wrong)
+ * Extract age GROUP from team name (fallback when age field is missing/wrong)
  *
  * IMPORTANT: In youth soccer, "14B" means BIRTH YEAR 2014, NOT age 14!
- * - "14B Engilman" → birth year 2014 → U11 (in 2025 season)
- * - "08G Excel" → birth year 2008 → U17 (in 2025 season)
- * - "U14 Phoenix" → directly specified as U14 → age 14
+ * Age GROUP = age player turns this year + 1 (U12 means "Under 12" = 11-year-olds)
+ *
+ * - "14B Engilman" → birth year 2014 → turns 11 in 2025 → U12
+ * - "08G Excel" → birth year 2008 → turns 17 in 2025 → U18
+ * - "U14 Phoenix" → directly specified as U14 → 14
  *
  * Birth year format: 2-digit year (08-19) followed by B (boys) or G (girls)
  * Direct age format: "U" followed by age (U10, U14, etc.)
  *
  * @param teamName - Team name string
- * @returns Integer age (for U-age lookup) or null if not found
+ * @returns Integer age GROUP (e.g., 12 for U12) or null if not found
  */
 export function extractAgeFromTeamName(teamName: string | null | undefined): number | null {
   if (!teamName) return null;
@@ -62,10 +64,12 @@ export function extractAgeFromTeamName(teamName: string | null | undefined): num
     const birthYearSuffix = parseInt(birthYearMatch[1], 10);
     const birthYear = 2000 + birthYearSuffix;
     const currentYear = new Date().getFullYear();
-    // Calculate age: how old the player turns this calendar year
-    const age = currentYear - birthYear;
-    if (age >= 5 && age <= 19) {
-      return age;
+    // Calculate age player turns this year, then +1 for age GROUP
+    // e.g., 2014 birth in 2025 = turns 11 = U12 (under 12)
+    const ageTurning = currentYear - birthYear;
+    const ageGroup = ageTurning + 1; // U-age is always +1 from actual age
+    if (ageGroup >= 6 && ageGroup <= 19) {
+      return ageGroup;
     }
   }
 
@@ -77,9 +81,10 @@ export function extractAgeFromTeamName(teamName: string | null | undefined): num
     const birthYearSuffix = parseInt(standaloneMatch[1], 10);
     const birthYear = 2000 + birthYearSuffix;
     const currentYear = new Date().getFullYear();
-    const age = currentYear - birthYear;
-    if (age >= 5 && age <= 19) {
-      return age;
+    const ageTurning = currentYear - birthYear;
+    const ageGroup = ageTurning + 1;
+    if (ageGroup >= 6 && ageGroup <= 19) {
+      return ageGroup;
     }
   }
 
