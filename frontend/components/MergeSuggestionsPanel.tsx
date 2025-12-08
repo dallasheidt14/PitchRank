@@ -241,7 +241,7 @@ export function MergeSuggestionsPanel({ onMergeClick }: MergeSuggestionsPanelPro
 
         {/* Error */}
         {error && (
-          <ErrorDisplay error={error} variant="inline" />
+          <ErrorDisplay error={error} compact />
         )}
 
         {/* Results Summary */}
