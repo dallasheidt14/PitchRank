@@ -389,12 +389,12 @@ function getLeagueAverageGoals(age: number | null): number {
  */
 function getAgeSpecificMarginMultiplier(
   age: number | null,
-  absCompositeDiff: number
+  absPowerDiff: number
 ): number {
   // Try to use margin calibration v2 parameters first
   const ageKey = age ? `u${age}` : null;
   let baseMultiplier = 1.0;
-  
+
   if (ageKey && marginParamsV2 && marginParamsV2.age_groups[ageKey]?.margin_mult) {
     // Use refined margin_mult from v2 calibration
     baseMultiplier = marginParamsV2.age_groups[ageKey].margin_mult;
@@ -402,20 +402,31 @@ function getAgeSpecificMarginMultiplier(
     // Fallback to age_group_parameters.json
     baseMultiplier = ageGroupParams[ageKey].margin_mult;
   }
-  
-  // Apply compositeDiff-based scaling on top of base multiplier
-  let compositeScaling = 1.0;
-  if (absCompositeDiff > 0.12) {
-    compositeScaling = 2.5;
-  } else if (absCompositeDiff > 0.08) {
-    const transitionProgress = (absCompositeDiff - 0.08) / (0.12 - 0.08);
-    compositeScaling = 1.0 + (1.5 * transitionProgress);
+
+  // Apply power-gap-based scaling on top of base multiplier
+  // Larger power gaps should produce larger margins
+  let powerGapScaling = 1.0;
+  if (absPowerDiff > 0.15) {
+    // Very large gap (15+ percentile points) - significant mismatch
+    powerGapScaling = 3.0;
+  } else if (absPowerDiff > 0.10) {
+    // Large gap (10-15 percentile points)
+    const transitionProgress = (absPowerDiff - 0.10) / (0.15 - 0.10);
+    powerGapScaling = 2.0 + (1.0 * transitionProgress);
+  } else if (absPowerDiff > 0.05) {
+    // Moderate gap (5-10 percentile points)
+    const transitionProgress = (absPowerDiff - 0.05) / (0.10 - 0.05);
+    powerGapScaling = 1.0 + (1.0 * transitionProgress);
   }
-  
-  // Apply global margin_scale from v2 calibration if available
-  const marginScale = marginParamsV2?.margin_scale ?? 1.0;
-  
-  return baseMultiplier * compositeScaling * marginScale;
+
+  // Apply global margin_scale from v2 calibration
+  // But reduce dampening effect for larger power gaps (mismatch games)
+  const baseMarginScale = marginParamsV2?.margin_scale ?? 1.0;
+  // For large gaps, blend toward 1.0 (less dampening)
+  const gapDampeningReduction = Math.min(absPowerDiff / 0.15, 1.0);
+  const marginScale = baseMarginScale + (1.0 - baseMarginScale) * gapDampeningReduction * 0.5;
+
+  return baseMultiplier * powerGapScaling * marginScale;
 }
 
 /**
@@ -493,16 +504,37 @@ export function predictMatch(
   const winProbA = calibrateProbability(rawWinProbA);
   const winProbB = 1 - winProbA;
 
-  // 8. Expected goal margin with age-specific and compositeDiff-based amplification
-  const absCompositeDiff = Math.abs(compositeDiff);
-  const marginMultiplier = getAgeSpecificMarginMultiplier(teamA.age, absCompositeDiff);
+  // 8. Expected goal margin with age-specific and power-gap-based amplification
+  // Use raw powerDiff (not weighted compositeDiff) for margin scaling
+  // This ensures large skill gaps produce appropriately larger margins
+  const absPowerDiff = Math.abs(powerDiff);
+  const marginMultiplier = getAgeSpecificMarginMultiplier(teamA.age, absPowerDiff);
   const expectedMargin = compositeDiff * MARGIN_COEFFICIENT * marginMultiplier;
 
   // 9. Expected scores using age-adjusted league average
   // Use teamA's age (matchups are typically same-age groups)
   const leagueAvgGoals = getLeagueAverageGoals(teamA.age);
-  const expectedScoreA = Math.max(0, leagueAvgGoals + (expectedMargin / 2));
-  const expectedScoreB = Math.max(0, leagueAvgGoals - (expectedMargin / 2));
+
+  // Round scores in a way that preserves the expected margin
+  // This prevents rounding artifacts (e.g., 2.7-2.3 becoming 3-2 instead of 2-2)
+  const rawScoreA = leagueAvgGoals + (expectedMargin / 2);
+  const rawScoreB = leagueAvgGoals - (expectedMargin / 2);
+  const roundedMargin = Math.round(Math.abs(expectedMargin));
+
+  // Round the underdog's score, then add the rounded margin for the favorite
+  // This ensures the displayed margin matches the rounded expected margin
+  let expectedScoreA: number;
+  let expectedScoreB: number;
+
+  if (expectedMargin >= 0) {
+    // Team A is favored
+    expectedScoreB = Math.max(0, Math.round(rawScoreB));
+    expectedScoreA = Math.max(0, expectedScoreB + roundedMargin);
+  } else {
+    // Team B is favored
+    expectedScoreA = Math.max(0, Math.round(rawScoreA));
+    expectedScoreB = Math.max(0, expectedScoreA + roundedMargin);
+  }
 
   // 10. Predicted winner (with draw threshold for close matchups)
   // ~16% of games end in draws - predict draw when probability is very close to 50%
