@@ -287,7 +287,7 @@ class GameHistoryMatcher:
         """
         # Strategy 1: Direct provider ID match (NEW - highest priority)
         if provider_team_id:
-            alias_match = self._match_by_provider_id(provider_id, provider_team_id)
+            alias_match = self._match_by_provider_id(provider_id, provider_team_id, age_group, gender)
             if alias_match:
                 # Check if this is a direct_id match type
                 match_type = alias_match.get('match_method', 'provider_id')
@@ -417,8 +417,20 @@ class GameHistoryMatcher:
             'confidence': 0.0
         }
 
-    def _match_by_provider_id(self, provider_id: str, provider_team_id: str) -> Optional[Dict]:
-        """Match by exact provider ID - only checks team_alias_map (canonical source)"""
+    def _match_by_provider_id(
+        self, 
+        provider_id: str, 
+        provider_team_id: str, 
+        age_group: Optional[str] = None,
+        gender: Optional[str] = None
+    ) -> Optional[Dict]:
+        """
+        Match by exact provider ID - only checks team_alias_map (canonical source).
+        
+        CRITICAL: For providers like Modular11 where the same provider_team_id (club ID)
+        is used for multiple age groups, we MUST validate age_group to prevent
+        U16 games from matching to U13 teams.
+        """
         if not provider_team_id:
             return None
         
@@ -427,16 +439,27 @@ class GameHistoryMatcher:
         # Check cache first (if available)
         if self.alias_cache and team_id_str in self.alias_cache:
             cached = self.alias_cache[team_id_str]
+            team_id_master = cached['team_id_master']
+            
+            # Validate age_group if provided
+            if age_group:
+                if not self._validate_team_age_group(team_id_master, age_group, gender):
+                    logger.debug(
+                        f"Provider ID {provider_team_id} matched to team {team_id_master} "
+                        f"but age_group mismatch (game: {age_group}, team: ?). Rejecting match."
+                    )
+                    return None
+            
             # Prefer direct_id matches
             if cached.get('match_method') == 'direct_id':
                 return {
-                    'team_id_master': cached['team_id_master'],
+                    'team_id_master': team_id_master,
                     'review_status': cached.get('review_status', 'approved'),
                     'match_method': 'direct_id'
                 }
             # Fallback to any cached match
             return {
-                'team_id_master': cached['team_id_master'],
+                'team_id_master': team_id_master,
                 'review_status': cached.get('review_status', 'approved'),
                 'match_method': cached.get('match_method')
             }
@@ -452,6 +475,15 @@ class GameHistoryMatcher:
             ).single().execute()
             
             if result.data:
+                team_id_master = result.data['team_id_master']
+                # Validate age_group if provided
+                if age_group:
+                    if not self._validate_team_age_group(team_id_master, age_group, gender):
+                        logger.debug(
+                            f"Provider ID {provider_team_id} matched to team {team_id_master} "
+                            f"but age_group mismatch (game: {age_group}). Rejecting match."
+                        )
+                        return None
                 return result.data
         except Exception as e:
             logger.debug(f"No direct_id match found: {e}")
@@ -465,10 +497,64 @@ class GameHistoryMatcher:
             ).eq('review_status', 'approved').single().execute()
             
             if result.data:
+                team_id_master = result.data['team_id_master']
+                # Validate age_group if provided
+                if age_group:
+                    if not self._validate_team_age_group(team_id_master, age_group, gender):
+                        logger.debug(
+                            f"Provider ID {provider_team_id} matched to team {team_id_master} "
+                            f"but age_group mismatch (game: {age_group}). Rejecting match."
+                        )
+                        return None
                 return result.data
         except Exception as e:
             logger.debug(f"No alias map match found: {e}")
         return None
+    
+    def _validate_team_age_group(
+        self, 
+        team_id_master: str, 
+        expected_age_group: str, 
+        expected_gender: Optional[str] = None
+    ) -> bool:
+        """
+        Validate that a master team's age_group matches the expected age_group.
+        
+        Returns True if age_group matches (or if age_group is not provided),
+        False if there's a mismatch.
+        """
+        try:
+            # Normalize age_group for comparison (U13 vs u13)
+            expected_age_normalized = expected_age_group.lower() if expected_age_group else None
+            
+            # Get team's age_group from database
+            team_result = self.db.table('teams').select(
+                'age_group, gender'
+            ).eq('team_id_master', team_id_master).single().execute()
+            
+            if not team_result.data:
+                logger.warning(f"Team {team_id_master} not found in database")
+                return False
+            
+            team_age = team_result.data.get('age_group', '').lower() if team_result.data.get('age_group') else None
+            team_gender = team_result.data.get('gender')
+            
+            # Check age_group match
+            if expected_age_normalized and team_age:
+                if expected_age_normalized != team_age:
+                    return False
+            
+            # Check gender match if provided
+            if expected_gender and team_gender:
+                if expected_gender != team_gender:
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error validating team age_group: {e}")
+            # On error, be conservative and reject the match
+            return False
 
     def _match_by_alias(
         self,

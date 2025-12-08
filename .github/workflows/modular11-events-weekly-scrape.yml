@@ -1,0 +1,113 @@
+name: Modular11 Events Weekly Scrape
+
+on:
+  schedule:
+    # Run every Sunday at 11pm Mountain Time
+    # MT is UTC-6 (MDT) or UTC-7 (MST)
+    # Sunday 11pm MDT = Monday 5am UTC
+    # Sunday 11pm MST = Monday 6am UTC
+    # Using Monday 5am UTC to cover most of the year (daylight time)
+    # Cron format: minute hour day-of-month month day-of-week
+    # 0 = Sunday, 1 = Monday
+    - cron: '0 5 * * 1'  # Every Monday at 5am UTC (Sunday 11pm MT)
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  scrape-and-import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120  # 2 hour timeout
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # Install Scrapy if not in requirements.txt
+          pip install scrapy twisted
+          mkdir -p logs scrapers/modular11_scraper/output
+
+      - name: Run Modular11 Events Scraper
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          cd scrapers/modular11_scraper
+          # Scrape all age groups (U13-U17) for events from the last 7 days
+          python -m scrapy crawl modular11_events \
+            -a age_min=13 \
+            -a age_max=17 \
+            -a days_back=7
+          
+          # Find the most recent CSV file (relative to scrapers/modular11_scraper)
+          cd output
+          LATEST_CSV=$(ls -t modular11_results_*.csv | head -n 1)
+          
+          if [ -z "$LATEST_CSV" ]; then
+            echo "ERROR: No CSV file generated"
+            exit 1
+          fi
+          
+          # Get absolute path from workspace root
+          CSV_PATH="${{ github.workspace }}/scrapers/modular11_scraper/output/$LATEST_CSV"
+          echo "Scraped file: $CSV_PATH"
+          echo "CSV_FILE=$CSV_PATH" >> $GITHUB_ENV
+
+      - name: Import Games
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          cd ${{ github.workspace }}
+          
+          if [ -z "$CSV_FILE" ]; then
+            echo "ERROR: CSV_FILE not set"
+            exit 1
+          fi
+          
+          # Run import with summary only to reduce output
+          python scripts/import_games_enhanced.py "$CSV_FILE" modular11 --summary-only
+
+      - name: Upload scraped data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: modular11-events-games-${{ github.run_number }}
+          path: scrapers/modular11_scraper/output/modular11_results_*.csv
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: modular11-events-logs-${{ github.run_number }}
+          path: |
+            logs/*.log
+            scrapers/modular11_scraper/*.log
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Report results
+        if: always()
+        run: |
+          echo "===================="
+          echo "Modular11 Events Weekly Scrape completed"
+          echo "===================="
+          echo "Date range: Last 7 days"
+          echo "Age groups: U13-U17"
+          echo "Source: MLS NEXT Events"
+          echo "Check artifacts for scraped data and logs"
+

@@ -154,8 +154,12 @@ class EventDiscovery:
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
+            # Log search results for debugging
+            logger.debug(f"Searching GotSport events page for {date_str}, response status: {response.status_code}")
+            
             # Look for event links with EventID
             event_links = soup.find_all('a', href=re.compile(r'EventID=', re.I))
+            logger.debug(f"Found {len(event_links)} event links in search results for {date_str}")
             
             seen_event_ids = set()
             
@@ -220,9 +224,12 @@ class EventDiscovery:
                         today = date.today()
                         if event_end_date:
                             # Event has actual dates - only include if it ended today or earlier
-                            if event_end_date > today:
-                                logger.debug(f"Skipping future event {event_name} (ends {event_end_date})")
-                                continue
+                            # Allow events ending today (>= instead of >)
+                            if event_end_date >= today:
+                                # Include if ending today, skip if in future
+                                if event_end_date > today:
+                                    logger.debug(f"Skipping future event {event_name} (ends {event_end_date})")
+                                    continue
                         else:
                             # No event dates found - use search_date as proxy
                             # Only include if search_date is today or earlier
@@ -276,21 +283,38 @@ class EventDiscovery:
                             # Only include events that have already ended (or end today)
                             # Filter out future events
                             today = date.today()
+                            event_name_js = f"Event {rankings_event_id}"  # Default name for JS-discovered events
                             if event_end_date:
                                 # Event has actual dates - only include if it ended today or earlier
-                                if event_end_date > today:
-                                    logger.debug(f"Skipping future event {event_name} (ends {event_end_date})")
-                                    continue
+                                # Allow events ending today (>= instead of >)
+                                if event_end_date >= today:
+                                    # Include if ending today, skip if in future
+                                    if event_end_date > today:
+                                        logger.debug(f"Skipping future event {event_name_js} (ends {event_end_date})")
+                                        continue
                             else:
                                 # No event dates found - use search_date as proxy
                                 # Only include if search_date is today or earlier
                                 if search_date > today:
-                                    logger.debug(f"Skipping event {event_name} (search date {search_date} is in future)")
+                                    logger.debug(f"Skipping event {event_name_js} (search date {search_date} is in future)")
                                     continue
+                            
+                            # Try to get event name from the page
+                            event_name_js = f"Event {rankings_event_id}"
+                            try:
+                                event_url_test = f"https://system.gotsport.com/org_event/events/{actual_event_id}"
+                                test_response = self.session.get(event_url_test, timeout=10, allow_redirects=True)
+                                if 'org_event/events' in test_response.url:
+                                    test_soup = BeautifulSoup(test_response.text, 'html.parser')
+                                    title = test_soup.find('title')
+                                    if title:
+                                        event_name_js = title.get_text(strip=True)
+                            except:
+                                pass  # Use default name if we can't get it
                             
                             events.append({
                                 'event_id': actual_event_id,
-                                'event_name': f"Event {rankings_event_id}",
+                                'event_name': event_name_js,
                                 'event_url': f"https://system.gotsport.com/org_event/events/{actual_event_id}",
                                 'date': event_date,
                                 'start_date': event_start_date.isoformat() if event_start_date else None,
@@ -367,7 +391,8 @@ def scrape_new_events(
     lookback_days: int = 30,
     output_file: str = None,
     scraped_events_file: str = None,
-    auto_import: bool = True
+    auto_import: bool = True,
+    manual_event_ids: List[str] = None
 ):
     """
     Scrape games from new events
@@ -377,6 +402,7 @@ def scrape_new_events(
         lookback_days: How many days of games to scrape from event teams (default: 30)
         output_file: Output file path (default: auto-generated)
         scraped_events_file: File to track scraped events (default: data/raw/scraped_events.json)
+        manual_event_ids: List of event IDs to scrape manually (for known missed events)
     """
     console.print(Panel.fit(
         f"[bold green]Weekly GotSport Event Scraper[/bold green]\n"
@@ -404,6 +430,65 @@ def scrape_new_events(
     
     discovery = EventDiscovery()
     all_events = discovery.discover_events_in_range(start_date, end_date)
+    
+    # Add manually specified event IDs
+    if manual_event_ids:
+        console.print(f"[cyan]Adding {len(manual_event_ids)} manually specified event IDs...[/cyan]")
+        from supabase import create_client
+        supabase = create_client(
+            os.getenv('SUPABASE_URL'),
+            os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+        )
+        scraper = GotSportEventScraper(supabase, 'gotsport')
+        
+        for event_id in manual_event_ids:
+            if event_id not in scraped_event_ids:
+                # Try to get event info
+                try:
+                    event_url = f"https://system.gotsport.com/org_event/events/{event_id}"
+                    response = scraper.session.get(event_url, timeout=10, allow_redirects=True)
+                    if 'org_event/events' in response.url and response.url != 'https://home.gotsport.com/':
+                        # Extract event name from page
+                        from bs4 import BeautifulSoup
+                        soup = BeautifulSoup(response.text, 'html.parser')
+                        title = soup.find('title')
+                        event_name = title.get_text(strip=True) if title else f"Event {event_id}"
+                        
+                        # Try to get event dates
+                        event_dates = scraper.extract_event_dates(event_id)
+                        event_start_date = None
+                        event_end_date = None
+                        if event_dates:
+                            event_start_date, event_end_date = event_dates
+                        
+                        # Only add if event has ended or ends today
+                        today = date.today()
+                        if event_end_date and event_end_date > today:
+                            console.print(f"  [yellow]Skipping {event_name} - ends in future ({event_end_date})[/yellow]")
+                            continue
+                        
+                        manual_event = {
+                            'event_id': event_id,
+                            'event_name': event_name,
+                            'event_url': event_url,
+                            'date': event_start_date.isoformat() if event_start_date else date.today().isoformat(),
+                            'start_date': event_start_date.isoformat() if event_start_date else None,
+                            'end_date': event_end_date.isoformat() if event_end_date else None,
+                            'rankings_event_id': None,
+                            'manual': True  # Mark as manually added
+                        }
+                        
+                        # Check if already in all_events
+                        if not any(e['event_id'] == event_id for e in all_events):
+                            all_events.append(manual_event)
+                            console.print(f"  [green]✅ Added manual event: {event_name} ({event_id})[/green]")
+                        else:
+                            console.print(f"  [dim]Event {event_id} already discovered[/dim]")
+                    else:
+                        console.print(f"  [yellow]⚠️  Event {event_id} not accessible (may be archived or invalid)[/yellow]")
+                except Exception as e:
+                    logger.warning(f"Error adding manual event {event_id}: {e}")
+                    console.print(f"  [red]❌ Error adding event {event_id}: {e}[/red]")
     
     # Filter to only new events
     new_events = [e for e in all_events if e['event_id'] not in scraped_event_ids]
@@ -471,15 +556,45 @@ def scrape_new_events(
                 team_ids = scraper.extract_event_teams(event_id)
                 
                 if not team_ids:
+                    # Try alternative method: scrape directly from schedule pages
+                    # This bypasses team extraction and works even if event ID doesn't match
+                    logger.info(f"Event {event_id} has no teams via extract_event_teams, trying schedule page method...")
+                    try:
+                        games = scraper.scrape_games_from_schedule_pages(
+                            event_id,
+                            event_name=event_name,
+                            since_date=since_date
+                        )
+                        
+                        if games:
+                            event_results.append({
+                                'event_id': event_id,
+                                'event_name': event_name,
+                                'teams_count': len(set(g.team_id for g in games if g.team_id)),
+                                'games_count': len(games),
+                                'status': 'success',
+                                'note': 'Scraped via schedule pages (bypassed team extraction)'
+                            })
+                            all_games.extend(games)
+                            console.print(f"  [green]✅ {event_name}: {len(games)} games (via schedule pages)[/green]")
+                            # Mark as scraped since we got games
+                            save_scraped_event(scraped_events_path, event_id)
+                            progress.advance(task)
+                            continue
+                    except Exception as e:
+                        logger.debug(f"Schedule page method also failed: {e}")
+                    
+                    # If schedule page method also fails, mark as no_teams
                     event_results.append({
                         'event_id': event_id,
                         'event_name': event_name,
                         'teams_count': 0,
                         'games_count': 0,
                         'status': 'no_teams',
-                        'note': 'EventID may not match system.gotsport.com format'
+                        'note': 'EventID may not match system.gotsport.com format, schedule page method also failed'
                     })
                     console.print(f"  [yellow]⚠️  {event_name}: No teams found (EventID may not match)[/yellow]")
+                    # Don't mark as scraped - allow retry on next run
                     progress.advance(task)
                     continue
                 
@@ -728,6 +843,8 @@ Examples:
                        help='File to track scraped events (default: data/raw/scraped_events.json)')
     parser.add_argument('--no-auto-import', dest='auto_import', action='store_false',
                        help='Skip automatic import after scraping (default: auto-import is enabled)')
+    parser.add_argument('--manual-event-ids', type=str, nargs='+',
+                       help='Manually specify event IDs to scrape (for known missed events, e.g., --manual-event-ids 45163 45164)')
     
     args = parser.parse_args()
     
@@ -739,6 +856,7 @@ Examples:
         lookback_days=args.lookback_days,
         output_file=args.output,
         scraped_events_file=args.scraped_events,
-        auto_import=auto_import
+        auto_import=auto_import,
+        manual_event_ids=args.manual_event_ids
     )
 

@@ -272,8 +272,8 @@ async function validate() {
 
     // Simple prediction
     const predSimple = predictMatchSimple(teamA, teamB);
-    // Always pick the favored team (draws only happen ~16% of time)
-    const predictedWinnerSimple = predSimple.winProbA >= 0.5 ? 'a' : 'b';
+    // Always pick the favored team (no draw threshold - draws only occur ~16% of the time)
+    let predictedWinnerSimple = predSimple.winProbA >= 0.5 ? 'a' : 'b';
 
     predictionsSimple.push({
       gameDate: game.game_date,
@@ -292,8 +292,8 @@ async function validate() {
 
     // Enhanced prediction
     const predEnhanced = predictMatchEnhanced(teamA, teamB, allGamesData);
-    // Always pick the favored team (draws only happen ~16% of time)
-    const predictedWinnerEnhanced = predEnhanced.winProbA >= 0.5 ? 'a' : 'b';
+    // Always pick the favored team (no draw threshold - draws only occur ~16% of the time)
+    let predictedWinnerEnhanced = predEnhanced.winProbA >= 0.5 ? 'a' : 'b';
 
     predictionsEnhanced.push({
       gameDate: game.game_date,
