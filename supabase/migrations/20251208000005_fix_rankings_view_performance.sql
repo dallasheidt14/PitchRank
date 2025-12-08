@@ -45,29 +45,21 @@ SELECT
       ELSE rf.gender
     END AS gender,
 
-    -- Record stats (from rankings_full - CAPPED AT 30 GAMES for rankings algorithm)
-    COALESCE(rf.games_played, cr.games_played) AS games_played,
-    COALESCE(rf.wins, cr.wins) AS wins,
-    COALESCE(rf.losses, cr.losses) AS losses,
-    COALESCE(rf.draws, cr.draws) AS draws,
+    -- Record stats (from rankings_full - used for rankings algorithm)
+    rf.games_played,
+    rf.wins,
+    rf.losses,
+    rf.draws,
 
-    -- Total games count - use pre-computed values from current_rankings
-    -- NOTE: These values do NOT include merged team games until the rankings
-    -- calculator is updated to resolve merged teams. This is a tradeoff for
-    -- performance. The merge resolution can be added to the rankings calculator
-    -- instead of computing it live in the view.
-    COALESCE(cr.games_played, rf.games_played) AS total_games_played,
-    COALESCE(cr.wins, rf.wins) AS total_wins,
-    COALESCE(cr.losses, rf.losses) AS total_losses,
-    COALESCE(cr.draws, rf.draws) AS total_draws,
+    -- Total games - same as games_played from rankings_full
+    -- (rankings_full already has the authoritative game counts)
+    rf.games_played AS total_games_played,
+    rf.wins AS total_wins,
+    rf.losses AS total_losses,
+    rf.draws AS total_draws,
 
-    -- Win percentage calculated from pre-computed totals (0-100 scale)
-    CASE
-      WHEN COALESCE(cr.games_played, rf.games_played) > 0
-      THEN ((COALESCE(cr.wins, rf.wins)::NUMERIC + (COALESCE(cr.draws, rf.draws)::NUMERIC * 0.5))
-            / COALESCE(cr.games_played, rf.games_played)::NUMERIC) * 100
-      ELSE NULL
-    END AS win_percentage,
+    -- Win percentage from rankings_full (already calculated by rankings engine)
+    rf.win_percentage,
 
     -- Metrics (ONLY from rankings_full)
     rf.power_score_final,
@@ -96,11 +88,10 @@ SELECT
 
 FROM rankings_full rf
 JOIN teams t ON rf.team_id = t.team_id_master
-LEFT JOIN current_rankings cr ON cr.team_id = t.team_id_master
 WHERE rf.power_score_final IS NOT NULL
   AND t.is_deprecated = FALSE;  -- Exclude deprecated teams from results
 
-COMMENT ON VIEW rankings_view IS 'National rankings view with deprecated team filtering. Uses pre-computed game counts from current_rankings for performance. Merged team game resolution should be done in the rankings calculator, not live in the view.';
+COMMENT ON VIEW rankings_view IS 'National rankings view using rankings_full as the authoritative source. Deprecated teams excluded.';
 
 -- =====================================================
 -- Step 3: Recreate state_rankings_view
