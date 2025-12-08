@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo, useRef, useEffect, useDeferredValue, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -131,6 +132,7 @@ export function UnknownOpponentLink({
   defaultAge,
   defaultGender,
 }: UnknownOpponentLinkProps) {
+  const queryClient = useQueryClient();
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTeam, setSelectedTeam] = useState<RankingRow | null>(null);
@@ -317,11 +319,18 @@ export function UnknownOpponentLink({
 
       setLinkSuccess(true);
 
-      // Close modal after short delay and refresh
+      // Invalidate the games cache to ensure fresh data is fetched
+      // This is more reliable than just refetch() as it clears the cache entirely
+      await queryClient.invalidateQueries({ queryKey: ['team-games', currentTeamId] });
+
+      // Also invalidate the team search cache in case a new team was somehow involved
+      await queryClient.invalidateQueries({ queryKey: ['team-search'] });
+
+      // Close modal after short delay and call onLinked callback
       setTimeout(() => {
         setIsOpen(false);
         onLinked?.();
-      }, 1500);
+      }, 1000);
     } catch (err) {
       setLinkError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
@@ -361,11 +370,18 @@ export function UnknownOpponentLink({
 
       setLinkSuccess(true);
 
-      // Close modal after short delay and refresh
+      // Invalidate the games cache to ensure fresh data is fetched
+      // This is more reliable than just refetch() as it clears the cache entirely
+      await queryClient.invalidateQueries({ queryKey: ['team-games', currentTeamId] });
+
+      // Invalidate team search cache so the new team appears in searches
+      await queryClient.invalidateQueries({ queryKey: ['team-search'] });
+
+      // Close modal after short delay and call onLinked callback
       setTimeout(() => {
         setIsOpen(false);
         onLinked?.();
-      }, 1500);
+      }, 1000);
     } catch (err) {
       setLinkError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
