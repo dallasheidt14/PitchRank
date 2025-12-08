@@ -2432,19 +2432,28 @@ elif section == "🔀 Team Merge Manager":
                 return match.group(1) if match else None
 
             def has_roman_numeral_difference(name_a, name_b):
-                """Check if two names differ primarily by Roman numeral (likely different squads)"""
+                """Check if two names differ by Roman numeral (likely different squads)
+
+                Catches cases like:
+                - 'Team II' vs 'Team III' (both have numerals, different)
+                - 'Team' vs 'Team II' (one has numeral, one doesn't)
+                """
+                import re
                 roman_a = extract_roman_numeral(name_a)
                 roman_b = extract_roman_numeral(name_b)
 
-                # If both have Roman numerals and they're different, it's likely different squads
-                if roman_a and roman_b and roman_a != roman_b:
+                # Case 1: Both have Roman numerals but they're different
+                # Case 2: One has a Roman numeral, the other doesn't
+                if roman_a != roman_b:
                     # Remove Roman numerals and compare base names
-                    import re
                     pattern = r'\b(I{1,3}|IV|V|VI{0,3}|IX|X)\b'
                     base_a = re.sub(pattern, '', name_a.upper()).strip()
                     base_b = re.sub(pattern, '', name_b.upper()).strip()
+                    # Clean up extra spaces
+                    base_a = ' '.join(base_a.split())
+                    base_b = ' '.join(base_b.split())
                     # If base names are very similar, they're different squads (NOT duplicates)
-                    if calculate_similarity(base_a.lower(), base_b.lower()) > 0.9:
+                    if calculate_similarity(base_a.lower(), base_b.lower()) > 0.85:
                         return True
                 return False
 
@@ -2570,12 +2579,11 @@ elif section == "🔀 Team Merge Manager":
                                         # Weighted score - name similarity is PRIMARY signal
                                         # Opponent overlap is a BONUS (true duplicates often have 0 overlap
                                         # because they ARE the same team, not opponents!)
-                                        # Base weights: name=50%, club=25%, state=15%, performance=5%
+                                        # Base weights: name=55%, club=30%, state=15% = 100%
                                         base_score = (
-                                            0.50 * name_sim * roman_penalty +
-                                            0.25 * club_sim +
-                                            0.15 * state_match +
-                                            0.05 * 0.5  # Default performance
+                                            0.55 * name_sim * roman_penalty +
+                                            0.30 * club_sim +
+                                            0.15 * state_match
                                         )
 
                                         # Opponent overlap as confirming bonus (up to +10%)
