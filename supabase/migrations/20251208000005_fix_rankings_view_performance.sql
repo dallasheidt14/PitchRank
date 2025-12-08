@@ -61,8 +61,13 @@ SELECT
     COALESCE(cr.losses, rf.losses) AS total_losses,
     COALESCE(cr.draws, rf.draws) AS total_draws,
 
-    -- Win percentage from pre-computed values
-    cr.win_percentage,
+    -- Win percentage calculated from pre-computed totals (0-100 scale)
+    CASE
+      WHEN COALESCE(cr.games_played, rf.games_played) > 0
+      THEN ((COALESCE(cr.wins, rf.wins)::NUMERIC + (COALESCE(cr.draws, rf.draws)::NUMERIC * 0.5))
+            / COALESCE(cr.games_played, rf.games_played)::NUMERIC) * 100
+      ELSE NULL
+    END AS win_percentage,
 
     -- Metrics (ONLY from rankings_full)
     rf.power_score_final,
