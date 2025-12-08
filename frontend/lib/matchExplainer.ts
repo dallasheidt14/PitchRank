@@ -18,7 +18,8 @@ export type ExplanationFactor =
   | 'schedule_strength'
   | 'offensive_matchup'
   | 'defensive_matchup'
-  | 'close_match';
+  | 'close_match'
+  | 'head_to_head';
 
 export interface Explanation {
   factor: ExplanationFactor;
@@ -296,6 +297,55 @@ function explainCloseMatch(
 }
 
 /**
+ * Generate head-to-head explanation if H2H history exists
+ * This is HIGHLY predictive - teams that consistently beat another have proven matchup advantages
+ */
+function explainHeadToHead(
+  teamA: TeamWithRanking,
+  teamB: TeamWithRanking,
+  h2h?: { gamesPlayed: number; avgMargin: number }
+): Explanation | null {
+  if (!h2h || h2h.gamesPlayed === 0) return null;
+
+  const absMargin = Math.abs(h2h.avgMargin);
+  const favoredTeam = h2h.avgMargin > 0 ? teamA.team_name : teamB.team_name;
+  const advantage: 'team_a' | 'team_b' = h2h.avgMargin > 0 ? 'team_a' : 'team_b';
+
+  // Determine magnitude based on average margin and games played
+  let magnitude: ExplanationMagnitude;
+  if (h2h.gamesPlayed >= 3 && absMargin >= 2.0) {
+    magnitude = 'significant';
+  } else if (h2h.gamesPlayed >= 2 && absMargin >= 1.0) {
+    magnitude = 'moderate';
+  } else {
+    magnitude = 'minimal';
+  }
+
+  if (magnitude === 'minimal' && h2h.gamesPlayed < 2) return null;
+
+  let description = '';
+  if (magnitude === 'significant') {
+    description = `Historical dominance: ${favoredTeam} has won their ${h2h.gamesPlayed} previous meetings by an average of ${absMargin.toFixed(1)} goals`;
+  } else if (h2h.gamesPlayed >= 2) {
+    description = `Head-to-head edge: ${favoredTeam} owns a +${absMargin.toFixed(1)} goal average in ${h2h.gamesPlayed} prior matchups`;
+  } else {
+    description = `Prior meeting: ${favoredTeam} won their last encounter by ${absMargin.toFixed(0)} goal(s)`;
+  }
+
+  // H2H gets high score because it's highly predictive
+  const score = (absMargin * 0.5 + h2h.gamesPlayed * 0.3) * 1.5;
+
+  return {
+    factor: 'head_to_head',
+    advantage,
+    magnitude,
+    description,
+    icon: '🔄',
+    score,
+  };
+}
+
+/**
  * Generate complete match explanation
  */
 export function explainMatch(
@@ -303,10 +353,11 @@ export function explainMatch(
   teamB: TeamWithRanking,
   prediction: MatchPrediction
 ): MatchExplanation {
-  const { components, formA, formB, winProbabilityA, confidence, confidence_score, expectedMargin, expectedScore } = prediction;
+  const { components, formA, formB, winProbabilityA, confidence, confidence_score, expectedMargin, expectedScore, h2h } = prediction;
 
   // Generate all possible explanations
   const allExplanations: (Explanation | null)[] = [
+    explainHeadToHead(teamA, teamB, h2h), // H2H first - highly predictive
     explainPowerScore(teamA, teamB, components.powerDiff),
     explainSOS(teamA, teamB, components.sosDiff),
     explainRecentForm(teamA, teamB, formA, formB, components.formDiffRaw),
