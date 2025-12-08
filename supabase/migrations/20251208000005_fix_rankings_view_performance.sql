@@ -172,6 +172,35 @@ GRANT SELECT ON state_rankings_view TO authenticated;
 GRANT SELECT ON state_rankings_view TO anon;
 
 -- =====================================================
+-- Step 5: Recreate merged_teams_view (preserved from previous migration)
+-- =====================================================
+
+CREATE OR REPLACE VIEW merged_teams_view AS
+SELECT
+    mm.id as merge_id,
+    mm.deprecated_team_id,
+    dt.team_name as deprecated_team_name,
+    dt.club_name as deprecated_club_name,
+    mm.canonical_team_id,
+    ct.team_name as canonical_team_name,
+    ct.club_name as canonical_club_name,
+    mm.merged_at,
+    mm.merged_by,
+    mm.merge_reason,
+    mm.confidence_score,
+    (SELECT COUNT(*) FROM games g
+     WHERE g.home_team_master_id = mm.deprecated_team_id
+        OR g.away_team_master_id = mm.deprecated_team_id) as games_with_deprecated_id
+FROM team_merge_map mm
+JOIN teams dt ON mm.deprecated_team_id = dt.team_id_master
+JOIN teams ct ON mm.canonical_team_id = ct.team_id_master
+ORDER BY mm.merged_at DESC;
+
+COMMENT ON VIEW merged_teams_view IS 'View of all team merges with team names and game counts for admin dashboard.';
+
+GRANT SELECT ON merged_teams_view TO authenticated;
+
+-- =====================================================
 -- Verification
 -- =====================================================
 
@@ -189,6 +218,13 @@ BEGIN
         WHERE table_name = 'state_rankings_view'
     ) THEN
         RAISE EXCEPTION 'Migration failed: state_rankings_view not created';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.views
+        WHERE table_name = 'merged_teams_view'
+    ) THEN
+        RAISE EXCEPTION 'Migration failed: merged_teams_view not created';
     END IF;
 
     RAISE NOTICE 'Migration successful: Fixed rankings_view performance by removing correlated subqueries';
