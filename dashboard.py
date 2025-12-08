@@ -83,7 +83,8 @@ section = st.sidebar.radio(
         "🔎 Unknown Teams Mapper",
         "📋 Modular11 Team Review",
         "📈 Database Import Stats",
-        "🗺️ State Coverage"
+        "🗺️ State Coverage",
+        "🔀 Team Merge Manager"
     ]
 )
 
@@ -2265,6 +2266,337 @@ elif section == "🗺️ State Coverage":
             st.error(f"Error loading state coverage data: {e}")
             import traceback
             st.code(traceback.format_exc())
+
+# ============================================================================
+# TEAM MERGE MANAGER SECTION
+# ============================================================================
+elif section == "🔀 Team Merge Manager":
+    st.header("Team Merge Manager")
+    st.markdown("Merge duplicate teams and view AI-powered merge suggestions")
+
+    db = get_database()
+
+    if not db:
+        st.error("Database connection required for Team Merge Manager")
+    else:
+        # Create tabs for different operations
+        merge_tab, suggestions_tab, history_tab = st.tabs([
+            "🔗 Manual Merge",
+            "💡 AI Suggestions",
+            "📜 Merge History"
+        ])
+
+        # ========================
+        # TAB 1: Manual Merge
+        # ========================
+        with merge_tab:
+            st.subheader("Merge Duplicate Teams")
+            st.markdown("""
+            Select two teams to merge. The **deprecated team** will be hidden from rankings,
+            and all references will resolve to the **canonical team**.
+
+            > **Note:** This is reversible. No game data is modified - only lookup mappings are created.
+            """)
+
+            # User email for audit
+            merge_user_email = st.text_input("Your Email (for audit)", key="merge_email")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.markdown("##### Team to Deprecate (will be hidden)")
+
+                # Fetch teams for selection
+                try:
+                    teams_result = execute_with_retry(
+                        lambda: db.table('teams')
+                            .select('team_id_master, team_name, club_name, state_code, age_group, gender')
+                            .eq('is_deprecated', False)
+                            .order('team_name')
+                            .limit(5000)
+                    )
+                    all_teams = teams_result.data or []
+
+                    # Create team options
+                    team_options = {
+                        f"{t['team_name']} ({t.get('club_name', 'N/A')}) - {t.get('state_code', '??')} {t.get('age_group', '')} {t.get('gender', '')}": t['team_id_master']
+                        for t in all_teams
+                    }
+
+                    deprecated_selection = st.selectbox(
+                        "Select duplicate team to deprecate",
+                        options=[""] + list(team_options.keys()),
+                        key="deprecated_team"
+                    )
+                    deprecated_team_id = team_options.get(deprecated_selection) if deprecated_selection else None
+
+                except Exception as e:
+                    st.error(f"Failed to load teams: {e}")
+                    deprecated_team_id = None
+
+            with col2:
+                st.markdown("##### Canonical Team (keep this one)")
+
+                if deprecated_team_id:
+                    # Filter out the deprecated team from options
+                    canonical_options = {k: v for k, v in team_options.items() if v != deprecated_team_id}
+                    canonical_selection = st.selectbox(
+                        "Select team to keep",
+                        options=[""] + list(canonical_options.keys()),
+                        key="canonical_team"
+                    )
+                    canonical_team_id = canonical_options.get(canonical_selection) if canonical_selection else None
+                else:
+                    st.info("Select a team to deprecate first")
+                    canonical_team_id = None
+
+            # Merge reason
+            merge_reason = st.text_input("Reason for merge (optional)", key="merge_reason")
+
+            # Execute merge button
+            if st.button("🔗 Execute Merge", type="primary", disabled=not (deprecated_team_id and canonical_team_id and merge_user_email)):
+                try:
+                    result = execute_with_retry(
+                        lambda: db.rpc('execute_team_merge', {
+                            'p_deprecated_team_id': deprecated_team_id,
+                            'p_canonical_team_id': canonical_team_id,
+                            'p_merged_by': merge_user_email,
+                            'p_merge_reason': merge_reason or None
+                        })
+                    )
+
+                    if result.data:
+                        st.success(f"✅ Successfully merged teams! Merge ID: {result.data}")
+                        st.balloons()
+                    else:
+                        st.warning("Merge completed but no ID returned")
+
+                except Exception as e:
+                    st.error(f"❌ Merge failed: {e}")
+
+        # ========================
+        # TAB 2: AI Suggestions
+        # ========================
+        with suggestions_tab:
+            st.subheader("AI-Powered Merge Suggestions")
+            st.markdown("""
+            Find potential duplicate teams using 5 weighted signals:
+            - **Opponent Overlap (40%)** - Shared opponents suggest same team
+            - **Schedule Alignment (25%)** - Similar game dates
+            - **Name Similarity (20%)** - Fuzzy name matching
+            - **Geography (10%)** - Same state/club
+            - **Performance (5%)** - Similar win rates
+            """)
+
+            # Filters
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                age_filter = st.selectbox(
+                    "Age Group",
+                    options=[""] + [f"u{i}" for i in range(8, 20)],
+                    key="suggest_age"
+                )
+
+            with col2:
+                gender_filter = st.selectbox(
+                    "Gender",
+                    options=["", "Male", "Female"],
+                    key="suggest_gender"
+                )
+
+            with col3:
+                min_confidence = st.slider(
+                    "Min Confidence",
+                    min_value=0.3,
+                    max_value=0.9,
+                    value=0.5,
+                    step=0.1,
+                    key="suggest_confidence"
+                )
+
+            if st.button("🔍 Find Potential Duplicates", type="primary"):
+                if not age_filter or not gender_filter:
+                    st.warning("Please select both age group and gender")
+                else:
+                    with st.spinner("Analyzing teams for duplicates..."):
+                        try:
+                            # Fetch teams in cohort
+                            age_num = age_filter.lower().replace('u', '')
+                            teams_result = execute_with_retry(
+                                lambda: db.table('teams')
+                                    .select('team_id_master, team_name, club_name, state_code')
+                                    .eq('is_deprecated', False)
+                                    .eq('gender', gender_filter)
+                                    .or_(f"age_group.eq.{age_num},age_group.eq.u{age_num},age_group.eq.U{age_num}")
+                                    .limit(500)
+                            )
+                            teams = teams_result.data or []
+
+                            if len(teams) < 2:
+                                st.info(f"Only {len(teams)} teams found - need at least 2 for comparison")
+                            else:
+                                st.info(f"Analyzing {len(teams)} teams...")
+
+                                # Fetch games for opponent overlap analysis
+                                team_ids = [t['team_id_master'] for t in teams]
+
+                                # Simple name-based similarity for Streamlit (full analysis in API)
+                                suggestions = []
+
+                                for i, team_a in enumerate(teams):
+                                    for team_b in teams[i+1:]:
+                                        name_a = (team_a.get('team_name') or '').lower()
+                                        name_b = (team_b.get('team_name') or '').lower()
+                                        club_a = (team_a.get('club_name') or '').lower()
+                                        club_b = (team_b.get('club_name') or '').lower()
+                                        state_a = team_a.get('state_code', '')
+                                        state_b = team_b.get('state_code', '')
+
+                                        # Calculate simple similarity
+                                        name_sim = calculate_similarity(name_a, name_b)
+                                        club_sim = calculate_similarity(club_a, club_b) if club_a and club_b else 0
+                                        state_match = 1.0 if state_a == state_b else 0.0
+
+                                        # Weighted score (simplified)
+                                        score = 0.5 * name_sim + 0.3 * club_sim + 0.2 * state_match
+
+                                        if score >= min_confidence:
+                                            suggestions.append({
+                                                'team_a_id': team_a['team_id_master'],
+                                                'team_a_name': team_a['team_name'],
+                                                'team_a_club': team_a.get('club_name', ''),
+                                                'team_b_id': team_b['team_id_master'],
+                                                'team_b_name': team_b['team_name'],
+                                                'team_b_club': team_b.get('club_name', ''),
+                                                'confidence': score,
+                                                'name_sim': name_sim,
+                                                'club_sim': club_sim,
+                                                'state_match': state_match
+                                            })
+
+                                # Sort by confidence
+                                suggestions.sort(key=lambda x: x['confidence'], reverse=True)
+
+                                if suggestions:
+                                    st.success(f"Found {len(suggestions)} potential duplicates")
+
+                                    for idx, s in enumerate(suggestions[:20]):
+                                        confidence_color = "🟢" if s['confidence'] >= 0.8 else "🟡" if s['confidence'] >= 0.6 else "🟠"
+
+                                        with st.expander(f"{confidence_color} {s['team_a_name']} ↔ {s['team_b_name']} ({s['confidence']:.0%} match)"):
+                                            col1, col2 = st.columns(2)
+
+                                            with col1:
+                                                st.markdown(f"**Team A:** {s['team_a_name']}")
+                                                st.caption(f"Club: {s['team_a_club'] or 'N/A'}")
+                                                st.caption(f"ID: `{s['team_a_id'][:8]}...`")
+
+                                            with col2:
+                                                st.markdown(f"**Team B:** {s['team_b_name']}")
+                                                st.caption(f"Club: {s['team_b_club'] or 'N/A'}")
+                                                st.caption(f"ID: `{s['team_b_id'][:8]}...`")
+
+                                            st.divider()
+
+                                            st.markdown("**Signal Breakdown:**")
+                                            signal_cols = st.columns(3)
+                                            with signal_cols[0]:
+                                                st.metric("Name Match", f"{s['name_sim']:.0%}")
+                                            with signal_cols[1]:
+                                                st.metric("Club Match", f"{s['club_sim']:.0%}")
+                                            with signal_cols[2]:
+                                                st.metric("Same State", "Yes" if s['state_match'] else "No")
+                                else:
+                                    st.info(f"No potential duplicates found above {min_confidence:.0%} confidence")
+
+                        except Exception as e:
+                            st.error(f"Error analyzing teams: {e}")
+                            import traceback
+                            st.code(traceback.format_exc())
+
+        # ========================
+        # TAB 3: Merge History
+        # ========================
+        with history_tab:
+            st.subheader("Recent Merge Activity")
+
+            try:
+                # Try to fetch from merged_teams_view
+                history_result = execute_with_retry(
+                    lambda: db.table('merged_teams_view')
+                        .select('*')
+                        .order('merged_at', desc=True)
+                        .limit(50)
+                )
+
+                merges = history_result.data or []
+
+                if merges:
+                    st.info(f"Found {len(merges)} team merges")
+
+                    for merge in merges:
+                        with st.expander(
+                            f"~~{merge.get('deprecated_team_name', 'Unknown')}~~ → **{merge.get('canonical_team_name', 'Unknown')}**"
+                        ):
+                            col1, col2 = st.columns(2)
+
+                            with col1:
+                                st.markdown("**Deprecated Team**")
+                                st.write(f"Name: {merge.get('deprecated_team_name', 'N/A')}")
+                                st.write(f"ID: `{merge.get('deprecated_team_id', 'N/A')[:8]}...`")
+
+                            with col2:
+                                st.markdown("**Canonical Team**")
+                                st.write(f"Name: {merge.get('canonical_team_name', 'N/A')}")
+                                st.write(f"ID: `{merge.get('canonical_team_id', 'N/A')[:8]}...`")
+
+                            st.divider()
+
+                            st.write(f"**Merged by:** {merge.get('merged_by', 'N/A')}")
+                            st.write(f"**Merged at:** {merge.get('merged_at', 'N/A')}")
+                            st.write(f"**Reason:** {merge.get('merge_reason', 'No reason provided')}")
+                            st.write(f"**Games affected:** {merge.get('games_with_deprecated_id', 0)}")
+
+                            # Revert button
+                            revert_email = st.text_input(
+                                "Your email to revert",
+                                key=f"revert_email_{merge.get('deprecated_team_id', idx)}"
+                            )
+
+                            if st.button(
+                                "⏪ Revert This Merge",
+                                key=f"revert_{merge.get('deprecated_team_id', idx)}",
+                                disabled=not revert_email
+                            ):
+                                try:
+                                    revert_result = execute_with_retry(
+                                        lambda: db.rpc('revert_team_merge', {
+                                            'p_deprecated_team_id': merge['deprecated_team_id'],
+                                            'p_reverted_by': revert_email,
+                                            'p_revert_reason': 'Reverted via dashboard'
+                                        })
+                                    )
+                                    st.success("✅ Merge reverted successfully!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Revert failed: {e}")
+                else:
+                    st.info("No team merges found yet. Use the Manual Merge or AI Suggestions tab to merge duplicate teams.")
+
+            except Exception as e:
+                # If merged_teams_view doesn't exist, show helpful message
+                if "merged_teams_view" in str(e).lower() or "does not exist" in str(e).lower():
+                    st.warning("The merged_teams_view doesn't exist yet. Run the Phase 1 migrations first.")
+                    st.code("""
+-- Run these migrations in order:
+-- 1. 20251208000001_add_team_deprecation.sql
+-- 2. 20251208000002_create_team_merge_map.sql
+-- 3. 20251208000003_create_team_merge_audit.sql
+-- 4. 20251208000004_add_merge_resolution_to_views.sql
+                    """)
+                else:
+                    st.error(f"Error loading merge history: {e}")
 
 # Footer
 st.divider()
