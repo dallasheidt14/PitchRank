@@ -22,6 +22,7 @@ from src.rankings.calculator import compute_rankings_with_ml, compute_rankings_v
 from src.etl.v53e import V53EConfig
 from src.rankings.layer13_predictive_adjustment import Layer13Config
 from src.rankings.data_adapter import v53e_to_supabase_format, v53e_to_rankings_full_format
+from src.utils.merge_resolver import MergeResolver
 import logging
 
 # Configure logging for progress visibility
@@ -328,7 +329,13 @@ async def main():
         sys.exit(1)
     
     supabase = create_client(supabase_url, supabase_key)
-    
+
+    # Initialize merge resolver for team merge support
+    merge_resolver = MergeResolver(supabase)
+    merge_resolver.load_merge_map()
+    if merge_resolver.has_merges:
+        console.print(f"[dim]Loaded {merge_resolver.merge_count} team merges (version: {merge_resolver.version})[/dim]")
+
     # Run rankings calculation
     try:
         mode_text = "ML-Enhanced" if args.ml else "v53e Only"
@@ -349,6 +356,7 @@ async def main():
                 lookback_days=args.lookback_days,
                 provider_filter=args.provider,
                 force_rebuild=args.force_rebuild,
+                merge_resolver=merge_resolver,
             )
         else:
             result = await compute_rankings_v53e_only(
