@@ -10,7 +10,7 @@ import { usePrefetchTeam } from '@/lib/hooks';
 import Link from 'next/link';
 import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { formatPowerScore, formatSOSIndex, normalizeAgeGroup } from '@/lib/utils';
+import { formatPowerScore } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
 import { trackRankingsViewed, trackSortUsed, trackTeamRowClicked } from '@/lib/events';
 
@@ -262,8 +262,6 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
       ? totalHeight - (virtualItems[virtualItems.length - 1]?.end ?? 0)
       : 0;
 
-  const columnCount = region ? 6 : 7;
-
   return (
     <Card className="overflow-hidden border-0 shadow-lg">
       <CardHeader className="bg-gradient-to-r from-primary to-[oklch(0.28_0.08_165)] text-primary-foreground relative">
@@ -289,9 +287,9 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
           <div className="rounded-md border overflow-hidden">
             {/* Mobile: Horizontal scroll wrapper with momentum scrolling */}
             <div className="overflow-x-auto -mx-4 sm:mx-0 touch-pan-x">
-              <div className={`inline-block min-w-full align-middle ${region ? 'min-w-[500px] sm:min-w-[600px]' : 'min-w-[550px] sm:min-w-[650px] md:min-w-[700px]'}`}>
+              <div className="inline-block min-w-full align-middle min-w-[400px] sm:min-w-[500px]">
                 {/* Table Header */}
-                <div className="grid border-b-2 border-primary bg-secondary/50 sticky top-0 z-10" style={{ gridTemplateColumns: '50px 2fr 1fr 0.9fr 0.9fr 1fr' }}>
+                <div className="grid border-b-2 border-primary bg-secondary/50 sticky top-0 z-10" style={{ gridTemplateColumns: '60px 2fr 1fr 1fr' }}>
                   <div className="px-1.5 sm:px-4 py-2 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <SortButton field="rank" label="Rank" />
                   </div>
@@ -314,43 +312,11 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className="min-w-0 overflow-hidden">
-                          <SortButton field="gamesPlayed" label="Games" />
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-sm">
-                          <strong>Ranked Games / Total Games</strong>
-                          <br />
-                          <span className="text-muted-foreground">
-                            Ranked: Last 30 games within 365 days (used for rankings)
-                            <br />
-                            Total: All games in database
-                          </span>
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                  <div className="px-1.5 sm:px-4 py-2 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="min-w-0 overflow-hidden">
                           <SortButton field="sosRank" label={<><span className="hidden sm:inline">SOS Rank</span><span className="sm:hidden">SOS R</span></>} />
                         </div>
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p>SOS Rank is computed within this age and gender cohort using sos_norm.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                  <div className="px-1.5 sm:px-4 py-2 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="min-w-0 overflow-hidden">
-                          <SortButton field="sos" label="SOS" />
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Strength of Schedule normalized within each age group and gender (0 = softest schedule, 100 = toughest).</p>
+                        <p>Strength of Schedule rank within this age and gender cohort.</p>
                       </TooltipContent>
                     </Tooltip>
                   </div>
@@ -389,7 +355,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                             ${borderClass}
                           `}
                           style={{
-                            gridTemplateColumns: '50px 2fr 1fr 0.9fr 0.9fr 1fr',
+                            gridTemplateColumns: '60px 2fr 1fr 1fr',
                             position: 'absolute',
                             top: 0,
                             left: 0,
@@ -437,26 +403,11 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                             <span className="truncate">{formatPowerScore(team.power_score_final)}</span>
                           </div>
                           <div className="px-1.5 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm min-w-0 overflow-hidden">
-                            <span className="truncate">{team.games_played}/{team.total_games_played}</span>
-                          </div>
-                          <div className="px-1.5 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm min-w-0 overflow-hidden">
                             <span className="truncate">
                               {(() => {
                                 // Use pre-calculated SOS rank from database
                                 const sosRank = region ? team.sos_rank_state : team.sos_rank_national;
                                 return sosRank ? `#${sosRank}` : '—';
-                              })()}
-                            </span>
-                          </div>
-                          <div className="px-1.5 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm min-w-0 overflow-hidden">
-                            <span className="truncate">
-                              {(() => {
-                                // Use sos_norm_state for state rankings, sos_norm for national rankings
-                                const sosValue = region 
-                                  ? (team.sos_norm_state ?? team.sos_norm) 
-                                  : team.sos_norm;
-                                
-                                return formatSOSIndex(sosValue);
                               })()}
                             </span>
                           </div>
