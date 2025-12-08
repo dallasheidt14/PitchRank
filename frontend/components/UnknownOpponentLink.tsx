@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo, useRef, useEffect, useDeferredValue, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -131,6 +132,7 @@ export function UnknownOpponentLink({
   defaultAge,
   defaultGender,
 }: UnknownOpponentLinkProps) {
+  const queryClient = useQueryClient();
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTeam, setSelectedTeam] = useState<RankingRow | null>(null);
@@ -315,13 +317,28 @@ export function UnknownOpponentLink({
         throw new Error(data.error || 'Failed to link team');
       }
 
+      // Check if any games were actually updated
+      if (data.gamesUpdated === 0) {
+        console.warn('[UnknownOpponentLink] No games were updated. Response:', data);
+      }
+
       setLinkSuccess(true);
 
-      // Close modal after short delay and refresh
+      // Force refetch and wait for it to complete before closing modal
+      // This ensures the UI has the latest data when the modal closes
+      await queryClient.refetchQueries({
+        queryKey: ['team-games', currentTeamId],
+        type: 'active'
+      });
+
+      // Also invalidate the team search cache in case a new team was somehow involved
+      queryClient.invalidateQueries({ queryKey: ['team-search'] });
+
+      // Close modal after short delay and call onLinked callback
       setTimeout(() => {
         setIsOpen(false);
         onLinked?.();
-      }, 1500);
+      }, 500);
     } catch (err) {
       setLinkError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
@@ -359,13 +376,28 @@ export function UnknownOpponentLink({
         throw new Error(data.error || 'Failed to create team');
       }
 
+      // Check if any games were actually updated
+      if (data.gamesUpdated === 0) {
+        console.warn('[UnknownOpponentLink] No games were updated after team creation. Response:', data);
+      }
+
       setLinkSuccess(true);
 
-      // Close modal after short delay and refresh
+      // Force refetch and wait for it to complete before closing modal
+      // This ensures the UI has the latest data when the modal closes
+      await queryClient.refetchQueries({
+        queryKey: ['team-games', currentTeamId],
+        type: 'active'
+      });
+
+      // Invalidate team search cache so the new team appears in searches
+      queryClient.invalidateQueries({ queryKey: ['team-search'] });
+
+      // Close modal after short delay and call onLinked callback
       setTimeout(() => {
         setIsOpen(false);
         onLinked?.();
-      }, 1500);
+      }, 500);
     } catch (err) {
       setLinkError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
