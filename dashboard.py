@@ -2380,13 +2380,20 @@ elif section == "🔀 Team Merge Manager":
         with suggestions_tab:
             st.subheader("AI-Powered Merge Suggestions")
             st.markdown("""
-            Find potential duplicate teams using 5 weighted signals:
+            Find potential duplicate teams using multiple signals:
             - **Opponent Overlap (40%)** - Shared opponents suggest same team
+            - **Name Similarity (20%)** - Fuzzy name matching (penalizes Roman numeral differences)
             - **Schedule Alignment (25%)** - Similar game dates
-            - **Name Similarity (20%)** - Fuzzy name matching
             - **Geography (10%)** - Same state/club
             - **Performance (5%)** - Similar win rates
             """)
+
+            # Initialize session state for dismissed suggestions
+            if 'dismissed_suggestions' not in st.session_state:
+                st.session_state.dismissed_suggestions = set()
+
+            # User email for merges (required for one-click merge)
+            merge_email = st.text_input("Your Email (required for merging)", key="suggestion_merge_email")
 
             # Filters
             col1, col2, col3 = st.columns(3)
@@ -2415,11 +2422,62 @@ elif section == "🔀 Team Merge Manager":
                     key="suggest_confidence"
                 )
 
+            # Helper functions for improved analysis
+            def extract_roman_numeral(name):
+                """Extract Roman numerals from team name (I, II, III, IV, V, etc.)"""
+                import re
+                # Match Roman numerals at word boundaries
+                pattern = r'\b(I{1,3}|IV|V|VI{0,3}|IX|X)\b'
+                match = re.search(pattern, name.upper())
+                return match.group(1) if match else None
+
+            def has_roman_numeral_difference(name_a, name_b):
+                """Check if two names differ primarily by Roman numeral (likely different squads)"""
+                roman_a = extract_roman_numeral(name_a)
+                roman_b = extract_roman_numeral(name_b)
+
+                # If both have Roman numerals and they're different, it's likely different squads
+                if roman_a and roman_b and roman_a != roman_b:
+                    # Remove Roman numerals and compare base names
+                    import re
+                    pattern = r'\b(I{1,3}|IV|V|VI{0,3}|IX|X)\b'
+                    base_a = re.sub(pattern, '', name_a.upper()).strip()
+                    base_b = re.sub(pattern, '', name_b.upper()).strip()
+                    # If base names are very similar, they're different squads (NOT duplicates)
+                    if calculate_similarity(base_a.lower(), base_b.lower()) > 0.9:
+                        return True
+                return False
+
+            def get_opponents(team_id, games_data):
+                """Get set of opponent IDs for a team from games data"""
+                opponents = set()
+                for g in games_data:
+                    if g.get('home_team_master_id') == team_id:
+                        opp = g.get('away_team_master_id')
+                        if opp:
+                            opponents.add(opp)
+                    elif g.get('away_team_master_id') == team_id:
+                        opp = g.get('home_team_master_id')
+                        if opp:
+                            opponents.add(opp)
+                return opponents
+
+            def calculate_opponent_overlap(opponents_a, opponents_b):
+                """Calculate Jaccard similarity of opponent sets"""
+                if not opponents_a or not opponents_b:
+                    return 0.0
+                # Remove each other from opponent sets
+                opponents_a = opponents_a.copy()
+                opponents_b = opponents_b.copy()
+                intersection = len(opponents_a & opponents_b)
+                union = len(opponents_a | opponents_b)
+                return intersection / union if union > 0 else 0.0
+
             if st.button("🔍 Find Potential Duplicates", type="primary"):
                 if not age_filter or not gender_filter:
                     st.warning("Please select both age group and gender")
                 else:
-                    with st.spinner("Analyzing teams for duplicates..."):
+                    with st.spinner("Analyzing teams for duplicates (including opponent overlap)..."):
                         try:
                             # Fetch teams in cohort
                             age_num = age_filter.lower().replace('u', '')
@@ -2437,15 +2495,51 @@ elif section == "🔀 Team Merge Manager":
                                 st.info(f"Only {len(teams)} teams found - need at least 2 for comparison")
                             else:
                                 st.info(f"Analyzing {len(teams)} teams...")
+                                progress_bar = st.progress(0)
 
                                 # Fetch games for opponent overlap analysis
                                 team_ids = [t['team_id_master'] for t in teams]
 
-                                # Simple name-based similarity for Streamlit (full analysis in API)
+                                # Fetch all games involving these teams
+                                st.text("Fetching game data for opponent analysis...")
+                                all_games = []
+                                batch_size = 50
+                                for i in range(0, len(team_ids), batch_size):
+                                    batch = team_ids[i:i+batch_size]
+                                    # Home games
+                                    home_result = execute_with_retry(
+                                        lambda b=batch: db.table('games')
+                                            .select('home_team_master_id, away_team_master_id, game_date')
+                                            .in_('home_team_master_id', b)
+                                    )
+                                    all_games.extend(home_result.data or [])
+                                    # Away games
+                                    away_result = execute_with_retry(
+                                        lambda b=batch: db.table('games')
+                                            .select('home_team_master_id, away_team_master_id, game_date')
+                                            .in_('away_team_master_id', b)
+                                    )
+                                    all_games.extend(away_result.data or [])
+                                    progress_bar.progress(min(0.3, (i + batch_size) / len(team_ids) * 0.3))
+
+                                # Build opponent sets for each team
+                                st.text("Building opponent profiles...")
+                                opponents_by_team = {}
+                                for team_id in team_ids:
+                                    opponents_by_team[team_id] = get_opponents(team_id, all_games)
+
+                                # Analyze pairs
+                                st.text("Comparing team pairs...")
                                 suggestions = []
+                                total_pairs = len(teams) * (len(teams) - 1) // 2
+                                pair_count = 0
 
                                 for i, team_a in enumerate(teams):
                                     for team_b in teams[i+1:]:
+                                        pair_count += 1
+                                        if pair_count % 100 == 0:
+                                            progress_bar.progress(0.3 + (pair_count / total_pairs) * 0.7)
+
                                         name_a = (team_a.get('team_name') or '').lower()
                                         name_b = (team_b.get('team_name') or '').lower()
                                         club_a = (team_a.get('club_name') or '').lower()
@@ -2453,16 +2547,45 @@ elif section == "🔀 Team Merge Manager":
                                         state_a = team_a.get('state_code', '')
                                         state_b = team_b.get('state_code', '')
 
-                                        # Calculate simple similarity
+                                        # Check for Roman numeral difference (different squads)
+                                        roman_diff = has_roman_numeral_difference(
+                                            team_a.get('team_name', ''),
+                                            team_b.get('team_name', '')
+                                        )
+
+                                        # Calculate signals
                                         name_sim = calculate_similarity(name_a, name_b)
                                         club_sim = calculate_similarity(club_a, club_b) if club_a and club_b else 0
                                         state_match = 1.0 if state_a == state_b else 0.0
 
-                                        # Weighted score (simplified)
-                                        score = 0.5 * name_sim + 0.3 * club_sim + 0.2 * state_match
+                                        # Opponent overlap (most important signal)
+                                        opponent_overlap = calculate_opponent_overlap(
+                                            opponents_by_team.get(team_a['team_id_master'], set()),
+                                            opponents_by_team.get(team_b['team_id_master'], set())
+                                        )
+
+                                        # Apply Roman numeral penalty
+                                        roman_penalty = 0.5 if roman_diff else 1.0
+
+                                        # Weighted score with opponent overlap
+                                        # Weights: opponent_overlap=40%, name=20%, schedule/club=25%, geography=10%, performance=5%
+                                        score = (
+                                            0.40 * opponent_overlap +
+                                            0.20 * name_sim * roman_penalty +  # Penalized if Roman numeral diff
+                                            0.25 * club_sim +
+                                            0.10 * state_match +
+                                            0.05 * 0.5  # Default performance (not calculated for speed)
+                                        )
 
                                         if score >= min_confidence:
+                                            suggestion_key = f"{team_a['team_id_master']}_{team_b['team_id_master']}"
+
+                                            # Skip if dismissed
+                                            if suggestion_key in st.session_state.dismissed_suggestions:
+                                                continue
+
                                             suggestions.append({
+                                                'key': suggestion_key,
                                                 'team_a_id': team_a['team_id_master'],
                                                 'team_a_name': team_a['team_name'],
                                                 'team_a_club': team_a.get('club_name', ''),
@@ -2472,19 +2595,42 @@ elif section == "🔀 Team Merge Manager":
                                                 'confidence': score,
                                                 'name_sim': name_sim,
                                                 'club_sim': club_sim,
-                                                'state_match': state_match
+                                                'state_match': state_match,
+                                                'opponent_overlap': opponent_overlap,
+                                                'roman_diff': roman_diff
                                             })
+
+                                progress_bar.progress(1.0)
 
                                 # Sort by confidence
                                 suggestions.sort(key=lambda x: x['confidence'], reverse=True)
 
+                                # Store suggestions in session state for one-click merge
+                                st.session_state.suggestions = suggestions
+
                                 if suggestions:
                                     st.success(f"Found {len(suggestions)} potential duplicates")
 
-                                    for idx, s in enumerate(suggestions[:20]):
-                                        confidence_color = "🟢" if s['confidence'] >= 0.8 else "🟡" if s['confidence'] >= 0.6 else "🟠"
+                                    for idx, s in enumerate(suggestions[:30]):
+                                        # Color based on confidence and warnings
+                                        if s['roman_diff']:
+                                            confidence_color = "⚠️"  # Warning - likely different squads
+                                        elif s['confidence'] >= 0.8:
+                                            confidence_color = "🟢"
+                                        elif s['confidence'] >= 0.6:
+                                            confidence_color = "🟡"
+                                        else:
+                                            confidence_color = "🟠"
 
-                                        with st.expander(f"{confidence_color} {s['team_a_name']} ↔ {s['team_b_name']} ({s['confidence']:.0%} match)"):
+                                        # Add warning text if Roman numeral difference detected
+                                        warning_text = " ⚠️ DIFFERENT SQUADS?" if s['roman_diff'] else ""
+
+                                        with st.expander(f"{confidence_color} {s['team_a_name']} ↔ {s['team_b_name']} ({s['confidence']:.0%} match){warning_text}"):
+
+                                            # Warning banner for Roman numeral differences
+                                            if s['roman_diff']:
+                                                st.warning("⚠️ These teams have different Roman numerals (I, II, III, etc.) - likely different squads within the same club. NOT recommended to merge!")
+
                                             col1, col2 = st.columns(2)
 
                                             with col1:
@@ -2500,13 +2646,66 @@ elif section == "🔀 Team Merge Manager":
                                             st.divider()
 
                                             st.markdown("**Signal Breakdown:**")
-                                            signal_cols = st.columns(3)
+                                            signal_cols = st.columns(4)
                                             with signal_cols[0]:
-                                                st.metric("Name Match", f"{s['name_sim']:.0%}")
+                                                st.metric("Opponent Overlap", f"{s['opponent_overlap']:.0%}")
                                             with signal_cols[1]:
-                                                st.metric("Club Match", f"{s['club_sim']:.0%}")
+                                                st.metric("Name Match", f"{s['name_sim']:.0%}")
                                             with signal_cols[2]:
+                                                st.metric("Club Match", f"{s['club_sim']:.0%}")
+                                            with signal_cols[3]:
                                                 st.metric("Same State", "Yes" if s['state_match'] else "No")
+
+                                            st.divider()
+
+                                            # Action buttons
+                                            action_cols = st.columns(4)
+
+                                            with action_cols[0]:
+                                                if st.button(f"🔗 Merge A→B", key=f"merge_ab_{idx}",
+                                                           disabled=not merge_email or s['roman_diff']):
+                                                    try:
+                                                        result = execute_with_retry(
+                                                            lambda: db.rpc('execute_team_merge', {
+                                                                'p_deprecated_team_id': s['team_a_id'],
+                                                                'p_canonical_team_id': s['team_b_id'],
+                                                                'p_merged_by': merge_email,
+                                                                'p_merge_reason': f"AI suggestion ({s['confidence']:.0%} confidence)"
+                                                            })
+                                                        )
+                                                        st.success(f"✅ Merged! {s['team_a_name']} → {s['team_b_name']}")
+                                                        st.session_state.dismissed_suggestions.add(s['key'])
+                                                        st.rerun()
+                                                    except Exception as e:
+                                                        st.error(f"❌ Merge failed: {e}")
+
+                                            with action_cols[1]:
+                                                if st.button(f"🔗 Merge B→A", key=f"merge_ba_{idx}",
+                                                           disabled=not merge_email or s['roman_diff']):
+                                                    try:
+                                                        result = execute_with_retry(
+                                                            lambda: db.rpc('execute_team_merge', {
+                                                                'p_deprecated_team_id': s['team_b_id'],
+                                                                'p_canonical_team_id': s['team_a_id'],
+                                                                'p_merged_by': merge_email,
+                                                                'p_merge_reason': f"AI suggestion ({s['confidence']:.0%} confidence)"
+                                                            })
+                                                        )
+                                                        st.success(f"✅ Merged! {s['team_b_name']} → {s['team_a_name']}")
+                                                        st.session_state.dismissed_suggestions.add(s['key'])
+                                                        st.rerun()
+                                                    except Exception as e:
+                                                        st.error(f"❌ Merge failed: {e}")
+
+                                            with action_cols[2]:
+                                                if st.button(f"❌ Not a Duplicate", key=f"dismiss_{idx}"):
+                                                    st.session_state.dismissed_suggestions.add(s['key'])
+                                                    st.info(f"Dismissed. Will be hidden on next search.")
+                                                    st.rerun()
+
+                                            with action_cols[3]:
+                                                if not merge_email:
+                                                    st.caption("Enter email above to enable merge")
                                 else:
                                     st.info(f"No potential duplicates found above {min_confidence:.0%} confidence")
 
@@ -2514,6 +2713,13 @@ elif section == "🔀 Team Merge Manager":
                             st.error(f"Error analyzing teams: {e}")
                             import traceback
                             st.code(traceback.format_exc())
+
+            # Show dismissed count
+            if st.session_state.dismissed_suggestions:
+                st.caption(f"📋 {len(st.session_state.dismissed_suggestions)} suggestions dismissed this session")
+                if st.button("🔄 Reset Dismissed Suggestions"):
+                    st.session_state.dismissed_suggestions = set()
+                    st.rerun()
 
         # ========================
         # TAB 3: Merge History
