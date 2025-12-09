@@ -114,32 +114,56 @@ export function useUser(): UseUserReturn {
     // Get initial user (validates with server)
     const initAuth = async () => {
       try {
-        // First try getUser which validates with server
-        const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
+        console.log("[useUser] Starting auth initialization...");
+        console.log("[useUser] Document cookies:", typeof document !== 'undefined' ? document.cookie : 'SSR');
 
-        if (userError) {
-          // Not logged in or session invalid
-          if (userError.name !== "AuthSessionMissingError") {
-            console.warn("Initial auth error:", userError.message);
-          }
+        // Check for Supabase auth cookie
+        const authCookie = typeof document !== 'undefined'
+          ? document.cookie.split(';').find(c => c.trim().startsWith('sb-'))
+          : null;
+        console.log("[useUser] Auth cookie found:", authCookie?.substring(0, 50) + '...');
+
+        // First try getSession (reads from local storage/cookies without server call)
+        const { data: { session: localSession }, error: sessionError } = await supabase.auth.getSession();
+        console.log("[useUser] getSession result:", {
+          hasSession: !!localSession,
+          email: localSession?.user?.email,
+          error: sessionError?.message
+        });
+
+        // If no local session, user is not logged in
+        if (!localSession) {
+          console.log("[useUser] No local session found");
           setUser(null);
           setProfile(null);
+          setSession(null);
+          setIsLoading(false);
+          return;
+        }
+
+        // We have a local session, now validate with server
+        const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
+        console.log("[useUser] getUser result:", { user: currentUser?.email, error: userError?.message });
+
+        if (userError) {
+          // Session exists locally but server rejected it
+          console.warn("[useUser] Server rejected session:", userError.message, userError.name);
+          setUser(null);
+          setProfile(null);
+          setSession(null);
           setIsLoading(false);
           return;
         }
 
         setUser(currentUser);
-
-        // Also get session for completeness
-        const { data: { session: currentSession } } = await supabase.auth.getSession();
-        setSession(currentSession);
+        setSession(localSession);
 
         if (currentUser) {
           const userProfile = await fetchProfile(currentUser.id);
           setProfile(userProfile);
         }
       } catch (e) {
-        console.error("Auth initialization error:", e);
+        console.error("[useUser] Auth initialization error:", e);
         setError(e instanceof Error ? e : new Error("Auth initialization failed"));
       } finally {
         setIsLoading(false);
