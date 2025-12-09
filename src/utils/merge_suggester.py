@@ -9,10 +9,15 @@ Uses 5 weighted signals to score similarity between teams:
 4. Geography (10%) - state/club matching
 5. Performance fingerprint (5%) - similar win rates, goal differentials
 
+IMPORTANT: Minimum confidence threshold is 90%. Teams with distinguishing
+markers (different location codes, team numbers, division markers) are
+automatically excluded to prevent false positives.
+
 Part of Phase 4 of the team merge implementation.
 """
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
 from datetime import datetime, timedelta
@@ -20,6 +25,95 @@ import pandas as pd
 from difflib import SequenceMatcher
 
 logger = logging.getLogger(__name__)
+
+# Minimum confidence threshold - only high-quality suggestions
+MIN_CONFIDENCE_THRESHOLD = 0.90
+
+# Common location codes used in youth soccer
+LOCATION_CODES = [
+    'clw', 'lwr', 'tpa', 'orl', 'jax', 'mia', 'ftl', 'pbg', 'srq', 'tam',  # Florida
+    'atl', 'dal', 'hou', 'aus', 'san', 'phx', 'den', 'sea', 'por', 'lax',  # Other cities
+    'north', 'south', 'east', 'west', 'central', 'metro', 'coastal',       # Directional
+]
+
+
+def has_distinguishing_markers(name_a: str, name_b: str) -> Tuple[bool, str]:
+    """
+    Detects distinguishing markers in team names that indicate different teams
+    from the same club (e.g., location codes, team numbers, division markers).
+
+    Returns: (is_different, reason)
+    """
+    a = name_a.lower().strip()
+    b = name_b.lower().strip()
+
+    # If names are identical, not distinguishable
+    if a == b:
+        return False, ''
+
+    # Check for different location codes
+    def extract_location_code(name: str) -> Optional[str]:
+        for code in LOCATION_CODES:
+            pattern = rf'\b{code}\b'
+            if re.search(pattern, name, re.IGNORECASE):
+                return code
+        return None
+
+    loc_a = extract_location_code(a)
+    loc_b = extract_location_code(b)
+
+    if loc_a and loc_b and loc_a != loc_b:
+        return True, f"Different locations: {loc_a.upper()} vs {loc_b.upper()}"
+
+    # Detect team number suffixes
+    number_patterns = [
+        r'[-\s](\d+)$',                    # Ends with -1, -2, " 1", " 2"
+        r'\s(\d+)$',                        # Ends with space + number
+        r'[-\s](i{1,3}|iv|v)$',            # Roman numerals
+        r'(\d+)(st|nd|rd|th)$',            # 1st, 2nd, 3rd
+        r'\steam\s*(\d+)',                  # "team 1", "team 2"
+        r'\s(one|two|three|four|five)$',   # Written numbers
+    ]
+
+    def extract_number(name: str) -> Optional[str]:
+        for pattern in number_patterns:
+            match = re.search(pattern, name, re.IGNORECASE)
+            if match:
+                return match.group(1) or match.group(0)
+        return None
+
+    num_a = extract_number(a)
+    num_b = extract_number(b)
+
+    if (num_a and not num_b) or (not num_a and num_b):
+        return True, f"One team has number suffix: {num_a or num_b}"
+    if num_a and num_b and num_a != num_b:
+        return True, f"Different team numbers: {num_a} vs {num_b}"
+
+    # Detect academy/division markers
+    division_pattern = r'(academy|premier|select|elite|classic|challenge)[-\s]*(north|south|east|west|\d+|i{1,3})?'
+    div_a = re.search(division_pattern, a, re.IGNORECASE)
+    div_b = re.search(division_pattern, b, re.IGNORECASE)
+
+    if div_a and div_b:
+        if div_a.group(0).lower() != div_b.group(0).lower():
+            return True, f"Different divisions: {div_a.group(0)} vs {div_b.group(0)}"
+
+    # Check for MLS/Pre-MLS team numbers
+    mls_pattern = r'(pre\s*mls|mls\s*next|mls)\s*(\d+)?'
+    mls_a = re.search(mls_pattern, a, re.IGNORECASE)
+    mls_b = re.search(mls_pattern, b, re.IGNORECASE)
+
+    if mls_a and mls_b:
+        num_in_a = re.search(r'\d+', mls_a.group(0))
+        num_in_b = re.search(r'\d+', mls_b.group(0))
+
+        if (num_in_a and not num_in_b) or (not num_in_a and num_in_b):
+            return True, f"Different MLS team: {mls_a.group(0)} vs {mls_b.group(0)}"
+        if num_in_a and num_in_b and num_in_a.group(0) != num_in_b.group(0):
+            return True, f"Different MLS team numbers: {num_in_a.group(0)} vs {num_in_b.group(0)}"
+
+    return False, ''
 
 
 @dataclass
@@ -66,7 +160,7 @@ class MergeSuggester:
         age_group: Optional[str] = None,
         gender: Optional[str] = None,
         state_code: Optional[str] = None,
-        min_confidence: float = 0.5,
+        min_confidence: float = MIN_CONFIDENCE_THRESHOLD,
         limit: int = 50,
     ) -> List[MergeSuggestion]:
         """
@@ -76,13 +170,16 @@ class MergeSuggester:
             age_group: Filter by age group (e.g., '12', 'u12')
             gender: Filter by gender ('Male' or 'Female')
             state_code: Filter by state code (e.g., 'CA', 'TX')
-            min_confidence: Minimum confidence score (0.0 to 1.0)
+            min_confidence: Minimum confidence score (default: 0.90)
             limit: Maximum suggestions to return
 
         Returns:
             List of MergeSuggestion objects sorted by confidence
         """
-        logger.info(f"Finding merge suggestions (age={age_group}, gender={gender}, state={state_code})")
+        # Enforce minimum confidence of 90%
+        min_confidence = max(min_confidence, MIN_CONFIDENCE_THRESHOLD)
+
+        logger.info(f"Finding merge suggestions (age={age_group}, gender={gender}, state={state_code}, min_conf={min_confidence})")
 
         # Fetch teams in cohort
         teams = await self._fetch_teams(age_group, gender, state_code)
@@ -99,6 +196,7 @@ class MergeSuggester:
         # Compare all team pairs
         suggestions = []
         teams_list = list(teams)
+        skipped_due_to_markers = 0
 
         for i in range(len(teams_list)):
             for j in range(i + 1, len(teams_list)):
@@ -107,6 +205,17 @@ class MergeSuggester:
 
                 # Skip if teams are already identical (shouldn't happen)
                 if team_a['team_id_master'] == team_b['team_id_master']:
+                    continue
+
+                # CRITICAL: Skip teams that have distinguishing markers indicating
+                # they are different teams from the same club
+                is_different, reason = has_distinguishing_markers(
+                    team_a['team_name'],
+                    team_b['team_name']
+                )
+                if is_different:
+                    skipped_due_to_markers += 1
+                    logger.debug(f"Skipping {team_a['team_name']} vs {team_b['team_name']}: {reason}")
                     continue
 
                 # Calculate signals
@@ -138,7 +247,7 @@ class MergeSuggester:
         # Sort by confidence descending
         suggestions.sort(key=lambda s: s.confidence_score, reverse=True)
 
-        logger.info(f"Found {len(suggestions)} potential merge candidates (>= {min_confidence} confidence)")
+        logger.info(f"Found {len(suggestions)} potential merge candidates (>= {min_confidence} confidence), skipped {skipped_due_to_markers} different teams")
 
         return suggestions[:limit]
 
@@ -436,9 +545,9 @@ class MergeSuggester:
 
     def _get_recommendation(self, confidence: float) -> str:
         """Get recommendation level based on confidence score."""
-        if confidence >= 0.8:
+        if confidence >= 0.95:
             return "high"
-        elif confidence >= 0.6:
+        elif confidence >= 0.90:
             return "medium"
         else:
             return "low"
@@ -448,7 +557,7 @@ async def suggest_merges_for_cohort(
     supabase_client,
     age_group: str,
     gender: str,
-    min_confidence: float = 0.6,
+    min_confidence: float = MIN_CONFIDENCE_THRESHOLD,
 ) -> List[MergeSuggestion]:
     """
     Convenience function to find merge suggestions for a specific cohort.
@@ -457,7 +566,7 @@ async def suggest_merges_for_cohort(
         supabase_client: Supabase client instance
         age_group: Age group (e.g., '12', 'u12')
         gender: Gender ('Male' or 'Female')
-        min_confidence: Minimum confidence threshold
+        min_confidence: Minimum confidence threshold (default: 0.90)
 
     Returns:
         List of MergeSuggestion objects

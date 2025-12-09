@@ -81,7 +81,6 @@ export function MergeSuggestionsPanel({ onMergeClick }: MergeSuggestionsPanelPro
   // Filter state
   const [ageGroup, setAgeGroup] = useState<string>('');
   const [gender, setGender] = useState<string>('');
-  const [minConfidence, setMinConfidence] = useState<string>('0.5');
 
   // Results state
   const [suggestions, setSuggestions] = useState<MergeSuggestion[]>([]);
@@ -103,10 +102,10 @@ export function MergeSuggestionsPanel({ onMergeClick }: MergeSuggestionsPanelPro
     setError(null);
 
     try {
+      // Note: minConfidence is enforced server-side at 90%
       const params = new URLSearchParams({
         ageGroup,
         gender,
-        minConfidence,
         limit: '50',
       });
 
@@ -124,7 +123,7 @@ export function MergeSuggestionsPanel({ onMergeClick }: MergeSuggestionsPanelPro
     } finally {
       setIsLoading(false);
     }
-  }, [ageGroup, gender, minConfidence]);
+  }, [ageGroup, gender]);
 
   // Dismiss a suggestion
   const handleDismiss = (suggestionKey: string) => {
@@ -171,7 +170,7 @@ export function MergeSuggestionsPanel({ onMergeClick }: MergeSuggestionsPanelPro
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Filters */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Age Group</Label>
             <Select value={ageGroup} onValueChange={setAgeGroup}>
@@ -203,22 +202,13 @@ export function MergeSuggestionsPanel({ onMergeClick }: MergeSuggestionsPanelPro
               </SelectContent>
             </Select>
           </div>
-
-          <div className="space-y-2">
-            <Label>Min Confidence</Label>
-            <Select value={minConfidence} onValueChange={setMinConfidence}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="0.3">30% (More results)</SelectItem>
-                <SelectItem value="0.5">50% (Balanced)</SelectItem>
-                <SelectItem value="0.6">60% (Higher quality)</SelectItem>
-                <SelectItem value="0.8">80% (High confidence only)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
         </div>
+
+        {/* Info about threshold */}
+        <p className="text-sm text-muted-foreground">
+          Only high-confidence matches (90%+) are shown. Teams with different location codes,
+          team numbers, or division markers are automatically excluded.
+        </p>
 
         {/* Search Button */}
         <Button
@@ -340,8 +330,8 @@ export function MergeSuggestionsPanel({ onMergeClick }: MergeSuggestionsPanelPro
         {/* Empty State */}
         {!isLoading && suggestions.length === 0 && teamsAnalyzed > 0 && (
           <div className="text-center py-8 text-gray-500">
-            No potential duplicates found above {Math.round(parseFloat(minConfidence) * 100)}% confidence.
-            Try lowering the minimum confidence threshold.
+            No potential duplicate teams found above 90% confidence.
+            This is good - it means your team data is clean!
           </div>
         )}
       </CardContent>
