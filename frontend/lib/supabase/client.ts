@@ -1,17 +1,30 @@
 "use client";
 
-import { createBrowserClient } from "@supabase/ssr";
+import { createBrowserClient, type SupabaseClient } from "@supabase/ssr";
+
+// Singleton instance - ensures only ONE Supabase client exists in the browser
+let supabaseInstance: SupabaseClient | null = null;
 
 /**
- * Creates a Supabase client for client-side operations
+ * Gets the singleton Supabase client for client-side operations
+ *
+ * IMPORTANT: This uses a singleton pattern to prevent the
+ * "Multiple GoTrueClient instances detected" warning which
+ * can cause auth state to not sync properly.
  *
  * Use this in:
  * - Client Components (use client)
  * - Event handlers
  * - Client-side effects
  */
-export function createClientSupabase() {
-  return createBrowserClient(
+export function createClientSupabase(): SupabaseClient {
+  // Return existing instance if available
+  if (supabaseInstance) {
+    return supabaseInstance;
+  }
+
+  // Create new instance only once
+  supabaseInstance = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -56,4 +69,6 @@ export function createClientSupabase() {
       },
     }
   );
+
+  return supabaseInstance;
 }
