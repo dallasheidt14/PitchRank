@@ -34,6 +34,8 @@ LOCATION_CODES = [
     'clw', 'lwr', 'tpa', 'orl', 'jax', 'mia', 'ftl', 'pbg', 'srq', 'tam',  # Florida
     'atl', 'dal', 'hou', 'aus', 'san', 'phx', 'den', 'sea', 'por', 'lax',  # Other cities
     'north', 'south', 'east', 'west', 'central', 'metro', 'coastal',       # Directional
+    'mv', 'tem', 'sv', 'cv', 'pv', 'rv', 'ev', 'wv', 'nv',                 # Valley codes
+    'sc', 'fc', 'cf', 'ac', 'bc', 'cc', 'dc', 'ec',                        # Club type codes
 ]
 
 
@@ -66,7 +68,7 @@ def has_distinguishing_markers(name_a: str, name_b: str) -> Tuple[bool, str]:
         return True, f"Different locations: {loc_a.upper()} vs {loc_b.upper()}"
 
     # Detect team number suffixes
-    # Also handles numbers directly appended to text like "Mahe1"
+    # Also handles numbers directly appended to text like "Mahe1" or embedded like "EDP 1"
     number_patterns = [
         r'[-\s](\d+)$',                    # Ends with -1, -2, " 1", " 2"
         r'\s(\d+)$',                        # Ends with space + number
@@ -75,12 +77,16 @@ def has_distinguishing_markers(name_a: str, name_b: str) -> Tuple[bool, str]:
         r'(\d+)(st|nd|rd|th)$',            # 1st, 2nd, 3rd
         r'\steam\s*(\d+)',                  # "team 1", "team 2"
         r'\s(one|two|three|four|five)$',   # Written numbers
+        r'\b(edp|ecnl|ga|mls)\s+(\d+)\b',  # League + number: "EDP 1", "ECNL 2"
     ]
 
     def extract_number(name: str) -> Optional[str]:
         for pattern in number_patterns:
             match = re.search(pattern, name, re.IGNORECASE)
             if match:
+                # For league+number pattern, return the number part (group 2)
+                if match.lastindex and match.lastindex >= 2 and match.group(2):
+                    return match.group(2)
                 return match.group(1) or match.group(0)
         return None
 
@@ -143,8 +149,23 @@ def has_distinguishing_markers(name_a: str, name_b: str) -> Tuple[bool, str]:
     desig_a = extract_designator(a)
     desig_b = extract_designator(b)
 
+    # If both have different designators OR one has a designator and the other doesn't
     if desig_a and desig_b and desig_a != desig_b:
         return True, f"Different team designators: {desig_a} vs {desig_b}"
+    if (desig_a and not desig_b) or (not desig_a and desig_b):
+        return True, f"One team has designator: {desig_a or desig_b}"
+
+    # Detect different team nicknames/mascots at the end of name
+    # Common pattern: "Club Name AgeGroup Nickname" e.g., "Santa Rosa 13G Wave" vs "Santa Rosa 13G Wolves"
+    nickname_pattern = r'\b(u?\d+[bg]?)\s+([a-z]+)$'
+    nick_a = re.search(nickname_pattern, a, re.IGNORECASE)
+    nick_b = re.search(nickname_pattern, b, re.IGNORECASE)
+
+    if nick_a and nick_b:
+        # Same age group but different nicknames
+        if nick_a.group(1).lower() == nick_b.group(1).lower() and \
+           nick_a.group(2).lower() != nick_b.group(2).lower():
+            return True, f"Different team names: {nick_a.group(2)} vs {nick_b.group(2)}"
 
     return False, ''
 
