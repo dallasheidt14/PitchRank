@@ -17,7 +17,6 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from supabase import Client
 from config.settings import MATCHING_CONFIG, BUILD_ID
 from src.models.game_matcher import GameHistoryMatcher
-from src.models.modular11_matcher import Modular11GameMatcher
 from src.utils.enhanced_validators import EnhancedDataValidator, parse_game_date
 
 logger = logging.getLogger(__name__)
@@ -144,6 +143,8 @@ class EnhancedETLPipeline:
         # Use Modular11-specific matcher for Modular11 provider (with age_group validation)
         # Use standard matcher for all other providers (GotSport, etc.)
         if provider_code.lower() == 'modular11':
+            # Lazy import to avoid breaking other providers if module doesn't exist yet
+            from src.models.modular11_matcher import Modular11GameMatcher
             logger.info("Using Modular11GameMatcher (with age_group validation)")
             # Enable debug mode for dry runs OR summary_only mode (to track summary data)
             # But suppress per-team logs if summary_only is True
