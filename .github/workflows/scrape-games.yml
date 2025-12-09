@@ -1,6 +1,9 @@
 name: Scrape Games
 
 on:
+  schedule:
+    # Every Sunday at 11:00 PM MST (UTC-7) = Monday 6:00 AM UTC
+    - cron: '0 6 * * 1'
   workflow_dispatch:
     inputs:
       limit_teams:
@@ -32,7 +35,7 @@ on:
 jobs:
   scrape-and-import:
     runs-on: ubuntu-latest
-    timeout-minutes: 180  # 3 hour timeout for large scrapes
+    timeout-minutes: 360  # 6 hour timeout (GitHub max) for large scrapes
 
     steps:
       - name: Checkout repository
@@ -55,10 +58,13 @@ jobs:
         run: |
           CMD="python scripts/scrape_games.py --provider gotsport --auto-import"
 
-          # Add limit-teams if specified
+          # Add limit-teams if specified, or use 25000 for scheduled runs
           if [ -n "${{ inputs.limit_teams }}" ]; then
             CMD="$CMD --limit-teams ${{ inputs.limit_teams }}"
             echo "Limiting to ${{ inputs.limit_teams }} teams"
+          elif [ "${{ github.event_name }}" == "schedule" ]; then
+            CMD="$CMD --limit-teams 25000"
+            echo "Scheduled run: Limiting to 25000 teams"
           fi
 
           # Add null-teams-only if specified
@@ -115,7 +121,11 @@ jobs:
           echo "===================="
           echo "Scrape workflow completed"
           echo "===================="
-          echo "Teams limit: ${{ inputs.limit_teams || 'All eligible' }}"
+          if [ "${{ github.event_name }}" == "schedule" ]; then
+            echo "Teams limit: 25000 (scheduled run)"
+          else
+            echo "Teams limit: ${{ inputs.limit_teams || 'All eligible' }}"
+          fi
           echo "Null teams only: ${{ inputs.null_teams_only }}"
           echo "Concurrency: ${{ inputs.concurrency }}"
           echo "Check artifacts for scraped data and logs"
