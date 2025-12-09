@@ -13,7 +13,20 @@ const PROTECTED_ROUTES = ["/watchlist", "/compare", "/teams"];
 const AUTH_ROUTES = ["/login", "/signup"];
 
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  const { pathname, searchParams } = request.nextUrl;
+
+  // Redirect auth codes to /auth/callback (fallback if Supabase redirects to wrong URL)
+  const code = searchParams.get("code");
+  const tokenHash = searchParams.get("token_hash");
+
+  if ((code || tokenHash) && pathname !== "/auth/callback") {
+    const callbackUrl = new URL("/auth/callback", request.url);
+    // Copy all search params to the callback URL
+    searchParams.forEach((value, key) => {
+      callbackUrl.searchParams.set(key, value);
+    });
+    return NextResponse.redirect(callbackUrl);
+  }
 
   // Create a response that we can modify
   let response = NextResponse.next({
