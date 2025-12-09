@@ -190,6 +190,28 @@ function hasDistinguishingMarkers(nameA: string, nameB: string): { isDifferent: 
     }
   }
 
+  // Check for 2-letter team designator codes (e.g., HD vs AD for MLS Next teams)
+  // These are typically after the club name, before or after age group
+  const teamDesignators = ['HD', 'AD', 'DA', 'GA', 'RL', 'NL'];
+
+  const extractDesignator = (name: string): string | null => {
+    for (const code of teamDesignators) {
+      // Match the designator as a standalone word
+      const regex = new RegExp(`\\b${code}\\b`, 'i');
+      if (regex.test(name)) {
+        return code.toUpperCase();
+      }
+    }
+    return null;
+  };
+
+  const desigA = extractDesignator(a);
+  const desigB = extractDesignator(b);
+
+  if (desigA && desigB && desigA !== desigB) {
+    return { isDifferent: true, reason: `Different team designators: ${desigA} vs ${desigB}` };
+  }
+
   return { isDifferent: false, reason: '' };
 }
 

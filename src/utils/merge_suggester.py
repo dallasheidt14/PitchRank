@@ -128,6 +128,24 @@ def has_distinguishing_markers(name_a: str, name_b: str) -> Tuple[bool, str]:
         if num_in_a and num_in_b and num_in_a.group(0) != num_in_b.group(0):
             return True, f"Different MLS team numbers: {num_in_a.group(0)} vs {num_in_b.group(0)}"
 
+    # Check for 2-letter team designator codes (e.g., HD vs AD for MLS Next teams)
+    # These are typically after the club name, before or after age group
+    team_designators = ['HD', 'AD', 'DA', 'GA', 'RL', 'NL']
+
+    def extract_designator(name: str) -> Optional[str]:
+        for code in team_designators:
+            # Match the designator as a standalone word
+            pattern = rf'\b{code}\b'
+            if re.search(pattern, name, re.IGNORECASE):
+                return code.upper()
+        return None
+
+    desig_a = extract_designator(a)
+    desig_b = extract_designator(b)
+
+    if desig_a and desig_b and desig_a != desig_b:
+        return True, f"Different team designators: {desig_a} vs {desig_b}"
+
     return False, ''
 
 
