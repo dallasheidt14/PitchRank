@@ -43,7 +43,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = createClient(supabaseUrl, serviceKey);
+    const supabase = createClient(supabaseUrl, serviceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    });
+
+    // Debug: Check if service key looks correct (don't log the actual key!)
+    console.log('[link-opponent] Service key check:', {
+      keyLength: serviceKey.length,
+      keyPrefix: serviceKey.substring(0, 10) + '...',
+      isJWT: serviceKey.startsWith('eyJ'),
+    });
 
     // 1. Validate that the team exists
     const { data: team, error: teamError } = await supabase
@@ -362,6 +374,12 @@ export async function POST(request: NextRequest) {
         isOpponentAway,
         homeNeedsLink,
         awayNeedsLink,
+        serviceKeyInfo: {
+          keyLength: serviceKey.length,
+          isJWT: serviceKey.startsWith('eyJ'),
+          // Service role keys are typically longer than anon keys
+          looksLikeServiceKey: serviceKey.length > 200,
+        },
         gameBeforeUpdate: {
           provider_id: game.provider_id,
           home_provider_id: game.home_provider_id,
