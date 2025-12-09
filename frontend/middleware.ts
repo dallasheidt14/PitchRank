@@ -66,12 +66,22 @@ export async function middleware(request: NextRequest) {
   if (isProtectedRoute && !user) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", pathname);
-    return NextResponse.redirect(loginUrl);
+    const redirectResponse = NextResponse.redirect(loginUrl);
+    // Copy cookies to redirect response
+    response.cookies.getAll().forEach((cookie) => {
+      redirectResponse.cookies.set(cookie.name, cookie.value);
+    });
+    return redirectResponse;
   }
 
   // Redirect authenticated users from auth routes to watchlist
   if (isAuthRoute && user) {
-    return NextResponse.redirect(new URL("/watchlist", request.url));
+    const redirectResponse = NextResponse.redirect(new URL("/watchlist", request.url));
+    // Copy cookies to redirect response
+    response.cookies.getAll().forEach((cookie) => {
+      redirectResponse.cookies.set(cookie.name, cookie.value);
+    });
+    return redirectResponse;
   }
 
   return response;
