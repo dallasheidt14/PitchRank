@@ -180,11 +180,28 @@ export async function POST(request: NextRequest) {
     // This ensures the clicked game gets updated regardless of any type issues with provider_id matching
     if (isOpponentHome) {
       console.log('[link-opponent] Updating specific game (home team) by ID:', gameId);
-      const { error: specificUpdateError, data: updateData } = await supabase
-        .from('games')
-        .update({ home_team_master_id: teamIdMaster })
-        .eq('id', gameId)
-        .select('id');
+
+      // Try using RPC function first (handles immutability properly)
+      const { error: rpcError, data: rpcData } = await supabase.rpc('link_game_team', {
+        p_game_id: gameId,
+        p_team_id_master: teamIdMaster,
+        p_is_home_team: true
+      });
+
+      let specificUpdateError = rpcError;
+      let updateData = rpcData ? [{ id: gameId }] : null;
+
+      // If RPC function doesn't exist, fall back to direct update
+      if (rpcError?.code === '42883' || rpcError?.message?.includes('function') || rpcError?.message?.includes('does not exist')) {
+        console.log('[link-opponent] RPC function not found, trying direct update');
+        const directResult = await supabase
+          .from('games')
+          .update({ home_team_master_id: teamIdMaster })
+          .eq('id', gameId)
+          .select('id');
+        specificUpdateError = directResult.error;
+        updateData = directResult.data;
+      }
 
       console.log('[link-opponent] Specific game update result:', { specificUpdateError, updateData });
 
@@ -247,11 +264,28 @@ export async function POST(request: NextRequest) {
     } else {
       // isOpponentAway must be true (validated in early check)
       console.log('[link-opponent] Updating specific game (away team) by ID:', gameId);
-      const { error: specificUpdateError, data: updateData } = await supabase
-        .from('games')
-        .update({ away_team_master_id: teamIdMaster })
-        .eq('id', gameId)
-        .select('id');
+
+      // Try using RPC function first (handles immutability properly)
+      const { error: rpcError, data: rpcData } = await supabase.rpc('link_game_team', {
+        p_game_id: gameId,
+        p_team_id_master: teamIdMaster,
+        p_is_home_team: false
+      });
+
+      let specificUpdateError = rpcError;
+      let updateData = rpcData ? [{ id: gameId }] : null;
+
+      // If RPC function doesn't exist, fall back to direct update
+      if (rpcError?.code === '42883' || rpcError?.message?.includes('function') || rpcError?.message?.includes('does not exist')) {
+        console.log('[link-opponent] RPC function not found, trying direct update');
+        const directResult = await supabase
+          .from('games')
+          .update({ away_team_master_id: teamIdMaster })
+          .eq('id', gameId)
+          .select('id');
+        specificUpdateError = directResult.error;
+        updateData = directResult.data;
+      }
 
       console.log('[link-opponent] Specific game update result:', { specificUpdateError, updateData });
 
