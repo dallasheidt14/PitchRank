@@ -43,8 +43,18 @@ export async function GET(request: Request) {
           return cookieStore.getAll();
         },
         setAll(cookiesToSet) {
+          console.log("[Auth Callback] Setting cookies:", cookiesToSet.map(c => ({
+            name: c.name,
+            valueLength: c.value?.length,
+            options: c.options
+          })));
           cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, options);
+            // Ensure cookies are NOT httpOnly so client-side JS can read them
+            const cookieOptions = {
+              ...options,
+              httpOnly: false, // Allow client-side access
+            };
+            response.cookies.set(name, value, cookieOptions);
           });
         },
       },

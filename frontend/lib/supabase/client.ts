@@ -13,12 +13,14 @@ import { createBrowserClient } from "@supabase/ssr";
 export function createClientSupabase() {
   return createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookieOptions: {
+        // Ensure cookie reading works correctly
+        path: "/",
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+      },
+    }
   );
 }
-
-// Export a singleton instance for convenience
-export const supabase = createBrowserClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
