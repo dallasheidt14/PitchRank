@@ -26,9 +26,11 @@ export async function createServerSupabase() {
           try {
             cookiesToSet.forEach(({ name, value, options }) => {
               // Ensure cookies are NOT httpOnly so client-side JS can read them
+              // Explicitly set path to "/" for app-wide access
               const cookieOptions = {
                 ...options,
                 httpOnly: false,
+                path: "/",
               };
               cookieStore.set(name, value, cookieOptions);
             });
@@ -62,9 +64,11 @@ export function createMiddlewareSupabase(
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) => {
             // Ensure cookies are NOT httpOnly so client-side JS can read them
+            // Explicitly set path to "/" for app-wide access
             const cookieOptions = {
               ...options,
               httpOnly: false,
+              path: "/",
             };
             response.headers.append(
               "Set-Cookie",
