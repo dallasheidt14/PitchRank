@@ -93,9 +93,51 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    // 3. Create or update alias mapping (upsert)
     // Ensure provider_team_id is a string (database column is TEXT)
     const providerTeamIdStr = String(opponentProviderId);
+
+    // Check: Is the opponentProviderId matching home or away?
+    const isOpponentHome = String(game.home_provider_id) === providerTeamIdStr;
+    const isOpponentAway = String(game.away_provider_id) === providerTeamIdStr;
+
+    // EARLY CHECK: Verify the opponent is actually unlinked before proceeding
+    // This prevents the confusing case where we return "success" but nothing updates
+    if (isOpponentHome && game.home_team_master_id !== null) {
+      console.log('[link-opponent] Home team already linked:', game.home_team_master_id);
+      return NextResponse.json(
+        {
+          error: 'This opponent is already linked to a team',
+          details: 'The home team position is already filled. If this is incorrect, please contact support.'
+        },
+        { status: 400 }
+      );
+    }
+    if (isOpponentAway && game.away_team_master_id !== null) {
+      console.log('[link-opponent] Away team already linked:', game.away_team_master_id);
+      return NextResponse.json(
+        {
+          error: 'This opponent is already linked to a team',
+          details: 'The away team position is already filled. If this is incorrect, please contact support.'
+        },
+        { status: 400 }
+      );
+    }
+    if (!isOpponentHome && !isOpponentAway) {
+      console.log('[link-opponent] Provider ID mismatch:', {
+        opponentProviderId: providerTeamIdStr,
+        home_provider_id: String(game.home_provider_id),
+        away_provider_id: String(game.away_provider_id),
+      });
+      return NextResponse.json(
+        {
+          error: 'Provider ID does not match any team in this game',
+          details: 'The opponent provider ID does not match the home or away provider ID for this game.'
+        },
+        { status: 400 }
+      );
+    }
+
+    // 3. Create or update alias mapping (upsert)
 
     const { error: aliasError } = await supabase
       .from('team_alias_map')
@@ -124,28 +166,19 @@ export async function POST(request: NextRequest) {
     let specificGameUpdated = false;
     let verificationResult: { home_team_master_id?: string | null; away_team_master_id?: string | null } | null = null;
 
-    // Check: Is the opponentProviderId matching home or away?
-    const isOpponentHome = String(game.home_provider_id) === providerTeamIdStr;
-    const isOpponentAway = String(game.away_provider_id) === providerTeamIdStr;
-
-    // Use loose equality (== null) to match both null and undefined
-    const homeNeedsLink = game.home_team_master_id == null;
-    const awayNeedsLink = game.away_team_master_id == null;
+    // Note: isOpponentHome, isOpponentAway are already defined above
+    // At this point, we know the opponent needs linking (validated in early check)
 
     console.log('[link-opponent] Pre-update check:', {
       isOpponentHome,
       isOpponentAway,
-      homeNeedsLink,
-      awayNeedsLink,
       home_team_master_id_value: game.home_team_master_id,
-      home_team_master_id_type: typeof game.home_team_master_id,
       away_team_master_id_value: game.away_team_master_id,
-      away_team_master_id_type: typeof game.away_team_master_id,
     });
 
     // 4. FIRST: Always update the specific game the user clicked on (by ID)
     // This ensures the clicked game gets updated regardless of any type issues with provider_id matching
-    if (isOpponentHome && homeNeedsLink) {
+    if (isOpponentHome) {
       console.log('[link-opponent] Updating specific game (home team) by ID:', gameId);
       const { error: specificUpdateError, data: updateData } = await supabase
         .from('games')
@@ -183,7 +216,8 @@ export async function POST(request: NextRequest) {
       } else {
         console.warn('[link-opponent] Update returned no rows - possible RLS issue or game already updated');
       }
-    } else if (isOpponentAway && awayNeedsLink) {
+    } else {
+      // isOpponentAway must be true (validated in early check)
       console.log('[link-opponent] Updating specific game (away team) by ID:', gameId);
       const { error: specificUpdateError, data: updateData } = await supabase
         .from('games')
@@ -221,13 +255,6 @@ export async function POST(request: NextRequest) {
       } else {
         console.warn('[link-opponent] Update returned no rows - possible RLS issue or game already updated');
       }
-    } else {
-      console.log('[link-opponent] Specific game already linked or no match:', {
-        isOpponentHome,
-        isOpponentAway,
-        homeNeedsLink,
-        awayNeedsLink,
-      });
     }
 
     // 5. Optionally backfill OTHER games with this provider_id
@@ -360,14 +387,11 @@ export async function POST(request: NextRequest) {
         specificGameUpdated,
         isOpponentHome,
         isOpponentAway,
-        homeNeedsLink,
-        awayNeedsLink,
         gameBeforeUpdate: {
           provider_id: game.provider_id,
           home_provider_id: game.home_provider_id,
           away_provider_id: game.away_provider_id,
           home_team_master_id: game.home_team_master_id,
-          home_team_master_id_type: typeof game.home_team_master_id,
           away_team_master_id: game.away_team_master_id,
         },
         gameAfterUpdate: verificationResult,
