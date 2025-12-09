@@ -122,6 +122,7 @@ export async function POST(request: NextRequest) {
     let homeUpdated = 0;
     let awayUpdated = 0;
     let specificGameUpdated = false;
+    let verificationResult: { home_team_master_id?: string | null; away_team_master_id?: string | null } | null = null;
 
     // Check: Is the opponentProviderId matching home or away?
     const isOpponentHome = String(game.home_provider_id) === providerTeamIdStr;
@@ -154,8 +155,27 @@ export async function POST(request: NextRequest) {
 
       console.log('[link-opponent] Specific game update result:', { specificUpdateError, updateData });
 
+      // Verify the update by re-fetching the game
+      const { data: verifyGame, error: verifyError } = await supabase
+        .from('games')
+        .select('id, home_team_master_id')
+        .eq('id', gameId)
+        .single();
+
+      verificationResult = verifyGame;
+      console.log('[link-opponent] Verification after update:', {
+        verifyGame,
+        verifyError,
+        updateActuallyWorked: verifyGame?.home_team_master_id === teamIdMaster
+      });
+
       if (specificUpdateError) {
         console.error('[link-opponent] Failed to update specific game:', specificUpdateError);
+      } else if (verifyGame?.home_team_master_id === teamIdMaster) {
+        // Trust the verification SELECT, not the update response
+        specificGameUpdated = true;
+        homeUpdated = 1;
+        console.log('[link-opponent] Successfully updated specific game (home team) - verified');
       } else if (updateData && updateData.length > 0) {
         specificGameUpdated = true;
         homeUpdated = 1;
@@ -173,8 +193,27 @@ export async function POST(request: NextRequest) {
 
       console.log('[link-opponent] Specific game update result:', { specificUpdateError, updateData });
 
+      // Verify the update by re-fetching the game
+      const { data: verifyGame, error: verifyError } = await supabase
+        .from('games')
+        .select('id, away_team_master_id')
+        .eq('id', gameId)
+        .single();
+
+      verificationResult = verifyGame;
+      console.log('[link-opponent] Verification after update:', {
+        verifyGame,
+        verifyError,
+        updateActuallyWorked: verifyGame?.away_team_master_id === teamIdMaster
+      });
+
       if (specificUpdateError) {
         console.error('[link-opponent] Failed to update specific game:', specificUpdateError);
+      } else if (verifyGame?.away_team_master_id === teamIdMaster) {
+        // Trust the verification SELECT, not the update response
+        specificGameUpdated = true;
+        awayUpdated = 1;
+        console.log('[link-opponent] Successfully updated specific game (away team) - verified');
       } else if (updateData && updateData.length > 0) {
         specificGameUpdated = true;
         awayUpdated = 1;
@@ -323,7 +362,7 @@ export async function POST(request: NextRequest) {
         isOpponentAway,
         homeNeedsLink,
         awayNeedsLink,
-        game: {
+        gameBeforeUpdate: {
           provider_id: game.provider_id,
           home_provider_id: game.home_provider_id,
           away_provider_id: game.away_provider_id,
@@ -331,6 +370,7 @@ export async function POST(request: NextRequest) {
           home_team_master_id_type: typeof game.home_team_master_id,
           away_team_master_id: game.away_team_master_id,
         },
+        gameAfterUpdate: verificationResult,
         homeUpdated,
         awayUpdated,
       }
