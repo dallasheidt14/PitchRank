@@ -66,9 +66,11 @@ def has_distinguishing_markers(name_a: str, name_b: str) -> Tuple[bool, str]:
         return True, f"Different locations: {loc_a.upper()} vs {loc_b.upper()}"
 
     # Detect team number suffixes
+    # Also handles numbers directly appended to text like "Mahe1"
     number_patterns = [
         r'[-\s](\d+)$',                    # Ends with -1, -2, " 1", " 2"
         r'\s(\d+)$',                        # Ends with space + number
+        r'[a-z](\d+)$',                    # Number directly after letter: Mahe1, Team2
         r'[-\s](i{1,3}|iv|v)$',            # Roman numerals
         r'(\d+)(st|nd|rd|th)$',            # 1st, 2nd, 3rd
         r'\steam\s*(\d+)',                  # "team 1", "team 2"
@@ -90,8 +92,21 @@ def has_distinguishing_markers(name_a: str, name_b: str) -> Tuple[bool, str]:
     if num_a and num_b and num_a != num_b:
         return True, f"Different team numbers: {num_a} vs {num_b}"
 
+    # Detect coach/manager name suffixes: "- C. Oliveira" vs "- P. Oliveira"
+    # Pattern: dash or space followed by initial(s) and last name at end
+    coach_pattern = r'[-–]\s*([a-z]\.?\s*)+[a-z]+$'
+    coach_a = re.search(coach_pattern, a, re.IGNORECASE)
+    coach_b = re.search(coach_pattern, b, re.IGNORECASE)
+
+    if coach_a and coach_b:
+        # Both have coach suffixes - check if they're different
+        coach_name_a = re.sub(r'[-–]\s*', '', coach_a.group(0)).lower()
+        coach_name_b = re.sub(r'[-–]\s*', '', coach_b.group(0)).lower()
+        if coach_name_a != coach_name_b:
+            return True, f"Different coaches: {coach_a.group(0)} vs {coach_b.group(0)}"
+
     # Detect academy/division markers
-    division_pattern = r'(academy|premier|select|elite|classic|challenge)[-\s]*(north|south|east|west|\d+|i{1,3})?'
+    division_pattern = r'(academy|premier|select|elite|classic|challenge)[-\s]*(\d+|north|south|east|west|i{1,3})?'
     div_a = re.search(division_pattern, a, re.IGNORECASE)
     div_b = re.search(division_pattern, b, re.IGNORECASE)
 
