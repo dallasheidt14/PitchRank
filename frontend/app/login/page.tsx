@@ -15,7 +15,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Loader2, Mail, Lock, Wand2 } from "lucide-react";
+import { Loader2, Mail, Lock } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -23,15 +23,12 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [isMagicLinkLoading, setIsMagicLinkLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
-    setMessage(null);
 
     try {
       const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -43,43 +40,12 @@ export default function LoginPage() {
         throw signInError;
       }
 
-      // Redirect to watchlist on successful login
       router.push("/watchlist");
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Login failed. Please try again.");
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleMagicLink = async () => {
-    if (!email) {
-      setError("Please enter your email address first.");
-      return;
-    }
-
-    setIsMagicLinkLoading(true);
-    setError(null);
-    setMessage(null);
-
-    try {
-      const { error: magicLinkError } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback?next=/watchlist`,
-        },
-      });
-
-      if (magicLinkError) {
-        throw magicLinkError;
-      }
-
-      setMessage("Check your email for a magic link to sign in!");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to send magic link.");
-    } finally {
-      setIsMagicLinkLoading(false);
     }
   };
 
@@ -99,11 +65,6 @@ export default function LoginPage() {
             {error && (
               <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
                 {error}
-              </div>
-            )}
-            {message && (
-              <div className="rounded-md bg-green-500/10 p-3 text-sm text-green-600">
-                {message}
               </div>
             )}
 
@@ -150,37 +111,6 @@ export default function LoginPage() {
                 </>
               ) : (
                 "Sign in"
-              )}
-            </Button>
-
-            <div className="relative w-full">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card px-2 text-muted-foreground">
-                  Or continue with
-                </span>
-              </div>
-            </div>
-
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full"
-              onClick={handleMagicLink}
-              disabled={isMagicLinkLoading}
-            >
-              {isMagicLinkLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Sending link...
-                </>
-              ) : (
-                <>
-                  <Wand2 className="mr-2 h-4 w-4" />
-                  Send me a magic link
-                </>
               )}
             </Button>
 
