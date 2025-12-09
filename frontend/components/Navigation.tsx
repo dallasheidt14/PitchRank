@@ -10,13 +10,23 @@ import { useUser } from "@/hooks/useUser";
 
 export function Navigation() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const { user, isLoading, signOut } = useUser();
 
   const handleSignOut = async () => {
-    await signOut();
-    setMobileMenuOpen(false);
-    // Redirect to home after sign out
-    window.location.href = "/";
+    try {
+      setIsSigningOut(true);
+      await signOut();
+      setMobileMenuOpen(false);
+      // Redirect to home after sign out
+      window.location.href = "/";
+    } catch (error) {
+      console.error("Sign out error:", error);
+      // Force redirect even if signOut fails
+      window.location.href = "/logout";
+    } finally {
+      setIsSigningOut(false);
+    }
   };
 
   return (
@@ -96,11 +106,12 @@ export function Navigation() {
                     variant="ghost"
                     size="sm"
                     onClick={handleSignOut}
-                    className="gap-1.5"
+                    disabled={isSigningOut}
+                    className="gap-1.5 relative z-10"
                     aria-label="Sign out"
                   >
                     <LogOut className="h-3.5 w-3.5" />
-                    <span className="hidden xl:inline">Sign out</span>
+                    <span className="hidden xl:inline">{isSigningOut ? "Signing out..." : "Sign out"}</span>
                   </Button>
                 </div>
               ) : (
@@ -189,10 +200,11 @@ export function Navigation() {
                       </div>
                       <button
                         onClick={handleSignOut}
-                        className="w-full text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-destructive hover:bg-destructive/10 py-3 px-2 rounded-md min-h-[44px] flex items-center gap-2"
+                        disabled={isSigningOut}
+                        className="w-full text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-destructive hover:bg-destructive/10 py-3 px-2 rounded-md min-h-[44px] flex items-center gap-2 disabled:opacity-50"
                       >
                         <LogOut className="h-4 w-4" />
-                        Sign out
+                        {isSigningOut ? "Signing out..." : "Sign out"}
                       </button>
                     </div>
                   ) : (
