@@ -1,6 +1,7 @@
 "use client";
 
-import { createBrowserClient, type SupabaseClient } from "@supabase/ssr";
+import { createBrowserClient } from "@supabase/ssr";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 // Singleton instance - ensures only ONE Supabase client exists in the browser
 let supabaseInstance: SupabaseClient | null = null;
