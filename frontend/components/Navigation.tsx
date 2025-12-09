@@ -3,12 +3,21 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Menu, X, Star } from "lucide-react";
+import { Menu, X, Star, User, LogOut, LogIn } from "lucide-react";
 import { GlobalSearch } from "./GlobalSearch";
 import { Button } from "./ui/button";
+import { useUser } from "@/hooks/useUser";
 
 export function Navigation() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { user, isLoading, signOut } = useUser();
+
+  const handleSignOut = async () => {
+    await signOut();
+    setMobileMenuOpen(false);
+    // Redirect to home after sign out
+    window.location.href = "/";
+  };
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 safe-top">
@@ -30,12 +39,12 @@ export function Navigation() {
           />
           <span className="sr-only">PitchRank Home</span>
         </Link>
-        
+
         {/* Desktop Search */}
         <div className="hidden md:flex flex-1 justify-center max-w-md mx-4">
           <GlobalSearch />
         </div>
-        
+
         {/* Desktop Navigation */}
         <nav className="hidden lg:flex items-center gap-4 xl:gap-6 flex-shrink-0">
           <Link
@@ -74,6 +83,36 @@ export function Navigation() {
           >
             Methodology
           </Link>
+
+          {/* Auth Section */}
+          {!isLoading && (
+            <>
+              {user ? (
+                <div className="flex items-center gap-3 ml-2 pl-4 border-l">
+                  <span className="text-sm text-muted-foreground truncate max-w-[120px]" title={user.email ?? ""}>
+                    {user.email?.split("@")[0]}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleSignOut}
+                    className="gap-1.5"
+                    aria-label="Sign out"
+                  >
+                    <LogOut className="h-3.5 w-3.5" />
+                    <span className="hidden xl:inline">Sign out</span>
+                  </Button>
+                </div>
+              ) : (
+                <Link href="/login">
+                  <Button variant="outline" size="sm" className="gap-1.5 ml-2">
+                    <LogIn className="h-3.5 w-3.5" />
+                    Sign in
+                  </Button>
+                </Link>
+              )}
+            </>
+          )}
         </nav>
 
         {/* Mobile: Search + Menu Button */}
@@ -137,10 +176,41 @@ export function Navigation() {
             >
               Methodology
             </Link>
+
+            {/* Mobile Auth Section */}
+            <div className="pt-4 mt-4 border-t">
+              {!isLoading && (
+                <>
+                  {user ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 px-2 py-2 text-sm text-muted-foreground">
+                        <User className="h-4 w-4" />
+                        <span className="truncate">{user.email}</span>
+                      </div>
+                      <button
+                        onClick={handleSignOut}
+                        className="w-full text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-destructive hover:bg-destructive/10 py-3 px-2 rounded-md min-h-[44px] flex items-center gap-2"
+                      >
+                        <LogOut className="h-4 w-4" />
+                        Sign out
+                      </button>
+                    </div>
+                  ) : (
+                    <Link
+                      href="/login"
+                      className="block text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent hover:bg-accent/10 py-3 px-2 rounded-md min-h-[44px] flex items-center gap-2"
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      <LogIn className="h-4 w-4" />
+                      Sign in
+                    </Link>
+                  )}
+                </>
+              )}
+            </div>
           </nav>
         </div>
       )}
     </header>
   );
 }
-
