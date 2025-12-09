@@ -314,15 +314,27 @@ export function UnknownOpponentLink({
       const data = await response.json();
 
       if (!response.ok) {
+        // Handle specific error cases with user-friendly messages
+        if (data.error?.includes('already linked')) {
+          throw new Error('This opponent is already linked to a team. Please refresh the page to see the updated data.');
+        }
+        if (data.error?.includes('does not match')) {
+          throw new Error('Unable to match this opponent. The game data may have changed. Please refresh and try again.');
+        }
         throw new Error(data.error || 'Failed to link team');
       }
 
       // Log the full response for debugging
       console.log('[UnknownOpponentLink] API Response:', data);
 
-      // Check if any games were actually updated
+      // Show warning if no games were updated (edge case - alias created but no games matched)
       if (data.gamesUpdated === 0) {
         console.warn('[UnknownOpponentLink] No games were updated! Debug info:', data.debug);
+        // Still show success but with a note
+        setLinkError('Team alias created, but no games were updated. The opponent may already be linked.');
+        setIsLinking(false);
+        // Don't close modal automatically so user sees the message
+        return;
       }
 
       setLinkSuccess(true);
