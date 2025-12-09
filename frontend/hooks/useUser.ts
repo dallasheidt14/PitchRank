@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { supabase } from "@/lib/supabase/client";
+import { createClientSupabase } from "@/lib/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
 
 /**
@@ -30,21 +30,6 @@ export interface UseUserReturn {
 
 /**
  * Client-side hook to get the current authenticated user
- *
- * Usage:
- * ```tsx
- * "use client";
- * import { useUser } from "@/hooks/useUser";
- *
- * export function UserAvatar() {
- *   const { user, profile, isLoading } = useUser();
- *
- *   if (isLoading) return <Spinner />;
- *   if (!user) return <LoginButton />;
- *
- *   return <span>{user.email} ({profile?.plan})</span>;
- * }
- * ```
  */
 export function useUser(): UseUserReturn {
   const [user, setUser] = useState<User | null>(null);
@@ -53,33 +38,45 @@ export function useUser(): UseUserReturn {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
-  const fetchProfile = useCallback(async (userId: string) => {
-    const { data, error: profileError } = await supabase
-      .from("user_profiles")
-      .select("*")
-      .eq("id", userId)
-      .single();
+  // Create supabase client once
+  const [supabase] = useState(() => createClientSupabase());
 
-    if (profileError) {
-      console.warn("Error fetching profile:", profileError.message);
+  const fetchProfile = useCallback(async (userId: string) => {
+    try {
+      const { data, error: profileError } = await supabase
+        .from("user_profiles")
+        .select("*")
+        .eq("id", userId)
+        .single();
+
+      if (profileError) {
+        console.warn("Error fetching profile:", profileError.message);
+        return null;
+      }
+
+      return data as UserProfile;
+    } catch (e) {
+      console.warn("Profile fetch error:", e);
       return null;
     }
-
-    return data as UserProfile;
-  }, []);
+  }, [supabase]);
 
   const refreshUser = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
 
-      const {
-        data: { user: currentUser },
-        error: userError,
-      } = await supabase.auth.getUser();
+      // Use getUser() which validates with the server
+      const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
 
       if (userError) {
-        throw userError;
+        // AuthSessionMissingError is expected when not logged in
+        if (userError.name !== "AuthSessionMissingError") {
+          console.warn("Auth error:", userError.message);
+        }
+        setUser(null);
+        setProfile(null);
+        return;
       }
 
       setUser(currentUser);
@@ -97,7 +94,7 @@ export function useUser(): UseUserReturn {
     } finally {
       setIsLoading(false);
     }
-  }, [fetchProfile]);
+  }, [supabase, fetchProfile]);
 
   const signOut = useCallback(async () => {
     try {
@@ -111,24 +108,38 @@ export function useUser(): UseUserReturn {
       setError(e instanceof Error ? e : new Error("Sign out failed"));
       throw e;
     }
-  }, []);
+  }, [supabase]);
 
   useEffect(() => {
-    // Get initial session
+    // Get initial user (validates with server)
     const initAuth = async () => {
       try {
-        const {
-          data: { session: currentSession },
-        } = await supabase.auth.getSession();
+        // First try getUser which validates with server
+        const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
 
+        if (userError) {
+          // Not logged in or session invalid
+          if (userError.name !== "AuthSessionMissingError") {
+            console.warn("Initial auth error:", userError.message);
+          }
+          setUser(null);
+          setProfile(null);
+          setIsLoading(false);
+          return;
+        }
+
+        setUser(currentUser);
+
+        // Also get session for completeness
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
         setSession(currentSession);
-        setUser(currentSession?.user ?? null);
 
-        if (currentSession?.user) {
-          const userProfile = await fetchProfile(currentSession.user.id);
+        if (currentUser) {
+          const userProfile = await fetchProfile(currentUser.id);
           setProfile(userProfile);
         }
       } catch (e) {
+        console.error("Auth initialization error:", e);
         setError(e instanceof Error ? e : new Error("Auth initialization failed"));
       } finally {
         setIsLoading(false);
@@ -138,9 +149,9 @@ export function useUser(): UseUserReturn {
     initAuth();
 
     // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+      console.log("Auth state changed:", event);
+
       setSession(currentSession);
       setUser(currentSession?.user ?? null);
 
@@ -150,19 +161,12 @@ export function useUser(): UseUserReturn {
       } else {
         setProfile(null);
       }
-
-      // Handle specific auth events
-      if (event === "SIGNED_OUT") {
-        setUser(null);
-        setProfile(null);
-        setSession(null);
-      }
     });
 
     return () => {
       subscription.unsubscribe();
     };
-  }, [fetchProfile]);
+  }, [supabase, fetchProfile]);
 
   return {
     user,
