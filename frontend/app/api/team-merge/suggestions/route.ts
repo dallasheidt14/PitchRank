@@ -15,8 +15,9 @@ import { createClient } from '@supabase/supabase-js';
  * - ageGroup: Filter by age group (e.g., '12', 'u12')
  * - gender: Filter by gender ('Male' or 'Female')
  * - stateCode: Filter by state
- * - minConfidence: Minimum confidence score (default: 0.5)
  * - limit: Max results (default: 20)
+ *
+ * Note: Minimum confidence is enforced at 90% server-side.
  */
 
 interface TeamData {
@@ -111,9 +112,11 @@ function hasDistinguishingMarkers(nameA: string, nameB: string): { isDifferent: 
   }
 
   // Detect team number suffixes: -1, -2, "2", "II", "1st", "2nd", etc.
+  // Also handles numbers directly appended to text like "Mahe1"
   const numberPatterns = [
     /[-\s](\d+)$/,                    // Ends with -1, -2, " 1", " 2"
     /\s(\d+)$/,                       // Ends with space + number
+    /[a-z](\d+)$/i,                   // Number directly after letter: Mahe1, Team2
     /[-\s](i{1,3}|iv|v)$/i,           // Roman numerals I, II, III, IV, V
     /(\d+)(st|nd|rd|th)$/i,           // 1st, 2nd, 3rd, 4th
     /\steam\s*(\d+)/i,                // "team 1", "team 2"
@@ -141,8 +144,23 @@ function hasDistinguishingMarkers(nameA: string, nameB: string): { isDifferent: 
     return { isDifferent: true, reason: `Different team numbers: ${numA} vs ${numB}` };
   }
 
+  // Detect coach/manager name suffixes: "- C. Oliveira" vs "- P. Oliveira"
+  // Pattern: dash or space followed by initial(s) and last name at end
+  const coachPattern = /[-–]\s*([a-z]\.?\s*)+[a-z]+$/i;
+  const coachA = a.match(coachPattern);
+  const coachB = b.match(coachPattern);
+
+  if (coachA && coachB) {
+    // Both have coach suffixes - check if they're different
+    const coachNameA = coachA[0].toLowerCase().replace(/[-–]\s*/, '');
+    const coachNameB = coachB[0].toLowerCase().replace(/[-–]\s*/, '');
+    if (coachNameA !== coachNameB) {
+      return { isDifferent: true, reason: `Different coaches: ${coachA[0]} vs ${coachB[0]}` };
+    }
+  }
+
   // Detect academy/division markers: Academy-1, Academy North, etc.
-  const divisionPattern = /(academy|premier|select|elite|classic|challenge)[-\s]*(north|south|east|west|\d+|i{1,3})?/gi;
+  const divisionPattern = /(academy|premier|select|elite|classic|challenge)[-\s]*(\d+|north|south|east|west|i{1,3})?/gi;
   const divisionA = a.match(divisionPattern);
   const divisionB = b.match(divisionPattern);
 
@@ -170,6 +188,28 @@ function hasDistinguishingMarkers(nameA: string, nameB: string): { isDifferent: 
     if (numInA && numInB && numInA[0] !== numInB[0]) {
       return { isDifferent: true, reason: `Different MLS team numbers: ${numInA[0]} vs ${numInB[0]}` };
     }
+  }
+
+  // Check for 2-letter team designator codes (e.g., HD vs AD for MLS Next teams)
+  // These are typically after the club name, before or after age group
+  const teamDesignators = ['HD', 'AD', 'DA', 'GA', 'RL', 'NL'];
+
+  const extractDesignator = (name: string): string | null => {
+    for (const code of teamDesignators) {
+      // Match the designator as a standalone word
+      const regex = new RegExp(`\\b${code}\\b`, 'i');
+      if (regex.test(name)) {
+        return code.toUpperCase();
+      }
+    }
+    return null;
+  };
+
+  const desigA = extractDesignator(a);
+  const desigB = extractDesignator(b);
+
+  if (desigA && desigB && desigA !== desigB) {
+    return { isDifferent: true, reason: `Different team designators: ${desigA} vs ${desigB}` };
   }
 
   return { isDifferent: false, reason: '' };
