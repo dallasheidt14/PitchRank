@@ -48,7 +48,9 @@ export async function middleware(request: NextRequest) {
           // Extract root domain to ensure cookies work across www and non-www
           const hostname = request.nextUrl.hostname;
           const rootDomain = hostname.replace(/^www\./, '');
-          const domain = hostname.includes('localhost') ? undefined : `.${rootDomain}`;
+          // Only set domain for known production domains, not for Vercel preview deployments
+          const isProductionDomain = hostname === 'pitchrank.io' || hostname === 'www.pitchrank.io';
+          const domain = hostname.includes('localhost') ? undefined : (isProductionDomain ? `.${rootDomain}` : undefined);
 
           cookiesToSet.forEach(({ name, value }) => {
             request.cookies.set(name, value);
@@ -60,11 +62,12 @@ export async function middleware(request: NextRequest) {
           });
           cookiesToSet.forEach(({ name, value, options }) => {
             // Ensure cookies are NOT httpOnly so client-side JS can read them
-            // Set domain for cross-subdomain access
+            // Explicitly set path to "/" for app-wide access
             const cookieOptions = {
               ...options,
               httpOnly: false,
-              domain,
+              path: "/", // Ensure cookie is accessible across all routes
+              ...(domain && { domain }), // Only set domain if defined
             };
             response.cookies.set(name, value, cookieOptions);
           });
