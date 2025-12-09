@@ -180,13 +180,41 @@ export async function POST(request: NextRequest) {
     // This ensures the clicked game gets updated regardless of any type issues with provider_id matching
     if (isOpponentHome) {
       console.log('[link-opponent] Updating specific game (home team) by ID:', gameId);
-      const { error: specificUpdateError, data: updateData } = await supabase
-        .from('games')
-        .update({ home_team_master_id: teamIdMaster })
-        .eq('id', gameId)
-        .select('id');
+
+      // Try using RPC function first (handles immutability properly)
+      const { error: rpcError, data: rpcData } = await supabase.rpc('link_game_team', {
+        p_game_id: gameId,
+        p_team_id_master: teamIdMaster,
+        p_is_home_team: true
+      });
+
+      let specificUpdateError = rpcError;
+      let updateData = rpcData ? [{ id: gameId }] : null;
+
+      // If RPC function doesn't exist, fall back to direct update
+      if (rpcError?.code === '42883' || rpcError?.message?.includes('function') || rpcError?.message?.includes('does not exist')) {
+        console.log('[link-opponent] RPC function not found, trying direct update');
+        const directResult = await supabase
+          .from('games')
+          .update({ home_team_master_id: teamIdMaster })
+          .eq('id', gameId)
+          .select('id');
+        specificUpdateError = directResult.error;
+        updateData = directResult.data;
+      }
 
       console.log('[link-opponent] Specific game update result:', { specificUpdateError, updateData });
+
+      if (specificUpdateError) {
+        console.error('[link-opponent] Failed to update specific game:', specificUpdateError);
+        return NextResponse.json(
+          {
+            error: `Database update failed: ${specificUpdateError.message}`,
+            details: 'The game could not be updated. This may be due to database constraints.'
+          },
+          { status: 500 }
+        );
+      }
 
       // Verify the update by re-fetching the game
       const { data: verifyGame, error: verifyError } = await supabase
@@ -196,36 +224,81 @@ export async function POST(request: NextRequest) {
         .single();
 
       verificationResult = verifyGame;
+      // Use String() comparison to handle potential UUID format differences
+      const updateActuallyWorked = String(verifyGame?.home_team_master_id) === String(teamIdMaster);
       console.log('[link-opponent] Verification after update:', {
         verifyGame,
         verifyError,
-        updateActuallyWorked: verifyGame?.home_team_master_id === teamIdMaster
+        teamIdMaster,
+        teamIdMasterType: typeof teamIdMaster,
+        verifyGameHomeId: verifyGame?.home_team_master_id,
+        verifyGameHomeIdType: typeof verifyGame?.home_team_master_id,
+        updateActuallyWorked
       });
 
-      if (specificUpdateError) {
-        console.error('[link-opponent] Failed to update specific game:', specificUpdateError);
-      } else if (verifyGame?.home_team_master_id === teamIdMaster) {
-        // Trust the verification SELECT, not the update response
+      if (verifyError) {
+        console.error('[link-opponent] Failed to verify update:', verifyError);
+      }
+
+      if (updateActuallyWorked) {
+        // Trust the verification SELECT
         specificGameUpdated = true;
         homeUpdated = 1;
         console.log('[link-opponent] Successfully updated specific game (home team) - verified');
       } else if (updateData && updateData.length > 0) {
+        // Update reported rows affected but verification failed - database trigger may have blocked
+        console.warn('[link-opponent] Update reported success but verification failed - possible trigger issue');
         specificGameUpdated = true;
         homeUpdated = 1;
-        console.log('[link-opponent] Successfully updated specific game (home team)');
       } else {
-        console.warn('[link-opponent] Update returned no rows - possible RLS issue or game already updated');
+        // Update failed completely - return error instead of continuing
+        console.error('[link-opponent] Update failed - no rows affected and verification failed');
+        return NextResponse.json(
+          {
+            error: 'Game update failed - database rejected the change',
+            details: 'The update was rejected by the database. The game may be marked as immutable or there may be a constraint violation.'
+          },
+          { status: 500 }
+        );
       }
     } else {
       // isOpponentAway must be true (validated in early check)
       console.log('[link-opponent] Updating specific game (away team) by ID:', gameId);
-      const { error: specificUpdateError, data: updateData } = await supabase
-        .from('games')
-        .update({ away_team_master_id: teamIdMaster })
-        .eq('id', gameId)
-        .select('id');
+
+      // Try using RPC function first (handles immutability properly)
+      const { error: rpcError, data: rpcData } = await supabase.rpc('link_game_team', {
+        p_game_id: gameId,
+        p_team_id_master: teamIdMaster,
+        p_is_home_team: false
+      });
+
+      let specificUpdateError = rpcError;
+      let updateData = rpcData ? [{ id: gameId }] : null;
+
+      // If RPC function doesn't exist, fall back to direct update
+      if (rpcError?.code === '42883' || rpcError?.message?.includes('function') || rpcError?.message?.includes('does not exist')) {
+        console.log('[link-opponent] RPC function not found, trying direct update');
+        const directResult = await supabase
+          .from('games')
+          .update({ away_team_master_id: teamIdMaster })
+          .eq('id', gameId)
+          .select('id');
+        specificUpdateError = directResult.error;
+        updateData = directResult.data;
+      }
 
       console.log('[link-opponent] Specific game update result:', { specificUpdateError, updateData });
+
+      if (specificUpdateError) {
+        console.error('[link-opponent] Failed to update specific game:', specificUpdateError);
+        return NextResponse.json(
+          {
+            error: `Database update failed: ${specificUpdateError.message}`,
+            details: 'The game could not be updated. This may be due to database constraints.'
+          },
+          { status: 500 }
+        );
+      }
 
       // Verify the update by re-fetching the game
       const { data: verifyGame, error: verifyError } = await supabase
@@ -235,25 +308,42 @@ export async function POST(request: NextRequest) {
         .single();
 
       verificationResult = verifyGame;
+      // Use String() comparison to handle potential UUID format differences
+      const updateActuallyWorked = String(verifyGame?.away_team_master_id) === String(teamIdMaster);
       console.log('[link-opponent] Verification after update:', {
         verifyGame,
         verifyError,
-        updateActuallyWorked: verifyGame?.away_team_master_id === teamIdMaster
+        teamIdMaster,
+        teamIdMasterType: typeof teamIdMaster,
+        verifyGameAwayId: verifyGame?.away_team_master_id,
+        verifyGameAwayIdType: typeof verifyGame?.away_team_master_id,
+        updateActuallyWorked
       });
 
-      if (specificUpdateError) {
-        console.error('[link-opponent] Failed to update specific game:', specificUpdateError);
-      } else if (verifyGame?.away_team_master_id === teamIdMaster) {
-        // Trust the verification SELECT, not the update response
+      if (verifyError) {
+        console.error('[link-opponent] Failed to verify update:', verifyError);
+      }
+
+      if (updateActuallyWorked) {
+        // Trust the verification SELECT
         specificGameUpdated = true;
         awayUpdated = 1;
         console.log('[link-opponent] Successfully updated specific game (away team) - verified');
       } else if (updateData && updateData.length > 0) {
+        // Update reported rows affected but verification failed - database trigger may have blocked
+        console.warn('[link-opponent] Update reported success but verification failed - possible trigger issue');
         specificGameUpdated = true;
         awayUpdated = 1;
-        console.log('[link-opponent] Successfully updated specific game (away team)');
       } else {
-        console.warn('[link-opponent] Update returned no rows - possible RLS issue or game already updated');
+        // Update failed completely - return error instead of continuing
+        console.error('[link-opponent] Update failed - no rows affected and verification failed');
+        return NextResponse.json(
+          {
+            error: 'Game update failed - database rejected the change',
+            details: 'The update was rejected by the database. The game may be marked as immutable or there may be a constraint violation.'
+          },
+          { status: 500 }
+        );
       }
     }
 
