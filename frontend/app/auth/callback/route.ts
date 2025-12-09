@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { createServerSupabase } from "@/lib/supabase/server";
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
 
 /**
  * GET /auth/callback
@@ -27,7 +28,28 @@ export async function GET(request: Request) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const supabase = await createServerSupabase();
+  const cookieStore = await cookies();
+
+  // Create response first so we can set cookies on it
+  const redirectUrl = new URL(next, requestUrl.origin);
+  const response = NextResponse.redirect(redirectUrl);
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
+          });
+        },
+      },
+    }
+  );
 
   // Handle email confirmation (token_hash flow)
   if (token_hash && type) {
@@ -43,8 +65,7 @@ export async function GET(request: Request) {
       return NextResponse.redirect(loginUrl);
     }
 
-    // Redirect to watchlist after successful email confirmation
-    return NextResponse.redirect(new URL(next, requestUrl.origin));
+    return response;
   }
 
   // Handle OAuth/magic link (code exchange flow)
@@ -60,7 +81,7 @@ export async function GET(request: Request) {
       return NextResponse.redirect(loginUrl);
     }
 
-    return NextResponse.redirect(new URL(next, requestUrl.origin));
+    return response;
   }
 
   // No code or token_hash - redirect to login
