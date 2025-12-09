@@ -54,7 +54,12 @@ export async function middleware(request: NextRequest) {
             },
           });
           cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, options);
+            // Ensure cookies are NOT httpOnly so client-side JS can read them
+            const cookieOptions = {
+              ...options,
+              httpOnly: false,
+            };
+            response.cookies.set(name, value, cookieOptions);
           });
         },
       },
