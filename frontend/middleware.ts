@@ -45,6 +45,11 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
+          // Extract root domain to ensure cookies work across www and non-www
+          const hostname = request.nextUrl.hostname;
+          const rootDomain = hostname.replace(/^www\./, '');
+          const domain = hostname.includes('localhost') ? undefined : `.${rootDomain}`;
+
           cookiesToSet.forEach(({ name, value }) => {
             request.cookies.set(name, value);
           });
@@ -55,9 +60,11 @@ export async function middleware(request: NextRequest) {
           });
           cookiesToSet.forEach(({ name, value, options }) => {
             // Ensure cookies are NOT httpOnly so client-side JS can read them
+            // Set domain for cross-subdomain access
             const cookieOptions = {
               ...options,
               httpOnly: false,
+              domain,
             };
             response.cookies.set(name, value, cookieOptions);
           });
