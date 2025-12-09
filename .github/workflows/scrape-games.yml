@@ -32,7 +32,7 @@ on:
 jobs:
   scrape-and-import:
     runs-on: ubuntu-latest
-    timeout-minutes: 180  # 3 hour timeout for large scrapes
+    timeout-minutes: 360  # 6 hour timeout (GitHub max) for large scrapes
 
     steps:
       - name: Checkout repository
