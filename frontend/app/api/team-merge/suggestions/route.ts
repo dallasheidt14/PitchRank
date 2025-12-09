@@ -65,6 +65,116 @@ const WEIGHTS = {
   performance: 0.05,
 };
 
+// Minimum confidence threshold - only show high-quality suggestions
+const MIN_CONFIDENCE_THRESHOLD = 0.90;
+
+/**
+ * Detects distinguishing markers in team names that indicate different teams
+ * from the same club (e.g., location codes, team numbers, division markers).
+ *
+ * Returns true if the teams appear to be DIFFERENT teams from the same parent club.
+ */
+function hasDistinguishingMarkers(nameA: string, nameB: string): { isDifferent: boolean; reason: string } {
+  const a = nameA.toLowerCase().trim();
+  const b = nameB.toLowerCase().trim();
+
+  // If names are identical, not distinguishable
+  if (a === b) {
+    return { isDifferent: false, reason: '' };
+  }
+
+  // Common location codes used in youth soccer (3-4 letter codes)
+  const locationCodes = [
+    'clw', 'lwr', 'tpa', 'orl', 'jax', 'mia', 'ftl', 'pbg', 'srq', 'tam',  // Florida
+    'atl', 'dal', 'hou', 'aus', 'san', 'phx', 'den', 'sea', 'por', 'lax',  // Other cities
+    'north', 'south', 'east', 'west', 'central', 'metro', 'coastal',       // Directional
+  ];
+
+  // Extract potential location codes from names
+  const extractLocationCode = (name: string): string | null => {
+    for (const code of locationCodes) {
+      // Match standalone code or code followed by space/punctuation
+      const regex = new RegExp(`\\b${code}\\b`, 'i');
+      if (regex.test(name)) {
+        return code;
+      }
+    }
+    return null;
+  };
+
+  const locationA = extractLocationCode(a);
+  const locationB = extractLocationCode(b);
+
+  // If both have different location codes, they're different teams
+  if (locationA && locationB && locationA !== locationB) {
+    return { isDifferent: true, reason: `Different locations: ${locationA.toUpperCase()} vs ${locationB.toUpperCase()}` };
+  }
+
+  // Detect team number suffixes: -1, -2, "2", "II", "1st", "2nd", etc.
+  const numberPatterns = [
+    /[-\s](\d+)$/,                    // Ends with -1, -2, " 1", " 2"
+    /\s(\d+)$/,                       // Ends with space + number
+    /[-\s](i{1,3}|iv|v)$/i,           // Roman numerals I, II, III, IV, V
+    /(\d+)(st|nd|rd|th)$/i,           // 1st, 2nd, 3rd, 4th
+    /\steam\s*(\d+)/i,                // "team 1", "team 2"
+    /\s(one|two|three|four|five)$/i,  // Written numbers
+  ];
+
+  const extractNumber = (name: string): string | null => {
+    for (const pattern of numberPatterns) {
+      const match = name.match(pattern);
+      if (match) {
+        return match[1] || match[0];
+      }
+    }
+    return null;
+  };
+
+  const numA = extractNumber(a);
+  const numB = extractNumber(b);
+
+  // If one has a number suffix and the other doesn't, or they have different numbers
+  if ((numA && !numB) || (!numA && numB)) {
+    return { isDifferent: true, reason: `One team has number suffix: ${numA || numB}` };
+  }
+  if (numA && numB && numA !== numB) {
+    return { isDifferent: true, reason: `Different team numbers: ${numA} vs ${numB}` };
+  }
+
+  // Detect academy/division markers: Academy-1, Academy North, etc.
+  const divisionPattern = /(academy|premier|select|elite|classic|challenge)[-\s]*(north|south|east|west|\d+|i{1,3})?/gi;
+  const divisionA = a.match(divisionPattern);
+  const divisionB = b.match(divisionPattern);
+
+  if (divisionA && divisionB) {
+    const divA = divisionA[0].toLowerCase();
+    const divB = divisionB[0].toLowerCase();
+    if (divA !== divB) {
+      return { isDifferent: true, reason: `Different divisions: ${divisionA[0]} vs ${divisionB[0]}` };
+    }
+  }
+
+  // Check for MLS/Pre-MLS team numbers: "Pre MLS 2", "MLS Next 3"
+  const mlsPattern = /(pre\s*mls|mls\s*next|mls)\s*(\d+)?/gi;
+  const mlsA = a.match(mlsPattern);
+  const mlsB = b.match(mlsPattern);
+
+  if (mlsA && mlsB) {
+    // Extract numbers if present
+    const numInA = mlsA[0].match(/\d+/);
+    const numInB = mlsB[0].match(/\d+/);
+
+    if ((numInA && !numInB) || (!numInA && numInB)) {
+      return { isDifferent: true, reason: `Different MLS team: ${mlsA[0]} vs ${mlsB[0]}` };
+    }
+    if (numInA && numInB && numInA[0] !== numInB[0]) {
+      return { isDifferent: true, reason: `Different MLS team numbers: ${numInA[0]} vs ${numInB[0]}` };
+    }
+  }
+
+  return { isDifferent: false, reason: '' };
+}
+
 export async function GET(request: NextRequest) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -81,7 +191,8 @@ export async function GET(request: NextRequest) {
     const ageGroup = searchParams.get('ageGroup');
     const gender = searchParams.get('gender');
     const stateCode = searchParams.get('stateCode');
-    const minConfidence = parseFloat(searchParams.get('minConfidence') || '0.5');
+    // Always use 90% minimum confidence - ignore any user-supplied value
+    const minConfidence = MIN_CONFIDENCE_THRESHOLD;
     const limit = parseInt(searchParams.get('limit') || '20');
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
@@ -168,11 +279,20 @@ export async function GET(request: NextRequest) {
 
     // Compare all team pairs
     const suggestions: MergeSuggestion[] = [];
+    let skippedDueToMarkers = 0;
 
     for (let i = 0; i < teams.length; i++) {
       for (let j = i + 1; j < teams.length; j++) {
         const teamA = teams[i];
         const teamB = teams[j];
+
+        // CRITICAL: Skip teams that have distinguishing markers indicating they are
+        // different teams from the same club (e.g., different location codes, team numbers)
+        const markerCheck = hasDistinguishingMarkers(teamA.team_name, teamB.team_name);
+        if (markerCheck.isDifferent) {
+          skippedDueToMarkers++;
+          continue;
+        }
 
         const gamesA = gamesByTeam[teamA.team_id_master] || [];
         const gamesB = gamesByTeam[teamB.team_id_master] || [];
@@ -209,7 +329,7 @@ export async function GET(request: NextRequest) {
             teamBId: teamB.team_id_master,
             teamBName: teamB.team_name,
             confidenceScore: Math.round(confidence * 1000) / 1000,
-            recommendation: confidence >= 0.8 ? 'high' : confidence >= 0.6 ? 'medium' : 'low',
+            recommendation: confidence >= 0.95 ? 'high' : confidence >= 0.90 ? 'medium' : 'low',
             signals,
             details,
           });
@@ -224,6 +344,8 @@ export async function GET(request: NextRequest) {
       suggestions: suggestions.slice(0, limit),
       count: suggestions.length,
       teamsAnalyzed: teams.length,
+      skippedDifferentTeams: skippedDueToMarkers,
+      minConfidenceUsed: MIN_CONFIDENCE_THRESHOLD,
     });
   } catch (error) {
     console.error('[suggestions] Unexpected error:', error);
