@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { createClientSupabase } from "@/lib/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
 
@@ -38,8 +38,8 @@ export function useUser(): UseUserReturn {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
-  // Create supabase client once
-  const [supabase] = useState(() => createClientSupabase());
+  // Get singleton supabase client - useMemo ensures stable reference
+  const supabase = useMemo(() => createClientSupabase(), []);
 
   const fetchProfile = useCallback(async (userId: string) => {
     try {
