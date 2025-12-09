@@ -234,16 +234,29 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                     {formatGameDate(game.game_date)}
                   </TableCell>
                   <TableCell>
-                    {opponentId && opponent ? (
+                    {opponentId ? (
+                      // Team is linked - show link or fallback text
                       <div className="flex flex-col">
-                        <Link
-                          href={`/teams/${opponentId}`}
-                          onMouseEnter={() => prefetchTeam(opponentId)}
-                          className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block"
-                          aria-label={`View ${opponent} team details`}
-                        >
-                          {opponent}
-                        </Link>
+                        {opponent ? (
+                          <Link
+                            href={`/teams/${opponentId}`}
+                            onMouseEnter={() => prefetchTeam(opponentId)}
+                            className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block"
+                            aria-label={`View ${opponent} team details`}
+                          >
+                            {opponent}
+                          </Link>
+                        ) : (
+                          // Team is linked but name lookup failed - still show link
+                          <Link
+                            href={`/teams/${opponentId}`}
+                            onMouseEnter={() => prefetchTeam(opponentId)}
+                            className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block text-muted-foreground"
+                            aria-label="View team details"
+                          >
+                            (Team linked)
+                          </Link>
+                        )}
                         {opponentClub && (
                           <span className="text-xs text-muted-foreground mt-0.5">
                             {opponentClub}
@@ -251,6 +264,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                         )}
                       </div>
                     ) : opponentProviderId ? (
+                      // Team is NOT linked but has provider ID - show linking option
                       <UnknownOpponentLink
                         game={game}
                         currentTeamId={teamId}
@@ -260,6 +274,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                         defaultGender={team?.gender}
                       />
                     ) : (
+                      // No team ID and no provider ID - truly unknown
                       <span className="text-muted-foreground">{opponent || 'Unknown'}</span>
                     )}
                   </TableCell>
