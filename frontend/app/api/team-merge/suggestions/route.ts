@@ -89,6 +89,8 @@ function hasDistinguishingMarkers(nameA: string, nameB: string): { isDifferent: 
     'clw', 'lwr', 'tpa', 'orl', 'jax', 'mia', 'ftl', 'pbg', 'srq', 'tam',  // Florida
     'atl', 'dal', 'hou', 'aus', 'san', 'phx', 'den', 'sea', 'por', 'lax',  // Other cities
     'north', 'south', 'east', 'west', 'central', 'metro', 'coastal',       // Directional
+    'mv', 'tem', 'sv', 'cv', 'pv', 'rv', 'ev', 'wv', 'nv',                 // Valley codes
+    'sc', 'fc', 'cf', 'ac', 'bc', 'cc', 'dc', 'ec',                        // Club type codes
   ];
 
   // Extract potential location codes from names
@@ -112,7 +114,7 @@ function hasDistinguishingMarkers(nameA: string, nameB: string): { isDifferent: 
   }
 
   // Detect team number suffixes: -1, -2, "2", "II", "1st", "2nd", etc.
-  // Also handles numbers directly appended to text like "Mahe1"
+  // Also handles numbers embedded in name like "EDP 1" or "Mahe1"
   const numberPatterns = [
     /[-\s](\d+)$/,                    // Ends with -1, -2, " 1", " 2"
     /\s(\d+)$/,                       // Ends with space + number
@@ -121,12 +123,15 @@ function hasDistinguishingMarkers(nameA: string, nameB: string): { isDifferent: 
     /(\d+)(st|nd|rd|th)$/i,           // 1st, 2nd, 3rd, 4th
     /\steam\s*(\d+)/i,                // "team 1", "team 2"
     /\s(one|two|three|four|five)$/i,  // Written numbers
+    /\b(edp|ecnl|ga|mls)\s+(\d+)\b/i, // League + number: "EDP 1", "ECNL 2"
   ];
 
   const extractNumber = (name: string): string | null => {
     for (const pattern of numberPatterns) {
       const match = name.match(pattern);
       if (match) {
+        // For league+number pattern, return the number part
+        if (match[2]) return match[2];
         return match[1] || match[0];
       }
     }
@@ -208,8 +213,26 @@ function hasDistinguishingMarkers(nameA: string, nameB: string): { isDifferent: 
   const desigA = extractDesignator(a);
   const desigB = extractDesignator(b);
 
+  // If both have different designators OR one has a designator and the other doesn't
   if (desigA && desigB && desigA !== desigB) {
     return { isDifferent: true, reason: `Different team designators: ${desigA} vs ${desigB}` };
+  }
+  if ((desigA && !desigB) || (!desigA && desigB)) {
+    return { isDifferent: true, reason: `One team has designator: ${desigA || desigB}` };
+  }
+
+  // Detect different team nicknames/mascots at the end of name
+  // Common pattern: "Club Name AgeGroup Nickname" e.g., "Santa Rosa 13G Wave" vs "Santa Rosa 13G Wolves"
+  const nicknamePattern = /\b(u?\d+[bg]?)\s+([a-z]+)$/i;
+  const nickA = a.match(nicknamePattern);
+  const nickB = b.match(nicknamePattern);
+
+  if (nickA && nickB) {
+    // Same age group but different nicknames
+    if (nickA[1].toLowerCase() === nickB[1].toLowerCase() &&
+        nickA[2].toLowerCase() !== nickB[2].toLowerCase()) {
+      return { isDifferent: true, reason: `Different team names: ${nickA[2]} vs ${nickB[2]}` };
+    }
   }
 
   return { isDifferent: false, reason: '' };
