@@ -43,8 +43,31 @@ export async function GET(request: Request) {
           return cookieStore.getAll();
         },
         setAll(cookiesToSet) {
+          // Extract root domain to ensure cookies work across www and non-www
+          const hostname = requestUrl.hostname;
+          const rootDomain = hostname.replace(/^www\./, '');
+          const domain = hostname.includes('localhost') ? undefined : `.${rootDomain}`;
+
+          console.log("[Auth Callback] Setting cookies:", {
+            hostname,
+            rootDomain,
+            domain,
+            cookies: cookiesToSet.map(c => ({
+              name: c.name,
+              valueLength: c.value?.length,
+              options: c.options
+            }))
+          });
+
           cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, options);
+            // Ensure cookies are NOT httpOnly so client-side JS can read them
+            // Set domain to cover both www and non-www
+            const cookieOptions = {
+              ...options,
+              httpOnly: false,
+              domain, // Set domain for cross-subdomain access
+            };
+            response.cookies.set(name, value, cookieOptions);
           });
         },
       },

@@ -25,7 +25,12 @@ export async function createServerSupabase() {
         setAll(cookiesToSet) {
           try {
             cookiesToSet.forEach(({ name, value, options }) => {
-              cookieStore.set(name, value, options);
+              // Ensure cookies are NOT httpOnly so client-side JS can read them
+              const cookieOptions = {
+                ...options,
+                httpOnly: false,
+              };
+              cookieStore.set(name, value, cookieOptions);
             });
           } catch {
             // The `setAll` method was called from a Server Component.
@@ -56,9 +61,14 @@ export function createMiddlewareSupabase(
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) => {
+            // Ensure cookies are NOT httpOnly so client-side JS can read them
+            const cookieOptions = {
+              ...options,
+              httpOnly: false,
+            };
             response.headers.append(
               "Set-Cookie",
-              serializeCookie(name, value, options)
+              serializeCookie(name, value, cookieOptions)
             );
           });
         },
