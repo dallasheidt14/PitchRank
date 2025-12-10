@@ -72,6 +72,7 @@ export default function WatchlistPage() {
   const {
     data: watchlistData,
     isLoading: watchlistLoading,
+    isFetching: watchlistFetching,
     error: watchlistError,
     refetch: refetchWatchlist,
   } = useQuery<WatchlistResponse | null>({
@@ -330,10 +331,11 @@ export default function WatchlistPage() {
               variant="secondary"
               size="sm"
               onClick={() => refetchWatchlist()}
+              disabled={watchlistFetching}
               className="gap-1.5"
             >
-              <RefreshCw className="h-4 w-4" />
-              Refresh
+              <RefreshCw className={cn("h-4 w-4", watchlistFetching && "animate-spin")} />
+              {watchlistFetching ? "Refreshing..." : "Refresh"}
             </Button>
           </div>
 
