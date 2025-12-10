@@ -1,15 +1,24 @@
 import { stripe, WEBHOOK_EVENTS } from "@/lib/stripe/server";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 
-// Use service role client for webhook operations
-// Webhooks don't have user context, so we need elevated permissions
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Lazy-load Supabase admin client to avoid build-time initialization errors
+let supabaseAdmin: SupabaseClient | null = null;
+
+function getSupabaseAdmin(): SupabaseClient {
+  if (!supabaseAdmin) {
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error("Missing Supabase environment variables");
+    }
+    supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
+  }
+  return supabaseAdmin;
+}
 
 export async function POST(req: Request) {
   const body = await req.text();
@@ -104,7 +113,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const periodEnd = subscriptionResponse.items.data[0]?.current_period_end ||
     Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60; // Default to 30 days from now
 
-  const { error } = await supabaseAdmin
+  const { error } = await getSupabaseAdmin()
     .from("user_profiles")
     .update({
       stripe_subscription_id: subscriptionId,
@@ -137,7 +146,7 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   const periodEnd = subscription.items.data[0]?.current_period_end ||
     Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
 
-  const { error } = await supabaseAdmin
+  const { error } = await getSupabaseAdmin()
     .from("user_profiles")
     .update({
       stripe_subscription_id: subscription.id,
@@ -162,7 +171,7 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
 async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
   const customerId = subscription.customer as string;
 
-  const { error } = await supabaseAdmin
+  const { error } = await getSupabaseAdmin()
     .from("user_profiles")
     .update({
       stripe_subscription_id: null,
@@ -201,7 +210,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
   const periodEnd = subscriptionResponse.items.data[0]?.current_period_end ||
     Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
 
-  const { error } = await supabaseAdmin
+  const { error } = await getSupabaseAdmin()
     .from("user_profiles")
     .update({
       subscription_status: "active",
@@ -225,7 +234,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
 async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
   const customerId = invoice.customer as string;
 
-  const { error } = await supabaseAdmin
+  const { error } = await getSupabaseAdmin()
     .from("user_profiles")
     .update({
       subscription_status: "past_due",
