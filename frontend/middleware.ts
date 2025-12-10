@@ -1,7 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
+// Routes that require authentication
 const PROTECTED_ROUTES = ["/watchlist", "/compare", "/teams"];
+
+// Routes that require premium subscription (subset of protected routes)
+const PREMIUM_ROUTES = ["/watchlist", "/compare", "/teams"];
+
+// Auth routes (login/signup pages)
 const AUTH_ROUTES = ["/login", "/signup"];
 
 export async function middleware(request: NextRequest) {
@@ -54,6 +60,9 @@ export async function middleware(request: NextRequest) {
   const isProtectedRoute = PROTECTED_ROUTES.some((route) =>
     pathname.startsWith(route)
   );
+  const isPremiumRoute = PREMIUM_ROUTES.some((route) =>
+    pathname.startsWith(route)
+  );
   const isAuthRoute = AUTH_ROUTES.some((route) => pathname.startsWith(route));
 
   // Redirect unauthenticated users from protected routes
@@ -61,6 +70,21 @@ export async function middleware(request: NextRequest) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", pathname);
     return NextResponse.redirect(loginUrl);
+  }
+
+  // Check premium status for premium routes
+  if (isPremiumRoute && user) {
+    const { data: profile } = await supabase
+      .from("user_profiles")
+      .select("plan")
+      .eq("id", user.id)
+      .single();
+
+    // Redirect free users to upgrade page
+    // Allow admin and premium users through
+    if (profile && profile.plan !== "premium" && profile.plan !== "admin") {
+      return NextResponse.redirect(new URL("/upgrade", request.url));
+    }
   }
 
   // Redirect authenticated users from auth routes
