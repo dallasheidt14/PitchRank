@@ -1,4 +1,4 @@
-import { stripe, STRIPE_PRICE_IDS } from "@/lib/stripe/server";
+import { stripe } from "@/lib/stripe/server";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
@@ -15,9 +15,8 @@ export async function POST(req: Request) {
 
     const { priceId } = await req.json();
 
-    // Validate price ID
-    const validPriceIds = Object.values(STRIPE_PRICE_IDS);
-    if (!priceId || !validPriceIds.includes(priceId)) {
+    // Basic validation - ensure it looks like a Stripe price ID
+    if (!priceId || typeof priceId !== "string" || !priceId.startsWith("price_")) {
       return NextResponse.json({ error: "Invalid price ID" }, { status: 400 });
     }
 
