@@ -15,6 +15,7 @@ import { useUser, hasPremiumAccess } from '@/hooks/useUser';
 import { ShareButtons } from '@/components/ShareButtons';
 import { TeamSchema } from '@/components/TeamSchema';
 import { trackTeamPageViewed, trackWatchlistAdded, trackWatchlistRemoved } from '@/lib/events';
+import { toast } from '@/components/ui/Toaster';
 
 interface TeamAlias {
   id: string;
@@ -134,8 +135,18 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
           const result = await removeFromSupabaseWatchlist(teamId);
           if (!result.success) {
             console.error('Failed to remove from watchlist:', result.message);
+            toast({
+              title: 'Error',
+              description: result.message || 'Failed to remove from watchlist',
+              variant: 'error',
+            });
             return;
           }
+          toast({
+            title: 'Removed from watchlist',
+            description: `${team.team_name} has been removed`,
+            variant: 'success',
+          });
         } else {
           removeFromWatchlist(teamId);
         }
@@ -147,8 +158,18 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
           const result = await addToSupabaseWatchlist(teamId);
           if (!result.success) {
             console.error('Failed to add to watchlist:', result.message);
+            toast({
+              title: 'Error',
+              description: result.message || 'Failed to add to watchlist',
+              variant: 'error',
+            });
             return;
           }
+          toast({
+            title: 'Added to watchlist',
+            description: `${team.team_name} is now being tracked`,
+            variant: 'success',
+          });
         } else {
           addToWatchlist(teamId);
         }
