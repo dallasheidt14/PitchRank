@@ -85,11 +85,12 @@ export async function initWatchlist(): Promise<{
     const response = await fetch("/api/watchlist/init", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
     });
 
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      console.error("Failed to init watchlist:", data.error);
+      console.error("Failed to init watchlist:", response.status, data.error);
       return null;
     }
 
@@ -110,6 +111,7 @@ export async function fetchWatchlist(): Promise<WatchlistResponse | null> {
     const response = await fetch("/api/watchlist", {
       method: "GET",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
     });
 
     if (!response.ok) {
@@ -123,7 +125,7 @@ export async function fetchWatchlist(): Promise<WatchlistResponse | null> {
         };
       }
 
-      console.error("Failed to fetch watchlist:", data.error);
+      console.error("Failed to fetch watchlist:", response.status, data.error);
       return null;
     }
 
@@ -143,13 +145,17 @@ export async function addToSupabaseWatchlist(
   teamIdMaster: string
 ): Promise<{ success: boolean; message: string }> {
   try {
+    console.log("[Watchlist] Adding team to Supabase:", teamIdMaster);
+
     const response = await fetch("/api/watchlist/add", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ teamIdMaster }),
     });
 
     const data = await response.json();
+    console.log("[Watchlist] Add response:", response.status, data);
 
     if (!response.ok) {
       return { success: false, message: data.error || "Failed to add team" };
@@ -157,7 +163,7 @@ export async function addToSupabaseWatchlist(
 
     return { success: true, message: data.message || "Team added" };
   } catch (error) {
-    console.error("Error adding to watchlist:", error);
+    console.error("[Watchlist] Error adding to watchlist:", error);
     return { success: false, message: "Network error" };
   }
 }
@@ -171,13 +177,17 @@ export async function removeFromSupabaseWatchlist(
   teamIdMaster: string
 ): Promise<{ success: boolean; message: string }> {
   try {
+    console.log("[Watchlist] Removing team from Supabase:", teamIdMaster);
+
     const response = await fetch("/api/watchlist/remove", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ teamIdMaster }),
     });
 
     const data = await response.json();
+    console.log("[Watchlist] Remove response:", response.status, data);
 
     if (!response.ok) {
       return { success: false, message: data.error || "Failed to remove team" };
@@ -185,7 +195,7 @@ export async function removeFromSupabaseWatchlist(
 
     return { success: true, message: data.message || "Team removed" };
   } catch (error) {
-    console.error("Error removing from watchlist:", error);
+    console.error("[Watchlist] Error removing from watchlist:", error);
     return { success: false, message: "Network error" };
   }
 }
