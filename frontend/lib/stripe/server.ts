@@ -38,20 +38,24 @@ export const stripe = new Proxy({} as Stripe, {
 });
 
 /**
- * Stripe Price IDs for PitchRank Premium
- * These should be configured in the Stripe Dashboard
- *
- * To get your Price IDs:
- * 1. Go to Stripe Dashboard > Products
- * 2. Create a product called "PitchRank Premium"
- * 3. Add two prices:
- *    - Monthly: $6.99/month recurring
- *    - Yearly: $69.00/year recurring
- * 4. Copy the price IDs (start with price_) here
+ * Get Stripe Price IDs for PitchRank Premium
+ * Lazily loaded to read env vars at runtime, not build time
  */
+export function getStripePriceIds() {
+  return {
+    MONTHLY: process.env.STRIPE_PRICE_MONTHLY || process.env.NEXT_PUBLIC_STRIPE_PRICE_MONTHLY || "",
+    YEARLY: process.env.STRIPE_PRICE_YEARLY || process.env.NEXT_PUBLIC_STRIPE_PRICE_YEARLY || "",
+  };
+}
+
+// Keep for backwards compatibility but mark as deprecated
 export const STRIPE_PRICE_IDS = {
-  MONTHLY: process.env.STRIPE_PRICE_MONTHLY || "price_monthly_placeholder",
-  YEARLY: process.env.STRIPE_PRICE_YEARLY || "price_yearly_placeholder",
+  get MONTHLY() {
+    return getStripePriceIds().MONTHLY;
+  },
+  get YEARLY() {
+    return getStripePriceIds().YEARLY;
+  },
 } as const;
 
 /**
