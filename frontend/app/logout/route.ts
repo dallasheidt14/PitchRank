@@ -12,7 +12,9 @@ export async function GET(request: Request) {
   const next = requestUrl.searchParams.get("next") ?? "/";
 
   const supabase = await createServerSupabase();
-  await supabase.auth.signOut();
+  if (supabase) {
+    await supabase.auth.signOut();
+  }
 
   // Redirect to the specified page or home
   return NextResponse.redirect(new URL(next, requestUrl.origin));
@@ -27,7 +29,9 @@ export async function POST(request: Request) {
   const requestUrl = new URL(request.url);
 
   const supabase = await createServerSupabase();
-  await supabase.auth.signOut();
+  if (supabase) {
+    await supabase.auth.signOut();
+  }
 
   return NextResponse.redirect(new URL("/", requestUrl.origin));
 }

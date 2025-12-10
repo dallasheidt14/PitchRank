@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { createClientSupabase } from "@/lib/supabase/client";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { createClientSupabase, isSupabaseConfigured } from "@/lib/supabase/client";
 import type { User, Session, AuthChangeEvent } from "@supabase/supabase-js";
 
 export interface UserProfile {
@@ -20,6 +20,7 @@ export interface UseUserReturn {
   error: Error | null;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  isConfigured: boolean;
 }
 
 export function useUser(): UseUserReturn {
@@ -29,10 +30,14 @@ export function useUser(): UseUserReturn {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
-  // Get singleton client
-  const supabase = createClientSupabase();
+  // Check if Supabase is configured
+  const isConfigured = useMemo(() => isSupabaseConfigured(), []);
+
+  // Get singleton client (may be null if not configured)
+  const supabase = useMemo(() => createClientSupabase(), []);
 
   const fetchProfile = useCallback(async (userId: string) => {
+    if (!supabase) return null;
     try {
       const { data, error: profileError } = await supabase
         .from("user_profiles")
@@ -52,6 +57,10 @@ export function useUser(): UseUserReturn {
   }, [supabase]);
 
   const refreshUser = useCallback(async () => {
+    if (!supabase) {
+      setIsLoading(false);
+      return;
+    }
     try {
       setIsLoading(true);
       const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
@@ -78,6 +87,7 @@ export function useUser(): UseUserReturn {
   }, [supabase, fetchProfile]);
 
   const signOut = useCallback(async () => {
+    if (!supabase) return;
     try {
       const { error: signOutError } = await supabase.auth.signOut();
       if (signOutError) throw signOutError;
@@ -91,6 +101,12 @@ export function useUser(): UseUserReturn {
   }, [supabase]);
 
   useEffect(() => {
+    // Skip auth initialization if Supabase is not configured
+    if (!supabase) {
+      setIsLoading(false);
+      return;
+    }
+
     // Get initial session
     supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
       setSession(currentSession);
@@ -131,5 +147,6 @@ export function useUser(): UseUserReturn {
     error,
     signOut,
     refreshUser,
+    isConfigured,
   };
 }

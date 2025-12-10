@@ -34,10 +34,15 @@ export interface AuthUser extends User {
  * }
  * ```
  *
- * @returns The authenticated user with their profile, or null if not logged in
+ * @returns The authenticated user with their profile, or null if not logged in or Supabase not configured
  */
 export async function getUser(): Promise<AuthUser | null> {
   const supabase = await createServerSupabase();
+
+  // Return null if Supabase is not configured
+  if (!supabase) {
+    return null;
+  }
 
   const {
     data: { user },
@@ -72,6 +77,12 @@ export async function getUser(): Promise<AuthUser | null> {
  */
 export async function getSession() {
   const supabase = await createServerSupabase();
+
+  // Return null if Supabase is not configured
+  if (!supabase) {
+    return null;
+  }
+
   const {
     data: { session },
     error,

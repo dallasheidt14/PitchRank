@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { createClientSupabase } from "@/lib/supabase/client";
+import { createClientSupabase, isSupabaseConfigured } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,10 +15,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Loader2, Mail, Lock, CheckCircle2 } from "lucide-react";
+import { Loader2, Mail, Lock, CheckCircle2, AlertCircle } from "lucide-react";
 
 export default function SignupPage() {
   const router = useRouter();
+  const isConfigured = useMemo(() => isSupabaseConfigured(), []);
   const supabase = useMemo(() => createClientSupabase(), []);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,6 +30,8 @@ export default function SignupPage() {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!supabase) return;
+
     setError(null);
 
     // Validate passwords match
@@ -73,6 +76,32 @@ export default function SignupPage() {
       setIsLoading(false);
     }
   };
+
+  // Show configuration required message if Supabase is not set up
+  if (!isConfigured) {
+    return (
+      <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center px-4 py-12">
+        <Card className="w-full max-w-md" variant="elevated">
+          <CardHeader className="space-y-1 text-center">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-yellow-100">
+              <AlertCircle className="h-6 w-6 text-yellow-600" />
+            </div>
+            <CardTitle className="text-2xl font-bold tracking-tight">
+              Authentication Not Configured
+            </CardTitle>
+            <CardDescription>
+              Supabase environment variables are missing. Please configure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your .env.local file.
+            </CardDescription>
+          </CardHeader>
+          <CardFooter className="flex justify-center">
+            <Link href="/">
+              <Button variant="outline">Return to Home</Button>
+            </Link>
+          </CardFooter>
+        </Card>
+      </div>
+    );
+  }
 
   if (isSuccess) {
     return (
