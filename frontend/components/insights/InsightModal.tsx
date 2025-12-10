@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -53,13 +53,7 @@ export function InsightModal({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (isOpen && teamId) {
-      fetchInsights();
-    }
-  }, [isOpen, teamId]);
-
-  const fetchInsights = async () => {
+  const fetchInsights = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
@@ -77,7 +71,13 @@ export function InsightModal({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [teamId]);
+
+  useEffect(() => {
+    if (isOpen && teamId) {
+      fetchInsights();
+    }
+  }, [isOpen, teamId, fetchInsights]);
 
   const seasonTruth = insights?.insights.find(
     (i) => i.type === "season_truth"
