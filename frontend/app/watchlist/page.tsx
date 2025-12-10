@@ -1,30 +1,30 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import {
   Star,
   Trophy,
-  TrendingUp,
-  TrendingDown,
-  Minus,
   Filter,
   ArrowUpDown,
   Trash2,
-  Check,
   Square,
   CheckSquare,
   MapPin,
   Users,
   ChevronRight,
   Sparkles,
-  AlertCircle
+  AlertCircle,
+  Brain,
+  Zap,
+  CalendarDays,
+  RefreshCw,
+  Crown,
 } from "lucide-react";
-import { api } from "@/lib/api";
-import { getWatchedTeams, removeFromWatchlist } from "@/lib/watchlist";
+import { fetchWatchlist, removeFromSupabaseWatchlist, initWatchlist } from "@/lib/watchlist";
+import type { WatchlistResponse } from "@/app/api/watchlist/route";
 import { formatPowerScore, formatSOSIndex, cn } from "@/lib/utils";
-import type { TeamWithRanking } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -34,56 +34,55 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-// US States for filtering
-const US_STATES = [
-  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
-  "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
-  "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
-  "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
-  "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY"
-];
-
-// Age groups
-const AGE_GROUPS = [10, 11, 12, 13, 14, 15, 16, 17, 18];
+import { InsightModal, DeltaIndicator } from "@/components/insights";
+import { useUser, hasPremiumAccess } from "@/hooks/useUser";
+import { useWatchlistMigration } from "@/hooks/useWatchlistMigration";
 
 // Sort options
-type SortOption = "rank" | "power" | "name" | "record";
+type SortOption = "rank" | "power" | "name" | "record" | "movers" | "activity";
 
 export default function WatchlistPage() {
-  const [watchedIds, setWatchedIds] = useState<string[]>([]);
+  const { user, profile, isLoading: userLoading } = useUser();
+  const queryClient = useQueryClient();
+
+  // Run localStorage migration for premium users
+  useWatchlistMigration(profile, user?.id ?? null);
+
+  // State
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filterAge, setFilterAge] = useState<string>("all");
   const [filterState, setFilterState] = useState<string>("all");
   const [filterGender, setFilterGender] = useState<string>("all");
   const [sortBy, setSortBy] = useState<SortOption>("rank");
-  const [mounted, setMounted] = useState(false);
+  const [insightModalTeam, setInsightModalTeam] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
 
-  // Load watched teams from localStorage on mount
+  const isPremium = hasPremiumAccess(profile);
+
+  // Initialize watchlist on mount for premium users
   useEffect(() => {
-    setMounted(true);
-    setWatchedIds(getWatchedTeams());
-  }, []);
+    if (isPremium && user) {
+      initWatchlist();
+    }
+  }, [isPremium, user]);
 
-  // Fetch all watched teams data using parallel queries
-  const teamQueries = useQueries({
-    queries: watchedIds.map((id) => ({
-      queryKey: ["team", id],
-      queryFn: () => api.getTeam(id),
-      staleTime: 10 * 60 * 1000,
-      gcTime: 60 * 60 * 1000,
-      retry: 1,
-    })),
+  // Fetch watchlist from Supabase
+  const {
+    data: watchlistData,
+    isLoading: watchlistLoading,
+    error: watchlistError,
+    refetch: refetchWatchlist,
+  } = useQuery<WatchlistResponse | null>({
+    queryKey: ["watchlist"],
+    queryFn: fetchWatchlist,
+    enabled: isPremium && !!user,
+    staleTime: 2 * 60 * 1000, // 2 minutes
+    gcTime: 10 * 60 * 1000, // 10 minutes
   });
 
-  const isLoading = teamQueries.some((q) => q.isLoading);
-  const teams = teamQueries
-    .filter((q) => q.data)
-    .map((q) => q.data as TeamWithRanking);
-
-  // Track failed queries to show error message
-  const failedQueries = teamQueries.filter((q) => q.isError);
-  const hasFailures = failedQueries.length > 0;
+  const teams = useMemo(() => watchlistData?.teams ?? [], [watchlistData?.teams]);
 
   // Filter and sort teams
   const filteredTeams = useMemo(() => {
@@ -104,7 +103,9 @@ export default function WatchlistPage() {
     // Apply sort
     switch (sortBy) {
       case "rank":
-        result.sort((a, b) => (a.rank_in_cohort_final ?? 999) - (b.rank_in_cohort_final ?? 999));
+        result.sort(
+          (a, b) => (a.rank_in_cohort_final ?? 999) - (b.rank_in_cohort_final ?? 999)
+        );
         break;
       case "power":
         result.sort((a, b) => (b.power_score_final ?? 0) - (a.power_score_final ?? 0));
@@ -114,10 +115,24 @@ export default function WatchlistPage() {
         break;
       case "record":
         result.sort((a, b) => {
-          const aWinPct = a.games_played > 0 ? (a.wins + a.draws * 0.5) / a.games_played : 0;
-          const bWinPct = b.games_played > 0 ? (b.wins + b.draws * 0.5) / b.games_played : 0;
+          const aWinPct =
+            a.games_played > 0 ? (a.wins + a.draws * 0.5) / a.games_played : 0;
+          const bWinPct =
+            b.games_played > 0 ? (b.wins + b.draws * 0.5) / b.games_played : 0;
           return bWinPct - aWinPct;
         });
+        break;
+      case "movers":
+        // Sort by absolute rank change (biggest movers first)
+        result.sort((a, b) => {
+          const aChange = Math.abs(a.rank_change_7d ?? 0);
+          const bChange = Math.abs(b.rank_change_7d ?? 0);
+          return bChange - aChange;
+        });
+        break;
+      case "activity":
+        // Sort by recent games count
+        result.sort((a, b) => (b.new_games_count ?? 0) - (a.new_games_count ?? 0));
         break;
     }
 
@@ -135,8 +150,21 @@ export default function WatchlistPage() {
     return Array.from(ages).sort((a, b) => (a ?? 0) - (b ?? 0)) as number[];
   }, [teams]);
 
+  // Calculate dashboard stats
+  const dashboardStats = useMemo(() => {
+    const bigMovers = teams.filter(
+      (t) => t.rank_change_7d !== null && Math.abs(t.rank_change_7d) >= 5
+    ).length;
+    const recentlyActive = teams.filter((t) => t.new_games_count > 0).length;
+    const topTenTeams = teams.filter(
+      (t) => t.rank_in_cohort_final !== null && t.rank_in_cohort_final <= 10
+    ).length;
+
+    return { bigMovers, recentlyActive, topTenTeams };
+  }, [teams]);
+
   // Selection handlers
-  const toggleSelect = (id: string) => {
+  const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -146,33 +174,38 @@ export default function WatchlistPage() {
       }
       return next;
     });
-  };
+  }, []);
 
-  const selectAll = () => {
+  const selectAll = useCallback(() => {
     setSelectedIds(new Set(filteredTeams.map((t) => t.team_id_master)));
-  };
+  }, [filteredTeams]);
 
-  const deselectAll = () => {
+  const deselectAll = useCallback(() => {
     setSelectedIds(new Set());
-  };
+  }, []);
 
-  const removeSelected = () => {
-    selectedIds.forEach((id) => {
-      removeFromWatchlist(id);
-    });
-    setWatchedIds(getWatchedTeams());
-    setSelectedIds(new Set());
-  };
+  const removeTeams = useCallback(
+    async (teamIds: string[]) => {
+      for (const id of teamIds) {
+        await removeFromSupabaseWatchlist(id);
+      }
+      // Refetch watchlist
+      queryClient.invalidateQueries({ queryKey: ["watchlist"] });
+      setSelectedIds(new Set());
+    },
+    [queryClient]
+  );
 
-  const removeSingle = (id: string) => {
-    removeFromWatchlist(id);
-    setWatchedIds(getWatchedTeams());
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-  };
+  const removeSelected = useCallback(() => {
+    removeTeams(Array.from(selectedIds));
+  }, [removeTeams, selectedIds]);
+
+  const removeSingle = useCallback(
+    (id: string) => {
+      removeTeams([id]);
+    },
+    [removeTeams]
+  );
 
   // Rank badge styling
   const getRankBadgeClass = (rank: number | null | undefined) => {
@@ -199,7 +232,8 @@ export default function WatchlistPage() {
     }
   };
 
-  if (!mounted) {
+  // Loading state
+  if (userLoading) {
     return (
       <div className="min-h-screen bg-background">
         <div className="container px-4 py-12">
@@ -216,51 +250,154 @@ export default function WatchlistPage() {
     );
   }
 
+  // Not authenticated
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-background">
+        <div className="container px-4 py-16">
+          <div className="text-center max-w-md mx-auto">
+            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-muted mb-6">
+              <Crown className="h-10 w-10 text-muted-foreground" />
+            </div>
+            <h1 className="text-2xl font-display mb-3">Sign In Required</h1>
+            <p className="text-muted-foreground mb-6">
+              Please sign in to access your Season Dashboard.
+            </p>
+            <Link href="/login">
+              <Button size="lg">Sign In</Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Not premium
+  if (!isPremium) {
+    return (
+      <div className="min-h-screen bg-background">
+        <div className="container px-4 py-16">
+          <div className="text-center max-w-md mx-auto">
+            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 mb-6">
+              <Crown className="h-10 w-10 text-white" />
+            </div>
+            <h1 className="text-2xl font-display mb-3">Premium Feature</h1>
+            <p className="text-muted-foreground mb-6">
+              Upgrade to Premium to access your Season Dashboard with persistent
+              watchlists, team insights, and more.
+            </p>
+            <Link href="/upgrade">
+              <Button size="lg" className="gap-2">
+                <Sparkles className="h-5 w-5" />
+                Upgrade to Premium
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       {/* Hero Section */}
-      <section className="relative overflow-hidden bg-primary py-12 sm:py-16">
+      <section className="relative overflow-hidden bg-gradient-to-br from-primary via-primary to-primary/90 py-12 sm:py-16">
         {/* Diagonal stripe pattern */}
-        <div className="absolute inset-0 bg-diagonal-stripes opacity-20" />
+        <div className="absolute inset-0 bg-diagonal-stripes opacity-10" />
 
         {/* Accent diagonal */}
         <div
-          className="absolute -right-20 -top-20 w-96 h-96 bg-accent/30 rotate-12 transform"
+          className="absolute -right-20 -top-20 w-96 h-96 bg-accent/20 rotate-12 transform"
           style={{ clipPath: "polygon(0 0, 100% 0, 100% 100%, 20% 100%)" }}
         />
 
         <div className="container relative px-4">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-3 bg-accent rounded-xl">
-              <Trophy className="h-8 w-8 text-accent-foreground" />
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-accent rounded-xl">
+                <Trophy className="h-8 w-8 text-accent-foreground" />
+              </div>
+              <div>
+                <h1 className="text-3xl sm:text-4xl md:text-5xl font-display text-primary-foreground tracking-tight">
+                  My Season Dashboard
+                </h1>
+                <p className="text-primary-foreground/80 font-sans text-sm sm:text-base mt-1">
+                  {teams.length} {teams.length === 1 ? "team" : "teams"} in your watchlist
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-3xl sm:text-4xl md:text-5xl font-display text-primary-foreground tracking-tight">
-                Your Watchlist
-              </h1>
-              <p className="text-primary-foreground/80 font-sans text-sm sm:text-base mt-1">
-                {teams.length} {teams.length === 1 ? "team" : "teams"} tracked
-              </p>
-            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => refetchWatchlist()}
+              className="gap-1.5"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </Button>
           </div>
+
+          {/* Dashboard Stats */}
+          {teams.length > 0 && (
+            <div className="grid grid-cols-3 gap-4 max-w-xl">
+              <div className="bg-white/10 backdrop-blur rounded-lg p-3 text-center">
+                <Zap className="h-5 w-5 text-amber-300 mx-auto mb-1" />
+                <p className="text-2xl font-bold text-primary-foreground">
+                  {dashboardStats.bigMovers}
+                </p>
+                <p className="text-xs text-primary-foreground/70">Big Movers</p>
+              </div>
+              <div className="bg-white/10 backdrop-blur rounded-lg p-3 text-center">
+                <CalendarDays className="h-5 w-5 text-green-300 mx-auto mb-1" />
+                <p className="text-2xl font-bold text-primary-foreground">
+                  {dashboardStats.recentlyActive}
+                </p>
+                <p className="text-xs text-primary-foreground/70">Active This Week</p>
+              </div>
+              <div className="bg-white/10 backdrop-blur rounded-lg p-3 text-center">
+                <Crown className="h-5 w-5 text-yellow-300 mx-auto mb-1" />
+                <p className="text-2xl font-bold text-primary-foreground">
+                  {dashboardStats.topTenTeams}
+                </p>
+                <p className="text-xs text-primary-foreground/70">Top 10 Teams</p>
+              </div>
+            </div>
+          )}
         </div>
       </section>
 
       <div className="container px-4 py-8">
-        {watchedIds.length === 0 ? (
+        {watchlistLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[...Array(6)].map((_, i) => (
+              <div
+                key={i}
+                className="h-56 bg-muted rounded-xl animate-pulse"
+                style={{ animationDelay: `${i * 100}ms` }}
+              />
+            ))}
+          </div>
+        ) : watchlistError ? (
+          <div className="text-center py-12">
+            <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Error Loading Watchlist</h2>
+            <p className="text-muted-foreground mb-4">
+              There was a problem loading your watchlist.
+            </p>
+            <Button onClick={() => refetchWatchlist()}>Try Again</Button>
+          </div>
+        ) : teams.length === 0 ? (
           // Empty State
           <div className="text-center py-16 sm:py-24">
-            <div
-              className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-muted mb-6 animate-in fade-in zoom-in duration-500"
-            >
+            <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-muted mb-6 animate-in fade-in zoom-in duration-500">
               <Star className="h-12 w-12 text-muted-foreground" />
             </div>
             <h2 className="text-2xl sm:text-3xl font-display text-foreground mb-3">
               No Teams Yet
             </h2>
             <p className="text-muted-foreground font-sans max-w-md mx-auto mb-8">
-              Start building your collection by adding teams from the rankings.
-              Track their performance and never miss a move.
+              Start building your dashboard by adding teams from the rankings.
+              Track their performance, get insights, and never miss a move.
             </p>
             <Link href="/rankings">
               <Button size="lg" className="gap-2 font-semibold">
@@ -322,8 +459,11 @@ export default function WatchlistPage() {
                 {/* Sort */}
                 <div className="flex items-center gap-2 ml-2">
                   <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
-                  <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
-                    <SelectTrigger className="w-[120px]">
+                  <Select
+                    value={sortBy}
+                    onValueChange={(v) => setSortBy(v as SortOption)}
+                  >
+                    <SelectTrigger className="w-[130px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -331,6 +471,8 @@ export default function WatchlistPage() {
                       <SelectItem value="power">By Power</SelectItem>
                       <SelectItem value="name">By Name</SelectItem>
                       <SelectItem value="record">By Record</SelectItem>
+                      <SelectItem value="movers">Big Movers</SelectItem>
+                      <SelectItem value="activity">Recent Activity</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -375,17 +517,6 @@ export default function WatchlistPage() {
               </div>
             </div>
 
-            {/* Error message for failed fetches */}
-            {hasFailures && (
-              <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg flex items-center gap-2 text-sm text-destructive">
-                <AlertCircle className="h-4 w-4 flex-shrink-0" />
-                <span>
-                  {failedQueries.length} {failedQueries.length === 1 ? 'team' : 'teams'} could not be loaded.
-                  They may have been removed or there was a network error.
-                </span>
-              </div>
-            )}
-
             {/* Results Info */}
             {filteredTeams.length !== teams.length && (
               <p className="text-sm text-muted-foreground mb-4">
@@ -394,21 +525,9 @@ export default function WatchlistPage() {
             )}
 
             {/* Team Grid */}
-            {isLoading ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {[...Array(Math.min(watchedIds.length, 6))].map((_, i) => (
-                  <div
-                    key={i}
-                    className="h-48 bg-muted rounded-xl animate-pulse"
-                    style={{ animationDelay: `${i * 100}ms` }}
-                  />
-                ))}
-              </div>
-            ) : filteredTeams.length === 0 ? (
+            {filteredTeams.length === 0 ? (
               <div className="text-center py-12">
-                <p className="text-muted-foreground">
-                  No teams match your filters.
-                </p>
+                <p className="text-muted-foreground">No teams match your filters.</p>
                 <Button
                   variant="link"
                   onClick={() => {
@@ -431,13 +550,20 @@ export default function WatchlistPage() {
                       "animate-in fade-in slide-in-from-bottom-4",
                       selectedIds.has(team.team_id_master) && "ring-2 ring-primary"
                     )}
-                    style={{ animationDelay: `${index * 50}ms`, animationFillMode: "backwards" }}
+                    style={{
+                      animationDelay: `${index * 50}ms`,
+                      animationFillMode: "backwards",
+                    }}
                   >
                     {/* Selection checkbox */}
                     <button
                       onClick={() => toggleSelect(team.team_id_master)}
                       className="absolute top-3 right-3 z-10 p-1 rounded hover:bg-muted/80 transition-colors"
-                      aria-label={selectedIds.has(team.team_id_master) ? "Deselect team" : "Select team"}
+                      aria-label={
+                        selectedIds.has(team.team_id_master)
+                          ? "Deselect team"
+                          : "Select team"
+                      }
                     >
                       {selectedIds.has(team.team_id_master) ? (
                         <CheckSquare className="h-5 w-5 text-primary" />
@@ -446,16 +572,30 @@ export default function WatchlistPage() {
                       )}
                     </button>
 
-                    <CardContent className="p-5">
+                    {/* New games badge */}
+                    {team.new_games_count > 0 && (
+                      <div className="absolute top-3 left-3 z-10">
+                        <span className="inline-flex items-center gap-1 text-xs font-medium bg-green-500/20 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full">
+                          <CalendarDays className="h-3 w-3" />
+                          {team.new_games_count} new
+                        </span>
+                      </div>
+                    )}
+
+                    <CardContent className="p-5 pt-10">
                       {/* Rank Badge & Team Info */}
                       <div className="flex items-start gap-4 mb-4">
-                        <div
-                          className={cn(
-                            "flex items-center justify-center w-12 h-12 rounded-lg font-display text-lg font-bold flex-shrink-0",
-                            getRankBadgeClass(team.rank_in_cohort_final)
-                          )}
-                        >
-                          {team.rank_in_cohort_final ?? "—"}
+                        <div className="flex flex-col items-center gap-1">
+                          <div
+                            className={cn(
+                              "flex items-center justify-center w-12 h-12 rounded-lg font-display text-lg font-bold flex-shrink-0",
+                              getRankBadgeClass(team.rank_in_cohort_final)
+                            )}
+                          >
+                            {team.rank_in_cohort_final ?? "—"}
+                          </div>
+                          {/* Rank delta */}
+                          <DeltaIndicator value={team.rank_change_7d} inverse />
                         </div>
                         <div className="flex-1 min-w-0">
                           <h3 className="font-display text-lg leading-tight truncate">
@@ -484,19 +624,25 @@ export default function WatchlistPage() {
                       {/* Stats Grid */}
                       <div className="grid grid-cols-3 gap-3 mb-4">
                         <div className="text-center p-2 bg-muted/50 rounded-lg">
-                          <p className="text-xs text-muted-foreground uppercase tracking-wide">Power</p>
+                          <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                            Power
+                          </p>
                           <p className="font-mono font-semibold text-sm">
                             {formatPowerScore(team.power_score_final)}
                           </p>
                         </div>
                         <div className="text-center p-2 bg-muted/50 rounded-lg">
-                          <p className="text-xs text-muted-foreground uppercase tracking-wide">SOS</p>
+                          <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                            SOS
+                          </p>
                           <p className="font-mono font-semibold text-sm">
                             {formatSOSIndex(team.sos_norm)}
                           </p>
                         </div>
                         <div className="text-center p-2 bg-muted/50 rounded-lg">
-                          <p className="text-xs text-muted-foreground uppercase tracking-wide">Record</p>
+                          <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                            Record
+                          </p>
                           <p className="font-mono font-semibold text-sm">
                             {team.wins}-{team.losses}-{team.draws}
                           </p>
@@ -514,12 +660,28 @@ export default function WatchlistPage() {
                           <Trash2 className="h-3.5 w-3.5" />
                           Remove
                         </Button>
-                        <Link href={`/teams/${team.team_id_master}`}>
-                          <Button variant="ghost" size="sm" className="text-xs gap-1">
-                            View Team
-                            <ChevronRight className="h-3.5 w-3.5" />
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              setInsightModalTeam({
+                                id: team.team_id_master,
+                                name: team.team_name,
+                              })
+                            }
+                            className="text-xs gap-1 text-primary hover:text-primary"
+                          >
+                            <Brain className="h-3.5 w-3.5" />
+                            Insights
                           </Button>
-                        </Link>
+                          <Link href={`/teams/${team.team_id_master}`}>
+                            <Button variant="ghost" size="sm" className="text-xs gap-1">
+                              View
+                              <ChevronRight className="h-3.5 w-3.5" />
+                            </Button>
+                          </Link>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -529,6 +691,16 @@ export default function WatchlistPage() {
           </>
         )}
       </div>
+
+      {/* Insight Modal */}
+      {insightModalTeam && (
+        <InsightModal
+          isOpen={!!insightModalTeam}
+          onClose={() => setInsightModalTeam(null)}
+          teamId={insightModalTeam.id}
+          teamName={insightModalTeam.name}
+        />
+      )}
     </div>
   );
 }
