@@ -6,9 +6,6 @@ import Link from "next/link";
 import {
   Star,
   Trophy,
-  TrendingUp,
-  TrendingDown,
-  Minus,
   Filter,
   ArrowUpDown,
   Trash2,
@@ -26,7 +23,7 @@ import {
   Crown,
 } from "lucide-react";
 import { fetchWatchlist, removeFromSupabaseWatchlist, initWatchlist } from "@/lib/watchlist";
-import type { WatchlistTeam, WatchlistResponse } from "@/app/api/watchlist/route";
+import type { WatchlistResponse } from "@/app/api/watchlist/route";
 import { formatPowerScore, formatSOSIndex, cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -85,8 +82,7 @@ export default function WatchlistPage() {
     gcTime: 10 * 60 * 1000, // 10 minutes
   });
 
-  const teams = watchlistData?.teams ?? [];
-  const watchlist = watchlistData?.watchlist;
+  const teams = useMemo(() => watchlistData?.teams ?? [], [watchlistData?.teams]);
 
   // Filter and sort teams
   const filteredTeams = useMemo(() => {
