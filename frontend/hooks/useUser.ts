@@ -10,6 +10,31 @@ export interface UserProfile {
   plan: "free" | "premium" | "admin";
   created_at: string;
   updated_at: string;
+  // Stripe subscription fields
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  subscription_status: string | null;
+  subscription_period_end: string | null;
+}
+
+/**
+ * Check if user has premium access (premium or admin plan)
+ */
+export function hasPremiumAccess(profile: UserProfile | null): boolean {
+  if (!profile) return false;
+  return profile.plan === "premium" || profile.plan === "admin";
+}
+
+/**
+ * Check if subscription is active
+ */
+export function isSubscriptionActive(profile: UserProfile | null): boolean {
+  if (!profile) return false;
+  return (
+    profile.subscription_status === "active" ||
+    profile.subscription_status === "trialing" ||
+    profile.plan === "admin"
+  );
 }
 
 export interface UseUserReturn {
