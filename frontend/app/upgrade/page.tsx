@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Zap, Crown, Shield, TrendingUp, Star } from "lucide-react";
+import { Check, Zap, Crown, Shield, TrendingUp, Star, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -26,7 +26,7 @@ const FEATURES = [
   { icon: Star, text: "Unlimited team comparisons" },
   { icon: Shield, text: "Advanced analytics & insights" },
   { icon: Zap, text: "Real-time ranking updates" },
-  { icon: Crown, text: "Priority support" },
+  { icon: Pencil, text: "Edit Access - merge duplicate teams, find missing game history" },
 ];
 
 export default function UpgradePage() {
