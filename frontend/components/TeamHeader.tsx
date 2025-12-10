@@ -9,8 +9,9 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { Star, ChevronDown, Loader2 } from 'lucide-react';
-import { addToWatchlist, removeFromWatchlist, isWatched } from '@/lib/watchlist';
+import { addToWatchlist, removeFromWatchlist, isWatched, addToSupabaseWatchlist, removeFromSupabaseWatchlist } from '@/lib/watchlist';
 import { formatPowerScore } from '@/lib/utils';
+import { useUser, hasPremiumAccess } from '@/hooks/useUser';
 import { ShareButtons } from '@/components/ShareButtons';
 import { TeamSchema } from '@/components/TeamSchema';
 import { trackTeamPageViewed, trackWatchlistAdded, trackWatchlistRemoved } from '@/lib/events';
@@ -37,7 +38,10 @@ interface TeamHeaderProps {
  */
 export function TeamHeader({ teamId }: TeamHeaderProps) {
   const { data: team, isLoading: teamLoading, isError: teamError, error: teamErrorObj, refetch: refetchTeam } = useTeam(teamId);
+  const { profile } = useUser();
+  const isPremium = hasPremiumAccess(profile);
   const [watched, setWatched] = useState(false);
+  const [isToggling, setIsToggling] = useState(false);
   const hasTrackedPageView = useRef(false);
 
   // Aliases popover state
@@ -110,8 +114,8 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
     }
   }, [team]);
 
-  const handleWatchToggle = () => {
-    if (!team) return;
+  const handleWatchToggle = async () => {
+    if (!team || isToggling) return;
 
     const eventPayload = {
       team_id_master: teamId,
@@ -121,14 +125,38 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
       rank_in_cohort_final: team.rank_in_cohort_final,
     };
 
-    if (watched) {
-      removeFromWatchlist(teamId);
-      setWatched(false);
-      trackWatchlistRemoved(eventPayload);
-    } else {
-      addToWatchlist(teamId);
-      setWatched(true);
-      trackWatchlistAdded(eventPayload);
+    setIsToggling(true);
+
+    try {
+      if (watched) {
+        // Remove from watchlist
+        if (isPremium) {
+          const result = await removeFromSupabaseWatchlist(teamId);
+          if (!result.success) {
+            console.error('Failed to remove from watchlist:', result.message);
+            return;
+          }
+        } else {
+          removeFromWatchlist(teamId);
+        }
+        setWatched(false);
+        trackWatchlistRemoved(eventPayload);
+      } else {
+        // Add to watchlist
+        if (isPremium) {
+          const result = await addToSupabaseWatchlist(teamId);
+          if (!result.success) {
+            console.error('Failed to add to watchlist:', result.message);
+            return;
+          }
+        } else {
+          addToWatchlist(teamId);
+        }
+        setWatched(true);
+        trackWatchlistAdded(eventPayload);
+      }
+    } finally {
+      setIsToggling(false);
     }
   };
 
@@ -253,11 +281,16 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                 variant={watched ? "secondary" : "outline"}
                 size="sm"
                 onClick={handleWatchToggle}
+                disabled={isToggling}
                 className={`transition-colors duration-300 ${watched ? '' : 'bg-transparent border-primary-foreground text-primary-foreground hover:bg-primary-foreground hover:text-primary'}`}
                 aria-label={watched ? "Unwatch team" : "Watch team"}
               >
-                <Star className={`h-4 w-4 mr-1 ${watched ? 'fill-current' : ''}`} />
-                {watched ? 'Watching' : 'Watch'}
+                {isToggling ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : (
+                  <Star className={`h-4 w-4 mr-1 ${watched ? 'fill-current' : ''}`} />
+                )}
+                {isToggling ? 'Saving...' : watched ? 'Watching' : 'Watch'}
               </Button>
             </div>
             <div className="text-left sm:text-right">
