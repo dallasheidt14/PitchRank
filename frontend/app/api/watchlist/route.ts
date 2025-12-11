@@ -112,6 +112,13 @@ export async function GET() {
       .eq("is_default", true)
       .single();
 
+    console.log("[Watchlist API] Watchlist lookup:", {
+      hasWatchlist: !!watchlist,
+      watchlistId: watchlist?.id,
+      error: watchlistError?.code,
+      errorMessage: watchlistError?.message,
+    });
+
     if (watchlistError && watchlistError.code !== "PGRST116") {
       console.error("Error fetching watchlist:", watchlistError);
       return NextResponse.json(
@@ -120,11 +127,17 @@ export async function GET() {
       );
     }
 
-    // No watchlist exists - return empty response
+    // No watchlist exists - return empty response with proper structure
     if (!watchlist) {
       console.log("[Watchlist API] No watchlist found for user, returning empty");
       return NextResponse.json({
-        watchlist: null,
+        watchlist: {
+          id: "",
+          name: "",
+          is_default: true,
+          created_at: "",
+          updated_at: "",
+        },
         teams: [],
       });
     }
