@@ -113,6 +113,7 @@ export async function GET() {
       .single();
 
     console.log("[Watchlist API] Watchlist lookup:", {
+      userId: user.id,
       hasWatchlist: !!watchlist,
       watchlistId: watchlist?.id,
       error: watchlistError?.code,
@@ -130,6 +131,20 @@ export async function GET() {
     // No watchlist exists - return empty response with proper structure
     if (!watchlist) {
       console.log("[Watchlist API] No watchlist found for user, returning empty");
+      // Try to find ANY watchlist for this user (not just default) for debugging
+      const { data: anyWatchlist, error: anyError } = await supabase
+        .from("watchlists")
+        .select("*")
+        .eq("user_id", user.id)
+        .limit(5);
+      
+      console.log("[Watchlist API] Debug - Any watchlists for user:", {
+        userId: user.id,
+        count: anyWatchlist?.length ?? 0,
+        watchlists: anyWatchlist?.map(w => ({ id: w.id, name: w.name, is_default: w.is_default })) ?? [],
+        error: anyError?.message,
+      });
+      
       return NextResponse.json({
         watchlist: {
           id: "",
@@ -139,6 +154,12 @@ export async function GET() {
           updated_at: "",
         },
         teams: [],
+        debug: {
+          userId: user.id,
+          watchlistNotFound: true,
+          anyWatchlistsFound: anyWatchlist?.length ?? 0,
+          watchlistIds: anyWatchlist?.map(w => w.id) ?? [],
+        },
       });
     }
 
