@@ -195,7 +195,24 @@ export async function GET() {
       typedItems.map((item: WatchlistItem) => [item.team_id_master, item.created_at])
     );
 
-    // Fetch full team data from rankings_view
+    // First fetch basic team data from teams table (this has ALL teams)
+    // This ensures we return all watched teams, even those without rankings
+    const { data: teamsData, error: teamsError } = await supabase
+      .from("teams")
+      .select("team_id_master, team_name, club_name, state, age, gender")
+      .in("team_id_master", teamIds);
+
+    if (teamsError) {
+      console.error("Error fetching teams:", teamsError);
+      return NextResponse.json(
+        { error: "Failed to fetch team data" },
+        { status: 500 }
+      );
+    }
+
+    console.log("[Watchlist API] Teams found:", teamsData?.length ?? 0, "of", teamIds.length);
+
+    // Fetch ranking data from rankings_view (may not have all teams)
     const { data: rankingsData, error: rankingsError } = await supabase
       .from("rankings_view")
       .select("*")
@@ -203,8 +220,13 @@ export async function GET() {
 
     if (rankingsError) {
       console.error("Error fetching rankings:", rankingsError);
-      // Continue with partial data
+      // Continue with partial data - teams can still be shown without rankings
     }
+
+    // Create a map of rankings by team_id_master for quick lookup
+    const rankingsMap = new Map(
+      ((rankingsData || []) as RankingRow[]).map((r: RankingRow) => [r.team_id_master, r])
+    );
 
     // Fetch state rankings for state rank
     const { data: stateRankingsData, error: stateRankingsError } = await supabase
@@ -302,30 +324,46 @@ export async function GET() {
       }
     }
 
-    // Build response teams array
-    const teams: WatchlistTeam[] = ((rankingsData || []) as RankingRow[]).map((ranking: RankingRow) => ({
-      team_id_master: ranking.team_id_master,
-      team_name: ranking.team_name,
-      club_name: ranking.club_name,
-      state: ranking.state,
-      age: ranking.age,
-      gender: ranking.gender as "M" | "F" | "B" | "G",
-      rank_in_cohort_final: ranking.rank_in_cohort_final,
-      rank_in_state_final: stateRankMap.get(ranking.team_id_master) ?? null,
-      power_score_final: ranking.power_score_final,
-      sos_norm: ranking.sos_norm,
-      rank_change_7d: ranking.rank_change_7d,
-      rank_change_30d: ranking.rank_change_30d,
-      wins: ranking.wins || 0,
-      losses: ranking.losses || 0,
-      draws: ranking.draws || 0,
-      games_played: ranking.games_played || 0,
-      total_games_played: ranking.total_games_played || 0,
-      win_percentage: ranking.win_percentage,
-      new_games_count: newGamesMap.get(ranking.team_id_master) || 0,
-      last_game_date: lastGameMap.get(ranking.team_id_master) || null,
-      watchlist_added_at: itemMap.get(ranking.team_id_master) || "",
-    }));
+    // Define type for team data from teams table
+    type TeamRow = {
+      team_id_master: string;
+      team_name: string;
+      club_name: string | null;
+      state: string | null;
+      age: number | null;
+      gender: string;
+    };
+
+    // Build response teams array using teamsData as base (ensures ALL watched teams appear)
+    // Then enrich with ranking data where available
+    const teams: WatchlistTeam[] = ((teamsData || []) as TeamRow[]).map((team: TeamRow) => {
+      const ranking = rankingsMap.get(team.team_id_master);
+
+      return {
+        team_id_master: team.team_id_master,
+        team_name: team.team_name,
+        club_name: team.club_name,
+        state: team.state,
+        age: team.age,
+        gender: team.gender as "M" | "F" | "B" | "G",
+        // Ranking data (may be null if team has no rankings yet)
+        rank_in_cohort_final: ranking?.rank_in_cohort_final ?? null,
+        rank_in_state_final: stateRankMap.get(team.team_id_master) ?? null,
+        power_score_final: ranking?.power_score_final ?? null,
+        sos_norm: ranking?.sos_norm ?? null,
+        rank_change_7d: ranking?.rank_change_7d ?? null,
+        rank_change_30d: ranking?.rank_change_30d ?? null,
+        wins: ranking?.wins || 0,
+        losses: ranking?.losses || 0,
+        draws: ranking?.draws || 0,
+        games_played: ranking?.games_played || 0,
+        total_games_played: ranking?.total_games_played || 0,
+        win_percentage: ranking?.win_percentage ?? null,
+        new_games_count: newGamesMap.get(team.team_id_master) || 0,
+        last_game_date: lastGameMap.get(team.team_id_master) || null,
+        watchlist_added_at: itemMap.get(team.team_id_master) || "",
+      };
+    });
 
     return NextResponse.json({
       watchlist: {
