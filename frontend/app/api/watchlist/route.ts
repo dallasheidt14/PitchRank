@@ -105,12 +105,31 @@ export async function GET() {
     }
 
     // Get user's default watchlist
-    const { data: watchlist, error: watchlistError } = await supabase
+    // First try to find default watchlist
+    let { data: watchlist, error: watchlistError } = await supabase
       .from("watchlists")
       .select("*")
       .eq("user_id", user.id)
       .eq("is_default", true)
       .single();
+
+    // If no default watchlist found, get the most recent watchlist (fallback)
+    if (!watchlist && watchlistError?.code === "PGRST116") {
+      console.log("[Watchlist API] No default watchlist found, trying most recent watchlist");
+      const { data: watchlists, error: listError } = await supabase
+        .from("watchlists")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      
+      if (listError) {
+        watchlistError = listError;
+      } else if (watchlists && watchlists.length > 0) {
+        watchlist = watchlists[0];
+        console.log("[Watchlist API] Using most recent watchlist as fallback:", watchlist.id);
+      }
+    }
 
     console.log("[Watchlist API] Watchlist lookup:", {
       userId: user.id,
