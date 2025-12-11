@@ -2612,7 +2612,12 @@ elif section == "🔀 Team Merge Manager":
                                         # High overlap confirms they're likely duplicates
                                         overlap_bonus = 0.10 * opponent_overlap
 
-                                        score = min(1.0, base_score + overlap_bonus)
+                                        raw_score = min(1.0, base_score + overlap_bonus)
+
+                                        # CRITICAL: Cap the final confidence at the name similarity
+                                        # If names are only 85% similar, confidence should never exceed 85%
+                                        # This prevents "Colorado EDGE Eagles" matching "Colorado EDGE Legends" at 100%
+                                        score = min(raw_score, name_sim * roman_penalty)
 
                                         if score >= min_confidence:
                                             suggestion_key = f"{team_a['team_id_master']}_{team_b['team_id_master']}"
