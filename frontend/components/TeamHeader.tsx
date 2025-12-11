@@ -240,9 +240,9 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
           // #region agent log
           fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TeamHeader.tsx:210',message:'Before refetchQueries',data:{teamId},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'K'})}).catch(()=>{});
           // #endregion
-          const refetchResult = await queryClient.refetchQueries({ queryKey: ['watchlist'] });
+          await queryClient.refetchQueries({ queryKey: ['watchlist'] });
           // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TeamHeader.tsx:212',message:'After refetchQueries',data:{teamId,refetchCount:refetchResult.length,refetchSuccess:refetchResult[0]?.status==='success'},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'K'})}).catch(()=>{});
+          fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TeamHeader.tsx:212',message:'After refetchQueries completed',data:{teamId},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'K'})}).catch(()=>{});
           // #endregion
         } else {
           // #region agent log
