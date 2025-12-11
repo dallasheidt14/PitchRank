@@ -2354,7 +2354,7 @@ elif section == "🔀 Team Merge Manager":
                         query = query.eq('state_code', manual_state_filter)
 
                     teams_result = execute_with_retry(
-                        lambda q=query: q.order('team_name').limit(2000)
+                        lambda q=query: q.order('team_name').limit(10000)
                     )
                     all_teams = teams_result.data or []
 
@@ -2594,7 +2594,7 @@ elif section == "🔀 Team Merge Manager":
                                 query = query.eq('state_code', state_filter)
 
                             teams_result = execute_with_retry(
-                                lambda q=query: q.limit(2000)
+                                lambda q=query: q.limit(10000)
                             )
                             teams = teams_result.data or []
 
