@@ -114,6 +114,7 @@ export async function GET() {
       .single();
 
     // If no default watchlist found, get the most recent watchlist (fallback)
+    // This handles cases where watchlists exist but is_default flag is missing
     if (!watchlist && watchlistError?.code === "PGRST116") {
       console.log("[Watchlist API] No default watchlist found, trying most recent watchlist");
       const { data: watchlists, error: listError } = await supabase
