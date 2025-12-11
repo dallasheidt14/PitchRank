@@ -140,8 +140,7 @@ class EnhancedETLPipeline:
             logger.warning(f"Could not preload alias cache: {e}")
             self.alias_cache = {}
         
-        # Use Modular11-specific matcher for Modular11 provider (with age_group validation)
-        # Use standard matcher for all other providers (GotSport, etc.)
+        # Use provider-specific matchers when available
         if provider_code.lower() == 'modular11':
             # Lazy import to avoid breaking other providers if module doesn't exist yet
             from src.models.modular11_matcher import Modular11GameMatcher
@@ -150,6 +149,11 @@ class EnhancedETLPipeline:
             # But suppress per-team logs if summary_only is True
             debug_mode = dry_run or summary_only
             self.matcher = Modular11GameMatcher(supabase, provider_id=self.provider_id, alias_cache=self.alias_cache, debug=debug_mode, summary_only=summary_only)
+        elif provider_code.lower() == 'tgs':
+            # TGS-specific matcher with enhanced fuzzy matching
+            from src.models.tgs_matcher import TGSGameMatcher
+            logger.info("Using TGSGameMatcher (with enhanced fuzzy matching)")
+            self.matcher = TGSGameMatcher(supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
         else:
             logger.info(f"Using standard GameHistoryMatcher for provider: {provider_code}")
             self.matcher = GameHistoryMatcher(supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
@@ -293,6 +297,29 @@ class EnhancedETLPipeline:
             
             for game in new_games:
                 try:
+                    # Convert age_year to age_group if needed (for TGS and other providers using birth year)
+                    if 'age_year' in game and not game.get('age_group'):
+                        from src.utils.team_utils import calculate_age_group_from_birth_year
+                        age_year = game.get('age_year')
+                        if age_year:
+                            try:
+                                birth_year = int(age_year)
+                                age_group = calculate_age_group_from_birth_year(birth_year)
+                                if age_group:
+                                    game['age_group'] = age_group.lower()  # Normalize to lowercase
+                            except (ValueError, TypeError):
+                                pass  # Keep age_group as None if conversion fails
+                    
+                    # Normalize gender: "Boys" -> "Male", "Girls" -> "Female" (for database compatibility)
+                    gender = game.get('gender', '')
+                    if gender:
+                        gender_normalized = gender.strip()
+                        if gender_normalized.lower() == 'boys':
+                            game['gender'] = 'Male'
+                        elif gender_normalized.lower() == 'girls':
+                            game['gender'] = 'Female'
+                        # Keep other values as-is (Male, Female, Coed, etc.)
+                    
                     # Match game history to get structured game record
                     # Pass dry_run flag to game_data for diagnostic mode
                     if self.dry_run:
