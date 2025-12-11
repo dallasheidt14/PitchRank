@@ -51,15 +51,24 @@ export interface WatchlistResponse {
  * Includes ranking deltas, recent games count, and insight previews.
  */
 export async function GET() {
+  console.log("[Watchlist API] GET request received");
   try {
     const supabase = await createServerSupabase();
 
     // Get authenticated user
     const {
       data: { user },
+      error: authError,
     } = await supabase.auth.getUser();
 
+    console.log("[Watchlist API] Auth check:", {
+      hasUser: !!user,
+      userId: user?.id,
+      error: authError?.message,
+    });
+
     if (!user) {
+      console.log("[Watchlist API] No user, returning 401");
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
@@ -70,8 +79,13 @@ export async function GET() {
       .eq("id", user.id)
       .single();
 
+    console.log("[Watchlist API] Profile check:", {
+      plan: profile?.plan,
+      error: profileError?.message,
+    });
+
     if (profileError) {
-      console.error("Error fetching profile:", profileError);
+      console.error("[Watchlist API] Error fetching profile:", profileError);
       return NextResponse.json(
         { error: "Failed to fetch user profile" },
         { status: 500 }
@@ -80,6 +94,7 @@ export async function GET() {
 
     // Enforce premium access
     if (profile.plan !== "premium" && profile.plan !== "admin") {
+      console.log("[Watchlist API] Not premium, returning 403");
       return NextResponse.json({ error: "Premium required" }, { status: 403 });
     }
 
@@ -101,17 +116,25 @@ export async function GET() {
 
     // No watchlist exists - return empty response
     if (!watchlist) {
+      console.log("[Watchlist API] No watchlist found for user, returning empty");
       return NextResponse.json({
         watchlist: null,
         teams: [],
       });
     }
 
+    console.log("[Watchlist API] Found watchlist:", watchlist.id);
+
     // Get watchlist items
     const { data: items, error: itemsError } = await supabase
       .from("watchlist_items")
       .select("team_id_master, created_at")
       .eq("watchlist_id", watchlist.id);
+
+    console.log("[Watchlist API] Watchlist items:", {
+      count: items?.length ?? 0,
+      error: itemsError?.message,
+    });
 
     if (itemsError) {
       console.error("Error fetching watchlist items:", itemsError);
