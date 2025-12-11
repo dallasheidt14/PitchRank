@@ -2301,54 +2301,116 @@ elif section == "🔀 Team Merge Manager":
             # User email for audit
             merge_user_email = st.text_input("Your Email (for audit)", key="merge_email")
 
-            col1, col2 = st.columns(2)
+            # Age, Gender, and State filters to narrow down team selection
+            st.markdown("##### Filter Teams")
+            filter_col1, filter_col2, filter_col3 = st.columns(3)
 
-            with col1:
-                st.markdown("##### Team to Deprecate (will be hidden)")
+            with filter_col1:
+                manual_age_filter = st.selectbox(
+                    "Age Group",
+                    options=[""] + [f"u{i}" for i in range(8, 20)],
+                    key="manual_merge_age"
+                )
 
-                # Fetch teams for selection
+            with filter_col2:
+                manual_gender_filter = st.selectbox(
+                    "Gender",
+                    options=["", "Male", "Female"],
+                    key="manual_merge_gender"
+                )
+
+            with filter_col3:
+                # Common US state codes for youth soccer
+                state_codes = ["", "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+                              "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+                              "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+                              "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+                              "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC"]
+                manual_state_filter = st.selectbox(
+                    "State (optional)",
+                    options=state_codes,
+                    key="manual_merge_state"
+                )
+
+            # Only show team selection if required filters are set
+            if not manual_age_filter or not manual_gender_filter:
+                st.info("👆 Select age group and gender above to see teams")
+                deprecated_team_id = None
+                canonical_team_id = None
+                all_teams = []
+                team_options = {}
+            else:
+                # Fetch filtered teams
                 try:
+                    age_num = manual_age_filter.lower().replace('u', '')
+                    query = db.table('teams') \
+                        .select('team_id_master, team_name, club_name, state_code, age_group, gender') \
+                        .eq('is_deprecated', False) \
+                        .eq('gender', manual_gender_filter) \
+                        .or_(f"age_group.eq.{age_num},age_group.eq.u{age_num},age_group.eq.U{age_num}")
+
+                    # Add state filter if selected
+                    if manual_state_filter:
+                        query = query.eq('state_code', manual_state_filter)
+
                     teams_result = execute_with_retry(
-                        lambda: db.table('teams')
-                            .select('team_id_master, team_name, club_name, state_code, age_group, gender')
-                            .eq('is_deprecated', False)
-                            .order('team_name')
-                            .limit(5000)
+                        lambda q=query: q.order('team_name').limit(2000)
                     )
                     all_teams = teams_result.data or []
 
-                    # Create team options
-                    team_options = {
-                        f"{t['team_name']} ({t.get('club_name', 'N/A')}) - {t.get('state_code', '??')} {t.get('age_group', '')} {t.get('gender', '')}": t['team_id_master']
-                        for t in all_teams
-                    }
+                    filter_desc = f"{manual_age_filter} {manual_gender_filter}"
+                    if manual_state_filter:
+                        filter_desc += f" in {manual_state_filter}"
 
-                    deprecated_selection = st.selectbox(
-                        "Select duplicate team to deprecate",
-                        options=[""] + list(team_options.keys()),
-                        key="deprecated_team"
-                    )
-                    deprecated_team_id = team_options.get(deprecated_selection) if deprecated_selection else None
+                    if not all_teams:
+                        st.warning(f"No teams found for {filter_desc}")
+                        team_options = {}
+                    else:
+                        st.success(f"Found {len(all_teams)} teams for {filter_desc}")
+
+                        # Create team options with more detail
+                        team_options = {
+                            f"{t['team_name']} ({t.get('club_name', 'N/A')}) - {t.get('state_code', '??')}": t['team_id_master']
+                            for t in all_teams
+                        }
 
                 except Exception as e:
                     st.error(f"Failed to load teams: {e}")
-                    deprecated_team_id = None
+                    all_teams = []
+                    team_options = {}
 
-            with col2:
-                st.markdown("##### Canonical Team (keep this one)")
+                # Team selection columns
+                col1, col2 = st.columns(2)
 
-                if deprecated_team_id:
-                    # Filter out the deprecated team from options
-                    canonical_options = {k: v for k, v in team_options.items() if v != deprecated_team_id}
-                    canonical_selection = st.selectbox(
-                        "Select team to keep",
-                        options=[""] + list(canonical_options.keys()),
-                        key="canonical_team"
-                    )
-                    canonical_team_id = canonical_options.get(canonical_selection) if canonical_selection else None
-                else:
-                    st.info("Select a team to deprecate first")
-                    canonical_team_id = None
+                with col1:
+                    st.markdown("##### Team to Deprecate (will be hidden)")
+
+                    if team_options:
+                        deprecated_selection = st.selectbox(
+                            "Select duplicate team to deprecate",
+                            options=[""] + list(team_options.keys()),
+                            key="deprecated_team"
+                        )
+                        deprecated_team_id = team_options.get(deprecated_selection) if deprecated_selection else None
+                    else:
+                        deprecated_team_id = None
+
+                with col2:
+                    st.markdown("##### Canonical Team (keep this one)")
+
+                    if team_options and deprecated_team_id:
+                        # Filter out the deprecated team from options
+                        canonical_options = {k: v for k, v in team_options.items() if v != deprecated_team_id}
+                        canonical_selection = st.selectbox(
+                            "Select team to keep",
+                            options=[""] + list(canonical_options.keys()),
+                            key="canonical_team"
+                        )
+                        canonical_team_id = canonical_options.get(canonical_selection) if canonical_selection else None
+                    else:
+                        if not deprecated_team_id and team_options:
+                            st.info("Select a team to deprecate first")
+                        canonical_team_id = None
 
             # Merge reason
             merge_reason = st.text_input("Reason for merge (optional)", key="merge_reason")
