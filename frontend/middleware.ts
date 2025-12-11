@@ -74,15 +74,22 @@ export async function middleware(request: NextRequest) {
 
   // Check premium status for premium routes
   if (isPremiumRoute && user) {
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from("user_profiles")
       .select("plan")
       .eq("id", user.id)
       .single();
 
+    // If profile fetch failed or profile doesn't exist, redirect to upgrade
+    // This prevents users from bypassing premium check when profile is null
+    if (profileError || !profile) {
+      console.warn("[Middleware] Profile not found or error:", profileError?.message);
+      return NextResponse.redirect(new URL("/upgrade", request.url));
+    }
+
     // Redirect free users to upgrade page
     // Allow admin and premium users through
-    if (profile && profile.plan !== "premium" && profile.plan !== "admin") {
+    if (profile.plan !== "premium" && profile.plan !== "admin") {
       return NextResponse.redirect(new URL("/upgrade", request.url));
     }
   }
