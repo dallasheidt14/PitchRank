@@ -68,10 +68,20 @@ export async function middleware(request: NextRequest) {
   const isAuthRoute = AUTH_ROUTES.some((route) => pathname.startsWith(route));
 
   // Redirect unauthenticated users from protected routes
+  // For premium routes, redirect to upgrade page (which handles sign up/login)
+  // For other protected routes, redirect to login
   if (isProtectedRoute && !user) {
-    const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("next", pathname);
-    return NextResponse.redirect(loginUrl);
+    if (isPremiumRoute) {
+      // Premium routes: redirect to upgrade page which can handle sign up/login
+      const upgradeUrl = new URL("/upgrade", request.url);
+      upgradeUrl.searchParams.set("next", pathname);
+      return NextResponse.redirect(upgradeUrl);
+    } else {
+      // Other protected routes: redirect to login
+      const loginUrl = new URL("/login", request.url);
+      loginUrl.searchParams.set("next", pathname);
+      return NextResponse.redirect(loginUrl);
+    }
   }
 
   // Check premium status for premium routes
