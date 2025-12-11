@@ -198,6 +198,7 @@ export async function GET() {
     };
 
     if (!items || items.length === 0) {
+      console.log("[Watchlist API] No items found, returning empty teams array");
       return NextResponse.json({
         watchlist: {
           id: watchlist.id,
@@ -209,6 +210,11 @@ export async function GET() {
         teams: [],
       });
     }
+
+    console.log("[Watchlist API] Found items, proceeding to fetch team data:", {
+      itemCount: items.length,
+      teamIds: items.map(i => i.team_id_master),
+    });
 
     // Get team IDs
     const typedItems = items as WatchlistItem[];
@@ -385,6 +391,12 @@ export async function GET() {
         last_game_date: lastGameMap.get(team.team_id_master) || null,
         watchlist_added_at: itemMap.get(team.team_id_master) || "",
       };
+    });
+
+    console.log("[Watchlist API] Final response:", {
+      watchlistId: watchlist.id,
+      teamsCount: teams.length,
+      teamIds: teams.map(t => t.team_id_master),
     });
 
     return NextResponse.json({
