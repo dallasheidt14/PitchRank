@@ -68,17 +68,20 @@ export default function WatchlistPage() {
     userId: user?.id,
     profile: profile ? { plan: profile.plan } : null,
     isPremium,
-    queryEnabled: isPremium && !!user,
+    queryEnabled: !userLoading && isPremium && !!user,
   });
 
   // Initialize watchlist on mount for premium users
+  // Only run when loading is complete to avoid race conditions
   useEffect(() => {
-    if (isPremium && user) {
+    if (!userLoading && isPremium && user) {
       initWatchlist();
     }
-  }, [isPremium, user]);
+  }, [userLoading, isPremium, user]);
 
   // Fetch watchlist from Supabase
+  // Only enable query when user loading is complete AND user is premium
+  // This prevents the query from being permanently disabled during initial load
   const {
     data: watchlistData,
     isLoading: watchlistLoading,
@@ -90,7 +93,7 @@ export default function WatchlistPage() {
   } = useQuery<WatchlistResponse | null>({
     queryKey: ["watchlist"],
     queryFn: fetchWatchlist,
-    enabled: isPremium && !!user,
+    enabled: !userLoading && isPremium && !!user,
     staleTime: 2 * 60 * 1000, // 2 minutes
     gcTime: 10 * 60 * 1000, // 10 minutes
   });
