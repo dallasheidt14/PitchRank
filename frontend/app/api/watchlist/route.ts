@@ -497,8 +497,15 @@ export async function GET() {
     } satisfies WatchlistResponse & { debug?: any });
   } catch (error) {
     console.error("Watchlist GET error:", error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error("Watchlist GET error details:", {
+      message: errorMessage,
+      stack: errorStack,
+      error: error,
+    });
     return NextResponse.json(
-      { error: "Failed to fetch watchlist" },
+      { error: "Failed to fetch watchlist", details: errorMessage },
       { status: 500 }
     );
   }
