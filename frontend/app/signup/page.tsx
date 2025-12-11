@@ -50,7 +50,9 @@ export default function SignupPage() {
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback?next=/watchlist`,
+          // Redirect to rankings page (accessible to all users)
+          // New users can explore rankings and upgrade if desired
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=/rankings`,
         },
       });
 
@@ -63,8 +65,8 @@ export default function SignupPage() {
         // Email confirmation required
         setIsSuccess(true);
       } else if (data.session) {
-        // Auto-confirmed, redirect to watchlist
-        router.push("/watchlist");
+        // Auto-confirmed, redirect to rankings (accessible to all users)
+        router.push("/rankings");
         router.refresh();
       }
     } catch (e) {

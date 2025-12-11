@@ -40,7 +40,11 @@ export default function LoginPage() {
         throw signInError;
       }
 
-      router.push("/watchlist");
+      // Redirect to rankings page (accessible to all users)
+      // Premium users can navigate to their watchlist from there
+      // This avoids the confusing redirect chain for free users:
+      // login -> /watchlist -> middleware redirect -> /upgrade
+      router.push("/rankings");
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Login failed. Please try again.");
