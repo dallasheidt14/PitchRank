@@ -8,7 +8,8 @@ export async function GET(request: Request) {
   const token_hash = searchParams.get("token_hash");
   const type = searchParams.get("type");
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/watchlist";
+  // Default to /rankings instead of /watchlist to avoid redirecting free users to premium route
+  const next = searchParams.get("next") ?? "/rankings";
   const error = searchParams.get("error");
   const errorDescription = searchParams.get("error_description");
 

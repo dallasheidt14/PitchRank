@@ -55,6 +55,8 @@ export async function middleware(request: NextRequest) {
   );
 
   // Refresh session - REQUIRED for Server Components
+  // Call getSession() first to refresh cookies, then getUser() for current user
+  const { data: { session } } = await supabase.auth.getSession();
   const { data: { user } } = await supabase.auth.getUser();
 
   const isProtectedRoute = PROTECTED_ROUTES.some((route) =>
@@ -94,9 +96,10 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // Redirect authenticated users from auth routes
+  // Redirect authenticated users from auth routes to rankings (accessible to all users)
+  // This prevents redirect loops for free users who would be redirected from /watchlist
   if (isAuthRoute && user) {
-    return NextResponse.redirect(new URL("/watchlist", request.url));
+    return NextResponse.redirect(new URL("/rankings", request.url));
   }
 
   return response;

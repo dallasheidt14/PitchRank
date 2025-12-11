@@ -41,9 +41,15 @@ interface TeamHeaderProps {
  */
 export function TeamHeader({ teamId }: TeamHeaderProps) {
   const { data: team, isLoading: teamLoading, isError: teamError, error: teamErrorObj, refetch: refetchTeam } = useTeam(teamId);
-  const { profile } = useUser();
+  const { profile, isLoading: userLoading, user } = useUser();
   const queryClient = useQueryClient();
-  const isPremium = hasPremiumAccess(profile);
+  // Wait for user loading to complete before determining premium status
+  // This prevents race conditions where profile is null during initial load
+  const isPremium = !userLoading && hasPremiumAccess(profile);
+  
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TeamHeader.tsx:46',message:'User state check',data:{userLoading,hasUser:!!user,hasProfile:!!profile,profilePlan:profile?.plan,isPremium},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
   const [watched, setWatched] = useState(false);
   const [isToggling, setIsToggling] = useState(false);
   const hasTrackedPageView = useRef(false);
@@ -147,6 +153,10 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
   const handleWatchToggle = async () => {
     if (!team || isToggling) return;
 
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TeamHeader.tsx:147',message:'Watch toggle clicked',data:{teamId,watched,isPremium,userLoading,hasUser:!!user,hasProfile:!!profile,profilePlan:profile?.plan},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
+
     const eventPayload = {
       team_id_master: teamId,
       team_name: team.team_name,
@@ -161,7 +171,13 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
       if (watched) {
         // Remove from watchlist
         if (isPremium) {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TeamHeader.tsx:163',message:'Removing from Supabase watchlist',data:{teamId},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
           const result = await removeFromSupabaseWatchlist(teamId);
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TeamHeader.tsx:165',message:'Remove result',data:{success:result.success,message:result.message},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
           if (!result.success) {
             console.error('Failed to remove from watchlist:', result.message);
             toast({
@@ -179,6 +195,9 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
           // Invalidate watchlist cache so the page shows updated data
           queryClient.invalidateQueries({ queryKey: ['watchlist'] });
         } else {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TeamHeader.tsx:182',message:'Removing from localStorage (not premium)',data:{teamId,isPremium,userLoading},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'D'})}).catch(()=>{});
+          // #endregion
           removeFromWatchlist(teamId);
         }
         setWatched(false);
@@ -186,7 +205,13 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
       } else {
         // Add to watchlist
         if (isPremium) {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TeamHeader.tsx:188',message:'Adding to Supabase watchlist',data:{teamId},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'E'})}).catch(()=>{});
+          // #endregion
           const result = await addToSupabaseWatchlist(teamId);
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TeamHeader.tsx:190',message:'Add result',data:{success:result.success,message:result.message},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'E'})}).catch(()=>{});
+          // #endregion
           if (!result.success) {
             console.error('Failed to add to watchlist:', result.message);
             toast({
@@ -204,6 +229,9 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
           // Invalidate watchlist cache so the page shows updated data
           queryClient.invalidateQueries({ queryKey: ['watchlist'] });
         } else {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TeamHeader.tsx:207',message:'Adding to localStorage (not premium)',data:{teamId,isPremium,userLoading,hasUser:!!user},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'F'})}).catch(()=>{});
+          // #endregion
           addToWatchlist(teamId);
         }
         setWatched(true);

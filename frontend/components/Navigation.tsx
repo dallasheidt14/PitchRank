@@ -3,12 +3,14 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Menu, X, Star, User, LogOut, LogIn } from "lucide-react";
 import { GlobalSearch } from "./GlobalSearch";
 import { Button } from "./ui/button";
 import { useUser } from "@/hooks/useUser";
 
 export function Navigation() {
+  const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const { user, isLoading, signOut } = useUser();
@@ -18,12 +20,14 @@ export function Navigation() {
       setIsSigningOut(true);
       await signOut();
       setMobileMenuOpen(false);
-      // Redirect to home after sign out
-      window.location.href = "/";
+      // Use router for client-side navigation instead of full page reload
+      router.push("/");
+      router.refresh();
     } catch (error) {
       console.error("Sign out error:", error);
-      // Force redirect even if signOut fails
-      window.location.href = "/logout";
+      // Fallback to logout route if signOut fails
+      router.push("/logout");
+      router.refresh();
     } finally {
       setIsSigningOut(false);
     }
