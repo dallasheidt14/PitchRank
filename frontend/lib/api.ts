@@ -353,7 +353,7 @@ export const api = {
       team_id_master: team.team_id_master,
       team_name: team.team_name,
       club_name: team.club_name,
-      state: rankingData?.state ?? team.state,
+      state: rankingData?.state ?? team.state_code,
       age: age,
       gender: gender,
       // Ranking fields (default to null if no ranking data)
