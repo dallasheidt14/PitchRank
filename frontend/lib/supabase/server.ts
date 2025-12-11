@@ -21,7 +21,11 @@ export async function createServerSupabase() {
             cookiesToSet.forEach(({ name, value, options }) => {
               cookieStore.set(name, value, options);
             });
-          } catch {
+          } catch (error) {
+            // Log errors in development to help debug auth issues
+            if (process.env.NODE_ENV === "development") {
+              console.error("[Supabase Server] Cookie setting error:", error);
+            }
             // Ignored for Server Components - middleware handles session refresh
           }
         },

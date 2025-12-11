@@ -31,7 +31,7 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -40,6 +40,8 @@ export default function LoginPage() {
         throw signInError;
       }
 
+      // Session is automatically established by Supabase client
+      // The middleware will refresh it on the next request
       // Redirect to rankings page (accessible to all users)
       // Premium users can navigate to their watchlist from there
       // This avoids the confusing redirect chain for free users:
