@@ -118,20 +118,32 @@ export function useUser(): UseUserReturn {
   useEffect(() => {
     // Get initial session and profile
     const initializeUser = async () => {
+      console.log("[useUser] Starting initialization...");
       try {
-        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
+        console.log("[useUser] Session result:", {
+          hasSession: !!currentSession,
+          userId: currentSession?.user?.id,
+          error: sessionError?.message,
+        });
+
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
 
         if (currentSession?.user) {
           // Wait for profile to load before setting isLoading to false
+          console.log("[useUser] Fetching profile for user:", currentSession.user.id);
           const userProfile = await fetchProfile(currentSession.user.id);
+          console.log("[useUser] Profile result:", userProfile ? { plan: userProfile.plan } : null);
           setProfile(userProfile);
+        } else {
+          console.log("[useUser] No session, skipping profile fetch");
         }
       } catch (e) {
-        console.error("Error initializing user:", e);
+        console.error("[useUser] Error initializing user:", e);
         setError(e instanceof Error ? e : new Error("Failed to initialize user"));
       } finally {
+        console.log("[useUser] Initialization complete, setting isLoading to false");
         setIsLoading(false);
       }
     };
