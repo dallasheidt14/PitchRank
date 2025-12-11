@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Star, ChevronDown, Loader2 } from 'lucide-react';
 import { addToWatchlist, removeFromWatchlist, isWatched, addToSupabaseWatchlist, removeFromSupabaseWatchlist } from '@/lib/watchlist';
 import { formatPowerScore } from '@/lib/utils';
@@ -40,6 +41,7 @@ interface TeamHeaderProps {
 export function TeamHeader({ teamId }: TeamHeaderProps) {
   const { data: team, isLoading: teamLoading, isError: teamError, error: teamErrorObj, refetch: refetchTeam } = useTeam(teamId);
   const { profile } = useUser();
+  const queryClient = useQueryClient();
   const isPremium = hasPremiumAccess(profile);
   const [watched, setWatched] = useState(false);
   const [isToggling, setIsToggling] = useState(false);
@@ -147,6 +149,8 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
             description: `${team.team_name} has been removed`,
             variant: 'success',
           });
+          // Invalidate watchlist cache so the page shows updated data
+          queryClient.invalidateQueries({ queryKey: ['watchlist'] });
         } else {
           removeFromWatchlist(teamId);
         }
@@ -170,6 +174,8 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
             description: `${team.team_name} is now being tracked`,
             variant: 'success',
           });
+          // Invalidate watchlist cache so the page shows updated data
+          queryClient.invalidateQueries({ queryKey: ['watchlist'] });
         } else {
           addToWatchlist(teamId);
         }
