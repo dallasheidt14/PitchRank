@@ -129,16 +129,22 @@ export async function POST(req: Request) {
 
     // Add team to watchlist (upsert to handle duplicates gracefully)
     console.log("[Watchlist Add] Upserting item:", watchlistId, teamIdMaster);
-    const { error: addError } = await supabase.from("watchlist_items").upsert(
+    const { data: upsertData, error: addError } = await supabase.from("watchlist_items").upsert(
       {
         watchlist_id: watchlistId,
         team_id_master: teamIdMaster,
       },
       {
         onConflict: "watchlist_id,team_id_master",
-        ignoreDuplicates: true,
+        ignoreDuplicates: false, // Changed to false to see if item was actually inserted
       }
-    );
+    ).select();
+
+    console.log("[Watchlist Add] Upsert result:", {
+      data: upsertData,
+      error: addError?.message,
+      errorCode: addError?.code,
+    });
 
     if (addError) {
       console.error("[Watchlist Add] Error adding team to watchlist:", addError);
@@ -148,11 +154,26 @@ export async function POST(req: Request) {
       );
     }
 
+    // Verify the item was actually added
+    const { data: verifyItem, error: verifyError } = await supabase
+      .from("watchlist_items")
+      .select("*")
+      .eq("watchlist_id", watchlistId)
+      .eq("team_id_master", teamIdMaster)
+      .single();
+
+    console.log("[Watchlist Add] Verification query:", {
+      found: !!verifyItem,
+      item: verifyItem,
+      error: verifyError?.message,
+    });
+
     console.log("[Watchlist Add] Success! Added", team.team_name);
     return NextResponse.json({
       success: true,
       message: `Added ${team.team_name} to watchlist`,
       teamIdMaster,
+      watchlistId,
     });
   } catch (error) {
     console.error("Watchlist add error:", error);

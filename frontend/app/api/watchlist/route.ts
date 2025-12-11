@@ -151,8 +151,11 @@ export async function GET() {
       .eq("watchlist_id", watchlist.id);
 
     console.log("[Watchlist API] Watchlist items:", {
+      watchlistId: watchlist.id,
       count: items?.length ?? 0,
+      items: items?.map(i => i.team_id_master) ?? [],
       error: itemsError?.message,
+      errorCode: itemsError?.code,
     });
 
     if (itemsError) {
