@@ -226,12 +226,23 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
             description: `${team.team_name} is now being tracked`,
             variant: 'success',
           });
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TeamHeader.tsx:204',message:'Before cache invalidation',data:{teamId,hasActiveQueries:queryClient.getQueryCache().getAll().some(q=>q.queryKey[0]==='watchlist')},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'K'})}).catch(()=>{});
+          // #endregion
           // Invalidate and refetch watchlist cache so the page shows updated data
           // Use refetchQueries to force immediate refetch, not just invalidation
           queryClient.invalidateQueries({ queryKey: ['watchlist'] });
-          queryClient.refetchQueries({ queryKey: ['watchlist'] });
           // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TeamHeader.tsx:204',message:'Cache invalidated and refetch triggered',data:{teamId},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'H'})}).catch(()=>{});
+          fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TeamHeader.tsx:207',message:'After invalidateQueries',data:{teamId},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'K'})}).catch(()=>{});
+          // #endregion
+          // Add small delay to ensure database commit completes before refetch
+          await new Promise(resolve => setTimeout(resolve, 200));
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TeamHeader.tsx:210',message:'Before refetchQueries',data:{teamId},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'K'})}).catch(()=>{});
+          // #endregion
+          const refetchResult = await queryClient.refetchQueries({ queryKey: ['watchlist'] });
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TeamHeader.tsx:212',message:'After refetchQueries',data:{teamId,refetchCount:refetchResult.length,refetchSuccess:refetchResult[0]?.status==='success'},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'K'})}).catch(()=>{});
           // #endregion
         } else {
           // #region agent log
