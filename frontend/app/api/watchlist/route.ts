@@ -185,11 +185,36 @@ export async function GET() {
 
     console.log("[Watchlist API] Found watchlist:", watchlist.id);
 
-    // Get watchlist items
+    // Get all watchlists for user first (to check items across all watchlists)
+    const { data: userWatchlists } = await supabase
+      .from("watchlists")
+      .select("id")
+      .eq("user_id", user.id);
+    
+    const watchlistIds = userWatchlists?.map(w => w.id) ?? [];
+
+    // Get watchlist items for the found watchlist
     const { data: items, error: itemsError } = await supabase
       .from("watchlist_items")
       .select("team_id_master, created_at")
       .eq("watchlist_id", watchlist.id);
+
+    // Also check ALL watchlist_items for this user to see if items are in different watchlists
+    const { data: allUserItems, error: allItemsError } = await supabase
+      .from("watchlist_items")
+      .select("watchlist_id, team_id_master, created_at")
+      .in("watchlist_id", watchlistIds);
+    
+    console.log("[Watchlist API] All watchlist items for user:", {
+      currentWatchlistId: watchlist.id,
+      totalItems: allUserItems?.length ?? 0,
+      itemsByWatchlist: allUserItems?.reduce((acc, item) => {
+        acc[item.watchlist_id] = (acc[item.watchlist_id] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>) ?? {},
+      teamIds: allUserItems?.map(i => i.team_id_master) ?? [],
+      itemsInCurrentWatchlist: items?.length ?? 0,
+    });
 
     console.log("[Watchlist API] Watchlist items:", {
       watchlistId: watchlist.id,
