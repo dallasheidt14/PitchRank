@@ -94,9 +94,18 @@ export default function WatchlistPage() {
     queryKey: ["watchlist"],
     queryFn: fetchWatchlist,
     enabled: !userLoading && isPremium && !!user,
-    staleTime: 2 * 60 * 1000, // 2 minutes
+    staleTime: 0, // Always refetch when invalidated (changed from 2 minutes)
     gcTime: 10 * 60 * 1000, // 10 minutes
+    refetchOnWindowFocus: true, // Refetch when window regains focus
   });
+
+  // #region agent log
+  useEffect(() => {
+    if (watchlistData) {
+      fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'watchlist/page.tsx:99',message:'Watchlist data updated',data:{teamsCount:watchlistData?.teams?.length??0,hasWatchlist:!!watchlistData?.watchlist,queryStatus,fetchStatus},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'I'})}).catch(()=>{});
+    }
+  }, [watchlistData, queryStatus, fetchStatus]);
+  // #endregion
 
   // Debug query status
   console.log("[Watchlist Page] Query:", {

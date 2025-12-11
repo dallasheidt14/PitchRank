@@ -226,8 +226,13 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
             description: `${team.team_name} is now being tracked`,
             variant: 'success',
           });
-          // Invalidate watchlist cache so the page shows updated data
+          // Invalidate and refetch watchlist cache so the page shows updated data
+          // Use refetchQueries to force immediate refetch, not just invalidation
           queryClient.invalidateQueries({ queryKey: ['watchlist'] });
+          queryClient.refetchQueries({ queryKey: ['watchlist'] });
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TeamHeader.tsx:204',message:'Cache invalidated and refetch triggered',data:{teamId},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'H'})}).catch(()=>{});
+          // #endregion
         } else {
           // #region agent log
           fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'TeamHeader.tsx:207',message:'Adding to localStorage (not premium)',data:{teamId,isPremium,userLoading,hasUser:!!user},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'F'})}).catch(()=>{});
