@@ -229,16 +229,24 @@ export async function GET() {
       }
     }
     
-    console.log("[Watchlist API] All watchlist items for user:", {
-      currentWatchlistId: watchlist.id,
-      totalItems: allUserItems?.length ?? 0,
-      itemsByWatchlist: allUserItems?.reduce((acc, item) => {
+    // Safe logging with null checks
+    try {
+      const itemsByWatchlist = allUserItems?.reduce((acc, item) => {
         acc[item.watchlist_id] = (acc[item.watchlist_id] || 0) + 1;
         return acc;
-      }, {} as Record<string, number>) ?? {},
-      teamIds: allUserItems?.map(i => i.team_id_master) ?? [],
-      itemsInCurrentWatchlist: items?.length ?? 0,
-    });
+      }, {} as Record<string, number>) ?? {};
+      
+      console.log("[Watchlist API] All watchlist items for user:", {
+        currentWatchlistId: watchlist.id,
+        totalItems: allUserItems?.length ?? 0,
+        itemsByWatchlist,
+        teamIds: allUserItems?.map(i => i.team_id_master) ?? [],
+        itemsInCurrentWatchlist: items?.length ?? 0,
+      });
+    } catch (logError) {
+      console.error("[Watchlist API] Error logging watchlist items:", logError);
+      // Continue - logging error shouldn't break the request
+    }
 
     console.log("[Watchlist API] Watchlist items:", {
       watchlistId: watchlist.id,
