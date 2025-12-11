@@ -116,16 +116,27 @@ export function useUser(): UseUserReturn {
   }, [supabase]);
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
-      setSession(currentSession);
-      setUser(currentSession?.user ?? null);
+    // Get initial session and profile
+    const initializeUser = async () => {
+      try {
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        setSession(currentSession);
+        setUser(currentSession?.user ?? null);
 
-      if (currentSession?.user) {
-        fetchProfile(currentSession.user.id).then(setProfile);
+        if (currentSession?.user) {
+          // Wait for profile to load before setting isLoading to false
+          const userProfile = await fetchProfile(currentSession.user.id);
+          setProfile(userProfile);
+        }
+      } catch (e) {
+        console.error("Error initializing user:", e);
+        setError(e instanceof Error ? e : new Error("Failed to initialize user"));
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
-    });
+    };
+
+    initializeUser();
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
