@@ -2463,23 +2463,36 @@ elif section == "🔀 Team Merge Manager":
             merge_email = st.text_input("Your Email (required for merging)", key="suggestion_merge_email")
 
             # Filters
-            col1, col2, col3 = st.columns(3)
+            filter_row1 = st.columns(4)
 
-            with col1:
+            with filter_row1[0]:
                 age_filter = st.selectbox(
                     "Age Group",
                     options=[""] + [f"u{i}" for i in range(8, 20)],
                     key="suggest_age"
                 )
 
-            with col2:
+            with filter_row1[1]:
                 gender_filter = st.selectbox(
                     "Gender",
                     options=["", "Male", "Female"],
                     key="suggest_gender"
                 )
 
-            with col3:
+            with filter_row1[2]:
+                # State filter (optional)
+                state_codes = ["", "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+                              "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+                              "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+                              "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+                              "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC"]
+                state_filter = st.selectbox(
+                    "State (optional)",
+                    options=state_codes,
+                    key="suggest_state"
+                )
+
+            with filter_row1[3]:
                 min_confidence = st.slider(
                     "Min Confidence",
                     min_value=0.3,
@@ -2570,21 +2583,31 @@ elif section == "🔀 Team Merge Manager":
                         try:
                             # Fetch teams in cohort
                             age_num = age_filter.lower().replace('u', '')
+                            query = db.table('teams') \
+                                .select('team_id_master, team_name, club_name, state_code') \
+                                .eq('is_deprecated', False) \
+                                .eq('gender', gender_filter) \
+                                .or_(f"age_group.eq.{age_num},age_group.eq.u{age_num},age_group.eq.U{age_num}")
+
+                            # Add state filter if selected
+                            if state_filter:
+                                query = query.eq('state_code', state_filter)
+
                             teams_result = execute_with_retry(
-                                lambda: db.table('teams')
-                                    .select('team_id_master, team_name, club_name, state_code')
-                                    .eq('is_deprecated', False)
-                                    .eq('gender', gender_filter)
-                                    .or_(f"age_group.eq.{age_num},age_group.eq.u{age_num},age_group.eq.U{age_num}")
-                                    .limit(2000)
+                                lambda q=query: q.limit(2000)
                             )
                             teams = teams_result.data or []
 
+                            # Build filter description for messages
+                            filter_desc = f"{age_filter} {gender_filter}"
+                            if state_filter:
+                                filter_desc += f" in {state_filter}"
+
                             if len(teams) < 2:
                                 st.session_state.suggestions = []
-                                st.session_state.suggestions_message = f"Only {len(teams)} teams found - need at least 2 for comparison"
+                                st.session_state.suggestions_message = f"Only {len(teams)} teams found for {filter_desc} - need at least 2 for comparison"
                             else:
-                                st.info(f"Analyzing {len(teams)} teams...")
+                                st.info(f"Analyzing {len(teams)} {filter_desc} teams...")
                                 progress_bar = st.progress(0)
 
                                 # Fetch games for opponent overlap analysis
