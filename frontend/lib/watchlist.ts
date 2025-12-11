@@ -142,7 +142,7 @@ export async function fetchWatchlist(): Promise<WatchlistResponse | null> {
       teamIds: result.teams?.map((t: any) => t.team_id_master) ?? [],
     });
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'watchlist.ts:137',message:'fetchWatchlist success',data:{hasWatchlist:!!result.watchlist,watchlistId:result.watchlist?.id,teamsCount:result.teams?.length??0},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'J'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'watchlist.ts:137',message:'fetchWatchlist success',data:{hasWatchlist:!!result.watchlist,watchlistId:result.watchlist?.id,teamsCount:result.teams?.length??0,teamIds:result.teams?.map((t:any)=>t.team_id_master)??[],fullResponse:JSON.stringify(result).substring(0,500)},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'J'})}).catch(()=>{});
     // #endregion
     return result;
   } catch (error) {
