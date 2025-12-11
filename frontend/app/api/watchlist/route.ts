@@ -92,6 +92,12 @@ export async function GET() {
       );
     }
 
+    // Check if profile exists (user may not have a profile row yet)
+    if (!profile) {
+      console.log("[Watchlist API] No profile found for user");
+      return NextResponse.json({ error: "Profile not found" }, { status: 404 });
+    }
+
     // Enforce premium access
     if (profile.plan !== "premium" && profile.plan !== "admin") {
       console.log("[Watchlist API] Not premium, returning 403");
