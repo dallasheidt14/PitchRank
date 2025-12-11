@@ -2487,6 +2487,18 @@ elif section == "🔀 Team Merge Manager":
                 union = len(opponents_a | opponents_b)
                 return intersection / union if union > 0 else 0.0
 
+            def count_games_per_team(team_ids, games_data):
+                """Count total games for each team from games data"""
+                game_counts = {tid: 0 for tid in team_ids}
+                for g in games_data:
+                    home_id = g.get('home_team_master_id')
+                    away_id = g.get('away_team_master_id')
+                    if home_id in game_counts:
+                        game_counts[home_id] += 1
+                    if away_id in game_counts:
+                        game_counts[away_id] += 1
+                return game_counts
+
             # Button to trigger search - stores results in session state
             if st.button("🔍 Find Potential Duplicates", type="primary"):
                 if not age_filter or not gender_filter:
@@ -2539,10 +2551,13 @@ elif section == "🔀 Team Merge Manager":
                                     progress_bar.progress(min(0.3, (i + batch_size) / len(team_ids) * 0.3))
 
                                 # Build opponent sets for each team
-                                st.text("Building opponent profiles...")
+                                st.text("Building opponent profiles and counting games...")
                                 opponents_by_team = {}
                                 for team_id in team_ids:
                                     opponents_by_team[team_id] = get_opponents(team_id, all_games)
+
+                                # Count games per team
+                                games_by_team = count_games_per_team(team_ids, all_games)
 
                                 # Analyze pairs
                                 st.text("Comparing team pairs...")
@@ -2597,7 +2612,12 @@ elif section == "🔀 Team Merge Manager":
                                         # High overlap confirms they're likely duplicates
                                         overlap_bonus = 0.10 * opponent_overlap
 
-                                        score = min(1.0, base_score + overlap_bonus)
+                                        raw_score = min(1.0, base_score + overlap_bonus)
+
+                                        # CRITICAL: Cap the final confidence at the name similarity
+                                        # If names are only 85% similar, confidence should never exceed 85%
+                                        # This prevents "Colorado EDGE Eagles" matching "Colorado EDGE Legends" at 100%
+                                        score = min(raw_score, name_sim * roman_penalty)
 
                                         if score >= min_confidence:
                                             suggestion_key = f"{team_a['team_id_master']}_{team_b['team_id_master']}"
@@ -2606,14 +2626,20 @@ elif section == "🔀 Team Merge Manager":
                                             if suggestion_key in st.session_state.dismissed_suggestions:
                                                 continue
 
+                                            # Get game counts for merge direction recommendation
+                                            games_a = games_by_team.get(team_a['team_id_master'], 0)
+                                            games_b = games_by_team.get(team_b['team_id_master'], 0)
+
                                             suggestions.append({
                                                 'key': suggestion_key,
                                                 'team_a_id': team_a['team_id_master'],
                                                 'team_a_name': team_a['team_name'],
                                                 'team_a_club': team_a.get('club_name', ''),
+                                                'team_a_games': games_a,
                                                 'team_b_id': team_b['team_id_master'],
                                                 'team_b_name': team_b['team_name'],
                                                 'team_b_club': team_b.get('club_name', ''),
+                                                'team_b_games': games_b,
                                                 'confidence': score,
                                                 'name_sim': name_sim,
                                                 'club_sim': club_sim,
@@ -2673,11 +2699,35 @@ elif section == "🔀 Team Merge Manager":
                         # Add warning text if Roman numeral difference detected
                         warning_text = " ⚠️ DIFFERENT SQUADS?" if s['roman_diff'] else ""
 
-                        with st.expander(f"{confidence_color} {s['team_a_name']} ↔ {s['team_b_name']} ({s['confidence']:.0%} match){warning_text}"):
+                        # Get game counts for header display
+                        header_games_a = s.get('team_a_games', 0)
+                        header_games_b = s.get('team_b_games', 0)
+                        games_info = f" [{header_games_a}g ↔ {header_games_b}g]"
+
+                        with st.expander(f"{confidence_color} {s['team_a_name']} ↔ {s['team_b_name']} ({s['confidence']:.0%} match){games_info}{warning_text}"):
 
                             # Warning banner for Roman numeral differences
                             if s['roman_diff']:
                                 st.warning("⚠️ These teams have different Roman numerals (I, II, III, etc.) - likely different squads within the same club. NOT recommended to merge!")
+
+                            # Get game counts with defaults for older cached suggestions
+                            games_a = s.get('team_a_games', 0)
+                            games_b = s.get('team_b_games', 0)
+
+                            # Determine recommended merge direction based on game counts
+                            if games_a > games_b:
+                                recommended = "B→A"
+                                rec_reason = f"Team A has more games ({games_a} vs {games_b})"
+                            elif games_b > games_a:
+                                recommended = "A→B"
+                                rec_reason = f"Team B has more games ({games_b} vs {games_a})"
+                            else:
+                                recommended = None
+                                rec_reason = "Equal game counts"
+
+                            # Show recommendation banner if there's a clear winner
+                            if recommended and not s['roman_diff']:
+                                st.info(f"💡 **Recommended:** Merge **{recommended}** - {rec_reason}")
 
                             col1, col2 = st.columns(2)
 
@@ -2685,11 +2735,21 @@ elif section == "🔀 Team Merge Manager":
                                 st.markdown(f"**Team A:** {s['team_a_name']}")
                                 st.caption(f"Club: {s['team_a_club'] or 'N/A'}")
                                 st.caption(f"ID: `{s['team_a_id'][:8]}...`")
+                                # Show game count with visual indicator
+                                if games_a >= games_b and games_a > 0:
+                                    st.success(f"🎮 **{games_a} games**")
+                                else:
+                                    st.caption(f"🎮 {games_a} games")
 
                             with col2:
                                 st.markdown(f"**Team B:** {s['team_b_name']}")
                                 st.caption(f"Club: {s['team_b_club'] or 'N/A'}")
                                 st.caption(f"ID: `{s['team_b_id'][:8]}...`")
+                                # Show game count with visual indicator
+                                if games_b >= games_a and games_b > 0:
+                                    st.success(f"🎮 **{games_b} games**")
+                                else:
+                                    st.caption(f"🎮 {games_b} games")
 
                             st.divider()
 
