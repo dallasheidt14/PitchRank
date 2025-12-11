@@ -107,6 +107,7 @@ export async function initWatchlist(): Promise<{
  * @returns WatchlistResponse or null on error
  */
 export async function fetchWatchlist(): Promise<WatchlistResponse | null> {
+  console.log("[fetchWatchlist] Starting fetch...");
   try {
     const response = await fetch("/api/watchlist", {
       method: "GET",
@@ -114,24 +115,33 @@ export async function fetchWatchlist(): Promise<WatchlistResponse | null> {
       credentials: "include",
     });
 
+    console.log("[fetchWatchlist] Response status:", response.status);
+
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
+      console.log("[fetchWatchlist] Error response:", data);
 
       // 403 = not premium, return empty
       if (response.status === 403) {
+        console.log("[fetchWatchlist] 403 - returning empty watchlist");
         return {
           watchlist: { id: "", name: "", is_default: true, created_at: "", updated_at: "" },
           teams: [],
         };
       }
 
-      console.error("Failed to fetch watchlist:", response.status, data.error);
+      console.error("[fetchWatchlist] Failed:", response.status, data.error);
       return null;
     }
 
-    return await response.json();
+    const result = await response.json();
+    console.log("[fetchWatchlist] Success:", {
+      hasWatchlist: !!result.watchlist,
+      teamsCount: result.teams?.length ?? 0,
+    });
+    return result;
   } catch (error) {
-    console.error("Error fetching watchlist:", error);
+    console.error("[fetchWatchlist] Error:", error);
     return null;
   }
 }
