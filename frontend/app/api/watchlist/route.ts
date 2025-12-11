@@ -303,17 +303,57 @@ export async function GET() {
       typedItems.map((item: WatchlistItem) => [item.team_id_master, item.created_at])
     );
 
+    console.log("[Watchlist API] About to fetch teams:", {
+      teamIdsCount: teamIds.length,
+      teamIds: teamIds.slice(0, 5), // Log first 5 for debugging
+      teamIdsArray: teamIds,
+    });
+
+    // Guard against empty teamIds array
+    if (teamIds.length === 0) {
+      console.log("[Watchlist API] No team IDs to fetch, returning empty teams");
+      return NextResponse.json({
+        watchlist: {
+          id: watchlist.id,
+          name: watchlist.name,
+          is_default: watchlist.is_default,
+          created_at: watchlist.created_at,
+          updated_at: watchlist.updated_at,
+        },
+        teams: [],
+      });
+    }
+
     // First fetch basic team data from teams table (this has ALL teams)
     // This ensures we return all watched teams, even those without rankings
+    console.log("[Watchlist API] Executing teams query with", teamIds.length, "team IDs");
     const { data: teamsData, error: teamsError } = await supabase
       .from("teams")
       .select("team_id_master, team_name, club_name, state, age, gender")
       .in("team_id_master", teamIds);
 
+    console.log("[Watchlist API] Teams query result:", {
+      teamsDataCount: teamsData?.length ?? 0,
+      teamsError: teamsError ? {
+        message: teamsError.message,
+        code: teamsError.code,
+        details: teamsError.details,
+        hint: teamsError.hint,
+      } : null,
+    });
+
     if (teamsError) {
-      console.error("Error fetching teams:", teamsError);
+      console.error("[Watchlist API] Error fetching teams:", {
+        error: teamsError,
+        message: teamsError.message,
+        code: teamsError.code,
+        details: teamsError.details,
+        hint: teamsError.hint,
+        teamIdsCount: teamIds.length,
+        teamIds: teamIds,
+      });
       return NextResponse.json(
-        { error: "Failed to fetch team data" },
+        { error: "Failed to fetch team data", details: teamsError.message },
         { status: 500 }
       );
     }
