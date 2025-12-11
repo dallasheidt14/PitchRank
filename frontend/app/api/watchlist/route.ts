@@ -185,25 +185,49 @@ export async function GET() {
 
     console.log("[Watchlist API] Found watchlist:", watchlist.id);
 
-    // Get all watchlists for user first (to check items across all watchlists)
-    const { data: userWatchlists } = await supabase
-      .from("watchlists")
-      .select("id")
-      .eq("user_id", user.id);
-    
-    const watchlistIds = userWatchlists?.map(w => w.id) ?? [];
-
     // Get watchlist items for the found watchlist
     const { data: items, error: itemsError } = await supabase
       .from("watchlist_items")
       .select("team_id_master, created_at")
       .eq("watchlist_id", watchlist.id);
 
+    if (itemsError) {
+      console.error("[Watchlist API] Error fetching watchlist items:", itemsError);
+      return NextResponse.json(
+        { error: "Failed to fetch watchlist items" },
+        { status: 500 }
+      );
+    }
+
     // Also check ALL watchlist_items for this user to see if items are in different watchlists
-    const { data: allUserItems, error: allItemsError } = await supabase
-      .from("watchlist_items")
-      .select("watchlist_id, team_id_master, created_at")
-      .in("watchlist_id", watchlistIds);
+    // Get all watchlists for user first (to check items across all watchlists)
+    const { data: userWatchlists, error: watchlistsError } = await supabase
+      .from("watchlists")
+      .select("id")
+      .eq("user_id", user.id);
+    
+    if (watchlistsError) {
+      console.error("[Watchlist API] Error fetching user watchlists:", watchlistsError);
+      // Continue without the debug info - not critical
+    }
+    
+    const watchlistIds = userWatchlists?.map(w => w.id) ?? [];
+    
+    // Only query all items if we have watchlist IDs
+    let allUserItems = null;
+    if (watchlistIds.length > 0) {
+      const { data: allItems, error: allItemsError } = await supabase
+        .from("watchlist_items")
+        .select("watchlist_id, team_id_master, created_at")
+        .in("watchlist_id", watchlistIds);
+      
+      if (allItemsError) {
+        console.error("[Watchlist API] Error fetching all user items:", allItemsError);
+        // Continue without the debug info - not critical
+      } else {
+        allUserItems = allItems;
+      }
+    }
     
     console.log("[Watchlist API] All watchlist items for user:", {
       currentWatchlistId: watchlist.id,
@@ -220,17 +244,7 @@ export async function GET() {
       watchlistId: watchlist.id,
       count: items?.length ?? 0,
       items: items?.map(i => i.team_id_master) ?? [],
-      error: itemsError?.message,
-      errorCode: itemsError?.code,
     });
-
-    if (itemsError) {
-      console.error("Error fetching watchlist items:", itemsError);
-      return NextResponse.json(
-        { error: "Failed to fetch watchlist items" },
-        { status: 500 }
-      );
-    }
 
     // Define types for database responses
     type WatchlistItem = {
