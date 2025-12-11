@@ -11,6 +11,7 @@ import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Star, ChevronDown, Loader2 } from 'lucide-react';
 import { addToWatchlist, removeFromWatchlist, isWatched, addToSupabaseWatchlist, removeFromSupabaseWatchlist } from '@/lib/watchlist';
+import type { WatchlistResponse } from '@/app/api/watchlist/route';
 import { formatPowerScore } from '@/lib/utils';
 import { useUser, hasPremiumAccess } from '@/hooks/useUser';
 import { ShareButtons } from '@/components/ShareButtons';
@@ -94,11 +95,37 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
   }, [team]);
 
   // Check if team is watched
+  // For premium users, check Supabase watchlist cache and subscribe to updates
+  // For free users, check localStorage
   useEffect(() => {
-    if (teamId) {
+    if (!teamId) return;
+
+    if (isPremium) {
+      // Function to check cache and update state
+      const checkWatchlistCache = () => {
+        const cachedWatchlist = queryClient.getQueryData<WatchlistResponse | null>(['watchlist']);
+        if (cachedWatchlist?.teams) {
+          const isInWatchlist = cachedWatchlist.teams.some(t => t.team_id_master === teamId);
+          setWatched(isInWatchlist);
+        }
+      };
+
+      // Check immediately
+      checkWatchlistCache();
+
+      // Subscribe to cache updates so we react when watchlist is fetched/updated
+      const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+        if (event.query.queryKey[0] === 'watchlist') {
+          checkWatchlistCache();
+        }
+      });
+
+      return () => unsubscribe();
+    } else {
+      // Free users use localStorage
       setWatched(isWatched(teamId));
     }
-  }, [teamId]);
+  }, [teamId, isPremium, queryClient]);
 
   // Track team page viewed once when team data loads
   useEffect(() => {
