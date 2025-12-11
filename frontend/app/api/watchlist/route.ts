@@ -490,17 +490,40 @@ export async function GET() {
       gender: string;
     };
 
+    // Helper function to convert age_group (e.g., "u12") to age (integer, e.g., 12)
+    const ageGroupToAge = (ageGroup: string | null): number | null => {
+      if (!ageGroup) return null;
+      // If it's already a number (e.g., "12"), cast directly
+      if (/^[0-9]+$/.test(ageGroup)) {
+        return parseInt(ageGroup, 10);
+      }
+      // If it starts with 'u' or 'U' followed by digits (e.g., "u12", "U12"), extract the number
+      const match = ageGroup.match(/^[uU]([0-9]+)$/);
+      if (match) {
+        return parseInt(match[1], 10);
+      }
+      // Try to extract any number from the string as fallback
+      const numberMatch = ageGroup.match(/[0-9]+/);
+      if (numberMatch) {
+        return parseInt(numberMatch[0], 10);
+      }
+      return null;
+    };
+
     // Build response teams array using teamsData as base (ensures ALL watched teams appear)
     // Then enrich with ranking data where available
     const teams: WatchlistTeam[] = ((teamsData || []) as TeamRow[]).map((team: TeamRow) => {
       const ranking = rankingsMap.get(team.team_id_master);
+      
+      // Use age from rankings_view if available (more accurate), otherwise convert from age_group
+      const age = ranking?.age ?? ageGroupToAge(team.age_group);
 
       return {
         team_id_master: team.team_id_master,
         team_name: team.team_name,
         club_name: team.club_name,
         state: team.state,
-        age: team.age,
+        age,
         gender: team.gender as "M" | "F" | "B" | "G",
         // Ranking data (may be null if team has no rankings yet)
         rank_in_cohort_final: ranking?.rank_in_cohort_final ?? null,
