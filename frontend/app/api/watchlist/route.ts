@@ -337,7 +337,7 @@ export async function GET() {
     console.log("[Watchlist API] Executing teams query with", teamIds.length, "team IDs");
     const { data: teamsData, error: teamsError } = await supabase
       .from("teams")
-      .select("team_id_master, team_name, club_name, state, age, gender")
+      .select("team_id_master, team_name, club_name, state, age_group, gender")
       .in("team_id_master", teamIds);
 
     console.log("[Watchlist API] Teams query result:", {
@@ -486,7 +486,7 @@ export async function GET() {
       team_name: string;
       club_name: string | null;
       state: string | null;
-      age: number | null;
+      age_group: string; // Teams table has age_group, not age
       gender: string;
     };
 
