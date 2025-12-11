@@ -30,7 +30,7 @@ const features: FeatureCard[] = [
     icon: <MapPin className="h-6 w-6" />,
     title: 'State Rankings',
     description: 'Explore rankings for all 50 states. Find the best teams in your area.',
-    href: '/rankings/state',
+    href: '/rankings',
     cta: 'Explore States',
   },
   {
