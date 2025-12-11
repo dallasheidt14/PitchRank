@@ -408,7 +408,13 @@ export async function GET() {
         updated_at: watchlist.updated_at,
       },
       teams,
-    } satisfies WatchlistResponse);
+      debug: {
+        itemsCount: items?.length ?? 0,
+        itemTeamIds: items?.map(i => i.team_id_master) ?? [],
+        finalTeamsCount: teams.length,
+        finalTeamIds: teams.map(t => t.team_id_master),
+      },
+    } satisfies WatchlistResponse & { debug?: any });
   } catch (error) {
     console.error("Watchlist GET error:", error);
     return NextResponse.json(

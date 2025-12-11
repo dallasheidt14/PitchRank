@@ -174,6 +174,11 @@ export async function POST(req: Request) {
       message: `Added ${team.team_name} to watchlist`,
       teamIdMaster,
       watchlistId,
+      debug: {
+        upsertData: upsertData ? { count: upsertData.length, items: upsertData } : null,
+        verifyItem: verifyItem ? { found: true, teamId: verifyItem.team_id_master } : { found: false },
+        verifyError: verifyError?.message || null,
+      },
     });
   } catch (error) {
     console.error("Watchlist add error:", error);
