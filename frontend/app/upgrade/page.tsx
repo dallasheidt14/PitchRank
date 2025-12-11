@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Check, Zap, Crown, Shield, TrendingUp, Star, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,6 +14,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { startCheckout } from "@/lib/stripe/client";
+import { useUser } from "@/hooks/useUser";
 
 // Price IDs from Stripe Dashboard
 // TODO: Replace with actual price IDs from your Stripe account
@@ -30,12 +32,19 @@ const FEATURES = [
 ];
 
 export default function UpgradePage() {
+  const { user, isLoading: userLoading } = useUser();
   const [loadingPlan, setLoadingPlan] = useState<"monthly" | "yearly" | null>(
     null
   );
   const [error, setError] = useState<string | null>(null);
 
   const handleUpgrade = async (plan: "monthly" | "yearly") => {
+    // If not authenticated, redirect to signup
+    if (!user) {
+      window.location.href = `/signup?next=/upgrade`;
+      return;
+    }
+
     setLoadingPlan(plan);
     setError(null);
 
@@ -65,6 +74,27 @@ export default function UpgradePage() {
             exclusive analytics to make better decisions for your soccer journey.
           </p>
         </div>
+
+        {/* Not Authenticated Message */}
+        {!userLoading && !user && (
+          <div className="max-w-md mx-auto mb-8 p-4 bg-primary/10 border border-primary/20 rounded-lg text-center">
+            <p className="text-sm mb-3">
+              Sign up for a free account to upgrade to Premium
+            </p>
+            <div className="flex gap-3 justify-center">
+              <Link href="/signup">
+                <Button size="sm" variant="outline">
+                  Sign Up
+                </Button>
+              </Link>
+              <Link href="/login">
+                <Button size="sm">
+                  Sign In
+                </Button>
+              </Link>
+            </div>
+          </div>
+        )}
 
         {/* Error Message */}
         {error && (
