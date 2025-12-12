@@ -1,0 +1,106 @@
+name: Fix Age Year Discrepancies
+
+on:
+  workflow_dispatch: # Allow manual trigger from GitHub Actions tab
+    inputs:
+      dry_run:
+        description: 'Preview changes without applying (dry run)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      team_name:
+        description: 'Optional: Fix only teams matching this name (partial match)'
+        required: false
+        type: string
+
+jobs:
+  fix-age-groups:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ---------------------------------------------------------------
+      # 1. CHECKOUT THE MAIN BRANCH
+      # ---------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      # ---------------------------------------------------------------
+      # 2. SET UP PYTHON ENVIRONMENT
+      # ---------------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      # ---------------------------------------------------------------
+      # 3. INSTALL PYTHON DEPENDENCIES
+      # ---------------------------------------------------------------
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            # Install core dependencies if requirements.txt doesn't exist
+            pip install supabase python-dotenv pandas
+          fi
+          # Verify critical packages are installed
+          python -c "import supabase, dotenv; print('✅ All critical imports successful')"
+
+      # ---------------------------------------------------------------
+      # 4. RUN THE AGE GROUP FIX SCRIPT
+      # ---------------------------------------------------------------
+      - name: Fix team age group discrepancies
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          PYTHONUNBUFFERED: "1"  # Force Python to output logs immediately
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          echo "⚽ Fixing team age group discrepancies based on birth year in team names"
+          echo "Python version: $(python --version)"
+          echo "Current directory: $(pwd)"
+          echo "SUPABASE_URL configured: $([[ -n "$SUPABASE_URL" ]] && echo 'Yes' || echo 'No')"
+          echo "Dry run mode: ${{ inputs.dry_run }}"
+          if [ "${{ inputs.team_name }}" != "" ]; then
+            echo "Team name filter: ${{ inputs.team_name }}"
+          fi
+          
+          # Build command with optional flags
+          CMD="python scripts/fix_team_age_groups.py"
+          if [ "${{ inputs.dry_run }}" == "true" ]; then
+            CMD="$CMD --dry-run"
+          fi
+          if [ "${{ inputs.team_name }}" != "" ]; then
+            CMD="$CMD --team-name '${{ inputs.team_name }}'"
+          fi
+          
+          echo "Running: $CMD"
+          $CMD || {
+            echo "❌ Age group fix script failed with exit code $?"
+            exit 1
+          }
+
+      # ---------------------------------------------------------------
+      # 5. FINAL REPORT
+      # ---------------------------------------------------------------
+      - name: Report results
+        if: always()
+        run: |
+          echo "Age group fix completed. Check logs above for details."
+          if [ "${{ inputs.dry_run }}" == "true" ]; then
+            echo "⚠️  This was a dry run - no changes were applied."
+            echo "   Run again with dry_run=false to apply fixes."
+          else
+            echo "✅ Changes have been applied."
+            echo "⚠️  IMPORTANT: You may need to recalculate rankings for affected teams."
+          fi
+
