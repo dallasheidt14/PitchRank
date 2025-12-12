@@ -467,11 +467,49 @@ export const api = {
     games: GameWithTeams[];
     lastScrapedAt: string | null;
   }> {
-    // Get games where team is either home or away
+    // Step 1: Resolve team ID to canonical (in case this team was merged)
+    let canonicalTeamId = id;
+    const { data: mergeData } = await supabase
+      .from('team_merge_map')
+      .select('canonical_team_id')
+      .eq('deprecated_team_id', id)
+      .maybeSingle();
+    
+    if (mergeData?.canonical_team_id) {
+      canonicalTeamId = mergeData.canonical_team_id;
+    }
+
+    // Step 2: Get all deprecated team IDs that merge into this canonical team
+    const { data: mergedTeams } = await supabase
+      .from('team_merge_map')
+      .select('deprecated_team_id')
+      .eq('canonical_team_id', canonicalTeamId);
+    
+    // Build list of all team IDs to query (canonical + all deprecated teams merged into it)
+    const teamIdsToQuery = [canonicalTeamId];
+    if (mergedTeams && mergedTeams.length > 0) {
+      mergedTeams.forEach((merge: { deprecated_team_id: string }) => {
+        if (merge.deprecated_team_id) {
+          teamIdsToQuery.push(merge.deprecated_team_id);
+        }
+      });
+    }
+
+    // Safety check: ensure we have at least one team ID to query
+    if (teamIdsToQuery.length === 0) {
+      return { games: [], lastScrapedAt: null };
+    }
+
+    // Step 3: Query games for all team IDs (canonical + merged teams)
+    // Build OR conditions for all team IDs
+    const orConditions = teamIdsToQuery
+      .map((teamId) => `home_team_master_id.eq.${teamId},away_team_master_id.eq.${teamId}`)
+      .join(',');
+    
     const { data: games, error: gamesError } = await supabase
       .from('games')
       .select('*')
-      .or(`home_team_master_id.eq.${id},away_team_master_id.eq.${id}`)
+      .or(orConditions)
       .order('game_date', { ascending: false })
       .limit(limit);
 
