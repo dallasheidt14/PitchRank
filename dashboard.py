@@ -84,6 +84,7 @@ section = st.sidebar.radio(
         "📋 Modular11 Team Review",
         "📈 Database Import Stats",
         "🗺️ State Coverage",
+        "📍 Missing State Codes",
         "🔀 Team Merge Manager"
     ]
 )
@@ -2266,6 +2267,218 @@ elif section == "🗺️ State Coverage":
             st.error(f"Error loading state coverage data: {e}")
             import traceback
             st.code(traceback.format_exc())
+
+# ============================================================================
+# MISSING STATE CODES SECTION
+# ============================================================================
+elif section == "📍 Missing State Codes":
+    st.header("Teams Missing State Codes")
+    st.markdown("View teams that are missing state or state_code information")
+
+    db = get_database()
+
+    if not db:
+        st.error("Database connection not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your .env file.")
+    else:
+        try:
+            with st.spinner("Loading teams without state codes..."):
+                # Get total teams count
+                total_result = db.table('teams').select('*', count='exact').execute()
+                total_teams = total_result.count
+
+                # Count teams with no state (both state and state_code are NULL)
+                no_state_result = db.table('teams').select(
+                    '*', 
+                    count='exact'
+                ).is_('state', 'null').is_('state_code', 'null').execute()
+                no_state_count = no_state_result.count
+
+                # Count teams with state but no state_code
+                has_state_no_code_result = db.table('teams').select(
+                    '*',
+                    count='exact'
+                ).not_.is_('state', 'null').is_('state_code', 'null').execute()
+                has_state_no_code_count = has_state_no_code_result.count
+
+                # Count teams with state_code but no state
+                has_code_no_state_result = db.table('teams').select(
+                    '*',
+                    count='exact'
+                ).is_('state', 'null').not_.is_('state_code', 'null').execute()
+                has_code_no_state_count = has_code_no_state_result.count
+
+                # Count teams with both state and state_code
+                has_both_result = db.table('teams').select(
+                    '*',
+                    count='exact'
+                ).not_.is_('state', 'null').not_.is_('state_code', 'null').execute()
+                has_both_count = has_both_result.count
+
+            # Display summary metrics
+            st.subheader("Summary")
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                st.metric("Total Teams", f"{total_teams:,}")
+            with col2:
+                st.metric("Complete State Info", f"{has_both_count:,}", 
+                         delta=f"{has_both_count/total_teams*100:.1f}%", 
+                         delta_color="normal")
+            with col3:
+                st.metric("Missing Both", f"{no_state_count:,}", 
+                         delta=f"{no_state_count/total_teams*100:.1f}%", 
+                         delta_color="inverse")
+            with col4:
+                partial_count = has_state_no_code_count + has_code_no_state_count
+                st.metric("Partial Info", f"{partial_count:,}", 
+                         delta=f"{partial_count/total_teams*100:.1f}%", 
+                         delta_color="off")
+
+            st.divider()
+
+            # Detailed breakdown
+            st.subheader("Detailed Breakdown")
+            
+            breakdown_data = {
+                'Category': [
+                    'Complete (both state and state_code)',
+                    'Missing both state and state_code',
+                    'Has state but no state_code',
+                    'Has state_code but no state'
+                ],
+                'Count': [
+                    has_both_count,
+                    no_state_count,
+                    has_state_no_code_count,
+                    has_code_no_state_count
+                ],
+                'Percentage': [
+                    f"{has_both_count/total_teams*100:.2f}%",
+                    f"{no_state_count/total_teams*100:.2f}%",
+                    f"{has_state_no_code_count/total_teams*100:.2f}%",
+                    f"{has_code_no_state_count/total_teams*100:.2f}%"
+                ]
+            }
+            
+            breakdown_df = pd.DataFrame(breakdown_data)
+            st.dataframe(breakdown_df, use_container_width=True, hide_index=True)
+
+            st.divider()
+
+            # Show teams without state codes
+            st.subheader("Teams Missing State Codes")
+            
+            # Fetch teams without state_code
+            teams_no_state = []
+            page_size = 1000
+            offset = 0
+
+            with st.spinner("Loading teams without state_code..."):
+                while True:
+                    result = db.table('teams').select(
+                        'team_id_master, team_name, club_name, age_group, gender, state, state_code'
+                    ).is_('state_code', 'null').range(offset, offset + page_size - 1).execute()
+                    
+                    if not result.data:
+                        break
+                    
+                    teams_no_state.extend(result.data)
+                    offset += page_size
+                    
+                    if len(result.data) < page_size:
+                        break
+
+            if teams_no_state:
+                st.info(f"Found **{len(teams_no_state)}** teams without state_code")
+                
+                # Create DataFrame
+                teams_df = pd.DataFrame(teams_no_state)
+                
+                # Add filters
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    age_filter = st.multiselect(
+                        "Filter by Age Group",
+                        options=sorted(teams_df['age_group'].dropna().unique()),
+                        default=[]
+                    )
+                
+                with col2:
+                    gender_filter = st.multiselect(
+                        "Filter by Gender",
+                        options=sorted(teams_df['gender'].dropna().unique()),
+                        default=[]
+                    )
+                
+                with col3:
+                    has_club = st.checkbox("Has Club Name", value=False)
+                
+                # Apply filters
+                filtered_df = teams_df.copy()
+                
+                if age_filter:
+                    filtered_df = filtered_df[filtered_df['age_group'].isin(age_filter)]
+                
+                if gender_filter:
+                    filtered_df = filtered_df[filtered_df['gender'].isin(gender_filter)]
+                
+                if has_club:
+                    filtered_df = filtered_df[filtered_df['club_name'].notna()]
+                
+                # Display table
+                display_df = filtered_df[['team_name', 'club_name', 'age_group', 'gender', 'state', 'state_code']].copy()
+                display_df = display_df.rename(columns={
+                    'team_name': 'Team Name',
+                    'club_name': 'Club Name',
+                    'age_group': 'Age Group',
+                    'gender': 'Gender',
+                    'state': 'State (Full)',
+                    'state_code': 'State Code'
+                })
+                
+                st.dataframe(
+                    display_df,
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                # Show breakdown by age group and gender
+                if len(filtered_df) > 0:
+                    st.divider()
+                    st.subheader("Breakdown by Age Group and Gender")
+                    
+                    breakdown_pivot = pd.crosstab(
+                        filtered_df['age_group'].fillna('Unknown'),
+                        filtered_df['gender'].fillna('Unknown'),
+                        margins=True,
+                        margins_name='Total'
+                    )
+                    
+                    st.dataframe(breakdown_pivot, use_container_width=True)
+                    
+                    # Show breakdown by club name (top clubs)
+                    if filtered_df['club_name'].notna().sum() > 0:
+                        st.divider()
+                        st.subheader("Top Clubs (Missing State Codes)")
+                        
+                        club_counts = filtered_df['club_name'].value_counts().head(20)
+                        club_df = pd.DataFrame({
+                            'Club Name': club_counts.index,
+                            'Teams Missing State Code': club_counts.values
+                        })
+                        
+                        st.dataframe(club_df, use_container_width=True, hide_index=True)
+                        
+                        st.info("💡 **Tip:** Use `scripts/match_state_from_club.py` to automatically match these teams to clubs with state codes!")
+            else:
+                st.success("🎉 All teams have state codes! No action needed.")
+
+        except Exception as e:
+            st.error(f"Error loading teams without state codes: {e}")
+            import traceback
+            with st.expander("View Error Details"):
+                st.code(traceback.format_exc())
 
 # ============================================================================
 # TEAM MERGE MANAGER SECTION
