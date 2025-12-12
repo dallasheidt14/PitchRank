@@ -20,7 +20,7 @@ import { usePrefetchTeam } from '@/lib/hooks';
 import type { GameWithTeams } from '@/lib/types';
 import { MissingGamesForm } from '@/components/MissingGamesForm';
 import { UnknownOpponentLink } from '@/components/UnknownOpponentLink';
-import { MergeTeamsDialog } from '@/components/MergeTeamsDialog';
+import { MergeTeamsDialogWrapper } from '@/components/MergeTeamsDialogWrapper';
 
 interface GameHistoryTableProps {
   teamId: string;
@@ -132,13 +132,15 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
             <div className="flex flex-col items-end gap-2">
               <div className="flex gap-2">
                 <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
-                <MergeTeamsDialog
-                  currentTeamId={teamId}
-                  currentTeamName={displayTeamName}
-                  currentTeamAgeGroup={team?.age_group}
-                  currentTeamGender={team?.gender}
-                  currentTeamStateCode={team?.state_code}
-                />
+                {teamId && (
+                  <MergeTeamsDialogWrapper
+                    currentTeamId={teamId}
+                    currentTeamName={displayTeamName}
+                    currentTeamAgeGroup={team?.age_group}
+                    currentTeamGender={team?.gender}
+                    currentTeamStateCode={team?.state_code}
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -164,13 +166,15 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
             <div className="flex flex-col items-end gap-2">
               <div className="flex gap-2">
                 <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
-                <MergeTeamsDialog
-                  currentTeamId={teamId}
-                  currentTeamName={displayTeamName}
-                  currentTeamAgeGroup={team?.age_group}
-                  currentTeamGender={team?.gender}
-                  currentTeamStateCode={team?.state_code}
-                />
+                {teamId && (
+                  <MergeTeamsDialogWrapper
+                    currentTeamId={teamId}
+                    currentTeamName={displayTeamName}
+                    currentTeamAgeGroup={team?.age_group}
+                    currentTeamGender={team?.gender}
+                    currentTeamStateCode={team?.state_code}
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -200,13 +204,15 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
             <div className="flex flex-col items-end gap-2">
               <div className="flex gap-2">
                 <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
-                <MergeTeamsDialog
-                  currentTeamId={teamId}
-                  currentTeamName={displayTeamName}
-                  currentTeamAgeGroup={team?.age_group}
-                  currentTeamGender={team?.gender}
-                  currentTeamStateCode={team?.state_code}
-                />
+                {teamId && (
+                  <MergeTeamsDialogWrapper
+                    currentTeamId={teamId}
+                    currentTeamName={displayTeamName}
+                    currentTeamAgeGroup={team?.age_group}
+                    currentTeamGender={team?.gender}
+                    currentTeamStateCode={team?.state_code}
+                  />
+                )}
               </div>
             </div>
           </div>
