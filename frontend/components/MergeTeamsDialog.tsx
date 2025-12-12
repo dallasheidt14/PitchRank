@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Search, Merge, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -55,21 +55,7 @@ export function MergeTeamsDialog({
   const queryClient = useQueryClient();
   const router = useRouter();
 
-  // Debounced search
-  useEffect(() => {
-    if (!searchQuery || searchQuery.trim().length < 2) {
-      setSearchResults([]);
-      return;
-    }
-
-    const timeoutId = setTimeout(() => {
-      performSearch(searchQuery);
-    }, 300);
-
-    return () => clearTimeout(timeoutId);
-  }, [searchQuery, currentTeamAgeGroup, currentTeamGender, currentTeamStateCode]);
-
-  const performSearch = async (query: string) => {
+  const performSearch = useCallback(async (query: string) => {
     setIsSearching(true);
     setError(null);
 
@@ -108,7 +94,21 @@ export function MergeTeamsDialog({
     } finally {
       setIsSearching(false);
     }
-  };
+  }, [currentTeamAgeGroup, currentTeamGender, currentTeamStateCode]);
+
+  // Debounced search
+  useEffect(() => {
+    if (!searchQuery || searchQuery.trim().length < 2) {
+      setSearchResults([]);
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      performSearch(searchQuery);
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery, performSearch]);
 
   const handleMerge = async () => {
     if (!selectedTeam || !user?.email) {
