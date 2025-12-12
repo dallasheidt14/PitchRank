@@ -48,11 +48,11 @@ jobs:
             exit 1
           fi
           
-          # Scrape all age groups (U13-U17) for events from the last 7 days
+          # Scrape all age groups (U13-U17) for events from the last 21 days
           python -m scrapy crawl modular11_events \
             -a age_min=13 \
             -a age_max=17 \
-            -a days_back=7
+            -a days_back=21
           
           # Find the most recent CSV file
           if [ ! -d "output" ]; then
@@ -120,7 +120,7 @@ jobs:
           echo "===================="
           echo "Modular11 Events Weekly Scrape completed"
           echo "===================="
-          echo "Date range: Last 7 days"
+          echo "Date range: Last 21 days"
           echo "Age groups: U13-U17"
           echo "Source: MLS NEXT Events"
           echo "Check artifacts for scraped data and logs"
