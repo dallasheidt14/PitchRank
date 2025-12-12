@@ -38,17 +38,15 @@ jobs:
       - name: Run Modular11 Events Scraper
         env:
           PYTHONPATH: ${{ github.workspace }}
-        working-directory: scrapers/modular11_scraper
         run: |
+          cd scrapers/modular11_scraper
+          
           # Verify we're in the right directory (should have scrapy.cfg)
           if [ ! -f "scrapy.cfg" ]; then
             echo "ERROR: scrapy.cfg not found. Current directory: $(pwd)"
             ls -la
             exit 1
           fi
-          
-          # Add current directory to PYTHONPATH so Scrapy can find modular11_scraper module
-          export PYTHONPATH="${PYTHONPATH}:$(pwd)"
           
           # Scrape all age groups (U13-U17) for events from the last 7 days
           python -m scrapy crawl modular11_events \
@@ -67,7 +65,7 @@ jobs:
           
           if [ -z "$LATEST_CSV" ]; then
             echo "ERROR: No CSV file generated"
-            ls -la output/ || echo "Output directory contents:"
+            ls -la || echo "Output directory contents:"
             exit 1
           fi
           
