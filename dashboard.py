@@ -2476,27 +2476,45 @@ elif section == "📍 Missing State Codes":
                     team_options[team_id] = display_name
                 
                 if team_options:
+                    # Select team outside of form so it updates reactively
+                    selected_team_id = st.selectbox(
+                        "Select Team to Update",
+                        options=[''] + list(team_options.keys()),
+                        format_func=lambda x: team_options.get(x, 'Select a team...') if x else 'Select a team...',
+                        help="Choose a team from the filtered list above",
+                        key="state_update_team_select"
+                    )
+                    
+                    # Show current team info (outside form so it updates reactively)
+                    if selected_team_id:
+                        team_info = filtered_df[filtered_df['team_id_master'] == selected_team_id].iloc[0]
+                        st.info(f"""
+                        **Current Info:**
+                        - Team: {team_info['team_name']}
+                        - Club: {team_info['club_name'] if pd.notna(team_info['club_name']) else 'N/A'}
+                        - Current State: {team_info['state'] if pd.notna(team_info['state']) else 'None'}
+                        - Current State Code: {team_info['state_code'] if pd.notna(team_info['state_code']) else 'None'}
+                        """)
+                    else:
+                        st.info("👆 Select a team above to see its current information")
+                    
+                    st.divider()
+                    
+                    # Form for state code selection and submission
                     with st.form("update_state_form"):
                         col1, col2 = st.columns(2)
                         
                         with col1:
-                            selected_team_id = st.selectbox(
-                                "Select Team to Update",
-                                options=list(team_options.keys()),
-                                format_func=lambda x: team_options[x],
-                                help="Choose a team from the filtered list above"
-                            )
-                            
-                            # Show current team info
+                            # Display selected team name (read-only, for reference)
                             if selected_team_id:
-                                team_info = filtered_df[filtered_df['team_id_master'] == selected_team_id].iloc[0]
-                                st.info(f"""
-                                **Current Info:**
-                                - Team: {team_info['team_name']}
-                                - Club: {team_info['club_name'] if pd.notna(team_info['club_name']) else 'N/A'}
-                                - Current State: {team_info['state'] if pd.notna(team_info['state']) else 'None'}
-                                - Current State Code: {team_info['state_code'] if pd.notna(team_info['state_code']) else 'None'}
-                                """)
+                                st.text_input(
+                                    "Selected Team",
+                                    value=team_options.get(selected_team_id, ''),
+                                    disabled=True,
+                                    help="Team selected above"
+                                )
+                            else:
+                                st.warning("⚠️ Please select a team above first")
                         
                         with col2:
                             state_code_input = st.selectbox(
