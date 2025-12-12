@@ -2275,6 +2275,23 @@ elif section == "📍 Missing State Codes":
     st.header("Teams Missing State Codes")
     st.markdown("View teams that are missing state or state_code information")
 
+    # State code to state name mapping (used throughout this section)
+    STATE_CODE_TO_NAME = {
+        'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas',
+        'CA': 'California', 'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware',
+        'FL': 'Florida', 'GA': 'Georgia', 'HI': 'Hawaii', 'ID': 'Idaho',
+        'IL': 'Illinois', 'IN': 'Indiana', 'IA': 'Iowa', 'KS': 'Kansas',
+        'KY': 'Kentucky', 'LA': 'Louisiana', 'ME': 'Maine', 'MD': 'Maryland',
+        'MA': 'Massachusetts', 'MI': 'Michigan', 'MN': 'Minnesota', 'MS': 'Mississippi',
+        'MO': 'Missouri', 'MT': 'Montana', 'NE': 'Nebraska', 'NV': 'Nevada',
+        'NH': 'New Hampshire', 'NJ': 'New Jersey', 'NM': 'New Mexico', 'NY': 'New York',
+        'NC': 'North Carolina', 'ND': 'North Dakota', 'OH': 'Ohio', 'OK': 'Oklahoma',
+        'OR': 'Oregon', 'PA': 'Pennsylvania', 'RI': 'Rhode Island', 'SC': 'South Carolina',
+        'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah',
+        'VT': 'Vermont', 'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia',
+        'WI': 'Wisconsin', 'WY': 'Wyoming', 'DC': 'District of Columbia'
+    }
+
     db = get_database()
 
     if not db:
@@ -2447,23 +2464,6 @@ elif section == "📍 Missing State Codes":
                 st.divider()
                 st.subheader("✏️ Manually Update State Code")
                 
-                # State code to state name mapping
-                STATE_CODE_TO_NAME = {
-                    'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas',
-                    'CA': 'California', 'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware',
-                    'FL': 'Florida', 'GA': 'Georgia', 'HI': 'Hawaii', 'ID': 'Idaho',
-                    'IL': 'Illinois', 'IN': 'Indiana', 'IA': 'Iowa', 'KS': 'Kansas',
-                    'KY': 'Kentucky', 'LA': 'Louisiana', 'ME': 'Maine', 'MD': 'Maryland',
-                    'MA': 'Massachusetts', 'MI': 'Michigan', 'MN': 'Minnesota', 'MS': 'Mississippi',
-                    'MO': 'Missouri', 'MT': 'Montana', 'NE': 'Nebraska', 'NV': 'Nevada',
-                    'NH': 'New Hampshire', 'NJ': 'New Jersey', 'NM': 'New Mexico', 'NY': 'New York',
-                    'NC': 'North Carolina', 'ND': 'North Dakota', 'OH': 'Ohio', 'OK': 'Oklahoma',
-                    'OR': 'Oregon', 'PA': 'Pennsylvania', 'RI': 'Rhode Island', 'SC': 'South Carolina',
-                    'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah',
-                    'VT': 'Vermont', 'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia',
-                    'WI': 'Wisconsin', 'WY': 'Wyoming', 'DC': 'District of Columbia'
-                }
-                
                 # Create team selection options
                 team_options = {}
                 for _, row in filtered_df.iterrows():
@@ -2604,14 +2604,110 @@ elif section == "📍 Missing State Codes":
                         st.subheader("Top Clubs (Missing State Codes)")
                         
                         club_counts = filtered_df['club_name'].value_counts().head(20)
+                        
+                        # Get state codes for clubs that already have them (from teams with state codes)
+                        clubs_with_states = {}
+                        for club_name in club_counts.index:
+                            # Check if any team with this club name has a state code
+                            club_teams = teams_df[teams_df['club_name'] == club_name]
+                            teams_with_state = club_teams[club_teams['state_code'].notna()]
+                            if not teams_with_state.empty:
+                                # Get the most common state code for this club
+                                most_common_state = teams_with_state['state_code'].mode()
+                                if not most_common_state.empty:
+                                    clubs_with_states[club_name] = most_common_state.iloc[0]
+                        
                         club_df = pd.DataFrame({
                             'Club Name': club_counts.index,
                             'Teams Missing State Code': club_counts.values
                         })
                         
-                        st.dataframe(club_df, use_container_width=True, hide_index=True)
+                        # Add state code column (pre-populate if club already has state codes)
+                        club_df['State Code'] = club_df['Club Name'].map(clubs_with_states).fillna('')
                         
-                        st.info("💡 **Tip:** Use `scripts/match_state_from_club.py` to automatically match these teams to clubs with state codes!")
+                        # Display editable table
+                        edited_club_df = st.data_editor(
+                            club_df,
+                            column_config={
+                                'Club Name': st.column_config.TextColumn('Club Name', disabled=True),
+                                'Teams Missing State Code': st.column_config.NumberColumn('Teams Missing State Code', disabled=True),
+                                'State Code': st.column_config.TextColumn(
+                                    'State Code',
+                                    help="Enter 2-letter state code (e.g., CA, TX, WA). Leave empty if unknown.",
+                                    max_chars=2,
+                                    default=""
+                                )
+                            },
+                            use_container_width=True,
+                            hide_index=True,
+                            num_rows="fixed"
+                        )
+                        
+                        # Bulk update button
+                        if st.button("🚀 Apply State Codes to All Teams", type="primary", use_container_width=True):
+                            updates_to_apply = edited_club_df[
+                                (edited_club_df['State Code'].notna()) & 
+                                (edited_club_df['State Code'].str.strip() != '') &
+                                (edited_club_df['State Code'].str.len() == 2)
+                            ]
+                            
+                            if updates_to_apply.empty:
+                                st.warning("⚠️ No valid state codes to apply. Please enter 2-letter state codes.")
+                            else:
+                                with st.spinner(f"Updating teams for {len(updates_to_apply)} clubs..."):
+                                    updated_count = 0
+                                    error_count = 0
+                                    
+                                    for _, row in updates_to_apply.iterrows():
+                                        club_name = row['Club Name']
+                                        state_code = row['State Code'].strip().upper()
+                                        
+                                        # Validate state code
+                                        if state_code not in STATE_CODE_TO_NAME:
+                                            st.warning(f"⚠️ Invalid state code '{state_code}' for {club_name}. Skipping.")
+                                            error_count += 1
+                                            continue
+                                        
+                                        state_name = STATE_CODE_TO_NAME[state_code]
+                                        
+                                        try:
+                                            # Find all teams with this club name that are missing state codes
+                                            teams_to_update = filtered_df[
+                                                (filtered_df['club_name'] == club_name) &
+                                                (filtered_df['state_code'].isna())
+                                            ]
+                                            
+                                            if teams_to_update.empty:
+                                                continue
+                                            
+                                            team_ids = teams_to_update['team_id_master'].tolist()
+                                            
+                                            # Update in batches
+                                            batch_size = 100
+                                            for i in range(0, len(team_ids), batch_size):
+                                                batch = team_ids[i:i + batch_size]
+                                                result = db.table('teams').update({
+                                                    'state_code': state_code,
+                                                    'state': state_name
+                                                }).in_('team_id_master', batch).execute()
+                                                
+                                                updated_count += len(batch)
+                                        
+                                        except Exception as e:
+                                            st.error(f"Error updating {club_name}: {e}")
+                                            error_count += len(teams_to_update)
+                                    
+                                    if updated_count > 0:
+                                        st.success(f"✅ Successfully updated {updated_count} teams with state codes!")
+                                        time.sleep(1)
+                                        st.rerun()
+                                    else:
+                                        st.info("No teams were updated. They may have already been updated.")
+                                    
+                                    if error_count > 0:
+                                        st.warning(f"⚠️ {error_count} teams had errors during update.")
+                        
+                        st.info("💡 **Tip:** Enter state codes in the table above, then click 'Apply State Codes to All Teams' to bulk update all teams for each club!")
             else:
                 st.success("🎉 All teams have state codes! No action needed.")
 
