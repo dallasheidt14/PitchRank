@@ -1,0 +1,74 @@
+name: Match Teams to State Codes via Club Names
+
+on:
+  schedule:
+    # Run weekly on Monday at 2 AM UTC (Sunday 6 PM PST / 9 PM EST)
+    - cron: '0 2 * * 1'
+  workflow_dispatch: # Allow manual trigger from GitHub Actions tab
+
+jobs:
+  match-state-codes:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ---------------------------------------------------------------
+      # 1. CHECKOUT THE MAIN BRANCH
+      # ---------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      # ---------------------------------------------------------------
+      # 2. SET UP PYTHON ENVIRONMENT
+      # ---------------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      # ---------------------------------------------------------------
+      # 3. INSTALL PYTHON DEPENDENCIES
+      # ---------------------------------------------------------------
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            # Install core dependencies if requirements.txt doesn't exist
+            pip install supabase python-dotenv pandas
+          fi
+          # Verify critical packages are installed
+          python -c "import supabase, dotenv; print('✅ All critical imports successful')"
+
+      # ---------------------------------------------------------------
+      # 4. RUN THE STATE CODE MATCHING SCRIPT
+      # ---------------------------------------------------------------
+      - name: Match teams to state codes via club names
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          PYTHONUNBUFFERED: "1"  # Force Python to output logs immediately
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          echo "⚽ Matching teams without state_code to clubs with state codes"
+          echo "Python version: $(python --version)"
+          echo "Current directory: $(pwd)"
+          echo "SUPABASE_URL configured: $([[ -n "$SUPABASE_URL" ]] && echo 'Yes' || echo 'No')"
+          python scripts/match_state_from_club.py --yes || {
+            echo "❌ State code matching failed with exit code $?"
+            exit 1
+          }
+
+      # ---------------------------------------------------------------
+      # 5. FINAL REPORT
+      # ---------------------------------------------------------------
+      - name: Report results
+        if: always()
+        run: |
+          echo "State code matching completed. Check logs above for details."
+
