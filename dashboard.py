@@ -2299,36 +2299,48 @@ elif section == "📍 Missing State Codes":
     else:
         try:
             with st.spinner("Loading teams without state codes..."):
-                # Get total teams count
-                total_result = db.table('teams').select('*', count='exact').execute()
+                # Get total teams count (with retry)
+                total_result = execute_with_retry(
+                    lambda: db.table('teams').select('*', count='exact'),
+                    max_retries=3,
+                    base_delay=2.0
+                )
                 total_teams = total_result.count
+                time.sleep(0.5)  # Small delay between queries
 
                 # Count teams with no state (both state and state_code are NULL)
-                no_state_result = db.table('teams').select(
-                    '*', 
-                    count='exact'
-                ).is_('state', 'null').is_('state_code', 'null').execute()
+                no_state_result = execute_with_retry(
+                    lambda: db.table('teams').select('*', count='exact').is_('state', 'null').is_('state_code', 'null'),
+                    max_retries=3,
+                    base_delay=2.0
+                )
                 no_state_count = no_state_result.count
+                time.sleep(0.5)
 
                 # Count teams with state but no state_code
-                has_state_no_code_result = db.table('teams').select(
-                    '*',
-                    count='exact'
-                ).not_.is_('state', 'null').is_('state_code', 'null').execute()
+                has_state_no_code_result = execute_with_retry(
+                    lambda: db.table('teams').select('*', count='exact').not_.is_('state', 'null').is_('state_code', 'null'),
+                    max_retries=3,
+                    base_delay=2.0
+                )
                 has_state_no_code_count = has_state_no_code_result.count
+                time.sleep(0.5)
 
                 # Count teams with state_code but no state
-                has_code_no_state_result = db.table('teams').select(
-                    '*',
-                    count='exact'
-                ).is_('state', 'null').not_.is_('state_code', 'null').execute()
+                has_code_no_state_result = execute_with_retry(
+                    lambda: db.table('teams').select('*', count='exact').is_('state', 'null').not_.is_('state_code', 'null'),
+                    max_retries=3,
+                    base_delay=2.0
+                )
                 has_code_no_state_count = has_code_no_state_result.count
+                time.sleep(0.5)
 
                 # Count teams with both state and state_code
-                has_both_result = db.table('teams').select(
-                    '*',
-                    count='exact'
-                ).not_.is_('state', 'null').not_.is_('state_code', 'null').execute()
+                has_both_result = execute_with_retry(
+                    lambda: db.table('teams').select('*', count='exact').not_.is_('state', 'null').not_.is_('state_code', 'null'),
+                    max_retries=3,
+                    base_delay=2.0
+                )
                 has_both_count = has_both_result.count
 
             # Display summary metrics
@@ -2385,16 +2397,26 @@ elif section == "📍 Missing State Codes":
             # Show teams without state codes
             st.subheader("Teams Missing State Codes")
             
-            # Fetch teams without state_code
+            # Fetch teams without state_code (with retry logic)
             teams_no_state = []
             page_size = 1000
             offset = 0
 
             with st.spinner("Loading teams without state_code..."):
                 while True:
-                    result = db.table('teams').select(
-                        'team_id_master, team_name, club_name, age_group, gender, state, state_code'
-                    ).is_('state_code', 'null').range(offset, offset + page_size - 1).execute()
+                    try:
+                        result = execute_with_retry(
+                            lambda: db.table('teams').select(
+                                'team_id_master, team_name, club_name, age_group, gender, state, state_code'
+                            ).is_('state_code', 'null').range(offset, offset + page_size - 1),
+                            max_retries=3,
+                            base_delay=2.0
+                        )
+                    except Exception as e:
+                        st.warning(f"⚠️ Error loading teams at offset {offset}: {str(e)[:200]}")
+                        if teams_no_state:
+                            st.info(f"Using {len(teams_no_state)} teams loaded so far...")
+                        break
                     
                     if not result.data:
                         break
@@ -2404,6 +2426,9 @@ elif section == "📍 Missing State Codes":
                     
                     if len(result.data) < page_size:
                         break
+                    
+                    # Small delay between pages to avoid overwhelming the connection
+                    time.sleep(0.3)
 
             if teams_no_state:
                 st.info(f"Found **{len(teams_no_state)}** teams without state_code")
