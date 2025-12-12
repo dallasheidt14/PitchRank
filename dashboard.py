@@ -2481,20 +2481,34 @@ elif section == "📍 Missing State Codes":
                         "Select Team to Update",
                         options=[''] + list(team_options.keys()),
                         format_func=lambda x: team_options.get(x, 'Select a team...') if x else 'Select a team...',
-                        help="Choose a team from the filtered list above",
-                        key="state_update_team_select"
+                        help="Choose a team from the filtered list above"
                     )
                     
                     # Show current team info (outside form so it updates reactively)
+                    # Debug: Check what was selected
                     if selected_team_id:
-                        team_info = filtered_df[filtered_df['team_id_master'] == selected_team_id].iloc[0]
-                        st.info(f"""
-                        **Current Info:**
-                        - Team: {team_info['team_name']}
-                        - Club: {team_info['club_name'] if pd.notna(team_info['club_name']) else 'N/A'}
-                        - Current State: {team_info['state'] if pd.notna(team_info['state']) else 'None'}
-                        - Current State Code: {team_info['state_code'] if pd.notna(team_info['state_code']) else 'None'}
-                        """)
+                        # Check if it's a valid team ID
+                        if selected_team_id in team_options:
+                            try:
+                                team_info_row = filtered_df[filtered_df['team_id_master'] == selected_team_id]
+                                if not team_info_row.empty:
+                                    team_info = team_info_row.iloc[0]
+                                    st.info(f"""
+                                    **Current Info:**
+                                    - Team: {team_info['team_name']}
+                                    - Club: {team_info['club_name'] if pd.notna(team_info['club_name']) else 'N/A'}
+                                    - Current State: {team_info['state'] if pd.notna(team_info['state']) else 'None'}
+                                    - Current State Code: {team_info['state_code'] if pd.notna(team_info['state_code']) else 'None'}
+                                    """)
+                                else:
+                                    st.warning(f"⚠️ Team with ID '{selected_team_id}' not found in filtered results")
+                            except Exception as e:
+                                st.error(f"Error loading team info: {e}")
+                                import traceback
+                                with st.expander("Error Details"):
+                                    st.code(traceback.format_exc())
+                        else:
+                            st.info("👆 Select a team above to see its current information")
                     else:
                         st.info("👆 Select a team above to see its current information")
                     
