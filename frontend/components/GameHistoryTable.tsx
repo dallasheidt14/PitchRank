@@ -20,6 +20,7 @@ import { usePrefetchTeam } from '@/lib/hooks';
 import type { GameWithTeams } from '@/lib/types';
 import { MissingGamesForm } from '@/components/MissingGamesForm';
 import { UnknownOpponentLink } from '@/components/UnknownOpponentLink';
+import { MergeTeamsDialog } from '@/components/MergeTeamsDialog';
 
 interface GameHistoryTableProps {
   teamId: string;
@@ -129,7 +130,16 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
               </CardDescription>
             </div>
             <div className="flex flex-col items-end gap-2">
-              <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
+              <div className="flex gap-2">
+                <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
+                <MergeTeamsDialog
+                  currentTeamId={teamId}
+                  currentTeamName={displayTeamName}
+                  currentTeamAgeGroup={team?.age_group}
+                  currentTeamGender={team?.gender}
+                  currentTeamStateCode={team?.state_code}
+                />
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -152,7 +162,16 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
               </CardDescription>
             </div>
             <div className="flex flex-col items-end gap-2">
-              <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
+              <div className="flex gap-2">
+                <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
+                <MergeTeamsDialog
+                  currentTeamId={teamId}
+                  currentTeamName={displayTeamName}
+                  currentTeamAgeGroup={team?.age_group}
+                  currentTeamGender={team?.gender}
+                  currentTeamStateCode={team?.state_code}
+                />
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -179,7 +198,16 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
               </CardDescription>
             </div>
             <div className="flex flex-col items-end gap-2">
-              <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
+              <div className="flex gap-2">
+                <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
+                <MergeTeamsDialog
+                  currentTeamId={teamId}
+                  currentTeamName={displayTeamName}
+                  currentTeamAgeGroup={team?.age_group}
+                  currentTeamGender={team?.gender}
+                  currentTeamStateCode={team?.state_code}
+                />
+              </div>
             </div>
           </div>
         </CardHeader>
