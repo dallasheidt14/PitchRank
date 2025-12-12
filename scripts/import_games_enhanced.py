@@ -396,11 +396,14 @@ async def main():
         return
     
     # Initialize Supabase client
-    supabase_url = os.getenv('SUPABASE_URL')
-    supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+    # Check environment variables (works in GitHub Actions and other CI/CD)
+    supabase_url = os.getenv('SUPABASE_URL') or os.getenv('NEXT_PUBLIC_SUPABASE_URL')
+    supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('SUPABASE_SERVICE_KEY') or os.getenv('SUPABASE_KEY')
     
     if not supabase_url or not supabase_key:
-        console.print("[red]Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env[/red]")
+        console.print("[red]Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set as environment variables[/red]")
+        console.print(f"[yellow]SUPABASE_URL: {'SET' if os.getenv('SUPABASE_URL') or os.getenv('NEXT_PUBLIC_SUPABASE_URL') else 'NOT SET'}[/yellow]")
+        console.print(f"[yellow]SUPABASE_SERVICE_ROLE_KEY: {'SET' if os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('SUPABASE_SERVICE_KEY') or os.getenv('SUPABASE_KEY') else 'NOT SET'}[/yellow]")
         sys.exit(1)
     
     supabase = create_client(supabase_url, supabase_key)
