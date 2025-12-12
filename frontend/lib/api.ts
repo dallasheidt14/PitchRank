@@ -538,10 +538,33 @@ export const api = {
       if (game.away_team_master_id) teamIds.add(game.away_team_master_id);
     });
 
+    // Step 4: Resolve all team IDs through merge map (for opponents that may be deprecated)
+    const teamIdsArray = Array.from(teamIds);
+    const { data: mergeMaps } = await supabase
+      .from('team_merge_map')
+      .select('deprecated_team_id, canonical_team_id')
+      .in('deprecated_team_id', teamIdsArray);
+
+    // Create a map of deprecated -> canonical
+    const mergeMap = new Map<string, string>();
+    if (mergeMaps) {
+      mergeMaps.forEach((merge: { deprecated_team_id: string; canonical_team_id: string }) => {
+        mergeMap.set(merge.deprecated_team_id, merge.canonical_team_id);
+      });
+    }
+
+    // Resolve all team IDs to their canonical forms
+    const resolvedTeamIds = new Set<string>();
+    teamIdsArray.forEach((teamId) => {
+      const canonicalId = mergeMap.get(teamId) || teamId;
+      resolvedTeamIds.add(canonicalId);
+    });
+
+    // Fetch team names for canonical teams
     const { data: teams, error: teamsError } = await supabase
       .from('teams')
       .select('team_id_master, team_name, club_name')
-      .in('team_id_master', Array.from(teamIds));
+      .in('team_id_master', Array.from(resolvedTeamIds));
 
     if (teamsError) {
       // Continue without team names rather than failing
@@ -549,27 +572,50 @@ export const api = {
 
     const teamNameMap = new Map<string, string>();
     const teamClubMap = new Map<string, string | null>();
+    const teamIdResolutionMap = new Map<string, string>(); // Maps original ID -> canonical ID
+    
+    // Build resolution map
+    teamIdsArray.forEach((teamId) => {
+      const canonicalId = mergeMap.get(teamId) || teamId;
+      teamIdResolutionMap.set(teamId, canonicalId);
+    });
+
+    // Build name maps using canonical IDs
     teams?.forEach((team: { team_id_master: string; team_name: string; club_name: string | null }) => {
       teamNameMap.set(team.team_id_master, team.team_name);
       teamClubMap.set(team.team_id_master, team.club_name);
     });
 
-    // Enrich games with team names and club names
-    const enrichedGames = games.map((game: Game) => ({
-      ...game,
-      home_team_name: game.home_team_master_id
-        ? teamNameMap.get(game.home_team_master_id)
-        : undefined,
-      away_team_name: game.away_team_master_id
-        ? teamNameMap.get(game.away_team_master_id)
-        : undefined,
-      home_team_club_name: game.home_team_master_id
-        ? teamClubMap.get(game.home_team_master_id)
-        : undefined,
-      away_team_club_name: game.away_team_master_id
-        ? teamClubMap.get(game.away_team_master_id)
-        : undefined,
-    })) as GameWithTeams[];
+    // Enrich games with team names and club names, resolving through merges
+    const enrichedGames = games.map((game: Game) => {
+      // Resolve team IDs to canonical forms
+      const homeCanonicalId = game.home_team_master_id 
+        ? (teamIdResolutionMap.get(game.home_team_master_id) || game.home_team_master_id)
+        : null;
+      const awayCanonicalId = game.away_team_master_id
+        ? (teamIdResolutionMap.get(game.away_team_master_id) || game.away_team_master_id)
+        : null;
+
+      return {
+        ...game,
+        // Update team IDs to canonical forms for links
+        home_team_master_id: homeCanonicalId,
+        away_team_master_id: awayCanonicalId,
+        // Use canonical IDs to get team names
+        home_team_name: homeCanonicalId
+          ? teamNameMap.get(homeCanonicalId)
+          : undefined,
+        away_team_name: awayCanonicalId
+          ? teamNameMap.get(awayCanonicalId)
+          : undefined,
+        home_team_club_name: homeCanonicalId
+          ? teamClubMap.get(homeCanonicalId)
+          : undefined,
+        away_team_club_name: awayCanonicalId
+          ? teamClubMap.get(awayCanonicalId)
+          : undefined,
+      };
+    }) as GameWithTeams[];
 
     return {
       games: enrichedGames,
