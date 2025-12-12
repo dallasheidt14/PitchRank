@@ -2443,6 +2443,115 @@ elif section == "📍 Missing State Codes":
                     hide_index=True
                 )
                 
+                # Manual update form
+                st.divider()
+                st.subheader("✏️ Manually Update State Code")
+                
+                # State code to state name mapping
+                STATE_CODE_TO_NAME = {
+                    'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas',
+                    'CA': 'California', 'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware',
+                    'FL': 'Florida', 'GA': 'Georgia', 'HI': 'Hawaii', 'ID': 'Idaho',
+                    'IL': 'Illinois', 'IN': 'Indiana', 'IA': 'Iowa', 'KS': 'Kansas',
+                    'KY': 'Kentucky', 'LA': 'Louisiana', 'ME': 'Maine', 'MD': 'Maryland',
+                    'MA': 'Massachusetts', 'MI': 'Michigan', 'MN': 'Minnesota', 'MS': 'Mississippi',
+                    'MO': 'Missouri', 'MT': 'Montana', 'NE': 'Nebraska', 'NV': 'Nevada',
+                    'NH': 'New Hampshire', 'NJ': 'New Jersey', 'NM': 'New Mexico', 'NY': 'New York',
+                    'NC': 'North Carolina', 'ND': 'North Dakota', 'OH': 'Ohio', 'OK': 'Oklahoma',
+                    'OR': 'Oregon', 'PA': 'Pennsylvania', 'RI': 'Rhode Island', 'SC': 'South Carolina',
+                    'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah',
+                    'VT': 'Vermont', 'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia',
+                    'WI': 'Wisconsin', 'WY': 'Wyoming', 'DC': 'District of Columbia'
+                }
+                
+                # Create team selection options
+                team_options = {}
+                for _, row in filtered_df.iterrows():
+                    team_id = row['team_id_master']
+                    team_name = row['team_name']
+                    club_name = row['club_name'] if pd.notna(row['club_name']) else 'No Club'
+                    age_group = row['age_group'] if pd.notna(row['age_group']) else 'Unknown'
+                    gender = row['gender'] if pd.notna(row['gender']) else 'Unknown'
+                    display_name = f"{team_name} ({club_name}) - {age_group} {gender}"
+                    team_options[team_id] = display_name
+                
+                if team_options:
+                    with st.form("update_state_form"):
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            selected_team_id = st.selectbox(
+                                "Select Team to Update",
+                                options=list(team_options.keys()),
+                                format_func=lambda x: team_options[x],
+                                help="Choose a team from the filtered list above"
+                            )
+                            
+                            # Show current team info
+                            if selected_team_id:
+                                team_info = filtered_df[filtered_df['team_id_master'] == selected_team_id].iloc[0]
+                                st.info(f"""
+                                **Current Info:**
+                                - Team: {team_info['team_name']}
+                                - Club: {team_info['club_name'] if pd.notna(team_info['club_name']) else 'N/A'}
+                                - Current State: {team_info['state'] if pd.notna(team_info['state']) else 'None'}
+                                - Current State Code: {team_info['state_code'] if pd.notna(team_info['state_code']) else 'None'}
+                                """)
+                        
+                        with col2:
+                            state_code_input = st.selectbox(
+                                "State Code",
+                                options=[''] + sorted(STATE_CODE_TO_NAME.keys()),
+                                help="Select the 2-letter state code (e.g., CA, AZ, TX)"
+                            )
+                            
+                            # Auto-populate state name if state code is selected
+                            if state_code_input:
+                                auto_state_name = STATE_CODE_TO_NAME[state_code_input]
+                                st.success(f"State name will be set to: **{auto_state_name}**")
+                            
+                            # Optional: Allow manual override of state name
+                            manual_state_override = st.checkbox("Manually override state name", value=False)
+                            if manual_state_override:
+                                state_name_input = st.text_input(
+                                    "State Name (Full)",
+                                    value=STATE_CODE_TO_NAME.get(state_code_input, '') if state_code_input else '',
+                                    help="Full state name (e.g., California, Arizona)"
+                                )
+                            else:
+                                state_name_input = STATE_CODE_TO_NAME.get(state_code_input, '') if state_code_input else ''
+                        
+                        submitted = st.form_submit_button("Update Team State", type="primary", use_container_width=True)
+                        
+                        if submitted:
+                            if not state_code_input:
+                                st.error("Please select a state code")
+                            elif not selected_team_id:
+                                st.error("Please select a team")
+                            else:
+                                try:
+                                    update_data = {
+                                        'state_code': state_code_input.upper(),
+                                        'state': state_name_input if state_name_input else STATE_CODE_TO_NAME.get(state_code_input.upper(), '')
+                                    }
+                                    
+                                    result = db.table('teams').update(update_data).eq('team_id_master', selected_team_id).execute()
+                                    
+                                    if result.data:
+                                        st.success(f"✅ Successfully updated **{team_options[selected_team_id]}** to State Code: **{update_data['state_code']}**, State: **{update_data['state']}**")
+                                        time.sleep(1)  # Brief pause to show success message
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to update team. No data returned from update operation.")
+                                        
+                                except Exception as e:
+                                    st.error(f"Error updating team: {e}")
+                                    import traceback
+                                    with st.expander("View Error Details"):
+                                        st.code(traceback.format_exc())
+                else:
+                    st.info("No teams available to update with current filters.")
+                
                 # Show breakdown by age group and gender
                 if len(filtered_df) > 0:
                     st.divider()
