@@ -402,8 +402,18 @@ async def main():
     
     if not supabase_url or not supabase_key:
         console.print("[red]Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set as environment variables[/red]")
-        console.print(f"[yellow]SUPABASE_URL: {'SET' if os.getenv('SUPABASE_URL') or os.getenv('NEXT_PUBLIC_SUPABASE_URL') else 'NOT SET'}[/yellow]")
-        console.print(f"[yellow]SUPABASE_SERVICE_ROLE_KEY: {'SET' if os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('SUPABASE_SERVICE_KEY') or os.getenv('SUPABASE_KEY') else 'NOT SET'}[/yellow]")
+        # Debug: Show which variables are set (without values)
+        env_vars_to_check = {
+            'SUPABASE_URL': os.getenv('SUPABASE_URL'),
+            'NEXT_PUBLIC_SUPABASE_URL': os.getenv('NEXT_PUBLIC_SUPABASE_URL'),
+            'SUPABASE_SERVICE_ROLE_KEY': os.getenv('SUPABASE_SERVICE_ROLE_KEY'),
+            'SUPABASE_SERVICE_KEY': os.getenv('SUPABASE_SERVICE_KEY'),
+            'SUPABASE_KEY': os.getenv('SUPABASE_KEY'),
+        }
+        console.print("\n[yellow]Environment variable status:[/yellow]")
+        for var_name, var_value in env_vars_to_check.items():
+            status = "SET" if var_value else "NOT SET"
+            console.print(f"  {var_name}: {status}")
         sys.exit(1)
     
     supabase = create_client(supabase_url, supabase_key)
