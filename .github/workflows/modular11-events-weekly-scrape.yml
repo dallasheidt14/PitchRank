@@ -47,6 +47,9 @@ jobs:
             exit 1
           fi
           
+          # Add current directory to PYTHONPATH so Scrapy can find modular11_scraper module
+          export PYTHONPATH="${PYTHONPATH}:$(pwd)"
+          
           # Scrape all age groups (U13-U17) for events from the last 7 days
           python -m scrapy crawl modular11_events \
             -a age_min=13 \
