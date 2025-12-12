@@ -37,12 +37,9 @@ jobs:
 
       - name: Run Modular11 Scraper
         env:
-          PYTHONPATH: ${{ github.workspace }}
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/scrapers/modular11_scraper
         run: |
           cd scrapers/modular11_scraper
-          
-          # Add current directory to PYTHONPATH so Scrapy can find modular11_scraper module
-          export PYTHONPATH="${PYTHONPATH}:$(pwd)"
           
           # Scrape all age groups (U13-U17) for the last 7 days
           # Scrape both HD and AD divisions
