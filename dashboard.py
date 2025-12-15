@@ -2765,6 +2765,8 @@ elif section == "📍 Missing State Codes":
                                                     'state_code': 'State Code'
                                                 })
                                                 
+                                                st.info("💡 **How to edit:** Double-click on any cell in the 'State Code' column, then type a 2-letter state code (e.g., TX, CA, NY). Leave blank cells empty.")
+                                                
                                                 # Display editable table
                                                 edited_missing_teams_df = st.data_editor(
                                                     missing_display,
@@ -2776,9 +2778,10 @@ elif section == "📍 Missing State Codes":
                                                         'State (Full)': st.column_config.TextColumn('State (Full)', disabled=True),
                                                         'State Code': st.column_config.TextColumn(
                                                             'State Code',
-                                                            help="Enter 2-letter state code (e.g., CA, TX, WA)",
+                                                            help="💡 Double-click this cell to edit. Enter 2-letter state code (e.g., CA, TX, WA). Leave blank if unknown.",
                                                             max_chars=2,
-                                                            default=""
+                                                            default="",
+                                                            required=False
                                                         )
                                                     },
                                                     use_container_width=True,
@@ -2971,6 +2974,7 @@ elif section == "📍 Missing State Codes":
                                     if not club_teams_missing.empty:
                                         st.markdown(f"### 📋 **{selected_club_name}**")
                                         st.info(f"Showing **{len(club_teams_missing)}** teams missing state codes")
+                                        st.success("💡 **INSTRUCTIONS:** Double-click on any cell in the 'State Code' column below to edit it. Type a 2-letter state code (e.g., TX, CA, NY). Leave blank cells empty.")
                                         
                                         # Prepare teams for editing - include team_id_master for updates
                                         teams_display = club_teams_missing[['team_id_master', 'team_name', 'age_group', 'gender', 'state', 'state_code']].copy()
@@ -2994,9 +2998,10 @@ elif section == "📍 Missing State Codes":
                                                 'State (Full)': st.column_config.TextColumn('State (Full)', disabled=True),
                                                 'State Code': st.column_config.TextColumn(
                                                     'State Code',
-                                                    help="Enter 2-letter state code (e.g., CA, TX, WA)",
+                                                    help="💡 Double-click to edit. Enter 2-letter state code (e.g., CA, TX, WA). Leave blank if unknown.",
                                                     max_chars=2,
-                                                    default=""
+                                                    default="",
+                                                    required=False
                                                 )
                                             },
                                             use_container_width=True,
