@@ -535,7 +535,6 @@ def scrape_new_events(
     # Add manually specified event IDs
     if manual_event_ids:
         console.print(f"[cyan]Adding {len(manual_event_ids)} manually specified event IDs...[/cyan]")
-        from supabase import create_client
         supabase = create_client(
             os.getenv('SUPABASE_URL'),
             os.getenv('SUPABASE_SERVICE_ROLE_KEY')
