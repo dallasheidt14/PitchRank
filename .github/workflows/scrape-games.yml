@@ -31,6 +31,11 @@ on:
         required: false
         type: string
         default: '1000'
+      include_recent:
+        description: 'Include teams scraped within last 7 days (override default filter)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   scrape-and-import:
@@ -77,6 +82,12 @@ jobs:
           if [ -n "${{ inputs.since_date }}" ]; then
             CMD="$CMD --since-date ${{ inputs.since_date }}"
             echo "Using since_date: ${{ inputs.since_date }}"
+          fi
+
+          # Add include-recent if specified (override 7-day filter)
+          if [ "${{ inputs.include_recent }}" == "true" ]; then
+            CMD="$CMD --include-recent"
+            echo "Including teams scraped within last 7 days"
           fi
 
           # Add concurrency
@@ -127,5 +138,6 @@ jobs:
             echo "Teams limit: ${{ inputs.limit_teams || 'All eligible' }}"
           fi
           echo "Null teams only: ${{ inputs.null_teams_only }}"
+          echo "Include recent (override 7-day filter): ${{ inputs.include_recent }}"
           echo "Concurrency: ${{ inputs.concurrency }}"
           echo "Check artifacts for scraped data and logs"
