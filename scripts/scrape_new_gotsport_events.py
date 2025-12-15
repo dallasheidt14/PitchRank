@@ -141,61 +141,65 @@ class EventDiscovery:
         
         # Look for event links with EventID
         event_links = soup.find_all('a', href=re.compile(r'EventID=', re.I))
-        logger.info(f"Found {len(event_links)} event links on this page")
+        logger.info(f"Found {len(event_links)} event links with EventID= on this page")
         
-        # Additional debugging: check for alternative link patterns
+        # ALWAYS check for alternative link patterns (not just when EventID links are empty)
+        # GotSport uses multiple link formats: EventID=, /events/, rankings.gotsport.com/events/, etc.
+        all_links = soup.find_all('a', href=True)
+        event_links_alt = [link for link in all_links if 'event' in link.get('href', '').lower()]
+        logger.info(f"Found {len(event_links_alt)} links with 'event' in href")
+        
+        # Check all alternative links (not just first 20) for event IDs
+        # This catches rankings.gotsport.com/events/46102 format and others
+        for alt_link in event_links_alt:
+            href = alt_link.get('href', '')
+            event_id_match = None
+            
+            # Skip if already in event_links (avoid duplicates)
+            if alt_link in event_links:
+                continue
+            
+            # Try various patterns to extract event ID
+            patterns = [
+                r'EventID=(\d+)',  # Original pattern: EventID=12345
+                r'event_id=(\d+)',  # Lowercase variant
+                r'[?&]id=(\d+)',   # Generic id parameter
+                r'/events/(\d+)',   # /events/12345 or rankings.gotsport.com/events/12345
+                r'/event/(\d+)',    # /event/12345
+                r'rankings\.gotsport\.com/events/(\d+)',  # rankings.gotsport.com/events/12345
+                r'system\.gotsport\.com/org_event/events/(\d+)',  # system.gotsport.com/org_event/events/12345
+                r'/events\.aspx[?&].*?(\d{4,})',  # /events.aspx with numeric ID
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, href, re.I)
+                if match:
+                    potential_id = match.group(1)
+                    # Validate it looks like an event ID (at least 4 digits)
+                    if potential_id.isdigit() and len(potential_id) >= 4:
+                        event_id_match = potential_id
+                        logger.debug(f"Found potential event ID {event_id_match} in link: {href[:100]}")
+                        break
+            
+            if event_id_match:
+                # Found a potential event ID via alternative pattern
+                # Add it to event_links so it gets processed below
+                event_links.append(alt_link)
+                logger.debug(f"Added alternative link with event ID {event_id_match}")
+        
+        logger.info(f"Total event links found (including alternatives): {len(event_links)}")
+        
+        # Log a sample of the HTML structure for debugging if still no events
         if len(event_links) == 0:
-            # Try alternative patterns - GotSport may have changed their link format
-            all_links = soup.find_all('a', href=True)
-            event_links_alt = [link for link in all_links if 'event' in link.get('href', '').lower()]
-            logger.info(f"Found {len(event_links_alt)} links with 'event' in href")
+            # Try to find event-related content
+            event_divs = soup.find_all(['div', 'article', 'section'], class_=re.compile(r'event', re.I))
+            logger.info(f"Found {len(event_divs)} divs/articles/sections with 'event' in class name")
             
-            # Try to extract event IDs from alternative patterns
-            # Pattern 1: /events.aspx?event_id=12345 or /events.aspx?id=12345
-            # Pattern 2: /events/12345
-            # Pattern 3: /event/12345
-            # Pattern 4: /rankings/event.aspx?EventID=12345 (original pattern)
-            for alt_link in event_links_alt[:20]:  # Check first 20 to avoid too many
-                href = alt_link.get('href', '')
-                event_id_match = None
-                
-                # Try various patterns
-                patterns = [
-                    r'EventID=(\d+)',  # Original pattern
-                    r'event_id=(\d+)',  # Lowercase variant
-                    r'[?&]id=(\d+)',   # Generic id parameter
-                    r'/events/(\d+)',   # /events/12345
-                    r'/event/(\d+)',    # /event/12345
-                    r'/events\.aspx[?&].*?(\d{4,})',  # /events.aspx with numeric ID
-                ]
-                
-                for pattern in patterns:
-                    match = re.search(pattern, href, re.I)
-                    if match:
-                        potential_id = match.group(1)
-                        # Validate it looks like an event ID (at least 4 digits)
-                        if potential_id.isdigit() and len(potential_id) >= 4:
-                            event_id_match = potential_id
-                            logger.info(f"Found potential event ID {event_id_match} in link: {href[:100]}")
-                            break
-                
-                if event_id_match and event_id_match not in seen_event_ids:
-                    # Found a potential event ID via alternative pattern
-                    # Add it to event_links so it gets processed below
-                    event_links.append(alt_link)
-                    logger.info(f"Added alternative link with event ID {event_id_match}")
-            
-            # Log a sample of the HTML structure for debugging if still no events
-            if len(event_links) == 0:
-                # Try to find event-related content
-                event_divs = soup.find_all(['div', 'article', 'section'], class_=re.compile(r'event', re.I))
-                logger.info(f"Found {len(event_divs)} divs/articles/sections with 'event' in class name")
-                
-                # Log sample of alternative links for debugging
-                if event_links_alt:
-                    logger.info(f"Sample alternative links (first 5):")
-                    for link in event_links_alt[:5]:
-                        logger.info(f"  - {link.get('href', '')[:100]}")
+            # Log sample of alternative links for debugging
+            if event_links_alt:
+                logger.info(f"Sample alternative links (first 10):")
+                for link in event_links_alt[:10]:
+                    logger.info(f"  - {link.get('href', '')[:100]}")
         
         for link in event_links:
             href = link.get('href', '')
