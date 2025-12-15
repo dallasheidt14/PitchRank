@@ -163,6 +163,9 @@ class EventDiscovery:
             # Log search results for debugging
             logger.info(f"Searching GotSport events page for {date_str}, response status: {response.status_code}, content length: {len(response.text)}")
             
+            # Initialize seen_event_ids before processing
+            seen_event_ids = set()
+            
             # Look for event links with EventID
             event_links = soup.find_all('a', href=re.compile(r'EventID=', re.I))
             logger.info(f"Found {len(event_links)} event links in search results for {date_str}")
@@ -223,8 +226,6 @@ class EventDiscovery:
                             logger.info(f"Sample alternative links (first 5):")
                             for link in event_links_alt[:5]:
                                 logger.info(f"  - {link.get('href', '')[:100]}")
-            
-            seen_event_ids = set()
             
             for link in event_links:
                 href = link.get('href', '')
