@@ -217,24 +217,26 @@ async def scrape_games(
     limit_teams: int = None,
     skip_teams: int = 0,
     null_teams_only: bool = False,
+    include_recent: bool = False,
     since_date: date = None,
     auto_import: bool = False,
     concurrency: int = 30
 ):
     """
     Scrape games from GotSport for all teams or specified teams
-    
+
     OPTIMIZED with:
     - Concurrent scraping (async with semaphore)
     - Bulk fetch of scrape dates
     - Batched logging
     - Reduced file I/O
-    
+
     Args:
         provider: Provider code (default: 'gotsport')
         output_file: Output file path (default: auto-generated)
         limit_teams: Limit number of teams to scrape (for testing)
         null_teams_only: Only scrape teams with NULL last_scraped_at (bootstrap mode)
+        include_recent: Include teams scraped within last 7 days (override default filter)
         since_date: Override since_date for scraping (for NULL teams)
         auto_import: Automatically import scraped games after scraping completes
         concurrency: Number of concurrent scrapes (default: 30)
@@ -255,24 +257,49 @@ async def scrape_games(
         teams = []
         page_size = 1000
         offset = 0
-        
+
         while True:
             teams_result = supabase.table('teams').select('*').eq(
                 'provider_id', provider_id
             ).is_('last_scraped_at', 'null').range(offset, offset + page_size - 1).execute()
-            
+
             if not teams_result.data:
                 break
-            
+
             teams.extend(teams_result.data)
 
             if len(teams_result.data) < page_size:
                 break
-            
+
             offset += page_size
             console.print(f"  Fetched {len(teams)} teams so far...")
-        
+
         console.print(f"[cyan]Found {len(teams)} teams with NULL last_scraped_at[/cyan]")
+    elif include_recent:
+        # Include ALL teams (override 7-day filter) - useful for manual re-scrapes
+        console.print("[cyan]Fetching ALL teams (including recently scraped)...[/cyan]")
+        teams = []
+        page_size = 1000
+        offset = 0
+
+        while True:
+            teams_result = supabase.table('teams').select('*').eq(
+                'provider_id', provider_id
+            ).range(offset, offset + page_size - 1).execute()
+
+            if not teams_result.data:
+                break
+
+            teams.extend(teams_result.data)
+
+            if len(teams_result.data) < page_size:
+                break
+
+            offset += page_size
+            console.print(f"  Fetched {len(teams)} teams so far...")
+
+        console.print(f"[cyan]Found {len(teams)} total teams (all teams mode)[/cyan]")
+        console.print(f"[dim]Each team will use its cached last_scraped_at for incremental updates[/dim]")
     else:
         # Steady-state incremental mode: scrape teams not scraped in last 7 days
         teams = scraper._get_teams_to_scrape()
@@ -420,6 +447,7 @@ def main():
     parser.add_argument('--limit-teams', type=int, default=None, help='Limit number of teams to scrape (for testing)')
     parser.add_argument('--skip-teams', type=int, default=0, help='Skip first N teams (for splitting large scrapes)')
     parser.add_argument('--null-teams-only', action='store_true', help='Only scrape teams with NULL last_scraped_at')
+    parser.add_argument('--include-recent', action='store_true', help='Include teams scraped within last 7 days (override default filter)')
     parser.add_argument('--since-date', type=str, default=None, help='Override since_date for scraping (YYYY-MM-DD format, used for NULL teams)')
     parser.add_argument('--auto-import', action='store_true', help='Automatically import scraped games after scraping completes')
     parser.add_argument('--concurrency', type=int, default=30, help='Number of concurrent scrapes (default: 30)')
@@ -442,6 +470,7 @@ def main():
             limit_teams=args.limit_teams,
             skip_teams=args.skip_teams,
             null_teams_only=args.null_teams_only,
+            include_recent=args.include_recent,
             since_date=since_date_obj,
             auto_import=args.auto_import,
             concurrency=args.concurrency
