@@ -80,31 +80,32 @@ def stream_games_csv(file_path: Path, batch_size: int = 1000, limit: Optional[in
                 break
             try:
                 # Map CSV columns to game data format
+                # Use (row.get('field') or '') pattern to handle both missing keys AND None values
                 game = {
-                    'provider': row.get('provider', '').strip(),
-                    'team_id': row.get('team_id') or row.get('team_id_source', ''),
-                    'team_id_source': row.get('team_id_source', ''),
-                    'team_name': row.get('team_name', '').strip(),
-                    'club_name': row.get('club_name') or row.get('team_club_name', '').strip(),
-                    'opponent_id': row.get('opponent_id') or row.get('opponent_id_source', ''),
-                    'opponent_id_source': row.get('opponent_id_source', ''),
-                    'opponent_name': row.get('opponent_name', '').strip(),
-                    'opponent_club_name': row.get('opponent_club_name', '').strip(),
-                    'age_group': row.get('age_group', '').strip(),
-                    'gender': row.get('gender', '').strip(),
-                    'state': row.get('state', '').strip(),
-                    'competition': row.get('competition', '').strip(),
-                    'division_name': row.get('division_name', '').strip(),
-                    'event_name': row.get('event_name', '').strip(),
-                    'venue': row.get('venue', '').strip(),
-                    'game_date': row.get('game_date', '').strip(),
-                    'home_away': row.get('home_away', '').strip(),
-                    'goals_for': row.get('goals_for', ''),
-                    'goals_against': row.get('goals_against', ''),
-                    'result': row.get('result', '').strip(),
-                    'source_url': row.get('source_url', '').strip(),
-                    'scraped_at': row.get('scraped_at', '').strip(),
-                    'mls_division': row.get('mls_division', '').strip()  # Modular11 division (HD/AD)
+                    'provider': (row.get('provider') or '').strip(),
+                    'team_id': row.get('team_id') or row.get('team_id_source') or '',
+                    'team_id_source': row.get('team_id_source') or '',
+                    'team_name': (row.get('team_name') or '').strip(),
+                    'club_name': (row.get('club_name') or row.get('team_club_name') or '').strip(),
+                    'opponent_id': row.get('opponent_id') or row.get('opponent_id_source') or '',
+                    'opponent_id_source': row.get('opponent_id_source') or '',
+                    'opponent_name': (row.get('opponent_name') or '').strip(),
+                    'opponent_club_name': (row.get('opponent_club_name') or '').strip(),
+                    'age_group': (row.get('age_group') or '').strip(),
+                    'gender': (row.get('gender') or '').strip(),
+                    'state': (row.get('state') or '').strip(),
+                    'competition': (row.get('competition') or '').strip(),
+                    'division_name': (row.get('division_name') or '').strip(),
+                    'event_name': (row.get('event_name') or '').strip(),
+                    'venue': (row.get('venue') or '').strip(),
+                    'game_date': (row.get('game_date') or '').strip(),
+                    'home_away': (row.get('home_away') or '').strip(),
+                    'goals_for': row.get('goals_for') or '',
+                    'goals_against': row.get('goals_against') or '',
+                    'result': (row.get('result') or '').strip(),
+                    'source_url': (row.get('source_url') or '').strip(),
+                    'scraped_at': (row.get('scraped_at') or '').strip(),
+                    'mls_division': (row.get('mls_division') or '').strip()  # Modular11 division (HD/AD)
                 }
                 
                 # Convert numeric fields
@@ -148,31 +149,32 @@ def load_games_csv(file_path: Path, limit: Optional[int] = None) -> List[Dict]:
                 break
             try:
                 # Map CSV columns to game data format
+                # Use (row.get('field') or '') pattern to handle both missing keys AND None values
                 game = {
-                    'provider': row.get('provider', '').strip(),
-                    'team_id': row.get('team_id') or row.get('team_id_source', ''),
-                    'team_id_source': row.get('team_id_source', ''),
-                    'team_name': row.get('team_name', '').strip(),
-                    'club_name': row.get('club_name') or row.get('team_club_name', '').strip(),
-                    'opponent_id': row.get('opponent_id') or row.get('opponent_id_source', ''),
-                    'opponent_id_source': row.get('opponent_id_source', ''),
-                    'opponent_name': row.get('opponent_name', '').strip(),
-                    'opponent_club_name': row.get('opponent_club_name', '').strip(),
-                    'age_group': row.get('age_group', '').strip(),
-                    'gender': row.get('gender', '').strip(),
-                    'state': row.get('state', '').strip(),
-                    'competition': row.get('competition', '').strip(),
-                    'division_name': row.get('division_name', '').strip(),
-                    'event_name': row.get('event_name', '').strip(),
-                    'venue': row.get('venue', '').strip(),
-                    'game_date': row.get('game_date', '').strip(),
-                    'home_away': row.get('home_away', '').strip(),
-                    'goals_for': row.get('goals_for', ''),
-                    'goals_against': row.get('goals_against', ''),
-                    'result': row.get('result', '').strip(),
-                    'source_url': row.get('source_url', '').strip(),
-                    'scraped_at': row.get('scraped_at', '').strip(),
-                    'mls_division': row.get('mls_division', '').strip()  # Modular11 division (HD/AD)
+                    'provider': (row.get('provider') or '').strip(),
+                    'team_id': row.get('team_id') or row.get('team_id_source') or '',
+                    'team_id_source': row.get('team_id_source') or '',
+                    'team_name': (row.get('team_name') or '').strip(),
+                    'club_name': (row.get('club_name') or row.get('team_club_name') or '').strip(),
+                    'opponent_id': row.get('opponent_id') or row.get('opponent_id_source') or '',
+                    'opponent_id_source': row.get('opponent_id_source') or '',
+                    'opponent_name': (row.get('opponent_name') or '').strip(),
+                    'opponent_club_name': (row.get('opponent_club_name') or '').strip(),
+                    'age_group': (row.get('age_group') or '').strip(),
+                    'gender': (row.get('gender') or '').strip(),
+                    'state': (row.get('state') or '').strip(),
+                    'competition': (row.get('competition') or '').strip(),
+                    'division_name': (row.get('division_name') or '').strip(),
+                    'event_name': (row.get('event_name') or '').strip(),
+                    'venue': (row.get('venue') or '').strip(),
+                    'game_date': (row.get('game_date') or '').strip(),
+                    'home_away': (row.get('home_away') or '').strip(),
+                    'goals_for': row.get('goals_for') or '',
+                    'goals_against': row.get('goals_against') or '',
+                    'result': (row.get('result') or '').strip(),
+                    'source_url': (row.get('source_url') or '').strip(),
+                    'scraped_at': (row.get('scraped_at') or '').strip(),
+                    'mls_division': (row.get('mls_division') or '').strip()  # Modular11 division (HD/AD)
                 }
                 
                 # Convert numeric fields
