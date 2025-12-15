@@ -2879,20 +2879,87 @@ elif section == "📍 Missing State Codes":
                                         st.markdown(f"### 📋 **{selected_club_name}**")
                                         st.info(f"Showing **{len(club_teams_missing)}** teams missing state codes")
                                         
-                                        # Display teams table
-                                        teams_display = club_teams_missing[['team_name', 'age_group', 'gender', 'state', 'state_code']].copy()
+                                        # Prepare teams for editing - include team_id_master for updates
+                                        teams_display = club_teams_missing[['team_id_master', 'team_name', 'age_group', 'gender', 'state', 'state_code']].copy()
                                         teams_display = teams_display.rename(columns={
+                                            'team_id_master': 'Team ID',
                                             'team_name': 'Team Name',
                                             'age_group': 'Age Group',
                                             'gender': 'Gender',
                                             'state': 'State (Full)',
                                             'state_code': 'State Code'
                                         })
-                                        st.dataframe(
+                                        
+                                        # Display editable table
+                                        edited_teams_df = st.data_editor(
                                             teams_display,
+                                            column_config={
+                                                'Team ID': st.column_config.NumberColumn('Team ID', disabled=True),
+                                                'Team Name': st.column_config.TextColumn('Team Name', disabled=True),
+                                                'Age Group': st.column_config.TextColumn('Age Group', disabled=True),
+                                                'Gender': st.column_config.TextColumn('Gender', disabled=True),
+                                                'State (Full)': st.column_config.TextColumn('State (Full)', disabled=True),
+                                                'State Code': st.column_config.TextColumn(
+                                                    'State Code',
+                                                    help="Enter 2-letter state code (e.g., CA, TX, WA)",
+                                                    max_chars=2,
+                                                    default=""
+                                                )
+                                            },
                                             use_container_width=True,
-                                            hide_index=True
+                                            hide_index=True,
+                                            num_rows="fixed"
                                         )
+                                        
+                                        # Apply updates button
+                                        if st.button("💾 Apply State Code Updates", type="primary", use_container_width=True, key=f"apply_individual_updates_{selected_club_name}"):
+                                            # Find teams that were updated
+                                            updates_to_apply = edited_teams_df[
+                                                (edited_teams_df['State Code'].notna()) & 
+                                                (edited_teams_df['State Code'].str.strip() != '') &
+                                                (edited_teams_df['State Code'].str.len() == 2)
+                                            ]
+                                            
+                                            if updates_to_apply.empty:
+                                                st.warning("⚠️ No valid state codes to apply. Please enter 2-letter state codes.")
+                                            else:
+                                                with st.spinner(f"Updating {len(updates_to_apply)} teams..."):
+                                                    updated_count = 0
+                                                    error_count = 0
+                                                    
+                                                    for _, row in updates_to_apply.iterrows():
+                                                        team_id = int(row['Team ID'])
+                                                        state_code = row['State Code'].strip().upper()
+                                                        
+                                                        # Validate state code
+                                                        if state_code not in STATE_CODE_TO_NAME:
+                                                            st.warning(f"⚠️ Invalid state code '{state_code}' for team ID {team_id}. Skipping.")
+                                                            error_count += 1
+                                                            continue
+                                                        
+                                                        state_name = STATE_CODE_TO_NAME[state_code]
+                                                        
+                                                        try:
+                                                            result = db.table('teams').update({
+                                                                'state_code': state_code,
+                                                                'state': state_name
+                                                            }).eq('team_id_master', team_id).execute()
+                                                            
+                                                            if result.data:
+                                                                updated_count += 1
+                                                            else:
+                                                                error_count += 1
+                                                        except Exception as e:
+                                                            st.error(f"Error updating team ID {team_id}: {e}")
+                                                            error_count += 1
+                                                    
+                                                    if updated_count > 0:
+                                                        st.success(f"✅ Successfully updated {updated_count} teams with state codes!")
+                                                        time.sleep(1)
+                                                        st.rerun()
+                                                    
+                                                    if error_count > 0:
+                                                        st.warning(f"⚠️ {error_count} teams had errors during update.")
                                         
                                         # Bulk update section for this specific club
                                         st.divider()
