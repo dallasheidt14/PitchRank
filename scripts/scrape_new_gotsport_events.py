@@ -122,122 +122,51 @@ class EventDiscovery:
         # Fallback: return the original ID (might work, might not)
         return rankings_event_id
     
-    def discover_events_by_date(self, search_date: date) -> List[Dict[str, str]]:
+    def _parse_events_from_page(self, soup: BeautifulSoup, search_date: date, seen_event_ids: set) -> tuple[List[Dict[str, str]], int, int, int]:
         """
-        Discover events for a specific date
+        Parse events from a single page of search results
         
         Args:
-            search_date: Date to search for events
+            soup: BeautifulSoup object of the page
+            search_date: Date being searched
+            seen_event_ids: Set of already-seen event IDs to avoid duplicates
         
         Returns:
-            List of dicts with 'event_id', 'event_name', 'event_url', 'date'
+            Tuple of (events_list, events_found_count, events_filtered_future, events_filtered_archived)
         """
         events = []
         events_found_count = 0
         events_filtered_future = 0
         events_filtered_archived = 0
-        event_links = []
         
-        # Format date as MM/DD/YYYY for GotSport
-        # Use format that works on Windows (no leading zero removal)
-        date_str = f"{search_date.month}/{search_date.day}/{search_date.year}"  # e.g., "11/1/2025"
+        # Look for event links with EventID
+        event_links = soup.find_all('a', href=re.compile(r'EventID=', re.I))
+        logger.info(f"Found {len(event_links)} event links on this page")
         
-        console.print(f"[dim]Searching for events on {date_str}...[/dim]")
-        
-        params = {
-            'search': '',
-            'type': 'Tournament',
-            'date': date_str,
-            'age': '',
-            'featured': ''
-        }
-        
-        try:
-            full_url = f"{self.EVENTS_SEARCH_URL}?{urlencode(params)}"
-            logger.info(f"Fetching: {full_url}")
-            response = self.session.get(self.EVENTS_SEARCH_URL, params=params, timeout=30)
-            response.raise_for_status()
+        # Additional debugging: check for alternative link patterns
+        if len(event_links) == 0:
+            # Try alternative patterns - GotSport may have changed their link format
+            all_links = soup.find_all('a', href=True)
+            event_links_alt = [link for link in all_links if 'event' in link.get('href', '').lower()]
+            logger.info(f"Found {len(event_links_alt)} links with 'event' in href")
             
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Log search results for debugging
-            logger.info(f"Searching GotSport events page for {date_str}, response status: {response.status_code}, content length: {len(response.text)}")
-            
-            # Initialize seen_event_ids before processing
-            seen_event_ids = set()
-            
-            # Look for event links with EventID
-            event_links = soup.find_all('a', href=re.compile(r'EventID=', re.I))
-            logger.info(f"Found {len(event_links)} event links in search results for {date_str}")
-            
-            # Additional debugging: check for alternative link patterns
-            if len(event_links) == 0:
-                # Try alternative patterns - GotSport may have changed their link format
-                all_links = soup.find_all('a', href=True)
-                event_links_alt = [link for link in all_links if 'event' in link.get('href', '').lower()]
-                logger.info(f"Found {len(event_links_alt)} links with 'event' in href")
+            # Try to extract event IDs from alternative patterns
+            # Pattern 1: /events.aspx?event_id=12345 or /events.aspx?id=12345
+            # Pattern 2: /events/12345
+            # Pattern 3: /event/12345
+            # Pattern 4: /rankings/event.aspx?EventID=12345 (original pattern)
+            for alt_link in event_links_alt[:20]:  # Check first 20 to avoid too many
+                href = alt_link.get('href', '')
+                event_id_match = None
                 
-                # Try to extract event IDs from alternative patterns
-                # Pattern 1: /events.aspx?event_id=12345 or /events.aspx?id=12345
-                # Pattern 2: /events/12345
-                # Pattern 3: /event/12345
-                # Pattern 4: /rankings/event.aspx?EventID=12345 (original pattern)
-                for alt_link in event_links_alt[:20]:  # Check first 20 to avoid too many
-                    href = alt_link.get('href', '')
-                    event_id_match = None
-                    
-                    # Try various patterns
-                    patterns = [
-                        r'EventID=(\d+)',  # Original pattern
-                        r'event_id=(\d+)',  # Lowercase variant
-                        r'[?&]id=(\d+)',   # Generic id parameter
-                        r'/events/(\d+)',   # /events/12345
-                        r'/event/(\d+)',    # /event/12345
-                        r'/events\.aspx[?&].*?(\d{4,})',  # /events.aspx with numeric ID
-                    ]
-                    
-                    for pattern in patterns:
-                        match = re.search(pattern, href, re.I)
-                        if match:
-                            potential_id = match.group(1)
-                            # Validate it looks like an event ID (at least 4 digits)
-                            if potential_id.isdigit() and len(potential_id) >= 4:
-                                event_id_match = potential_id
-                                logger.info(f"Found potential event ID {event_id_match} in link: {href[:100]}")
-                                break
-                    
-                    if event_id_match and event_id_match not in seen_event_ids:
-                        # Found a potential event ID via alternative pattern
-                        # Add it to event_links so it gets processed below
-                        event_links.append(alt_link)
-                        logger.info(f"Added alternative link with event ID {event_id_match}")
-                
-                # Log a sample of the HTML structure for debugging if still no events
-                if len(event_links) == 0:
-                    if len(response.text) < 50000:  # Only log if reasonable size
-                        logger.debug(f"Sample HTML structure (first 2000 chars): {response.text[:2000]}")
-                    else:
-                        # Try to find event-related content
-                        event_divs = soup.find_all(['div', 'article', 'section'], class_=re.compile(r'event', re.I))
-                        logger.info(f"Found {len(event_divs)} divs/articles/sections with 'event' in class name")
-                        
-                        # Log sample of alternative links for debugging
-                        if event_links_alt:
-                            logger.info(f"Sample alternative links (first 5):")
-                            for link in event_links_alt[:5]:
-                                logger.info(f"  - {link.get('href', '')[:100]}")
-            
-            for link in event_links:
-                href = link.get('href', '')
-                
-                # Try multiple patterns to extract event ID
-                rankings_event_id = None
+                # Try various patterns
                 patterns = [
-                    r'EventID=(\d+)',      # Original pattern: EventID=12345
-                    r'event_id=(\d+)',     # Lowercase: event_id=12345
-                    r'[?&]id=(\d+)',       # Generic: ?id=12345 or &id=12345
-                    r'/events/(\d+)',      # Path: /events/12345
-                    r'/event/(\d+)',       # Path: /event/12345
+                    r'EventID=(\d+)',  # Original pattern
+                    r'event_id=(\d+)',  # Lowercase variant
+                    r'[?&]id=(\d+)',   # Generic id parameter
+                    r'/events/(\d+)',   # /events/12345
+                    r'/event/(\d+)',    # /event/12345
+                    r'/events\.aspx[?&].*?(\d{4,})',  # /events.aspx with numeric ID
                 ]
                 
                 for pattern in patterns:
@@ -246,183 +175,347 @@ class EventDiscovery:
                         potential_id = match.group(1)
                         # Validate it looks like an event ID (at least 4 digits)
                         if potential_id.isdigit() and len(potential_id) >= 4:
-                            rankings_event_id = potential_id
+                            event_id_match = potential_id
+                            logger.info(f"Found potential event ID {event_id_match} in link: {href[:100]}")
                             break
                 
-                if rankings_event_id and rankings_event_id not in seen_event_ids:
-                    events_found_count += 1
-                    # Get event name
-                    event_name = link.get_text(strip=True)
-                    if not event_name or len(event_name) < 3:
-                        parent = link.find_parent(['div', 'article', 'section'])
-                        if parent:
-                            heading = parent.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
-                            if heading:
-                                event_name = heading.get_text(strip=True)
-                            else:
-                                event_name = parent.get_text(strip=True)[:100]
-                    
-                    if not event_name:
-                        event_name = f"Event {rankings_event_id}"
-                    
-                    # Resolve the actual event ID
-                    console.print(f"[dim]Resolving event ID for {event_name}...[/dim]")
-                    actual_event_id = self.resolve_event_id(rankings_event_id)
-                    
-                    # Verify event page is accessible (not redirected to home page)
-                    event_url = f"https://system.gotsport.com/org_event/events/{actual_event_id}"
-                    try:
-                        test_response = self.session.get(event_url, timeout=10, allow_redirects=True)
-                        if 'org_event/events' not in test_response.url or test_response.url == 'https://home.gotsport.com/':
-                            logger.info(f"Skipping event {event_name} ({actual_event_id}) - page redirects to home (event may be archived)")
-                            events_filtered_archived += 1
-                            continue
-                    except Exception as e:
-                        logger.debug(f"Could not verify event page accessibility: {e}")
-                        # Continue anyway - might be a temporary issue
-                    
-                    # Try to extract actual event dates (will use search_date as fallback)
-                    event_date = search_date.isoformat()
-                    event_start_date = None
-                    event_end_date = None
-                    try:
-                        from src.scrapers.gotsport_event import GotSportEventScraper
-                        from supabase import create_client
-                        supabase = create_client(
-                            os.getenv('SUPABASE_URL'),
-                            os.getenv('SUPABASE_SERVICE_ROLE_KEY')
-                        )
-                        scraper = GotSportEventScraper(supabase, 'gotsport')
-                        event_dates = scraper.extract_event_dates(actual_event_id)
-                        if event_dates:
-                            event_start_date, event_end_date = event_dates
-                            # Use start date for display, but store both
-                            event_date = event_start_date.isoformat()
-                            logger.debug(f"Found actual event dates: {event_start_date} to {event_end_date}")
-                    except Exception as e:
-                        logger.debug(f"Could not extract event dates, using search date: {e}")
-                    
-                    # Only include events that have already ended (or end today)
-                    # Filter out future events
-                    today = date.today()
-                    if event_end_date:
-                        # Event has actual dates - only include if it ended today or earlier
-                        # Allow events ending today (>= instead of >)
-                        if event_end_date >= today:
-                            # Include if ending today, skip if in future
-                            if event_end_date > today:
-                                logger.info(f"Skipping future event {event_name} (ends {event_end_date}, today is {today})")
-                                events_filtered_future += 1
-                                continue
-                    else:
-                        # No event dates found - use search_date as proxy
-                        # Only include if search_date is today or earlier
-                        if search_date > today:
-                            logger.info(f"Skipping event {event_name} (search date {search_date} is in future, today is {today})")
+                if event_id_match and event_id_match not in seen_event_ids:
+                    # Found a potential event ID via alternative pattern
+                    # Add it to event_links so it gets processed below
+                    event_links.append(alt_link)
+                    logger.info(f"Added alternative link with event ID {event_id_match}")
+            
+            # Log a sample of the HTML structure for debugging if still no events
+            if len(event_links) == 0:
+                # Try to find event-related content
+                event_divs = soup.find_all(['div', 'article', 'section'], class_=re.compile(r'event', re.I))
+                logger.info(f"Found {len(event_divs)} divs/articles/sections with 'event' in class name")
+                
+                # Log sample of alternative links for debugging
+                if event_links_alt:
+                    logger.info(f"Sample alternative links (first 5):")
+                    for link in event_links_alt[:5]:
+                        logger.info(f"  - {link.get('href', '')[:100]}")
+        
+        for link in event_links:
+            href = link.get('href', '')
+            
+            # Try multiple patterns to extract event ID
+            rankings_event_id = None
+            patterns = [
+                r'EventID=(\d+)',      # Original pattern: EventID=12345
+                r'event_id=(\d+)',     # Lowercase: event_id=12345
+                r'[?&]id=(\d+)',       # Generic: ?id=12345 or &id=12345
+                r'/events/(\d+)',      # Path: /events/12345
+                r'/event/(\d+)',       # Path: /event/12345
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, href, re.I)
+                if match:
+                    potential_id = match.group(1)
+                    # Validate it looks like an event ID (at least 4 digits)
+                    if potential_id.isdigit() and len(potential_id) >= 4:
+                        rankings_event_id = potential_id
+                        break
+            
+            if rankings_event_id and rankings_event_id not in seen_event_ids:
+                events_found_count += 1
+                # Get event name
+                event_name = link.get_text(strip=True)
+                if not event_name or len(event_name) < 3:
+                    parent = link.find_parent(['div', 'article', 'section'])
+                    if parent:
+                        heading = parent.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+                        if heading:
+                            event_name = heading.get_text(strip=True)
+                        else:
+                            event_name = parent.get_text(strip=True)[:100]
+                
+                if not event_name:
+                    event_name = f"Event {rankings_event_id}"
+                
+                # Resolve the actual event ID
+                console.print(f"[dim]Resolving event ID for {event_name}...[/dim]")
+                actual_event_id = self.resolve_event_id(rankings_event_id)
+                
+                # Verify event page is accessible (not redirected to home page)
+                event_url = f"https://system.gotsport.com/org_event/events/{actual_event_id}"
+                try:
+                    test_response = self.session.get(event_url, timeout=10, allow_redirects=True)
+                    if 'org_event/events' not in test_response.url or test_response.url == 'https://home.gotsport.com/':
+                        logger.info(f"Skipping event {event_name} ({actual_event_id}) - page redirects to home (event may be archived)")
+                        events_filtered_archived += 1
+                        continue
+                except Exception as e:
+                    logger.debug(f"Could not verify event page accessibility: {e}")
+                    # Continue anyway - might be a temporary issue
+                
+                # Try to extract actual event dates (will use search_date as fallback)
+                event_date = search_date.isoformat()
+                event_start_date = None
+                event_end_date = None
+                try:
+                    from src.scrapers.gotsport_event import GotSportEventScraper
+                    from supabase import create_client
+                    supabase = create_client(
+                        os.getenv('SUPABASE_URL'),
+                        os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+                    )
+                    scraper = GotSportEventScraper(supabase, 'gotsport')
+                    event_dates = scraper.extract_event_dates(actual_event_id)
+                    if event_dates:
+                        event_start_date, event_end_date = event_dates
+                        # Use start date for display, but store both
+                        event_date = event_start_date.isoformat()
+                        logger.debug(f"Found actual event dates: {event_start_date} to {event_end_date}")
+                except Exception as e:
+                    logger.debug(f"Could not extract event dates, using search date: {e}")
+                
+                # Only include events that have already ended (or end today)
+                # Filter out future events
+                today = date.today()
+                if event_end_date:
+                    # Event has actual dates - only include if it ended today or earlier
+                    # Allow events ending today (>= instead of >)
+                    if event_end_date >= today:
+                        # Include if ending today, skip if in future
+                        if event_end_date > today:
+                            logger.info(f"Skipping future event {event_name} (ends {event_end_date}, today is {today})")
                             events_filtered_future += 1
                             continue
-                    
-                    events.append({
-                        'event_id': actual_event_id,
-                        'event_name': event_name,
-                        'event_url': event_url,
-                        'date': event_date,
-                        'start_date': event_start_date.isoformat() if event_start_date else None,
-                        'end_date': event_end_date.isoformat() if event_end_date else None,
-                        'rankings_event_id': rankings_event_id  # Keep original for reference
-                    })
-                    seen_event_ids.add(rankings_event_id)
-                    seen_event_ids.add(actual_event_id)  # Also track resolved ID
-                    
-                    time.sleep(0.5)  # Rate limiting between resolutions
-            
-            # Also check JavaScript for event IDs
-            scripts = soup.find_all('script')
-            for script in scripts:
-                if script.string:
-                    matches = re.findall(r'EventID["\']?\s*[:=]\s*["\']?(\d+)', script.string, re.IGNORECASE)
-                    for rankings_event_id in matches:
-                        if rankings_event_id not in seen_event_ids:
-                            actual_event_id = self.resolve_event_id(rankings_event_id)
-                            
-                            # Try to extract actual event dates (will use search_date as fallback)
-                            event_date = search_date.isoformat()
-                            event_start_date = None
-                            event_end_date = None
-                            try:
-                                from src.scrapers.gotsport_event import GotSportEventScraper
-                                from supabase import create_client
-                                supabase = create_client(
-                                    os.getenv('SUPABASE_URL'),
-                                    os.getenv('SUPABASE_SERVICE_ROLE_KEY')
-                                )
-                                scraper = GotSportEventScraper(supabase, 'gotsport')
-                                event_dates = scraper.extract_event_dates(actual_event_id)
-                                if event_dates:
-                                    event_start_date, event_end_date = event_dates
-                                    event_date = event_start_date.isoformat()
-                                    logger.debug(f"Found actual event dates: {event_start_date} to {event_end_date}")
-                            except Exception as e:
-                                logger.debug(f"Could not extract event dates, using search date: {e}")
-                            
-                            # Only include events that have already ended (or end today)
-                            # Filter out future events
-                            today = date.today()
-                            event_name_js = f"Event {rankings_event_id}"  # Default name for JS-discovered events
-                            if event_end_date:
-                                # Event has actual dates - only include if it ended today or earlier
-                                # Allow events ending today (>= instead of >)
-                                if event_end_date >= today:
-                                    # Include if ending today, skip if in future
-                                    if event_end_date > today:
-                                        logger.debug(f"Skipping future event {event_name_js} (ends {event_end_date})")
-                                        continue
-                            else:
-                                # No event dates found - use search_date as proxy
-                                # Only include if search_date is today or earlier
-                                if search_date > today:
-                                    logger.debug(f"Skipping event {event_name_js} (search date {search_date} is in future)")
+                else:
+                    # No event dates found - use search_date as proxy
+                    # Only include if search_date is today or earlier
+                    if search_date > today:
+                        logger.info(f"Skipping event {event_name} (search date {search_date} is in future, today is {today})")
+                        events_filtered_future += 1
+                        continue
+                
+                events.append({
+                    'event_id': actual_event_id,
+                    'event_name': event_name,
+                    'event_url': event_url,
+                    'date': event_date,
+                    'start_date': event_start_date.isoformat() if event_start_date else None,
+                    'end_date': event_end_date.isoformat() if event_end_date else None,
+                    'rankings_event_id': rankings_event_id  # Keep original for reference
+                })
+                seen_event_ids.add(rankings_event_id)
+                seen_event_ids.add(actual_event_id)  # Also track resolved ID
+                
+                time.sleep(0.5)  # Rate limiting between resolutions
+        
+        # Also check JavaScript for event IDs
+        scripts = soup.find_all('script')
+        for script in scripts:
+            if script.string:
+                matches = re.findall(r'EventID["\']?\s*[:=]\s*["\']?(\d+)', script.string, re.IGNORECASE)
+                for rankings_event_id in matches:
+                    if rankings_event_id not in seen_event_ids:
+                        actual_event_id = self.resolve_event_id(rankings_event_id)
+                        
+                        # Try to extract actual event dates (will use search_date as fallback)
+                        event_date = search_date.isoformat()
+                        event_start_date = None
+                        event_end_date = None
+                        try:
+                            from src.scrapers.gotsport_event import GotSportEventScraper
+                            from supabase import create_client
+                            supabase = create_client(
+                                os.getenv('SUPABASE_URL'),
+                                os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+                            )
+                            scraper = GotSportEventScraper(supabase, 'gotsport')
+                            event_dates = scraper.extract_event_dates(actual_event_id)
+                            if event_dates:
+                                event_start_date, event_end_date = event_dates
+                                event_date = event_start_date.isoformat()
+                                logger.debug(f"Found actual event dates: {event_start_date} to {event_end_date}")
+                        except Exception as e:
+                            logger.debug(f"Could not extract event dates, using search date: {e}")
+                        
+                        # Only include events that have already ended (or end today)
+                        # Filter out future events
+                        today = date.today()
+                        event_name_js = f"Event {rankings_event_id}"  # Default name for JS-discovered events
+                        if event_end_date:
+                            # Event has actual dates - only include if it ended today or earlier
+                            # Allow events ending today (>= instead of >)
+                            if event_end_date >= today:
+                                # Include if ending today, skip if in future
+                                if event_end_date > today:
+                                    logger.debug(f"Skipping future event {event_name_js} (ends {event_end_date})")
                                     continue
-                            
-                            # Try to get event name from the page
-                            event_name_js = f"Event {rankings_event_id}"
-                            try:
-                                event_url_test = f"https://system.gotsport.com/org_event/events/{actual_event_id}"
-                                test_response = self.session.get(event_url_test, timeout=10, allow_redirects=True)
-                                if 'org_event/events' in test_response.url:
-                                    test_soup = BeautifulSoup(test_response.text, 'html.parser')
-                                    title = test_soup.find('title')
-                                    if title:
-                                        event_name_js = title.get_text(strip=True)
-                            except:
-                                pass  # Use default name if we can't get it
-                            
-                            events.append({
-                                'event_id': actual_event_id,
-                                'event_name': event_name_js,
-                                'event_url': f"https://system.gotsport.com/org_event/events/{actual_event_id}",
-                                'date': event_date,
-                                'start_date': event_start_date.isoformat() if event_start_date else None,
-                                'end_date': event_end_date.isoformat() if event_end_date else None,
-                                'rankings_event_id': rankings_event_id
-                            })
-                            seen_event_ids.add(rankings_event_id)
-                            seen_event_ids.add(actual_event_id)
-                            time.sleep(0.5)
+                        else:
+                            # No event dates found - use search_date as proxy
+                            # Only include if search_date is today or earlier
+                            if search_date > today:
+                                logger.debug(f"Skipping event {event_name_js} (search date {search_date} is in future)")
+                                continue
+                        
+                        # Try to get event name from the page
+                        event_name_js = f"Event {rankings_event_id}"
+                        try:
+                            event_url_test = f"https://system.gotsport.com/org_event/events/{actual_event_id}"
+                            test_response = self.session.get(event_url_test, timeout=10, allow_redirects=True)
+                            if 'org_event/events' in test_response.url:
+                                test_soup = BeautifulSoup(test_response.text, 'html.parser')
+                                title = test_soup.find('title')
+                                if title:
+                                    event_name_js = title.get_text(strip=True)
+                        except:
+                            pass  # Use default name if we can't get it
+                        
+                        events.append({
+                            'event_id': actual_event_id,
+                            'event_name': event_name_js,
+                            'event_url': f"https://system.gotsport.com/org_event/events/{actual_event_id}",
+                            'date': event_date,
+                            'start_date': event_start_date.isoformat() if event_start_date else None,
+                            'end_date': event_end_date.isoformat() if event_end_date else None,
+                            'rankings_event_id': rankings_event_id
+                        })
+                        seen_event_ids.add(rankings_event_id)
+                        seen_event_ids.add(actual_event_id)
+                        time.sleep(0.5)
+        
+        return events, events_found_count, events_filtered_future, events_filtered_archived
+    
+    def _find_max_page_number(self, soup: BeautifulSoup) -> int:
+        """
+        Find the maximum page number from pagination links
+        
+        Args:
+            soup: BeautifulSoup object of the page
+        
+        Returns:
+            Maximum page number found, or 1 if no pagination found
+        """
+        max_page = 1
+        
+        # Look for pagination links with Page parameter
+        pagination_links = soup.find_all('a', href=re.compile(r'Page=', re.I))
+        for link in pagination_links:
+            href = link.get('href', '')
+            # Extract page number from href like "Page=2" or "Page=4"
+            match = re.search(r'Page=(\d+)', href, re.I)
+            if match:
+                page_num = int(match.group(1))
+                if page_num > max_page:
+                    max_page = page_num
+        
+        # Also check for pagination text like "Page 1 of 5" or "1 of 5"
+        pagination_text = soup.find_all(string=re.compile(r'page\s+\d+\s+of\s+\d+', re.I))
+        for text in pagination_text:
+            match = re.search(r'page\s+\d+\s+of\s+(\d+)', text, re.I)
+            if match:
+                page_num = int(match.group(1))
+                if page_num > max_page:
+                    max_page = page_num
+        
+        # Check for pagination in text content
+        page_text = soup.get_text()
+        match = re.search(r'page\s+\d+\s+of\s+(\d+)', page_text, re.I)
+        if match:
+            page_num = int(match.group(1))
+            if page_num > max_page:
+                max_page = page_num
+        
+        return max_page
+    
+    def discover_events_by_date(self, search_date: date) -> List[Dict[str, str]]:
+        """
+        Discover events for a specific date (with pagination support)
+        
+        Args:
+            search_date: Date to search for events
+        
+        Returns:
+            List of dicts with 'event_id', 'event_name', 'event_url', 'date'
+        """
+        all_events = []
+        events_found_count = 0
+        events_filtered_future = 0
+        events_filtered_archived = 0
+        
+        # Format date as MM/DD/YYYY for GotSport
+        # Use format that works on Windows (no leading zero removal)
+        date_str = f"{search_date.month}/{search_date.day}/{search_date.year}"  # e.g., "11/1/2025"
+        
+        console.print(f"[dim]Searching for events on {date_str}...[/dim]")
+        
+        base_params = {
+            'search': '',
+            'type': 'Tournament',
+            'date': date_str,
+            'age': '',
+            'featured': ''
+        }
+        
+        # Initialize seen_event_ids before processing
+        seen_event_ids = set()
+        
+        try:
+            # Start with page 1 (or no Page parameter)
+            page = 1
+            max_pages = 1  # Will be updated after first page
+            
+            while page <= max_pages:
+                params = base_params.copy()
+                if page > 1:
+                    params['Page'] = str(page)
+                
+                full_url = f"{self.EVENTS_SEARCH_URL}?{urlencode(params)}"
+                logger.info(f"Fetching page {page}: {full_url}")
+                response = self.session.get(self.EVENTS_SEARCH_URL, params=params, timeout=30)
+                response.raise_for_status()
+                
+                soup = BeautifulSoup(response.text, 'html.parser')
+                
+                # On first page, determine max pages
+                if page == 1:
+                    max_pages = self._find_max_page_number(soup)
+                    logger.info(f"Found pagination: {max_pages} total pages")
+                    if max_pages > 1:
+                        console.print(f"[cyan]Found {max_pages} pages of results, fetching all pages...[/cyan]")
+                
+                # Parse events from this page
+                page_events, page_found, page_future, page_archived = self._parse_events_from_page(
+                    soup, search_date, seen_event_ids
+                )
+                
+                all_events.extend(page_events)
+                events_found_count += page_found
+                events_filtered_future += page_future
+                events_filtered_archived += page_archived
+                
+                logger.info(f"Page {page}: Found {len(page_events)} events (total so far: {len(all_events)})")
+                
+                # If no events found on this page and we're past page 1, stop
+                if len(page_events) == 0 and page > 1:
+                    logger.info(f"No events found on page {page}, stopping pagination")
+                    break
+                
+                page += 1
+                
+                # Rate limiting between pages
+                if page <= max_pages:
+                    time.sleep(1)
             
         except Exception as e:
             logger.error(f"Error discovering events for {search_date}: {e}", exc_info=True)
         
         # Log summary
         if events_found_count > 0:
-            logger.info(f"Date {date_str}: Found {events_found_count} events, {len(events)} included, {events_filtered_future} filtered (future), {events_filtered_archived} filtered (archived)")
+            logger.info(f"Date {date_str}: Found {events_found_count} events, {len(all_events)} included, {events_filtered_future} filtered (future), {events_filtered_archived} filtered (archived)")
             if events_filtered_future > 0:
                 console.print(f"[yellow]  ⚠️  {events_filtered_future} events filtered (future dates)[/yellow]")
-        elif len(event_links) == 0:
+        elif len(all_events) == 0:
             logger.warning(f"Date {date_str}: No event links found in search results. GotSport may have changed their page structure or no events exist for this date.")
             console.print(f"[yellow]  ⚠️  No events found for {date_str}[/yellow]")
         
-        return events
+        return all_events
     
     def discover_events_in_range(self, start_date: date, end_date: date) -> List[Dict[str, str]]:
         """
