@@ -54,7 +54,9 @@ jobs:
           # Set Python path to include project root
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
           # Run the event scraper (auto-import is enabled by default)
-          # This will: 1) Find events from last 10 days, 2) Scrape games, 3) Auto-import to database
+          # This will: 1) Find events from last 10 days (with pagination support for all pages),
+          #           2) Scrape games from event teams, 3) Auto-import to database
+          # Note: Pagination support ensures all event pages are fetched (Page=2, Page=4, etc.)
           python scripts/scrape_new_gotsport_events.py || exit 1
       
       - name: Upload scraped data
