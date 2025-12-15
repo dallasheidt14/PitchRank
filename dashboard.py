@@ -2861,25 +2861,98 @@ elif section == "📍 Missing State Codes":
                         
                         # Display teams for selected club
                         if st.session_state.selected_club_missing_state:
-                            club_teams = filtered_df[filtered_df['club_name'] == st.session_state.selected_club_missing_state]
-                            if not club_teams.empty:
-                                st.info(f"📋 Showing {len(club_teams)} teams for **{st.session_state.selected_club_missing_state}**")
-                                
-                                # Display teams table
-                                teams_display = club_teams[['team_name', 'age_group', 'gender', 'state', 'state_code']].copy()
-                                teams_display = teams_display.rename(columns={
-                                    'team_name': 'Team Name',
-                                    'age_group': 'Age Group',
-                                    'gender': 'Gender',
-                                    'state': 'State (Full)',
-                                    'state_code': 'State Code'
-                                })
-                                st.dataframe(
-                                    teams_display,
-                                    use_container_width=True,
-                                    hide_index=True
-                                )
-                                st.divider()
+                            selected_club_name = st.session_state.selected_club_missing_state
+                            
+                            # Fetch teams missing state codes for this club
+                            with st.spinner(f"Loading teams missing state codes for {selected_club_name}..."):
+                                try:
+                                    club_teams_missing_result = execute_with_retry(
+                                        lambda: db.table('teams').select(
+                                            'team_id_master, team_name, club_name, age_group, gender, state, state_code'
+                                        ).eq('club_name', selected_club_name).is_('state_code', 'null'),
+                                        max_retries=3,
+                                        base_delay=2.0
+                                    )
+                                    club_teams_missing = pd.DataFrame(club_teams_missing_result.data) if club_teams_missing_result.data else pd.DataFrame()
+                                    
+                                    if not club_teams_missing.empty:
+                                        st.markdown(f"### 📋 **{selected_club_name}**")
+                                        st.info(f"Showing **{len(club_teams_missing)}** teams missing state codes")
+                                        
+                                        # Display teams table
+                                        teams_display = club_teams_missing[['team_name', 'age_group', 'gender', 'state', 'state_code']].copy()
+                                        teams_display = teams_display.rename(columns={
+                                            'team_name': 'Team Name',
+                                            'age_group': 'Age Group',
+                                            'gender': 'Gender',
+                                            'state': 'State (Full)',
+                                            'state_code': 'State Code'
+                                        })
+                                        st.dataframe(
+                                            teams_display,
+                                            use_container_width=True,
+                                            hide_index=True
+                                        )
+                                        
+                                        # Bulk update section for this specific club
+                                        st.divider()
+                                        st.markdown("#### 🔧 Bulk Update State Code for This Club")
+                                        
+                                        col1, col2 = st.columns([2, 1])
+                                        with col1:
+                                            club_state_code = st.selectbox(
+                                                "Select State Code to Apply",
+                                                options=[''] + sorted(STATE_CODE_TO_NAME.keys()),
+                                                key=f"club_state_{selected_club_name}",
+                                                help="Select a state code to apply to all teams missing state codes for this club"
+                                            )
+                                        
+                                        with col2:
+                                            if club_state_code:
+                                                state_name = STATE_CODE_TO_NAME[club_state_code]
+                                                st.info(f"Will set state to: **{state_name}**")
+                                        
+                                        if st.button(
+                                            f"🚀 Apply State Code '{club_state_code}' to All {len(club_teams_missing)} Teams",
+                                            type="primary",
+                                            use_container_width=True,
+                                            disabled=not club_state_code or club_teams_missing.empty,
+                                            key=f"apply_club_state_{selected_club_name}"
+                                        ):
+                                            if club_state_code and not club_teams_missing.empty:
+                                                with st.spinner(f"Updating {len(club_teams_missing)} teams..."):
+                                                    try:
+                                                        team_ids = club_teams_missing['team_id_master'].tolist()
+                                                        state_name = STATE_CODE_TO_NAME[club_state_code]
+                                                        
+                                                        # Update in batches
+                                                        batch_size = 100
+                                                        updated_count = 0
+                                                        for i in range(0, len(team_ids), batch_size):
+                                                            batch = team_ids[i:i + batch_size]
+                                                            result = db.table('teams').update({
+                                                                'state_code': club_state_code,
+                                                                'state': state_name
+                                                            }).in_('team_id_master', batch).execute()
+                                                            updated_count += len(batch)
+                                                        
+                                                        st.success(f"✅ Successfully updated {updated_count} teams with state code '{club_state_code}' ({state_name})!")
+                                                        time.sleep(1)
+                                                        st.rerun()
+                                                    except Exception as e:
+                                                        st.error(f"Error updating teams: {e}")
+                                                        import traceback
+                                                        with st.expander("View Error Details"):
+                                                            st.code(traceback.format_exc())
+                                        
+                                        st.divider()
+                                    else:
+                                        st.success(f"✅ **{selected_club_name}** has no teams missing state codes!")
+                                except Exception as e:
+                                    st.error(f"Error loading teams for {selected_club_name}: {e}")
+                                    import traceback
+                                    with st.expander("View Error Details"):
+                                        st.code(traceback.format_exc())
                         
                         # Display editable table
                         edited_club_df = st.data_editor(
