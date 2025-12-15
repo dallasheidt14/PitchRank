@@ -133,6 +133,10 @@ class EventDiscovery:
             List of dicts with 'event_id', 'event_name', 'event_url', 'date'
         """
         events = []
+        events_found_count = 0
+        events_filtered_future = 0
+        events_filtered_archived = 0
+        event_links = []
         
         # Format date as MM/DD/YYYY for GotSport
         # Use format that works on Windows (no leading zero removal)
@@ -149,17 +153,34 @@ class EventDiscovery:
         }
         
         try:
+            full_url = f"{self.EVENTS_SEARCH_URL}?{urlencode(params)}"
+            logger.info(f"Fetching: {full_url}")
             response = self.session.get(self.EVENTS_SEARCH_URL, params=params, timeout=30)
             response.raise_for_status()
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
             # Log search results for debugging
-            logger.debug(f"Searching GotSport events page for {date_str}, response status: {response.status_code}")
+            logger.info(f"Searching GotSport events page for {date_str}, response status: {response.status_code}, content length: {len(response.text)}")
             
             # Look for event links with EventID
             event_links = soup.find_all('a', href=re.compile(r'EventID=', re.I))
-            logger.debug(f"Found {len(event_links)} event links in search results for {date_str}")
+            logger.info(f"Found {len(event_links)} event links in search results for {date_str}")
+            
+            # Additional debugging: check for alternative link patterns
+            if len(event_links) == 0:
+                # Try alternative patterns
+                all_links = soup.find_all('a', href=True)
+                event_links_alt = [link for link in all_links if 'event' in link.get('href', '').lower() or 'EventID' in link.get('href', '')]
+                logger.info(f"Found {len(event_links_alt)} links with 'event' in href")
+                
+                # Log a sample of the HTML structure for debugging
+                if len(response.text) < 50000:  # Only log if reasonable size
+                    logger.debug(f"Sample HTML structure (first 2000 chars): {response.text[:2000]}")
+                else:
+                    # Try to find event-related content
+                    event_divs = soup.find_all(['div', 'article', 'section'], class_=re.compile(r'event', re.I))
+                    logger.info(f"Found {len(event_divs)} divs/articles/sections with 'event' in class name")
             
             seen_event_ids = set()
             
@@ -169,6 +190,7 @@ class EventDiscovery:
                 if match:
                     rankings_event_id = match.group(1)
                     if rankings_event_id not in seen_event_ids:
+                        events_found_count += 1
                         # Get event name
                         event_name = link.get_text(strip=True)
                         if not event_name or len(event_name) < 3:
@@ -192,7 +214,8 @@ class EventDiscovery:
                         try:
                             test_response = self.session.get(event_url, timeout=10, allow_redirects=True)
                             if 'org_event/events' not in test_response.url or test_response.url == 'https://home.gotsport.com/':
-                                logger.debug(f"Skipping event {event_name} - page redirects to home (event may be archived)")
+                                logger.info(f"Skipping event {event_name} ({actual_event_id}) - page redirects to home (event may be archived)")
+                                events_filtered_archived += 1
                                 continue
                         except Exception as e:
                             logger.debug(f"Could not verify event page accessibility: {e}")
@@ -228,13 +251,15 @@ class EventDiscovery:
                             if event_end_date >= today:
                                 # Include if ending today, skip if in future
                                 if event_end_date > today:
-                                    logger.debug(f"Skipping future event {event_name} (ends {event_end_date})")
+                                    logger.info(f"Skipping future event {event_name} (ends {event_end_date}, today is {today})")
+                                    events_filtered_future += 1
                                     continue
                         else:
                             # No event dates found - use search_date as proxy
                             # Only include if search_date is today or earlier
                             if search_date > today:
-                                logger.debug(f"Skipping event {event_name} (search date {search_date} is in future)")
+                                logger.info(f"Skipping event {event_name} (search date {search_date} is in future, today is {today})")
+                                events_filtered_future += 1
                                 continue
                         
                         events.append({
@@ -326,7 +351,16 @@ class EventDiscovery:
                             time.sleep(0.5)
             
         except Exception as e:
-            logger.error(f"Error discovering events for {search_date}: {e}")
+            logger.error(f"Error discovering events for {search_date}: {e}", exc_info=True)
+        
+        # Log summary
+        if events_found_count > 0:
+            logger.info(f"Date {date_str}: Found {events_found_count} events, {len(events)} included, {events_filtered_future} filtered (future), {events_filtered_archived} filtered (archived)")
+            if events_filtered_future > 0:
+                console.print(f"[yellow]  ⚠️  {events_filtered_future} events filtered (future dates)[/yellow]")
+        elif len(event_links) == 0:
+            logger.warning(f"Date {date_str}: No event links found in search results. GotSport may have changed their page structure or no events exist for this date.")
+            console.print(f"[yellow]  ⚠️  No events found for {date_str}[/yellow]")
         
         return events
     
@@ -426,10 +460,17 @@ def scrape_new_events(
     end_date = date.today()
     start_date = end_date - timedelta(days=days_back)
     
+    # Ensure we don't search future dates (shouldn't happen, but safety check)
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+    
     console.print(f"[cyan]Searching for events from {start_date} to {end_date}...[/cyan]")
+    console.print(f"[dim]Today is {date.today()}, searching {days_back} days back[/dim]")
     
     discovery = EventDiscovery()
     all_events = discovery.discover_events_in_range(start_date, end_date)
+    
+    logger.info(f"Discovery complete: Found {len(all_events)} total events in date range {start_date} to {end_date}")
     
     # Add manually specified event IDs
     if manual_event_ids:
