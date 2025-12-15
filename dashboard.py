@@ -2623,9 +2623,168 @@ elif section == "📍 Missing State Codes":
                     
                     st.dataframe(breakdown_pivot, use_container_width=True)
                     
-                    # Show breakdown by club name (top clubs)
+                    # Identify clubs spanning multiple states
                     if filtered_df['club_name'].notna().sum() > 0:
                         st.divider()
+                        st.subheader("🌍 Clubs Spanning Multiple States")
+                        st.markdown("These clubs have teams in multiple states. Review teams by state to assign correct state codes.")
+                        
+                        # Fetch all teams (including those with state codes) to check for multi-state clubs
+                        with st.spinner("Analyzing clubs across states..."):
+                            all_teams_multi_state = []
+                            page_size = 1000
+                            offset = 0
+                            
+                            try:
+                                while True:
+                                    result = execute_with_retry(
+                                        lambda: db.table('teams').select(
+                                            'team_id_master, team_name, club_name, age_group, gender, state, state_code'
+                                        ).not_.is_('club_name', 'null').range(offset, offset + page_size - 1),
+                                        max_retries=3,
+                                        base_delay=2.0
+                                    )
+                                    
+                                    if not result.data:
+                                        break
+                                    
+                                    all_teams_multi_state.extend(result.data)
+                                    offset += page_size
+                                    
+                                    if len(result.data) < page_size:
+                                        break
+                                    
+                                    time.sleep(0.3)
+                            except Exception as e:
+                                st.warning(f"⚠️ Error loading teams for multi-state analysis: {str(e)[:200]}")
+                                all_teams_multi_state = []
+                            
+                            if all_teams_multi_state:
+                                all_teams_df = pd.DataFrame(all_teams_multi_state)
+                                
+                                # Find clubs with teams in multiple states
+                                multi_state_clubs_info = {}
+                                for club_name in filtered_df['club_name'].dropna().unique():
+                                    club_teams = all_teams_df[all_teams_df['club_name'] == club_name]
+                                    # Get unique states (non-null state codes)
+                                    states = club_teams[club_teams['state_code'].notna()]['state_code'].unique()
+                                    if len(states) > 1:
+                                        multi_state_clubs_info[club_name] = {
+                                            'states': sorted(states.tolist()),
+                                            'state_counts': club_teams[club_teams['state_code'].notna()]['state_code'].value_counts().to_dict(),
+                                            'teams_missing_state': len(club_teams[club_teams['state_code'].isna()])
+                                        }
+                                
+                                if multi_state_clubs_info:
+                                    # Store multi-state clubs info in session state for later use
+                                    st.session_state.multi_state_clubs_info = multi_state_clubs_info
+                                    
+                                    # Initialize session state for multi-state club selection
+                                    if 'selected_multi_state_club' not in st.session_state:
+                                        st.session_state.selected_multi_state_club = None
+                                    
+                                    # Create summary table
+                                    multi_state_summary = []
+                                    for club_name, info in multi_state_clubs_info.items():
+                                        states_str = ', '.join(info['states'])
+                                        state_counts_str = ', '.join([f"{state}: {count}" for state, count in info['state_counts'].items()])
+                                        multi_state_summary.append({
+                                            'Club Name': club_name,
+                                            'States': states_str,
+                                            'Teams by State': state_counts_str,
+                                            'Teams Missing State': info['teams_missing_state']
+                                        })
+                                    
+                                    multi_state_df = pd.DataFrame(multi_state_summary)
+                                    multi_state_df = multi_state_df.sort_values('Teams Missing State', ascending=False)
+                                    
+                                    st.info(f"Found **{len(multi_state_clubs_info)}** clubs with teams in multiple states")
+                                    
+                                    # Club selector for multi-state clubs
+                                    col1, col2 = st.columns([3, 1])
+                                    with col1:
+                                        multi_state_club_options = [''] + multi_state_df['Club Name'].tolist()
+                                        default_multi_index = 0
+                                        if st.session_state.selected_multi_state_club and st.session_state.selected_multi_state_club in multi_state_club_options:
+                                            default_multi_index = multi_state_club_options.index(st.session_state.selected_multi_state_club)
+                                        
+                                        selected_multi_club = st.selectbox(
+                                            "🔍 Select a multi-state club to review teams by state",
+                                            options=multi_state_club_options,
+                                            index=default_multi_index,
+                                            help="Select a club to see its teams grouped by state"
+                                        )
+                                        if selected_multi_club:
+                                            st.session_state.selected_multi_state_club = selected_multi_club
+                                        else:
+                                            st.session_state.selected_multi_state_club = None
+                                    
+                                    with col2:
+                                        if st.session_state.selected_multi_state_club:
+                                            if st.button("Clear Selection", key="clear_multi_state", use_container_width=True):
+                                                st.session_state.selected_multi_state_club = None
+                                                st.rerun()
+                                    
+                                    # Display teams grouped by state for selected club
+                                    if st.session_state.selected_multi_state_club:
+                                        club_info = multi_state_clubs_info[st.session_state.selected_multi_state_club]
+                                        club_all_teams = all_teams_df[all_teams_df['club_name'] == st.session_state.selected_multi_state_club]
+                                        
+                                        st.markdown(f"### 📋 Teams for **{st.session_state.selected_multi_state_club}**")
+                                        st.markdown(f"**States:** {', '.join(club_info['states'])} | **Teams Missing State Code:** {club_info['teams_missing_state']}")
+                                        
+                                        # Group teams by state
+                                        for state_code in sorted(club_info['states']):
+                                            state_teams = club_all_teams[club_all_teams['state_code'] == state_code]
+                                            if not state_teams.empty:
+                                                with st.expander(f"📍 {state_code} ({STATE_CODE_TO_NAME.get(state_code, state_code)}) - {len(state_teams)} teams", expanded=True):
+                                                    state_display = state_teams[['team_name', 'age_group', 'gender', 'state', 'state_code']].copy()
+                                                    state_display = state_display.rename(columns={
+                                                        'team_name': 'Team Name',
+                                                        'age_group': 'Age Group',
+                                                        'gender': 'Gender',
+                                                        'state': 'State (Full)',
+                                                        'state_code': 'State Code'
+                                                    })
+                                                    st.dataframe(state_display, use_container_width=True, hide_index=True)
+                                        
+                                        # Show teams missing state codes for this club
+                                        missing_state_teams = club_all_teams[club_all_teams['state_code'].isna()]
+                                        if not missing_state_teams.empty:
+                                            with st.expander(f"❓ Teams Missing State Code ({len(missing_state_teams)} teams)", expanded=True):
+                                                st.warning("These teams need state codes assigned. Review the teams above to determine the correct state for each team.")
+                                                missing_display = missing_state_teams[['team_name', 'age_group', 'gender', 'state', 'state_code']].copy()
+                                                missing_display = missing_display.rename(columns={
+                                                    'team_name': 'Team Name',
+                                                    'age_group': 'Age Group',
+                                                    'gender': 'Gender',
+                                                    'state': 'State (Full)',
+                                                    'state_code': 'State Code'
+                                                })
+                                                st.dataframe(missing_display, use_container_width=True, hide_index=True)
+                                        
+                                        st.divider()
+                                    
+                                    # Display summary table
+                                    st.markdown("#### Summary of Multi-State Clubs")
+                                    st.dataframe(
+                                        multi_state_df[['Club Name', 'States', 'Teams Missing State']],
+                                        use_container_width=True,
+                                        hide_index=True
+                                    )
+                                else:
+                                    st.success("✅ No clubs found spanning multiple states!")
+                                    
+                                    # Clear selection if no multi-state clubs
+                                    if 'selected_multi_state_club' in st.session_state:
+                                        st.session_state.selected_multi_state_club = None
+                                    if 'multi_state_clubs_info' in st.session_state:
+                                        st.session_state.multi_state_clubs_info = {}
+                        
+                        st.divider()
+                    
+                    # Show breakdown by club name (top clubs)
+                    if filtered_df['club_name'].notna().sum() > 0:
                         st.subheader("Top Clubs (Missing State Codes)")
                         
                         club_counts = filtered_df['club_name'].value_counts().head(20)
@@ -2650,6 +2809,78 @@ elif section == "📍 Missing State Codes":
                         # Add state code column (pre-populate if club already has state codes)
                         club_df['State Code'] = club_df['Club Name'].map(clubs_with_states).fillna('')
                         
+                        # Initialize session state for selected club
+                        if 'selected_club_missing_state' not in st.session_state:
+                            st.session_state.selected_club_missing_state = None
+                        
+                        # Add club selector above the table
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            club_options = [''] + club_df['Club Name'].tolist()
+                            # Determine default index
+                            default_index = 0
+                            if st.session_state.selected_club_missing_state and st.session_state.selected_club_missing_state in club_options:
+                                default_index = club_options.index(st.session_state.selected_club_missing_state)
+                            
+                            selected_club = st.selectbox(
+                                "🔍 Select a club to view its teams",
+                                options=club_options,
+                                index=default_index,
+                                help="Select a club from the list to see all teams missing state codes for that club"
+                            )
+                            if selected_club:
+                                st.session_state.selected_club_missing_state = selected_club
+                            else:
+                                st.session_state.selected_club_missing_state = None
+                        
+                        with col2:
+                            if st.session_state.selected_club_missing_state:
+                                if st.button("Clear Selection", use_container_width=True):
+                                    st.session_state.selected_club_missing_state = None
+                                    st.rerun()
+                        
+                        # Quick access: Clickable club buttons
+                        with st.expander("🔗 Quick Access: Click a club name to view teams", expanded=False):
+                            # Display clubs in a grid of buttons
+                            num_cols = 3
+                            club_list = club_df['Club Name'].tolist()
+                            for i in range(0, len(club_list), num_cols):
+                                cols = st.columns(num_cols)
+                                for j, col in enumerate(cols):
+                                    if i + j < len(club_list):
+                                        club_name = club_list[i + j]
+                                        team_count = club_df[club_df['Club Name'] == club_name]['Teams Missing State Code'].iloc[0]
+                                        with col:
+                                            if st.button(
+                                                f"📋 {club_name}\n({team_count} teams)",
+                                                key=f"club_btn_{club_name}",
+                                                use_container_width=True
+                                            ):
+                                                st.session_state.selected_club_missing_state = club_name
+                                                st.rerun()
+                        
+                        # Display teams for selected club
+                        if st.session_state.selected_club_missing_state:
+                            club_teams = filtered_df[filtered_df['club_name'] == st.session_state.selected_club_missing_state]
+                            if not club_teams.empty:
+                                st.info(f"📋 Showing {len(club_teams)} teams for **{st.session_state.selected_club_missing_state}**")
+                                
+                                # Display teams table
+                                teams_display = club_teams[['team_name', 'age_group', 'gender', 'state', 'state_code']].copy()
+                                teams_display = teams_display.rename(columns={
+                                    'team_name': 'Team Name',
+                                    'age_group': 'Age Group',
+                                    'gender': 'Gender',
+                                    'state': 'State (Full)',
+                                    'state_code': 'State Code'
+                                })
+                                st.dataframe(
+                                    teams_display,
+                                    use_container_width=True,
+                                    hide_index=True
+                                )
+                                st.divider()
+                        
                         # Display editable table
                         edited_club_df = st.data_editor(
                             club_df,
@@ -2667,6 +2898,18 @@ elif section == "📍 Missing State Codes":
                             hide_index=True,
                             num_rows="fixed"
                         )
+                        
+                        # Check if any clubs in the table are multi-state clubs
+                        multi_state_clubs_in_table = []
+                        if 'multi_state_clubs_info' in st.session_state and st.session_state.multi_state_clubs_info:
+                            for club_name in club_df['Club Name'].tolist():
+                                if club_name in st.session_state.multi_state_clubs_info:
+                                    multi_state_clubs_in_table.append(club_name)
+                        
+                        if multi_state_clubs_in_table:
+                            st.warning(f"⚠️ **Warning:** The following clubs span multiple states: {', '.join(multi_state_clubs_in_table)}. "
+                                      f"Review these clubs in the 'Clubs Spanning Multiple States' section above before bulk updating. "
+                                      f"Bulk updates will apply the same state code to ALL teams for a club.")
                         
                         # Bulk update button
                         if st.button("🚀 Apply State Codes to All Teams", type="primary", use_container_width=True):
