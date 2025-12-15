@@ -2918,23 +2918,41 @@ elif section == "📍 Missing State Codes":
                                             # Convert State Code column to string, handling NaN values
                                             edited_teams_df['State Code'] = edited_teams_df['State Code'].fillna('').astype(str).str.strip().str.upper()
                                             
-                                            # Find teams that have valid state codes entered
+                                            # Find teams that have valid state codes entered (ignore blanks)
+                                            # Filter for rows with exactly 2 characters that are valid state codes
                                             updates_to_apply = edited_teams_df[
+                                                (edited_teams_df['State Code'].str.len() == 2) &
                                                 (edited_teams_df['State Code'] != '') &
-                                                (edited_teams_df['State Code'] != 'NAN') &
-                                                (edited_teams_df['State Code'] != 'NONE') &
-                                                (edited_teams_df['State Code'].str.len() == 2)
+                                                (~edited_teams_df['State Code'].isin(['NA', 'NAN', 'NONE', 'NUL']))
+                                            ]
+                                            
+                                            # Further filter to only include valid state codes
+                                            valid_state_codes = set(STATE_CODE_TO_NAME.keys())
+                                            updates_to_apply = updates_to_apply[
+                                                updates_to_apply['State Code'].isin(valid_state_codes)
                                             ]
                                             
                                             if updates_to_apply.empty:
                                                 st.error("⚠️ No valid state codes found to apply!")
-                                                st.info("💡 Make sure you've entered 2-letter state codes (e.g., TX, CA, NY) in the State Code column above.")
+                                                st.info("💡 **Blank cells are fine** - only teams with state codes entered will be updated.")
+                                                st.info("💡 Make sure you've entered **2-letter state codes** (e.g., TX, CA, NY) in the State Code column above.")
+                                                
+                                                # Show what was actually captured
+                                                rows_with_2_chars = edited_teams_df[edited_teams_df['State Code'].str.len() == 2]
+                                                if not rows_with_2_chars.empty:
+                                                    st.warning(f"Found {len(rows_with_2_chars)} rows with 2-character codes, but they may not be valid state codes.")
+                                                
                                                 # Debug info
-                                                with st.expander("🔍 Debug: See what was captured"):
-                                                    st.write("Total rows:", len(edited_teams_df))
-                                                    st.write("State Code column sample:", edited_teams_df[['Team Name', 'State Code']].head(10))
-                                                    st.write("Unique State Code values:", edited_teams_df['State Code'].unique()[:20])
-                                                    st.write("Non-empty State Codes:", edited_teams_df[edited_teams_df['State Code'].str.len() > 0]['State Code'].tolist()[:20])
+                                                with st.expander("🔍 Debug: See what was captured", expanded=True):
+                                                    st.write("**Total rows:**", len(edited_teams_df))
+                                                    st.write("**Rows with 2-character codes:**", len(rows_with_2_chars))
+                                                    st.write("**Sample of State Code values:**")
+                                                    st.dataframe(edited_teams_df[['Team Name', 'State Code']].head(20), use_container_width=True)
+                                                    if not rows_with_2_chars.empty:
+                                                        st.write("**2-character codes found:**", rows_with_2_chars['State Code'].unique().tolist())
+                                                        st.write("**Valid state codes:**", [code for code in rows_with_2_chars['State Code'].unique() if code in valid_state_codes])
+                                                    else:
+                                                        st.write("**No 2-character codes found.** Make sure you typed state codes like 'TX', 'CA', etc.")
                                             else:
                                                 with st.spinner(f"Updating {len(updates_to_apply)} teams..."):
                                                     updated_count = 0
