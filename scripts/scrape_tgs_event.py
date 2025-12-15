@@ -6,8 +6,14 @@ import time
 import argparse
 import hashlib
 import requests
+import sys
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import List, Dict, Optional
+
+# Add parent directory to path for imports
+sys.path.append(str(Path(__file__).parent.parent))
+from src.utils.team_utils import calculate_age_group_from_birth_year
 
 BASE = "https://api.athleteone.com/api"
 OUTPUT_DIR = "data/raw/tgs"
@@ -20,8 +26,10 @@ REQUIRED_COLUMNS = [
     "provider",
     "scrape_run_id",
     "event_id",
+    "event_name",
     "schedule_id",
     "age_year",
+    "age_group",  # Calculated from age_year
     "gender",
     "team_id",
     "team_id_source",
@@ -31,6 +39,8 @@ REQUIRED_COLUMNS = [
     "opponent_id_source",
     "opponent_name",
     "opponent_club_name",  # Extracted from "Club Name - Team Name" format
+    "state",
+    "state_code",
     "game_date",
     "game_time",
     "home_away",
@@ -179,6 +189,28 @@ def get_event_nav(event_id: int) -> Optional[Dict]:
     return None
 
 
+def get_event_details(event_id: int) -> Optional[Dict]:
+    """Get event details to extract event name"""
+    url = f"{BASE}/Event/get-event-details-by-eventID/{event_id}"
+    headers = {
+        "Origin": "https://public.totalglobalsports.com",
+        "Referer": "https://public.totalglobalsports.com/",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+    }
+    try:
+        r = requests.get(url, headers=headers, timeout=20)
+        if r.status_code == 200:
+            data = r.json()
+            return data.get("data", {}) if isinstance(data, dict) else data
+        else:
+            print(f"⚠️ Event {event_id} details returned status {r.status_code}")
+    except Exception as e:
+        print(f"⚠️ Error fetching event {event_id} details: {e}")
+    return None
+
+
 def get_flight_division(flight_id: int) -> Optional[Dict]:
     """Get division info for a flight (age_year, gender)"""
     url = f"{BASE}/Event/get-flight-division-by-flightID/{flight_id}"
@@ -241,6 +273,7 @@ def get_games_for_flight(event_id: int, flight_id: int) -> List[Dict]:
 def normalize_api_game(
     game: Dict,
     event_id: int,
+    event_name: str,
     division: Dict,
     home_away: str,
     scrape_run_id: str,
@@ -253,6 +286,17 @@ def normalize_api_game(
     # Extract age_year and gender from division name
     age_year = extract_year(division_name)
     gender = extract_gender(division_name)
+    
+    # Calculate age_group from age_year
+    age_group = ""
+    if age_year:
+        try:
+            birth_year = int(age_year)
+            age_group_calculated = calculate_age_group_from_birth_year(birth_year)
+            if age_group_calculated:
+                age_group = age_group_calculated.lower()  # Normalize to lowercase (u12 instead of U12)
+        except (ValueError, TypeError):
+            pass  # Keep age_group empty if conversion fails
     
     # Get scores - API uses hometeamscore and awayteamscore
     # IMPORTANT: Use explicit None check, not 'or', because 0 is a valid score!
@@ -280,33 +324,41 @@ def normalize_api_game(
         except (ValueError, TypeError):
             away_score = None
     
+    # Helper function to safely get and strip string values
+    def safe_get_str(key: str, default: str = "") -> str:
+        """Safely get a value from game dict and convert to string, handling None"""
+        value = game.get(key)
+        if value is None:
+            return default
+        return str(value).strip() if value else default
+    
     # Determine team/opponent based on perspective
     if home_away == "H":
-        team_full_name = game.get("homeTeam", "")
-        opponent_full_name = game.get("awayTeam", "")
+        team_full_name = safe_get_str("homeTeam", "")
+        opponent_full_name = safe_get_str("awayTeam", "")
         # Get official provider team IDs from API (NOT generated - use official IDs!)
-        team_provider_id = str(game.get("hometeamID", ""))
-        opponent_provider_id = str(game.get("awayteamID", ""))
+        team_provider_id = str(game.get("hometeamID") or "")
+        opponent_provider_id = str(game.get("awayteamID") or "")
         # Get club names directly from API (much more reliable than parsing!)
-        team_club_name = game.get("homeTeamClub", "").strip()
-        opponent_club_name = game.get("awayTeamClub", "").strip()
+        team_club_name = safe_get_str("homeTeamClub", "")
+        opponent_club_name = safe_get_str("awayTeamClub", "")
         goals_for = home_score
         goals_against = away_score
     else:  # away
-        team_full_name = game.get("awayTeam", "")
-        opponent_full_name = game.get("homeTeam", "")
+        team_full_name = safe_get_str("awayTeam", "")
+        opponent_full_name = safe_get_str("homeTeam", "")
         # Get official provider team IDs from API (swap home/away for away perspective)
-        team_provider_id = str(game.get("awayteamID", ""))
-        opponent_provider_id = str(game.get("hometeamID", ""))
+        team_provider_id = str(game.get("awayteamID") or "")
+        opponent_provider_id = str(game.get("hometeamID") or "")
         # Get club names directly from API (swap home/away for away perspective)
-        team_club_name = game.get("awayTeamClub", "").strip()
-        opponent_club_name = game.get("homeTeamClub", "").strip()
+        team_club_name = safe_get_str("awayTeamClub", "")
+        opponent_club_name = safe_get_str("homeTeamClub", "")
         goals_for = away_score
         goals_against = home_score
     
     # Use full team name as team_name (no parsing needed since we have club from API)
-    team_name = team_full_name.strip()
-    opponent_name = opponent_full_name.strip()
+    team_name = team_full_name.strip() if team_full_name else ""
+    opponent_name = opponent_full_name.strip() if opponent_full_name else ""
     
     # Compute result from perspective
     result = compute_result(goals_for, goals_against)
@@ -339,12 +391,18 @@ def normalize_api_game(
     # Build source URL
     source_url = f"https://public.totalglobalsports.com/public/event/{event_id}"
     
+    # State and state_code will be matched later via club name script
+    state = ""
+    state_code = ""
+    
     return {
         "provider": "tgs",  # Add provider field for import pipeline
         "scrape_run_id": scrape_run_id,
         "event_id": event_id,
+        "event_name": event_name,
         "schedule_id": division_id,
         "age_year": age_year,
+        "age_group": age_group,  # Calculated from age_year
         "gender": gender,
         "team_id": team_id,
         "team_id_source": team_id,
@@ -354,6 +412,8 @@ def normalize_api_game(
         "opponent_id_source": opponent_id,
         "opponent_name": opponent_name,
         "opponent_club_name": opponent_club_name,  # Extracted from "Club Name - Team Name" format
+        "state": state,
+        "state_code": state_code,
         "game_date": game_date,
         "game_time": game_time,
         "home_away": home_away,
@@ -373,6 +433,11 @@ def normalize_api_game(
 def scrape_event(event_id: int, config: Dict, records: List[Dict]) -> None:
     """Scrape a single event using the correct API chain"""
     print(f"\n📌 EVENT {event_id}")
+    
+    # Get event details to extract event name
+    event_details = get_event_details(event_id)
+    event_name = event_details.get("eventName", f"Event {event_id}") if event_details else f"Event {event_id}"
+    print(f"  Event Name: {event_name}")
     
     # Step 1: Get event navigation to discover flights
     nav_data = get_event_nav(event_id)
@@ -448,14 +513,14 @@ def scrape_event(event_id: int, config: Dict, records: List[Dict]) -> None:
             for game in games:
                 # Home perspective
                 home_record = normalize_api_game(
-                    game, event_id, division_info, "H",
+                    game, event_id, event_name, division_info, "H",
                     SCRAPE_RUN_ID, SCRAPE_TS
                 )
                 records.append(home_record)
                 
                 # Away perspective
                 away_record = normalize_api_game(
-                    game, event_id, division_info, "A",
+                    game, event_id, event_name, division_info, "A",
                     SCRAPE_RUN_ID, SCRAPE_TS
                 )
                 records.append(away_record)
