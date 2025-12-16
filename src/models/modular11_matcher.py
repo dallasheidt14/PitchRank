@@ -1011,13 +1011,9 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 return True
         
         # Also check if any major token from either name appears in the other
-        # Guard against None values
-        if name1 and name2:
-            name1_lower = name1.lower()
-            name2_lower = name2.lower()
-            for major_token in MAJOR_TOKENS:
-                if major_token in name1_lower and major_token in name2_lower:
-                    return True
+        for major_token in MAJOR_TOKENS:
+            if major_token in name1.lower() and major_token in name2.lower():
+                return True
         
         return False
     
