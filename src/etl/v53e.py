@@ -58,10 +58,13 @@ class V53EConfig:
     SOS_TRANSITIVITY_LAMBDA: float = 0.20  # Balanced transitivity weight (80% direct, 20% transitive)
 
     # SOS sample size weighting
-    SOS_SAMPLE_SIZE_THRESHOLD: int = 25  # Teams with fewer games shrink toward cohort mean
+    # NOTE: SOS_SAMPLE_SIZE_THRESHOLD is DEPRECATED - pre-percentile shrinkage was removed
+    # because it caused games-played bias in sos_norm. Kept for backward compatibility only.
+    SOS_SAMPLE_SIZE_THRESHOLD: int = 25  # DEPRECATED: no longer used
     OPPONENT_SAMPLE_SIZE_THRESHOLD: int = 20  # Opponents with fewer games shrink toward cohort mean
-    MIN_GAMES_FOR_TOP_SOS: int = 10  # Teams with fewer games get capped sos_norm
-    SOS_TOP_CAP_FOR_LOW_SAMPLE: float = 0.70  # Max sos_norm for low-sample teams
+    MIN_GAMES_FOR_TOP_SOS: int = 10  # Post-percentile shrinkage threshold (teams < this shrink toward 0.5)
+    # NOTE: SOS_TOP_CAP_FOR_LOW_SAMPLE is DEPRECATED - hard caps were replaced with soft shrinkage
+    SOS_TOP_CAP_FOR_LOW_SAMPLE: float = 0.70  # DEPRECATED: no longer used
 
     # Opponent-adjusted offense/defense (fixes double-counting)
     OPPONENT_ADJUST_ENABLED: bool = True
@@ -740,17 +743,11 @@ def compute_rankings(
 
     team = team.merge(sos_curr, on="team_id", how="left").fillna({"sos": 0.5})
 
-    # Sample size weighting: shrink SOS toward cohort mean for low-sample teams
-    # This prevents teams with few games from having inflated/deflated SOS
-    cohort_avg_sos = team.groupby(["age", "gender"])["sos"].transform("mean")
-    sos_weight = (team["gp"] / cfg.SOS_SAMPLE_SIZE_THRESHOLD).clip(0, 1)
-    team["sos"] = team["sos"] * sos_weight + cohort_avg_sos * (1 - sos_weight)
-
-    logger.info(
-        f"📊 SOS after sample-size shrinkage: mean={team['sos'].mean():.4f}, "
-        f"std={team['sos'].std():.4f}, "
-        f"range=[{team['sos'].min():.4f}, {team['sos'].max():.4f}]"
-    )
+    # NOTE: Pre-percentile SOS shrinkage was REMOVED (was buggy)
+    # The old code shrunk raw SOS toward cohort mean before percentile normalization,
+    # which injected games-played bias into sos_norm (teams with more games got
+    # artificially higher sos_norm even with weak opponents).
+    # Sample-size uncertainty is now handled AFTER percentile normalization (see below).
 
     # SOS Normalization: Per-cohort percentile ranking
     #
@@ -815,6 +812,18 @@ def compute_rankings(
         logger.info(
             f"🏷️  Low sample handling: {low_sample_count} teams with soft SOS shrinkage toward 0.5"
         )
+
+    # Correlation guardrail: detect if games-played is leaking into sos_norm
+    # This check ensures the pre-percentile shrinkage bug doesn't silently return.
+    # A correlation > 0.10 indicates systematic bias where more games → higher sos_norm.
+    gp_sos_corr = team[["gp", "sos_norm"]].corr().iloc[0, 1]
+    if abs(gp_sos_corr) > 0.10:
+        logger.warning(
+            f"⚠️  GP-SOS correlation detected: {gp_sos_corr:.3f} (threshold: ±0.10). "
+            f"This may indicate games-played bias in SOS calculation."
+        )
+    else:
+        logger.info(f"✅ GP-SOS correlation check passed: {gp_sos_corr:.3f} (within ±0.10)")
 
     # -------------------------
     # Layer 6: Performance
