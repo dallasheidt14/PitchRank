@@ -682,11 +682,15 @@ async def compute_all_cohorts(
                 
                 teams_age = teams_combined.loc[mask].copy()
                 
-                # Pick base score (prefer ML, then adj, then core)
-                if 'powerscore_ml' in teams_age.columns and teams_age['powerscore_ml'].notna().any():
-                    base = teams_age['powerscore_ml'].clip(0.0, 1.0)
-                elif 'powerscore_adj' in teams_age.columns and teams_age['powerscore_adj'].notna().any():
+                # Pick base score (prefer adj over ML to avoid weak-schedule bias)
+                # Note: powerscore_ml includes ML "overperformance" residuals which can
+                # artificially boost teams with weak schedules (they beat weak opponents
+                # by large margins, which the ML interprets as "overperformance").
+                # For within-cohort rankings, powerscore_adj is more accurate.
+                if 'powerscore_adj' in teams_age.columns and teams_age['powerscore_adj'].notna().any():
                     base = teams_age['powerscore_adj'].clip(0.0, 1.0)
+                elif 'powerscore_ml' in teams_age.columns and teams_age['powerscore_ml'].notna().any():
+                    base = teams_age['powerscore_ml'].clip(0.0, 1.0)
                 elif 'powerscore_core' in teams_age.columns and teams_age['powerscore_core'].notna().any():
                     base = teams_age['powerscore_core'].clip(0.0, 1.0)
                 else:
@@ -713,10 +717,11 @@ async def compute_all_cohorts(
                     # For teams outside age range, use median anchor (0.70) and apply scaling
                     fallback_anchor = 0.70
                     for idx in teams_combined[unscaled_mask].index:
-                        if 'powerscore_ml' in teams_combined.columns and pd.notna(teams_combined.loc[idx, 'powerscore_ml']):
-                            base_score = float(teams_combined.loc[idx, 'powerscore_ml'])
-                        elif 'powerscore_adj' in teams_combined.columns and pd.notna(teams_combined.loc[idx, 'powerscore_adj']):
+                        # Prefer adj over ML to avoid weak-schedule bias (same as main loop)
+                        if 'powerscore_adj' in teams_combined.columns and pd.notna(teams_combined.loc[idx, 'powerscore_adj']):
                             base_score = float(teams_combined.loc[idx, 'powerscore_adj'])
+                        elif 'powerscore_ml' in teams_combined.columns and pd.notna(teams_combined.loc[idx, 'powerscore_ml']):
+                            base_score = float(teams_combined.loc[idx, 'powerscore_ml'])
                         else:
                             base_score = 0.5
                         teams_combined.loc[idx, 'power_score_final'] = min(base_score * fallback_anchor, fallback_anchor)
