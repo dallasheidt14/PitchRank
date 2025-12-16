@@ -882,17 +882,18 @@ class GotSportEventScraper:
     ) -> Optional[str]:
         """
         Resolve GotSport API team ID from event registration ID by following the team's event page.
-        
-        Flow:
-        1. Go to team's event page: /org_event/events/{event_id}/schedules?team={registration_id}
-        2. Find the "view rankings" link
-        3. Extract API team ID from rankings URL: rankings.gotsport.com/teams/{api_team_id}
-        
+
+        Uses multiple strategies:
+        1. Look for rankings link on team's event schedule page
+        2. Look for direct /teams/{id} links (API team IDs)
+        3. Look for team_id in JavaScript/JSON data on the page
+        4. Try the GotSport API directly with the registration ID (it might work)
+
         Args:
             event_id: GotSport event ID
             registration_id: Event registration ID (from schedule page links)
             team_name: Optional team name for logging
-        
+
         Returns:
             API team ID if found, None otherwise
         """
@@ -901,13 +902,12 @@ class GotSportEventScraper:
             team_event_url = f"{self.EVENT_BASE}/{event_id}/schedules?team={registration_id}"
             response = self.session.get(team_event_url, timeout=self.timeout)
             response.raise_for_status()
-            
+
             soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Step 2: Find "view rankings" link
-            # Look for links containing "rankings" or "view rankings"
+
+            # Strategy 1: Find "view rankings" link (most reliable)
             rankings_links = soup.find_all('a', href=re.compile(r'rankings\.gotsport\.com/teams/\d+', re.I))
-            
+
             if not rankings_links:
                 # Try alternative patterns - might be in text like "View Rankings"
                 all_links = soup.find_all('a', href=True)
@@ -916,8 +916,7 @@ class GotSportEventScraper:
                     if 'rankings' in href.lower() and '/teams/' in href:
                         rankings_links.append(link)
                         break
-            
-            # Step 3: Extract API team ID from rankings URL
+
             for link in rankings_links:
                 href = link.get('href', '')
                 # Extract team ID from rankings URL: rankings.gotsport.com/teams/{id}
@@ -926,10 +925,55 @@ class GotSportEventScraper:
                     api_team_id = match.group(1)
                     logger.debug(f"Resolved API team ID {api_team_id} from rankings link for {team_name or registration_id}")
                     return api_team_id
-            
-            logger.debug(f"No rankings link found for team {team_name or registration_id} on event page")
+
+            # Strategy 2: Look for direct /teams/{id} links (API team IDs, not event registration)
+            # These are links to the team's main page, not event-specific pages
+            team_links = soup.find_all('a', href=re.compile(r'system\.gotsport\.com/teams/\d+', re.I))
+            for link in team_links:
+                href = link.get('href', '')
+                match = re.search(r'/teams/(\d+)', href)
+                if match:
+                    api_team_id = match.group(1)
+                    # Validate this is an API team ID (not the same as registration_id)
+                    if api_team_id != registration_id:
+                        logger.debug(f"Resolved API team ID {api_team_id} from system.gotsport.com link for {team_name or registration_id}")
+                        return api_team_id
+
+            # Strategy 3: Look for team_id in JavaScript/JSON data on the page
+            scripts = soup.find_all('script')
+            for script in scripts:
+                if script.string:
+                    # Look for patterns like "team_id": 123456 or team_id = 123456
+                    patterns = [
+                        r'"team_id"\s*:\s*(\d+)',
+                        r"'team_id'\s*:\s*(\d+)",
+                        r'team_id\s*=\s*(\d+)',
+                        r'"rankings_team_id"\s*:\s*(\d+)',
+                        r'"api_team_id"\s*:\s*(\d+)',
+                    ]
+                    for pattern in patterns:
+                        matches = re.findall(pattern, script.string, re.IGNORECASE)
+                        for api_team_id in matches:
+                            # Validate it's different from registration_id (likely the API team ID)
+                            if api_team_id != registration_id and len(api_team_id) >= 5:
+                                logger.debug(f"Resolved API team ID {api_team_id} from script data for {team_name or registration_id}")
+                                return api_team_id
+
+            # Strategy 4: Try the GotSport API directly with the registration ID
+            # Some registration IDs might actually be valid API team IDs
+            try:
+                api_url = f"https://system.gotsport.com/api/v1/teams/{registration_id}/matches"
+                api_response = self.session.get(api_url, params={'past': 'true'}, timeout=10)
+                if api_response.status_code == 200:
+                    # The registration ID is also a valid API team ID!
+                    logger.debug(f"Registration ID {registration_id} is a valid API team ID for {team_name or registration_id}")
+                    return registration_id
+            except Exception:
+                pass  # API call failed, continue
+
+            logger.debug(f"No API team ID found for team {team_name or registration_id} (registration_id={registration_id})")
             return None
-            
+
         except Exception as e:
             logger.debug(f"Error resolving API team ID from event page for {team_name or registration_id}: {e}")
             return None
@@ -982,8 +1026,10 @@ class GotSportEventScraper:
             api_team_id_cache: Dict[str, Optional[str]] = {}
             
             # Extract API team IDs and team name mapping from event page
-            # This maps team names to API team IDs (from jsonTeamRegs)
+            # IMPORTANT: jsonTeamRegs contains 'id' (event registration ID) and may contain
+            # 'team_id' (API team ID). We prefer 'team_id' when available.
             teams_by_name: Dict[str, str] = {}  # team_name -> api_team_id
+            registration_to_api: Dict[str, str] = {}  # registration_id -> api_team_id (if different)
             try:
                 scripts = soup.find_all('script')
                 for script in scripts:
@@ -996,7 +1042,7 @@ class GotSportEventScraper:
                             in_string = False
                             escape_next = False
                             end_pos = start_pos
-                            
+
                             for i in range(start_pos, len(script.string)):
                                 char = script.string[i]
                                 if escape_next:
@@ -1016,17 +1062,34 @@ class GotSportEventScraper:
                                         if bracket_count == 0:
                                             end_pos = i + 1
                                             break
-                            
+
                             json_str = script.string[start_pos:end_pos]
                             teams_json = json.loads(json_str)
                             for team in teams_json:
-                                team_id = str(team.get('id', ''))
+                                # 'id' is the event registration ID
+                                registration_id = str(team.get('id', ''))
+                                # Look for API team ID fields (preferred)
+                                api_team_id = None
+                                for field in ['team_id', 'rankings_team_id', 'api_team_id', 'gotsport_team_id']:
+                                    if team.get(field):
+                                        api_team_id = str(team.get(field))
+                                        break
+
                                 team_name = team.get('full_name', '') or team.get('name', '')
-                                if team_id and team_id.isdigit() and team_name:
-                                    # Normalize team name for matching (remove extra spaces, lowercase)
+
+                                if team_name:
                                     normalized_name = ' '.join(team_name.split()).lower()
-                                    teams_by_name[normalized_name] = team_id
-                            logger.debug(f"Extracted {len(teams_by_name)} teams from jsonTeamRegs for name-to-ID mapping")
+                                    # Prefer API team ID if available, otherwise use registration ID
+                                    if api_team_id and api_team_id.isdigit():
+                                        teams_by_name[normalized_name] = api_team_id
+                                        if registration_id and registration_id != api_team_id:
+                                            registration_to_api[registration_id] = api_team_id
+                                    elif registration_id and registration_id.isdigit():
+                                        teams_by_name[normalized_name] = registration_id
+
+                            # Log what we found
+                            api_ids_found = len(registration_to_api)
+                            logger.debug(f"Extracted {len(teams_by_name)} teams from jsonTeamRegs ({api_ids_found} with distinct API team IDs)")
             except Exception as e:
                 logger.warning(f"Error extracting teams from jsonTeamRegs: {e}")
             
@@ -1034,7 +1097,7 @@ class GotSportEventScraper:
             for schedule_url in schedule_urls:
                 try:
                     schedule_games = self._parse_games_from_schedule_page(
-                        schedule_url, event_id, event_name, since_date, teams_by_name, api_team_id_cache
+                        schedule_url, event_id, event_name, since_date, teams_by_name, api_team_id_cache, registration_to_api
                     )
                     games.extend(schedule_games)
                     logger.debug(f"Found {len(schedule_games)} games from {schedule_url}")
@@ -1043,7 +1106,13 @@ class GotSportEventScraper:
                     logger.warning(f"Error parsing schedule page {schedule_url}: {e}")
                     continue
             
+            # Log resolution summary
+            resolved_count = sum(1 for v in api_team_id_cache.values() if v is not None)
+            unresolved_count = sum(1 for v in api_team_id_cache.values() if v is None)
             logger.info(f"Total games scraped from schedule pages: {len(games)}")
+            logger.info(f"Team ID resolution: {resolved_count} resolved, {unresolved_count} unresolved (using registration IDs)")
+            if unresolved_count > 0:
+                logger.warning(f"Some teams used registration IDs instead of API team IDs - these may not match in the database")
         except Exception as e:
             logger.error(f"Error scraping games from schedule pages: {e}")
         
@@ -1056,13 +1125,16 @@ class GotSportEventScraper:
         event_name: Optional[str],
         since_date: Optional[datetime],
         teams_by_name: Optional[Dict[str, str]] = None,
-        api_team_id_cache: Optional[Dict[str, Optional[str]]] = None
+        api_team_id_cache: Optional[Dict[str, Optional[str]]] = None,
+        registration_to_api: Optional[Dict[str, str]] = None
     ) -> List[GameData]:
         """Parse games from a single schedule page"""
         if api_team_id_cache is None:
             api_team_id_cache = {}
         if teams_by_name is None:
             teams_by_name = {}
+        if registration_to_api is None:
+            registration_to_api = {}
         
         games: List[GameData] = []
         
@@ -1153,21 +1225,26 @@ class GotSportEventScraper:
                                     reg_match = re.search(r'team=(\d+)', href)
                                     if reg_match:
                                         reg_id = reg_match.group(1)
-                                        # Check cache first
-                                        if reg_id in api_team_id_cache:
+                                        # Priority 1: Check registration_to_api mapping (from jsonTeamRegs)
+                                        if reg_id in registration_to_api:
+                                            home_team_id = registration_to_api[reg_id]
+                                            api_team_id_cache[reg_id] = home_team_id
+                                        # Priority 2: Check cache
+                                        elif reg_id in api_team_id_cache:
                                             home_team_id = api_team_id_cache[reg_id]
                                         else:
-                                            # Resolve API team ID by following the team's event page to rankings link
+                                            # Priority 3: Resolve API team ID by following the team's event page
                                             home_team_id = self._resolve_api_team_id_from_event_page(event_id, reg_id, home_team_name)
                                             api_team_id_cache[reg_id] = home_team_id
-                                        
+
                                         if not home_team_id:
-                                            # Fallback to name-based mapping
+                                            # Priority 4: Fallback to name-based mapping
                                             if teams_by_name and home_team_name:
                                                 normalized_name = ' '.join(home_team_name.split()).lower()
                                                 home_team_id = teams_by_name.get(normalized_name)
-                                            # Last resort: use registration ID
+                                            # Last resort: use registration ID (with warning)
                                             if not home_team_id:
+                                                logger.warning(f"Could not resolve API team ID for home team '{home_team_name}' (reg_id={reg_id}), using registration ID")
                                                 home_team_id = reg_id
                         
                         # Extract away team
@@ -1188,21 +1265,26 @@ class GotSportEventScraper:
                                     reg_match = re.search(r'team=(\d+)', href)
                                     if reg_match:
                                         reg_id = reg_match.group(1)
-                                        # Check cache first
-                                        if reg_id in api_team_id_cache:
+                                        # Priority 1: Check registration_to_api mapping (from jsonTeamRegs)
+                                        if reg_id in registration_to_api:
+                                            away_team_id = registration_to_api[reg_id]
+                                            api_team_id_cache[reg_id] = away_team_id
+                                        # Priority 2: Check cache
+                                        elif reg_id in api_team_id_cache:
                                             away_team_id = api_team_id_cache[reg_id]
                                         else:
-                                            # Resolve API team ID by following the team's event page to rankings link
+                                            # Priority 3: Resolve API team ID by following the team's event page
                                             away_team_id = self._resolve_api_team_id_from_event_page(event_id, reg_id, away_team_name)
                                             api_team_id_cache[reg_id] = away_team_id
-                                        
+
                                         if not away_team_id:
-                                            # Fallback to name-based mapping
+                                            # Priority 4: Fallback to name-based mapping
                                             if teams_by_name and away_team_name:
                                                 normalized_name = ' '.join(away_team_name.split()).lower()
                                                 away_team_id = teams_by_name.get(normalized_name)
-                                            # Last resort: use registration ID
+                                            # Last resort: use registration ID (with warning)
                                             if not away_team_id:
+                                                logger.warning(f"Could not resolve API team ID for away team '{away_team_name}' (reg_id={reg_id}), using registration ID")
                                                 away_team_id = reg_id
                         
                         if not home_team_name or not away_team_name:
