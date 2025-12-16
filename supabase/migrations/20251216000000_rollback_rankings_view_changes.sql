@@ -1,27 +1,20 @@
--- Migration: Fix gaps in state rankings display
--- Purpose: Calculate rank_in_state_final ONLY for teams that will be displayed
---          (status = 'Active' or 'Not Enough Ranked Games')
---          to avoid gaps when Inactive teams are filtered out
+-- Migration: Rollback rankings view changes
+-- Purpose: Restore the original rankings_view and state_rankings_view definitions
+--          from migration 20251208000005_fix_rankings_view_performance.sql
 --
--- Problem: The previous view calculated ROW_NUMBER() for ALL teams, but the
---          frontend filters to exclude Inactive teams. This caused gaps like
---          showing #2, #5, #6, #7 when teams #1, #3, #4 were Inactive.
---
--- Solution: Apply status filter BEFORE calculating ROW_NUMBER() so ranks
---           are sequential for the displayed teams.
+-- This rollback undoes the changes made in 20251213000000_fix_state_rankings_view_gaps.sql
+-- which incorrectly filtered by status and recalculated ranks.
 
 -- =====================================================
--- Step 1: Drop existing views (CASCADE handles dependencies)
+-- Step 1: Drop existing views
 -- =====================================================
 
 DROP VIEW IF EXISTS state_rankings_view CASCADE;
 DROP VIEW IF EXISTS rankings_view CASCADE;
 
 -- =====================================================
--- Step 2: Recreate rankings_view WITH status filter
+-- Step 2: Recreate rankings_view (ORIGINAL - no status filter)
 -- =====================================================
--- Filter to only include displayable teams (Active or Not Enough Ranked Games)
--- Inactive teams (0 games in 180 days) are excluded
 
 CREATE VIEW rankings_view
 WITH (security_invoker = true)
@@ -71,27 +64,8 @@ SELECT
     rf.off_norm AS offense_norm,
     rf.def_norm AS defense_norm,
 
-    -- Rank: Recalculate within displayable teams only
-    -- This ensures no gaps when viewing rankings
-    ROW_NUMBER() OVER (
-        PARTITION BY
-            CASE
-              WHEN rf.age_group ~ '^[0-9]+$' THEN rf.age_group::INTEGER
-              WHEN rf.age_group ~ '^[uU][0-9]+$' THEN (regexp_replace(rf.age_group, '^[uU]', ''))::INTEGER
-              WHEN rf.age_group ~ '[0-9]+' THEN (regexp_replace(rf.age_group, '[^0-9]', '', 'g'))::INTEGER
-              ELSE NULL
-            END,
-            CASE
-              WHEN rf.gender = 'Male' THEN 'M'
-              WHEN rf.gender = 'Female' THEN 'F'
-              WHEN rf.gender = 'Boys' THEN 'M'
-              WHEN rf.gender = 'Girls' THEN 'F'
-              WHEN rf.gender = 'M' THEN 'M'
-              WHEN rf.gender = 'F' THEN 'F'
-              ELSE rf.gender
-            END
-        ORDER BY rf.power_score_final DESC, rf.sos_norm DESC NULLS LAST
-    ) AS rank_in_cohort_final,
+    -- Rank (use precomputed ML ranking from rankings_full)
+    COALESCE(rf.rank_in_cohort_ml, rf.rank_in_cohort) AS rank_in_cohort_final,
 
     -- SOS Ranks (pre-calculated in rankings engine)
     rf.sos_rank_national,
@@ -111,17 +85,13 @@ SELECT
 FROM rankings_full rf
 JOIN teams t ON rf.team_id = t.team_id_master
 WHERE rf.power_score_final IS NOT NULL
-  AND t.is_deprecated = FALSE
-  -- CRITICAL FIX: Only include teams that will be displayed
-  -- This prevents gaps in rank numbers when Inactive teams exist
-  AND rf.status IN ('Active', 'Not Enough Ranked Games');
+  AND t.is_deprecated = FALSE;  -- Exclude deprecated teams from results
 
-COMMENT ON VIEW rankings_view IS 'National rankings view. Only includes Active and provisional teams (excludes Inactive). Ranks are sequential with no gaps.';
+COMMENT ON VIEW rankings_view IS 'National rankings view using rankings_full as the authoritative source. Deprecated teams excluded.';
 
 -- =====================================================
--- Step 3: Recreate state_rankings_view WITH status filter
+-- Step 3: Recreate state_rankings_view (ORIGINAL)
 -- =====================================================
--- State rankings also need gap-free sequential ranks
 
 CREATE VIEW state_rankings_view
 WITH (security_invoker = true)
@@ -155,11 +125,11 @@ SELECT
     rv.offense_norm,
     rv.defense_norm,
 
-    -- National rank (from base view - already gap-free)
+    -- National rank (from base view)
     rv.rank_in_cohort_final,
 
-    -- State rank: Sequential within state, no gaps
-    -- (rankings_view already filtered to displayable teams only)
+    -- State rank (computed live in view - this is fast with proper indexes)
+    -- Secondary sort by sos_norm DESC to break ties when power_score is equal
     ROW_NUMBER() OVER (
         PARTITION BY rv.state, rv.age, rv.gender
         ORDER BY rv.power_score_final DESC, rv.sos_norm DESC NULLS LAST
@@ -183,7 +153,7 @@ SELECT
 FROM rankings_view rv
 WHERE rv.state IS NOT NULL;
 
-COMMENT ON VIEW state_rankings_view IS 'State rankings view. Only includes Active and provisional teams. Ranks are sequential with no gaps.';
+COMMENT ON VIEW state_rankings_view IS 'State rankings view. Deprecated teams excluded via rankings_view filter.';
 
 -- =====================================================
 -- Step 4: Grant SELECT permissions
@@ -195,7 +165,7 @@ GRANT SELECT ON state_rankings_view TO authenticated;
 GRANT SELECT ON state_rankings_view TO anon;
 
 -- =====================================================
--- Step 5: Recreate merged_teams_view (preserved from previous migration)
+-- Step 5: Recreate merged_teams_view (preserved)
 -- =====================================================
 
 -- Must DROP first because CREATE OR REPLACE cannot change column order
@@ -253,5 +223,5 @@ BEGIN
         RAISE EXCEPTION 'Migration failed: merged_teams_view not created';
     END IF;
 
-    RAISE NOTICE 'Migration successful: Fixed rankings views to exclude Inactive teams BEFORE calculating ranks (prevents gaps)';
+    RAISE NOTICE 'Rollback successful: Restored original rankings views';
 END $$;
