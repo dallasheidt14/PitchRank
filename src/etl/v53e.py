@@ -61,7 +61,7 @@ class V53EConfig:
     # NOTE: SOS_SAMPLE_SIZE_THRESHOLD is DEPRECATED - pre-percentile shrinkage was removed
     # because it caused games-played bias in sos_norm. Kept for backward compatibility only.
     SOS_SAMPLE_SIZE_THRESHOLD: int = 25  # DEPRECATED: no longer used
-    OPPONENT_SAMPLE_SIZE_THRESHOLD: int = 20  # Opponents with fewer games shrink toward cohort mean
+    OPPONENT_SAMPLE_SIZE_THRESHOLD: int = 20  # DEPRECATED: no longer used (opponent shrinkage removed)
     MIN_GAMES_FOR_TOP_SOS: int = 10  # Post-percentile shrinkage threshold (teams < this shrink toward 0.5)
     # NOTE: SOS_TOP_CAP_FOR_LOW_SAMPLE is DEPRECATED - hard caps were replaced with soft shrinkage
     SOS_TOP_CAP_FOR_LOW_SAMPLE: float = 0.70  # DEPRECATED: no longer used
@@ -609,8 +609,9 @@ def compute_rankings(
 
     # Calculate BASE strength for each team (OFF/DEF only, normalized to avoid drift)
     # This represents opponent quality independent of their schedule
-    # Apply sample size weighting: shrink toward cohort mean for low-game opponents
     # IMPORTANT: Apply anchor to match scale with global_strength_map (which uses abs_strength)
+    # NOTE: Opponent-strength shrinkage was REMOVED - it injected games-played bias into SOS.
+    # Teams playing opponents with more games got artificially higher SOS.
     base_strength_map = {}
     for tid in team["team_id"]:
         # Base power uses only OFF and DEF (50% each of the non-SOS weight)
@@ -619,18 +620,9 @@ def compute_rankings(
             0.5 * team_def_norm_map.get(tid, 0.5)
         )
         # Apply anchor to match global_strength_map scale
+        # Raw strength is already anchored and bounded [0, 1]
         anchor = team_anchor_map.get(tid, 0.7)
-        raw_strength = float(np.clip(base_power * anchor, 0.0, 1.0))
-
-        # Apply sample size weighting for opponent strength
-        opp_gp = team_gp_map.get(tid, 0)
-        opp_weight = min(1.0, opp_gp / cfg.OPPONENT_SAMPLE_SIZE_THRESHOLD)
-
-        cohort_key = team_cohort_map.get(tid)
-        cohort_avg = cohort_avg_strength.get(cohort_key, 0.5) if cohort_key else 0.5
-
-        # Blend: raw_strength * weight + cohort_avg * (1 - weight)
-        base_strength_map[tid] = raw_strength * opp_weight + cohort_avg * (1 - opp_weight)
+        base_strength_map[tid] = float(np.clip(base_power * anchor, 0.0, 1.0))
 
     # Use base strength for initial SOS calculation (Pass 1)
     # This represents how good opponents are at OFF/DEF
