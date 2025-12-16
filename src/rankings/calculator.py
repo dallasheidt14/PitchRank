@@ -682,16 +682,55 @@ async def compute_all_cohorts(
                 
                 teams_age = teams_combined.loc[mask].copy()
                 
-                # Pick base score (prefer ML, then adj, then core)
-                if 'powerscore_ml' in teams_age.columns and teams_age['powerscore_ml'].notna().any():
-                    base = teams_age['powerscore_ml'].clip(0.0, 1.0)
-                elif 'powerscore_adj' in teams_age.columns and teams_age['powerscore_adj'].notna().any():
-                    base = teams_age['powerscore_adj'].clip(0.0, 1.0)
-                elif 'powerscore_core' in teams_age.columns and teams_age['powerscore_core'].notna().any():
-                    base = teams_age['powerscore_core'].clip(0.0, 1.0)
-                else:
-                    logger.warning(f"⚠️  Age {age}: No power score source found, skipping")
+                # =================================================================
+                # SOS-CONDITIONED ML SCALING
+                # =================================================================
+                # Rule: powerscore_adj is ALWAYS the baseline (truth).
+                # ML can only adjust if schedule is strong enough.
+                # ml_scale = 0 when sos_norm < 0.45, scales to 1 when sos_norm >= 0.60
+                # =================================================================
+                SOS_ML_THRESHOLD_LOW = 0.45   # Below this, ML has no authority
+                SOS_ML_THRESHOLD_HIGH = 0.60  # Above this, ML has full authority
+
+                # Step 1: Get baseline (powerscore_adj is REQUIRED)
+                if 'powerscore_adj' not in teams_age.columns or not teams_age['powerscore_adj'].notna().any():
+                    logger.warning(f"⚠️  Age {age}: powerscore_adj not available, skipping")
                     continue
+
+                ps_adj = teams_age['powerscore_adj'].clip(0.0, 1.0)
+
+                # Step 2: Calculate ML delta (if ML available)
+                has_ml = 'powerscore_ml' in teams_age.columns and teams_age['powerscore_ml'].notna().any()
+                has_sos = 'sos_norm' in teams_age.columns and teams_age['sos_norm'].notna().any()
+
+                if has_ml and has_sos:
+                    # ML delta = how much ML wants to adjust from baseline
+                    ps_ml = teams_age['powerscore_ml'].clip(0.0, 1.0)
+                    ml_delta = ps_ml - ps_adj
+
+                    # Step 3: Scale ML authority by schedule strength
+                    # Weak schedule (sos_norm < 0.45) → ML has no authority
+                    # Strong schedule (sos_norm >= 0.60) → ML has full authority
+                    sos_norm = teams_age['sos_norm'].fillna(0.5)
+                    ml_scale = ((sos_norm - SOS_ML_THRESHOLD_LOW) / (SOS_ML_THRESHOLD_HIGH - SOS_ML_THRESHOLD_LOW)).clip(0.0, 1.0)
+
+                    # Step 4: Final score = baseline + SOS-scaled ML adjustment
+                    base = (ps_adj + ml_delta * ml_scale).clip(0.0, 1.0)
+
+                    # Log statistics for monitoring
+                    avg_ml_scale = ml_scale.mean()
+                    ml_adjusted_count = (ml_scale > 0).sum()
+                    logger.info(
+                        f"  📊 Age {age}: ML scaling applied - avg_scale={avg_ml_scale:.3f}, "
+                        f"teams_with_ml_authority={ml_adjusted_count}/{len(teams_age)}"
+                    )
+                else:
+                    # No ML or no SOS available - use baseline directly
+                    base = ps_adj
+                    if not has_ml:
+                        logger.info(f"  📊 Age {age}: No ML data, using powerscore_adj directly")
+                    elif not has_sos:
+                        logger.info(f"  📊 Age {age}: No SOS data, using powerscore_adj directly")
                 
                 # Scale by anchor and clip to [0, anchor_val]
                 ps_scaled = (base * anchor_val).clip(0.0, anchor_val)
@@ -711,14 +750,35 @@ async def compute_all_cohorts(
                 if unscaled_count > 0:
                     logger.warning(f"⚠️ {unscaled_count} teams didn't match any anchor age - applying fallback scaling")
                     # For teams outside age range, use median anchor (0.70) and apply scaling
+                    # Also apply SOS-conditioned ML scaling (same thresholds as main loop)
                     fallback_anchor = 0.70
+                    SOS_ML_THRESHOLD_LOW = 0.45
+                    SOS_ML_THRESHOLD_HIGH = 0.60
+
                     for idx in teams_combined[unscaled_mask].index:
-                        if 'powerscore_ml' in teams_combined.columns and pd.notna(teams_combined.loc[idx, 'powerscore_ml']):
-                            base_score = float(teams_combined.loc[idx, 'powerscore_ml'])
-                        elif 'powerscore_adj' in teams_combined.columns and pd.notna(teams_combined.loc[idx, 'powerscore_adj']):
-                            base_score = float(teams_combined.loc[idx, 'powerscore_adj'])
+                        row = teams_combined.loc[idx]
+
+                        # powerscore_adj is REQUIRED - skip if not available
+                        if 'powerscore_adj' not in teams_combined.columns or pd.isna(row.get('powerscore_adj')):
+                            logger.warning(f"⚠️ Team {idx}: powerscore_adj not available, skipping fallback")
+                            continue
+
+                        ps_adj = float(row['powerscore_adj'])
+
+                        # Apply SOS-conditioned ML scaling (same logic as main loop)
+                        has_ml = 'powerscore_ml' in teams_combined.columns and pd.notna(row.get('powerscore_ml'))
+                        has_sos = 'sos_norm' in teams_combined.columns and pd.notna(row.get('sos_norm'))
+
+                        if has_ml and has_sos:
+                            ps_ml = float(row['powerscore_ml'])
+                            sos_norm = float(row['sos_norm'])
+                            ml_scale = max(0.0, min(1.0, (sos_norm - SOS_ML_THRESHOLD_LOW) / (SOS_ML_THRESHOLD_HIGH - SOS_ML_THRESHOLD_LOW)))
+                            ml_delta = ps_ml - ps_adj
+                            base_score = ps_adj + ml_delta * ml_scale
                         else:
-                            base_score = 0.5
+                            base_score = ps_adj
+
+                        base_score = max(0.0, min(1.0, base_score))
                         teams_combined.loc[idx, 'power_score_final'] = min(base_score * fallback_anchor, fallback_anchor)
 
                 # Verify all teams have anchor-scaled power_score_final
