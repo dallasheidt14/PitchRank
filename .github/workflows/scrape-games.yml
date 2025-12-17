@@ -2,8 +2,14 @@ name: Scrape Games
 
 on:
   schedule:
-    # Every Sunday at 11:00 PM MST (UTC-7) = Monday 6:00 AM UTC
+    # Run 1: Every Sunday at 11:00 PM Mountain Time = Monday 6:00 AM UTC
+    # Scrapes first batch of 25,000 teams
     - cron: '0 6 * * 1'
+    # Run 2: Every Monday at 4:15 AM Mountain Time = Monday 11:15 AM UTC
+    # MST (UTC-7): 4:15 AM MST = 11:15 AM UTC
+    # MDT (UTC-6): 4:15 AM MDT = 10:15 AM UTC
+    # Scrapes second batch of 25,000 teams (different teams due to last_scraped_at filter)
+    - cron: '15 11 * * 1'
   workflow_dispatch:
     inputs:
       limit_teams:
