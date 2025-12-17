@@ -7,7 +7,8 @@ import { MomentumMeter } from '@/components/MomentumMeter';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import dynamic from 'next/dynamic';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Suspense } from 'react';
+import { Suspense, useEffect, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
 
@@ -84,6 +85,21 @@ function BackToRankingsButton() {
 }
 
 export function TeamPageShell({ id }: TeamPageShellProps) {
+  const queryClient = useQueryClient();
+  const previousIdRef = useRef<string | null>(null);
+
+  // Invalidate team-related queries when navigating to a different team
+  // This ensures fresh data is fetched even if cached data exists
+  useEffect(() => {
+    if (previousIdRef.current && previousIdRef.current !== id) {
+      // Invalidate all team-related queries for the new team
+      queryClient.invalidateQueries({ queryKey: ['team', id] });
+      queryClient.invalidateQueries({ queryKey: ['team-games', id] });
+      queryClient.invalidateQueries({ queryKey: ['team-trajectory', id] });
+    }
+    previousIdRef.current = id;
+  }, [id, queryClient]);
+
   return (
     <>
       {/* Page Header - Athletic Editorial Style */}
