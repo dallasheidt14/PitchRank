@@ -1365,7 +1365,25 @@ elif section == "📋 Modular11 Team Review":
             queue = db.table('team_match_review_queue').select('*').eq(
                 'provider_id', provider_code
             ).eq('status', 'pending').order('confidence_score', desc=True).execute()
-            
+
+            # Filter out items that already have aliases (they shouldn't show up)
+            if queue.data:
+                existing_aliases = db.table('team_alias_map').select('provider_team_id').eq(
+                    'provider_id', provider_id
+                ).execute()
+                aliased_ids = {a['provider_team_id'] for a in (existing_aliases.data or [])}
+
+                # Filter and auto-approve items that already have aliases
+                items_to_approve = [item for item in queue.data if item['provider_team_id'] in aliased_ids]
+                if items_to_approve:
+                    for item in items_to_approve:
+                        db.table('team_match_review_queue').update({
+                            'status': 'approved'
+                        }).eq('id', item['id']).execute()
+
+                # Keep only items without aliases
+                queue.data = [item for item in queue.data if item['provider_team_id'] not in aliased_ids]
+
             if not queue.data:
                 st.success("✅ No pending team matches to review!")
                 st.info("Run an import and unmatched teams will appear here.")
