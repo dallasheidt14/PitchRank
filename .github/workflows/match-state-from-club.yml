@@ -2,8 +2,11 @@ name: Match Teams to State Codes via Club Names
 
 on:
   schedule:
-    # Run weekly on Monday at 2 AM UTC (Sunday 6 PM PST / 9 PM EST)
-    - cron: '0 2 * * 1'
+    # Run every Monday at 9:00 AM Mountain Time
+    # MST (UTC-7): 9:00 AM MST = 4:00 PM UTC (16:00)
+    # MDT (UTC-6): 9:00 AM MDT = 3:00 PM UTC (15:00)
+    # Using 16:00 UTC means: MST = 9:00 AM, MDT = 10:00 AM
+    - cron: '0 16 * * 1'
   workflow_dispatch: # Allow manual trigger from GitHub Actions tab
 
 jobs:
