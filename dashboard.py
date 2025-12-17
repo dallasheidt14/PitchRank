@@ -1399,6 +1399,282 @@ elif section == "📋 Modular11 Team Review":
                 with col3:
                     unmatched = db.table('games').select('*', count='exact').eq('provider_id', provider_id).is_('home_team_master_id', 'null').execute()
                     st.metric("Unmatched Games", unmatched.count or 0)
+
+                # ============================================================================
+                # HD/AD GAME FIX SECTION
+                # ============================================================================
+                st.divider()
+                st.subheader("🔄 Fix HD/AD Game Assignments")
+                st.markdown("""
+                **Problem:** Modular11 uses the same team ID for both HD and AD teams.
+                This causes AD games to be incorrectly linked to HD teams.
+
+                **Solution:** Link AD games to existing GotSport AD teams by creating Modular11 aliases.
+                """)
+
+                # Find HD teams with AD games
+                try:
+                    hd_teams_with_ad_games_query = """
+                        SELECT
+                            t.team_name,
+                            t.team_id_master,
+                            t.age_group,
+                            SUM(CASE WHEN g.competition ILIKE '%AD%' THEN 1 ELSE 0 END) as ad_games,
+                            SUM(CASE WHEN g.competition ILIKE '%HD%' THEN 1 ELSE 0 END) as hd_games
+                        FROM teams t
+                        JOIN games g ON t.team_id_master = g.home_team_master_id OR t.team_id_master = g.away_team_master_id
+                        WHERE t.team_name ILIKE '%HD%'
+                        AND g.provider_id = %s
+                        GROUP BY t.team_name, t.team_id_master, t.age_group
+                        HAVING SUM(CASE WHEN g.competition ILIKE '%AD%' THEN 1 ELSE 0 END) > 0
+                        ORDER BY SUM(CASE WHEN g.competition ILIKE '%AD%' THEN 1 ELSE 0 END) DESC
+                    """
+
+                    # Use RPC to run raw SQL
+                    hd_teams_result = db.rpc('execute_sql', {
+                        'query': hd_teams_with_ad_games_query.replace('%s', f"'{provider_id}'")
+                    }).execute()
+
+                    hd_teams_data = hd_teams_result.data if hd_teams_result.data else []
+                except Exception as sql_err:
+                    # Fallback: Query using ORM and filter in Python
+                    hd_teams_data = []
+                    try:
+                        # Get all HD teams with Modular11 aliases
+                        hd_aliases = db.table('team_alias_map').select(
+                            'team_id_master, provider_team_id'
+                        ).eq('provider_id', provider_id).execute()
+
+                        hd_team_ids = []
+                        hd_provider_ids = {}
+                        for alias in (hd_aliases.data or []):
+                            team = db.table('teams').select('team_name, team_id_master, age_group').eq(
+                                'team_id_master', alias['team_id_master']
+                            ).execute()
+                            if team.data and 'HD' in team.data[0].get('team_name', '').upper():
+                                hd_team_ids.append(alias['team_id_master'])
+                                hd_provider_ids[alias['team_id_master']] = alias['provider_team_id']
+
+                        # For each HD team, count AD vs HD games
+                        for team_id in hd_team_ids[:20]:  # Limit to 20 for performance
+                            team_info = db.table('teams').select('team_name, age_group').eq(
+                                'team_id_master', team_id
+                            ).execute()
+
+                            if not team_info.data:
+                                continue
+
+                            # Count games by competition type
+                            games = db.table('games').select('competition').eq(
+                                'provider_id', provider_id
+                            ).or_(f"home_team_master_id.eq.{team_id},away_team_master_id.eq.{team_id}").execute()
+
+                            ad_games = sum(1 for g in (games.data or []) if 'AD' in (g.get('competition') or '').upper())
+                            hd_games = sum(1 for g in (games.data or []) if 'HD' in (g.get('competition') or '').upper())
+
+                            if ad_games > 0:
+                                hd_teams_data.append({
+                                    'team_name': team_info.data[0]['team_name'],
+                                    'team_id_master': team_id,
+                                    'age_group': team_info.data[0]['age_group'],
+                                    'ad_games': ad_games,
+                                    'hd_games': hd_games,
+                                    'provider_team_id': hd_provider_ids.get(team_id)
+                                })
+
+                        # Sort by AD games descending
+                        hd_teams_data.sort(key=lambda x: x.get('ad_games', 0), reverse=True)
+                    except Exception as e2:
+                        st.warning(f"Could not load HD/AD data: {e2}")
+
+                if not hd_teams_data:
+                    st.success("✅ No HD teams with misassigned AD games!")
+                else:
+                    st.warning(f"**{len(hd_teams_data)}** HD teams have AD games that need fixing")
+
+                    for idx, hd_team in enumerate(hd_teams_data[:15]):  # Show top 15
+                        team_name = hd_team.get('team_name', 'Unknown')
+                        team_id = hd_team.get('team_id_master')
+                        ad_count = hd_team.get('ad_games', 0)
+                        hd_count = hd_team.get('hd_games', 0)
+                        age_group = hd_team.get('age_group', '')
+
+                        with st.expander(f"⚠️ {team_name} - {ad_count} AD games (should be 0)", expanded=idx < 2):
+                            col1, col2 = st.columns(2)
+
+                            with col1:
+                                st.markdown("**Current State:**")
+                                st.write(f"• HD Games: {hd_count} ✅")
+                                st.write(f"• AD Games: {ad_count} ❌ (misassigned)")
+                                st.write(f"• Age Group: {age_group}")
+                                st.write(f"• UUID: `{team_id[:8]}...`")
+
+                                # Get the HD team's Modular11 provider_team_id
+                                hd_alias = db.table('team_alias_map').select('provider_team_id').eq(
+                                    'provider_id', provider_id
+                                ).eq('team_id_master', team_id).execute()
+
+                                hd_provider_team_id = hd_alias.data[0]['provider_team_id'] if hd_alias.data else None
+                                if hd_provider_team_id:
+                                    st.write(f"• Modular11 ID: `{hd_provider_team_id}`")
+
+                            with col2:
+                                st.markdown("**Find AD Team to Link:**")
+
+                                # Extract club name from HD team name for search
+                                club_search = team_name.replace(' HD', '').replace(' MLS NEXT', '').replace(' MLS Next', '')
+                                club_search = club_search.rsplit(' U', 1)[0] if ' U' in club_search else club_search
+
+                                # Search for potential AD teams
+                                search_term = st.text_input(
+                                    "Search for AD team:",
+                                    value=club_search,
+                                    key=f"ad_search_{team_id[:8]}",
+                                    help="Search for a GotSport team with AD in the name"
+                                )
+
+                                if search_term and len(search_term) >= 2:
+                                    # Search for teams with AD and matching name/age
+                                    ad_search = db.table('teams').select(
+                                        'team_id_master, team_name, age_group, club_name'
+                                    ).ilike('team_name', f'%{search_term}%').ilike(
+                                        'team_name', '%AD%'
+                                    ).eq('age_group', age_group).limit(10).execute()
+
+                                    if ad_search.data:
+                                        st.markdown("**Potential AD Teams:**")
+                                        for ad_team in ad_search.data:
+                                            ad_name = ad_team['team_name']
+                                            ad_uuid = ad_team['team_id_master']
+
+                                            # Check if this AD team already has a Modular11 alias
+                                            existing_m11 = db.table('team_alias_map').select('id').eq(
+                                                'provider_id', provider_id
+                                            ).eq('team_id_master', ad_uuid).execute()
+
+                                            has_alias = "✅ Has M11 alias" if existing_m11.data else "⚪ No M11 alias"
+
+                                            if st.button(
+                                                f"→ {ad_name[:45]}... ({has_alias})",
+                                                key=f"select_ad_{team_id[:8]}_{ad_uuid[:8]}",
+                                                help=f"Link AD games to: {ad_name}"
+                                            ):
+                                                st.session_state[f'selected_ad_team_{team_id}'] = {
+                                                    'uuid': ad_uuid,
+                                                    'name': ad_name
+                                                }
+                                    else:
+                                        st.caption("No matching AD teams found")
+
+                            # Show selected AD team and action buttons
+                            selected_ad = st.session_state.get(f'selected_ad_team_{team_id}')
+
+                            if selected_ad and hd_provider_team_id:
+                                st.divider()
+                                st.success(f"**Selected AD Team:** {selected_ad['name']}")
+
+                                col_a, col_b = st.columns(2)
+
+                                with col_a:
+                                    if st.button(
+                                        f"🔗 Create Alias & Move {ad_count} Games",
+                                        key=f"fix_hd_ad_{team_id[:8]}",
+                                        type="primary"
+                                    ):
+                                        try:
+                                            ad_team_uuid = selected_ad['uuid']
+
+                                            # Step 1: Check if alias already exists
+                                            alias_id = f"{hd_provider_team_id}_AD"
+                                            existing = db.table('team_alias_map').select('id').eq(
+                                                'provider_id', provider_id
+                                            ).eq('provider_team_id', alias_id).execute()
+
+                                            if not existing.data:
+                                                # Create the alias
+                                                db.table('team_alias_map').insert({
+                                                    'provider_id': provider_id,
+                                                    'provider_team_id': alias_id,
+                                                    'team_id_master': ad_team_uuid,
+                                                    'match_confidence': 100,
+                                                    'match_method': 'manual',
+                                                    'division': 'AD'
+                                                }).execute()
+                                                st.info(f"✅ Created alias: {alias_id} → {selected_ad['name'][:30]}...")
+                                            else:
+                                                st.info(f"Alias {alias_id} already exists")
+
+                                            # Step 2: Move AD games (requires direct SQL for trigger disable)
+                                            # We'll use individual updates since we can't disable triggers via API
+
+                                            # Get AD games linked to HD team
+                                            ad_games_home = db.table('games').select('id').eq(
+                                                'provider_id', provider_id
+                                            ).eq('home_team_master_id', team_id).ilike(
+                                                'competition', '%AD%'
+                                            ).execute()
+
+                                            ad_games_away = db.table('games').select('id').eq(
+                                                'provider_id', provider_id
+                                            ).eq('away_team_master_id', team_id).ilike(
+                                                'competition', '%AD%'
+                                            ).execute()
+
+                                            moved_count = 0
+                                            errors = []
+
+                                            # Try to update games (may fail if immutable)
+                                            for game in (ad_games_home.data or []):
+                                                try:
+                                                    db.table('games').update({
+                                                        'home_team_master_id': ad_team_uuid
+                                                    }).eq('id', game['id']).execute()
+                                                    moved_count += 1
+                                                except Exception as ge:
+                                                    errors.append(str(ge)[:50])
+
+                                            for game in (ad_games_away.data or []):
+                                                try:
+                                                    db.table('games').update({
+                                                        'away_team_master_id': ad_team_uuid
+                                                    }).eq('id', game['id']).execute()
+                                                    moved_count += 1
+                                                except Exception as ge:
+                                                    if 'immutable' not in str(ge).lower():
+                                                        errors.append(str(ge)[:50])
+
+                                            if moved_count > 0:
+                                                st.success(f"✅ Moved {moved_count} games to AD team!")
+
+                                            if errors:
+                                                st.warning(f"⚠️ Some games couldn't be moved (immutable). Run this SQL manually:")
+                                                st.code(f"""
+ALTER TABLE games DISABLE TRIGGER enforce_game_immutability;
+
+UPDATE games SET home_team_master_id = '{ad_team_uuid}'
+WHERE home_team_master_id = '{team_id}'
+AND competition ILIKE '%AD%'
+AND provider_id = '{provider_id}';
+
+UPDATE games SET away_team_master_id = '{ad_team_uuid}'
+WHERE away_team_master_id = '{team_id}'
+AND competition ILIKE '%AD%'
+AND provider_id = '{provider_id}';
+
+ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;
+                                                """, language='sql')
+
+                                            # Clear selection
+                                            del st.session_state[f'selected_ad_team_{team_id}']
+                                            st.rerun()
+
+                                        except Exception as e:
+                                            st.error(f"Error: {e}")
+
+                                with col_b:
+                                    if st.button("❌ Clear Selection", key=f"clear_{team_id[:8]}"):
+                                        del st.session_state[f'selected_ad_team_{team_id}']
+                                        st.rerun()
             else:
                 st.info(f"**{len(queue.data)}** teams need review")
                 
