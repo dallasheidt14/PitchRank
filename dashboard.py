@@ -1401,10 +1401,144 @@ elif section == "📋 Modular11 Team Review":
                     st.metric("Unmatched Games", unmatched.count or 0)
 
                 # ============================================================================
-                # HD/AD GAME FIX SECTION
+                # WORKFLOW GUIDE - STEP BY STEP
                 # ============================================================================
                 st.divider()
-                st.subheader("🔄 Fix HD/AD Game Assignments")
+                st.subheader("📋 HD/AD Fix Workflow")
+
+                # Calculate workflow stats
+                try:
+                    # Step 1: HD teams with aliases
+                    hd_teams_with_alias = db.table('team_alias_map').select(
+                        'team_id_master'
+                    ).eq('provider_id', provider_id).execute()
+                    hd_aliased_ids = {a['team_id_master'] for a in (hd_teams_with_alias.data or [])}
+
+                    hd_teams = db.table('teams').select('team_id_master').ilike(
+                        'team_name', '%HD%'
+                    ).or_('team_name.ilike.%MLS%NEXT%,team_name.ilike.%MLS NEXT%').execute()
+                    hd_with_alias = sum(1 for t in (hd_teams.data or []) if t['team_id_master'] in hd_aliased_ids)
+                    hd_total = len(hd_teams.data or [])
+
+                    # Step 2: AD teams with aliases
+                    ad_teams = db.table('teams').select('team_id_master').ilike(
+                        'team_name', '%AD%'
+                    ).or_('team_name.ilike.%MLS%NEXT%,team_name.ilike.%MLS NEXT%').execute()
+                    ad_with_alias = sum(1 for t in (ad_teams.data or []) if t['team_id_master'] in hd_aliased_ids)
+                    ad_total = len(ad_teams.data or [])
+
+                    # Step 3: Count HD teams with AD games
+                    hd_with_ad_games = 0
+                    for hd_team in (hd_teams.data or []):
+                        if hd_team['team_id_master'] in hd_aliased_ids:
+                            games = db.table('games').select('competition').eq(
+                                'provider_id', provider_id
+                            ).or_(
+                                f"home_team_master_id.eq.{hd_team['team_id_master']},away_team_master_id.eq.{hd_team['team_id_master']}"
+                            ).ilike('competition', '%AD%').limit(1).execute()
+                            if games.data:
+                                hd_with_ad_games += 1
+
+                    # Display workflow
+                    step1_done = hd_with_alias >= hd_total * 0.9 if hd_total > 0 else True
+                    step2_done = ad_with_alias >= ad_total * 0.5 if ad_total > 0 else True
+                    step3_done = hd_with_ad_games == 0
+
+                    st.markdown("### Follow these steps in order:")
+
+                    # Step 1
+                    step1_status = "✅" if step1_done else "🔲"
+                    step1_expand = not step1_done
+                    with st.expander(f"{step1_status} **Step 1:** Ensure HD teams have Modular11 aliases ({hd_with_alias}/{hd_total})", expanded=step1_expand):
+                        if step1_done:
+                            st.success(f"Most HD teams have aliases! ({hd_with_alias}/{hd_total})")
+                        else:
+                            st.warning(f"Only {hd_with_alias} of {hd_total} HD teams have Modular11 aliases.")
+                            st.markdown("""
+                            **Action needed:** Go to the Modular11 Team Review queue (when items are pending)
+                            and approve/create HD teams from imports.
+
+                            Alternatively, run a new Modular11 import to populate the review queue.
+                            """)
+
+                    # Step 2
+                    step2_status = "✅" if step2_done else ("🔲" if step1_done else "⏸️")
+                    step2_expand = step1_done and not step2_done
+                    with st.expander(f"{step2_status} **Step 2:** Create AD aliases for AD teams ({ad_with_alias}/{ad_total})", expanded=step2_expand):
+                        if not step1_done:
+                            st.info("⏸️ Complete Step 1 first - need HD aliases to derive AD alias IDs")
+                        elif step2_done:
+                            st.success(f"Good progress on AD aliases! ({ad_with_alias}/{ad_total})")
+                        else:
+                            st.warning(f"Only {ad_with_alias} of {ad_total} AD teams have Modular11 aliases.")
+                            st.markdown("""
+                            **Action needed:** Use the **"AD Teams Missing Modular11 Aliases"** section below.
+
+                            For each AD team:
+                            1. Find the matching HD team's Modular11 ID
+                            2. Click "Link" to create `{id}_AD` alias
+
+                            💡 **Tip:** Filter by age group to work through systematically.
+                            """)
+
+                    # Step 3
+                    step3_status = "✅" if step3_done else ("🔲" if step2_done else "⏸️")
+                    step3_expand = step2_done and not step3_done
+                    with st.expander(f"{step3_status} **Step 3:** Move AD games from HD teams → AD teams ({hd_with_ad_games} teams need fixing)", expanded=step3_expand):
+                        if not step2_done:
+                            st.info("⏸️ Complete Step 2 first - need AD aliases before moving games")
+                        elif step3_done:
+                            st.success("No HD teams have misassigned AD games!")
+                        else:
+                            st.warning(f"{hd_with_ad_games} HD teams have AD games that need to be moved.")
+                            st.markdown("""
+                            **Action needed:** Use the **"Fix HD/AD Game Assignments"** section below.
+
+                            For each HD team with AD games:
+                            1. Search for the matching AD team
+                            2. Click "Create Alias & Move Games"
+                            3. If games are immutable, run the SQL provided
+                            """)
+
+                    # Step 4
+                    unmatched_count = unmatched.count or 0
+                    step4_status = "✅" if unmatched_count == 0 else ("🔲" if step3_done else "⏸️")
+                    with st.expander(f"{step4_status} **Step 4:** Re-link remaining unmatched games ({unmatched_count} games)", expanded=False):
+                        if unmatched_count == 0:
+                            st.success("All games are linked!")
+                        else:
+                            st.info(f"{unmatched_count} games are unlinked.")
+                            st.markdown("""
+                            **Action needed:** Once aliases are set up correctly, you can bulk-link games.
+
+                            Run this SQL to link games that have matching aliases:
+                            ```sql
+                            -- Link home teams
+                            UPDATE games g
+                            SET home_team_master_id = tam.team_id_master
+                            FROM team_alias_map tam
+                            WHERE g.home_provider_id = tam.provider_team_id
+                            AND g.provider_id = tam.provider_id
+                            AND g.home_team_master_id IS NULL;
+
+                            -- Link away teams
+                            UPDATE games g
+                            SET away_team_master_id = tam.team_id_master
+                            FROM team_alias_map tam
+                            WHERE g.away_provider_id = tam.provider_team_id
+                            AND g.provider_id = tam.provider_id
+                            AND g.away_team_master_id IS NULL;
+                            ```
+                            """)
+
+                except Exception as e:
+                    st.error(f"Error calculating workflow stats: {e}")
+
+                # ============================================================================
+                # HD/AD GAME FIX SECTION (Step 3)
+                # ============================================================================
+                st.divider()
+                st.subheader("🔄 Step 3: Fix HD/AD Game Assignments")
                 st.markdown("""
                 **Problem:** Modular11 uses the same team ID for both HD and AD teams.
                 This causes AD games to be incorrectly linked to HD teams.
@@ -1677,13 +1811,15 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;
                                         st.rerun()
 
                 # ============================================================================
-                # AD TEAMS MISSING MODULAR11 ALIASES SECTION
+                # AD TEAMS MISSING MODULAR11 ALIASES SECTION (Step 2)
                 # ============================================================================
                 st.divider()
-                st.subheader("📋 AD Teams Missing Modular11 Aliases")
+                st.subheader("📋 Step 2: AD Teams Missing Modular11 Aliases")
                 st.markdown("""
                 **These AD teams exist in your database but don't have Modular11 aliases.**
                 They won't receive MLS NEXT AD games until you link them.
+
+                💡 **For each AD team:** Find the HD counterpart's Modular11 ID, then click "Link" to create `{id}_AD` alias.
                 """)
 
                 # Age group filter
@@ -1814,10 +1950,10 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;
                     st.error(f"Error loading AD teams: {e}")
 
                 # ============================================================================
-                # UNLINKED MLS NEXT GAMES BY AGE
+                # UNLINKED MLS NEXT GAMES (Step 4)
                 # ============================================================================
                 st.divider()
-                st.subheader("📊 Unlinked MLS NEXT Games by Age")
+                st.subheader("📊 Step 4: Unlinked MLS NEXT Games")
 
                 try:
                     # Get unlinked games count by extracting age from team names
