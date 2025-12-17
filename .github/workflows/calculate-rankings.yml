@@ -1,6 +1,13 @@
 name: Calculate Rankings
 
 on:
+  schedule:
+    # Run every Monday at 9:45 AM Mountain Time
+    # MST (UTC-7): 9:45 AM MST = 4:45 PM UTC (16:45)
+    # MDT (UTC-6): 9:45 AM MDT = 3:45 PM UTC (15:45)
+    # Using 16:45 UTC means: MST = 9:45 AM, MDT = 10:45 AM
+    # This runs after all scraping and data cleanup jobs are complete
+    - cron: '45 16 * * 1'
   workflow_dispatch: # Allow manual trigger from GitHub Actions tab
 
 jobs:
