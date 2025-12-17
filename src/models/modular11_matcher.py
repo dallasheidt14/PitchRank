@@ -425,8 +425,8 @@ class Modular11GameMatcher(GameHistoryMatcher):
         
         # Strategy 1: Alias lookup (ALWAYS FIRST - no fuzzy if alias exists)
         if provider_team_id:
-            self._dlog(f"Checking alias for provider_team_id={provider_team_id}")
-            alias_match = self._match_by_provider_id(provider_id, provider_team_id, age_group, gender)
+            self._dlog(f"Checking alias for provider_team_id={provider_team_id}, division={division}")
+            alias_match = self._match_by_provider_id(provider_id, provider_team_id, age_group, gender, division)
             if alias_match:
                 # Get team details for logging
                 team_id_master = alias_match['team_id_master']
@@ -1579,130 +1579,151 @@ class Modular11GameMatcher(GameHistoryMatcher):
         return game_record
     
     def _match_by_provider_id(
-        self, 
-        provider_id: str, 
-        provider_team_id: str, 
+        self,
+        provider_id: str,
+        provider_team_id: str,
         age_group: Optional[str] = None,
-        gender: Optional[str] = None
+        gender: Optional[str] = None,
+        division: Optional[str] = None
     ) -> Optional[Dict]:
         """
         Match by exact provider ID with MANDATORY age_group validation.
-        
+
         CRITICAL: For Modular11, the same provider_team_id (club ID) is used
         for multiple age groups. We MUST validate age_group to prevent
         cross-age matches (e.g., U16 games matching to U13 teams).
+
+        DIVISION SUPPORT: For HD/AD variants, we first try lookup with
+        division-suffixed provider_team_id (e.g., "390_AD"), then fall back
+        to the original provider_team_id (e.g., "390").
         """
         if not provider_team_id:
             return None
-        
+
         team_id_str = str(provider_team_id)
+
+        # For division variants (HD/AD), try division-suffixed lookup first
+        # This allows separate team mappings for HD vs AD teams
+        team_ids_to_try = []
+        if division:
+            # Try division-suffixed ID first (e.g., "390_AD")
+            team_ids_to_try.append(f"{team_id_str}_{division}")
+        # Always fall back to original ID
+        team_ids_to_try.append(team_id_str)
         
-        # Check cache first (if available)
-        if self.alias_cache and team_id_str in self.alias_cache:
-            cached = self.alias_cache[team_id_str]
-            team_id_master = cached['team_id_master']
-            
-            # MODULAR11: ALWAYS validate age_group if provided
-            if age_group:
-                if not self._validate_team_age_group(team_id_master, age_group, gender):
-                    # Get team details for logging
-                    try:
-                        team_result = self.db.table('teams').select('team_name, age_group, gender').eq('team_id_master', team_id_master).single().execute()
-                        if team_result.data:
-                            team_age = team_result.data.get('age_group', 'Unknown')
-                            team_gender = team_result.data.get('gender', 'Unknown')
-                            self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team {team_age})")
-                        else:
-                            self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team Unknown)")
-                    except:
-                        self._dlog(f"Alias rejected: age mismatch (incoming {age_group})")
-                    logger.debug(
-                        f"[Modular11] Provider ID {provider_team_id} matched to team {team_id_master} "
-                        f"but age_group mismatch (game: {age_group}, team: ?). Rejecting match."
-                    )
-                    return None
-            
-            # Prefer direct_id matches
-            if cached.get('match_method') == 'direct_id':
+        # Check cache first (if available) - try division-suffixed IDs first
+        for try_id in team_ids_to_try:
+            if self.alias_cache and try_id in self.alias_cache:
+                cached = self.alias_cache[try_id]
+                team_id_master = cached['team_id_master']
+
+                # MODULAR11: ALWAYS validate age_group if provided
+                if age_group:
+                    if not self._validate_team_age_group(team_id_master, age_group, gender):
+                        # Get team details for logging
+                        try:
+                            team_result = self.db.table('teams').select('team_name, age_group, gender').eq('team_id_master', team_id_master).single().execute()
+                            if team_result.data:
+                                team_age = team_result.data.get('age_group', 'Unknown')
+                                team_gender = team_result.data.get('gender', 'Unknown')
+                                self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team {team_age})")
+                            else:
+                                self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team Unknown)")
+                        except:
+                            self._dlog(f"Alias rejected: age mismatch (incoming {age_group})")
+                        logger.debug(
+                            f"[Modular11] Provider ID {try_id} matched to team {team_id_master} "
+                            f"but age_group mismatch (game: {age_group}, team: ?). Rejecting match."
+                        )
+                        continue  # Try next ID instead of returning None
+
+                # Prefer direct_id matches
+                if cached.get('match_method') == 'direct_id':
+                    self._dlog(f"Cache hit: {try_id} -> {team_id_master} (direct_id)")
+                    return {
+                        'team_id_master': team_id_master,
+                        'review_status': cached.get('review_status', 'approved'),
+                        'match_method': 'direct_id'
+                    }
+                # Fallback to any cached match
+                self._dlog(f"Cache hit: {try_id} -> {team_id_master}")
                 return {
                     'team_id_master': team_id_master,
                     'review_status': cached.get('review_status', 'approved'),
-                    'match_method': 'direct_id'
+                    'match_method': cached.get('match_method')
                 }
-            # Fallback to any cached match
-            return {
-                'team_id_master': team_id_master,
-                'review_status': cached.get('review_status', 'approved'),
-                'match_method': cached.get('match_method')
-            }
         
-        # Tier 1: Direct ID match (from team importer)
-        try:
-            result = self.db.table('team_alias_map').select(
-                'team_id_master, review_status, match_method'
-            ).eq('provider_id', provider_id).eq(
-                'provider_team_id', team_id_str
-            ).eq('match_method', 'direct_id').eq(
-                'review_status', 'approved'
-            ).single().execute()
-            
-            if result.data:
-                team_id_master = result.data['team_id_master']
-                # MODULAR11: ALWAYS validate age_group if provided
-                if age_group:
-                    if not self._validate_team_age_group(team_id_master, age_group, gender):
-                        # Get team details for logging
-                        try:
-                            team_result = self.db.table('teams').select('team_name, age_group, gender').eq('team_id_master', team_id_master).single().execute()
-                            if team_result.data:
-                                team_age = team_result.data.get('age_group', 'Unknown')
-                                team_gender = team_result.data.get('gender', 'Unknown')
-                                self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team {team_age})")
-                            else:
-                                self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team Unknown)")
-                        except:
-                            self._dlog(f"Alias rejected: age mismatch (incoming {age_group})")
-                        logger.debug(
-                            f"[Modular11] Provider ID {provider_team_id} matched to team {team_id_master} "
-                            f"but age_group mismatch (game: {age_group}). Rejecting match."
-                        )
-                        return None
-                return result.data
-        except Exception as e:
-            logger.debug(f"No direct_id match found: {e}")
+        # Tier 1: Direct ID match (from team importer) - try division-suffixed IDs first
+        for try_id in team_ids_to_try:
+            try:
+                result = self.db.table('team_alias_map').select(
+                    'team_id_master, review_status, match_method'
+                ).eq('provider_id', provider_id).eq(
+                    'provider_team_id', try_id
+                ).eq('match_method', 'direct_id').eq(
+                    'review_status', 'approved'
+                ).single().execute()
+
+                if result.data:
+                    team_id_master = result.data['team_id_master']
+                    # MODULAR11: ALWAYS validate age_group if provided
+                    if age_group:
+                        if not self._validate_team_age_group(team_id_master, age_group, gender):
+                            # Get team details for logging
+                            try:
+                                team_result = self.db.table('teams').select('team_name, age_group, gender').eq('team_id_master', team_id_master).single().execute()
+                                if team_result.data:
+                                    team_age = team_result.data.get('age_group', 'Unknown')
+                                    team_gender = team_result.data.get('gender', 'Unknown')
+                                    self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team {team_age})")
+                                else:
+                                    self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team Unknown)")
+                            except:
+                                self._dlog(f"Alias rejected: age mismatch (incoming {age_group})")
+                            logger.debug(
+                                f"[Modular11] Provider ID {try_id} matched to team {team_id_master} "
+                                f"but age_group mismatch (game: {age_group}). Rejecting match."
+                            )
+                            continue  # Try next ID
+                    self._dlog(f"Tier 1 match: {try_id} -> {team_id_master} (direct_id)")
+                    return result.data
+            except Exception as e:
+                logger.debug(f"No direct_id match found for {try_id}: {e}")
         
-        # Tier 2: Any approved alias map entry (fallback)
-        try:
-            result = self.db.table('team_alias_map').select(
-                'team_id_master, review_status, match_method'
-            ).eq('provider_id', provider_id).eq(
-                'provider_team_id', team_id_str
-            ).eq('review_status', 'approved').single().execute()
-            
-            if result.data:
-                team_id_master = result.data['team_id_master']
-                # MODULAR11: ALWAYS validate age_group if provided
-                if age_group:
-                    if not self._validate_team_age_group(team_id_master, age_group, gender):
-                        # Get team details for logging
-                        try:
-                            team_result = self.db.table('teams').select('team_name, age_group, gender').eq('team_id_master', team_id_master).single().execute()
-                            if team_result.data:
-                                team_age = team_result.data.get('age_group', 'Unknown')
-                                team_gender = team_result.data.get('gender', 'Unknown')
-                                self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team {team_age})")
-                            else:
-                                self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team Unknown)")
-                        except:
-                            self._dlog(f"Alias rejected: age mismatch (incoming {age_group})")
-                        logger.debug(
-                            f"[Modular11] Provider ID {provider_team_id} matched to team {team_id_master} "
-                            f"but age_group mismatch (game: {age_group}). Rejecting match."
-                        )
-                        return None
-                return result.data
-        except Exception as e:
-            logger.debug(f"No alias map match found: {e}")
+        # Tier 2: Any approved alias map entry (fallback) - try division-suffixed IDs first
+        for try_id in team_ids_to_try:
+            try:
+                result = self.db.table('team_alias_map').select(
+                    'team_id_master, review_status, match_method'
+                ).eq('provider_id', provider_id).eq(
+                    'provider_team_id', try_id
+                ).eq('review_status', 'approved').single().execute()
+
+                if result.data:
+                    team_id_master = result.data['team_id_master']
+                    # MODULAR11: ALWAYS validate age_group if provided
+                    if age_group:
+                        if not self._validate_team_age_group(team_id_master, age_group, gender):
+                            # Get team details for logging
+                            try:
+                                team_result = self.db.table('teams').select('team_name, age_group, gender').eq('team_id_master', team_id_master).single().execute()
+                                if team_result.data:
+                                    team_age = team_result.data.get('age_group', 'Unknown')
+                                    team_gender = team_result.data.get('gender', 'Unknown')
+                                    self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team {team_age})")
+                                else:
+                                    self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team Unknown)")
+                            except:
+                                self._dlog(f"Alias rejected: age mismatch (incoming {age_group})")
+                            logger.debug(
+                                f"[Modular11] Provider ID {try_id} matched to team {team_id_master} "
+                                f"but age_group mismatch (game: {age_group}). Rejecting match."
+                            )
+                            continue  # Try next ID
+                    self._dlog(f"Tier 2 match: {try_id} -> {team_id_master}")
+                    return result.data
+            except Exception as e:
+                logger.debug(f"No alias map match found for {try_id}: {e}")
         return None
     
     def _validate_team_age_group(

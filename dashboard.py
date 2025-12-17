@@ -1501,12 +1501,19 @@ elif section == "📋 Modular11 Team Review":
                         st.divider()
                         with st.expander("➕ Create New Team", expanded=False):
                             st.markdown("*Create a new team in the database and map this Modular11 team to it*")
-                            
+
                             # Pre-fill from Modular11 data
                             m11_name = item.get('provider_team_name', '')
                             m11_club = details.get('club_name', '')
                             m11_age = details.get('age_group', 'U13')
-                            
+
+                            # Auto-detect division from team name (HD/AD suffix)
+                            m11_division = None
+                            if m11_name.upper().endswith(' HD'):
+                                m11_division = 'HD'
+                            elif m11_name.upper().endswith(' AD'):
+                                m11_division = 'AD'
+
                             col_a, col_b = st.columns(2)
                             with col_a:
                                 new_team_name = st.text_input(
@@ -1533,6 +1540,16 @@ elif section == "📋 Modular11 Team Review":
                                     index=0,
                                     key=f"new_gender_{item['id']}"
                                 )
+                                # Division selector - critical for HD/AD team separation
+                                division_options = ['None', 'HD', 'AD']
+                                default_div_idx = division_options.index(m11_division) if m11_division in division_options else 0
+                                new_division = st.selectbox(
+                                    "Division (MLS NEXT)",
+                                    options=division_options,
+                                    index=default_div_idx,
+                                    key=f"new_division_{item['id']}",
+                                    help="HD = Highest Division, AD = Additional Division. Select if team has HD/AD variant."
+                                )
                                 new_state = st.text_input(
                                     "State",
                                     value="",
@@ -1553,9 +1570,24 @@ elif section == "📋 Modular11 Team Review":
                                 else:
                                     try:
                                         import uuid
+                                        import hashlib
                                         new_team_id = str(uuid.uuid4())
-                                        
-                                        # Create the new team
+
+                                        # Determine division value (None if 'None' selected)
+                                        division_value = new_division if new_division != 'None' else None
+
+                                        # Generate unique provider_team_id to avoid HD/AD collisions
+                                        # When division is present, hash the team info to create unique ID
+                                        # This matches how modular11_matcher.py handles division variants
+                                        raw_provider_team_id = item['provider_team_id']
+                                        if division_value:
+                                            # Create unique ID: hash of original_id + division
+                                            unique_key = f"{raw_provider_team_id}_{new_team_name}_{new_age}_{new_gender}_{division_value}"
+                                            unique_provider_team_id = hashlib.md5(unique_key.encode()).hexdigest()[:16]
+                                        else:
+                                            unique_provider_team_id = raw_provider_team_id
+
+                                        # Create the new team with unique provider_team_id
                                         new_team_data = {
                                             'team_id_master': new_team_id,
                                             'team_name': new_team_name,
@@ -1563,31 +1595,67 @@ elif section == "📋 Modular11 Team Review":
                                             'age_group': new_age,
                                             'gender': new_gender,
                                             'provider_id': provider_id,
-                                            'provider_team_id': item['provider_team_id']
+                                            'provider_team_id': unique_provider_team_id
                                         }
                                         if new_state:
                                             new_team_data['state'] = new_state
                                         if new_state_code:
                                             new_team_data['state_code'] = new_state_code.upper()
-                                        
+
                                         db.table('teams').insert(new_team_data).execute()
-                                        
-                                        # Create the alias
-                                        db.table('team_alias_map').insert({
+
+                                        # Create the alias mapping
+                                        # For division variants (HD/AD), we need to handle the unique constraint
+                                        # Check if an alias already exists for this provider_team_id
+                                        existing_alias = db.table('team_alias_map').select('id, team_id_master').eq(
+                                            'provider_id', provider_id
+                                        ).eq('provider_team_id', raw_provider_team_id).execute()
+
+                                        alias_warning = None
+                                        if existing_alias.data and division_value:
+                                            # Alias exists for another division variant (e.g., HD exists, creating AD)
+                                            # Create alias with division-suffixed provider_team_id
+                                            aliased_provider_team_id = f"{raw_provider_team_id}_{division_value}"
+                                            alias_warning = (
+                                                f"Note: An alias already exists for provider_team_id={raw_provider_team_id}. "
+                                                f"Created alias with ID '{aliased_provider_team_id}' for {division_value} variant. "
+                                                "The matcher may need updates to distinguish HD/AD games."
+                                            )
+                                        else:
+                                            aliased_provider_team_id = raw_provider_team_id
+
+                                        alias_data = {
                                             'provider_id': provider_id,
-                                            'provider_team_id': item['provider_team_id'],
+                                            'provider_team_id': aliased_provider_team_id,
                                             'team_id_master': new_team_id,
                                             'match_method': 'manual',
                                             'match_confidence': 1.0,
                                             'review_status': 'approved'
-                                        }).execute()
-                                        
+                                        }
+                                        # Add division if available (column may exist in DB)
+                                        if division_value:
+                                            alias_data['division'] = division_value
+
+                                        try:
+                                            db.table('team_alias_map').insert(alias_data).execute()
+                                        except Exception as alias_err:
+                                            # If alias insert fails (e.g., division column doesn't exist),
+                                            # try without division
+                                            if 'division' in str(alias_err):
+                                                del alias_data['division']
+                                                db.table('team_alias_map').insert(alias_data).execute()
+                                            else:
+                                                raise alias_err
+
                                         # Update queue status
                                         db.table('team_match_review_queue').update({
                                             'status': 'approved'
                                         }).eq('id', item['id']).execute()
-                                        
-                                        st.success(f"✅ Created team '{new_team_name}' and mapped!")
+
+                                        div_info = f" ({division_value})" if division_value else ""
+                                        st.success(f"✅ Created team '{new_team_name}'{div_info} and mapped!")
+                                        if alias_warning:
+                                            st.warning(alias_warning)
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"Error creating team: {e}")
