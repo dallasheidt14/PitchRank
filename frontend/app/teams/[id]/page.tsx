@@ -147,7 +147,8 @@ export default async function Page({ params }: TeamPageProps) {
 
   return (
     <Suspense fallback={<TeamPageSkeleton />}>
-      <TeamPageShell id={resolvedParams.id} />
+      {/* key prop forces remount when navigating between teams, ensuring fresh data fetch */}
+      <TeamPageShell key={resolvedParams.id} id={resolvedParams.id} />
     </Suspense>
   );
 }
