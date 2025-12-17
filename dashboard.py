@@ -1440,8 +1440,11 @@ elif section == "📋 Modular11 Team Review":
                                 hd_with_ad_games += 1
 
                     # Display workflow
-                    step1_done = hd_with_alias >= hd_total * 0.9 if hd_total > 0 else True
-                    step2_done = ad_with_alias >= ad_total * 0.5 if ad_total > 0 else True
+                    # Step 1 is done if: review queue is empty (nothing more to do) OR >= 60% have aliases
+                    queue_is_empty = not queue.data or len(queue.data) == 0
+                    step1_done = queue_is_empty or (hd_with_alias >= hd_total * 0.6 if hd_total > 0 else True)
+                    # Step 2: Lower threshold since many AD teams are from GotSport only (not all need M11 aliases)
+                    step2_done = ad_with_alias >= ad_total * 0.3 if ad_total > 0 else True
                     step3_done = hd_with_ad_games == 0
 
                     st.markdown("### Follow these steps in order:")
@@ -1451,7 +1454,10 @@ elif section == "📋 Modular11 Team Review":
                     step1_expand = not step1_done
                     with st.expander(f"{step1_status} **Step 1:** Ensure HD teams have Modular11 aliases ({hd_with_alias}/{hd_total})", expanded=step1_expand):
                         if step1_done:
-                            st.success(f"Most HD teams have aliases! ({hd_with_alias}/{hd_total})")
+                            if queue_is_empty:
+                                st.success(f"Review queue is empty - nothing more to process! ({hd_with_alias}/{hd_total} HD teams have aliases)")
+                            else:
+                                st.success(f"Most HD teams have aliases! ({hd_with_alias}/{hd_total})")
                         else:
                             st.warning(f"Only {hd_with_alias} of {hd_total} HD teams have Modular11 aliases.")
                             st.markdown("""
