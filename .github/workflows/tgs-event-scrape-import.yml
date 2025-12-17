@@ -1,16 +1,24 @@
 name: TGS Event Scrape and Import
 
 on:
+  schedule:
+    # Run every Sunday at 11:30 PM Mountain Time
+    # MST (UTC-7): 11:30 PM MST Sunday = 6:30 AM UTC Monday
+    # MDT (UTC-6): 11:30 PM MDT Sunday = 5:30 AM UTC Monday
+    # Using 6:30 AM UTC means: MST = 11:30 PM Sunday, MDT = 12:30 AM Monday
+    - cron: '30 6 * * 1'
   workflow_dispatch:
     inputs:
       start_event:
-        description: 'Starting event ID (e.g., 3900)'
-        required: true
+        description: 'Starting event ID (default: 4050 for scheduled runs)'
+        required: false
         type: string
+        default: '4050'
       end_event:
-        description: 'Ending event ID (e.g., 3950)'
-        required: true
+        description: 'Ending event ID (default: 4150 for scheduled runs)'
+        required: false
         type: string
+        default: '4150'
       skip_import:
         description: 'Skip import step (only scrape)'
         required: false
@@ -21,27 +29,49 @@ jobs:
   scrape-and-import:
     runs-on: ubuntu-latest
     timeout-minutes: 240  # 4 hour timeout (scraping and importing can take a while)
-    
+
+    env:
+      # Default event range for scheduled runs
+      DEFAULT_START_EVENT: '4050'
+      DEFAULT_END_EVENT: '4150'
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      
+
       - name: Create data directories
         run: |
           mkdir -p data/raw/tgs
           mkdir -p data/cache
           mkdir -p logs
-      
+
+      - name: Set event range
+        id: events
+        run: |
+          # Use inputs if provided (manual run), otherwise use defaults (scheduled run)
+          if [ "${{ github.event_name }}" == "schedule" ]; then
+            START_EVENT="${DEFAULT_START_EVENT}"
+            END_EVENT="${DEFAULT_END_EVENT}"
+            echo "Scheduled run: Using default event range"
+          else
+            START_EVENT="${{ inputs.start_event }}"
+            END_EVENT="${{ inputs.end_event }}"
+            echo "Manual run: Using provided event range"
+          fi
+          echo "start_event=$START_EVENT" >> $GITHUB_OUTPUT
+          echo "end_event=$END_EVENT" >> $GITHUB_OUTPUT
+          echo "Event range: $START_EVENT - $END_EVENT"
+
       - name: Scrape TGS Events
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -50,23 +80,23 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: |
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
-          echo "Scraping TGS events ${{ inputs.start_event }} through ${{ inputs.end_event }}"
-          python scripts/scrape_tgs_event.py --start-event ${{ inputs.start_event }} --end-event ${{ inputs.end_event }}
-      
+          echo "Scraping TGS events ${{ steps.events.outputs.start_event }} through ${{ steps.events.outputs.end_event }}"
+          python scripts/scrape_tgs_event.py --start-event ${{ steps.events.outputs.start_event }} --end-event ${{ steps.events.outputs.end_event }}
+
       - name: Find scraped CSV file
         id: find_csv
         run: |
           # Find the most recent CSV file matching the pattern
-          CSV_FILE=$(ls -t data/raw/tgs/tgs_events_${{ inputs.start_event }}_${{ inputs.end_event }}_*.csv 2>/dev/null | head -n 1)
+          CSV_FILE=$(ls -t data/raw/tgs/tgs_events_${{ steps.events.outputs.start_event }}_${{ steps.events.outputs.end_event }}_*.csv 2>/dev/null | head -n 1)
           if [ -z "$CSV_FILE" ]; then
             echo "Error: Could not find scraped CSV file"
             exit 1
           fi
           echo "Found CSV file: $CSV_FILE"
           echo "csv_file=$CSV_FILE" >> $GITHUB_OUTPUT
-      
+
       - name: Import Games
-        if: inputs.skip_import == false
+        if: ${{ github.event_name == 'schedule' || inputs.skip_import == false }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -77,36 +107,35 @@ jobs:
           CSV_FILE="${{ steps.find_csv.outputs.csv_file }}"
           echo "Importing games from: $CSV_FILE"
           python scripts/import_games_enhanced.py "$CSV_FILE" tgs
-      
+
       - name: Upload scraped data
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tgs-events-${{ inputs.start_event }}-${{ inputs.end_event }}-${{ github.run_number }}
+          name: tgs-events-${{ steps.events.outputs.start_event }}-${{ steps.events.outputs.end_event }}-${{ github.run_number }}
           path: |
-            data/raw/tgs/tgs_events_${{ inputs.start_event }}_${{ inputs.end_event }}_*.csv
+            data/raw/tgs/tgs_events_${{ steps.events.outputs.start_event }}_${{ steps.events.outputs.end_event }}_*.csv
           retention-days: 30
           if-no-files-found: warn
-      
+
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tgs-logs-${{ inputs.start_event }}-${{ inputs.end_event }}-${{ github.run_number }}
+          name: tgs-logs-${{ steps.events.outputs.start_event }}-${{ steps.events.outputs.end_event }}-${{ github.run_number }}
           path: logs/*.log
           retention-days: 30
           if-no-files-found: ignore
-      
+
       - name: Report results
         if: always()
         run: |
           echo "TGS event scrape and import workflow completed"
-          echo "Events: ${{ inputs.start_event }} through ${{ inputs.end_event }}"
-          if [ "${{ inputs.skip_import }}" == "false" ]; then
+          echo "Events: ${{ steps.events.outputs.start_event }} through ${{ steps.events.outputs.end_event }}"
+          echo "Trigger: ${{ github.event_name }}"
+          if [ "${{ github.event_name }}" == "schedule" ] || [ "${{ inputs.skip_import }}" == "false" ]; then
             echo "Import: Completed"
           else
             echo "Import: Skipped"
           fi
           echo "Check the artifacts above for scraped data and logs."
-
-
