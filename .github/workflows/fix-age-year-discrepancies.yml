@@ -1,6 +1,12 @@
 name: Fix Age Year Discrepancies
 
 on:
+  schedule:
+    # Run every Monday at 9:05 AM Mountain Time
+    # MST (UTC-7): 9:05 AM MST = 4:05 PM UTC (16:05)
+    # MDT (UTC-6): 9:05 AM MDT = 3:05 PM UTC (15:05)
+    # Using 16:05 UTC means: MST = 9:05 AM, MDT = 10:05 AM
+    - cron: '5 16 * * 1'
   workflow_dispatch: # Allow manual trigger from GitHub Actions tab
     inputs:
       dry_run:
