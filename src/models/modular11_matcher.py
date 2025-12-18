@@ -498,7 +498,8 @@ class Modular11GameMatcher(GameHistoryMatcher):
                     team_id_master=fuzzy_match.team_id_master,
                     match_method='fuzzy_auto',
                     confidence=fuzzy_match.confidence,
-                    division=division
+                    division=division,
+                    age_group=age_group
                 )
                 try:
                     team_result = self.db.table('teams').select('team_name').eq('team_id_master', fuzzy_match.team_id_master).single().execute()
@@ -565,9 +566,10 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 team_id_master=new_team_id,
                 match_method='import',  # System-created during import, not human-reviewed
                 confidence=1.0,  # New team = 100% confidence
-                division=division
+                division=division,
+                age_group=age_group
             )
-            
+
             # Optionally enqueue for review with fuzzy suggestions (informational only)
             # This should NEVER block or cause failures
             try:
@@ -622,14 +624,15 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 division=division
             )
             
-            # Create alias (DO NOT pass team_name, age_group, gender - not in schema)
+            # Create alias with age_group for unique identification
             self._create_modular11_alias(
                 provider_id=provider_id,
                 provider_team_id=provider_team_id,
                 team_id_master=new_team_id,
                 match_method='import',
                 confidence=1.0,
-                division=division
+                division=division,
+                age_group=age_group
             )
             
             # Track in summary (only if this is actually a new team, not a duplicate)
@@ -1225,30 +1228,46 @@ class Modular11GameMatcher(GameHistoryMatcher):
         team_id_master: str,
         match_method: str,
         confidence: float,
-        division: Optional[str]
+        division: Optional[str],
+        age_group: Optional[str] = None
     ):
         """
-        Create or update team alias map entry with division information.
+        Create or update team alias map entry with division and age information.
 
-        For MLS NEXT teams with HD/AD divisions, this method creates division-suffixed
-        provider_team_id entries (e.g., "391_HD", "391_AD") to allow separate aliases
-        for the same club in different divisions.
+        For MLS NEXT teams, this method creates age+division suffixed provider_team_id
+        entries (e.g., "391_U16_HD", "391_U16_AD") to allow separate aliases for:
+        - Different age groups (U13, U14, U15, U16, U17) with same club ID
+        - Different divisions (HD, AD) within each age group
 
-        Note: team_name, age_group, and gender are NOT stored in team_alias_map schema.
-        They should not be passed to this method.
+        This is necessary because Modular11 uses the same club/academy ID for ALL
+        teams regardless of age group or division.
+
+        Note: team_name and gender are NOT stored in team_alias_map schema.
         """
         try:
             # provider_team_id is REQUIRED (NOT NULL constraint)
             if not provider_team_id:
                 raise ValueError("provider_team_id is required for alias creation")
 
-            # For HD/AD division variants, use division-suffixed provider_team_id
-            # This allows "391_HD" and "391_AD" to coexist as separate aliases
-            # pointing to different teams (same club, different competitive tiers)
+            # Build the aliased provider_team_id with age and division suffixes
+            # Format: {club_id}_{age_group}_{division} e.g., "391_U16_AD"
+            # This ensures each club+age+division combination has a unique alias
             aliased_provider_team_id = provider_team_id
+            suffix_parts = []
+
+            # Add age group suffix (CRITICAL: same club ID used for all ages)
+            if age_group:
+                # Normalize age format (U16, u16 -> U16)
+                age_normalized = age_group.upper() if age_group.lower().startswith('u') else f"U{age_group}"
+                suffix_parts.append(age_normalized)
+
+            # Add division suffix (HD/AD)
             if division and division.upper() in ('HD', 'AD'):
-                aliased_provider_team_id = f"{provider_team_id}_{division.upper()}"
-                self._dlog(f"Using division-suffixed alias: {aliased_provider_team_id}")
+                suffix_parts.append(division.upper())
+
+            if suffix_parts:
+                aliased_provider_team_id = f"{provider_team_id}_{'_'.join(suffix_parts)}"
+                self._dlog(f"Using suffixed alias: {aliased_provider_team_id}")
 
             # Check if alias already exists
             query = self.db.table('team_alias_map').select('id').eq(
@@ -1605,22 +1624,40 @@ class Modular11GameMatcher(GameHistoryMatcher):
         for multiple age groups. We MUST validate age_group to prevent
         cross-age matches (e.g., U16 games matching to U13 teams).
 
-        DIVISION SUPPORT: For HD/AD variants, we first try lookup with
-        division-suffixed provider_team_id (e.g., "390_AD"), then fall back
-        to the original provider_team_id (e.g., "390").
+        Alias lookup priority (most specific to least specific):
+        1. {id}_{age}_{division} (e.g., "391_U16_AD") - new format
+        2. {id}_{division} (e.g., "391_AD") - backwards compatible
+        3. {id} (e.g., "391") - original format
+
+        This allows gradual migration from old aliases while new imports
+        create properly suffixed aliases.
         """
         if not provider_team_id:
             return None
 
         team_id_str = str(provider_team_id)
 
-        # For division variants (HD/AD), try division-suffixed lookup first
-        # This allows separate team mappings for HD vs AD teams
+        # Build list of alias formats to try (most specific first)
         team_ids_to_try = []
-        if division:
-            # Try division-suffixed ID first (e.g., "390_AD")
-            team_ids_to_try.append(f"{team_id_str}_{division}")
-        # Always fall back to original ID
+
+        # Normalize age format
+        age_normalized = None
+        if age_group:
+            age_normalized = age_group.upper() if age_group.lower().startswith('u') else f"U{age_group}"
+
+        # 1. Try full suffix: {id}_{age}_{division} (e.g., "391_U16_AD")
+        if age_normalized and division and division.upper() in ('HD', 'AD'):
+            team_ids_to_try.append(f"{team_id_str}_{age_normalized}_{division.upper()}")
+
+        # 2. Try age-only suffix: {id}_{age} (e.g., "391_U16")
+        if age_normalized:
+            team_ids_to_try.append(f"{team_id_str}_{age_normalized}")
+
+        # 3. Try division-only suffix: {id}_{division} (e.g., "391_AD") - backwards compatible
+        if division and division.upper() in ('HD', 'AD'):
+            team_ids_to_try.append(f"{team_id_str}_{division.upper()}")
+
+        # 4. Always fall back to original ID
         team_ids_to_try.append(team_id_str)
         
         # Check cache first (if available) - try division-suffixed IDs first
