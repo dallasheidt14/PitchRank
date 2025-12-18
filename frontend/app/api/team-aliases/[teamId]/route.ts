@@ -26,6 +26,7 @@ export async function GET(
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
     // Fetch all aliases for this team with provider info
+    // Include division field for MLS NEXT HD/AD differentiation
     const { data: aliases, error } = await supabase
       .from('team_alias_map')
       .select(`
@@ -34,6 +35,7 @@ export async function GET(
         match_method,
         match_confidence,
         review_status,
+        division,
         created_at,
         provider:providers(id, name)
       `)

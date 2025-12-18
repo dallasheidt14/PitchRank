@@ -1229,7 +1229,11 @@ class Modular11GameMatcher(GameHistoryMatcher):
     ):
         """
         Create or update team alias map entry with division information.
-        
+
+        For MLS NEXT teams with HD/AD divisions, this method creates division-suffixed
+        provider_team_id entries (e.g., "391_HD", "391_AD") to allow separate aliases
+        for the same club in different divisions.
+
         Note: team_name, age_group, and gender are NOT stored in team_alias_map schema.
         They should not be passed to this method.
         """
@@ -1237,28 +1241,36 @@ class Modular11GameMatcher(GameHistoryMatcher):
             # provider_team_id is REQUIRED (NOT NULL constraint)
             if not provider_team_id:
                 raise ValueError("provider_team_id is required for alias creation")
-            
+
+            # For HD/AD division variants, use division-suffixed provider_team_id
+            # This allows "391_HD" and "391_AD" to coexist as separate aliases
+            # pointing to different teams (same club, different competitive tiers)
+            aliased_provider_team_id = provider_team_id
+            if division and division.upper() in ('HD', 'AD'):
+                aliased_provider_team_id = f"{provider_team_id}_{division.upper()}"
+                self._dlog(f"Using division-suffixed alias: {aliased_provider_team_id}")
+
             # Check if alias already exists
             query = self.db.table('team_alias_map').select('id').eq(
                 'provider_id', provider_id
-            ).eq('provider_team_id', provider_team_id)
+            ).eq('provider_team_id', aliased_provider_team_id)
             
             existing = query.execute()
-            
+
             # team_alias_map schema: id, provider_id, provider_team_id, team_id_master,
             # match_confidence, match_method, review_status, created_at, division
             # NOTE: Does NOT have team_name, age_group, or gender columns
             alias_data = {
                 'provider_id': provider_id,
-                'provider_team_id': provider_team_id,
+                'provider_team_id': aliased_provider_team_id,  # Use division-suffixed ID
                 'team_id_master': team_id_master,
                 'match_method': match_method,
                 'match_confidence': confidence,
                 'review_status': 'approved',
-                'division': division,  # NEW: Store division (HD/AD)
+                'division': division,  # Store division (HD/AD) for reference
                 'created_at': datetime.utcnow().isoformat() + 'Z'
             }
-            
+
             if existing.data:
                 # Update existing
                 self.db.table('team_alias_map').update(alias_data).eq(
@@ -1267,13 +1279,13 @@ class Modular11GameMatcher(GameHistoryMatcher):
             else:
                 # Create new
                 self.db.table('team_alias_map').insert(alias_data).execute()
-            
+
             self._dlog(
-                f"Creating alias -> provider_team_id={provider_team_id} "
-                f"maps to team_id_master={team_id_master} (method={match_method})"
+                f"Creating alias -> provider_team_id={aliased_provider_team_id} "
+                f"maps to team_id_master={team_id_master} (method={match_method}, division={division})"
             )
             logger.debug(
-                f"[Modular11] Created/updated alias: {provider_team_id} → {team_id_master} "
+                f"[Modular11] Created/updated alias: {aliased_provider_team_id} → {team_id_master} "
                 f"(method: {match_method}, division: {division})"
             )
                 
