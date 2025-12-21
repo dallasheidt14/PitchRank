@@ -25,6 +25,7 @@ interface TeamAlias {
   match_method: string;
   match_confidence: number;
   review_status: string;
+  division: string | null;  // MLS NEXT: 'HD' or 'AD'
   created_at: string;
   provider: {
     id: string;
@@ -311,10 +312,22 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                               <div key={alias.id} className="p-3 hover:bg-muted/50 transition-colors">
                                 <div className="flex items-start justify-between gap-2">
                                   <div className="min-w-0 flex-1">
-                                    <div className="flex items-center gap-1.5">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
                                       <span className="font-mono text-sm font-medium truncate">
                                         {alias.provider_team_id}
                                       </span>
+                                      {alias.division && (
+                                        <Badge
+                                          variant="outline"
+                                          className={`text-xs shrink-0 ${
+                                            alias.division === 'HD'
+                                              ? 'border-green-500 text-green-600'
+                                              : 'border-yellow-500 text-yellow-600'
+                                          }`}
+                                        >
+                                          {alias.division}
+                                        </Badge>
+                                      )}
                                       {alias.provider?.name && (
                                         <Badge variant="secondary" className="text-xs shrink-0">
                                           {alias.provider.name}
