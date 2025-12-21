@@ -1501,7 +1501,10 @@ elif section == "📋 Modular11 Team Review":
 
                                         for t in (results.data or []):
                                             is_ad = 'AD' in t['team_name'].upper()
-                                            alias = f"{pid}_AD" if is_ad else pid
+                                            age_norm = t['age_group'].upper() if t['age_group'] else ''
+                                            division = 'AD' if is_ad else 'HD'
+                                            # New format: {club_id}_{age}_{division} e.g., 391_U16_AD
+                                            alias = f"{pid}_{age_norm}_{division}" if age_norm else f"{pid}_{division}"
                                             if st.button(f"→ {t['team_name'][:40]} ({t['age_group']}) as `{alias}`", key=f"lnk_{pid}_{t['team_id_master'][:6]}"):
                                                 try:
                                                     db.table('team_alias_map').insert({
@@ -1510,7 +1513,7 @@ elif section == "📋 Modular11 Team Review":
                                                         'team_id_master': t['team_id_master'],
                                                         'match_confidence': 100,
                                                         'match_method': 'manual',
-                                                        'division': 'AD' if is_ad else 'HD'
+                                                        'division': division
                                                     }).execute()
                                                     st.success("✅ Created!")
                                                     st.rerun()
@@ -1590,7 +1593,9 @@ elif section == "📋 Modular11 Team Review":
                                     st.success(f"Selected: {sel['team_name']}")
                                     if st.button(f"🔗 Create Alias & Move Games", key=f"move_{hd['team_id'][:6]}", type="primary"):
                                         try:
-                                            alias_id = f"{hd['provider_team_id']}_AD"
+                                            # New format: {club_id}_{age}_{division} e.g., 391_U16_AD
+                                            age_norm = hd['age'].upper() if hd.get('age') else ''
+                                            alias_id = f"{hd['provider_team_id']}_{age_norm}_AD" if age_norm else f"{hd['provider_team_id']}_AD"
                                             # Create alias if not exists
                                             existing = db.table('team_alias_map').select('id').eq(
                                                 'provider_id', provider_id
@@ -1848,24 +1853,23 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
 
                                         db.table('teams').insert(new_team_data).execute()
 
-                                        # Create the alias mapping
-                                        # For division variants (HD/AD), we need to handle the unique constraint
-                                        # Check if an alias already exists for this provider_team_id
-                                        existing_alias = db.table('team_alias_map').select('id, team_id_master').eq(
-                                            'provider_id', provider_id
-                                        ).eq('provider_team_id', raw_provider_team_id).execute()
+                                        # Create the alias mapping with new format: {club_id}_{age}_{division}
+                                        # This ensures each club+age+division combination gets a unique alias
+                                        age_norm = new_age.upper() if new_age else ''
 
+                                        # Build the aliased provider_team_id
                                         alias_warning = None
-                                        if existing_alias.data and division_value:
-                                            # Alias exists for another division variant (e.g., HD exists, creating AD)
-                                            # Create alias with division-suffixed provider_team_id
+                                        if age_norm and division_value:
+                                            # Full format: 391_U16_AD
+                                            aliased_provider_team_id = f"{raw_provider_team_id}_{age_norm}_{division_value}"
+                                        elif age_norm:
+                                            # Age only: 391_U16
+                                            aliased_provider_team_id = f"{raw_provider_team_id}_{age_norm}"
+                                        elif division_value:
+                                            # Division only (backwards compatible): 391_AD
                                             aliased_provider_team_id = f"{raw_provider_team_id}_{division_value}"
-                                            alias_warning = (
-                                                f"Note: An alias already exists for provider_team_id={raw_provider_team_id}. "
-                                                f"Created alias with ID '{aliased_provider_team_id}' for {division_value} variant. "
-                                                "The matcher may need updates to distinguish HD/AD games."
-                                            )
                                         else:
+                                            # Original format: 391
                                             aliased_provider_team_id = raw_provider_team_id
 
                                         alias_data = {
