@@ -1763,12 +1763,15 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
                         with col1:
                             if suggested_id and st.button(f"✅ Approve", key=f"approve_{item['id']}", type="primary"):
                                 try:
+                                    # Re-fetch details from item to ensure we have current data
+                                    current_details = item.get('match_details') or {}
+
                                     # Build proper alias format: {club_id}_{age}_{division}
                                     raw_id = item['provider_team_id']
                                     base_id = raw_id.split('_')[0] if '_' in raw_id else raw_id
 
                                     # Get age from details first, fallback to suggested team
-                                    age_norm = (details.get('age_group') or '').upper()
+                                    age_norm = (current_details.get('age_group') or '').upper()
                                     if not age_norm and suggested.data:
                                         age_norm = (suggested.data[0].get('age_group') or '').upper()
                                     # Ensure proper format (U13 not u13)
@@ -1791,15 +1794,16 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
                                         elif ' AD' in suggested_name or suggested_name.endswith(' AD'):
                                             division = 'AD'
 
+                                    # DEBUG: Show what we're building
+                                    st.info(f"DEBUG: base_id={base_id}, age_norm={age_norm}, division={division}")
+
                                     # Build alias ID with new format - REQUIRE at least age
                                     if not age_norm:
-                                        st.error("Cannot create alias: missing age group")
+                                        st.error(f"Cannot create alias: missing age group. Details: {current_details}")
                                         st.stop()
 
                                     if age_norm and division:
                                         alias_id = f"{base_id}_{age_norm}_{division}"
-                                    elif age_norm:
-                                        alias_id = f"{base_id}_{age_norm}"
                                     else:
                                         alias_id = f"{base_id}_{age_norm}"  # At minimum include age
 
@@ -1851,12 +1855,16 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
                                         btn_label = f"{team['team_name']} ({team['age_group']})"
                                         if st.button(f"→ {btn_label[:50]}", key=f"sel_{item['id']}_{team['team_id_master'][:8]}"):
                                             try:
+                                                # Re-fetch details from item to ensure we have current data
+                                                # (Streamlit re-runs can cause scope issues)
+                                                current_details = item.get('match_details') or {}
+
                                                 # Build proper alias format: {club_id}_{age}_{division}
                                                 raw_id = item['provider_team_id']
                                                 base_id = raw_id.split('_')[0] if '_' in raw_id else raw_id
 
                                                 # Get age from details first, fallback to selected team
-                                                age_norm = (details.get('age_group') or '').upper()
+                                                age_norm = (current_details.get('age_group') or '').upper()
                                                 if not age_norm:
                                                     age_norm = (team.get('age_group') or '').upper()
                                                 # Ensure proper format (U13 not u13)
@@ -1879,9 +1887,12 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
                                                     elif ' AD' in selected_name or selected_name.endswith(' AD'):
                                                         division = 'AD'
 
+                                                # DEBUG: Show what we're building
+                                                st.info(f"DEBUG: base_id={base_id}, age_norm={age_norm}, division={division}")
+
                                                 # Build alias ID with new format - REQUIRE at least age
                                                 if not age_norm:
-                                                    st.error("Cannot create alias: missing age group")
+                                                    st.error(f"Cannot create alias: missing age group. Details: {current_details}")
                                                     st.stop()
 
                                                 if age_norm and division:
