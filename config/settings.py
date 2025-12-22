@@ -9,7 +9,7 @@ load_dotenv()
 
 # Project Info
 PROJECT_NAME = "PitchRank"
-VERSION = "2.0.1-alias-fix"
+VERSION = "2.0.2-queue-fix"
 
 # Build identification
 BUILD_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
