@@ -1350,6 +1350,7 @@ elif section == "🔎 Unknown Teams Mapper":
 # ============================================================================
 elif section == "📋 Modular11 Team Review":
     st.header("📋 Modular11 Team Review Queue")
+    st.caption("🔧 Code Version: 2024-12-22-v3 (with alias format fix)")
     st.markdown("**Review and map unmatched Modular11 teams to your database**")
     
     db = get_database()
