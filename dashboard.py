@@ -1350,7 +1350,7 @@ elif section == "🔎 Unknown Teams Mapper":
 # ============================================================================
 elif section == "📋 Modular11 Team Review":
     st.header("📋 Modular11 Team Review Queue")
-    st.caption("🔧 Code Version: 2024-12-22-v3 (with alias format fix)")
+    st.caption("🔧 Code Version: 2024-12-22-v4 (alias format + queue fix)")
     st.markdown("**Review and map unmatched Modular11 teams to your database**")
     
     db = get_database()
@@ -1414,9 +1414,9 @@ elif section == "📋 Modular11 Team Review":
                 """)
 
                 try:
-                    # Find unlinked games with full raw_data to get age/division
+                    # Find unlinked games - derive age/division from provider IDs and competition
                     unlinked_games = db.table('games').select(
-                        'home_provider_id, away_provider_id, raw_data, competition'
+                        'home_provider_id, away_provider_id, competition'
                     ).eq('provider_id', provider_id).or_(
                         'home_team_master_id.is.null,away_team_master_id.is.null'
                     ).limit(500).execute()
@@ -1431,62 +1431,71 @@ elif section == "📋 Modular11 Team Review":
                     # Key: (club_id, age, division) -> info
                     missing_teams = {}
 
+                    def parse_provider_id(pid):
+                        """Parse provider_id to extract club_id, age, division"""
+                        if not pid:
+                            return None, None, None
+                        parts = pid.split('_')
+                        if len(parts) >= 3:
+                            return parts[0], parts[1].upper(), parts[2].upper()
+                        elif len(parts) == 2:
+                            return parts[0], parts[1].upper(), None
+                        return pid, None, None
+
                     for g in (unlinked_games.data or []):
-                        raw = g.get('raw_data') or {}
-                        age_group = raw.get('age_group', '').upper()
-                        mls_division = raw.get('mls_division', '').upper()
                         comp = g.get('competition', '') or ''
 
-                        # Derive division from competition if not in raw_data
-                        if not mls_division:
-                            if 'HD' in comp.upper():
-                                mls_division = 'HD'
-                            elif 'AD' in comp.upper():
-                                mls_division = 'AD'
-
-                        if not age_group or not mls_division:
-                            continue
+                        # Derive division from competition name
+                        comp_division = None
+                        if 'HD' in comp.upper():
+                            comp_division = 'HD'
+                        elif 'AD' in comp.upper():
+                            comp_division = 'AD'
 
                         # Check home team
                         home_id = g.get('home_provider_id')
                         if home_id:
-                            # Extract base club_id (remove any existing suffix)
-                            base_id = home_id.split('_')[0] if '_' in home_id else home_id
-                            alias_key = f"{base_id}_{age_group}_{mls_division}"
+                            base_id, age_group, mls_division = parse_provider_id(home_id)
+                            # Use competition division if not in provider_id
+                            if not mls_division:
+                                mls_division = comp_division
 
-                            if alias_key not in aliased_ids:
-                                key = (base_id, age_group, mls_division)
-                                if key not in missing_teams:
-                                    home_name = raw.get('home_team_name', '') or raw.get('team_name', '')
-                                    missing_teams[key] = {
-                                        'club_id': base_id,
-                                        'age': age_group,
-                                        'division': mls_division,
-                                        'alias': alias_key,
-                                        'team_name': home_name,
-                                        'count': 0,
-                                        'competitions': set()
-                                    }
-                                missing_teams[key]['count'] += 1
-                                missing_teams[key]['competitions'].add(comp)
+                            if base_id and age_group and mls_division:
+                                alias_key = f"{base_id}_{age_group}_{mls_division}"
+                                if alias_key not in aliased_ids:
+                                    key = (base_id, age_group, mls_division)
+                                    if key not in missing_teams:
+                                        missing_teams[key] = {
+                                            'club_id': base_id,
+                                            'age': age_group,
+                                            'division': mls_division,
+                                            'alias': alias_key,
+                                            'team_name': f"Club {base_id} {age_group} {mls_division}",
+                                            'count': 0,
+                                            'competitions': set()
+                                        }
+                                    missing_teams[key]['count'] += 1
+                                    missing_teams[key]['competitions'].add(comp)
 
                         # Check away team
                         away_id = g.get('away_provider_id')
                         if away_id:
-                            base_id = away_id.split('_')[0] if '_' in away_id else away_id
-                            alias_key = f"{base_id}_{age_group}_{mls_division}"
+                            base_id, age_group, mls_division = parse_provider_id(away_id)
+                            if not mls_division:
+                                mls_division = comp_division
 
-                            if alias_key not in aliased_ids:
-                                key = (base_id, age_group, mls_division)
-                                if key not in missing_teams:
-                                    away_name = raw.get('away_team_name', '') or raw.get('opponent_name', '')
-                                    missing_teams[key] = {
-                                        'club_id': base_id,
-                                        'age': age_group,
-                                        'division': mls_division,
-                                        'alias': alias_key,
-                                        'team_name': away_name,
-                                        'count': 0,
+                            if base_id and age_group and mls_division:
+                                alias_key = f"{base_id}_{age_group}_{mls_division}"
+                                if alias_key not in aliased_ids:
+                                    key = (base_id, age_group, mls_division)
+                                    if key not in missing_teams:
+                                        missing_teams[key] = {
+                                            'club_id': base_id,
+                                            'age': age_group,
+                                            'division': mls_division,
+                                            'alias': alias_key,
+                                            'team_name': f"Club {base_id} {age_group} {mls_division}",
+                                            'count': 0,
                                         'competitions': set()
                                     }
                                 missing_teams[key]['count'] += 1
