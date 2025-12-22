@@ -1,5 +1,5 @@
 /**
- * Match Prediction Engine v2.4
+ * Match Prediction Engine v2.5
  *
  * Enhanced prediction model using multiple features with adaptive weighting:
  * - Power Score Differential (50-85% adaptive based on skill gap)
@@ -31,6 +31,13 @@
  * - Head-to-head history factor: incorporates past matchup results (highly predictive)
  * - Improved underdog score calculation: reduces inflated scores in blowouts
  * - Better score predictions: 5-1, 6-0 now possible instead of always 4-2, 3-2
+ *
+ * v2.5 Improvements (Blowout margin fix):
+ * - Fixed blowout under-prediction (blowout MAE was 2x overall MAE)
+ * - Dampening now uses mismatchScore, not just powerDiff - captures offense/defense gaps
+ * - Removed 50% cap on dampening reduction - mismatches now get full margin
+ * - Lowered mismatch thresholds: amplification at 0.4 (was 0.5), underdog score at 0.5 (was 0.6)
+ * - Increased margin boost factor: 4.0 (was 3.0) for stronger blowout predictions
  *
  * Validated at 74.7% direction accuracy (target: 77-79% with calibration)
  */
@@ -531,10 +538,16 @@ function getLeagueAverageGoals(age: number | null): number {
  * Get age-specific margin multiplier
  * Uses calibrated parameters from margin_parameters_v2.json and age_group_parameters.json if available,
  * otherwise uses compositeDiff-based calculation
+ *
+ * v2.5: Fixed blowout under-prediction by:
+ * - Using mismatchScore (not just powerDiff) for dampening reduction
+ * - Allowing full dampening removal for clear mismatches (was capped at 50%)
+ * - Blowout MAE was 2x overall MAE; this fix addresses that gap
  */
 function getAgeSpecificMarginMultiplier(
   age: number | null,
-  absPowerDiff: number
+  absPowerDiff: number,
+  mismatchScore: number = 0
 ): number {
   // Try to use margin calibration v2 parameters first
   const ageKey = age ? `u${age}` : null;
@@ -565,11 +578,19 @@ function getAgeSpecificMarginMultiplier(
   }
 
   // Apply global margin_scale from v2 calibration
-  // But reduce dampening effect for larger power gaps (mismatch games)
+  // But reduce dampening effect for mismatches (blowout games need larger margins)
   const baseMarginScale = marginParamsV2?.margin_scale ?? 1.0;
-  // For large gaps, blend toward 1.0 (less dampening)
-  const gapDampeningReduction = Math.min(absPowerDiff / 0.15, 1.0);
-  const marginScale = baseMarginScale + (1.0 - baseMarginScale) * gapDampeningReduction * 0.5;
+
+  // FIX: Use both powerDiff AND mismatchScore for dampening reduction
+  // mismatchScore captures offense/defense gaps that powerDiff alone misses
+  const powerBasedReduction = Math.min(absPowerDiff / 0.12, 1.0);  // Lowered from 0.15 to 0.12
+  const mismatchBasedReduction = Math.min(mismatchScore / 0.7, 1.0);  // New: use mismatchScore
+  const gapDampeningReduction = Math.max(powerBasedReduction, mismatchBasedReduction);
+
+  // FIX: Allow FULL dampening removal for clear mismatches (was capped at 50%)
+  // For mismatchScore > 0.7: marginScale approaches 1.0 (no dampening)
+  // For close games (low mismatchScore): keep the dampening to avoid over-predicting
+  const marginScale = baseMarginScale + (1.0 - baseMarginScale) * gapDampeningReduction;
 
   return baseMultiplier * powerGapScaling * marginScale;
 }
@@ -664,9 +685,10 @@ export function predictMatch(
 
   // 8. Mismatch amplification: boost composite diff for clear mismatches
   // This ensures large offense/defense gaps translate to higher probabilities
-  if (mismatchScore > 0.5) {
-    // Amplify by up to 1.5x for extreme mismatches
-    const amplification = 1.0 + (mismatchScore - 0.5) * 1.0;
+  // v2.5: Lowered threshold from 0.5 to 0.4 to catch more moderate mismatches
+  if (mismatchScore > 0.4) {
+    // Amplify by up to 1.8x for extreme mismatches (was 1.5x)
+    const amplification = 1.0 + (mismatchScore - 0.4) * 1.33;
     compositeDiff *= amplification;
   }
 
@@ -684,10 +706,12 @@ export function predictMatch(
                        teamB.age;
   // Use raw powerDiff for margin scaling - ensures large skill gaps produce larger margins
   const absPowerDiff = Math.abs(powerDiff);
-  const marginMultiplier = getAgeSpecificMarginMultiplier(effectiveAge, absPowerDiff);
+  // v2.5: Pass mismatchScore to allow full dampening removal for blowouts
+  const marginMultiplier = getAgeSpecificMarginMultiplier(effectiveAge, absPowerDiff, mismatchScore);
   // For mismatches, increase the margin to better reflect blowout potential
-  // Stronger boost: 0.5 mismatch = 1x, 0.75 = 1.75x, 1.0 = 2.5x
-  const mismatchMarginBoost = mismatchScore > 0.5 ? 1.0 + (mismatchScore - 0.5) * 3.0 : 1.0;
+  // v2.5: Lowered threshold from 0.5 to 0.4, increased boost factor from 3.0 to 4.0
+  // At mismatch=0.4: 1.0x, at mismatch=0.7: 2.2x, at mismatch=1.0: 3.4x
+  const mismatchMarginBoost = mismatchScore > 0.4 ? 1.0 + (mismatchScore - 0.4) * 4.0 : 1.0;
   const expectedMargin = compositeDiff * MARGIN_COEFFICIENT * marginMultiplier * mismatchMarginBoost;
 
   // 11. Expected scores using age-adjusted league average
@@ -700,9 +724,11 @@ export function predictMatch(
   let rawScoreA: number;
   let rawScoreB: number;
 
-  if (mismatchScore > 0.6) {
+  if (mismatchScore > 0.5) {
     // Clear mismatch: underdog gets reduced score (0-1.5 range)
-    const underdogScore = Math.max(0, 1.5 - (mismatchScore - 0.6) * 2.5);
+    // v2.5: Lowered threshold from 0.6 to 0.5 for consistency
+    // At mismatch=0.5: underdog=1.5, at mismatch=0.8: underdog=0.75, at mismatch=1.0: underdog=0.25
+    const underdogScore = Math.max(0, 1.5 - (mismatchScore - 0.5) * 2.5);
     if (expectedMargin >= 0) {
       rawScoreB = underdogScore;
       rawScoreA = underdogScore + absExpectedMargin;
