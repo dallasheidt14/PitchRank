@@ -160,7 +160,8 @@ def create_team_and_alias(db, team_info: dict, dry_run: bool = True) -> dict:
     # Generate UUID for new team
     team_id_master = str(uuid.uuid4())
 
-    # Create team
+    # Create team - use alias_id as provider_team_id to avoid unique constraint violation
+    # (same club_id is used for multiple age groups / divisions)
     team_data = {
         'team_id_master': team_id_master,
         'team_name': team_name,
@@ -168,7 +169,7 @@ def create_team_and_alias(db, team_info: dict, dry_run: bool = True) -> dict:
         'age_group': age_db,
         'gender': 'Male',  # MLS NEXT is all boys
         'provider_id': MODULAR11_PROVIDER_ID,
-        'provider_team_id': club_id,
+        'provider_team_id': alias_id,  # Use full alias format to be unique
         'created_at': datetime.utcnow().isoformat() + 'Z'
     }
 
