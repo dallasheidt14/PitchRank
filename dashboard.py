@@ -1766,9 +1766,16 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
                                     # Build proper alias format: {club_id}_{age}_{division}
                                     raw_id = item['provider_team_id']
                                     base_id = raw_id.split('_')[0] if '_' in raw_id else raw_id
-                                    age_norm = (details.get('age_group') or '').upper()
 
-                                    # Extract division from team name
+                                    # Get age from details first, fallback to suggested team
+                                    age_norm = (details.get('age_group') or '').upper()
+                                    if not age_norm and suggested.data:
+                                        age_norm = (suggested.data[0].get('age_group') or '').upper()
+                                    # Ensure proper format (U13 not u13)
+                                    if age_norm and not age_norm.startswith('U'):
+                                        age_norm = f"U{age_norm}"
+
+                                    # Extract division from team name (provider_team_name first, then suggested team)
                                     team_name_upper = (item.get('provider_team_name') or '').upper()
                                     division = None
                                     if ' HD' in team_name_upper or team_name_upper.endswith(' HD'):
@@ -1776,15 +1783,25 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
                                     elif ' AD' in team_name_upper or team_name_upper.endswith(' AD'):
                                         division = 'AD'
 
-                                    # Build alias ID with new format
+                                    # Fallback: check suggested team name for division
+                                    if not division and suggested.data:
+                                        suggested_name = (suggested.data[0].get('team_name') or '').upper()
+                                        if ' HD' in suggested_name or suggested_name.endswith(' HD'):
+                                            division = 'HD'
+                                        elif ' AD' in suggested_name or suggested_name.endswith(' AD'):
+                                            division = 'AD'
+
+                                    # Build alias ID with new format - REQUIRE at least age
+                                    if not age_norm:
+                                        st.error("Cannot create alias: missing age group")
+                                        st.stop()
+
                                     if age_norm and division:
                                         alias_id = f"{base_id}_{age_norm}_{division}"
                                     elif age_norm:
                                         alias_id = f"{base_id}_{age_norm}"
-                                    elif division:
-                                        alias_id = f"{base_id}_{division}"
                                     else:
-                                        alias_id = base_id
+                                        alias_id = f"{base_id}_{age_norm}"  # At minimum include age
 
                                     db.table('team_alias_map').insert({
                                         'provider_id': provider_id,
@@ -1837,9 +1854,16 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
                                                 # Build proper alias format: {club_id}_{age}_{division}
                                                 raw_id = item['provider_team_id']
                                                 base_id = raw_id.split('_')[0] if '_' in raw_id else raw_id
-                                                age_norm = (details.get('age_group') or '').upper()
 
-                                                # Extract division from team name
+                                                # Get age from details first, fallback to selected team
+                                                age_norm = (details.get('age_group') or '').upper()
+                                                if not age_norm:
+                                                    age_norm = (team.get('age_group') or '').upper()
+                                                # Ensure proper format (U13 not u13)
+                                                if age_norm and not age_norm.startswith('U'):
+                                                    age_norm = f"U{age_norm}"
+
+                                                # Extract division from team name (provider_team_name first, then selected team)
                                                 team_name_upper = (item.get('provider_team_name') or '').upper()
                                                 division = None
                                                 if ' HD' in team_name_upper or team_name_upper.endswith(' HD'):
@@ -1847,15 +1871,23 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
                                                 elif ' AD' in team_name_upper or team_name_upper.endswith(' AD'):
                                                     division = 'AD'
 
-                                                # Build alias ID with new format
+                                                # Fallback: check selected team name for division
+                                                if not division:
+                                                    selected_name = (team.get('team_name') or '').upper()
+                                                    if ' HD' in selected_name or selected_name.endswith(' HD'):
+                                                        division = 'HD'
+                                                    elif ' AD' in selected_name or selected_name.endswith(' AD'):
+                                                        division = 'AD'
+
+                                                # Build alias ID with new format - REQUIRE at least age
+                                                if not age_norm:
+                                                    st.error("Cannot create alias: missing age group")
+                                                    st.stop()
+
                                                 if age_norm and division:
                                                     alias_id = f"{base_id}_{age_norm}_{division}"
-                                                elif age_norm:
-                                                    alias_id = f"{base_id}_{age_norm}"
-                                                elif division:
-                                                    alias_id = f"{base_id}_{division}"
                                                 else:
-                                                    alias_id = base_id
+                                                    alias_id = f"{base_id}_{age_norm}"  # At minimum include age
 
                                                 db.table('team_alias_map').insert({
                                                     'provider_id': provider_id,
@@ -2049,13 +2081,34 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
                         if high_conf:
                             progress = st.progress(0)
                             approved_count = 0
+                            skipped_count = 0
                             for i, item in enumerate(high_conf):
                                 try:
                                     # Build proper alias format: {club_id}_{age}_{division}
                                     raw_id = item['provider_team_id']
                                     base_id = raw_id.split('_')[0] if '_' in raw_id else raw_id
                                     item_details = item.get('match_details') or {}
+
+                                    # Get age from details first, fallback to suggested team
                                     age_norm = (item_details.get('age_group') or '').upper()
+                                    if not age_norm:
+                                        # Try to get from suggested team
+                                        suggested_team_id = item.get('suggested_master_team_id')
+                                        if suggested_team_id:
+                                            try:
+                                                team_data = db.table('teams').select('age_group, team_name').eq('team_id_master', suggested_team_id).single().execute()
+                                                if team_data.data:
+                                                    age_norm = (team_data.data.get('age_group') or '').upper()
+                                            except:
+                                                pass
+                                    # Ensure proper format (U13 not u13)
+                                    if age_norm and not age_norm.startswith('U'):
+                                        age_norm = f"U{age_norm}"
+
+                                    # Skip if no age - can't create proper alias
+                                    if not age_norm:
+                                        skipped_count += 1
+                                        continue
 
                                     # Extract division from team name
                                     team_name_upper = (item.get('provider_team_name') or '').upper()
@@ -2065,15 +2118,26 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
                                     elif ' AD' in team_name_upper or team_name_upper.endswith(' AD'):
                                         division = 'AD'
 
+                                    # Fallback: check suggested team name for division
+                                    if not division:
+                                        suggested_team_id = item.get('suggested_master_team_id')
+                                        if suggested_team_id:
+                                            try:
+                                                team_data = db.table('teams').select('team_name').eq('team_id_master', suggested_team_id).single().execute()
+                                                if team_data.data:
+                                                    suggested_name = (team_data.data.get('team_name') or '').upper()
+                                                    if ' HD' in suggested_name or suggested_name.endswith(' HD'):
+                                                        division = 'HD'
+                                                    elif ' AD' in suggested_name or suggested_name.endswith(' AD'):
+                                                        division = 'AD'
+                                            except:
+                                                pass
+
                                     # Build alias ID with new format
                                     if age_norm and division:
                                         alias_id = f"{base_id}_{age_norm}_{division}"
-                                    elif age_norm:
-                                        alias_id = f"{base_id}_{age_norm}"
-                                    elif division:
-                                        alias_id = f"{base_id}_{division}"
                                     else:
-                                        alias_id = base_id
+                                        alias_id = f"{base_id}_{age_norm}"  # At minimum include age
 
                                     db.table('team_alias_map').insert({
                                         'provider_id': provider_id,
@@ -2089,6 +2153,8 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
                                 except:
                                     pass
                                 progress.progress((i + 1) / len(high_conf))
+                            if skipped_count > 0:
+                                st.warning(f"Skipped {skipped_count} items (missing age group)")
                             st.success(f"✅ Approved {approved_count} matches with proper alias format!")
                             st.rerun()
                         else:
