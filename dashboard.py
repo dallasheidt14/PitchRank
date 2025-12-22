@@ -1763,20 +1763,44 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
                         with col1:
                             if suggested_id and st.button(f"✅ Approve", key=f"approve_{item['id']}", type="primary"):
                                 try:
+                                    # Build proper alias format: {club_id}_{age}_{division}
+                                    raw_id = item['provider_team_id']
+                                    base_id = raw_id.split('_')[0] if '_' in raw_id else raw_id
+                                    age_norm = (details.get('age_group') or '').upper()
+
+                                    # Extract division from team name
+                                    team_name_upper = (item.get('provider_team_name') or '').upper()
+                                    division = None
+                                    if ' HD' in team_name_upper or team_name_upper.endswith(' HD'):
+                                        division = 'HD'
+                                    elif ' AD' in team_name_upper or team_name_upper.endswith(' AD'):
+                                        division = 'AD'
+
+                                    # Build alias ID with new format
+                                    if age_norm and division:
+                                        alias_id = f"{base_id}_{age_norm}_{division}"
+                                    elif age_norm:
+                                        alias_id = f"{base_id}_{age_norm}"
+                                    elif division:
+                                        alias_id = f"{base_id}_{division}"
+                                    else:
+                                        alias_id = base_id
+
                                     db.table('team_alias_map').insert({
                                         'provider_id': provider_id,
-                                        'provider_team_id': item['provider_team_id'],
+                                        'provider_team_id': alias_id,
                                         'team_id_master': suggested_id,
                                         'match_method': 'manual',
                                         'match_confidence': conf,
-                                        'review_status': 'approved'
+                                        'review_status': 'approved',
+                                        'division': division
                                     }).execute()
-                                    
+
                                     db.table('team_match_review_queue').update({
                                         'status': 'approved'
                                     }).eq('id', item['id']).execute()
-                                    
-                                    st.success("✅ Approved!")
+
+                                    st.success(f"✅ Approved! Alias: {alias_id}")
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Error: {e}")
@@ -1810,20 +1834,44 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
                                         btn_label = f"{team['team_name']} ({team['age_group']})"
                                         if st.button(f"→ {btn_label[:50]}", key=f"sel_{item['id']}_{team['team_id_master'][:8]}"):
                                             try:
+                                                # Build proper alias format: {club_id}_{age}_{division}
+                                                raw_id = item['provider_team_id']
+                                                base_id = raw_id.split('_')[0] if '_' in raw_id else raw_id
+                                                age_norm = (details.get('age_group') or '').upper()
+
+                                                # Extract division from team name
+                                                team_name_upper = (item.get('provider_team_name') or '').upper()
+                                                division = None
+                                                if ' HD' in team_name_upper or team_name_upper.endswith(' HD'):
+                                                    division = 'HD'
+                                                elif ' AD' in team_name_upper or team_name_upper.endswith(' AD'):
+                                                    division = 'AD'
+
+                                                # Build alias ID with new format
+                                                if age_norm and division:
+                                                    alias_id = f"{base_id}_{age_norm}_{division}"
+                                                elif age_norm:
+                                                    alias_id = f"{base_id}_{age_norm}"
+                                                elif division:
+                                                    alias_id = f"{base_id}_{division}"
+                                                else:
+                                                    alias_id = base_id
+
                                                 db.table('team_alias_map').insert({
                                                     'provider_id': provider_id,
-                                                    'provider_team_id': item['provider_team_id'],
+                                                    'provider_team_id': alias_id,
                                                     'team_id_master': team['team_id_master'],
                                                     'match_method': 'manual',
                                                     'match_confidence': 1.0,
-                                                    'review_status': 'approved'
+                                                    'review_status': 'approved',
+                                                    'division': division
                                                 }).execute()
-                                                
+
                                                 db.table('team_match_review_queue').update({
                                                     'status': 'approved'
                                                 }).eq('id', item['id']).execute()
-                                                
-                                                st.success(f"✅ Mapped!")
+
+                                                st.success(f"✅ Mapped! Alias: {alias_id}")
                                                 st.rerun()
                                             except Exception as e:
                                                 st.error(f"Error: {e}")
@@ -2000,21 +2048,48 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
                     if st.button(f"✅ Approve All 75%+ ({len(high_conf)})", type="secondary"):
                         if high_conf:
                             progress = st.progress(0)
+                            approved_count = 0
                             for i, item in enumerate(high_conf):
                                 try:
+                                    # Build proper alias format: {club_id}_{age}_{division}
+                                    raw_id = item['provider_team_id']
+                                    base_id = raw_id.split('_')[0] if '_' in raw_id else raw_id
+                                    item_details = item.get('match_details') or {}
+                                    age_norm = (item_details.get('age_group') or '').upper()
+
+                                    # Extract division from team name
+                                    team_name_upper = (item.get('provider_team_name') or '').upper()
+                                    division = None
+                                    if ' HD' in team_name_upper or team_name_upper.endswith(' HD'):
+                                        division = 'HD'
+                                    elif ' AD' in team_name_upper or team_name_upper.endswith(' AD'):
+                                        division = 'AD'
+
+                                    # Build alias ID with new format
+                                    if age_norm and division:
+                                        alias_id = f"{base_id}_{age_norm}_{division}"
+                                    elif age_norm:
+                                        alias_id = f"{base_id}_{age_norm}"
+                                    elif division:
+                                        alias_id = f"{base_id}_{division}"
+                                    else:
+                                        alias_id = base_id
+
                                     db.table('team_alias_map').insert({
                                         'provider_id': provider_id,
-                                        'provider_team_id': item['provider_team_id'],
+                                        'provider_team_id': alias_id,
                                         'team_id_master': item['suggested_master_team_id'],
                                         'match_method': 'manual_bulk',
                                         'match_confidence': item.get('confidence_score', 0),
-                                        'review_status': 'approved'
+                                        'review_status': 'approved',
+                                        'division': division
                                     }).execute()
                                     db.table('team_match_review_queue').update({'status': 'approved'}).eq('id', item['id']).execute()
+                                    approved_count += 1
                                 except:
                                     pass
                                 progress.progress((i + 1) / len(high_conf))
-                            st.success(f"✅ Approved {len(high_conf)} matches!")
+                            st.success(f"✅ Approved {approved_count} matches with proper alias format!")
                             st.rerun()
                         else:
                             st.info("No matches with 75%+ confidence")
