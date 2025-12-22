@@ -1714,6 +1714,138 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
                 except Exception as e:
                     st.error(f"Error: {e}")
 
+                # ============================================================================
+                # SECTION 3: FIX TEAMS MISSING HD/AD DESIGNATION
+                # ============================================================================
+                st.divider()
+                st.subheader("🏷️ Fix Teams Missing HD/AD")
+                st.markdown("Modular11 teams that were created without HD/AD designation. Add the correct division.")
+
+                try:
+                    # Find Modular11 teams without HD/AD in name
+                    teams_missing_div = db.table('teams').select(
+                        'team_id_master, team_name, age_group, provider_team_id'
+                    ).eq('provider_id', provider_id).execute()
+
+                    # Filter to those without HD/AD
+                    missing_div = []
+                    for t in (teams_missing_div.data or []):
+                        name = t.get('team_name', '').upper()
+                        if ' HD' not in name and ' AD' not in name:
+                            # Get game count and try to detect division from games
+                            games = db.table('games').select('competition').eq(
+                                'provider_id', provider_id
+                            ).or_(
+                                f"home_team_master_id.eq.{t['team_id_master']},away_team_master_id.eq.{t['team_id_master']}"
+                            ).limit(20).execute()
+
+                            hd_games = sum(1 for g in (games.data or []) if 'HD' in (g.get('competition') or '').upper())
+                            ad_games = sum(1 for g in (games.data or []) if 'AD' in (g.get('competition') or '').upper())
+
+                            suggested_div = None
+                            if hd_games > ad_games:
+                                suggested_div = 'HD'
+                            elif ad_games > hd_games:
+                                suggested_div = 'AD'
+
+                            missing_div.append({
+                                'team_id': t['team_id_master'],
+                                'team_name': t['team_name'],
+                                'age': t.get('age_group', ''),
+                                'provider_team_id': t.get('provider_team_id', ''),
+                                'game_count': len(games.data or []),
+                                'hd_games': hd_games,
+                                'ad_games': ad_games,
+                                'suggested_div': suggested_div
+                            })
+
+                    if not missing_div:
+                        st.success("✅ All Modular11 teams have HD/AD designation!")
+                    else:
+                        st.warning(f"**{len(missing_div)}** teams missing HD/AD designation")
+
+                        # Filter by suggested division
+                        col_f1, col_f2 = st.columns(2)
+                        with col_f1:
+                            show_filter = st.radio(
+                                "Show:", ['All', 'Suggested HD', 'Suggested AD', 'Unknown'],
+                                horizontal=True, key="missing_hd_ad_filter"
+                            )
+
+                        for team in missing_div[:30]:
+                            # Apply filter
+                            if show_filter == 'Suggested HD' and team['suggested_div'] != 'HD':
+                                continue
+                            if show_filter == 'Suggested AD' and team['suggested_div'] != 'AD':
+                                continue
+                            if show_filter == 'Unknown' and team['suggested_div'] is not None:
+                                continue
+
+                            suggested_badge = f"🟢 Likely HD" if team['suggested_div'] == 'HD' else (
+                                f"🟡 Likely AD" if team['suggested_div'] == 'AD' else "❓ Unknown"
+                            )
+
+                            with st.expander(f"{suggested_badge} {team['team_name']} ({team['age']})"):
+                                st.write(f"**Games:** {team['game_count']} (HD: {team['hd_games']}, AD: {team['ad_games']})")
+                                st.caption(f"Provider ID: `{team['provider_team_id']}`")
+
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    if st.button(f"🟢 Add HD", key=f"add_hd_{team['team_id'][:8]}"):
+                                        try:
+                                            new_name = f"{team['team_name']} HD"
+                                            db.table('teams').update({
+                                                'team_name': new_name
+                                            }).eq('team_id_master', team['team_id']).execute()
+
+                                            # Update alias if exists
+                                            if team['provider_team_id']:
+                                                # Create proper alias format
+                                                base_id = team['provider_team_id'].split('_')[0]
+                                                age_norm = team['age'].upper() if team['age'] else ''
+                                                new_alias = f"{base_id}_{age_norm}_HD" if age_norm else f"{base_id}_HD"
+
+                                                db.table('team_alias_map').update({
+                                                    'provider_team_id': new_alias,
+                                                    'division': 'HD'
+                                                }).eq('team_id_master', team['team_id']).eq(
+                                                    'provider_id', provider_id
+                                                ).execute()
+
+                                            st.success(f"✅ Updated to: {new_name}")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(str(e)[:100])
+
+                                with col2:
+                                    if st.button(f"🟡 Add AD", key=f"add_ad_{team['team_id'][:8]}"):
+                                        try:
+                                            new_name = f"{team['team_name']} AD"
+                                            db.table('teams').update({
+                                                'team_name': new_name
+                                            }).eq('team_id_master', team['team_id']).execute()
+
+                                            # Update alias if exists
+                                            if team['provider_team_id']:
+                                                base_id = team['provider_team_id'].split('_')[0]
+                                                age_norm = team['age'].upper() if team['age'] else ''
+                                                new_alias = f"{base_id}_{age_norm}_AD" if age_norm else f"{base_id}_AD"
+
+                                                db.table('team_alias_map').update({
+                                                    'provider_team_id': new_alias,
+                                                    'division': 'AD'
+                                                }).eq('team_id_master', team['team_id']).eq(
+                                                    'provider_id', provider_id
+                                                ).execute()
+
+                                            st.success(f"✅ Updated to: {new_name}")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(str(e)[:100])
+
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
             else:
                 st.info(f"**{len(queue.data)}** teams need review")
                 
