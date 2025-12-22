@@ -570,31 +570,8 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 age_group=age_group
             )
 
-            # Optionally enqueue for review with fuzzy suggestions (informational only)
-            # This should NEVER block or cause failures
-            try:
-                suggestions = self._get_fuzzy_suggestions(
-                    incoming_name=team_name,
-                    age_group=age_group,
-                    gender=gender,
-                    division=division,
-                    club_name=club_name,
-                    limit=5
-                )
-                self._enqueue_modular11_review_with_suggestions(
-                    provider_id=provider_id,
-                    provider_team_id=provider_team_id,
-                    provider_team_name=team_name,
-                    age_group=age_group,
-                    gender=gender,
-                    division=division,
-                    suggested_master_team_id=None,  # New team, no suggestion
-                    candidates=suggestions
-                )
-            except Exception as e:
-                # Review queue is optional - log but don't fail
-                logger.debug(f"[Modular11] Could not create review queue entry (non-blocking): {e}")
-            
+            # NOTE: Do NOT add to review queue - team was successfully created with alias
+
             clean_name = team_name or 'Unknown'
             self._dlog(f"FINAL DECISION: new team created -> {clean_name} ({new_team_id})")
             return {
@@ -657,30 +634,8 @@ class Modular11GameMatcher(GameHistoryMatcher):
                     self._init_age_tracking(age_group)
                     self.summary["by_age"][age_key]["new"] += 1
             
-            # Optionally enqueue for review (informational only, non-blocking)
-            try:
-                suggestions = self._get_fuzzy_suggestions(
-                    incoming_name=team_name,
-                    age_group=age_group,
-                    gender=gender,
-                    division=division,
-                    club_name=club_name,
-                    limit=5
-                )
-                self._enqueue_modular11_review_with_suggestions(
-                    provider_id=provider_id,
-                    provider_team_id=provider_team_id,
-                    provider_team_name=team_name,
-                    age_group=age_group,
-                    gender=gender,
-                    division=division,
-                    suggested_master_team_id=None,
-                    candidates=suggestions
-                )
-            except Exception as e:
-                # Review queue is optional - log but don't fail
-                logger.debug(f"[Modular11] Could not create review queue entry (non-blocking): {e}")
-            
+            # NOTE: Do NOT add to review queue - team was successfully created with alias
+
             clean_name = team_name or 'Unknown'
             self._dlog(f"FINAL DECISION: new team created (fallback) -> {clean_name} ({new_team_id})")
             return {
