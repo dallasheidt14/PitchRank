@@ -1350,7 +1350,7 @@ elif section == "🔎 Unknown Teams Mapper":
 # ============================================================================
 elif section == "📋 Modular11 Team Review":
     st.header("📋 Modular11 Team Review Queue")
-    st.caption("🔧 Code Version: 2024-12-22-v4 (alias format + queue fix)")
+    st.caption("🔧 Code Version: 2024-12-22-v5 (aliased provider_team_id consistency fix)")
     st.markdown("**Review and map unmatched Modular11 teams to your database**")
     
     db = get_database()
@@ -1687,9 +1687,19 @@ elif section == "📋 Modular11 Team Review":
                                     st.success(f"Selected: {sel['team_name']}")
                                     if st.button(f"🔗 Create Alias & Move Games", key=f"move_{hd['team_id'][:6]}", type="primary"):
                                         try:
+                                            # Extract base club_id from provider_team_id (may already be aliased)
+                                            raw_id = hd['provider_team_id']
+                                            base_id = raw_id.split('_')[0] if '_' in raw_id else raw_id
+                                            
                                             # New format: {club_id}_{age}_{division} e.g., 391_U16_AD
                                             age_norm = hd['age'].upper() if hd.get('age') else ''
-                                            alias_id = f"{hd['provider_team_id']}_{age_norm}_AD" if age_norm else f"{hd['provider_team_id']}_AD"
+                                            if not age_norm.startswith('U'):
+                                                age_norm = f"U{age_norm}" if age_norm else ''
+                                            
+                                            if age_norm:
+                                                alias_id = f"{base_id}_{age_norm}_AD"
+                                            else:
+                                                alias_id = f"{base_id}_AD"
                                             # Create alias if not exists
                                             existing = db.table('team_alias_map').select('id').eq(
                                                 'provider_id', provider_id
@@ -1781,12 +1791,14 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
                                     base_id = raw_id.split('_')[0] if '_' in raw_id else raw_id
 
                                     # Get age from details first, fallback to suggested team
-                                    age_norm = (current_details.get('age_group') or '').upper()
+                                    age_norm = (current_details.get('age_group') or '').upper().strip()
                                     if not age_norm and suggested.data:
-                                        age_norm = (suggested.data[0].get('age_group') or '').upper()
+                                        age_norm = (suggested.data[0].get('age_group') or '').upper().strip()
                                     # Ensure proper format (U13 not u13)
                                     if age_norm and not age_norm.startswith('U'):
                                         age_norm = f"U{age_norm}"
+                                    elif age_norm:
+                                        age_norm = age_norm.upper()  # Normalize case
 
                                     # Extract division from team name (provider_team_name first, then suggested team)
                                     team_name_upper = (item.get('provider_team_name') or '').upper()
@@ -1874,12 +1886,14 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
                                                 base_id = raw_id.split('_')[0] if '_' in raw_id else raw_id
 
                                                 # Get age from details first, fallback to selected team
-                                                age_norm = (current_details.get('age_group') or '').upper()
+                                                age_norm = (current_details.get('age_group') or '').upper().strip()
                                                 if not age_norm:
-                                                    age_norm = (team.get('age_group') or '').upper()
+                                                    age_norm = (team.get('age_group') or '').upper().strip()
                                                 # Ensure proper format (U13 not u13)
                                                 if age_norm and not age_norm.startswith('U'):
                                                     age_norm = f"U{age_norm}"
+                                                elif age_norm:
+                                                    age_norm = age_norm.upper()  # Normalize case
 
                                                 # Extract division from team name (provider_team_name first, then selected team)
                                                 team_name_upper = (item.get('provider_team_name') or '').upper()
@@ -2010,18 +2024,28 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
                                         # Determine division value (None if 'None' selected)
                                         division_value = new_division if new_division != 'None' else None
 
-                                        # Generate unique provider_team_id to avoid HD/AD collisions
-                                        # When division is present, hash the team info to create unique ID
-                                        # This matches how modular11_matcher.py handles division variants
+                                        # Extract base club_id from provider_team_id (may already be aliased)
                                         raw_provider_team_id = item['provider_team_id']
-                                        if division_value:
-                                            # Create unique ID: hash of original_id + division
-                                            unique_key = f"{raw_provider_team_id}_{new_team_name}_{new_age}_{new_gender}_{division_value}"
-                                            unique_provider_team_id = hashlib.md5(unique_key.encode()).hexdigest()[:16]
-                                        else:
-                                            unique_provider_team_id = raw_provider_team_id
+                                        base_provider_team_id = raw_provider_team_id.split('_')[0] if '_' in raw_provider_team_id else raw_provider_team_id
 
-                                        # Create the new team with unique provider_team_id
+                                        # Build aliased provider_team_id format: {club_id}_{age}_{division}
+                                        # This matches modular11_matcher.py _build_aliased_provider_team_id() logic
+                                        age_norm = new_age.upper() if new_age else ''
+                                        if age_norm and not age_norm.startswith('U'):
+                                            age_norm = f"U{age_norm}"
+                                        
+                                        suffix_parts = []
+                                        if age_norm:
+                                            suffix_parts.append(age_norm)
+                                        if division_value:
+                                            suffix_parts.append(division_value.upper())
+                                        
+                                        if suffix_parts:
+                                            aliased_provider_team_id = f"{base_provider_team_id}_{'_'.join(suffix_parts)}"
+                                        else:
+                                            aliased_provider_team_id = base_provider_team_id
+
+                                        # Create the new team with ALIASED provider_team_id (matches teams.provider_team_id format)
                                         new_team_data = {
                                             'team_id_master': new_team_id,
                                             'team_name': new_team_name,
@@ -2029,7 +2053,7 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
                                             'age_group': new_age,
                                             'gender': new_gender,
                                             'provider_id': provider_id,
-                                            'provider_team_id': unique_provider_team_id
+                                            'provider_team_id': aliased_provider_team_id  # Use aliased format: {club_id}_{age}_{division}
                                         }
                                         if new_state:
                                             new_team_data['state'] = new_state
@@ -2038,28 +2062,10 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
 
                                         db.table('teams').insert(new_team_data).execute()
 
-                                        # Create the alias mapping with new format: {club_id}_{age}_{division}
-                                        # This ensures each club+age+division combination gets a unique alias
-                                        age_norm = new_age.upper() if new_age else ''
-
-                                        # Build the aliased provider_team_id
-                                        alias_warning = None
-                                        if age_norm and division_value:
-                                            # Full format: 391_U16_AD
-                                            aliased_provider_team_id = f"{raw_provider_team_id}_{age_norm}_{division_value}"
-                                        elif age_norm:
-                                            # Age only: 391_U16
-                                            aliased_provider_team_id = f"{raw_provider_team_id}_{age_norm}"
-                                        elif division_value:
-                                            # Division only (backwards compatible): 391_AD
-                                            aliased_provider_team_id = f"{raw_provider_team_id}_{division_value}"
-                                        else:
-                                            # Original format: 391
-                                            aliased_provider_team_id = raw_provider_team_id
-
+                                        # Create alias with same aliased_provider_team_id (ensures consistency)
                                         alias_data = {
                                             'provider_id': provider_id,
-                                            'provider_team_id': aliased_provider_team_id,
+                                            'provider_team_id': aliased_provider_team_id,  # Same format as teams.provider_team_id
                                             'team_id_master': new_team_id,
                                             'match_method': 'manual',
                                             'match_confidence': 1.0,
@@ -2111,7 +2117,7 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
                                     item_details = item.get('match_details') or {}
 
                                     # Get age from details first, fallback to suggested team
-                                    age_norm = (item_details.get('age_group') or '').upper()
+                                    age_norm = (item_details.get('age_group') or '').upper().strip()
                                     if not age_norm:
                                         # Try to get from suggested team
                                         suggested_team_id = item.get('suggested_master_team_id')
@@ -2119,12 +2125,14 @@ ALTER TABLE games ENABLE TRIGGER enforce_game_immutability;""")
                                             try:
                                                 team_data = db.table('teams').select('age_group, team_name').eq('team_id_master', suggested_team_id).single().execute()
                                                 if team_data.data:
-                                                    age_norm = (team_data.data.get('age_group') or '').upper()
+                                                    age_norm = (team_data.data.get('age_group') or '').upper().strip()
                                             except:
                                                 pass
                                     # Ensure proper format (U13 not u13)
                                     if age_norm and not age_norm.startswith('U'):
                                         age_norm = f"U{age_norm}"
+                                    elif age_norm:
+                                        age_norm = age_norm.upper()  # Normalize case
 
                                     # Skip if no age - can't create proper alias
                                     if not age_norm:

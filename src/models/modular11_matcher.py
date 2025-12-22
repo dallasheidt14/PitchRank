@@ -560,9 +560,10 @@ class Modular11GameMatcher(GameHistoryMatcher):
                     self.summary["by_age"][age_key]["new"] += 1
             
             # Create alias for new team
+            # NOTE: Pass base provider_team_id (raw club_id) - alias creation will build aliased format
             self._create_modular11_alias(
                 provider_id=provider_id,
-                provider_team_id=provider_team_id,
+                provider_team_id=provider_team_id,  # Base club_id - alias will build {club_id}_{age}_{division}
                 team_id_master=new_team_id,
                 match_method='import',  # System-created during import, not human-reviewed
                 confidence=1.0,  # New team = 100% confidence
@@ -570,8 +571,9 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 age_group=age_group
             )
 
-            # NOTE: Do NOT add to review queue - team was successfully created with alias
-
+            # NOTE: Successfully created teams should NOT be added to review queue
+            # Review queue is only for teams that couldn't be matched/created automatically
+            
             clean_name = team_name or 'Unknown'
             self._dlog(f"FINAL DECISION: new team created -> {clean_name} ({new_team_id})")
             return {
@@ -602,9 +604,10 @@ class Modular11GameMatcher(GameHistoryMatcher):
             )
             
             # Create alias with age_group for unique identification
+            # NOTE: Pass base provider_team_id (raw club_id) - alias creation will build aliased format
             self._create_modular11_alias(
                 provider_id=provider_id,
-                provider_team_id=provider_team_id,
+                provider_team_id=provider_team_id,  # Base club_id - alias will build {club_id}_{age}_{division}
                 team_id_master=new_team_id,
                 match_method='import',
                 confidence=1.0,
@@ -634,8 +637,9 @@ class Modular11GameMatcher(GameHistoryMatcher):
                     self._init_age_tracking(age_group)
                     self.summary["by_age"][age_key]["new"] += 1
             
-            # NOTE: Do NOT add to review queue - team was successfully created with alias
-
+            # NOTE: Successfully created teams should NOT be added to review queue
+            # Review queue is only for teams that couldn't be matched/created automatically
+            
             clean_name = team_name or 'Unknown'
             self._dlog(f"FINAL DECISION: new team created (fallback) -> {clean_name} ({new_team_id})")
             return {
@@ -1022,6 +1026,81 @@ class Modular11GameMatcher(GameHistoryMatcher):
         
         return None
     
+    def _build_aliased_provider_team_id(
+        self,
+        base_provider_team_id: str,
+        age_group: Optional[str] = None,
+        division: Optional[str] = None
+    ) -> str:
+        """
+        Build aliased provider_team_id format: {club_id}_{age}_{division}
+        
+        For Modular11, the same club_id is used for all age groups/divisions,
+        so we need to create unique identifiers by appending age and division.
+        
+        Examples:
+        - base="564", age="U13", division="HD" -> "564_U13_HD"
+        - base="564", age="U13", division=None -> "564_U13"
+        - base="564", age=None, division=None -> "564"
+        - base="564", age="u13", division="hd" -> "564_U13_HD" (normalized)
+        - base="564", age="13", division=None -> "564_U13" (adds U prefix)
+        
+        Edge cases handled:
+        - Empty/None base_provider_team_id: Returns empty string
+        - Empty/None age_group: Skips age suffix
+        - Empty/None/invalid division: Skips division suffix
+        - Whitespace in age_group: Stripped before processing
+        - Case variations: Normalized to uppercase
+        
+        Args:
+            base_provider_team_id: Raw club_id from Modular11 (e.g., "564")
+            age_group: Age group (e.g., "U13", "u13", "13", " u13 ")
+            division: Division (e.g., "HD", "AD", "hd", "ad")
+            
+        Returns:
+            Aliased provider_team_id string
+        """
+        # Handle empty/None base_provider_team_id
+        if not base_provider_team_id:
+            return ''
+        
+        # Strip whitespace from base
+        base_provider_team_id = str(base_provider_team_id).strip()
+        if not base_provider_team_id:
+            return ''
+        
+        aliased_id = base_provider_team_id
+        suffix_parts = []
+        
+        # Add age group suffix (CRITICAL: same club ID used for all ages)
+        if age_group:
+            # Strip whitespace and normalize
+            age_group = str(age_group).strip()
+            if age_group:
+                # Normalize age format: handle "U13", "u13", "13", " u13 ", etc.
+                age_lower = age_group.lower()
+                if age_lower.startswith('u'):
+                    # Already has U prefix (e.g., "U13", "u13") - just uppercase
+                    age_normalized = age_group.upper()
+                else:
+                    # No U prefix (e.g., "13") - add it
+                    age_normalized = f"U{age_group.upper()}"
+                
+                suffix_parts.append(age_normalized)
+        
+        # Add division suffix (HD/AD)
+        if division:
+            # Strip whitespace and normalize
+            division = str(division).strip().upper()
+            if division in ('HD', 'AD'):
+                suffix_parts.append(division)
+        
+        # Build final aliased ID
+        if suffix_parts:
+            aliased_id = f"{base_provider_team_id}_{'_'.join(suffix_parts)}"
+        
+        return aliased_id
+    
     def _get_fuzzy_suggestions(
         self,
         incoming_name: str,
@@ -1085,6 +1164,10 @@ class Modular11GameMatcher(GameHistoryMatcher):
         """
         Create a new team in the teams table for Modular11.
         
+        CRITICAL: For Modular11, provider_team_id must use the aliased format
+        {club_id}_{age}_{division} (e.g., "564_U13_HD") to ensure uniqueness
+        since the same club_id is used for all age groups/divisions.
+        
         If a team with the same provider_id and provider_team_id already exists,
         return that team's ID instead of creating a duplicate.
         
@@ -1092,23 +1175,38 @@ class Modular11GameMatcher(GameHistoryMatcher):
         """
         try:
             # provider_team_id is REQUIRED (NOT NULL constraint)
-            # Use provided provider_team_id or generate one
-            # Include division in hash to prevent HD/AD collisions
+            # If not provided, generate a hash-based one
             if not provider_team_id:
                 import hashlib
                 division_str = division or ''
-                provider_team_id = hashlib.md5(f"{team_name}_{age_group}_{gender}_{division_str}".encode()).hexdigest()[:16]
+                base_provider_team_id = hashlib.md5(f"{team_name}_{age_group}_{gender}_{division_str}".encode()).hexdigest()[:16]
+            else:
+                # Use provided provider_team_id as base (raw club_id)
+                base_provider_team_id = provider_team_id
             
-            # Check if team with this provider_id + provider_team_id already exists
+            # CRITICAL: Build aliased provider_team_id format: {club_id}_{age}_{division}
+            # This ensures teams.provider_team_id matches team_alias_map.provider_team_id
+            aliased_provider_team_id = self._build_aliased_provider_team_id(
+                base_provider_team_id=base_provider_team_id,
+                age_group=age_group,
+                division=division
+            )
+            
+            self._dlog(
+                f"Team creation: base_provider_team_id={base_provider_team_id}, "
+                f"aliased_provider_team_id={aliased_provider_team_id}"
+            )
+            
+            # Check if team with this provider_id + aliased_provider_team_id already exists
             if provider_id:
                 try:
                     existing = self.db.table('teams').select('team_id_master').eq(
                         'provider_id', provider_id
-                    ).eq('provider_team_id', provider_team_id).single().execute()
+                    ).eq('provider_team_id', aliased_provider_team_id).single().execute()
                     
                     if existing.data:
                         logger.debug(
-                            f"[Modular11] Team with provider_team_id {provider_team_id} already exists, "
+                            f"[Modular11] Team with provider_team_id {aliased_provider_team_id} already exists, "
                             f"using existing team {existing.data['team_id_master']}"
                         )
                         return existing.data['team_id_master']
@@ -1130,7 +1228,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
             if team_name.upper().endswith(' HD') or team_name.upper().endswith(' AD'):
                 clean_team_name = team_name[:-3].strip()
             
-            # Insert new team
+            # Insert new team with ALIASED provider_team_id
             team_data = {
                 'team_id_master': team_id_master,
                 'team_name': clean_team_name,
@@ -1138,7 +1236,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 'age_group': age_group_normalized,
                 'gender': gender_normalized,
                 'provider_id': provider_id,  # Required for Modular11 teams
-                'provider_team_id': provider_team_id,  # REQUIRED (NOT NULL)
+                'provider_team_id': aliased_provider_team_id,  # Use aliased format: {club_id}_{age}_{division}
                 'created_at': datetime.utcnow().isoformat() + 'Z'
             }
             
@@ -1146,10 +1244,12 @@ class Modular11GameMatcher(GameHistoryMatcher):
             
             self._dlog(
                 f"Creating NEW Modular11 team: {clean_team_name} "
-                f"({age_group_normalized}, {gender_normalized}, division={division})"
+                f"({age_group_normalized}, {gender_normalized}, division={division}, "
+                f"provider_team_id={aliased_provider_team_id})"
             )
             logger.info(
-                f"[Modular11] Created new team: {clean_team_name} ({age_group_normalized}, {gender_normalized})"
+                f"[Modular11] Created new team: {clean_team_name} ({age_group_normalized}, {gender_normalized}) "
+                f"with provider_team_id={aliased_provider_team_id}"
             )
             
             return team_id_master
@@ -1158,15 +1258,31 @@ class Modular11GameMatcher(GameHistoryMatcher):
             # If duplicate key error, try to find existing team
             if 'duplicate key' in str(e).lower() or '23505' in str(e):
                 logger.debug(f"[Modular11] Duplicate key error, looking up existing team: {e}")
-                if provider_id and provider_team_id:
+                if provider_id:
+                    # Rebuild aliased_provider_team_id for lookup (same format as what we tried to insert)
                     try:
+                        # Determine base_provider_team_id
+                        if not provider_team_id:
+                            import hashlib
+                            division_str = division or ''
+                            base_provider_team_id = hashlib.md5(f"{team_name}_{age_group}_{gender}_{division_str}".encode()).hexdigest()[:16]
+                        else:
+                            base_provider_team_id = provider_team_id
+                        
+                        # Build aliased format
+                        aliased_provider_team_id = self._build_aliased_provider_team_id(
+                            base_provider_team_id=base_provider_team_id,
+                            age_group=age_group,
+                            division=division
+                        )
+                        
                         existing = self.db.table('teams').select('team_id_master').eq(
                             'provider_id', provider_id
-                        ).eq('provider_team_id', provider_team_id).single().execute()
+                        ).eq('provider_team_id', aliased_provider_team_id).single().execute()
                         
                         if existing.data:
                             logger.info(
-                                f"[Modular11] Found existing team with provider_team_id {provider_team_id}, "
+                                f"[Modular11] Found existing team with provider_team_id {aliased_provider_team_id}, "
                                 f"using {existing.data['team_id_master']}"
                             )
                             return existing.data['team_id_master']
@@ -1197,6 +1313,10 @@ class Modular11GameMatcher(GameHistoryMatcher):
         This is necessary because Modular11 uses the same club/academy ID for ALL
         teams regardless of age group or division.
 
+        CRITICAL: This method receives the BASE provider_team_id (raw club_id) and
+        builds the aliased format. The team's provider_team_id should also use this
+        same aliased format to ensure consistency.
+
         Note: team_name and gender are NOT stored in team_alias_map schema.
         """
         try:
@@ -1207,22 +1327,14 @@ class Modular11GameMatcher(GameHistoryMatcher):
             # Build the aliased provider_team_id with age and division suffixes
             # Format: {club_id}_{age_group}_{division} e.g., "391_U16_AD"
             # This ensures each club+age+division combination has a unique alias
-            aliased_provider_team_id = provider_team_id
-            suffix_parts = []
-
-            # Add age group suffix (CRITICAL: same club ID used for all ages)
-            if age_group:
-                # Normalize age format (U16, u16 -> U16)
-                age_normalized = age_group.upper() if age_group.lower().startswith('u') else f"U{age_group}"
-                suffix_parts.append(age_normalized)
-
-            # Add division suffix (HD/AD)
-            if division and division.upper() in ('HD', 'AD'):
-                suffix_parts.append(division.upper())
-
-            if suffix_parts:
-                aliased_provider_team_id = f"{provider_team_id}_{'_'.join(suffix_parts)}"
-                self._dlog(f"Using suffixed alias: {aliased_provider_team_id}")
+            # Use the helper function to ensure consistency with team creation
+            aliased_provider_team_id = self._build_aliased_provider_team_id(
+                base_provider_team_id=provider_team_id,
+                age_group=age_group,
+                division=division
+            )
+            
+            self._dlog(f"Creating alias: base={provider_team_id}, aliased={aliased_provider_team_id}")
 
             # Check if alias already exists
             query = self.db.table('team_alias_map').select('id').eq(
