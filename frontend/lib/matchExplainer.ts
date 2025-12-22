@@ -95,15 +95,16 @@ function explainPowerScore(
   const strongerPower = powerDiff > 0 ? (teamA.power_score_final || 0.5) : (teamB.power_score_final || 0.5);
   const weakerPower = powerDiff > 0 ? (teamB.power_score_final || 0.5) : (teamA.power_score_final || 0.5);
 
-  // Convert power scores to percentiles for more intuitive display
-  const strongerPercentile = Math.round(strongerPower * 100);
-  const weakerPercentile = Math.round(weakerPower * 100);
+  // Display power scores as ratings (not percentiles - they are composite scores, not rankings)
+  const strongerRating = Math.round(strongerPower * 100);
+  const weakerRating = Math.round(weakerPower * 100);
+  const ratingGap = strongerRating - weakerRating;
 
   let description = '';
   if (magnitude === 'significant') {
-    description = `${strongerTeam} ranks in the ${strongerPercentile}th percentile vs ${weakerTeam}'s ${weakerPercentile}th - a substantial class difference`;
+    description = `${strongerTeam} has a ${ratingGap}-point power rating advantage (${strongerRating} vs ${weakerRating}) - a substantial class difference`;
   } else {
-    description = `${strongerTeam} holds a real edge (${strongerPercentile}th vs ${weakerPercentile}th percentile overall strength)`;
+    description = `${strongerTeam} holds a ${ratingGap}-point edge in overall power rating (${strongerRating} vs ${weakerRating})`;
   }
 
   return {
@@ -172,18 +173,32 @@ function explainRecentForm(
   else return null; // Not worth mentioning
 
   const advantage = formDiffRaw > 0 ? 'team_a' : 'team_b';
-  const hotTeam = formDiffRaw > 0 ? teamA.team_name : teamB.team_name;
-  const hotForm = formDiffRaw > 0 ? formA : formB;
+  const betterTeam = formDiffRaw > 0 ? teamA.team_name : teamB.team_name;
+  const worseTeam = formDiffRaw > 0 ? teamB.team_name : teamA.team_name;
+  const betterForm = formDiffRaw > 0 ? formA : formB;
+  const worseForm = formDiffRaw > 0 ? formB : formA;
 
   let description = '';
-  if (magnitude === 'significant' && hotForm > 2.5) {
-    description = `${hotTeam} is red hot - demolishing opponents by +${hotForm.toFixed(1)} goals/game over their last 5 matches`;
-  } else if (magnitude === 'significant' && hotForm < -2.5) {
-    description = `${hotTeam} is in freefall - losing by ${Math.abs(hotForm).toFixed(1)} goals/game recently (momentum matters!)`;
-  } else if (hotForm > 0) {
-    description = `${hotTeam} brings positive momentum (+${hotForm.toFixed(1)} goal differential in last 5 games)`;
-  } else {
-    description = `${hotTeam} enters with concerning form (${hotForm.toFixed(1)} goal differential recently)`;
+
+  // Case 1: Better team is on fire (positive form, significant gap)
+  if (magnitude === 'significant' && betterForm > 2.5) {
+    description = `${betterTeam} is red hot - demolishing opponents by +${betterForm.toFixed(1)} goals/game over their last 5 matches`;
+  }
+  // Case 2: Worse team is struggling badly (the gap comes from their collapse)
+  else if (magnitude === 'significant' && worseForm < -2.0) {
+    description = `${worseTeam} is struggling badly (${worseForm.toFixed(1)} goal diff recently), giving ${betterTeam} a momentum edge`;
+  }
+  // Case 3: Better team has positive momentum
+  else if (betterForm > 0.5) {
+    description = `${betterTeam} brings positive momentum (+${betterForm.toFixed(1)} goal differential in last 5 games)`;
+  }
+  // Case 4: Both struggling but better team is less bad
+  else if (betterForm <= 0.5 && worseForm < betterForm) {
+    description = `${betterTeam} has better recent form (${betterForm > 0 ? '+' : ''}${betterForm.toFixed(1)} vs ${worseForm.toFixed(1)} goal diff) - less concerning trajectory`;
+  }
+  // Case 5: Generic form advantage
+  else {
+    description = `${betterTeam} has the form edge with a ${absDiff.toFixed(1)} goal differential advantage in recent matches`;
   }
 
   return {
@@ -325,9 +340,9 @@ function explainHeadToHead(
 
   let description = '';
   if (magnitude === 'significant') {
-    description = `Historical dominance: ${favoredTeam} has won their ${h2h.gamesPlayed} previous meetings by an average of ${absMargin.toFixed(1)} goals`;
+    description = `Historical dominance: ${favoredTeam} holds a +${absMargin.toFixed(1)} goal average across ${h2h.gamesPlayed} previous meetings`;
   } else if (h2h.gamesPlayed >= 2) {
-    description = `Head-to-head edge: ${favoredTeam} owns a +${absMargin.toFixed(1)} goal average in ${h2h.gamesPlayed} prior matchups`;
+    description = `Head-to-head edge: ${favoredTeam} has a +${absMargin.toFixed(1)} goal average in ${h2h.gamesPlayed} prior matchups`;
   } else {
     description = `Prior meeting: ${favoredTeam} won their last encounter by ${absMargin.toFixed(0)} goal(s)`;
   }
@@ -432,16 +447,21 @@ export function explainMatch(
   }
 
   // 2. Data quality insights - make sample size feel meaningful
-  const minGamesPlayed = Math.min(teamA.games_played || 0, teamB.games_played || 0);
-  const maxGamesPlayed = Math.max(teamA.games_played || 0, teamB.games_played || 0);
-  const totalGamesAnalyzed = (teamA.games_played || 0) + (teamB.games_played || 0);
+  const gamesA = teamA.games_played || 0;
+  const gamesB = teamB.games_played || 0;
+  const minGamesPlayed = Math.min(gamesA, gamesB);
+  const maxGamesPlayed = Math.max(gamesA, gamesB);
 
-  if (minGamesPlayed < 10) {
-    keyInsights.push(`📉 Early season data: With only ${totalGamesAnalyzed} combined games analyzed, expect higher variance in this prediction`);
+  if (minGamesPlayed < 5) {
+    // One team has very few games - highlight this limitation
+    const limitedTeam = gamesA < gamesB ? teamA.team_name : teamB.team_name;
+    keyInsights.push(`📉 Limited data warning: ${limitedTeam} has only ${minGamesPlayed} games on record - expect higher prediction variance`);
+  } else if (minGamesPlayed < 10) {
+    keyInsights.push(`📉 Early season data: Both teams have ${minGamesPlayed}-${maxGamesPlayed} games each - predictions may have higher variance`);
   } else if (minGamesPlayed < 20) {
-    keyInsights.push(`📈 Good sample size: ${totalGamesAnalyzed} combined games analyzed - prediction reliability is solid`);
+    keyInsights.push(`📈 Solid sample size: ${minGamesPlayed}+ games per team provides reliable prediction data`);
   } else {
-    keyInsights.push(`✅ Robust dataset: ${totalGamesAnalyzed} combined games create a reliable statistical foundation for this prediction`);
+    keyInsights.push(`✅ Robust dataset: ${minGamesPlayed}+ games per team creates a strong statistical foundation`);
   }
 
   // 3. Expected margin interpretation - make scoreline predictions feel precise
@@ -468,11 +488,11 @@ export function explainMatch(
   if (age) {
     // Age-specific context - reference our calibration data
     if (age <= 11 && totalExpectedGoals > 5) {
-      keyInsights.push(`⚽ High-scoring affair: U${age} matches average ${totalExpectedGoals.toFixed(1)} goals - our model accounts for age-specific scoring patterns`);
+      keyInsights.push(`⚽ High-scoring expected: ${totalExpectedGoals.toFixed(1)} total goals projected - typical for U${age} matches`);
     } else if (age >= 15 && totalExpectedGoals < 3) {
-      keyInsights.push(`🛡️ Defensive battle: U${age} matches trend toward lower scoring (${totalExpectedGoals.toFixed(1)} goals expected)`);
+      keyInsights.push(`🛡️ Defensive battle expected: Only ${totalExpectedGoals.toFixed(1)} goals projected - U${age} matches trend lower-scoring`);
     } else if (age) {
-      keyInsights.push(`⚽ Age-calibrated: Expected ${totalExpectedGoals.toFixed(1)} total goals based on U${age} historical averages`);
+      keyInsights.push(`⚽ Age-calibrated projection: ${totalExpectedGoals.toFixed(1)} total goals expected based on U${age} historical patterns`);
     }
   }
 
