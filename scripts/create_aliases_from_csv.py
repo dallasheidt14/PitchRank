@@ -41,9 +41,15 @@ def get_supabase():
     return create_client(url, key)
 
 
-def extract_division(team_name: str, competition: str) -> str:
-    """Extract HD/AD division from team name or competition field."""
-    # Check team name first
+def extract_division(team_name: str, competition: str, mls_division: str = None) -> str:
+    """Extract HD/AD division from mls_division column, team name, or competition field."""
+    # Check mls_division column first (most reliable)
+    if mls_division:
+        div_upper = mls_division.upper().strip()
+        if div_upper in ('HD', 'AD'):
+            return div_upper
+
+    # Check team name
     if team_name:
         name_upper = team_name.upper().strip()
         if name_upper.endswith(' HD') or ' HD ' in name_upper:
@@ -100,43 +106,72 @@ def read_csv_teams(csv_path: str) -> dict:
     """
     Read CSV and extract unique team definitions.
 
+    Processes both team and opponent data from game records.
     Returns dict keyed by (club_id, age_group, division) with team info.
     """
     teams = {}
+
+    def add_team(team_id, team_name, club_name, age_group, competition, mls_division):
+        """Helper to add a team to the dict."""
+        if not team_id or not age_group:
+            return
+
+        team_id = str(team_id).strip()
+        team_name = str(team_name).strip() if team_name else ''
+        club_name = str(club_name).strip() if club_name else ''
+        age_group = normalize_age(age_group)
+
+        if not age_group:
+            return
+
+        # Extract division (prioritize mls_division column)
+        division = extract_division(team_name, competition, mls_division)
+
+        if not division:
+            return
+
+        # Create unique key
+        key = (team_id, age_group, division)
+
+        if key not in teams:
+            teams[key] = {
+                'team_id': team_id,
+                'team_name': team_name,
+                'club_name': club_name or extract_club_name(team_name, age_group),
+                'age_group': age_group,
+                'division': division,
+                'count': 0
+            }
+
+        teams[key]['count'] += 1
 
     with open(csv_path, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
 
         for row in reader:
-            team_id = row.get('team_id', '').strip()
-            team_name = row.get('team_name', '').strip()
-            age_group = normalize_age(row.get('age_group', ''))
+            age_group = row.get('age_group', '')
             competition = row.get('competition', '')
-            club_name = row.get('club_name', '').strip()
+            mls_division = row.get('mls_division', '')
 
-            if not team_id or not age_group:
-                continue
+            # Process team data
+            add_team(
+                row.get('team_id'),
+                row.get('team_name'),
+                row.get('club_name'),
+                age_group,
+                competition,
+                mls_division
+            )
 
-            # Extract division
-            division = extract_division(team_name, competition)
-
-            if not division:
-                continue
-
-            # Create unique key
-            key = (team_id, age_group, division)
-
-            if key not in teams:
-                teams[key] = {
-                    'team_id': team_id,
-                    'team_name': team_name,
-                    'club_name': club_name or extract_club_name(team_name, age_group),
-                    'age_group': age_group,
-                    'division': division,
-                    'count': 0
-                }
-
-            teams[key]['count'] += 1
+            # Process opponent data
+            add_team(
+                row.get('opponent_id'),
+                row.get('opponent_name'),
+                row.get('opponent_club_name'),
+                age_group,
+                competition,
+                mls_division
+            )
 
     return teams
 
