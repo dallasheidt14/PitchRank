@@ -563,18 +563,19 @@ function getAgeSpecificMarginMultiplier(
 
   // Apply power-gap-based scaling on top of base multiplier
   // Larger power gaps should produce larger margins
+  // v2.5: Reduced max scaling from 3.0 to 2.0 to prevent stacking issues (28-1 predictions)
   let powerGapScaling = 1.0;
   if (absPowerDiff > 0.15) {
     // Very large gap (15+ percentile points) - significant mismatch
-    powerGapScaling = 3.0;
+    powerGapScaling = 2.0;  // Was 3.0
   } else if (absPowerDiff > 0.10) {
     // Large gap (10-15 percentile points)
     const transitionProgress = (absPowerDiff - 0.10) / (0.15 - 0.10);
-    powerGapScaling = 2.0 + (1.0 * transitionProgress);
+    powerGapScaling = 1.5 + (0.5 * transitionProgress);  // Was 2.0 + 1.0
   } else if (absPowerDiff > 0.05) {
     // Moderate gap (5-10 percentile points)
     const transitionProgress = (absPowerDiff - 0.05) / (0.10 - 0.05);
-    powerGapScaling = 1.0 + (1.0 * transitionProgress);
+    powerGapScaling = 1.0 + (0.5 * transitionProgress);  // Was 1.0 + 1.0
   }
 
   // Apply global margin_scale from v2 calibration
@@ -709,10 +710,17 @@ export function predictMatch(
   // v2.5: Pass mismatchScore to allow full dampening removal for blowouts
   const marginMultiplier = getAgeSpecificMarginMultiplier(effectiveAge, absPowerDiff, mismatchScore);
   // For mismatches, increase the margin to better reflect blowout potential
-  // v2.5: Lowered threshold from 0.5 to 0.4, increased boost factor from 3.0 to 4.0
-  // At mismatch=0.4: 1.0x, at mismatch=0.7: 2.2x, at mismatch=1.0: 3.4x
-  const mismatchMarginBoost = mismatchScore > 0.4 ? 1.0 + (mismatchScore - 0.4) * 4.0 : 1.0;
-  const expectedMargin = compositeDiff * MARGIN_COEFFICIENT * marginMultiplier * mismatchMarginBoost;
+  // v2.5: Reduced boost factor to 2.0 (was 4.0 - caused 28-1 predictions!)
+  // At mismatch=0.4: 1.0x, at mismatch=0.7: 1.6x, at mismatch=1.0: 2.2x
+  const mismatchMarginBoost = mismatchScore > 0.4 ? 1.0 + (mismatchScore - 0.4) * 2.0 : 1.0;
+  let expectedMargin = compositeDiff * MARGIN_COEFFICIENT * marginMultiplier * mismatchMarginBoost;
+
+  // v2.5: Cap margin to realistic range (no youth game ends 28-1)
+  // Max reasonable margin: ~8 goals for extreme mismatches
+  const MAX_REASONABLE_MARGIN = 8.0;
+  if (Math.abs(expectedMargin) > MAX_REASONABLE_MARGIN) {
+    expectedMargin = Math.sign(expectedMargin) * MAX_REASONABLE_MARGIN;
+  }
 
   // 11. Expected scores using age-adjusted league average
   const leagueAvgGoals = getLeagueAverageGoals(effectiveAge);
@@ -754,6 +762,10 @@ export function predictMatch(
   let expectedScoreA: number;
   let expectedScoreB: number;
 
+  // v2.5: Cap individual scores to realistic range
+  // No youth team realistically scores 10+ goals regularly
+  const MAX_TEAM_SCORE = 10;
+
   if (roundedMargin === 0) {
     // Close match - show same score
     const avgScore = Math.round(leagueAvgGoals);
@@ -762,11 +774,19 @@ export function predictMatch(
   } else if (expectedMargin >= 0) {
     // Team A is favored
     expectedScoreB = Math.max(0, Math.round(rawScoreB));
-    expectedScoreA = Math.max(0, expectedScoreB + roundedMargin);
+    expectedScoreA = Math.min(MAX_TEAM_SCORE, Math.max(0, expectedScoreB + roundedMargin));
+    // Ensure margin is maintained even with cap
+    if (expectedScoreA === MAX_TEAM_SCORE && expectedScoreB > MAX_TEAM_SCORE - roundedMargin) {
+      expectedScoreB = Math.max(0, MAX_TEAM_SCORE - roundedMargin);
+    }
   } else {
     // Team B is favored
     expectedScoreA = Math.max(0, Math.round(rawScoreA));
-    expectedScoreB = Math.max(0, expectedScoreA + roundedMargin);
+    expectedScoreB = Math.min(MAX_TEAM_SCORE, Math.max(0, expectedScoreA + roundedMargin));
+    // Ensure margin is maintained even with cap
+    if (expectedScoreB === MAX_TEAM_SCORE && expectedScoreA > MAX_TEAM_SCORE - roundedMargin) {
+      expectedScoreA = Math.max(0, MAX_TEAM_SCORE - roundedMargin);
+    }
   }
 
   // 10. Predicted winner (with draw threshold for close matchups)
