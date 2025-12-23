@@ -4336,6 +4336,123 @@ elif section == "🔀 Team Merge Manager":
     if not db:
         st.error("Database connection required for Team Merge Manager")
     else:
+        # Helper function to display team provider details
+        def display_team_provider_info(team_data, db_conn):
+            """Display provider details for a team, especially Modular11 alias info"""
+            if not team_data:
+                return
+
+            provider_id = team_data.get('provider_id', 'Unknown')
+            provider_team_id = team_data.get('provider_team_id', 'N/A')
+            team_id = team_data.get('team_id_master')
+
+            # Fetch alias info including division
+            alias_info = None
+            if team_id:
+                try:
+                    alias_result = db_conn.table('team_alias_map') \
+                        .select('provider_id, provider_team_id, division') \
+                        .eq('team_id_master', team_id) \
+                        .execute()
+                    if alias_result.data:
+                        alias_info = alias_result.data
+                except Exception:
+                    pass
+
+            # Determine if this is a Modular11 team
+            is_modular11 = provider_id and 'modular11' in str(provider_id).lower()
+
+            # Parse Modular11 alias components if applicable
+            modular11_details = None
+            if is_modular11 and provider_team_id and '_' in str(provider_team_id):
+                parts = str(provider_team_id).split('_')
+                if len(parts) >= 3:
+                    modular11_details = {
+                        'club_id': parts[0],
+                        'age': parts[1],
+                        'division': parts[2] if len(parts) > 2 else 'Unknown'
+                    }
+
+            # Display the info card
+            with st.container():
+                if is_modular11:
+                    st.markdown("**🏷️ Modular11 Team**")
+                    if modular11_details:
+                        st.markdown(f"""
+                        | Field | Value |
+                        |-------|-------|
+                        | Provider | `{provider_id}` |
+                        | Provider Team ID | `{provider_team_id}` |
+                        | **Club ID** | `{modular11_details['club_id']}` |
+                        | **Age Group** | `{modular11_details['age']}` |
+                        | **Division** | `{modular11_details['division']}` |
+                        """)
+                    else:
+                        st.markdown(f"Provider Team ID: `{provider_team_id}`")
+                else:
+                    st.markdown(f"""
+                    | Field | Value |
+                    |-------|-------|
+                    | Provider | `{provider_id or 'Unknown'}` |
+                    | Provider Team ID | `{provider_team_id or 'N/A'}` |
+                    """)
+
+                # Show aliases if present
+                if alias_info and len(alias_info) > 0:
+                    with st.expander("View Aliases", expanded=False):
+                        for alias in alias_info:
+                            div = alias.get('division', '')
+                            div_str = f" (Division: **{div}**)" if div else ""
+                            st.markdown(f"- `{alias.get('provider_id')}` → `{alias.get('provider_team_id')}`{div_str}")
+
+        def check_modular11_merge_safety(team1_data, team2_data):
+            """Check if merging two teams would lose Modular11 alias differentiation"""
+            if not team1_data or not team2_data:
+                return None
+
+            provider1 = str(team1_data.get('provider_id', '')).lower()
+            provider2 = str(team2_data.get('provider_id', '')).lower()
+
+            # Only check if both are Modular11 teams
+            if 'modular11' not in provider1 or 'modular11' not in provider2:
+                return None
+
+            ptid1 = str(team1_data.get('provider_team_id', ''))
+            ptid2 = str(team2_data.get('provider_team_id', ''))
+
+            # Parse the aliased format: club_id_age_division
+            def parse_modular11_id(ptid):
+                if '_' in ptid:
+                    parts = ptid.split('_')
+                    if len(parts) >= 3:
+                        return {'club_id': parts[0], 'age': parts[1], 'division': parts[2]}
+                return None
+
+            parsed1 = parse_modular11_id(ptid1)
+            parsed2 = parse_modular11_id(ptid2)
+
+            if not parsed1 or not parsed2:
+                return None
+
+            # Check if same club but different age/division
+            if parsed1['club_id'] == parsed2['club_id']:
+                differences = []
+                if parsed1['age'] != parsed2['age']:
+                    differences.append(f"Age: **{parsed1['age']}** vs **{parsed2['age']}**")
+                if parsed1['division'] != parsed2['division']:
+                    differences.append(f"Division: **{parsed1['division']}** vs **{parsed2['division']}**")
+
+                if differences:
+                    return {
+                        'is_dangerous': True,
+                        'club_id': parsed1['club_id'],
+                        'differences': differences,
+                        'team1_alias': ptid1,
+                        'team2_alias': ptid2
+                    }
+
+            return None
+
         # Create tabs for different operations
         merge_tab, suggestions_tab, history_tab = st.tabs([
             "🔗 Manual Merge",
@@ -4401,7 +4518,7 @@ elif section == "🔀 Team Merge Manager":
                 try:
                     age_num = manual_age_filter.lower().replace('u', '')
                     query = db.table('teams') \
-                        .select('team_id_master, team_name, club_name, state_code, age_group, gender') \
+                        .select('team_id_master, team_name, club_name, state_code, age_group, gender, provider_id, provider_team_id') \
                         .eq('is_deprecated', False) \
                         .eq('gender', manual_gender_filter) \
                         .or_(f"age_group.eq.{age_num},age_group.eq.u{age_num},age_group.eq.U{age_num}")
@@ -4422,6 +4539,7 @@ elif section == "🔀 Team Merge Manager":
                     if not all_teams:
                         st.warning(f"No teams found for {filter_desc}")
                         team_options = {}
+                        teams_by_id = {}
                     else:
                         st.success(f"Found {len(all_teams)} teams for {filter_desc}")
 
@@ -4430,11 +4548,14 @@ elif section == "🔀 Team Merge Manager":
                             f"{t['team_name']} ({t.get('club_name', 'N/A')}) - {t.get('state_code', '??')}": t['team_id_master']
                             for t in all_teams
                         }
+                        # Also create lookup by ID for showing details
+                        teams_by_id = {t['team_id_master']: t for t in all_teams}
 
                 except Exception as e:
                     st.error(f"Failed to load teams: {e}")
                     all_teams = []
                     team_options = {}
+                    teams_by_id = {}
 
                 # Team selection columns
                 col1, col2 = st.columns(2)
@@ -4449,6 +4570,10 @@ elif section == "🔀 Team Merge Manager":
                             key="deprecated_team"
                         )
                         deprecated_team_id = team_options.get(deprecated_selection) if deprecated_selection else None
+
+                        # Show provider details for deprecated team
+                        if deprecated_team_id and deprecated_team_id in teams_by_id:
+                            display_team_provider_info(teams_by_id[deprecated_team_id], db)
                     else:
                         deprecated_team_id = None
 
@@ -4464,10 +4589,38 @@ elif section == "🔀 Team Merge Manager":
                             key="canonical_team"
                         )
                         canonical_team_id = canonical_options.get(canonical_selection) if canonical_selection else None
+
+                        # Show provider details for canonical team
+                        if canonical_team_id and canonical_team_id in teams_by_id:
+                            display_team_provider_info(teams_by_id[canonical_team_id], db)
                     else:
                         if not deprecated_team_id and team_options:
                             st.info("Select a team to deprecate first")
                         canonical_team_id = None
+
+                # Check for dangerous Modular11 merges and display warning
+                if deprecated_team_id and canonical_team_id:
+                    deprecated_data = teams_by_id.get(deprecated_team_id)
+                    canonical_data = teams_by_id.get(canonical_team_id)
+                    safety_check = check_modular11_merge_safety(deprecated_data, canonical_data)
+
+                    if safety_check and safety_check.get('is_dangerous'):
+                        st.error(f"""
+                        **MODULAR11 ALIAS CONFLICT DETECTED**
+
+                        These teams are from the **same Modular11 club** (ID: `{safety_check['club_id']}`) but have **different age groups or divisions**:
+
+                        - Deprecated: `{safety_check['team1_alias']}`
+                        - Canonical: `{safety_check['team2_alias']}`
+
+                        **Differences:**
+                        {chr(10).join('- ' + d for d in safety_check['differences'])}
+
+                        **WARNING:** Merging these teams will cause ALL future games for both aliases to be assigned to the same team.
+                        This will **lose the HD/AD division differentiation** that distinguishes these MLS NEXT teams.
+
+                        **Recommendation:** Do NOT merge these teams unless you are certain they represent the same squad.
+                        """)
 
             # Merge reason
             merge_reason = st.text_input("Reason for merge (optional)", key="merge_reason")
