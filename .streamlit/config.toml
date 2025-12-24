@@ -8,8 +8,8 @@ font = "sans serif"
 [server]
 headless = true
 port = 8501
-enableCORS = false
-enableXsrfProtection = true
+# Note: enableCORS and enableXsrfProtection are mutually exclusive
+# Using Streamlit defaults for cloud deployment compatibility
 
 [browser]
 gatherUsageStats = false

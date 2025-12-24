@@ -5,7 +5,19 @@ import os
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 import time
-from supabase import create_client
+
+# Graceful supabase import - handle cases where cryptography deps fail
+SUPABASE_AVAILABLE = False
+create_client = None
+SUPABASE_IMPORT_ERROR = None
+try:
+    from supabase import create_client
+    SUPABASE_AVAILABLE = True
+except ImportError as e:
+    SUPABASE_IMPORT_ERROR = str(e)
+except Exception as e:
+    SUPABASE_IMPORT_ERROR = f"Unexpected error loading supabase: {e}"
+
 from config.settings import (
     RANKING_CONFIG,
     ML_CONFIG,
@@ -30,10 +42,16 @@ st.set_page_config(
 st.title(f"⚽ {PROJECT_NAME} Settings Dashboard")
 st.caption(f"Version {VERSION} | Comprehensive Parameter Viewer")
 
+# Show warning if supabase module couldn't be loaded
+if not SUPABASE_AVAILABLE:
+    st.warning(f"⚠️ Database features unavailable: {SUPABASE_IMPORT_ERROR}. Configuration viewing still works.")
+
 # Database connection helper
 @st.cache_resource
 def get_database():
     """Get cached database connection"""
+    if not SUPABASE_AVAILABLE:
+        return None
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         return None
     try:
