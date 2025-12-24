@@ -1586,6 +1586,15 @@ class Modular11GameMatcher(GameHistoryMatcher):
         # CRITICAL: Validate age groups match between home and away teams
         # This prevents age mismatches (e.g., U13 vs U16 games)
         match_status = None  # Initialize before age validation
+        
+        # Log team matching results for debugging
+        game_uid_debug = game_data.get('game_uid', 'N/A')
+        logger.debug(
+            f"[Modular11] Team matching results for game {game_uid_debug}: "
+            f"home_team_master_id={home_team_master_id}, away_team_master_id={away_team_master_id}, "
+            f"home_provider_id={home_provider_id}, away_provider_id={away_provider_id}"
+        )
+        
         if home_team_master_id and away_team_master_id:
             try:
                 home_team_result = self.db.table('teams').select('age_group, gender, team_name').eq('team_id_master', home_team_master_id).single().execute()
@@ -1594,40 +1603,97 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 if home_team_result.data and away_team_result.data:
                     home_age = home_team_result.data.get('age_group', '').lower() if home_team_result.data.get('age_group') else None
                     away_age = away_team_result.data.get('age_group', '').lower() if away_team_result.data.get('age_group') else None
+                    home_team_name = home_team_result.data.get('team_name', 'Unknown')
+                    away_team_name = away_team_result.data.get('team_name', 'Unknown')
+                    
+                    logger.debug(
+                        f"[Modular11] Age validation for game {game_uid_debug}: "
+                        f"home={home_team_name} ({home_age}), away={away_team_name} ({away_age})"
+                    )
                     
                     if home_age and away_age:
                         try:
                             home_age_num = int(home_age.replace('u', '').replace('U', ''))
                             away_age_num = int(away_age.replace('u', '').replace('U', ''))
+                            age_diff = abs(home_age_num - away_age_num)
+                            
+                            logger.debug(
+                                f"[Modular11] Age difference for game {game_uid_debug}: "
+                                f"{home_age_num} vs {away_age_num} = {age_diff} years"
+                            )
                             
                             # Age mismatch if difference >= 2 years
-                            if abs(home_age_num - away_age_num) >= 2:
+                            if age_diff >= 2:
                                 logger.warning(
                                     f"[Modular11] AGE MISMATCH DETECTED: "
-                                    f"{home_team_result.data.get('team_name')} ({home_age}) vs "
-                                    f"{away_team_result.data.get('team_name')} ({away_age}) - "
-                                    f"Game UID: {game_data.get('game_uid', 'N/A')} - "
+                                    f"{home_team_name} ({home_age}) vs "
+                                    f"{away_team_name} ({away_age}) - "
+                                    f"Age difference: {age_diff} years - "
+                                    f"Game UID: {game_uid_debug} - "
                                     f"REJECTING GAME"
                                 )
                                 # Reject the game by setting match_status to 'failed'
                                 match_status = 'failed'
                                 home_team_master_id = None
                                 away_team_master_id = None
-                        except (ValueError, AttributeError):
+                            else:
+                                logger.debug(
+                                    f"[Modular11] Age validation PASSED for game {game_uid_debug}: "
+                                    f"Age difference {age_diff} < 2 years"
+                                )
+                        except (ValueError, AttributeError) as e:
+                            logger.debug(
+                                f"[Modular11] Age parsing failed for game {game_uid_debug}: {e} - "
+                                f"Allowing game (home_age={home_age}, away_age={away_age})"
+                            )
                             pass  # If age parsing fails, allow the game (better safe than sorry)
+                    else:
+                        logger.debug(
+                            f"[Modular11] Age validation SKIPPED for game {game_uid_debug}: "
+                            f"Missing age data (home_age={home_age}, away_age={away_age})"
+                        )
+                else:
+                    logger.warning(
+                        f"[Modular11] Could not fetch team data for age validation: "
+                        f"game {game_uid_debug}, home_id={home_team_master_id}, away_id={away_team_master_id}"
+                    )
             except Exception as e:
-                logger.error(f"[Modular11] Error validating age groups: {e}")
+                logger.error(
+                    f"[Modular11] Error validating age groups for game {game_uid_debug}: {e}"
+                )
                 # If validation fails, allow the game (don't block on validation errors)
+        else:
+            logger.debug(
+                f"[Modular11] Age validation SKIPPED for game {game_uid_debug}: "
+                f"Missing team master IDs (home={home_team_master_id}, away={away_team_master_id})"
+            )
         
         # Determine overall match status
         # NOTE: Don't overwrite 'failed' status if age validation already set it
         if match_status != 'failed':
             if home_team_master_id and away_team_master_id:
                 match_status = 'matched'
+                logger.debug(
+                    f"[Modular11] Game {game_uid_debug} MATCHED: "
+                    f"Both teams found (home={home_team_master_id}, away={away_team_master_id})"
+                )
             elif home_team_master_id or away_team_master_id:
                 match_status = 'partial'
+                logger.debug(
+                    f"[Modular11] Game {game_uid_debug} PARTIAL MATCH: "
+                    f"home={home_team_master_id}, away={away_team_master_id}"
+                )
             else:
                 match_status = 'failed'
+                logger.warning(
+                    f"[Modular11] Game {game_uid_debug} FAILED: "
+                    f"No teams matched (home={home_team_master_id}, away={away_team_master_id})"
+                )
+        else:
+            logger.warning(
+                f"[Modular11] Game {game_uid_debug} FAILED: "
+                f"Age validation rejected the game"
+            )
         
         # Generate game UID if missing
         if not game_data.get('game_uid'):
