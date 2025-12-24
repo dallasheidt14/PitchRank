@@ -296,6 +296,7 @@ class EnhancedETLPipeline:
             failed_count = 0
             
             for game in new_games:
+                game_uid = game.get('game_uid', 'N/A')
                 try:
                     # Convert age_year to age_group if needed (for TGS and other providers using birth year)
                     if 'age_year' in game and not game.get('age_group'):
@@ -320,31 +321,58 @@ class EnhancedETLPipeline:
                             game['gender'] = 'Female'
                         # Keep other values as-is (Male, Female, Coed, etc.)
                     
+                    # Log game details before matching
+                    logger.debug(
+                        f"[Pipeline] Matching game {game_uid}: "
+                        f"team_id={game.get('team_id')}, opponent_id={game.get('opponent_id')}, "
+                        f"age_group={game.get('age_group')}, gender={game.get('gender')}, "
+                        f"game_date={game.get('game_date')}"
+                    )
+                    
                     # Match game history to get structured game record
                     # Pass dry_run flag to game_data for diagnostic mode
                     if self.dry_run:
                         game['dry_run'] = True
                     matched_game = self.matcher.match_game_history(game)
                     match_status = matched_game.get('match_status')
+                    home_team_id = matched_game.get('home_team_master_id')
+                    away_team_id = matched_game.get('away_team_master_id')
+                    home_score = matched_game.get('home_score')
+                    away_score = matched_game.get('away_score')
+                    
+                    logger.debug(
+                        f"[Pipeline] Match result for game {game_uid}: "
+                        f"status={match_status}, home_team={home_team_id}, away_team={away_team_id}, "
+                        f"scores={home_score}-{away_score}"
+                    )
                     
                     if match_status == 'matched':
                         game_records.append(matched_game)
                         matched_count += 1
                         batch_metrics.teams_matched += 2  # Home and away
                         self.metrics.teams_matched += 2  # Also update shared for logging
+                        logger.debug(f"[Pipeline] Game {game_uid} added to records (MATCHED)")
                     elif match_status == 'partial':
                         game_records.append(matched_game)
                         partial_count += 1
                         batch_metrics.teams_matched += 1
                         self.metrics.teams_matched += 1  # Also update shared for logging
+                        logger.debug(f"[Pipeline] Game {game_uid} added to records (PARTIAL)")
                     else:
                         failed_count += 1
+                        logger.warning(
+                            f"[Pipeline] Game {game_uid} FAILED matching: "
+                            f"match_status={match_status}, home_team={home_team_id}, away_team={away_team_id}"
+                        )
                         # Don't increment teams_matched for failed matches
                 except Exception as e:
                     failed_count += 1
-                    logger.warning(f"Error matching game: {e}")
-                    batch_metrics.errors.append(f"Match error: {str(e)}")
-                    self.metrics.errors.append(f"Match error: {str(e)}")
+                    logger.error(
+                        f"[Pipeline] Exception matching game {game_uid}: {e}",
+                        exc_info=True
+                    )
+                    batch_metrics.errors.append(f"Match error for {game_uid}: {str(e)}")
+                    self.metrics.errors.append(f"Match error for {game_uid}: {str(e)}")
             
             # Store counts in batch metrics for debugging
             batch_metrics.matched_games_count = matched_count
@@ -357,22 +385,63 @@ class EnhancedETLPipeline:
             
             logger.info(f"Matched {len(game_records)} games (matched: {matched_count}, partial: {partial_count}, failed: {failed_count})")
             
-            # Step 4: Filter games with invalid scores before bulk insert
-            valid_game_records = [g for g in game_records if self._has_valid_scores(g)]
-            skipped_count = len(game_records) - len(valid_game_records)
+            # Step 3b: Check for duplicates using composite key (after team matching)
+            # This catches duplicates that game_uid check missed (due to different game_uid but same composite key)
+            existing_composite_keys = await self._check_duplicates_by_composite_key(game_records)
+            if existing_composite_keys:
+                logger.info(f"[Pipeline] Found {len(existing_composite_keys)} duplicate games by composite key (already in DB)")
+                # Filter out games with existing composite keys
+                game_records = [g for g in game_records if self._make_composite_key(g) not in existing_composite_keys]
+                batch_metrics.duplicates_found += len(existing_composite_keys)
+                self.metrics.duplicates_found += len(existing_composite_keys)
+                logger.info(f"[Pipeline] Filtered to {len(game_records)} new games after composite key duplicate check")
             
+            # Step 4: Filter games with invalid scores before bulk insert
+            valid_game_records = []
+            skipped_games = []
+            for g in game_records:
+                if self._has_valid_scores(g):
+                    valid_game_records.append(g)
+                else:
+                    skipped_games.append(g)
+                    game_uid = g.get('game_uid', 'N/A')
+                    home_score = g.get('home_score')
+                    away_score = g.get('away_score')
+                    logger.warning(
+                        f"[Pipeline] Game {game_uid} REJECTED due to invalid scores: "
+                        f"home_score={home_score} (type={type(home_score)}), "
+                        f"away_score={away_score} (type={type(away_score)})"
+                    )
+            
+            skipped_count = len(skipped_games)
             if skipped_count > 0:
                 batch_metrics.skipped_empty_scores = skipped_count
                 self.metrics.skipped_empty_scores += skipped_count
-                logger.warning(f"Skipped {skipped_count} games with invalid or missing scores")
+                logger.warning(
+                    f"[Pipeline] Skipped {skipped_count} games with invalid or missing scores "
+                    f"(out of {len(game_records)} matched games)"
+                )
             
             # Step 5: Bulk insert games
             if valid_game_records and not self.dry_run:
-                logger.info(f"Attempting to insert {len(valid_game_records)} matched games...")
+                logger.info(
+                    f"[Pipeline] Attempting to insert {len(valid_game_records)} matched games "
+                    f"(from {len(game_records)} total matched, {skipped_count} skipped scores)"
+                )
                 inserted_count = await self._bulk_insert_games(valid_game_records)
                 batch_metrics.games_accepted = inserted_count  # Batch-specific count
                 self.metrics.games_accepted += inserted_count  # Also update shared for logging
-                logger.info(f"Inserted {inserted_count} games successfully (batch accepted: {inserted_count})")
+                
+                if inserted_count != len(valid_game_records):
+                    logger.warning(
+                        f"[Pipeline] Insert mismatch: attempted {len(valid_game_records)}, "
+                        f"inserted {inserted_count} games"
+                    )
+                else:
+                    logger.info(
+                        f"[Pipeline] Successfully inserted {inserted_count} games "
+                        f"(batch accepted: {inserted_count})"
+                    )
                 
                 # Step 5b: Update last_scraped_at for teams based on imported games
                 await self._update_team_scrape_dates(valid_game_records)
@@ -776,6 +845,72 @@ class EnhancedETLPipeline:
         
         return existing
     
+    async def _check_duplicates_by_composite_key(self, game_records: List[Dict]) -> set:
+        """
+        Check for existing games using composite key matching database constraint.
+        
+        Database constraint: (provider_id, home_provider_id, away_provider_id, 
+        game_date, COALESCE(home_score, -1), COALESCE(away_score, -1))
+        
+        This catches duplicates that game_uid check missed (e.g., same game imported
+        with different game_uid format but same composite key).
+        """
+        if not game_records:
+            return set()
+        
+        existing_composite_keys = set()
+        
+        # Build composite keys for all games
+        composite_keys_to_check = {}
+        for game in game_records:
+            # Only check games that have all required fields
+            if not all([
+                game.get('provider_id'),
+                game.get('home_provider_id'),
+                game.get('away_provider_id'),
+                game.get('game_date')
+            ]):
+                continue
+            
+            composite_key = self._make_composite_key(game)
+            composite_keys_to_check[composite_key] = game
+        
+        if not composite_keys_to_check:
+            return set()
+        
+        # Query database for existing games matching composite keys
+        # We need to query by the components since we can't query by composite key directly
+        # Group by provider_id for efficiency
+        provider_id = self.provider_id
+        games_by_date = {}
+        
+        for composite_key, game in composite_keys_to_check.items():
+            game_date = game.get('game_date', '')
+            if game_date:
+                if game_date not in games_by_date:
+                    games_by_date[game_date] = []
+                games_by_date[game_date].append(game)
+        
+        # Query in batches by date
+        for game_date, games_for_date in games_by_date.items():
+            try:
+                # Query all games for this provider and date
+                result = self.supabase.table('games').select(
+                    'provider_id, home_provider_id, away_provider_id, game_date, home_score, away_score'
+                ).eq('provider_id', provider_id).eq('game_date', game_date).execute()
+                
+                if result.data:
+                    # Build composite keys for existing games
+                    for row in result.data:
+                        existing_key = self._make_composite_key(row)
+                        if existing_key in composite_keys_to_check:
+                            existing_composite_keys.add(existing_key)
+            except Exception as e:
+                logger.warning(f"Error checking composite key duplicates for date {game_date}: {e}")
+                # Continue processing even if duplicate check fails
+        
+        return existing_composite_keys
+    
     async def _bulk_insert_games(self, game_records: List[Dict]) -> int:
         """Bulk insert games using Supabase batch operations"""
         if not game_records:
@@ -869,7 +1004,11 @@ class EnhancedETLPipeline:
             logger.warning(f"⚠️  Skipped {skipped_empty_game_date} games due to empty game_date")
             self.metrics.skipped_empty_game_date = skipped_empty_game_date
         
-        logger.info(f"Prepared {len(insert_records)} records for insertion (skipped {skipped_empty_provider_ids + skipped_empty_game_date} due to validation)")
+        logger.info(
+            f"[Pipeline] Prepared {len(insert_records)} records for insertion "
+            f"(skipped {skipped_empty_provider_ids} empty provider IDs, "
+            f"{skipped_empty_game_date} empty game_date)"
+        )
         
         # Deduplicate using composite key constraint (matches DB unique constraint)
         # This prevents duplicate constraint violations during insert
@@ -879,16 +1018,24 @@ class EnhancedETLPipeline:
         
         for record in insert_records:
             composite_key = self._make_composite_key(record)
+            game_uid = record.get('game_uid', 'N/A')
             if composite_key not in seen_composite_keys:
                 seen_composite_keys.add(composite_key)
                 deduped_records.append(record)
             else:
                 composite_duplicates_count += 1
+                logger.debug(
+                    f"[Pipeline] Duplicate detected pre-insert for game {game_uid}: "
+                    f"composite_key={composite_key}"
+                )
                 # These are cross-run duplicates (already exist in DB by composite constraint)
                 self.metrics.duplicates_found += 1
         
         if composite_duplicates_count > 0:
-            logger.info(f"🔁 Deduped {composite_duplicates_count} games pre-insert using composite constraint (already exist in DB)")
+            logger.warning(
+                f"[Pipeline] Deduped {composite_duplicates_count} games pre-insert "
+                f"using composite constraint (already exist in DB)"
+            )
         
         insert_records = deduped_records
         
@@ -914,7 +1061,10 @@ class EnhancedETLPipeline:
                     # No status_code attribute exists - success = no exception
                     inserted += len(chunk)
                     inserted_chunk = True
-                    logger.info(f"✅ Successfully inserted batch of {len(chunk)} games")
+                    logger.info(
+                        f"[Pipeline] ✅ Successfully inserted batch of {len(chunk)} games "
+                        f"(total inserted so far: {inserted}/{len(insert_records)})"
+                    )
                     
                     # Reset SSL error count on success
                     if is_ssl_error:

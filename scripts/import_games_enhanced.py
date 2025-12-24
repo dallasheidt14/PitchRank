@@ -25,7 +25,7 @@ from rich.progress import track
 from src.etl.enhanced_pipeline import EnhancedETLPipeline, ImportMetrics
 from src.utils.enhanced_validators import EnhancedDataValidator
 
-# Configure logging
+# Configure logging (will be updated if --debug flag is set)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -242,8 +242,16 @@ async def main():
     parser.add_argument('--skip-validation', action='store_true', help='Skip validation during import')
     parser.add_argument('--limit', type=int, default=None, help='Limit number of games to process (for testing)')
     parser.add_argument('--summary-only', action='store_true', help='Suppress per-team logs and show only summary (Modular11)')
+    parser.add_argument('--debug', action='store_true', help='Enable debug logging to investigate import failures')
     
     args = parser.parse_args()
+    
+    # Enable debug logging if requested
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logging.getLogger('src.models.modular11_matcher').setLevel(logging.DEBUG)
+        logging.getLogger('src.etl.enhanced_pipeline').setLevel(logging.DEBUG)
+        logger.info("Debug logging enabled")
     
     # Check file and determine loading mode
     file_path = Path(args.file)
