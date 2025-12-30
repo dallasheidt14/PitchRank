@@ -584,12 +584,14 @@ class TGSGameMatcher(GameHistoryMatcher):
                 )
                 
                 # Create alias for new team
+                # Use 'direct_id' when we have a provider_team_id for Tier 1 matching
+                alias_match_method = 'direct_id' if provider_team_id else 'import'
                 self._create_alias(
                     provider_id=provider_id,
                     provider_team_id=provider_team_id,
                     team_name=team_name,
                     team_id_master=new_team_id,
-                    match_method='import',  # System-created during import
+                    match_method=alias_match_method,
                     confidence=1.0,  # New team = 100% confidence
                     age_group=age_group,
                     gender=gender,
