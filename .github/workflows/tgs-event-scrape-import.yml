@@ -108,6 +108,18 @@ jobs:
           echo "Importing games from: $CSV_FILE"
           python scripts/import_games_enhanced.py "$CSV_FILE" tgs
 
+      - name: Maintain TGS Direct ID Aliases
+        if: ${{ github.event_name == 'schedule' || inputs.skip_import == false }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          echo "Maintaining TGS direct ID aliases..."
+          python scripts/maintain_tgs_direct_id_aliases.py
+
       - name: Upload scraped data
         if: always()
         uses: actions/upload-artifact@v4
