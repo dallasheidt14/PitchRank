@@ -4494,28 +4494,31 @@ elif section == "🔀 Team Merge Manager":
                     # Check if success is buried in 'details' field (Supabase JSONB quirk)
                     if isinstance(response, dict) and 'details' in response:
                         details_str = str(response.get('details', ''))
-                        # Look for success:true pattern in the details
-                        if '"success": true' in details_str or '"success":true' in details_str:
+
+                        # Check for success pattern (handle various quote styles and spacing)
+                        import re
+                        success_match = re.search(r'success["\']?\s*:\s*true', details_str, re.IGNORECASE)
+
+                        if success_match:
                             # Extract the message from details
-                            import re
-                            msg_match = re.search(r'"message":\s*"([^"]+)"', details_str)
+                            msg_match = re.search(r'message["\']?\s*:\s*["\']([^"\']+)["\']', details_str)
                             if msg_match:
                                 st.success(f"✅ {msg_match.group(1)}")
                             else:
                                 st.success("✅ Merge completed successfully!")
                             # Don't show balloons for already-merged case
-                            if '"already_merged": true' not in details_str:
+                            if 'already_merged' not in details_str.lower():
                                 st.balloons()
-                        elif '"success": false' in details_str or '"success":false' in details_str:
+                        elif re.search(r'success["\']?\s*:\s*false', details_str, re.IGNORECASE):
                             # Extract error message
-                            import re
-                            err_match = re.search(r'"error":\s*"([^"]+)"', details_str)
+                            err_match = re.search(r'error["\']?\s*:\s*["\']([^"\']+)["\']', details_str)
                             if err_match:
                                 st.error(f"❌ Merge failed: {err_match.group(1)}")
                             else:
-                                st.error(f"❌ Merge failed: {details_str}")
+                                st.error(f"❌ Merge failed - check details")
                         else:
-                            st.warning(f"Merge completed with response: {response}")
+                            # Unknown response but might have worked - check database
+                            st.warning(f"⚠️ Merge may have completed - please verify in database")
                     elif isinstance(response, dict) and 'success' in response:
                         # Direct response (no wrapper)
                         if response.get('success') == True:
@@ -4978,8 +4981,9 @@ elif section == "🔀 Team Merge Manager":
                                             response = response[0]
 
                                         # Check if success is in 'details' field (Supabase JSONB quirk)
+                                        import re
                                         details_str = str(response.get('details', '')) if isinstance(response, dict) else ''
-                                        if '"success": true' in details_str or '"success":true' in details_str:
+                                        if re.search(r'success["\']?\s*:\s*true', details_str, re.IGNORECASE):
                                             st.session_state.dismissed_suggestions.add(s['key'])
                                             st.session_state.last_merge_success = f"✅ Merged! {s['team_a_name']} → {s['team_b_name']}"
                                             st.rerun()
@@ -4989,12 +4993,11 @@ elif section == "🔀 Team Merge Manager":
                                             st.rerun()
                                         else:
                                             # Extract error from details or response
-                                            if '"error":' in details_str:
-                                                import re
-                                                err_match = re.search(r'"error":\s*"([^"]+)"', details_str)
-                                                err_msg = err_match.group(1) if err_match else 'Unknown error'
+                                            err_match = re.search(r'error["\']?\s*:\s*["\']([^"\']+)["\']', details_str)
+                                            if err_match:
+                                                err_msg = err_match.group(1)
                                             else:
-                                                err_msg = response.get('error', 'Unknown error') if isinstance(response, dict) else str(response)
+                                                err_msg = response.get('error', 'Unknown error') if isinstance(response, dict) else 'Unknown error'
                                             st.error(f"❌ Merge failed: {err_msg}")
                                     except Exception as e:
                                         st.error(f"❌ Merge failed: {e}")
@@ -5018,8 +5021,9 @@ elif section == "🔀 Team Merge Manager":
                                             response = response[0]
 
                                         # Check if success is in 'details' field (Supabase JSONB quirk)
+                                        import re
                                         details_str = str(response.get('details', '')) if isinstance(response, dict) else ''
-                                        if '"success": true' in details_str or '"success":true' in details_str:
+                                        if re.search(r'success["\']?\s*:\s*true', details_str, re.IGNORECASE):
                                             st.session_state.dismissed_suggestions.add(s['key'])
                                             st.session_state.last_merge_success = f"✅ Merged! {s['team_b_name']} → {s['team_a_name']}"
                                             st.rerun()
@@ -5029,12 +5033,11 @@ elif section == "🔀 Team Merge Manager":
                                             st.rerun()
                                         else:
                                             # Extract error from details or response
-                                            if '"error":' in details_str:
-                                                import re
-                                                err_match = re.search(r'"error":\s*"([^"]+)"', details_str)
-                                                err_msg = err_match.group(1) if err_match else 'Unknown error'
+                                            err_match = re.search(r'error["\']?\s*:\s*["\']([^"\']+)["\']', details_str)
+                                            if err_match:
+                                                err_msg = err_match.group(1)
                                             else:
-                                                err_msg = response.get('error', 'Unknown error') if isinstance(response, dict) else str(response)
+                                                err_msg = response.get('error', 'Unknown error') if isinstance(response, dict) else 'Unknown error'
                                             st.error(f"❌ Merge failed: {err_msg}")
                                     except Exception as e:
                                         st.error(f"❌ Merge failed: {e}")
