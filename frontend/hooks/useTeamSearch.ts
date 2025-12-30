@@ -25,6 +25,7 @@ export function useTeamSearch() {
         const { data, error } = await supabase
           .from('teams')
           .select('team_id_master, team_name, club_name, state_code, age_group, gender')
+          .eq('is_deprecated', false)  // Filter out deprecated/merged teams
           .order('team_name', { ascending: true })
           .range(offset, offset + BATCH_SIZE - 1);
 

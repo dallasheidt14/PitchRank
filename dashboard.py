@@ -4484,11 +4484,24 @@ elif section == "🔀 Team Merge Manager":
                         })
                     )
 
-                    if result.data:
-                        st.success(f"✅ Successfully merged teams! Merge ID: {result.data}")
+                    # RPC returns JSONB: {"success": true/false, "merge_id": "...", "error": "..."}
+                    if result.data and isinstance(result.data, dict):
+                        if result.data.get('success'):
+                            merge_id = result.data.get('merge_id', 'unknown')
+                            games_affected = result.data.get('games_affected', 0)
+                            aliases_updated = result.data.get('aliases_updated', 0)
+                            st.success(f"✅ Successfully merged teams! Merge ID: {merge_id}")
+                            st.info(f"📊 Games affected: {games_affected} | Aliases updated: {aliases_updated}")
+                            st.balloons()
+                        else:
+                            error_msg = result.data.get('error', 'Unknown error')
+                            st.error(f"❌ Merge failed: {error_msg}")
+                    elif result.data:
+                        # Legacy format - just show the result
+                        st.success(f"✅ Successfully merged teams! Result: {result.data}")
                         st.balloons()
                     else:
-                        st.warning("Merge completed but no ID returned")
+                        st.warning("Merge completed but no result returned")
 
                 except Exception as e:
                     st.error(f"❌ Merge failed: {e}")
