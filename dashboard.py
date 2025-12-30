@@ -4485,7 +4485,7 @@ elif section == "🔀 Team Merge Manager":
                     )
 
                     # RPC returns JSONB: {"success": true/false, "merge_id": "...", "error": "..."}
-                    # Supabase may wrap result in a list, so extract first element if needed
+                    # Supabase may wrap result in a list, or wrap JSONB in an error-like object
                     response = result.data
 
                     # Debug: Show raw response to diagnose issues
@@ -4494,6 +4494,20 @@ elif section == "🔀 Team Merge Manager":
 
                     if isinstance(response, list) and len(response) > 0:
                         response = response[0]
+
+                    # Handle Supabase wrapping JSONB response in error-like object
+                    # The actual response may be in the 'details' field as a JSON string
+                    if isinstance(response, dict) and response.get('message') == 'JSON could not be generated':
+                        details = response.get('details', '')
+                        if details:
+                            import json
+                            try:
+                                # Remove byte string prefix if present (b'...')
+                                if isinstance(details, str) and details.startswith("b'"):
+                                    details = details[2:-1]  # Remove b' and trailing '
+                                response = json.loads(details)
+                            except (json.JSONDecodeError, Exception):
+                                pass  # Keep original response if parsing fails
 
                     if response and isinstance(response, dict):
                         # Handle both boolean True and string "true"
@@ -4970,12 +4984,26 @@ elif section == "🔀 Team Merge Manager":
                                                 'p_merge_reason': f"AI suggestion ({conf:.0%} confidence)"
                                             })
                                         )
-                                        # Check if RPC returned success - handle list wrapper
+                                        # Check if RPC returned success - handle list and wrapped responses
                                         response = result.data
                                         if isinstance(response, list) and len(response) > 0:
                                             response = response[0]
-                                        if response and isinstance(response, dict) and response.get('success') != True:
-                                            st.error(f"❌ Merge failed: {response.get('error', 'Unknown error')}")
+                                        # Handle Supabase wrapping JSONB in error-like object
+                                        if isinstance(response, dict) and response.get('message') == 'JSON could not be generated':
+                                            details = response.get('details', '')
+                                            if details:
+                                                import json
+                                                try:
+                                                    if isinstance(details, str) and details.startswith("b'"):
+                                                        details = details[2:-1]
+                                                    response = json.loads(details)
+                                                except:
+                                                    pass
+                                        # Check success
+                                        success_val = response.get('success') if isinstance(response, dict) else None
+                                        is_success = success_val == True or success_val == 'true' or str(success_val).lower() == 'true'
+                                        if not is_success:
+                                            st.error(f"❌ Merge failed: {response.get('error', 'Unknown error') if isinstance(response, dict) else response}")
                                         else:
                                             st.session_state.dismissed_suggestions.add(s['key'])
                                             # Check for already_merged case
@@ -5006,12 +5034,26 @@ elif section == "🔀 Team Merge Manager":
                                                 'p_merge_reason': f"AI suggestion ({conf:.0%} confidence)"
                                             })
                                         )
-                                        # Check if RPC returned success - handle list wrapper
+                                        # Check if RPC returned success - handle list and wrapped responses
                                         response = result.data
                                         if isinstance(response, list) and len(response) > 0:
                                             response = response[0]
-                                        if response and isinstance(response, dict) and response.get('success') != True:
-                                            st.error(f"❌ Merge failed: {response.get('error', 'Unknown error')}")
+                                        # Handle Supabase wrapping JSONB in error-like object
+                                        if isinstance(response, dict) and response.get('message') == 'JSON could not be generated':
+                                            details = response.get('details', '')
+                                            if details:
+                                                import json
+                                                try:
+                                                    if isinstance(details, str) and details.startswith("b'"):
+                                                        details = details[2:-1]
+                                                    response = json.loads(details)
+                                                except:
+                                                    pass
+                                        # Check success
+                                        success_val = response.get('success') if isinstance(response, dict) else None
+                                        is_success = success_val == True or success_val == 'true' or str(success_val).lower() == 'true'
+                                        if not is_success:
+                                            st.error(f"❌ Merge failed: {response.get('error', 'Unknown error') if isinstance(response, dict) else response}")
                                         else:
                                             st.session_state.dismissed_suggestions.add(s['key'])
                                             # Check for already_merged case
