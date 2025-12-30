@@ -4496,8 +4496,15 @@ elif section == "🔀 Team Merge Manager":
                             merge_id = response.get('merge_id', 'unknown')
                             games_affected = response.get('games_affected', 0)
                             aliases_updated = response.get('aliases_updated', 0)
+                            cascaded_teams = response.get('cascaded_teams', 0)
                             st.success(f"✅ Successfully merged teams! Merge ID: {merge_id}")
-                            st.info(f"📊 Games affected: {games_affected} | Aliases updated: {aliases_updated}")
+                            stats_msg = f"📊 Games affected: {games_affected} | Aliases updated: {aliases_updated}"
+                            if cascaded_teams > 0:
+                                stats_msg += f" | Cascaded merges: {cascaded_teams}"
+                                st.info(stats_msg)
+                                st.caption(f"ℹ️ {cascaded_teams} team(s) that were merged into the deprecated team have been automatically re-pointed to the new canonical team.")
+                            else:
+                                st.info(stats_msg)
                             st.balloons()
                         else:
                             error_msg = response.get('error', 'Unknown error')
@@ -4954,7 +4961,11 @@ elif section == "🔀 Team Merge Manager":
                                             st.error(f"❌ Merge failed: {response.get('error', 'Unknown error')}")
                                         else:
                                             st.session_state.dismissed_suggestions.add(s['key'])
-                                            st.session_state.last_merge_success = f"✅ Merged! {s['team_a_name']} → {s['team_b_name']}"
+                                            cascaded = response.get('cascaded_teams', 0) if isinstance(response, dict) else 0
+                                            msg = f"✅ Merged! {s['team_a_name']} → {s['team_b_name']}"
+                                            if cascaded > 0:
+                                                msg += f" (cascaded {cascaded} incoming merge(s))"
+                                            st.session_state.last_merge_success = msg
                                             st.rerun()
                                     except Exception as e:
                                         st.error(f"❌ Merge failed: {e}")
@@ -4982,7 +4993,11 @@ elif section == "🔀 Team Merge Manager":
                                             st.error(f"❌ Merge failed: {response.get('error', 'Unknown error')}")
                                         else:
                                             st.session_state.dismissed_suggestions.add(s['key'])
-                                            st.session_state.last_merge_success = f"✅ Merged! {s['team_b_name']} → {s['team_a_name']}"
+                                            cascaded = response.get('cascaded_teams', 0) if isinstance(response, dict) else 0
+                                            msg = f"✅ Merged! {s['team_b_name']} → {s['team_a_name']}"
+                                            if cascaded > 0:
+                                                msg += f" (cascaded {cascaded} incoming merge(s))"
+                                            st.session_state.last_merge_success = msg
                                             st.rerun()
                                     except Exception as e:
                                         st.error(f"❌ Merge failed: {e}")
