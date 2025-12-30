@@ -659,7 +659,7 @@ class TGSGameMatcher(GameHistoryMatcher):
                 # Use 'direct_id' if provider_team_id exists (like GotSport/Modular11)
                 # This ensures consistent matching behavior across providers
                 match_method = 'direct_id' if provider_team_id else 'import'
-                
+
                 self._create_alias(
                     provider_id=provider_id,
                     provider_team_id=provider_team_id,
