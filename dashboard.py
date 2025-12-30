@@ -4487,12 +4487,20 @@ elif section == "🔀 Team Merge Manager":
                     # RPC returns JSONB: {"success": true/false, "merge_id": "...", "error": "..."}
                     # Supabase may wrap result in a list, so extract first element if needed
                     response = result.data
+
+                    # Debug: Show raw response to diagnose issues
+                    with st.expander("🔍 Debug: Raw RPC Response", expanded=False):
+                        st.json(response)
+
                     if isinstance(response, list) and len(response) > 0:
                         response = response[0]
 
                     if response and isinstance(response, dict):
-                        # Explicitly check success == True (not just truthy)
-                        if response.get('success') == True:
+                        # Handle both boolean True and string "true"
+                        success_val = response.get('success')
+                        is_success = success_val == True or success_val == 'true' or str(success_val).lower() == 'true'
+
+                        if is_success:
                             # Check if this was an idempotent "already merged" case
                             if response.get('already_merged'):
                                 st.info(f"ℹ️ {response.get('message', 'Team is already merged to this canonical team')}")
