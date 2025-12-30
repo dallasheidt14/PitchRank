@@ -542,6 +542,78 @@ class TGSGameMatcher(GameHistoryMatcher):
             logger.error(f"TGS fuzzy match error: {e}")
             return None
     
+    def _match_by_provider_id(
+        self,
+        provider_id: str,
+        provider_team_id: str,
+        age_group: Optional[str] = None,
+        gender: Optional[str] = None
+    ) -> Optional[Dict]:
+        """
+        Override base method to skip age_group validation for TGS.
+        
+        Unlike Modular11 where the same provider_team_id (club_id) is used for multiple
+        age groups, TGS provider_team_id is unique per team. Therefore, we don't need
+        age_group validation - if the provider_team_id matches, it's the correct team.
+        
+        This prevents valid matches from being rejected due to:
+        - Year rollover (U13 → U14)
+        - Age group data inconsistencies
+        - Teams playing up/down age groups
+        """
+        if not provider_team_id:
+            return None
+        
+        team_id_str = str(provider_team_id)
+        
+        # Check cache first (if available)
+        if self.alias_cache and team_id_str in self.alias_cache:
+            cached = self.alias_cache[team_id_str]
+            # Skip age_group validation for TGS - provider_team_id is unique per team
+            if cached.get('match_method') == 'direct_id':
+                return {
+                    'team_id_master': cached['team_id_master'],
+                    'review_status': cached.get('review_status', 'approved'),
+                    'match_method': 'direct_id'
+                }
+            # Fallback to any cached match
+            return {
+                'team_id_master': cached['team_id_master'],
+                'review_status': cached.get('review_status', 'approved'),
+                'match_method': cached.get('match_method')
+            }
+        
+        # Tier 1: Direct ID match (from team importer)
+        try:
+            result = self.db.table('team_alias_map').select(
+                'team_id_master, review_status, match_method'
+            ).eq('provider_id', provider_id).eq(
+                'provider_team_id', team_id_str
+            ).eq('match_method', 'direct_id').eq(
+                'review_status', 'approved'
+            ).single().execute()
+            
+            if result.data:
+                # Skip age_group validation for TGS - provider_team_id is unique
+                return result.data
+        except Exception as e:
+            logger.debug(f"No direct_id match found: {e}")
+        
+        # Tier 2: Any approved alias map entry (fallback)
+        try:
+            result = self.db.table('team_alias_map').select(
+                'team_id_master, review_status, match_method'
+            ).eq('provider_id', provider_id).eq(
+                'provider_team_id', team_id_str
+            ).eq('review_status', 'approved').single().execute()
+            
+            if result.data:
+                # Skip age_group validation for TGS - provider_team_id is unique
+                return result.data
+        except Exception as e:
+            logger.debug(f"No alias map match found: {e}")
+        return None
+    
     def _match_team(
         self,
         provider_id: str,
@@ -584,14 +656,16 @@ class TGSGameMatcher(GameHistoryMatcher):
                 )
                 
                 # Create alias for new team
-                # Use 'direct_id' when we have a provider_team_id for Tier 1 matching
-                alias_match_method = 'direct_id' if provider_team_id else 'import'
+                # Use 'direct_id' if provider_team_id exists (like GotSport/Modular11)
+                # This ensures consistent matching behavior across providers
+                match_method = 'direct_id' if provider_team_id else 'import'
+
                 self._create_alias(
                     provider_id=provider_id,
                     provider_team_id=provider_team_id,
                     team_name=team_name,
                     team_id_master=new_team_id,
-                    match_method=alias_match_method,
+                    match_method=match_method,
                     confidence=1.0,  # New team = 100% confidence
                     age_group=age_group,
                     gender=gender,
@@ -605,7 +679,7 @@ class TGSGameMatcher(GameHistoryMatcher):
                 return {
                     'matched': True,
                     'team_id': new_team_id,
-                    'method': 'import',
+                    'method': match_method,  # Use same method as alias creation
                     'confidence': 1.0
                 }
             except Exception as e:
