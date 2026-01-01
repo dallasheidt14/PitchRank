@@ -1,9 +1,69 @@
 /**
  * Google Analytics 4 helpers
  * Core utilities for tracking events and page views
+ * Includes AI search referral tracking for 2026 optimization
  */
 
 // gtag type is declared in types/gtag.d.ts
+
+/**
+ * AI Search Platform Referrers
+ * Used to identify traffic from AI search engines and assistants
+ */
+export const AI_REFERRERS = {
+  chatgpt: ['chat.openai.com', 'chatgpt.com'],
+  perplexity: ['perplexity.ai', 'www.perplexity.ai'],
+  claude: ['claude.ai', 'www.claude.ai'],
+  gemini: ['gemini.google.com', 'bard.google.com'],
+  copilot: ['copilot.microsoft.com', 'bing.com/chat'],
+  you: ['you.com'],
+  phind: ['phind.com', 'www.phind.com'],
+} as const;
+
+export type AIReferrerSource = keyof typeof AI_REFERRERS;
+
+/**
+ * Detect if the referrer is from an AI search platform
+ * @returns The AI platform name or null if not from AI
+ */
+export function detectAIReferrer(): AIReferrerSource | null {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return null;
+  }
+
+  const referrer = document.referrer.toLowerCase();
+  if (!referrer) return null;
+
+  for (const [platform, domains] of Object.entries(AI_REFERRERS)) {
+    if (domains.some((domain) => referrer.includes(domain))) {
+      return platform as AIReferrerSource;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Track AI referral source on page load
+ * Call this once on initial page load to capture AI traffic source
+ */
+export function trackAIReferral(): void {
+  const aiSource = detectAIReferrer();
+  if (aiSource) {
+    gtagEvent('ai_referral', {
+      ai_platform: aiSource,
+      referrer_url: document.referrer,
+      landing_page: window.location.pathname,
+    });
+
+    // Also set as user property for cohort analysis
+    if (typeof window !== 'undefined' && window.gtag) {
+      window.gtag('set', 'user_properties', {
+        ai_traffic_source: aiSource,
+      });
+    }
+  }
+}
 
 /**
  * Check if analytics is available and not in development mode

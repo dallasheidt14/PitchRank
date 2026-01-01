@@ -7,6 +7,7 @@ import { RankingsTable } from '@/components/RankingsTable';
 import { RankingsTableSkeleton } from '@/components/skeletons/RankingsTableSkeleton';
 import { ShareButtons } from '@/components/ShareButtons';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
+import { RankingsPageSchema } from '@/components/RankingsPageSchema';
 import { US_STATES } from '@/lib/constants';
 
 interface RankingsPageContentProps {
@@ -15,6 +16,10 @@ interface RankingsPageContentProps {
   gender: string;
 }
 
+/**
+ * Rankings page content with AI search optimization
+ * Includes structured data for better LLM retrieval and citation
+ */
 export function RankingsPageContent({ region, ageGroup, gender }: RankingsPageContentProps) {
   // Convert gender from URL format (lowercase) to API format (single letter)
   const genderForAPI = gender
@@ -38,6 +43,9 @@ export function RankingsPageContent({ region, ageGroup, gender }: RankingsPageCo
 
   return (
     <div className="container mx-auto py-8 px-4">
+      {/* AI Search Optimization: Structured data for LLM retrieval */}
+      <RankingsPageSchema region={region} ageGroup={ageGroup} gender={gender} />
+
       <Breadcrumbs />
 
       <PageHeader

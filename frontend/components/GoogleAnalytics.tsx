@@ -2,7 +2,8 @@
 
 import { usePathname, useSearchParams } from 'next/navigation';
 import Script from 'next/script';
-import { useEffect, Suspense } from 'react';
+import { useEffect, Suspense, useRef } from 'react';
+import { trackAIReferral } from '@/lib/analytics';
 
 interface GoogleAnalyticsProps {
   measurementId?: string;
@@ -13,10 +14,26 @@ interface GoogleAnalyticsProps {
 /**
  * Google Analytics component (internal - uses useSearchParams)
  * Must be wrapped in Suspense when used
+ * Includes AI search referral tracking (ChatGPT, Perplexity, Claude, Gemini, etc.)
  */
 function GoogleAnalyticsContent({ measurementId }: GoogleAnalyticsProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const hasTrackedAIReferral = useRef(false);
+
+  // Track AI referral source on initial load (once per session)
+  useEffect(() => {
+    if (!measurementId || process.env.NODE_ENV === 'development') {
+      return;
+    }
+
+    // Only track AI referral once per session
+    if (!hasTrackedAIReferral.current && window.gtag) {
+      hasTrackedAIReferral.current = true;
+      // Small delay to ensure GA is fully initialized
+      setTimeout(() => trackAIReferral(), 100);
+    }
+  }, [measurementId]);
 
   // Track page views on route change
   useEffect(() => {
