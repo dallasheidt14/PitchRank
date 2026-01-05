@@ -96,8 +96,12 @@ jobs:
             echo "Including teams scraped within last 7 days"
           fi
 
-          # Add concurrency
-          CMD="$CMD --concurrency ${{ inputs.concurrency }}"
+          # Add concurrency (default to 30 for scheduled runs where inputs aren't available)
+          CONCURRENCY="${{ inputs.concurrency }}"
+          if [ -z "$CONCURRENCY" ]; then
+            CONCURRENCY="30"
+          fi
+          CMD="$CMD --concurrency $CONCURRENCY"
 
           echo "Command: $CMD"
           echo "command=$CMD" >> $GITHUB_OUTPUT
