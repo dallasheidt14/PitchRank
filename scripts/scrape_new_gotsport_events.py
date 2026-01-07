@@ -554,13 +554,30 @@ def load_scraped_events(file_path: Path) -> Set[str]:
     """Load list of already-scraped event IDs"""
     if not file_path.exists():
         return set()
-    
+
     try:
         with open(file_path, 'r') as f:
             data = json.load(f)
             return set(data.get('scraped_event_ids', []))
     except Exception as e:
         logger.warning(f"Error loading scraped events: {e}")
+        return set()
+
+
+def load_blocked_events(file_path: Path) -> Set[str]:
+    """Load list of blocked event IDs that should never be scraped"""
+    if not file_path.exists():
+        return set()
+
+    try:
+        with open(file_path, 'r') as f:
+            data = json.load(f)
+            blocked = set(data.get('blocked_event_ids', []))
+            if blocked:
+                logger.info(f"Loaded {len(blocked)} blocked events")
+            return blocked
+    except Exception as e:
+        logger.warning(f"Error loading blocked events: {e}")
         return set()
 
 
@@ -608,8 +625,13 @@ def scrape_new_events(
     
     scraped_events_path = Path(scraped_events_file)
     scraped_event_ids = load_scraped_events(scraped_events_path)
-    
-    console.print(f"[dim]Already scraped {len(scraped_event_ids)} events[/dim]\n")
+    blocked_event_ids = load_blocked_events(scraped_events_path)
+
+    console.print(f"[dim]Already scraped {len(scraped_event_ids)} events[/dim]")
+    if blocked_event_ids:
+        console.print(f"[dim]Blocked {len(blocked_event_ids)} problematic events[/dim]\n")
+    else:
+        console.print()
     
     # Step 1: Discover new events
     console.print("[bold cyan]Step 1: Discovering New Events[/bold cyan]")
@@ -639,6 +661,9 @@ def scrape_new_events(
         scraper = GotSportEventScraper(supabase, 'gotsport')
         
         for event_id in manual_event_ids:
+            if event_id in blocked_event_ids:
+                console.print(f"  [yellow]⚠️ Skipping blocked event {event_id}[/yellow]")
+                continue
             if event_id not in scraped_event_ids:
                 # Try to get event info
                 try:
@@ -687,9 +712,17 @@ def scrape_new_events(
                     logger.warning(f"Error adding manual event {event_id}: {e}")
                     console.print(f"  [red]❌ Error adding event {event_id}: {e}[/red]")
     
-    # Filter to only new events
-    new_events = [e for e in all_events if e['event_id'] not in scraped_event_ids]
-    
+    # Filter to only new events (excluding scraped and blocked events)
+    excluded_event_ids = scraped_event_ids | blocked_event_ids
+    new_events = [e for e in all_events if e['event_id'] not in excluded_event_ids]
+
+    # Log any blocked events that were filtered out
+    blocked_in_discovery = [e for e in all_events if e['event_id'] in blocked_event_ids]
+    if blocked_in_discovery:
+        console.print(f"[yellow]⚠️ Skipped {len(blocked_in_discovery)} blocked events[/yellow]")
+        for event in blocked_in_discovery:
+            console.print(f"  [dim]- {event['event_id']}: {event['event_name']}[/dim]")
+
     console.print(f"[green]✅ Found {len(new_events)} new events (out of {len(all_events)} total)[/green]\n")
     
     if not new_events:
