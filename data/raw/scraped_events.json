@@ -1,0 +1,12 @@
+{
+  "scraped_event_ids": [
+    "44162"
+  ],
+  "blocked_event_ids": [
+    "44162"
+  ],
+  "blocked_event_notes": {
+    "44162": "Event has team ID collisions - team IDs reused from other contexts"
+  },
+  "last_updated": "2026-01-07T00:00:00"
+}

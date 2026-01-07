@@ -5,6 +5,7 @@
 
 # Data files
 data/raw/
+!data/raw/scraped_events.json
 data/processed/
 data/cache/
 *.csv
