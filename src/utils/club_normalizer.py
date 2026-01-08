@@ -555,6 +555,8 @@ def normalize_club_name(
     name: str,
     remove_age_group: bool = True,
     remove_location: bool = True,
+    strip_suffixes: bool = False,
+    strip_prefixes: bool = False,
 ) -> str:
     """
     Normalize a club name to a canonical form.
@@ -565,8 +567,8 @@ def normalize_club_name(
     3. Remove location suffixes (- AZ, - California, etc.)
     4. Remove punctuation
     5. Expand city abbreviations (PHX -> Phoenix)
-    6. Strip common suffixes (FC, SC, Soccer Club, etc.)
-    7. Strip common prefixes (FC, SC, etc.)
+    6. Strip common suffixes (FC, SC, Soccer Club, etc.) - DISABLED by default
+    7. Strip common prefixes (FC, SC, etc.) - DISABLED by default
     8. Final whitespace normalization
 
     Returns the normalized name in lowercase.
@@ -591,11 +593,13 @@ def normalize_club_name(
     # Step 5: Expand city abbreviations
     result = _expand_city_abbreviations(result)
 
-    # Step 6: Strip suffixes
-    result = _strip_suffixes(result)
+    # Step 6: Strip suffixes (disabled by default)
+    if strip_suffixes:
+        result = _strip_suffixes(result)
 
-    # Step 7: Strip prefixes
-    result = _strip_prefixes(result)
+    # Step 7: Strip prefixes (disabled by default)
+    if strip_prefixes:
+        result = _strip_prefixes(result)
 
     # Step 8: Final whitespace normalization
     result = ' '.join(result.split())
