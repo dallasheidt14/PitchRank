@@ -98,6 +98,11 @@ class ClubNormResult:
     confidence: float     # 0.0-1.0, how confident we are in the match
     matched_canonical: bool  # True if matched to a known canonical club
 
+    @property
+    def needs_review(self) -> bool:
+        """True if this match should be manually reviewed (not 100% confident)"""
+        return not self.matched_canonical or self.confidence < 1.0
+
 
 # =============================================================================
 # ABBREVIATION MAPPINGS
@@ -831,6 +836,46 @@ def group_by_club(
                 groups[result.club_id] = []
             groups[result.club_id].append(name)
     return groups
+
+
+def get_matches_needing_review(
+    names: List[str],
+    fuzzy_threshold: float = 0.85
+) -> List[ClubNormResult]:
+    """
+    Get all matches that need manual review (not 100% confident).
+
+    A match needs review if:
+    - It didn't match a known canonical club, OR
+    - The confidence score is less than 1.0 (fuzzy match)
+
+    Args:
+        names: List of raw club name strings
+        fuzzy_threshold: Minimum similarity for fuzzy matching
+
+    Returns:
+        List of ClubNormResult objects that need review
+    """
+    results = normalize_club_names_batch(names, fuzzy_threshold)
+    return [r for r in results if r.needs_review]
+
+
+def get_confident_matches(
+    names: List[str],
+    fuzzy_threshold: float = 0.85
+) -> List[ClubNormResult]:
+    """
+    Get all matches that are 100% confident (exact canonical matches).
+
+    Args:
+        names: List of raw club name strings
+        fuzzy_threshold: Minimum similarity for fuzzy matching
+
+    Returns:
+        List of ClubNormResult objects that are confident
+    """
+    results = normalize_club_names_batch(names, fuzzy_threshold)
+    return [r for r in results if not r.needs_review]
 
 
 # =============================================================================
