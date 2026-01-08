@@ -11,6 +11,18 @@ from dataclasses import dataclass
 from supabase import Client
 from config.settings import MATCHING_CONFIG
 
+# Import club normalizer for enhanced club name matching
+try:
+    from src.utils.club_normalizer import (
+        normalize_club_name as normalize_club,
+        normalize_to_club,
+        are_same_club,
+        similarity_score as club_similarity_score,
+    )
+    HAVE_CLUB_NORMALIZER = True
+except ImportError:
+    HAVE_CLUB_NORMALIZER = False
+
 logger = logging.getLogger(__name__)
 
 # UUID namespace for deterministic game UIDs
@@ -731,62 +743,67 @@ class GameHistoryMatcher:
         
         if provider_club and candidate_club:
             # Both club names present - calculate similarity with smart normalization
-            from rapidfuzz import fuzz
-            
-            def normalize_club_name(name):
-                """Normalize club name by removing common suffixes/prefixes"""
-                name_lower = name.lower().strip()
-                
-                # Remove common suffixes (FC, SC, SA, etc.)
-                suffixes_to_strip = [' sa', ' sc', ' fc', ' cf', ' ac', ' afc', 
-                                     ' soccer club', ' football club', ' soccer academy', 
-                                     ' futbol club', ' athletic club', ' soccer', ' academy']
-                for suffix in sorted(suffixes_to_strip, key=len, reverse=True):
-                    if name_lower.endswith(suffix):
-                        name_lower = name_lower[:-len(suffix)].strip()
-                        break
-                
-                # Remove common prefixes (FC, CF, etc.)
-                prefixes_to_strip = ['fc ', 'cf ', 'ac ', 'afc ']
-                for prefix in prefixes_to_strip:
-                    if name_lower.startswith(prefix):
-                        name_lower = name_lower[len(prefix):].strip()
-                        break
-                
-                return name_lower
-            
-            provider_club_norm = normalize_club_name(provider_club)
-            candidate_club_norm = normalize_club_name(candidate_club)
-            
-            # Multiple matching strategies, take the best
-            scores = []
-            
-            # 1. Direct match after normalization (highest priority)
-            if provider_club_norm == candidate_club_norm:
-                scores.append(1.0)
-            
-            # 2. Partial ratio (handles "IMG" vs "IMG Academy")
-            scores.append(fuzz.partial_ratio(provider_club_norm, candidate_club_norm) / 100.0)
-            
-            # 3. Token set ratio (handles word reordering)
-            scores.append(fuzz.token_set_ratio(provider_club_norm, candidate_club_norm) / 100.0)
-            
-            # 4. One contains the other entirely
-            if provider_club_norm in candidate_club_norm or candidate_club_norm in provider_club_norm:
-                scores.append(0.95)
-            
-            # 5. First word match (strong signal for club identity)
-            if provider_club_norm.split() and candidate_club_norm.split():
-                first_word_match = fuzz.ratio(
-                    provider_club_norm.split()[0], 
-                    candidate_club_norm.split()[0]
-                ) / 100.0
-                if first_word_match >= 0.9:
-                    scores.append(0.9)
-            
-            club_similarity = max(scores)
+            if HAVE_CLUB_NORMALIZER:
+                # Use enhanced club normalizer module
+                provider_result = normalize_to_club(provider_club)
+                candidate_result = normalize_to_club(candidate_club)
+
+                # If both match to canonical clubs, compare club_ids
+                if provider_result.matched_canonical and candidate_result.matched_canonical:
+                    if provider_result.club_id == candidate_result.club_id:
+                        club_similarity = 1.0
+                    else:
+                        # Different canonical clubs
+                        club_similarity = 0.0
+                else:
+                    # Use similarity score from normalizer
+                    club_similarity = club_similarity_score(provider_club, candidate_club)
+            else:
+                # Fallback to basic normalization
+                from rapidfuzz import fuzz
+
+                def normalize_club_name_basic(name):
+                    """Basic normalize club name by removing common suffixes/prefixes"""
+                    name_lower = name.lower().strip()
+
+                    suffixes_to_strip = [' sa', ' sc', ' fc', ' cf', ' ac', ' afc',
+                                         ' soccer club', ' football club', ' soccer academy',
+                                         ' futbol club', ' athletic club', ' soccer', ' academy']
+                    for suffix in sorted(suffixes_to_strip, key=len, reverse=True):
+                        if name_lower.endswith(suffix):
+                            name_lower = name_lower[:-len(suffix)].strip()
+                            break
+
+                    prefixes_to_strip = ['fc ', 'cf ', 'ac ', 'afc ']
+                    for prefix in prefixes_to_strip:
+                        if name_lower.startswith(prefix):
+                            name_lower = name_lower[len(prefix):].strip()
+                            break
+
+                    return name_lower
+
+                provider_club_norm = normalize_club_name_basic(provider_club)
+                candidate_club_norm = normalize_club_name_basic(candidate_club)
+
+                scores = []
+                if provider_club_norm == candidate_club_norm:
+                    scores.append(1.0)
+                scores.append(fuzz.partial_ratio(provider_club_norm, candidate_club_norm) / 100.0)
+                scores.append(fuzz.token_set_ratio(provider_club_norm, candidate_club_norm) / 100.0)
+                if provider_club_norm in candidate_club_norm or candidate_club_norm in provider_club_norm:
+                    scores.append(0.95)
+                if provider_club_norm.split() and candidate_club_norm.split():
+                    first_word_match = fuzz.ratio(
+                        provider_club_norm.split()[0],
+                        candidate_club_norm.split()[0]
+                    ) / 100.0
+                    if first_word_match >= 0.9:
+                        scores.append(0.9)
+
+                club_similarity = max(scores) if scores else 0.0
+
             club_score = club_similarity * weights['club']
-            
+
             # Boost for high confidence clubs
             if club_similarity >= 0.90:
                 club_boost = MATCHING_CONFIG.get('club_boost_identical', 0.05)
