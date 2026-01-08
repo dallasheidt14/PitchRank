@@ -11,17 +11,17 @@ from dataclasses import dataclass
 from supabase import Client
 from config.settings import MATCHING_CONFIG
 
-# Import club normalizer for enhanced club name matching
-try:
-    from src.utils.club_normalizer import (
-        normalize_club_name as normalize_club,
-        normalize_to_club,
-        are_same_club,
-        similarity_score as club_similarity_score,
-    )
-    HAVE_CLUB_NORMALIZER = True
-except ImportError:
-    HAVE_CLUB_NORMALIZER = False
+# Club normalizer integration DISABLED - use audit script instead
+# To enable: change HAVE_CLUB_NORMALIZER = False to True below
+HAVE_CLUB_NORMALIZER = False  # Disabled - normalizer used for auditing only
+
+# Keeping import commented out for reference:
+# from src.utils.club_normalizer import (
+#     normalize_club_name as normalize_club,
+#     normalize_to_club,
+#     are_same_club,
+#     similarity_score as club_similarity_score,
+# )
 
 logger = logging.getLogger(__name__)
 
