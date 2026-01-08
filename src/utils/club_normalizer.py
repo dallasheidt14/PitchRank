@@ -249,100 +249,131 @@ AGE_GROUP_PATTERN = re.compile(
 # CANONICAL CLUB REGISTRY
 # =============================================================================
 
-# Known canonical clubs with their variations
+# Known canonical clubs with their variations (including common abbreviations)
 # Format: 'canonical_name': ['variation1', 'variation2', ...]
+# IMPORTANT: Include common abbreviations like PRFC, LAFC, ATLUTD, etc.
 CANONICAL_CLUBS: Dict[str, List[str]] = {
     # MLS Clubs
     'PHOENIX RISING': [
         'phoenix rising', 'phx rising', 'phoenix rising fc',
-        'phoenix rising soccer club', 'pr fc', 'prfc'
+        'phoenix rising soccer club', 'pr fc', 'prfc', 'phxrfc',
+        'phoenix rising sc', 'prsc'
     ],
     'LA GALAXY': [
-        'la galaxy', 'los angeles galaxy', 'galaxy', 'lag'
+        'la galaxy', 'los angeles galaxy', 'galaxy', 'lag', 'lagalaxy',
+        'la galaxy fc', 'galaxy fc', 'galaxy sc'
     ],
     'FC DALLAS': [
-        'fc dallas', 'dallas fc', 'fcd', 'dallas'
+        'fc dallas', 'dallas fc', 'fcd', 'dallas', 'fcdallas',
+        'dallas sc', 'dal fc'
     ],
     'SPORTING KC': [
-        'sporting kc', 'sporting kansas city', 'skc', 'kansas city'
+        'sporting kc', 'sporting kansas city', 'skc', 'kansas city',
+        'sporting', 'kc sporting', 'sportingkc'
     ],
     'REAL SALT LAKE': [
-        'real salt lake', 'rsl', 'salt lake'
+        'real salt lake', 'rsl', 'salt lake', 'real sl',
+        'rsl fc', 'salt lake fc', 'slc fc'
     ],
     'SEATTLE SOUNDERS': [
-        'seattle sounders', 'sounders fc', 'sounders', 'seattle sounders fc'
+        'seattle sounders', 'sounders fc', 'sounders', 'seattle sounders fc',
+        'ssfc', 'sea sounders', 'seattle fc'
     ],
     'PORTLAND TIMBERS': [
-        'portland timbers', 'timbers', 'timbers fc'
+        'portland timbers', 'timbers', 'timbers fc', 'ptfc',
+        'portland fc', 'pdx timbers'
     ],
     'COLORADO RAPIDS': [
-        'colorado rapids', 'rapids', 'rapids fc'
+        'colorado rapids', 'rapids', 'rapids fc', 'col rapids',
+        'colorado fc', 'corap'
     ],
     'AUSTIN FC': [
-        'austin fc', 'austin', 'afc austin'
+        'austin fc', 'austin', 'afc austin', 'atxfc', 'atx fc',
+        'austin football club', 'austinfc'
     ],
     'HOUSTON DYNAMO': [
-        'houston dynamo', 'dynamo', 'houston dynamo fc'
+        'houston dynamo', 'dynamo', 'houston dynamo fc', 'hdfc',
+        'hou dynamo', 'dynamo fc', 'houston fc'
     ],
     'MINNESOTA UNITED': [
-        'minnesota united', 'mn united', 'mnufc', 'loons'
+        'minnesota united', 'mn united', 'mnufc', 'loons',
+        'minnesota utd', 'minn united', 'minnesota fc'
     ],
     'ATLANTA UNITED': [
-        'atlanta united', 'atl united', 'atlutd', 'atlanta utd'
+        'atlanta united', 'atl united', 'atlutd', 'atlanta utd',
+        'atl utd', 'aufc', 'atlanta united fc', 'atlunitedfc'
     ],
     'INTER MIAMI': [
-        'inter miami', 'inter miami cf', 'miami'
+        'inter miami', 'inter miami cf', 'miami', 'imcf',
+        'miami fc', 'inter miami fc', 'mia inter'
     ],
     'ORLANDO CITY': [
-        'orlando city', 'orlando city sc', 'ocsc', 'orlando'
+        'orlando city', 'orlando city sc', 'ocsc', 'orlando',
+        'orl city', 'orlando sc', 'orlandocity'
     ],
     'NASHVILLE SC': [
-        'nashville sc', 'nashville', 'nsc'
+        'nashville sc', 'nashville', 'nsc', 'nashvillesc',
+        'nash sc', 'nashville fc'
     ],
     'CHARLOTTE FC': [
-        'charlotte fc', 'charlotte', 'cltfc'
+        'charlotte fc', 'charlotte', 'cltfc', 'cfc',
+        'charlotte football club', 'charlottefc', 'clt fc'
     ],
     'DC UNITED': [
-        'dc united', 'd.c. united', 'dcu', 'washington dc united'
+        'dc united', 'd.c. united', 'dcu', 'washington dc united',
+        'dcunited', 'dc utd', 'dcfc', 'washington united'
     ],
     'NEW YORK RED BULLS': [
-        'new york red bulls', 'ny red bulls', 'red bulls', 'nyrb', 'rbny'
+        'new york red bulls', 'ny red bulls', 'red bulls', 'nyrb', 'rbny',
+        'nyredbulls', 'new york rb', 'nyrb fc'
     ],
     'NYCFC': [
-        'nycfc', 'new york city fc', 'nyc fc', 'new york city'
+        'nycfc', 'new york city fc', 'nyc fc', 'new york city',
+        'ny city fc', 'newyorkcityfc', 'nyfc'
     ],
     'NEW ENGLAND REVOLUTION': [
-        'new england revolution', 'revolution', 'revs', 'ne revolution'
+        'new england revolution', 'revolution', 'revs', 'ne revolution',
+        'nerevs', 'new england revs', 'ner', 'ne revs'
     ],
     'PHILADELPHIA UNION': [
-        'philadelphia union', 'philly union', 'union', 'phl union'
+        'philadelphia union', 'philly union', 'union', 'phl union',
+        'phila union', 'phi union', 'philaunion', 'doop'
     ],
     'CHICAGO FIRE': [
-        'chicago fire', 'fire fc', 'chicago fire fc', 'cf97'
+        'chicago fire', 'fire fc', 'chicago fire fc', 'cf97',
+        'cffc', 'chi fire', 'chifire'
     ],
     'COLUMBUS CREW': [
-        'columbus crew', 'crew', 'crew sc', 'the crew'
+        'columbus crew', 'crew', 'crew sc', 'the crew',
+        'colcrew', 'cbus crew', 'columbus sc'
     ],
     'CINCINNATI FC': [
-        'fc cincinnati', 'cincinnati fc', 'fcc', 'cincy'
+        'fc cincinnati', 'cincinnati fc', 'fcc', 'cincy',
+        'cincinatti fc', 'cinci fc', 'fccincy'
     ],
     'TORONTO FC': [
-        'toronto fc', 'tfc', 'toronto'
+        'toronto fc', 'tfc', 'toronto', 'tor fc',
+        'torontofc', 'toronto football club'
     ],
     'CF MONTREAL': [
-        'cf montreal', 'montreal', 'cfm', 'montreal impact', 'impact'
+        'cf montreal', 'montreal', 'cfm', 'montreal impact', 'impact',
+        'cfmontreal', 'mtl fc', 'montreal fc'
     ],
     'VANCOUVER WHITECAPS': [
-        'vancouver whitecaps', 'whitecaps', 'whitecaps fc', 'vwfc'
+        'vancouver whitecaps', 'whitecaps', 'whitecaps fc', 'vwfc',
+        'van whitecaps', 'vancouver fc', 'vanwfc'
     ],
     'SAN JOSE EARTHQUAKES': [
-        'san jose earthquakes', 'earthquakes', 'quakes', 'sj earthquakes'
+        'san jose earthquakes', 'earthquakes', 'quakes', 'sj earthquakes',
+        'sjeq', 'san jose fc', 'sjquakes'
     ],
     'LAFC': [
-        'lafc', 'los angeles fc', 'la fc', 'los angeles football club'
+        'lafc', 'los angeles fc', 'la fc', 'los angeles football club',
+        'losangelesfc', 'la football club'
     ],
     'ST LOUIS CITY': [
-        'st louis city', 'stl city', 'st louis city sc', 'stl city sc'
+        'st louis city', 'stl city', 'st louis city sc', 'stl city sc',
+        'stlcity', 'st louis sc', 'stl sc', 'stlouiscity'
     ],
 
     # Major Youth Clubs / Academies
