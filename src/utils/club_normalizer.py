@@ -585,7 +585,7 @@ def _generate_club_id(normalized_name: str) -> str:
 def normalize_club_name(
     name: str,
     remove_age_group: bool = True,
-    remove_location: bool = True,
+    remove_location: bool = False,
     strip_suffixes: bool = False,
     strip_prefixes: bool = False,
 ) -> str:
@@ -595,7 +595,7 @@ def normalize_club_name(
     Pipeline:
     1. Basic cleaning (lowercase, strip, normalize whitespace)
     2. Remove age group suffixes (U13, 2012 Boys, etc.)
-    3. Remove location suffixes (- AZ, - California, etc.)
+    3. Remove location suffixes (- AZ, - California, etc.) - DISABLED by default
     4. Remove punctuation
     5. Expand city abbreviations (PHX -> Phoenix)
     6. Strip common suffixes (FC, SC, Soccer Club, etc.) - DISABLED by default
