@@ -502,6 +502,124 @@ CANONICAL_CLUBS: Dict[str, List[str]] = {
     'ALEXANDRIA SA': [
         'alexandria sa', 'alexandria', 'alexandria soccer'
     ],
+
+    # =========================================================================
+    # CLUBS FROM MERGE HISTORY (acronym → full name mappings)
+    # =========================================================================
+    'LOS ANGELES SC': [
+        'los angeles sc', 'lasc', 'la sc', 'los angeles soccer club'
+    ],
+    'JACKSONVILLE FC': [
+        'jacksonville fc', 'jfc', 'jax fc', 'jacksonville'
+    ],
+    'FL PREMIER FC': [
+        'fl premier fc', 'fpfc', 'florida premier fc', 'florida premier'
+    ],
+    'WOODSIDE SOCCER CLUB': [
+        'woodside soccer club', 'wsc', 'woodside sc', 'woodside'
+    ],
+    'SILICON VALLEY SA': [
+        'silicon valley soccer academy', 'svsa', 'silicon valley sa',
+        'sv soccer academy', 'silicon valley'
+    ],
+    'THE TOWN FC': [
+        'the town fc', 'ttfc', 'town fc', 'the town fc academy'
+    ],
+    'TOTAL FUTBOL ACADEMY': [
+        'total futbol academy', 'tfa', 'tfa-pro', 'tfapro', 'total futbol'
+    ],
+    'WESTERN IOWA SURF': [
+        'western iowa surf', 'wi surf', 'iowa surf'
+    ],
+    'RSL ARIZONA': [
+        'rsl arizona', 'rsl az', 'rsl arizona mesa', 'real salt lake arizona'
+    ],
+    'CEDAR STARS ACADEMY': [
+        'cedar stars academy', 'csa', 'cedar stars',
+        'cedar stars academy bergen', 'cedar stars academy monmouth',
+        'cedar stars academy newark'
+    ],
+    'ST LOUIS SCOTT GALLAGHER': [
+        'st louis scott gallagher', 'slsg', 'scott gallagher',
+        'st louis scott gallagher illinois', 'slsg illinois'
+    ],
+    'LOU FUSZ ATHLETIC': [
+        'lou fusz athletic', 'lou fusz', 'lfa', 'lou fusz athletic 2'
+    ],
+    'PDA': [
+        'players development academy', 'pda', 'pda hibernian'
+    ],
+    'FC DELCO': [
+        'fc delco', 'delco', 'delco fc'
+    ],
+    'BETHESDA SC': [
+        'bethesda sc', 'bethesda', 'bethesda soccer club'
+    ],
+    'MCLEAN YOUTH SOCCER': [
+        'mclean youth soccer', 'mys', 'mclean'
+    ],
+    'CHARLOTTE INDEPENDENCE': [
+        'charlotte independence', 'charlotte independence soccer club',
+        'clt independence', 'independence'
+    ],
+    'CHICAGO FC UNITED': [
+        'chicago fc united', 'cfcu', 'chicago fcu'
+    ],
+    'SPORTING BLUE VALLEY': [
+        'sporting blue valley', 'sbv', 'blue valley'
+    ],
+    'SPORTING OKLAHOMA': [
+        'sporting oklahoma', 'sporting ok', 'sok'
+    ],
+    'MICHIGAN WOLVES': [
+        'michigan wolves', 'mi wolves', 'wolves fc'
+    ],
+    'VARDAR SOCCER CLUB': [
+        'vardar soccer club', 'vardar', 'vardar sc'
+    ],
+    'DE ANZA FORCE': [
+        'de anza force', 'deanza force', 'de anza'
+    ],
+    'STRIKERS FC': [
+        'strikers fc', 'strikers', 'irvine strikers'
+    ],
+    'WESTON FC': [
+        'weston fc', 'weston', 'weston football club'
+    ],
+    'TAMPA BAY UNITED': [
+        'tampa bay united', 'tbu', 'tb united', 'tampa united'
+    ],
+    'FC GOLDEN STATE': [
+        'fc golden state', 'fcgs', 'golden state fc', 'fc golden state force'
+    ],
+    'SEACOAST UNITED': [
+        'seacoast united', 'seacoast', 'seacoast utd'
+    ],
+    'COPPERMINE SC': [
+        'coppermine sc', 'coppermine', 'coppermine soccer club'
+    ],
+    'TSF ACADEMY': [
+        'tsf academy', 'tsf', 'the soccer factory'
+    ],
+    'INDY ELEVEN': [
+        'indy eleven', 'indianapolis eleven', 'indy 11'
+    ],
+    'FORWARD MADISON FC': [
+        'forward madison fc', 'forward madison', 'fmfc'
+    ],
+    'SACRAMENTO REPUBLIC': [
+        'sacramento republic fc', 'sacramento republic', 'sac republic', 'srfc'
+    ],
+    'SAN DIEGO FC': [
+        'san diego fc', 'sdfc', 'sd fc'
+    ],
+    'BARCA RESIDENCY ACADEMY': [
+        'barca residency academy', 'barca residency', 'barcelona residency',
+        'barca academy usa'
+    ],
+    'DALLAS HORNETS': [
+        'dallas hornets', 'hornets', 'dallas hornets east', 'dallas hornets north'
+    ],
 }
 
 # Build reverse lookup: variation -> canonical
@@ -516,14 +634,29 @@ for canonical, variations in CANONICAL_CLUBS.items():
 # =============================================================================
 
 def _clean_basic(name: str) -> str:
-    """Basic cleaning: lowercase, strip, normalize whitespace"""
+    """Basic cleaning: lowercase, strip, normalize whitespace, remove artifacts"""
     if not name:
         return ''
+
     # Lowercase and strip
     name = name.lower().strip()
+
+    # Remove trailing "..." or "…" (truncation artifacts)
+    name = re.sub(r'\.{2,}$', '', name)
+    name = re.sub(r'…$', '', name)
+
+    # Remove content in parentheses/brackets (often meta info like "(HFA)")
+    # But keep the rest of the name
+    name = re.sub(r'\s*\([^)]*\)\s*', ' ', name)
+    name = re.sub(r'\s*\[[^\]]*\]\s*', ' ', name)
+
+    # Normalize separators: replace /, \, _ with space
+    name = re.sub(r'[/_\\]', ' ', name)
+
     # Replace multiple spaces with single space
     name = ' '.join(name.split())
-    return name
+
+    return name.strip()
 
 
 def _remove_age_group(name: str) -> str:
