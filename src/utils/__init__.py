@@ -7,6 +7,8 @@ from .club_normalizer import (
     are_same_club,
     similarity_score,
     group_by_club,
+    get_matches_needing_review,
+    get_confident_matches,
     ClubNormResult,
 )
 
@@ -29,6 +31,8 @@ __all__ = [
     'are_same_club',
     'similarity_score',
     'group_by_club',
+    'get_matches_needing_review',
+    'get_confident_matches',
     'ClubNormResult',
     # Merge utilities (require pandas)
     'MergeResolver',
