@@ -561,11 +561,15 @@ class Modular11GameMatcher(GameHistoryMatcher):
             
             # Create alias for new team
             # NOTE: Pass base provider_team_id (raw club_id) - alias creation will build aliased format
+            # Use 'direct_id' if provider_team_id exists (like TGS/GotSport) for fast Tier 1 matching
+            # This ensures consistent matching behavior across providers
+            match_method = 'direct_id' if provider_team_id else 'import'
+            
             self._create_modular11_alias(
                 provider_id=provider_id,
                 provider_team_id=provider_team_id,  # Base club_id - alias will build {club_id}_{age}_{division}
                 team_id_master=new_team_id,
-                match_method='import',  # System-created during import, not human-reviewed
+                match_method=match_method,
                 confidence=1.0,  # New team = 100% confidence
                 division=division,
                 age_group=age_group
@@ -579,13 +583,16 @@ class Modular11GameMatcher(GameHistoryMatcher):
             return {
                 'matched': True,
                 'team_id': new_team_id,
-                'method': 'import',  # Must match database enum, not 'new_team'
+                'method': match_method,  # Use same method as alias creation (direct_id or import)
                 'confidence': 1.0
             }
         
         # Fallback: ALWAYS create team (never return None)
         # This should rarely be hit, but ensures no blocking
         if team_name and age_group and gender:
+            # Track if provider_team_id was originally provided (not generated)
+            original_provider_team_id = provider_team_id
+            
             # Generate provider_team_id if not provided
             # Include division in hash to prevent HD/AD collisions
             if not provider_team_id:
@@ -605,11 +612,16 @@ class Modular11GameMatcher(GameHistoryMatcher):
             
             # Create alias with age_group for unique identification
             # NOTE: Pass base provider_team_id (raw club_id) - alias creation will build aliased format
+            # Use 'direct_id' if provider_team_id was originally provided (real provider ID)
+            # Use 'import' if provider_team_id was generated (hash-based, not real provider ID)
+            # This ensures consistent matching behavior across providers
+            match_method = 'direct_id' if original_provider_team_id else 'import'
+            
             self._create_modular11_alias(
                 provider_id=provider_id,
                 provider_team_id=provider_team_id,  # Base club_id - alias will build {club_id}_{age}_{division}
                 team_id_master=new_team_id,
-                match_method='import',
+                match_method=match_method,
                 confidence=1.0,
                 division=division,
                 age_group=age_group
@@ -645,7 +657,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
             return {
                 'matched': True,
                 'team_id': new_team_id,
-                'method': 'import',  # Must match database enum
+                'method': match_method,  # Use same method as alias creation (direct_id or import)
                 'confidence': 1.0
             }
         else:
