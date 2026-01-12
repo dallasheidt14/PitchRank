@@ -46,9 +46,9 @@ class EnhancedDataValidator:
     
     def __init__(self):
         # Get valid age groups from config (convert keys to uppercase for compatibility)
-        # Include U7-U19 to cover all youth soccer age groups
+        # Only U10-U18 are tracked (birth years 2008-2016 for 2025 season)
         self.valid_age_groups = [age.lower() for age in AGE_GROUPS.keys()] + [
-            'u7', 'u8', 'u9', 'u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'u19'
+            'u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18'
         ]
         # Also support uppercase versions
         self.valid_age_groups.extend([age.upper() for age in self.valid_age_groups])
