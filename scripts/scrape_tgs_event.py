@@ -88,12 +88,16 @@ def resolve_config():
 # -----------------------------
 
 def extract_year(division_name: str) -> Optional[int]:
-    """Extract birth year from division name (e.g., 'B2012' -> 2012)"""
+    """Extract birth year from division name (e.g., 'B2012' -> 2012).
+
+    Only returns years in the valid range for tracked age groups:
+    - U10-U18 corresponds to birth years 2008-2016 (for 2025 season)
+    """
     match = re.search(r'(\d{4})', division_name)
     if match:
         year = int(match.group(1))
-        # Validate reasonable year range (2000-2020)
-        if 2000 <= year <= 2020:
+        # Only accept birth years 2008-2016 (U18-U10 for 2025 season)
+        if 2008 <= year <= 2016:
             return year
     return None
 
@@ -134,6 +138,28 @@ def compute_result(home_score: Optional[int], away_score: Optional[int]) -> str:
         return "L"
     else:
         return "D"
+
+
+def is_future_game(game_date_str: str) -> bool:
+    """
+    Check if a game date is in the future (hasn't happened yet).
+
+    Args:
+        game_date_str: Date string in YYYY-MM-DD format
+
+    Returns:
+        True if the game is in the future, False if it's today or in the past
+    """
+    if not game_date_str:
+        return False  # No date = can't determine, don't filter
+
+    try:
+        # Parse the date (format: YYYY-MM-DD)
+        game_date = datetime.strptime(game_date_str[:10], "%Y-%m-%d").date()
+        today = datetime.now(timezone.utc).date()
+        return game_date > today
+    except (ValueError, TypeError):
+        return False  # Can't parse = don't filter
 
 
 def parse_team_name(full_name: str) -> tuple[str, str]:
@@ -431,7 +457,11 @@ def normalize_api_game(
 # -----------------------------
 
 def scrape_event(event_id: int, config: Dict, records: List[Dict]) -> None:
-    """Scrape a single event using the correct API chain"""
+    """Scrape a single event using the correct API chain.
+
+    Only includes games that have already been played (game_date <= today).
+    Future scheduled games are skipped.
+    """
     print(f"\n📌 EVENT {event_id}")
     
     # Get event details to extract event name
@@ -501,33 +531,54 @@ def scrape_event(event_id: int, config: Dict, records: List[Dict]) -> None:
                 print(f"  ⚠️ No games found for {division_name_from_api} - {flight_name} ({flight_id})")
                 continue
             
-            print(f"  ✅ {division_name_from_api} - {flight_name}: {len(games)} games")
-            
             # Create division info for normalization
             division_info = {
                 "divisionID": flight_id,  # Use flightID as schedule_id
                 "divisionName": division_name_from_api  # Use division name for age/gender extraction
             }
-            
+
+            # Check if this division has a valid age group (U10-U18 / birth years 2008-2016)
+            age_year = extract_year(division_name_from_api)
+            if not age_year:
+                print(f"  ⏭️  Skipping {division_name_from_api} - {flight_name}: age group not in U10-U18 range")
+                continue
+
             # Step 3: Generate records for each game (both home and away perspectives)
+            # Filter out future games - we only want games that have already been played
+            games_added = 0
+            games_skipped_future = 0
+
             for game in games:
                 # Home perspective
                 home_record = normalize_api_game(
                     game, event_id, event_name, division_info, "H",
                     SCRAPE_RUN_ID, SCRAPE_TS
                 )
+
+                # Skip future games (haven't been played yet)
+                if is_future_game(home_record.get("game_date", "")):
+                    games_skipped_future += 1
+                    continue
+
                 records.append(home_record)
-                
-                # Away perspective
+
+                # Away perspective (same game, so we know it's not future)
                 away_record = normalize_api_game(
                     game, event_id, event_name, division_info, "A",
                     SCRAPE_RUN_ID, SCRAPE_TS
                 )
                 records.append(away_record)
-            
+                games_added += 1
+
+            # Log results for this flight
+            if games_skipped_future > 0:
+                print(f"  ✅ {division_name_from_api} - {flight_name}: {games_added} games added, {games_skipped_future} future games skipped")
+            else:
+                print(f"  ✅ {division_name_from_api} - {flight_name}: {games_added} games")
+
             # Small delay between flights
             time.sleep(0.3)
-    
+
     print(f"✅ Processed {total_flights} flights")
 
 
