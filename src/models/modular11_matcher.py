@@ -565,7 +565,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 provider_id=provider_id,
                 provider_team_id=provider_team_id,  # Base club_id - alias will build {club_id}_{age}_{division}
                 team_id_master=new_team_id,
-                match_method='import',  # System-created during import, not human-reviewed
+                match_method='direct_id',  # Direct provider ID mapping (like TGS/GotSport)
                 confidence=1.0,  # New team = 100% confidence
                 division=division,
                 age_group=age_group
@@ -609,7 +609,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 provider_id=provider_id,
                 provider_team_id=provider_team_id,  # Base club_id - alias will build {club_id}_{age}_{division}
                 team_id_master=new_team_id,
-                match_method='import',
+                match_method='direct_id',  # Direct provider ID mapping
                 confidence=1.0,
                 division=division,
                 age_group=age_group
