@@ -88,12 +88,16 @@ def resolve_config():
 # -----------------------------
 
 def extract_year(division_name: str) -> Optional[int]:
-    """Extract birth year from division name (e.g., 'B2012' -> 2012)"""
+    """Extract birth year from division name (e.g., 'B2012' -> 2012).
+
+    Only returns years in the valid range for tracked age groups:
+    - U10-U18 corresponds to birth years 2008-2016 (for 2025 season)
+    """
     match = re.search(r'(\d{4})', division_name)
     if match:
         year = int(match.group(1))
-        # Validate reasonable year range (2000-2020)
-        if 2000 <= year <= 2020:
+        # Only accept birth years 2008-2016 (U18-U10 for 2025 season)
+        if 2008 <= year <= 2016:
             return year
     return None
 
@@ -532,6 +536,12 @@ def scrape_event(event_id: int, config: Dict, records: List[Dict]) -> None:
                 "divisionID": flight_id,  # Use flightID as schedule_id
                 "divisionName": division_name_from_api  # Use division name for age/gender extraction
             }
+
+            # Check if this division has a valid age group (U10-U18 / birth years 2008-2016)
+            age_year = extract_year(division_name_from_api)
+            if not age_year:
+                print(f"  ⏭️  Skipping {division_name_from_api} - {flight_name}: age group not in U10-U18 range")
+                continue
 
             # Step 3: Generate records for each game (both home and away perspectives)
             # Filter out future games - we only want games that have already been played
