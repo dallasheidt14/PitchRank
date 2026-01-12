@@ -46,12 +46,13 @@ class EnhancedDataValidator:
     
     def __init__(self):
         # Get valid age groups from config (convert keys to uppercase for compatibility)
+        # Include U7-U19 to cover all youth soccer age groups
         self.valid_age_groups = [age.lower() for age in AGE_GROUPS.keys()] + [
-            'u9', 'u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'u19'
+            'u7', 'u8', 'u9', 'u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'u19'
         ]
         # Also support uppercase versions
         self.valid_age_groups.extend([age.upper() for age in self.valid_age_groups])
-        
+
         self.valid_genders = ['Male', 'Female', 'Boys', 'Girls', 'Coed']
         
     def validate_team(self, team: Dict[str, Any]) -> Tuple[bool, List[str]]:
