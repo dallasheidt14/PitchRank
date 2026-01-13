@@ -85,7 +85,8 @@ section = st.sidebar.radio(
         "📈 Database Import Stats",
         "🗺️ State Coverage",
         "📍 Missing State Codes",
-        "🔀 Team Merge Manager"
+        "🔀 Team Merge Manager",
+        "✏️ Manual Team Edit"
     ]
 )
 
@@ -5139,6 +5140,662 @@ elif section == "🔀 Team Merge Manager":
                 st.error(f"Error loading merge history: {e}")
                 import traceback
                 st.code(traceback.format_exc())
+
+# ============================================================================
+# MANUAL TEAM EDIT SECTION
+# ============================================================================
+elif section == "✏️ Manual Team Edit":
+    st.header("✏️ Manual Team Edit")
+    st.markdown("**Look up any team and edit their information, aliases, and more**")
+
+    db = get_database()
+
+    if not db:
+        st.error("Database connection not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your .env file.")
+    else:
+        # Initialize session state for selected team
+        if 'edit_selected_team' not in st.session_state:
+            st.session_state.edit_selected_team = None
+
+        # ========================
+        # STEP 1: TEAM LOOKUP
+        # ========================
+        st.subheader("Step 1: Find a Team")
+
+        # Search options in columns
+        search_col1, search_col2, search_col3, search_col4 = st.columns([2, 2, 1, 1])
+
+        with search_col1:
+            search_name = st.text_input(
+                "🔍 Search by Team Name or Club",
+                placeholder="e.g., Barcelona FC, Legends Premier...",
+                key="edit_search_name"
+            )
+
+        with search_col2:
+            search_id = st.text_input(
+                "🔑 Or Search by Team ID / Provider ID",
+                placeholder="e.g., team_id_master or provider_team_id",
+                key="edit_search_id"
+            )
+
+        with search_col3:
+            search_age = st.selectbox(
+                "Age Group",
+                options=[""] + list(AGE_GROUPS.keys()),
+                key="edit_search_age"
+            )
+
+        with search_col4:
+            search_gender = st.selectbox(
+                "Gender",
+                options=["", "Male", "Female"],
+                key="edit_search_gender"
+            )
+
+        # Search button
+        if st.button("🔍 Search Teams", type="primary"):
+            with st.spinner("Searching..."):
+                try:
+                    found_teams = []
+
+                    # Search by ID first (exact match)
+                    if search_id:
+                        # Try team_id_master
+                        id_result = execute_with_retry(
+                            lambda: db.table('teams').select(
+                                'team_id_master, provider_team_id, team_name, club_name, '
+                                'age_group, gender, state_code, birth_year, is_deprecated, '
+                                'created_at, updated_at, last_scraped_at, state, provider_id'
+                            ).eq('team_id_master', search_id).limit(10)
+                        )
+                        if id_result.data:
+                            found_teams.extend(id_result.data)
+
+                        # Also try provider_team_id
+                        pid_result = execute_with_retry(
+                            lambda: db.table('teams').select(
+                                'team_id_master, provider_team_id, team_name, club_name, '
+                                'age_group, gender, state_code, birth_year, is_deprecated, '
+                                'created_at, updated_at, last_scraped_at, state, provider_id'
+                            ).eq('provider_team_id', search_id).limit(10)
+                        )
+                        if pid_result.data:
+                            # Avoid duplicates
+                            existing_ids = {t['team_id_master'] for t in found_teams}
+                            for team in pid_result.data:
+                                if team['team_id_master'] not in existing_ids:
+                                    found_teams.append(team)
+
+                    # Search by name (fuzzy)
+                    if search_name or (not search_id):
+                        query = db.table('teams').select(
+                            'team_id_master, provider_team_id, team_name, club_name, '
+                            'age_group, gender, state_code, birth_year, is_deprecated, '
+                            'created_at, updated_at, last_scraped_at, state, provider_id'
+                        )
+
+                        if search_age:
+                            query = query.eq('age_group', search_age)
+                        if search_gender:
+                            query = query.eq('gender', search_gender)
+
+                        name_result = execute_with_retry(lambda: query.limit(500))
+
+                        if name_result.data and search_name:
+                            # Filter by similarity
+                            for team in name_result.data:
+                                name_sim = calculate_similarity(search_name.lower(), (team['team_name'] or '').lower())
+                                club_sim = calculate_similarity(search_name.lower(), (team.get('club_name') or '').lower())
+                                max_sim = max(name_sim, club_sim)
+
+                                if max_sim >= 0.3:
+                                    team['_similarity'] = max_sim
+                                    existing_ids = {t['team_id_master'] for t in found_teams}
+                                    if team['team_id_master'] not in existing_ids:
+                                        found_teams.append(team)
+
+                            # Sort by similarity
+                            found_teams.sort(key=lambda x: x.get('_similarity', 0), reverse=True)
+                        elif name_result.data and not search_name:
+                            # If no name search, just use the filtered results
+                            existing_ids = {t['team_id_master'] for t in found_teams}
+                            for team in name_result.data[:50]:
+                                if team['team_id_master'] not in existing_ids:
+                                    found_teams.append(team)
+
+                    # Store results in session state
+                    st.session_state.edit_search_results = found_teams[:50]
+
+                except Exception as e:
+                    st.error(f"Search failed: {e}")
+                    st.session_state.edit_search_results = []
+
+        # Display search results
+        if 'edit_search_results' in st.session_state and st.session_state.edit_search_results:
+            st.success(f"Found {len(st.session_state.edit_search_results)} teams")
+
+            # Create a selection table
+            results_df = pd.DataFrame([
+                {
+                    'Team Name': t['team_name'],
+                    'Club': t.get('club_name', ''),
+                    'Age': t.get('age_group', ''),
+                    'Gender': t.get('gender', ''),
+                    'State': t.get('state_code', ''),
+                    'Deprecated': '⚠️' if t.get('is_deprecated') else '',
+                    'ID': t['team_id_master'][:8] + '...'
+                }
+                for t in st.session_state.edit_search_results
+            ])
+
+            st.dataframe(results_df, use_container_width=True, hide_index=True)
+
+            # Team selector
+            team_options = {
+                f"{t['team_name']} ({t.get('age_group', '?')} {t.get('gender', '?')}) - {t.get('club_name', 'N/A')}": t['team_id_master']
+                for t in st.session_state.edit_search_results
+            }
+
+            selected_team_label = st.selectbox(
+                "Select a team to edit:",
+                options=[""] + list(team_options.keys()),
+                key="edit_team_selector"
+            )
+
+            if selected_team_label and selected_team_label in team_options:
+                selected_team_id = team_options[selected_team_label]
+                # Find the full team data
+                selected_team = next(
+                    (t for t in st.session_state.edit_search_results if t['team_id_master'] == selected_team_id),
+                    None
+                )
+                if selected_team:
+                    st.session_state.edit_selected_team = selected_team
+
+        # ========================
+        # STEP 2: DISPLAY & EDIT TEAM
+        # ========================
+        if st.session_state.edit_selected_team:
+            team = st.session_state.edit_selected_team
+            st.divider()
+
+            # Create tabs for different editing sections
+            info_tab, aliases_tab, games_tab = st.tabs([
+                "📋 Team Information",
+                "🔗 Aliases & Mappings",
+                "📊 Game History"
+            ])
+
+            # ========================
+            # TAB 1: TEAM INFORMATION
+            # ========================
+            with info_tab:
+                st.subheader(f"Editing: {team['team_name']}")
+
+                # Status badges
+                status_cols = st.columns(4)
+                with status_cols[0]:
+                    if team.get('is_deprecated'):
+                        st.error("⚠️ DEPRECATED")
+                    else:
+                        st.success("✅ ACTIVE")
+                with status_cols[1]:
+                    st.info(f"🆔 {team['team_id_master'][:12]}...")
+                with status_cols[2]:
+                    st.info(f"📅 Age: {team.get('age_group', 'N/A').upper()}")
+                with status_cols[3]:
+                    st.info(f"🏷️ Provider ID: {team.get('provider_team_id', 'N/A')}")
+
+                st.markdown("---")
+
+                # Editable fields in a form
+                with st.form("edit_team_form"):
+                    st.markdown("### Core Information")
+
+                    edit_col1, edit_col2 = st.columns(2)
+
+                    with edit_col1:
+                        new_team_name = st.text_input(
+                            "Team Name",
+                            value=team.get('team_name', ''),
+                            key="edit_team_name"
+                        )
+                        new_club_name = st.text_input(
+                            "Club Name",
+                            value=team.get('club_name', '') or '',
+                            key="edit_club_name"
+                        )
+                        new_state = st.text_input(
+                            "State (Full Name)",
+                            value=team.get('state', '') or '',
+                            key="edit_state_full"
+                        )
+
+                    with edit_col2:
+                        # State code dropdown
+                        state_codes = ["", "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+                                      "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+                                      "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+                                      "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+                                      "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC"]
+                        current_state_idx = state_codes.index(team.get('state_code', '')) if team.get('state_code', '') in state_codes else 0
+                        new_state_code = st.selectbox(
+                            "State Code",
+                            options=state_codes,
+                            index=current_state_idx,
+                            key="edit_state_code"
+                        )
+
+                        # Age group - can change but be careful
+                        age_options = list(AGE_GROUPS.keys())
+                        current_age = team.get('age_group', '').lower()
+                        current_age_idx = age_options.index(current_age) if current_age in age_options else 0
+                        new_age_group = st.selectbox(
+                            "Age Group",
+                            options=age_options,
+                            index=current_age_idx,
+                            key="edit_age_group"
+                        )
+
+                        # Gender
+                        gender_options = ["Male", "Female"]
+                        current_gender_idx = gender_options.index(team.get('gender', 'Male')) if team.get('gender') in gender_options else 0
+                        new_gender = st.selectbox(
+                            "Gender",
+                            options=gender_options,
+                            index=current_gender_idx,
+                            key="edit_gender"
+                        )
+
+                    st.markdown("### Metadata (Read-Only)")
+                    meta_col1, meta_col2, meta_col3 = st.columns(3)
+
+                    with meta_col1:
+                        st.text_input("Team ID (Master)", value=team['team_id_master'], disabled=True)
+                        st.text_input("Provider Team ID", value=team.get('provider_team_id', ''), disabled=True)
+
+                    with meta_col2:
+                        st.text_input("Birth Year", value=str(team.get('birth_year', '')), disabled=True)
+                        st.text_input("Created At", value=str(team.get('created_at', ''))[:19], disabled=True)
+
+                    with meta_col3:
+                        st.text_input("Updated At", value=str(team.get('updated_at', ''))[:19] if team.get('updated_at') else '', disabled=True)
+                        st.text_input("Last Scraped", value=str(team.get('last_scraped_at', ''))[:19] if team.get('last_scraped_at') else '', disabled=True)
+
+                    # Submit button
+                    submitted = st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True)
+
+                    if submitted:
+                        try:
+                            # Prepare update data
+                            update_data = {
+                                'team_name': new_team_name.strip(),
+                                'club_name': new_club_name.strip() if new_club_name else None,
+                                'state': new_state.strip() if new_state else None,
+                                'state_code': new_state_code if new_state_code else None,
+                                'age_group': new_age_group,
+                                'gender': new_gender,
+                                'birth_year': AGE_GROUPS.get(new_age_group, {}).get('birth_year'),
+                                'updated_at': datetime.now().isoformat()
+                            }
+
+                            # Execute update
+                            result = execute_with_retry(
+                                lambda: db.table('teams').update(update_data).eq(
+                                    'team_id_master', team['team_id_master']
+                                )
+                            )
+
+                            st.success(f"✅ Successfully updated team: **{new_team_name}**")
+
+                            # Update session state with new values
+                            st.session_state.edit_selected_team.update(update_data)
+
+                        except Exception as e:
+                            st.error(f"❌ Failed to update team: {e}")
+                            import traceback
+                            with st.expander("View Error Details"):
+                                st.code(traceback.format_exc())
+
+                # Deprecation toggle (outside form for immediate action)
+                st.markdown("---")
+                st.markdown("### Team Status")
+
+                if team.get('is_deprecated'):
+                    st.warning("⚠️ This team is currently **DEPRECATED** (hidden from rankings)")
+                    if st.button("🔄 Restore Team (Un-deprecate)", key="restore_team"):
+                        try:
+                            execute_with_retry(
+                                lambda: db.table('teams').update({
+                                    'is_deprecated': False,
+                                    'updated_at': datetime.now().isoformat()
+                                }).eq('team_id_master', team['team_id_master'])
+                            )
+                            st.success("✅ Team restored!")
+                            st.session_state.edit_selected_team['is_deprecated'] = False
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Failed to restore: {e}")
+                else:
+                    st.success("✅ This team is **ACTIVE** (included in rankings)")
+                    with st.expander("⚠️ Deprecate Team (Hide from Rankings)"):
+                        st.warning("**Warning:** This will hide the team from all rankings. Use Team Merge Manager if you're merging duplicates.")
+                        if st.button("⚠️ Deprecate This Team", type="secondary", key="deprecate_team"):
+                            try:
+                                execute_with_retry(
+                                    lambda: db.table('teams').update({
+                                        'is_deprecated': True,
+                                        'updated_at': datetime.now().isoformat()
+                                    }).eq('team_id_master', team['team_id_master'])
+                                )
+                                st.success("Team deprecated")
+                                st.session_state.edit_selected_team['is_deprecated'] = True
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Failed to deprecate: {e}")
+
+            # ========================
+            # TAB 2: ALIASES & MAPPINGS
+            # ========================
+            with aliases_tab:
+                st.subheader("Aliases & Provider Mappings")
+                st.markdown(f"**Team:** {team['team_name']} ({team.get('age_group', '').upper()} {team.get('gender', '')})")
+
+                # Fetch existing aliases
+                try:
+                    aliases_result = execute_with_retry(
+                        lambda: db.table('team_alias_map').select(
+                            'id, provider_id, provider_team_id, match_confidence, match_method, '
+                            'review_status, division, created_at'
+                        ).eq('team_id_master', team['team_id_master']).order('created_at', desc=True)
+                    )
+
+                    # Get providers for display
+                    providers_result = execute_with_retry(
+                        lambda: db.table('providers').select('id, name, code')
+                    )
+                    providers_map = {p['id']: p for p in (providers_result.data or [])}
+
+                    if aliases_result.data:
+                        st.success(f"Found **{len(aliases_result.data)}** alias mappings")
+
+                        # Display each alias with edit/delete options
+                        for idx, alias in enumerate(aliases_result.data):
+                            provider = providers_map.get(alias['provider_id'], {})
+                            provider_name = provider.get('name', 'Unknown')
+
+                            with st.expander(f"📎 {provider_name}: `{alias['provider_team_id']}`", expanded=idx == 0):
+                                alias_col1, alias_col2 = st.columns(2)
+
+                                with alias_col1:
+                                    st.write(f"**Provider:** {provider_name}")
+                                    st.write(f"**Provider Team ID:** `{alias['provider_team_id']}`")
+                                    st.write(f"**Match Method:** {alias.get('match_method', 'N/A')}")
+
+                                with alias_col2:
+                                    st.write(f"**Confidence:** {alias.get('match_confidence', 0):.0%}")
+                                    st.write(f"**Status:** {alias.get('review_status', 'N/A')}")
+                                    if alias.get('division'):
+                                        st.write(f"**Division:** {alias['division']}")
+                                    st.write(f"**Created:** {str(alias.get('created_at', ''))[:10]}")
+
+                                # Edit alias
+                                st.markdown("---")
+                                edit_alias_col1, edit_alias_col2, edit_alias_col3 = st.columns([2, 2, 1])
+
+                                with edit_alias_col1:
+                                    new_provider_team_id = st.text_input(
+                                        "Provider Team ID",
+                                        value=alias['provider_team_id'],
+                                        key=f"edit_alias_ptid_{alias['id']}"
+                                    )
+
+                                with edit_alias_col2:
+                                    status_options = ['pending', 'approved', 'rejected', 'new_team']
+                                    current_status_idx = status_options.index(alias.get('review_status', 'approved')) if alias.get('review_status') in status_options else 1
+                                    new_status = st.selectbox(
+                                        "Status",
+                                        options=status_options,
+                                        index=current_status_idx,
+                                        key=f"edit_alias_status_{alias['id']}"
+                                    )
+
+                                with edit_alias_col3:
+                                    new_division = st.text_input(
+                                        "Division",
+                                        value=alias.get('division', '') or '',
+                                        key=f"edit_alias_div_{alias['id']}"
+                                    )
+
+                                action_col1, action_col2 = st.columns(2)
+
+                                with action_col1:
+                                    if st.button("💾 Update Alias", key=f"update_alias_{alias['id']}"):
+                                        try:
+                                            execute_with_retry(
+                                                lambda aid=alias['id']: db.table('team_alias_map').update({
+                                                    'provider_team_id': new_provider_team_id,
+                                                    'review_status': new_status,
+                                                    'division': new_division if new_division else None
+                                                }).eq('id', aid)
+                                            )
+                                            st.success("✅ Alias updated!")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"❌ Failed: {e}")
+
+                                with action_col2:
+                                    if st.button("🗑️ Delete Alias", key=f"delete_alias_{alias['id']}", type="secondary"):
+                                        try:
+                                            execute_with_retry(
+                                                lambda aid=alias['id']: db.table('team_alias_map').delete().eq('id', aid)
+                                            )
+                                            st.success("✅ Alias deleted!")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"❌ Failed: {e}")
+                    else:
+                        st.info("No aliases found for this team")
+
+                except Exception as e:
+                    st.error(f"Failed to load aliases: {e}")
+
+                # Add new alias section
+                st.markdown("---")
+                st.subheader("➕ Add New Alias")
+
+                with st.form("add_alias_form"):
+                    new_alias_col1, new_alias_col2 = st.columns(2)
+
+                    with new_alias_col1:
+                        # Provider selector
+                        try:
+                            providers_list = [{'id': p['id'], 'name': p['name']} for p in (providers_result.data or [])]
+                        except Exception:
+                            providers_list = []
+
+                        provider_options = {p['name']: p['id'] for p in providers_list}
+                        selected_provider_name = st.selectbox(
+                            "Provider",
+                            options=list(provider_options.keys()),
+                            key="new_alias_provider"
+                        )
+
+                        new_alias_provider_team_id = st.text_input(
+                            "Provider Team ID *",
+                            placeholder="e.g., 544491",
+                            key="new_alias_ptid"
+                        )
+
+                    with new_alias_col2:
+                        new_alias_confidence = st.slider(
+                            "Match Confidence",
+                            min_value=0.0,
+                            max_value=1.0,
+                            value=1.0,
+                            step=0.1,
+                            key="new_alias_confidence"
+                        )
+
+                        new_alias_method = st.selectbox(
+                            "Match Method",
+                            options=['dashboard_manual', 'exact_id', 'fuzzy_name', 'manual', 'direct_id'],
+                            key="new_alias_method"
+                        )
+
+                        new_alias_division = st.text_input(
+                            "Division (optional)",
+                            placeholder="e.g., HD or AD",
+                            key="new_alias_division"
+                        )
+
+                    alias_submitted = st.form_submit_button("➕ Add Alias", type="primary", use_container_width=True)
+
+                    if alias_submitted:
+                        if not new_alias_provider_team_id:
+                            st.error("❌ Provider Team ID is required")
+                        else:
+                            try:
+                                selected_provider_id = provider_options.get(selected_provider_name)
+
+                                # Check if alias already exists
+                                existing = execute_with_retry(
+                                    lambda: db.table('team_alias_map').select('id').eq(
+                                        'provider_id', selected_provider_id
+                                    ).eq('provider_team_id', new_alias_provider_team_id)
+                                )
+
+                                if existing.data:
+                                    st.error(f"❌ An alias for provider team ID `{new_alias_provider_team_id}` already exists!")
+                                else:
+                                    # Insert new alias
+                                    alias_data = {
+                                        'provider_id': selected_provider_id,
+                                        'provider_team_id': new_alias_provider_team_id,
+                                        'team_id_master': team['team_id_master'],
+                                        'match_confidence': new_alias_confidence,
+                                        'match_method': new_alias_method,
+                                        'review_status': 'approved',
+                                        'division': new_alias_division if new_alias_division else None,
+                                        'created_at': datetime.now().isoformat()
+                                    }
+
+                                    execute_with_retry(
+                                        lambda: db.table('team_alias_map').insert(alias_data)
+                                    )
+
+                                    st.success(f"✅ Alias created for `{new_alias_provider_team_id}`!")
+                                    st.balloons()
+
+                            except Exception as e:
+                                st.error(f"❌ Failed to create alias: {e}")
+                                import traceback
+                                with st.expander("View Error Details"):
+                                    st.code(traceback.format_exc())
+
+            # ========================
+            # TAB 3: GAME HISTORY
+            # ========================
+            with games_tab:
+                st.subheader("Game History")
+                st.markdown(f"**Team:** {team['team_name']}")
+
+                try:
+                    # Fetch recent games for this team
+                    home_games = execute_with_retry(
+                        lambda: db.table('games').select(
+                            'game_id, game_date, home_team_master_id, away_team_master_id, '
+                            'home_score, away_score, home_team_name, away_team_name'
+                        ).eq('home_team_master_id', team['team_id_master']).order(
+                            'game_date', desc=True
+                        ).limit(50)
+                    )
+
+                    away_games = execute_with_retry(
+                        lambda: db.table('games').select(
+                            'game_id, game_date, home_team_master_id, away_team_master_id, '
+                            'home_score, away_score, home_team_name, away_team_name'
+                        ).eq('away_team_master_id', team['team_id_master']).order(
+                            'game_date', desc=True
+                        ).limit(50)
+                    )
+
+                    all_games = (home_games.data or []) + (away_games.data or [])
+                    # Sort by date descending
+                    all_games.sort(key=lambda x: x.get('game_date', ''), reverse=True)
+                    all_games = all_games[:50]  # Limit to 50 most recent
+
+                    if all_games:
+                        st.success(f"Found **{len(all_games)}** games")
+
+                        # Calculate record
+                        wins = losses = draws = gf = ga = 0
+                        for g in all_games:
+                            home_score = g.get('home_score') or 0
+                            away_score = g.get('away_score') or 0
+                            is_home = g.get('home_team_master_id') == team['team_id_master']
+
+                            if is_home:
+                                gf += home_score
+                                ga += away_score
+                                if home_score > away_score:
+                                    wins += 1
+                                elif home_score < away_score:
+                                    losses += 1
+                                else:
+                                    draws += 1
+                            else:
+                                gf += away_score
+                                ga += home_score
+                                if away_score > home_score:
+                                    wins += 1
+                                elif away_score < home_score:
+                                    losses += 1
+                                else:
+                                    draws += 1
+
+                        # Display record
+                        record_col1, record_col2, record_col3, record_col4 = st.columns(4)
+                        with record_col1:
+                            st.metric("Record", f"{wins}W-{losses}L-{draws}D")
+                        with record_col2:
+                            st.metric("Goals For", gf)
+                        with record_col3:
+                            st.metric("Goals Against", ga)
+                        with record_col4:
+                            st.metric("Goal Diff", f"{gf - ga:+d}")
+
+                        st.markdown("---")
+
+                        # Display games table
+                        games_df = pd.DataFrame([
+                            {
+                                'Date': g.get('game_date', '')[:10] if g.get('game_date') else '',
+                                'Home': g.get('home_team_name', 'Unknown'),
+                                'Score': f"{g.get('home_score', '-')} - {g.get('away_score', '-')}",
+                                'Away': g.get('away_team_name', 'Unknown'),
+                                'Result': (
+                                    'W' if (g.get('home_team_master_id') == team['team_id_master'] and (g.get('home_score', 0) or 0) > (g.get('away_score', 0) or 0)) or
+                                           (g.get('away_team_master_id') == team['team_id_master'] and (g.get('away_score', 0) or 0) > (g.get('home_score', 0) or 0))
+                                    else 'L' if (g.get('home_team_master_id') == team['team_id_master'] and (g.get('home_score', 0) or 0) < (g.get('away_score', 0) or 0)) or
+                                                (g.get('away_team_master_id') == team['team_id_master'] and (g.get('away_score', 0) or 0) < (g.get('home_score', 0) or 0))
+                                    else 'D'
+                                )
+                            }
+                            for g in all_games
+                        ])
+
+                        st.dataframe(games_df, use_container_width=True, hide_index=True)
+
+                    else:
+                        st.info("No games found for this team")
+
+                except Exception as e:
+                    st.error(f"Failed to load games: {e}")
+                    import traceback
+                    with st.expander("View Error Details"):
+                        st.code(traceback.format_exc())
 
 # Footer
 st.divider()
