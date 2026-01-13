@@ -3565,81 +3565,125 @@ elif section == "✏️ Manual Team Edit":
 
         # Search button
         if st.button("🔍 Search Teams", type="primary"):
-            with st.spinner("Searching..."):
-                try:
-                    found_teams = []
-
-                    # Search by ID first (exact match)
-                    if search_id:
-                        # Try team_id_master
-                        id_result = execute_with_retry(
-                            lambda: db.table('teams').select(
-                                'team_id_master, provider_team_id, team_name, club_name, '
-                                'age_group, gender, state_code, birth_year, is_deprecated, '
-                                'created_at, updated_at, last_scraped_at, state, provider_id'
-                            ).eq('team_id_master', search_id).limit(10)
-                        )
-                        if id_result.data:
-                            found_teams.extend(id_result.data)
-
-                        # Also try provider_team_id
-                        pid_result = execute_with_retry(
-                            lambda: db.table('teams').select(
-                                'team_id_master, provider_team_id, team_name, club_name, '
-                                'age_group, gender, state_code, birth_year, is_deprecated, '
-                                'created_at, updated_at, last_scraped_at, state, provider_id'
-                            ).eq('provider_team_id', search_id).limit(10)
-                        )
-                        if pid_result.data:
-                            # Avoid duplicates
-                            existing_ids = {t['team_id_master'] for t in found_teams}
-                            for team in pid_result.data:
-                                if team['team_id_master'] not in existing_ids:
-                                    found_teams.append(team)
-
-                    # Search by name (fuzzy)
-                    if search_name or (not search_id):
-                        query = db.table('teams').select(
+            if not search_name and not search_id and not search_age and not search_gender:
+                st.warning("Please enter a search term (name, ID) or select filters (age group, gender)")
+            else:
+                with st.spinner("Searching..."):
+                    try:
+                        found_teams = []
+                        select_fields = (
                             'team_id_master, provider_team_id, team_name, club_name, '
                             'age_group, gender, state_code, birth_year, is_deprecated, '
                             'created_at, updated_at, last_scraped_at, state, provider_id'
                         )
 
-                        if search_age:
-                            query = query.eq('age_group', search_age)
-                        if search_gender:
-                            query = query.eq('gender', search_gender)
+                        # Search by ID first (exact match) - highest priority
+                        if search_id:
+                            search_id_clean = search_id.strip()
 
-                        name_result = execute_with_retry(lambda: query.limit(500))
+                            # Try team_id_master (UUID)
+                            try:
+                                id_result = execute_with_retry(
+                                    lambda: db.table('teams').select(select_fields)
+                                    .eq('team_id_master', search_id_clean).limit(10)
+                                )
+                                if id_result.data:
+                                    found_teams.extend(id_result.data)
+                            except Exception:
+                                pass  # Invalid UUID format, skip
 
-                        if name_result.data and search_name:
-                            # Filter by similarity
-                            for team in name_result.data:
-                                name_sim = calculate_similarity(search_name.lower(), (team['team_name'] or '').lower())
-                                club_sim = calculate_similarity(search_name.lower(), (team.get('club_name') or '').lower())
-                                max_sim = max(name_sim, club_sim)
-
-                                if max_sim >= 0.3:
-                                    team['_similarity'] = max_sim
-                                    existing_ids = {t['team_id_master'] for t in found_teams}
+                            # Try provider_team_id (can be any string)
+                            pid_result = execute_with_retry(
+                                lambda: db.table('teams').select(select_fields)
+                                .eq('provider_team_id', search_id_clean).limit(50)
+                            )
+                            if pid_result.data:
+                                existing_ids = {t['team_id_master'] for t in found_teams}
+                                for team in pid_result.data:
                                     if team['team_id_master'] not in existing_ids:
                                         found_teams.append(team)
 
-                            # Sort by similarity
+                        # Search by name using database ILIKE (partial match)
+                        if search_name:
+                            search_term = search_name.strip()
+
+                            # Build query with ILIKE for team_name
+                            query = db.table('teams').select(select_fields)
+
+                            # Use ilike for case-insensitive partial match
+                            query = query.ilike('team_name', f'%{search_term}%')
+
+                            # Apply filters
+                            if search_age:
+                                query = query.eq('age_group', search_age)
+                            if search_gender:
+                                query = query.eq('gender', search_gender)
+
+                            name_result = execute_with_retry(lambda: query.order('team_name').limit(100))
+
+                            if name_result.data:
+                                existing_ids = {t['team_id_master'] for t in found_teams}
+                                for team in name_result.data:
+                                    if team['team_id_master'] not in existing_ids:
+                                        # Calculate similarity for sorting
+                                        team['_similarity'] = calculate_similarity(
+                                            search_term.lower(),
+                                            (team['team_name'] or '').lower()
+                                        )
+                                        found_teams.append(team)
+
+                            # Also search by club_name
+                            club_query = db.table('teams').select(select_fields)
+                            club_query = club_query.ilike('club_name', f'%{search_term}%')
+
+                            if search_age:
+                                club_query = club_query.eq('age_group', search_age)
+                            if search_gender:
+                                club_query = club_query.eq('gender', search_gender)
+
+                            club_result = execute_with_retry(lambda: club_query.order('team_name').limit(100))
+
+                            if club_result.data:
+                                existing_ids = {t['team_id_master'] for t in found_teams}
+                                for team in club_result.data:
+                                    if team['team_id_master'] not in existing_ids:
+                                        team['_similarity'] = calculate_similarity(
+                                            search_term.lower(),
+                                            (team.get('club_name') or '').lower()
+                                        )
+                                        found_teams.append(team)
+
+                            # Sort by similarity (best matches first)
                             found_teams.sort(key=lambda x: x.get('_similarity', 0), reverse=True)
-                        elif name_result.data and not search_name:
-                            # If no name search, just use the filtered results
-                            existing_ids = {t['team_id_master'] for t in found_teams}
-                            for team in name_result.data[:50]:
-                                if team['team_id_master'] not in existing_ids:
-                                    found_teams.append(team)
 
-                    # Store results in session state
-                    st.session_state.edit_search_results = found_teams[:50]
+                        # If only filters provided (no name or ID), fetch filtered results
+                        elif not search_id and (search_age or search_gender):
+                            query = db.table('teams').select(select_fields)
 
-                except Exception as e:
-                    st.error(f"Search failed: {e}")
-                    st.session_state.edit_search_results = []
+                            if search_age:
+                                query = query.eq('age_group', search_age)
+                            if search_gender:
+                                query = query.eq('gender', search_gender)
+
+                            filter_result = execute_with_retry(
+                                lambda: query.eq('is_deprecated', False).order('team_name').limit(200)
+                            )
+
+                            if filter_result.data:
+                                found_teams.extend(filter_result.data)
+
+                        # Store results in session state
+                        st.session_state.edit_search_results = found_teams[:100]
+
+                        if not found_teams:
+                            st.warning("No teams found matching your search criteria")
+
+                    except Exception as e:
+                        st.error(f"Search failed: {e}")
+                        import traceback
+                        with st.expander("View Error Details"):
+                            st.code(traceback.format_exc())
+                        st.session_state.edit_search_results = []
 
         # Display search results
         if 'edit_search_results' in st.session_state and st.session_state.edit_search_results:
