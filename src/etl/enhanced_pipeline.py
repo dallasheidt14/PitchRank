@@ -46,6 +46,7 @@ class ImportMetrics:
     skipped_empty_game_date: int = 0  # Games skipped due to empty game_date
     skipped_empty_scores: int = 0  # Games skipped due to missing both scores
     duplicate_key_violations: int = 0  # Games rejected due to unique constraint (already in DB)
+    games_updated: int = 0  # Games updated due to score changes (same game_uid, different scores)
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert metrics to dictionary for JSONB storage"""
@@ -69,7 +70,8 @@ class ImportMetrics:
             'skipped_empty_provider_ids': self.skipped_empty_provider_ids,
             'skipped_empty_game_date': self.skipped_empty_game_date,
             'skipped_empty_scores': self.skipped_empty_scores,
-            'duplicate_key_violations': self.duplicate_key_violations
+            'duplicate_key_violations': self.duplicate_key_violations,
+            'games_updated': self.games_updated
         }
 
 
@@ -280,15 +282,13 @@ class EnhancedETLPipeline:
             # Log invalid games for review
             if invalid_games:
                 await self._log_invalid_games(invalid_games)
-            
-            # Step 2: Check for duplicates
-            existing_uids = await self._check_duplicates(valid_games)
-            batch_metrics.duplicates_found = len(existing_uids)
-            self.metrics.duplicates_found += len(existing_uids)  # ACCUMULATE for logging
-            
-            # Filter out duplicates (enforce immutability)
-            new_games = [g for g in valid_games if g.get('game_uid') not in existing_uids]
-            
+
+            # Step 2: NO LONGER filtering by game_uid before team matching
+            # We need to match ALL games first, then check for score conflicts
+            # This allows us to UPDATE games with different scores instead of skipping them
+            # game_uid doesn't include scores, so we can't detect score conflicts until after matching
+            new_games = valid_games  # Let all valid games through to team matching
+
             # Step 3: Match teams and prepare game records
             game_records = []
             matched_count = 0
@@ -385,8 +385,31 @@ class EnhancedETLPipeline:
             
             logger.info(f"Matched {len(game_records)} games (matched: {matched_count}, partial: {partial_count}, failed: {failed_count})")
             
-            # Step 3b: Check for duplicates using composite key (after team matching)
-            # This catches duplicates that game_uid check missed (due to different game_uid but same composite key)
+            # Step 3b: Check for game_uid conflicts (same game_uid, different scores)
+            # These games need to be UPDATED, not inserted
+            uid_conflicts, truly_new_games = await self._check_game_uid_conflicts(game_records)
+
+            if uid_conflicts:
+                logger.info(
+                    f"[Pipeline] Found {len(uid_conflicts)} games with game_uid conflicts "
+                    f"(same teams/date, different scores) - will UPDATE"
+                )
+                # Update games with score conflicts (not in dry_run mode)
+                if not self.dry_run:
+                    updated_count = await self._bulk_update_games(uid_conflicts)
+                    batch_metrics.games_updated = updated_count
+                    self.metrics.games_updated += updated_count
+                else:
+                    logger.info(f"[Pipeline] Dry run mode - would update {len(uid_conflicts)} games")
+                    batch_metrics.games_updated = len(uid_conflicts)
+                    self.metrics.games_updated += len(uid_conflicts)
+
+            # Continue with truly new games (no game_uid in DB)
+            game_records = truly_new_games
+            logger.info(f"[Pipeline] {len(game_records)} truly new games to process after game_uid conflict check")
+
+            # Step 3c: Check for duplicates using composite key (after team matching)
+            # This catches duplicates that have different game_uid format but same composite key
             existing_composite_keys = await self._check_duplicates_by_composite_key(game_records)
             if existing_composite_keys:
                 logger.info(f"[Pipeline] Found {len(existing_composite_keys)} duplicate games by composite key (already in DB)")
@@ -395,7 +418,7 @@ class EnhancedETLPipeline:
                 batch_metrics.duplicates_found += len(existing_composite_keys)
                 self.metrics.duplicates_found += len(existing_composite_keys)
                 logger.info(f"[Pipeline] Filtered to {len(game_records)} new games after composite key duplicate check")
-            
+
             # Step 4: Filter games with invalid scores before bulk insert
             valid_game_records = []
             skipped_games = []
@@ -484,6 +507,7 @@ class EnhancedETLPipeline:
                     f"📈 PROGRESS UPDATE ({self.metrics.games_processed:,} games processed)\n"
                     f"{'='*80}\n"
                     f"  ✅ Accepted:        {self.metrics.games_accepted:,} games\n"
+                    f"  🔃 Updated:         {self.metrics.games_updated:,} games (score changes)\n"
                     f"  ⚠️  Quarantined:     {self.metrics.games_quarantined:,} games\n"
                     f"  🔄 Duplicates:       {self.metrics.duplicates_found:,} games (already in DB)\n"
                     f"  📊 Perspective dup: {self.metrics.duplicates_skipped:,} skipped\n"
@@ -497,7 +521,10 @@ class EnhancedETLPipeline:
             if self.dry_run:
                 logger.info("Dry run completed - no changes committed")
             else:
-                logger.info(f"Batch completed: {batch_metrics.games_accepted} games imported")
+                logger.info(
+                    f"Batch completed: {batch_metrics.games_accepted} games imported, "
+                    f"{batch_metrics.games_updated} games updated"
+                )
             
             # Return batch-specific metrics (not shared self.metrics) to avoid double-counting
             return batch_metrics
@@ -910,7 +937,144 @@ class EnhancedETLPipeline:
                 # Continue processing even if duplicate check fails
         
         return existing_composite_keys
-    
+
+    async def _check_game_uid_conflicts(self, game_records: List[Dict]) -> Tuple[Dict[str, Dict], List[Dict]]:
+        """
+        Check for games that have the same game_uid but different scores.
+
+        This detects cases where:
+        - game_uid exists in DB (same teams + date)
+        - But scores are different (e.g., DB has 3-4, CSV has 1-5)
+
+        These games need to be UPDATED, not inserted.
+
+        Args:
+            game_records: List of matched game records ready for insertion
+
+        Returns:
+            Tuple of:
+            - Dict mapping game_uid -> existing DB record (for games that need updating)
+            - List of games that are truly new (no game_uid conflict)
+        """
+        if not game_records:
+            return {}, []
+
+        # Extract game UIDs
+        game_uids = [g.get('game_uid') for g in game_records if g.get('game_uid')]
+
+        if not game_uids:
+            return {}, game_records
+
+        # Query DB for existing games with these UIDs
+        existing_games = {}
+        for chunk in self._chunks(game_uids, 2000):
+            try:
+                result = self.supabase.table('games').select(
+                    'id, game_uid, home_score, away_score, home_team_master_id, away_team_master_id'
+                ).in_('game_uid', chunk).execute()
+
+                if result.data:
+                    for row in result.data:
+                        existing_games[row['game_uid']] = row
+            except Exception as e:
+                logger.warning(f"Error checking game_uid conflicts: {e}")
+
+        # Categorize games: conflicts (need update) vs new (need insert)
+        conflicts = {}  # game_uid -> existing DB record
+        new_games = []
+
+        for game in game_records:
+            game_uid = game.get('game_uid')
+            if not game_uid:
+                new_games.append(game)
+                continue
+
+            if game_uid in existing_games:
+                existing = existing_games[game_uid]
+                existing_home = existing.get('home_score')
+                existing_away = existing.get('away_score')
+                new_home = game.get('home_score')
+                new_away = game.get('away_score')
+
+                # Check if scores are different
+                if existing_home != new_home or existing_away != new_away:
+                    logger.info(
+                        f"[Pipeline] Game UID conflict detected: {game_uid} - "
+                        f"DB scores: {existing_home}-{existing_away}, "
+                        f"New scores: {new_home}-{new_away} - will UPDATE"
+                    )
+                    conflicts[game_uid] = {
+                        'existing': existing,
+                        'new_game': game
+                    }
+                else:
+                    # Same scores - true duplicate, skip
+                    logger.debug(f"[Pipeline] True duplicate (same scores): {game_uid}")
+            else:
+                # No existing game_uid - truly new
+                new_games.append(game)
+
+        return conflicts, new_games
+
+    async def _bulk_update_games(self, conflicts: Dict[str, Dict]) -> int:
+        """
+        Update existing games with new scores when game_uid matches but scores differ.
+
+        Args:
+            conflicts: Dict mapping game_uid -> {'existing': DB record, 'new_game': new record}
+
+        Returns:
+            Number of games successfully updated
+        """
+        if not conflicts:
+            return 0
+
+        updated = 0
+        errors = 0
+
+        for game_uid, data in conflicts.items():
+            existing = data['existing']
+            new_game = data['new_game']
+
+            # Prepare update data
+            update_data = {
+                'home_score': new_game.get('home_score'),
+                'away_score': new_game.get('away_score'),
+                # Also update team master IDs if they were matched
+                'home_team_master_id': new_game.get('home_team_master_id'),
+                'away_team_master_id': new_game.get('away_team_master_id'),
+                # Update result if provided
+                'result': new_game.get('result'),
+                # Mark as updated
+                'scraped_at': new_game.get('scraped_at') or datetime.now().isoformat()
+            }
+
+            # Remove None values to avoid overwriting with nulls
+            update_data = {k: v for k, v in update_data.items() if v is not None}
+
+            try:
+                # Update by game_uid (more reliable than id since we have it)
+                self.supabase.table('games').update(update_data).eq(
+                    'game_uid', game_uid
+                ).execute()
+
+                updated += 1
+                logger.debug(
+                    f"[Pipeline] Updated game {game_uid}: "
+                    f"{existing.get('home_score')}-{existing.get('away_score')} -> "
+                    f"{new_game.get('home_score')}-{new_game.get('away_score')}"
+                )
+            except Exception as e:
+                errors += 1
+                logger.error(f"[Pipeline] Failed to update game {game_uid}: {e}")
+
+        if updated > 0:
+            logger.info(f"[Pipeline] ✅ Updated {updated} games with new scores")
+        if errors > 0:
+            logger.warning(f"[Pipeline] ⚠️ Failed to update {errors} games")
+
+        return updated
+
     async def _bulk_insert_games(self, game_records: List[Dict]) -> int:
         """Bulk insert games using Supabase batch operations"""
         if not game_records:
@@ -1340,7 +1504,7 @@ class EnhancedETLPipeline:
                 'started_at': datetime.now().isoformat(),
                 'completed_at': datetime.now().isoformat(),
                 'records_processed': self.metrics.games_processed,
-                'records_succeeded': self.metrics.games_accepted,
+                'records_succeeded': self.metrics.games_accepted + self.metrics.games_updated,
                 'records_failed': self.metrics.games_quarantined + self.metrics.duplicates_found,
                 'errors': self.metrics.errors[:100],  # Limit stored errors
                 'metrics': self.metrics.to_dict()
@@ -1390,6 +1554,7 @@ class EnhancedETLPipeline:
         unique_games = metrics.games_processed - metrics.duplicates_skipped
         print(f"  Unique Games: {unique_games:,}")
         print(f"  Imported: {metrics.games_accepted:,}")
+        print(f"  Updated (score changes): {metrics.games_updated:,}")
         print(f"  Already in Database: {metrics.duplicates_found:,}")
         print(f"  Duplicates Skipped: {metrics.duplicates_skipped:,}")
         print(f"  Quarantined: {metrics.games_quarantined:,}")
