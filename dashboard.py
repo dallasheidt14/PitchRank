@@ -4066,7 +4066,7 @@ elif section == "✏️ Manual Team Edit":
 
                         new_alias_method = st.selectbox(
                             "Match Method",
-                            options=['dashboard_manual', 'exact_id', 'fuzzy_name', 'manual', 'direct_id'],
+                            options=['manual', 'direct_id', 'auto', 'import', 'fuzzy_auto', 'fuzzy_review'],
                             key="new_alias_method"
                         )
 
