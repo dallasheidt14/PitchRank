@@ -4128,11 +4128,11 @@ elif section == "✏️ Manual Team Edit":
                 st.markdown(f"**Team:** {team['team_name']}")
 
                 try:
-                    # Fetch recent games for this team
+                    # Fetch recent games for this team (only columns that exist in games table)
                     home_games = execute_with_retry(
                         lambda: db.table('games').select(
                             'game_uid, game_date, home_team_master_id, away_team_master_id, '
-                            'home_score, away_score, home_team_name, away_team_name'
+                            'home_score, away_score'
                         ).eq('home_team_master_id', team['team_id_master']).order(
                             'game_date', desc=True
                         ).limit(50)
@@ -4141,7 +4141,7 @@ elif section == "✏️ Manual Team Edit":
                     away_games = execute_with_retry(
                         lambda: db.table('games').select(
                             'game_uid, game_date, home_team_master_id, away_team_master_id, '
-                            'home_score, away_score, home_team_name, away_team_name'
+                            'home_score, away_score'
                         ).eq('away_team_master_id', team['team_id_master']).order(
                             'game_date', desc=True
                         ).limit(50)
@@ -4153,6 +4153,25 @@ elif section == "✏️ Manual Team Edit":
                     all_games = all_games[:50]  # Limit to 50 most recent
 
                     if all_games:
+                        # Get all unique team IDs to look up names
+                        opponent_ids = set()
+                        for g in all_games:
+                            if g.get('home_team_master_id'):
+                                opponent_ids.add(g['home_team_master_id'])
+                            if g.get('away_team_master_id'):
+                                opponent_ids.add(g['away_team_master_id'])
+
+                        # Fetch team names in one query
+                        team_names = {team['team_id_master']: team['team_name']}  # Include current team
+                        if opponent_ids:
+                            teams_result = execute_with_retry(
+                                lambda: db.table('teams').select('team_id_master, team_name')
+                                .in_('team_id_master', list(opponent_ids))
+                            )
+                            if teams_result.data:
+                                for t in teams_result.data:
+                                    team_names[t['team_id_master']] = t['team_name']
+
                         st.success(f"Found **{len(all_games)}** games")
 
                         # Calculate record
@@ -4198,9 +4217,9 @@ elif section == "✏️ Manual Team Edit":
                         games_df = pd.DataFrame([
                             {
                                 'Date': g.get('game_date', '')[:10] if g.get('game_date') else '',
-                                'Home': g.get('home_team_name', 'Unknown'),
+                                'Home': team_names.get(g.get('home_team_master_id'), 'Unknown'),
                                 'Score': f"{g.get('home_score', '-')} - {g.get('away_score', '-')}",
-                                'Away': g.get('away_team_name', 'Unknown'),
+                                'Away': team_names.get(g.get('away_team_master_id'), 'Unknown'),
                                 'Result': (
                                     'W' if (g.get('home_team_master_id') == team['team_id_master'] and (g.get('home_score', 0) or 0) > (g.get('away_score', 0) or 0)) or
                                            (g.get('away_team_master_id') == team['team_id_master'] and (g.get('away_score', 0) or 0) > (g.get('home_score', 0) or 0))
