@@ -3568,6 +3568,8 @@ elif section == "✏️ Manual Team Edit":
             if not search_name and not search_id and not search_age and not search_gender:
                 st.warning("Please enter a search term (name, ID) or select filters (age group, gender)")
             else:
+                # Clear previous selection when doing a new search
+                st.session_state.edit_selected_team = None
                 with st.spinner("Searching..."):
                     try:
                         found_teams = []
@@ -3711,13 +3713,20 @@ elif section == "✏️ Manual Team Edit":
                 for t in st.session_state.edit_search_results
             }
 
-            selected_team_label = st.selectbox(
-                "Select a team to edit:",
-                options=[""] + list(team_options.keys()),
-                key="edit_team_selector"
-            )
+            select_col, button_col = st.columns([4, 1])
 
-            if selected_team_label and selected_team_label in team_options:
+            with select_col:
+                selected_team_label = st.selectbox(
+                    "Select a team to edit:",
+                    options=[""] + list(team_options.keys()),
+                    key="edit_team_selector"
+                )
+
+            with button_col:
+                st.write("")  # Spacing
+                load_clicked = st.button("📂 Load Team", type="primary", use_container_width=True)
+
+            if load_clicked and selected_team_label and selected_team_label in team_options:
                 selected_team_id = team_options[selected_team_label]
                 # Find the full team data
                 selected_team = next(
@@ -3726,6 +3735,9 @@ elif section == "✏️ Manual Team Edit":
                 )
                 if selected_team:
                     st.session_state.edit_selected_team = selected_team
+                    st.rerun()
+            elif load_clicked and not selected_team_label:
+                st.warning("Please select a team from the dropdown first")
 
         # ========================
         # STEP 2: DISPLAY & EDIT TEAM
