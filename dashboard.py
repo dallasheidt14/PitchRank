@@ -4131,7 +4131,7 @@ elif section == "✏️ Manual Team Edit":
                     # Fetch recent games for this team
                     home_games = execute_with_retry(
                         lambda: db.table('games').select(
-                            'game_id, game_date, home_team_master_id, away_team_master_id, '
+                            'game_uid, game_date, home_team_master_id, away_team_master_id, '
                             'home_score, away_score, home_team_name, away_team_name'
                         ).eq('home_team_master_id', team['team_id_master']).order(
                             'game_date', desc=True
@@ -4140,7 +4140,7 @@ elif section == "✏️ Manual Team Edit":
 
                     away_games = execute_with_retry(
                         lambda: db.table('games').select(
-                            'game_id, game_date, home_team_master_id, away_team_master_id, '
+                            'game_uid, game_date, home_team_master_id, away_team_master_id, '
                             'home_score, away_score, home_team_name, away_team_name'
                         ).eq('away_team_master_id', team['team_id_master']).order(
                             'game_date', desc=True
