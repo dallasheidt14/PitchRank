@@ -1,0 +1,2 @@
+num_teams,num_out_of_bounds,sos_mean,sos_std,sos_min,sos_max,perf_mean,perf_std,perf_extreme_count,perf_extreme_pct,low_sample_count,low_sample_sos_std,ok_sample_count,ok_sample_sos_std
+12000,0,0.5182275630363973,0.1789153635557108,0.0410817120360805,0.999291096348945,0.05411155054176059,0.28269450460346157,2381,19.841666666666665,5782,0.0732874319497078,6218,0.23318653792385394

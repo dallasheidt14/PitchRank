@@ -1,0 +1,457 @@
+#!/usr/bin/env python3
+"""
+Create Team Aliases from Modular11 CSV Results
+
+This script reads a Modular11 scraped CSV file and creates team aliases
+in the format: {team_id}_{age_group}_{division} (e.g., "564_U13_HD")
+
+The script:
+1. Extracts unique team/age/division combinations from CSV
+2. Matches them to existing teams in the database using fuzzy matching
+3. Creates aliases in team_alias_map table
+
+Usage:
+    # Preview first (dry run)
+    python scripts/create_aliases_from_csv.py \
+      --csv-path "data/raw/modular11_results_20251222_053117.csv" \
+      --dry-run --verbose
+
+    # Then execute
+    python scripts/create_aliases_from_csv.py \
+      --csv-path "data/raw/modular11_results_20251222_053117.csv"
+"""
+
+import argparse
+import csv
+import os
+import sys
+from pathlib import Path
+from collections import defaultdict
+from datetime import datetime
+from typing import Dict, List, Optional, Set, Tuple
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from dotenv import load_dotenv
+from supabase import create_client
+from rapidfuzz import fuzz
+
+# Load environment variables - prioritize .env.local if it exists
+env_local = Path(__file__).parent.parent / '.env.local'
+if env_local.exists():
+    load_dotenv(env_local, override=True)
+else:
+    load_dotenv()
+
+MODULAR11_PROVIDER_ID = 'b376e2a4-4b81-47be-b2aa-a06ba0616110'
+
+
+def get_supabase():
+    """Get Supabase client"""
+    url = os.getenv('SUPABASE_URL')
+    key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+    if not url or not key:
+        print("❌ Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY")
+        sys.exit(1)
+    return create_client(url, key)
+
+
+def normalize_age_group(age_group: str) -> str:
+    """Normalize age group format (U13, u13, 13 -> U13)"""
+    if not age_group:
+        return None
+    age = age_group.strip().upper()
+    if not age.startswith('U'):
+        age = f'U{age}'
+    return age
+
+
+def extract_division_from_name(team_name: str) -> Optional[str]:
+    """Extract HD/AD division from team name"""
+    if not team_name:
+        return None
+    name_upper = team_name.upper().strip()
+    if name_upper.endswith(' HD') or ' HD ' in name_upper:
+        return 'HD'
+    elif name_upper.endswith(' AD') or ' AD ' in name_upper:
+        return 'AD'
+    return None
+
+
+def extract_location_from_name(team_name: str) -> Optional[str]:
+    """Extract location/region from team name (e.g., Colorado, San Diego, Las Vegas)"""
+    if not team_name:
+        return None
+    
+    # Common location patterns in team names
+    # Remove common suffixes first
+    name = team_name.upper()
+    for suffix in [' HD', ' AD', ' U13', ' U14', ' U15', ' U16', ' U17', ' U18', ' U19']:
+        name = name.replace(suffix, '')
+    
+    # Common location keywords
+    locations = [
+        'COLORADO', 'SAN DIEGO', 'LAS VEGAS', 'LOS ANGELES', 'SAN FRANCISCO',
+        'RIVERSIDE', 'DENVER', 'ATLANTA', 'DALLAS', 'HOUSTON', 'PHOENIX',
+        'SEATTLE', 'PORTLAND', 'CHICAGO', 'NEW YORK', 'BOSTON', 'PHILADELPHIA',
+        'MIAMI', 'TAMPA', 'ORLANDO', 'AUSTIN', 'NASHVILLE', 'KANSAS CITY',
+        'ST. LOUIS', 'MINNEAPOLIS', 'DETROIT', 'CLEVELAND', 'CINCINNATI',
+        'NORTH', 'SOUTH', 'EAST', 'WEST', 'CENTRAL', 'METRO', 'COASTAL'
+    ]
+    
+    for loc in locations:
+        if loc in name:
+            return loc
+    
+    return None
+
+
+def extract_unique_teams_from_csv(csv_path: str) -> Dict[Tuple[str, str, str], Dict]:
+    """
+    Extract unique team/age/division combinations from CSV.
+    
+    Returns dict keyed by (team_id, age_group, division) with team info.
+    """
+    unique_teams = {}
+    
+    print(f"📖 Reading CSV: {csv_path}")
+    
+    with open(csv_path, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            team_id = row.get('team_id', '').strip()
+            team_name = row.get('team_name', '').strip()
+            club_name = row.get('club_name', '').strip()
+            age_group = normalize_age_group(row.get('age_group', '').strip())
+            mls_division = row.get('mls_division', '').strip().upper()
+            gender = row.get('gender', '').strip()
+            
+            # Determine division from mls_division or team_name
+            division = mls_division if mls_division in ('HD', 'AD') else None
+            if not division:
+                division = extract_division_from_name(team_name)
+            
+            if not team_id or not age_group or not division:
+                continue
+            
+            key = (team_id, age_group, division)
+            
+            if key not in unique_teams:
+                unique_teams[key] = {
+                    'team_id': team_id,
+                    'team_name': team_name,
+                    'club_name': club_name,
+                    'age_group': age_group,
+                    'division': division,
+                    'gender': gender,
+                    'expected_alias': f"{team_id}_{age_group}_{division}"
+                }
+    
+    print(f"  Found {len(unique_teams)} unique team/age/division combinations")
+    return unique_teams
+
+
+def find_matching_team(
+    db,
+    team_name: str,
+    club_name: str,
+    age_group: str,
+    division: str,
+    gender: str,
+    verbose: bool = False
+) -> Optional[Dict]:
+    """
+    Find matching team in database using strict fuzzy matching.
+    
+    Returns team dict with team_id_master if found, None otherwise.
+    
+    IMPORTANT: This uses strict matching to avoid false positives:
+    - Requires high similarity (85%+) for team names
+    - Validates location matches for multi-location clubs
+    - Penalizes location mismatches heavily
+    """
+    age_normalized = age_group.lower() if age_group else None
+    
+    # Extract location from source team name
+    source_location = extract_location_from_name(team_name)
+    
+    # First, try exact match on team name + age + gender
+    if team_name and age_normalized and gender:
+        result = db.table('teams').select(
+            'team_id_master, team_name, club_name, age_group, gender'
+        ).eq('age_group', age_normalized).eq('gender', gender).ilike(
+            'team_name', f'%{team_name}%'
+        ).limit(10).execute()
+        
+        if result.data:
+            # Check for exact match first
+            for team in result.data:
+                if team['team_name'].upper() == team_name.upper():
+                    if verbose:
+                        print(f"    ✅ Exact match: {team['team_name']}")
+                    return {
+                        'team_id_master': team['team_id_master'],
+                        'team_name': team['team_name'],
+                        'club_name': team.get('club_name'),
+                        'match_type': 'exact'
+                    }
+    
+    # Fuzzy match: get all teams with matching age and gender
+    if age_normalized and gender:
+        result = db.table('teams').select(
+            'team_id_master, team_name, club_name, age_group, gender'
+        ).eq('age_group', age_normalized).eq('gender', gender).limit(500).execute()
+        
+        if result.data:
+            best_match = None
+            best_score = 0.0
+            
+            for team in result.data:
+                db_team_name = team['team_name'].upper()
+                source_team_name = team_name.upper()
+                
+                # Score based on team name similarity (using token set for better matching)
+                name_score = fuzz.token_set_ratio(source_team_name, db_team_name) / 100.0
+                
+                # CRITICAL: Check location match for multi-location clubs
+                db_location = extract_location_from_name(team['team_name'])
+                location_match = True
+                location_penalty = 0.0
+                
+                if source_location and db_location:
+                    if source_location != db_location:
+                        # Different locations - this is a strong signal they're different teams
+                        location_match = False
+                        location_penalty = -0.5  # Heavy penalty
+                        if verbose:
+                            print(f"    ⚠️  Location mismatch: {source_location} vs {db_location}")
+                
+                # Club name similarity (only if locations match or no location info)
+                club_score = 0.0
+                if location_match and club_name and team.get('club_name'):
+                    club_similarity = fuzz.token_set_ratio(
+                        club_name.upper(), 
+                        team['club_name'].upper()
+                    ) / 100.0
+                    # Only boost if club similarity is very high (90%+)
+                    if club_similarity >= 0.90:
+                        club_score = club_similarity * 0.2
+                
+                # Boost score if division matches (HD/AD in name)
+                division_boost = 0.0
+                if division == 'HD' and (' HD' in db_team_name or db_team_name.endswith(' HD')):
+                    division_boost = 0.1
+                elif division == 'AD' and (' AD' in db_team_name or db_team_name.endswith(' AD')):
+                    division_boost = 0.1
+                
+                total_score = name_score + club_score + division_boost + location_penalty
+                
+                if total_score > best_score:
+                    best_score = total_score
+                    best_match = team
+            
+            # Require minimum 85% similarity AND location match (if locations are present)
+            if best_match:
+                # CRITICAL: If we have location info, require exact location match
+                # This prevents matching "ALBION SC Colorado" to "ALBION SC San Diego"
+                if source_location:
+                    db_location = extract_location_from_name(best_match['team_name'])
+                    if db_location and source_location != db_location:
+                        if verbose:
+                            print(f"    ❌ Location mismatch prevents match: {source_location} vs {db_location}")
+                        return None
+                
+                # Require high confidence (85%+) to avoid false positives
+                if best_score >= 0.85:
+                    if verbose:
+                        print(f"    ✅ Fuzzy match ({best_score:.2f}): {best_match['team_name']}")
+                    return {
+                        'team_id_master': best_match['team_id_master'],
+                        'team_name': best_match['team_name'],
+                        'club_name': best_match.get('club_name'),
+                        'match_type': 'fuzzy',
+                        'confidence': best_score
+                    }
+                elif verbose:
+                    print(f"    ⚠️  Low confidence ({best_score:.2f}): {best_match['team_name']}")
+    
+    if verbose:
+        print(f"    ❌ No match found")
+    return None
+
+
+def create_alias(
+    db,
+    provider_id: str,
+    provider_team_id: str,
+    team_id_master: str,
+    division: str,
+    dry_run: bool = True,
+    verbose: bool = False
+) -> Tuple[bool, Optional[str]]:
+    """
+    Create or update alias in team_alias_map.
+    
+    Returns (success, error_message)
+    """
+    if dry_run:
+        return True, None
+    
+    try:
+        # Check if alias already exists
+        existing = db.table('team_alias_map').select('id').eq(
+            'provider_id', provider_id
+        ).eq('provider_team_id', provider_team_id).execute()
+        
+        if existing.data:
+            if verbose:
+                print(f"    ⚠️  Alias already exists, skipping")
+            return True, "already_exists"
+        
+        # Create the alias
+        db.table('team_alias_map').insert({
+            'provider_id': provider_id,
+            'provider_team_id': provider_team_id,
+            'team_id_master': team_id_master,
+            'match_method': 'manual',
+            'match_confidence': 1.0,
+            'review_status': 'approved',
+            'division': division,
+            'created_at': datetime.utcnow().isoformat() + 'Z'
+        }).execute()
+        
+        return True, None
+        
+    except Exception as e:
+        return False, str(e)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Create team aliases from Modular11 CSV results'
+    )
+    parser.add_argument(
+        '--csv-path',
+        required=True,
+        help='Path to Modular11 CSV file'
+    )
+    parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='Preview changes without creating aliases'
+    )
+    parser.add_argument(
+        '--verbose',
+        action='store_true',
+        help='Show detailed matching information'
+    )
+    
+    args = parser.parse_args()
+    
+    # Validate CSV file exists
+    csv_path = Path(args.csv_path)
+    if not csv_path.exists():
+        print(f"❌ CSV file not found: {csv_path}")
+        sys.exit(1)
+    
+    # Get database connection
+    db = get_supabase()
+    
+    # Extract unique teams from CSV
+    unique_teams = extract_unique_teams_from_csv(str(csv_path))
+    
+    if not unique_teams:
+        print("❌ No teams found in CSV")
+        sys.exit(1)
+    
+    print(f"\n{'🔍 DRY RUN - ' if args.dry_run else ''}Processing {len(unique_teams)} teams...\n")
+    
+    stats = {
+        'total': len(unique_teams),
+        'matched': 0,
+        'not_matched': 0,
+        'created': 0,
+        'skipped': 0,
+        'errors': 0
+    }
+    
+    not_matched_teams = []
+    
+    for key, team_info in sorted(unique_teams.items()):
+        team_id, age_group, division = key
+        expected_alias = team_info['expected_alias']
+        
+        if args.verbose:
+            print(f"\n📋 Processing: {expected_alias}")
+            print(f"   Team: {team_info['team_name']}")
+            print(f"   Club: {team_info['club_name']}")
+            print(f"   Age: {age_group}, Division: {division}, Gender: {team_info['gender']}")
+        
+        # Find matching team in database
+        match = find_matching_team(
+            db,
+            team_info['team_name'],
+            team_info['club_name'],
+            age_group,
+            division,
+            team_info['gender'],
+            verbose=args.verbose
+        )
+        
+        if not match:
+            stats['not_matched'] += 1
+            not_matched_teams.append(team_info)
+            if args.verbose:
+                print(f"   ❌ No match found")
+            continue
+        
+        stats['matched'] += 1
+        
+        # Create alias
+        success, error = create_alias(
+            db,
+            MODULAR11_PROVIDER_ID,
+            expected_alias,
+            match['team_id_master'],
+            division,
+            dry_run=args.dry_run,
+            verbose=args.verbose
+        )
+        
+        if success:
+            if error == "already_exists":
+                stats['skipped'] += 1
+                if args.verbose:
+                    print(f"   ⚠️  Alias already exists")
+            else:
+                stats['created'] += 1
+                if args.verbose:
+                    print(f"   ✅ {'Would create' if args.dry_run else 'Created'} alias")
+        else:
+            stats['errors'] += 1
+            print(f"   ❌ Error creating alias: {error}")
+    
+    # Print summary
+    print(f"\n{'='*70}")
+    print("SUMMARY")
+    print(f"{'='*70}")
+    print(f"Total teams processed: {stats['total']}")
+    print(f"  ✅ Matched: {stats['matched']}")
+    print(f"  ❌ Not matched: {stats['not_matched']}")
+    print(f"  {'Would create' if args.dry_run else 'Created'}: {stats['created']}")
+    print(f"  Skipped (already exists): {stats['skipped']}")
+    print(f"  Errors: {stats['errors']}")
+    
+    if not_matched_teams:
+        print(f"\n⚠️  {len(not_matched_teams)} teams could not be matched:")
+        for team in not_matched_teams[:10]:  # Show first 10
+            print(f"   - {team['expected_alias']}: {team['team_name']}")
+        if len(not_matched_teams) > 10:
+            print(f"   ... and {len(not_matched_teams) - 10} more")
+    
+    print(f"\n{'✅ Dry run complete' if args.dry_run else '✅ Alias creation complete'}")
+
+
+if __name__ == '__main__':
+    main()
+

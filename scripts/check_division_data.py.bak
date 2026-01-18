@@ -1,0 +1,227 @@
+#!/usr/bin/env python3
+"""
+Check where division (HD/AD) information is stored for Modular11 games.
+
+This script checks:
+1. If competition field contains HD/AD
+2. If raw_data column exists and has mls_division data
+3. Sample data from both sources
+"""
+
+import os
+import sys
+from pathlib import Path
+from collections import defaultdict
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from dotenv import load_dotenv
+from supabase import create_client
+
+# Load environment variables
+env_local = Path(__file__).parent.parent / '.env.local'
+if env_local.exists():
+    load_dotenv(env_local, override=True)
+else:
+    load_dotenv()
+
+MODULAR11_PROVIDER_ID = 'b376e2a4-4b81-47be-b2aa-a06ba0616110'
+
+def get_supabase():
+    url = os.getenv('SUPABASE_URL')
+    key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+    if not url or not key:
+        print("❌ Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY")
+        sys.exit(1)
+    return create_client(url, key)
+
+
+def check_raw_data_column(db):
+    """Check if raw_data column exists in games table."""
+    print("\n" + "="*70)
+    print("CHECKING IF raw_data COLUMN EXISTS")
+    print("="*70)
+    
+    try:
+        # Try to select raw_data column
+        result = db.table('games').select('id, raw_data').eq(
+            'provider_id', MODULAR11_PROVIDER_ID
+        ).limit(5).execute()
+        
+        print("✅ raw_data column EXISTS in games table")
+        
+        # Check if any rows have non-null raw_data
+        has_data = False
+        for row in result.data:
+            if row.get('raw_data'):
+                has_data = True
+                print(f"\n📊 Sample raw_data:")
+                import json
+                print(json.dumps(row['raw_data'], indent=2, default=str))
+                break
+        
+        if not has_data:
+            print("⚠️  raw_data column exists but all values are NULL")
+            
+        return True, has_data
+        
+    except Exception as e:
+        error_msg = str(e)
+        if 'column' in error_msg.lower() and 'does not exist' in error_msg.lower():
+            print("❌ raw_data column DOES NOT EXIST in games table")
+            return False, False
+        else:
+            print(f"❌ Error checking raw_data: {e}")
+            return False, False
+
+
+def check_competition_field(db):
+    """Check if competition field contains HD/AD division info."""
+    print("\n" + "="*70)
+    print("CHECKING competition FIELD FOR HD/AD")
+    print("="*70)
+    
+    # Get all Modular11 games
+    result = db.table('games').select(
+        'id, competition, division_name, home_provider_id, away_provider_id, game_date'
+    ).eq('provider_id', MODULAR11_PROVIDER_ID).limit(1000).execute()
+    
+    games_with_hd = []
+    games_with_ad = []
+    games_without_division = []
+    
+    for game in result.data:
+        competition = game.get('competition', '') or ''
+        division_name = game.get('division_name', '') or ''
+        combined = f"{competition} {division_name}".upper()
+        
+        if ' HD' in combined or 'HD ' in combined or combined.endswith('HD'):
+            games_with_hd.append(game)
+        elif ' AD' in combined or 'AD ' in combined or combined.endswith('AD'):
+            games_with_ad.append(game)
+        else:
+            games_without_division.append(game)
+    
+    print(f"\n📊 Total games checked: {len(result.data)}")
+    print(f"📊 Games with 'HD' in competition/division_name: {len(games_with_hd)}")
+    print(f"📊 Games with 'AD' in competition/division_name: {len(games_with_ad)}")
+    print(f"📊 Games without HD/AD: {len(games_without_division)}")
+    
+    if games_with_hd:
+        print(f"\n📋 Sample HD games:")
+        for game in games_with_hd[:3]:
+            print(f"  Competition: {game.get('competition')}")
+            print(f"  Division: {game.get('division_name')}")
+            print(f"  Date: {game.get('game_date')}")
+            print()
+    
+    if games_with_ad:
+        print(f"\n📋 Sample AD games:")
+        for game in games_with_ad[:3]:
+            print(f"  Competition: {game.get('competition')}")
+            print(f"  Division: {game.get('division_name')}")
+            print(f"  Date: {game.get('game_date')}")
+            print()
+    
+    if games_without_division and len(games_without_division) > len(games_with_hd) + len(games_with_ad):
+        print(f"\n📋 Sample games without HD/AD:")
+        for game in games_without_division[:3]:
+            print(f"  Competition: {game.get('competition')}")
+            print(f"  Division: {game.get('division_name')}")
+            print(f"  Date: {game.get('game_date')}")
+            print()
+    
+    return len(games_with_hd) > 0 or len(games_with_ad) > 0
+
+
+def check_team_names(db):
+    """Check if team names contain HD/AD."""
+    print("\n" + "="*70)
+    print("CHECKING TEAM NAMES FOR HD/AD")
+    print("="*70)
+    
+    # Get teams that play Modular11 games
+    games_result = db.table('games').select(
+        'home_team_master_id, away_team_master_id'
+    ).eq('provider_id', MODULAR11_PROVIDER_ID).limit(1000).execute()
+    
+    team_ids = set()
+    for game in games_result.data:
+        if game.get('home_team_master_id'):
+            team_ids.add(game['home_team_master_id'])
+        if game.get('away_team_master_id'):
+            team_ids.add(game['away_team_master_id'])
+    
+    if not team_ids:
+        print("❌ No team IDs found")
+        return
+    
+    # Get team names
+    teams_result = db.table('teams').select(
+        'team_id_master, team_name'
+    ).in_('team_id_master', list(team_ids)[:100]).execute()
+    
+    teams_with_hd = []
+    teams_with_ad = []
+    teams_without = []
+    
+    for team in teams_result.data:
+        name = team.get('team_name', '') or ''
+        if ' HD' in name.upper() or name.upper().endswith(' HD'):
+            teams_with_hd.append(team)
+        elif ' AD' in name.upper() or name.upper().endswith(' AD'):
+            teams_with_ad.append(team)
+        else:
+            teams_without.append(team)
+    
+    print(f"\n📊 Teams checked: {len(teams_result.data)}")
+    print(f"📊 Teams with 'HD' in name: {len(teams_with_hd)}")
+    print(f"📊 Teams with 'AD' in name: {len(teams_with_ad)}")
+    print(f"📊 Teams without HD/AD: {len(teams_without)}")
+    
+    if teams_with_hd:
+        print(f"\n📋 Sample HD teams:")
+        for team in teams_with_hd[:5]:
+            print(f"  {team['team_name']}")
+    
+    if teams_with_ad:
+        print(f"\n📋 Sample AD teams:")
+        for team in teams_with_ad[:5]:
+            print(f"  {team['team_name']}")
+
+
+def main():
+    db = get_supabase()
+    
+    print("="*70)
+    print("CHECKING WHERE DIVISION (HD/AD) INFORMATION IS STORED")
+    print("="*70)
+    
+    # Check 1: raw_data column
+    has_raw_data_col, has_raw_data_values = check_raw_data_column(db)
+    
+    # Check 2: competition field
+    competition_has_division = check_competition_field(db)
+    
+    # Check 3: team names
+    check_team_names(db)
+    
+    # Summary
+    print("\n" + "="*70)
+    print("SUMMARY")
+    print("="*70)
+    print(f"✅ raw_data column exists: {has_raw_data_col}")
+    print(f"✅ raw_data has values: {has_raw_data_values}")
+    print(f"✅ competition field has HD/AD: {competition_has_division}")
+    
+    if has_raw_data_values:
+        print("\n💡 Division info is in: raw_data.mls_division")
+    elif competition_has_division:
+        print("\n💡 Division info is in: competition or division_name field")
+    else:
+        print("\n💡 Division info is NOT in games table - need to check CSV files")
+
+
+if __name__ == '__main__':
+    main()
+

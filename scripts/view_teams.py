@@ -57,7 +57,9 @@ def fetch_teams(
     age_group: str = None,
     gender: str = None,
     state_code: str = None,
-    include_deprecated: bool = False
+    no_state: bool = False,
+    include_deprecated: bool = False,
+    modular11_or_division: bool = False
 ) -> pd.DataFrame:
     """
     Fetch teams from database with optional filters.
@@ -67,13 +69,15 @@ def fetch_teams(
         age_group: Filter by age group (e.g., 'u13')
         gender: Filter by gender ('Male' or 'Female')
         state_code: Filter by state code (e.g., 'AZ')
+        no_state: Filter for teams with no state_code (null)
         include_deprecated: Include deprecated/merged teams
+        modular11_or_division: Only include teams with modular11_alias or AD/HD division
 
     Returns:
-        DataFrame with team data
+        DataFrame with team data including division and alias columns
     """
     query = supabase.table('teams').select(
-        'team_id_master, team_name, club_name, age_group, gender, state_code, state, birth_year, is_deprecated'
+        'team_id_master, team_name, club_name, age_group, gender, state_code, state, birth_year, is_deprecated, provider_id'
     )
 
     # Apply filters
@@ -85,20 +89,127 @@ def fetch_teams(
         # Normalize gender to title case
         query = query.eq('gender', gender.title())
 
-    if state_code:
+    if no_state:
+        query = query.is_('state_code', 'null')
+    elif state_code:
         # Normalize state code to uppercase
         query = query.eq('state_code', state_code.upper())
 
     if not include_deprecated:
         query = query.eq('is_deprecated', False)
 
-    # Execute query
-    result = query.execute()
+    # Execute query with pagination
+    all_data = []
+    page_size = 1000
+    offset = 0
+    
+    while True:
+        page_query = query.range(offset, offset + page_size - 1)
+        result = page_query.execute()
+        
+        if not result.data:
+            break
+            
+        all_data.extend(result.data)
+        
+        if len(result.data) < page_size:
+            break
+            
+        offset += page_size
 
-    if not result.data:
+    if not all_data:
         return pd.DataFrame()
 
-    return pd.DataFrame(result.data)
+    teams_df = pd.DataFrame(all_data)
+    
+    # Fetch division and alias from team_alias_map
+    team_ids = teams_df['team_id_master'].astype(str).tolist()
+    
+    # Fetch all aliases for these teams
+    alias_data = []
+    batch_size = 500
+    
+    for i in range(0, len(team_ids), batch_size):
+        batch = team_ids[i:i+batch_size]
+        try:
+            alias_result = supabase.table('team_alias_map').select(
+                'team_id_master, provider_team_id, division, provider_id'
+            ).in_('team_id_master', batch).execute()
+            
+            if alias_result.data:
+                alias_data.extend(alias_result.data)
+        except Exception as e:
+            console.print(f"[yellow]Warning: Failed to fetch aliases batch: {e}[/yellow]")
+            continue
+    
+    if alias_data:
+        alias_df = pd.DataFrame(alias_data)
+        
+        # Get Modular11 provider ID
+        try:
+            provider_result = supabase.table('providers').select('id, name').eq('name', 'Modular11').execute()
+            modular11_provider_id = provider_result.data[0]['id'] if provider_result.data else None
+        except:
+            modular11_provider_id = None
+        
+        # Group aliases by team_id_master
+        division_map = {}
+        alias_map = {}  # Will store semicolon-separated list of all aliases
+        modular11_alias_map = {}  # Will store semicolon-separated list of Modular11 aliases
+        
+        for _, alias_row in alias_df.iterrows():
+            team_id = alias_row['team_id_master']
+            provider_id = alias_row.get('provider_id')
+            provider_team_id = alias_row.get('provider_team_id', '')
+            division = alias_row.get('division')
+            
+            # Store division (prefer non-null values)
+            if division and (team_id not in division_map or division_map[team_id] is None):
+                division_map[team_id] = division
+            elif team_id not in division_map:
+                division_map[team_id] = division
+            
+            # Store all aliases (aggregate into semicolon-separated string)
+            if provider_team_id:
+                if team_id not in alias_map:
+                    alias_map[team_id] = []
+                if provider_team_id not in alias_map[team_id]:
+                    alias_map[team_id].append(provider_team_id)
+            
+            # Store Modular11-specific aliases (aggregate into semicolon-separated string)
+            if provider_id == modular11_provider_id and provider_team_id:
+                if team_id not in modular11_alias_map:
+                    modular11_alias_map[team_id] = []
+                if provider_team_id not in modular11_alias_map[team_id]:
+                    modular11_alias_map[team_id].append(provider_team_id)
+        
+        # Convert lists to semicolon-separated strings
+        for team_id in alias_map:
+            alias_map[team_id] = ';'.join(alias_map[team_id])
+        for team_id in modular11_alias_map:
+            modular11_alias_map[team_id] = ';'.join(modular11_alias_map[team_id])
+        
+        # Add columns to teams_df
+        teams_df['division'] = teams_df['team_id_master'].astype(str).map(division_map)
+        teams_df['alias'] = teams_df['team_id_master'].astype(str).map(alias_map)
+        teams_df['modular11_alias'] = teams_df['team_id_master'].astype(str).map(modular11_alias_map)
+        # Convert provider_id to string for consistency
+        teams_df['provider_id'] = teams_df['provider_id'].astype(str)
+    else:
+        # Add empty columns if no aliases found
+        teams_df['division'] = None
+        teams_df['alias'] = None
+        teams_df['modular11_alias'] = None
+        # provider_id is already in teams_df from the main query
+    
+    # Filter by modular11_alias or division if requested
+    if modular11_or_division:
+        # Keep teams that have modular11_alias OR have division AD/HD
+        has_modular11 = (teams_df['modular11_alias'].notna()) & (teams_df['modular11_alias'] != '')
+        has_division = teams_df['division'].isin(['AD', 'HD'])
+        teams_df = teams_df[has_modular11 | has_division]
+    
+    return teams_df
 
 
 def fetch_rankings(supabase, team_ids: list) -> pd.DataFrame:
@@ -268,6 +379,10 @@ Examples:
     parser.add_argument('--gender', '-g', type=str, choices=['Male', 'Female', 'male', 'female'],
                         help='Gender (Male or Female)')
     parser.add_argument('--state', '-s', type=str, help='State code (e.g., AZ, CA, TX)')
+    parser.add_argument('--no-state', action='store_true',
+                        help='Filter for teams with no state code')
+    parser.add_argument('--modular11-or-division', action='store_true',
+                        help='Only include teams with Modular11 alias or AD/HD division')
     parser.add_argument('--with-rankings', '-r', action='store_true',
                         help='Include rankings data (national rank, power score, etc.)')
     parser.add_argument('--include-deprecated', action='store_true',
@@ -300,7 +415,9 @@ Examples:
         age_group=args.age_group,
         gender=args.gender,
         state_code=args.state,
-        include_deprecated=args.include_deprecated
+        no_state=args.no_state,
+        include_deprecated=args.include_deprecated,
+        modular11_or_division=args.modular11_or_division
     )
 
     if teams_df.empty:

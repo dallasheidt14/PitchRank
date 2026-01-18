@@ -1,0 +1,49 @@
+{
+  "training_date": "2025-11-20T20:12:41.648136",
+  "n_train": 4000,
+  "n_test": 1000,
+  "n_features": 23,
+  "feature_names": [
+    "home_power_score",
+    "away_power_score",
+    "power_score_diff",
+    "home_sos_norm",
+    "away_sos_norm",
+    "sos_diff",
+    "home_offense_norm",
+    "away_offense_norm",
+    "home_defense_norm",
+    "away_defense_norm",
+    "offense_vs_defense",
+    "defense_vs_offense",
+    "home_win_pct",
+    "away_win_pct",
+    "win_pct_diff",
+    "home_games_played",
+    "away_games_played",
+    "home_rank",
+    "away_rank",
+    "rank_diff",
+    "home_recent_form",
+    "away_recent_form",
+    "recent_form_diff"
+  ],
+  "metrics": {
+    "win_probability": {
+      "accuracy": 0.762,
+      "log_loss": 0.48672467914194123
+    },
+    "score_margin": {
+      "mae": 1.7164635402485728,
+      "rmse": 2.2446033218110086
+    },
+    "home_score": {
+      "mae": 1.326439064450562,
+      "rmse": 1.8052411351726985
+    },
+    "away_score": {
+      "mae": 1.2105610863119365,
+      "rmse": 1.620537001807841
+    }
+  }
+}

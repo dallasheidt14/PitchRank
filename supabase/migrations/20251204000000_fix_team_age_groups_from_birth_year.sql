@@ -79,3 +79,5 @@ WHERE
 --
 -- After running this migration, you MUST recalculate rankings:
 --   python scripts/calculate_rankings.py
+
+

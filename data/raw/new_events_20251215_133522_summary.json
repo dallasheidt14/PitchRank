@@ -1,0 +1,114 @@
+{
+  "scrape_date": "2025-12-15T13:35:22.662117",
+  "days_back": 10,
+  "lookback_days": 30,
+  "total_events": 15,
+  "total_games": 10644,
+  "events": [
+    {
+      "event_id": "44534",
+      "event_name": "2025 The Miami Classic 7v7/9v9",
+      "teams_count": 169,
+      "games_count": 1104,
+      "status": "success"
+    },
+    {
+      "event_id": "46865",
+      "event_name": "2025 Vale College Showcase",
+      "teams_count": 109,
+      "games_count": 656,
+      "status": "success"
+    },
+    {
+      "event_id": "43841",
+      "event_name": "Alliance Showcase 2025",
+      "teams_count": 160,
+      "games_count": 960,
+      "status": "success"
+    },
+    {
+      "event_id": "46775",
+      "event_name": "Cavern City Christmas Classic 2025",
+      "teams_count": 41,
+      "games_count": 308,
+      "status": "success"
+    },
+    {
+      "event_id": "46107",
+      "event_name": "Texas SuperCopa Qualifier",
+      "teams_count": 112,
+      "games_count": 844,
+      "status": "success"
+    },
+    {
+      "event_id": "47463",
+      "event_name": "The Gambit Winter Cup Dallas 2025",
+      "teams_count": 88,
+      "games_count": 588,
+      "status": "success"
+    },
+    {
+      "event_id": "45373",
+      "event_name": "Upper 90 Challenge 2025",
+      "teams_count": 339,
+      "games_count": 2600,
+      "status": "success"
+    },
+    {
+      "event_id": "44369",
+      "event_name": "Winter College Showcase 2025",
+      "teams_count": 234,
+      "games_count": 1452,
+      "status": "success"
+    },
+    {
+      "event_id": "48953",
+      "event_name": "Three Rivers College Showcase '25",
+      "teams_count": 61,
+      "games_count": 372,
+      "status": "success"
+    },
+    {
+      "event_id": "45873",
+      "event_name": "6TH ANNUAL ACOBA CUP",
+      "teams_count": 16,
+      "games_count": 108,
+      "status": "success"
+    },
+    {
+      "event_id": "47529",
+      "event_name": "Den Harder Classic",
+      "teams_count": 12,
+      "games_count": 84,
+      "status": "success"
+    },
+    {
+      "event_id": "44159",
+      "event_name": "Las Vegas Champions Cup 2025",
+      "teams_count": 134,
+      "games_count": 896,
+      "status": "success"
+    },
+    {
+      "event_id": "40580",
+      "event_name": "2025 DMV Futsal Classic",
+      "teams_count": 12,
+      "games_count": 84,
+      "status": "success"
+    },
+    {
+      "event_id": "44490",
+      "event_name": "2025 Mustang Stampede Winter Turf Boys (U11-U14)",
+      "teams_count": 49,
+      "games_count": 328,
+      "status": "success"
+    },
+    {
+      "event_id": "42706",
+      "event_name": "Christmas Youth Super Cup   2025",
+      "teams_count": 37,
+      "games_count": 260,
+      "status": "success"
+    }
+  ]
+}

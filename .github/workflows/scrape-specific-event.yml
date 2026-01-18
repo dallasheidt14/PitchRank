@@ -1,0 +1,113 @@
+name: Scrape Specific GotSport Event
+
+on:
+  workflow_dispatch:
+    inputs:
+      event_id:
+        description: 'GotSport Event ID to scrape (e.g., 45163)'
+        required: true
+        type: string
+      lookback_days:
+        description: 'How many days of games to scrape (default: 30)'
+        required: false
+        type: string
+        default: '30'
+      auto_import:
+        description: 'Automatically import games after scraping'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  scrape-event:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180  # 3 hour timeout (scraping can take a while)
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # Additional dependencies for scraping
+          pip install beautifulsoup4 lxml requests certifi
+      
+      - name: Create data directories
+        run: |
+          mkdir -p data/raw
+          mkdir -p data/cache
+          mkdir -p logs
+      
+      - name: Scrape Specific Event
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
+          # Optional: Configure scraping delays
+          GOTSPORT_DELAY_MIN: '1.5'
+          GOTSPORT_DELAY_MAX: '2.5'
+          GOTSPORT_MAX_RETRIES: '3'
+          GOTSPORT_TIMEOUT: '30'
+        run: |
+          # Set Python path to include project root
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          
+          # Build command with optional parameters
+          CMD="python scripts/scrape_specific_event.py ${{ inputs.event_id }} --force"
+          
+          if [ -n "${{ inputs.lookback_days }}" ]; then
+            CMD="$CMD --lookback-days ${{ inputs.lookback_days }}"
+          fi
+          
+          if [ "${{ inputs.auto_import }}" == "false" ]; then
+            CMD="$CMD --no-auto-import"
+          fi
+          
+          echo "Running: $CMD"
+          $CMD || exit 1
+      
+      - name: Upload scraped data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: specific-event-${{ inputs.event_id }}-${{ github.run_number }}
+          path: |
+            data/raw/manual_event_${{ inputs.event_id }}_*.jsonl
+            data/raw/scraped_events.json
+          retention-days: 30
+          if-no-files-found: warn
+      
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: specific-event-logs-${{ inputs.event_id }}-${{ github.run_number }}
+          path: logs/*.log
+          retention-days: 30
+          if-no-files-found: ignore
+      
+      - name: Report results
+        if: always()
+        run: |
+          echo "Specific event scraper workflow completed for event ID: ${{ inputs.event_id }}"
+          echo "Check the artifacts above for scraped data and logs."
+
+
+
+
+
+
+
+
+
+
+
+

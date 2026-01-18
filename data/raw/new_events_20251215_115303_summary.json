@@ -1,0 +1,107 @@
+{
+  "scrape_date": "2025-12-15T11:53:04.023504",
+  "days_back": 10,
+  "lookback_days": 30,
+  "total_events": 14,
+  "total_games": 17422,
+  "events": [
+    {
+      "event_id": "45995",
+      "event_name": "Christmas Angel 2025",
+      "teams_count": 394,
+      "games_count": 2484,
+      "status": "success"
+    },
+    {
+      "event_id": "46926",
+      "event_name": "Cincy Winter Classic 2025",
+      "teams_count": 98,
+      "games_count": 668,
+      "status": "success"
+    },
+    {
+      "event_id": "47938",
+      "event_name": "Copa La Fe International",
+      "teams_count": 22,
+      "games_count": 152,
+      "status": "success"
+    },
+    {
+      "event_id": "44709",
+      "event_name": "FC Stars College Showcase 2025",
+      "teams_count": 173,
+      "games_count": 1012,
+      "status": "success"
+    },
+    {
+      "event_id": "46174",
+      "event_name": "Sol Cup 2025",
+      "teams_count": 124,
+      "games_count": 836,
+      "status": "success"
+    },
+    {
+      "event_id": "41032",
+      "event_name": "2025 NTX Celtic Snowball Cup",
+      "teams_count": 600,
+      "games_count": 3928,
+      "status": "success"
+    },
+    {
+      "event_id": "50479",
+      "event_name": "2025 ODP Winter Friendlies",
+      "teams_count": 113,
+      "games_count": 704,
+      "status": "success"
+    },
+    {
+      "event_id": "45302",
+      "event_name": "2025 Oklahoma Winter Championship and Showcase",
+      "teams_count": 187,
+      "games_count": 1192,
+      "status": "success"
+    },
+    {
+      "event_id": "46175",
+      "event_name": "2025 Springs Holiday Cup",
+      "teams_count": 386,
+      "games_count": 2300,
+      "status": "success"
+    },
+    {
+      "event_id": "44536",
+      "event_name": "2025 The Miami Classic 11v11",
+      "teams_count": 290,
+      "games_count": 1886,
+      "status": "success"
+    },
+    {
+      "event_id": "42680",
+      "event_name": "Adidas College Showcase 2025",
+      "teams_count": 62,
+      "games_count": 372,
+      "status": "success"
+    },
+    {
+      "event_id": "45937",
+      "event_name": "IMG Academy Girls Cup 2025",
+      "teams_count": 96,
+      "games_count": 576,
+      "status": "success"
+    },
+    {
+      "event_id": "46941",
+      "event_name": "TFC Winter Festival 2025",
+      "teams_count": 65,
+      "games_count": 428,
+      "status": "success"
+    },
+    {
+      "event_id": "45374",
+      "event_name": "The Fields at Griffin Park Cup 2025",
+      "teams_count": 117,
+      "games_count": 884,
+      "status": "success"
+    }
+  ]
+}

@@ -1,0 +1,121 @@
+{
+  "scrape_date": "2025-12-15T09:40:21.681094",
+  "days_back": 10,
+  "lookback_days": 30,
+  "total_events": 16,
+  "total_games": 27830,
+  "events": [
+    {
+      "event_id": "47820",
+      "event_name": "GA Winter Showcase \\u0026 Champions Cup - SilverLakes - 25/26",
+      "teams_count": 422,
+      "games_count": 1614,
+      "status": "success"
+    },
+    {
+      "event_id": "49968",
+      "event_name": "HBHS All Turf Tournament Varsity",
+      "teams_count": 14,
+      "games_count": 116,
+      "status": "success"
+    },
+    {
+      "event_id": "41734",
+      "event_name": "2025 visitRaleigh.com Girls College Showcase",
+      "teams_count": 534,
+      "games_count": 2454,
+      "status": "success"
+    },
+    {
+      "event_id": "41496",
+      "event_name": "Strikers SLAM Shootout",
+      "teams_count": 55,
+      "games_count": 372,
+      "status": "success"
+    },
+    {
+      "event_id": "45571",
+      "event_name": "2025 Bat City Cup",
+      "teams_count": 430,
+      "games_count": 2844,
+      "status": "success"
+    },
+    {
+      "event_id": "37788",
+      "event_name": "2025 Celtic Soccer Academy Elite Cup",
+      "teams_count": 260,
+      "games_count": 1724,
+      "status": "success"
+    },
+    {
+      "event_id": "41057",
+      "event_name": "2025 DASC Boys Winter Games",
+      "teams_count": 104,
+      "games_count": 704,
+      "status": "success"
+    },
+    {
+      "event_id": "47456",
+      "event_name": "2025 NTX Soccer Tournament of Champions",
+      "teams_count": 541,
+      "games_count": 3700,
+      "status": "success"
+    },
+    {
+      "event_id": "47445",
+      "event_name": "2025 South Texas Fall Championships",
+      "teams_count": 278,
+      "games_count": 1772,
+      "status": "success"
+    },
+    {
+      "event_id": "49358",
+      "event_name": "2025 Messi Cup (Miami)",
+      "teams_count": 8,
+      "games_count": 72,
+      "status": "success"
+    },
+    {
+      "event_id": "47973",
+      "event_name": "2025 El Paso Christmas Angel Classic",
+      "teams_count": 332,
+      "games_count": 2392,
+      "status": "success"
+    },
+    {
+      "event_id": "41656",
+      "event_name": "2025 Florida Winter Cup & Showcase",
+      "teams_count": 197,
+      "games_count": 1284,
+      "status": "success"
+    },
+    {
+      "event_id": "41449",
+      "event_name": "2025 visitRaleigh.com Boys College Showcase",
+      "teams_count": 486,
+      "games_count": 2340,
+      "status": "success"
+    },
+    {
+      "event_id": "46102",
+      "event_name": "RSL-AZ Holiday Classic 2025",
+      "teams_count": 623,
+      "games_count": 4018,
+      "status": "success"
+    },
+    {
+      "event_id": "41001",
+      "event_name": "2025 Baltimore College Showcase",
+      "teams_count": 126,
+      "games_count": 756,
+      "status": "success"
+    },
+    {
+      "event_id": "48635",
+      "event_name": "2025 Lions FC Winter Blast",
+      "teams_count": 240,
+      "games_count": 1668,
+      "status": "success"
+    }
+  ]
+}

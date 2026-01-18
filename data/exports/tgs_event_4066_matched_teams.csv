@@ -1,0 +1,60 @@
+tgs_team_id,tgs_team_name,tgs_club_name,master_team_id,master_team_name,master_club_name,age_group,gender,state_code,match_method
+108518,Eagles Girls 2016 White,Eagles Soccer Club,66ce9b74-baaa-4a22-8edd-d48e8561e47e,Eagles Girls 2016 White,Eagles Soccer Club,u10,Female,,import
+111325,Eagles- G2017,Eagles Soccer Club,c7c0cadf-f540-4bad-908f-b691484d5590,Eagles- G2017,Eagles Soccer Club,u10,Female,,import
+89684,Legends FC SCV G16,Legends FC SCV,7bb366b6-6fde-4fe3-a24e-e4768323566c,Legends FC SCV G16,Legends FC SCV,u10,Female,,import
+84636,OXNARD UNITED G2017,Oxnard United SC,078d6f61-e5d1-4f6c-a2ec-a1be689a217d,OXNARD UNITED G2017,Oxnard United SC,u10,Female,,import
+104915,Oxnard Wave G2016,Oxnard Wave FC,3643f451-4e4c-4ccf-a688-84dbbe29498e,Oxnard Wave G2016,Oxnard Wave FC,u10,Female,,import
+105290,Central Coast Surf 2016 Blue,Central Coast Surf,13ab27fd-259a-470c-acb2-ca6a663f6eb3,Central Coast Surf 2016 Blue,Central Coast Surf,u10,Male,,import
+123086,LAFC BLACK,Los Angeles Football Club,69e33799-66f2-4007-a258-0a0d3e08da0e,LAFC BLACK,Los Angeles Football Club,u10,Male,,import
+104105,Legends FC SCV B16 FC,Legends FC SCV,3668143b-4481-4224-883a-1d08572575f9,Legends FC SCV B16 FC,Legends FC SCV,u10,Male,,import
+81149,Oxnard FC 2016,Oxnard FC,ebeaf378-78be-4e4f-b04e-84026cf56b01,Oxnard FC 2016,Oxnard FC,u10,Male,,import
+122450,Central Coast Surf G2015 Blac,Central Coast Surf,17a3b28f-c6da-40c9-988d-8191db36121f,Central Coast Surf G2015 Blac,Central Coast Surf,u11,Female,,import
+122204,Channel Islands G2015,AYSO United,5ede0d8a-cc76-4337-992f-3df8a10f3594,Channel Islands G2015,AYSO United,u11,Female,,import
+105719,Crusaders FC G15,Crusaders Futbol Club,ed4d5412-4266-43f2-980d-661fffaa7cf8,Crusaders FC G15,Crusaders Futbol Club,u11,Female,,import
+105050,G2016,Eagles Soccer Club,d1dafb1e-0522-494b-aee4-22ba6e048caf,G2016,Eagles Soccer Club,u11,Female,,import
+121670,LAUFC G2015,Los Angeles United Football Club,1c76a452-21e9-478f-8d12-1740a2fd8acf,LAUFC G2015,Los Angeles United Football Club,u11,Female,,import
+122614,Oxnard Eagles,No Club Selection,7c53195a-1d46-479c-817c-fc8c4b3e944d,Oxnard Eagles,No Club Selection,u11,Female,,import
+108497,2015 Blue,Santa Barbara SC,211fb8f9-7912-46da-94b6-47d9b9a04661,2015 Blue,Santa Barbara SC,u11,Male,,import
+87929,2015 Boys Gold,Legends FC SCV,790e8fc6-6fb5-42ba-9565-ed681c225ea5,2015 Boys Gold,Legends FC SCV,u11,Male,,import
+67675,2015 Boys Legends FC,Legends FC SCV,b5ca0bae-e767-48b1-9925-4b6ee0eaa704,2015 Boys Legends FC,Legends FC SCV,u11,Male,,import
+113414,B2016,La Esperanza,cfa3a665-7fc8-4b1e-b478-50b5b1b16497,B2016,La Esperanza,u11,Male,,import
+117653,Eagles SC Pre ECNL 2015 915,Eagles Soccer Club,8213385d-4f6c-40b0-b0f6-2f4fe681041c,Eagles SC Pre ECNL 2015 915,Eagles Soccer Club,u11,Male,,import
+118636,Eagles SC Pre-ECNL B15 715,Eagles Soccer Club,50e15be4-f853-4347-a6b7-88f22a665b85,Eagles SC Pre-ECNL B15 715,Eagles Soccer Club,u11,Male,,import
+118419,LA Surf SO B2015 - Black,LA Surf,87bf4bfe-8752-45b5-b8c2-d747b59736b8,LA Surf SO B2015 - Black,LA Surf,u11,Male,,import
+111141,MSA FC B2015-WHITE,MSA FC,9c13ad73-379b-4dbb-941b-4f24f93714b9,MSA FC B2015-WHITE,MSA FC,u11,Male,,import
+76678,Oxnard United SC,Oxnard United SC,a859176e-bedb-4aed-baa9-19b275f93e4b,Oxnard United SC,Oxnard United SC,u11,Male,,import
+83310,Santa Barbara Soccer Club,Santa Barbara SC,3c1e9b4e-8b3a-4c06-bf33-461939ac88ac,Santa Barbara Soccer Club,Santa Barbara SC,u11,Male,,import
+125110,TFA SCV 2015,Total Futbol Academy,4fa37666-889b-4deb-9501-c8640369729e,TFA SCV 2015,Total Futbol Academy,u11,Male,,import
+110768,2014 Eagles White,Eagles Soccer Club,88644632-baa5-44d0-a64e-6a9f7575d6a3,2014 Eagles White,Eagles Soccer Club,u12,Female,,import
+76088,Eagles SC G2015,Eagles Soccer Club,b31e6bb7-e704-40cc-b0e8-090beefae3f4,Eagles SC G2015,Eagles Soccer Club,u12,Female,,import
+76920,G15 FC,Legends FC SCV,ce058714-f519-446b-acb9-75c7d30a7eac,G15 FC,Legends FC SCV,u12,Female,,import
+122194,United SoCal AV G2014,AYSO United,b5ea0069-fa7d-4379-8f5d-823eda182ae5,United SoCal AV G2014,AYSO United,u12,Female,,import
+104625,Eagles SC ECNL RL G13,Eagles Soccer Club,cd4f7377-d868-4424-8ce1-1112cfb2301f,Eagles SC ECNL RL G13,Eagles Soccer Club,u13,Female,,import
+58574,FC - 2013G,California United,3248a58d-0205-4db1-bdaa-dd18ef0014f1,FC - 2013G,California United,u13,Female,,import
+91555,G2013 GA Aspire,Santa Barbara SC,4f7fccbe-5d55-4476-a0ff-90b452f56ba9,G2013 GA Aspire,Santa Barbara SC,u13,Female,,import
+92370,G2014,Eagles Soccer Club,5c90913c-21aa-44e1-b8f0-13be11cf71e1,G2014,Eagles Soccer Club,u13,Female,,import
+68856,TFA-AV G2014,Total Futbol Academy,13d101b3-51a1-4d78-a359-635db250520b,TFA-AV G2014,Total Futbol Academy,u13,Female,,import
+123413,United Conejo Valley,AYSO United,877f5568-b9ea-40f4-a1a2-14a47045e4b4,United Conejo Valley,AYSO United,u13,Female,,import
+113505,Conejo Valley 2013 Blue,AYSO United,298d639c-6326-4ff1-b905-9735e0a0711a,Conejo Valley 2013 Blue,AYSO United,u13,Male,,import
+121905,Socal Pride B2014 Flight 1,So Cal Pride FC,9da591ac-1e0c-4c83-87c6-5dd14f9d5056,Socal Pride B2014 Flight 1,So Cal Pride FC,u13,Male,,import
+122388,TFA - AV B2013 - White,Total Futbol Academy,2cddd024-0638-42b6-946f-29489a5954c1,TFA - AV B2013 - White,Total Futbol Academy,u13,Male,,import
+122715,Ventura County VC Fusion,VC Fusion,6e8f64e4-1781-4adc-82f5-a50744a9c682,Ventura County VC Fusion,VC Fusion,u13,Male,,import
+106328,CCA G12 GA Aspire,Santa Barbara SC,0b1764ee-4148-4fb7-a6a6-7494be30b003,CCA G12 GA Aspire,Santa Barbara SC,u14,Female,,import
+63947,Eagles SC ECNL G13,Eagles Soccer Club,60234fc8-1a5e-4a54-b37b-6e22c813e1b0,Eagles SC ECNL G13,Eagles Soccer Club,u14,Female,,import
+114910,G2012 Black,Unico FC,f0bca1e1-fc6e-4212-bf5e-de707d233b2e,G2012 Black,Unico FC,u14,Female,,import
+105213,IKONIK,NP Elite FC,d72e48b2-0275-49e4-9dfc-19a1000903c5,IKONIK,NP Elite FC,u14,Female,,import
+56384,SoCal Pride FC G2012,So Cal Pride FC,55e76069-ca29-4bc1-9020-022a9451d1bb,SoCal Pride FC G2012,So Cal Pride FC,u14,Female,,import
+106809,TFA-VC G2012,Total Futbol Academy-VC,e28a2958-b8d9-43fe-bac5-fa16fe15b499,TFA-VC G2012,Total Futbol Academy-VC,u14,Female,,import
+124683,VC Oaks G2012 DPL,Oaks FC,8fc369af-3194-4777-bcb7-f3f5625c4949,VC Oaks G2012 DPL,Oaks FC,u14,Female,,import
+56473,CCU South B12 White,Central Coast United SC,d75cd425-3680-47d0-8356-018b1ae711f4,CCU South B12 White,Central Coast United SC,u14,Male,,import
+124700,LA Surf MLS 2013,LA Surf,4c676292-b8ff-4ec8-abfd-4f2d99744181,LA Surf MLS 2013,LA Surf,u14,Male,,import
+122879,PSG,No Club Selection,a046a749-3a54-4d59-ab95-498a28e8f97a,PSG,No Club Selection,u14,Male,,import
+122548,So Cal Pride FC B2012,So Cal Pride FC,c0b25df1-1c51-4e70-aa95-0b9b210e3e2e,So Cal Pride FC B2012,So Cal Pride FC,u14,Male,,import
+98642,SoCal Pride B2012 Chacon,So Cal Pride FC,450b65a9-1d8b-4442-b637-825800e97cf4,SoCal Pride B2012 Chacon,So Cal Pride FC,u14,Male,,import
+105338,B2017,Ventura Surf SC,4ffbfa0a-5057-459e-a72e-10740b8add8e,B2017,Ventura Surf SC,u9,Male,,import
+113108,B2017 Black,South Valley Surf,067ffd57-0fb0-422e-a1da-1ac483d34a57,B2017 Black,South Valley Surf,u9,Male,,import
+106974,Blue,Santa Barbara SC,daf32b7d-8c4b-4149-8166-6cab1e74565d,Blue,Santa Barbara SC,u9,Male,,import
+105294,Juniors Soccer Academy B2017,cal south,7ebb54f5-bb01-422a-aba3-6f0250f5e5a4,Juniors Soccer Academy B2017,cal south,u9,Male,,import
+114887,Legends FC SCV B17 Gold,Legends FC SCV,ed06a045-5113-4961-b5ec-8c83d742e2b1,Legends FC SCV B17 Gold,Legends FC SCV,u9,Male,,import
+106225,Oxnard Wave FC B2017,Oxnard Wave FC,a970f8dd-c6fd-492f-9187-6c73f0922d0c,Oxnard Wave FC B2017,Oxnard Wave FC,u9,Male,,import
+122637,United B2017 8U White,AYSO United,c6b29db6-65d7-41c6-8556-51ae2db9646a,United B2017 8U White,AYSO United,u9,Male,,import

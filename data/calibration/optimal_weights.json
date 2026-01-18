@@ -1,0 +1,21 @@
+{
+  "weights": {
+    "POWER_SCORE": 0.6774090258572576,
+    "SOS": 0.0845611335917383,
+    "RECENT_FORM": 0.033168447684044575,
+    "MATCHUP": 0.20486139286695945
+  },
+  "current_weights": {
+    "POWER_SCORE": 0.5,
+    "SOS": 0.18,
+    "RECENT_FORM": 0.28,
+    "MATCHUP": 0.04
+  },
+  "accuracy": {
+    "current": 0.58919,
+    "optimal": 0.58954,
+    "improvement": 0.00034999999999996145
+  },
+  "use_adaptive": true,
+  "method": "differential_evolution"
+}

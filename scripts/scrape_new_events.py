@@ -1,0 +1,547 @@
+#!/usr/bin/env python3
+"""
+Weekly event scraper - finds new events and scrapes games from their teams
+"""
+import sys
+import argparse
+from pathlib import Path
+from datetime import datetime, date, timedelta
+import json
+import logging
+import time
+import re
+from typing import List, Dict, Set
+from urllib.parse import urlencode
+
+sys.path.append(str(Path(__file__).parent.parent))
+
+from supabase import create_client
+import os
+from dotenv import load_dotenv
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.table import Table
+from rich.panel import Panel
+from rich import box
+from bs4 import BeautifulSoup
+import requests
+
+from src.scrapers.gotsport_event import GotSportEventScraper
+
+console = Console()
+load_dotenv()
+
+# Load .env.local if it exists
+env_local = Path('.env.local')
+if env_local.exists():
+    load_dotenv(env_local, override=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+
+class EventDiscovery:
+    """Discover GotSport events by searching their events page"""
+    
+    BASE_URL = "https://home.gotsoccer.com"
+    EVENTS_SEARCH_URL = "https://home.gotsoccer.com/events.aspx"
+    
+    def __init__(self):
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+        })
+    
+    def resolve_event_id(self, rankings_event_id: str) -> str:
+        """
+        Resolve the actual system.gotsport.com event ID from a rankings page EventID
+        
+        The rankings page redirects to rankings.gotsport.com/events/{id}, which contains
+        the actual event ID we need for system.gotsport.com/org_event/events/{id}
+        
+        Args:
+            rankings_event_id: EventID from rankings page (e.g., "97871")
+        
+        Returns:
+            Actual event ID for system.gotsport.com (e.g., "42498"), or rankings_event_id if not found
+        """
+        rankings_url = f"https://home.gotsoccer.com/rankings/event.aspx?EventID={rankings_event_id}"
+        
+        try:
+            response = self.session.get(rankings_url, timeout=30, allow_redirects=True)
+            response.raise_for_status()
+            
+            # The rankings page redirects to rankings.gotsport.com/events/{id}
+            # Extract the event ID from the redirected URL
+            final_url = response.url
+            
+            # Pattern 1: rankings.gotsport.com/events/{id}
+            match = re.search(r'rankings\.gotsport\.com/events/(\d+)', final_url, re.I)
+            if match:
+                return match.group(1)
+            
+            # Pattern 2: system.gotsport.com/org_event/events/{id} (direct redirect)
+            match = re.search(r'system\.gotsport\.com/org_event/events/(\d+)', final_url, re.I)
+            if match:
+                return match.group(1)
+            
+            # Pattern 3: Look for event ID in the URL path
+            match = re.search(r'/events?/(\d+)', final_url, re.I)
+            if match:
+                return match.group(1)
+            
+            # Look for "Event Home" button or other links to system.gotsport.com
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Look for links to system.gotsport.com/org_event/events/
+            event_links = soup.find_all('a', href=re.compile(r'system\.gotsport\.com/org_event/events/\d+', re.I))
+            for link in event_links:
+                href = link.get('href', '')
+                match = re.search(r'/org_event/events/(\d+)', href)
+                if match:
+                    return match.group(1)
+            
+            # Look for button with onclick or data attributes that might contain the event ID
+            buttons = soup.find_all(['button', 'a'], attrs={'onclick': True})
+            for button in buttons:
+                onclick = button.get('onclick', '')
+                match = re.search(r'/org_event/events/(\d+)', onclick, re.I)
+                if match:
+                    return match.group(1)
+            
+        except Exception as e:
+            logger.debug(f"Error resolving event ID {rankings_event_id}: {e}")
+        
+        # Fallback: return the original ID (might work, might not)
+        return rankings_event_id
+    
+    def discover_events_by_date(self, search_date: date) -> List[Dict[str, str]]:
+        """
+        Discover events for a specific date
+        
+        Args:
+            search_date: Date to search for events
+        
+        Returns:
+            List of dicts with 'event_id', 'event_name', 'event_url', 'date'
+        """
+        events = []
+        
+        # Format date as MM/DD/YYYY for GotSport
+        # Use format that works on Windows (no leading zero removal)
+        date_str = f"{search_date.month}/{search_date.day}/{search_date.year}"  # e.g., "11/1/2025"
+        
+        console.print(f"[dim]Searching for events on {date_str}...[/dim]")
+        
+        params = {
+            'search': '',
+            'type': 'Tournament',
+            'date': date_str,
+            'age': '',
+            'featured': ''
+        }
+        
+        try:
+            response = self.session.get(self.EVENTS_SEARCH_URL, params=params, timeout=30)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Look for event links with EventID
+            event_links = soup.find_all('a', href=re.compile(r'EventID=', re.I))
+            
+            seen_event_ids = set()
+            
+            for link in event_links:
+                href = link.get('href', '')
+                match = re.search(r'EventID=(\d+)', href, re.I)
+                if match:
+                    rankings_event_id = match.group(1)
+                    if rankings_event_id not in seen_event_ids:
+                        # Get event name
+                        event_name = link.get_text(strip=True)
+                        if not event_name or len(event_name) < 3:
+                            parent = link.find_parent(['div', 'article', 'section'])
+                            if parent:
+                                heading = parent.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+                                if heading:
+                                    event_name = heading.get_text(strip=True)
+                                else:
+                                    event_name = parent.get_text(strip=True)[:100]
+                        
+                        if not event_name:
+                            event_name = f"Event {rankings_event_id}"
+                        
+                        # Resolve the actual event ID
+                        console.print(f"[dim]Resolving event ID for {event_name}...[/dim]")
+                        actual_event_id = self.resolve_event_id(rankings_event_id)
+                        
+                        events.append({
+                            'event_id': actual_event_id,
+                            'event_name': event_name,
+                            'event_url': f"https://system.gotsport.com/org_event/events/{actual_event_id}",
+                            'date': search_date.isoformat(),
+                            'rankings_event_id': rankings_event_id  # Keep original for reference
+                        })
+                        seen_event_ids.add(rankings_event_id)
+                        seen_event_ids.add(actual_event_id)  # Also track resolved ID
+                        
+                        time.sleep(0.5)  # Rate limiting between resolutions
+            
+            # Also check JavaScript for event IDs
+            scripts = soup.find_all('script')
+            for script in scripts:
+                if script.string:
+                    matches = re.findall(r'EventID["\']?\s*[:=]\s*["\']?(\d+)', script.string, re.IGNORECASE)
+                    for rankings_event_id in matches:
+                        if rankings_event_id not in seen_event_ids:
+                            actual_event_id = self.resolve_event_id(rankings_event_id)
+                            events.append({
+                                'event_id': actual_event_id,
+                                'event_name': f"Event {rankings_event_id}",
+                                'event_url': f"https://system.gotsport.com/org_event/events/{actual_event_id}",
+                                'date': search_date.isoformat(),
+                                'rankings_event_id': rankings_event_id
+                            })
+                            seen_event_ids.add(rankings_event_id)
+                            seen_event_ids.add(actual_event_id)
+                            time.sleep(0.5)
+            
+        except Exception as e:
+            logger.error(f"Error discovering events for {search_date}: {e}")
+        
+        return events
+    
+    def discover_events_in_range(self, start_date: date, end_date: date) -> List[Dict[str, str]]:
+        """
+        Discover events in a date range
+        
+        Args:
+            start_date: Start date
+            end_date: End date
+        
+        Returns:
+            List of events (deduplicated by event_id)
+        """
+        all_events = []
+        seen_event_ids = set()
+        
+        current_date = start_date
+        while current_date <= end_date:
+            date_events = self.discover_events_by_date(current_date)
+            
+            for event in date_events:
+                if event['event_id'] not in seen_event_ids:
+                    all_events.append(event)
+                    seen_event_ids.add(event['event_id'])
+            
+            current_date += timedelta(days=1)
+            time.sleep(0.5)  # Rate limiting
+        
+        return all_events
+
+
+def load_scraped_events(file_path: Path) -> Set[str]:
+    """Load list of already-scraped event IDs"""
+    if not file_path.exists():
+        return set()
+    
+    try:
+        with open(file_path, 'r') as f:
+            data = json.load(f)
+            return set(data.get('scraped_event_ids', []))
+    except Exception as e:
+        logger.warning(f"Error loading scraped events: {e}")
+        return set()
+
+
+def save_scraped_event(file_path: Path, event_id: str):
+    """Save an event ID to the scraped events file"""
+    scraped = load_scraped_events(file_path)
+    scraped.add(event_id)
+    
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(file_path, 'w') as f:
+        json.dump({
+            'scraped_event_ids': list(scraped),
+            'last_updated': datetime.now().isoformat()
+        }, f, indent=2)
+
+
+def scrape_new_events(
+    days_back: int = 7,
+    lookback_days: int = 30,
+    output_file: str = None,
+    scraped_events_file: str = None
+):
+    """
+    Scrape games from new events
+    
+    Args:
+        days_back: How many days back to look for events (default: 7 = last week)
+        lookback_days: How many days of games to scrape from event teams (default: 30)
+        output_file: Output file path (default: auto-generated)
+        scraped_events_file: File to track scraped events (default: data/raw/scraped_events.json)
+    """
+    console.print(Panel.fit(
+        f"[bold green]Weekly Event Scraper[/bold green]\n"
+        f"[dim]Looking for events in last {days_back} days[/dim]\n"
+        f"[dim]Scraping games from last {lookback_days} days[/dim]",
+        style="green"
+    ))
+    
+    # Setup
+    if scraped_events_file is None:
+        scraped_events_file = "data/raw/scraped_events.json"
+    
+    scraped_events_path = Path(scraped_events_file)
+    scraped_event_ids = load_scraped_events(scraped_events_path)
+    
+    console.print(f"[dim]Already scraped {len(scraped_event_ids)} events[/dim]\n")
+    
+    # Step 1: Discover new events
+    console.print("[bold cyan]Step 1: Discovering New Events[/bold cyan]")
+    
+    end_date = date.today()
+    start_date = end_date - timedelta(days=days_back)
+    
+    console.print(f"[cyan]Searching for events from {start_date} to {end_date}...[/cyan]")
+    
+    discovery = EventDiscovery()
+    all_events = discovery.discover_events_in_range(start_date, end_date)
+    
+    # Filter to only new events
+    new_events = [e for e in all_events if e['event_id'] not in scraped_event_ids]
+    
+    console.print(f"[green]✅ Found {len(new_events)} new events (out of {len(all_events)} total)[/green]\n")
+    
+    if not new_events:
+        console.print("[yellow]No new events to scrape![/yellow]")
+        return None
+    
+    # Display new events
+    table = Table(title="New Events Found", box=box.ROUNDED, show_header=True)
+    table.add_column("Event ID", style="cyan")
+    table.add_column("Event Name", style="yellow")
+    table.add_column("Date", style="green")
+    
+    for event in new_events[:20]:  # Show first 20
+        table.add_row(
+            event['event_id'],
+            event['event_name'][:50] + "..." if len(event['event_name']) > 50 else event['event_name'],
+            event['date']
+        )
+    
+    if len(new_events) > 20:
+        table.add_row("...", f"... and {len(new_events) - 20} more", "...")
+    
+    console.print(table)
+    console.print()
+    
+    # Step 2: Scrape games from new events
+    console.print("[bold cyan]Step 2: Scraping Games from Event Teams[/bold cyan]")
+    
+    supabase = create_client(
+        os.getenv('SUPABASE_URL'),
+        os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+    )
+    
+    scraper = GotSportEventScraper(supabase, 'gotsport')
+    
+    # Calculate since_date (lookback_days ago)
+    since_date = datetime.now() - timedelta(days=lookback_days)
+    
+    all_games = []
+    event_results = []
+    
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=console
+    ) as progress:
+        task = progress.add_task("[cyan]Scraping events...", total=len(new_events))
+        
+        for i, event in enumerate(new_events, 1):
+            event_id = event['event_id']
+            event_name = event['event_name']
+            
+            progress.update(task, description=f"[cyan]Scraping {event_name[:40]}... ({i}/{len(new_events)})")
+            
+            try:
+                # Extract teams from event
+                # Note: The EventID from search page may not match system.gotsport.com event ID
+                # We'll try it anyway - if it doesn't work, we'll skip it
+                team_ids = scraper.extract_event_teams(event_id)
+                
+                if not team_ids:
+                    event_results.append({
+                        'event_id': event_id,
+                        'event_name': event_name,
+                        'teams_count': 0,
+                        'games_count': 0,
+                        'status': 'no_teams',
+                        'note': 'EventID may not match system.gotsport.com format'
+                    })
+                    console.print(f"  [yellow]⚠️  {event_name}: No teams found (EventID may not match)[/yellow]")
+                    progress.advance(task)
+                    continue
+                
+                # Scrape games from those teams (last 30 days)
+                games = scraper.scrape_event_games(
+                    event_id,
+                    event_name=event_name,
+                    since_date=since_date
+                )
+                
+                event_results.append({
+                    'event_id': event_id,
+                    'event_name': event_name,
+                    'teams_count': len(team_ids),
+                    'games_count': len(games),
+                    'status': 'success'
+                })
+                
+                all_games.extend(games)
+                console.print(f"  [dim]{event_name}: {len(team_ids)} teams, {len(games)} games[/dim]")
+                
+                # Mark as scraped
+                save_scraped_event(scraped_events_path, event_id)
+                
+            except Exception as e:
+                logger.error(f"Error scraping event {event_id}: {e}")
+                event_results.append({
+                    'event_id': event_id,
+                    'event_name': event_name,
+                    'teams_count': 0,
+                    'games_count': 0,
+                    'status': 'error',
+                    'error': str(e)
+                })
+                console.print(f"  [red]Error scraping {event_name}: {e}[/red]")
+            
+            progress.advance(task)
+            
+            # Rate limiting between events
+            time.sleep(2)
+    
+    console.print(f"\n[bold green]✅ Scraped {len(all_games)} total games from {len(new_events)} events[/bold green]\n")
+    
+    # Summary table
+    summary_table = Table(title="Scraping Summary", box=box.ROUNDED, show_header=True)
+    summary_table.add_column("Event", style="cyan")
+    summary_table.add_column("Teams", style="green", justify="right")
+    summary_table.add_column("Games", style="yellow", justify="right")
+    summary_table.add_column("Status", style="blue")
+    
+    for result in event_results:
+        status_icon = {
+            'success': '✅',
+            'no_teams': '⚠️',
+            'error': '❌'
+        }.get(result['status'], '?')
+        
+        summary_table.add_row(
+            result['event_name'][:40],
+            str(result['teams_count']),
+            str(result['games_count']),
+            status_icon
+        )
+    
+    console.print(summary_table)
+    console.print()
+    
+    # Save games to file
+    if not output_file:
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output_file = f"data/raw/new_events_{timestamp}.jsonl"
+    
+    output_path = Path(output_file)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    console.print(f"[dim]Writing {len(all_games)} games to {output_file}...[/dim]")
+    
+    with open(output_file, 'w', encoding='utf-8') as f:
+        for game in all_games:
+            game_dict = {
+                'provider': 'gotsport',
+                'team_id': game.team_id,
+                'team_id_source': game.team_id,
+                'opponent_id': game.opponent_id,
+                'opponent_id_source': game.opponent_id,
+                'team_name': game.team_name or '',
+                'opponent_name': game.opponent_name or '',
+                'game_date': game.game_date,
+                'home_away': game.home_away,
+                'goals_for': game.goals_for,
+                'goals_against': game.goals_against,
+                'result': game.result or 'U',
+                'competition': game.competition or '',
+                'venue': game.venue or '',
+                'source_url': game.meta.get('source_url', '') if game.meta else '',
+                'scraped_at': game.meta.get('scraped_at', datetime.now().isoformat()) if game.meta else datetime.now().isoformat(),
+                'club_name': game.meta.get('club_name', '') if game.meta else '',
+                'opponent_club_name': game.meta.get('opponent_club_name', '') if game.meta else '',
+            }
+            f.write(json.dumps(game_dict) + '\n')
+    
+    console.print(f"[bold green]✅ Saved to {output_file}[/bold green]")
+    
+    # Save summary
+    summary_file = output_file.replace('.jsonl', '_summary.json')
+    with open(summary_file, 'w', encoding='utf-8') as f:
+        json.dump({
+            'scrape_date': datetime.now().isoformat(),
+            'days_back': days_back,
+            'lookback_days': lookback_days,
+            'total_events': len(new_events),
+            'total_games': len(all_games),
+            'events': event_results
+        }, f, indent=2)
+    
+    console.print(f"[dim]Summary saved to {summary_file}[/dim]")
+    
+    return output_file
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        description='Scrape games from new GotSport events (weekly workflow)',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Default: Last 7 days of events, scrape last 30 days of games
+  python scripts/scrape_new_events.py
+  
+  # Last 14 days of events, scrape last 60 days of games
+  python scripts/scrape_new_events.py --days-back 14 --lookback-days 60
+  
+  # Custom output and tracking files
+  python scripts/scrape_new_events.py --output data/raw/weekly_events.jsonl --scraped-events data/raw/events_tracked.json
+        """
+    )
+    
+    parser.add_argument('--days-back', type=int, default=7,
+                       help='How many days back to look for events (default: 7)')
+    parser.add_argument('--lookback-days', type=int, default=30,
+                       help='How many days of games to scrape from event teams (default: 30)')
+    parser.add_argument('--output', type=str, default=None,
+                       help='Output file path (default: auto-generated)')
+    parser.add_argument('--scraped-events', type=str, default=None,
+                       help='File to track scraped events (default: data/raw/scraped_events.json)')
+    
+    args = parser.parse_args()
+    
+    scrape_new_events(
+        days_back=args.days_back,
+        lookback_days=args.lookback_days,
+        output_file=args.output,
+        scraped_events_file=args.scraped_events
+    )
+
