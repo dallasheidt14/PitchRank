@@ -382,8 +382,16 @@ async def apply_predictive_adjustment(
     )["__tmp__"].values - 0.5
     
     # 6) Blend into PowerScore and rerank
-    out["powerscore_ml"] = out[base_power_col] + cfg.alpha * out["ml_norm"]
-    # Clamp PowerScore within [0.0, 1.0] to preserve normalization bounds
+    #
+    # IMPORTANT: ml_norm ranges [-0.5, +0.5], so the theoretical max addition is
+    # alpha * 0.5 = 0.075 (with default alpha=0.15). To prevent ceiling clipping
+    # that would cluster top teams at 1.0, we normalize the blended score.
+    #
+    # Max theoretical = 1.0 + 0.5 * alpha = 1.075 (with alpha=0.15)
+    MAX_ML_THEORETICAL = 1.0 + 0.5 * cfg.alpha
+
+    out["powerscore_ml"] = (out[base_power_col] + cfg.alpha * out["ml_norm"]) / MAX_ML_THEORETICAL
+    # Safety clamp (shouldn't trigger after normalization, but keeps bounds valid)
     out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
     out["rank_in_cohort_ml"] = _rank_with_sos_tiebreaker(out, cfg.cohort_key_cols, "powerscore_ml")
 
