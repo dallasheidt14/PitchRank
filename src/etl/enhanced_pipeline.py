@@ -281,15 +281,15 @@ class EnhancedETLPipeline:
             if invalid_games:
                 await self._log_invalid_games(invalid_games)
             
-            # Step 2: Check for duplicates
-            existing_uids = await self._check_duplicates(valid_games)
-            batch_metrics.duplicates_found = len(existing_uids)
-            self.metrics.duplicates_found += len(existing_uids)  # ACCUMULATE for logging
-            
-            # Filter out duplicates (enforce immutability)
-            new_games = [g for g in valid_games if g.get('game_uid') not in existing_uids]
+            # Step 2: Check for duplicates by game_uid
+            # NOTE: We check game_uid here but DON'T filter yet, because game_uid doesn't include scores.
+            # Games with the same game_uid but different scores should proceed to team matching,
+            # where the composite key check (which includes scores) will catch true duplicates.
+            existing_uids, game_uid_to_master_ids = await self._check_duplicates(valid_games)
             
             # Step 3: Match teams and prepare game records
+            # We match ALL games, not just "new" ones, because game_uid check doesn't account for scores
+            new_games = valid_games
             game_records = []
             matched_count = 0
             partial_count = 0
@@ -386,15 +386,124 @@ class EnhancedETLPipeline:
             logger.info(f"Matched {len(game_records)} games (matched: {matched_count}, partial: {partial_count}, failed: {failed_count})")
             
             # Step 3b: Check for duplicates using composite key (after team matching)
-            # This catches duplicates that game_uid check missed (due to different game_uid but same composite key)
+            # This is the AUTHORITATIVE duplicate check - it includes scores, so it catches true duplicates.
+            # game_uid check above was just for reference (game_uid doesn't include scores).
             existing_composite_keys = await self._check_duplicates_by_composite_key(game_records)
             if existing_composite_keys:
                 logger.info(f"[Pipeline] Found {len(existing_composite_keys)} duplicate games by composite key (already in DB)")
                 # Filter out games with existing composite keys
                 game_records = [g for g in game_records if self._make_composite_key(g) not in existing_composite_keys]
-                batch_metrics.duplicates_found += len(existing_composite_keys)
+                batch_metrics.duplicates_found = len(existing_composite_keys)  # Set (not +=) because this is the authoritative count
                 self.metrics.duplicates_found += len(existing_composite_keys)
                 logger.info(f"[Pipeline] Filtered to {len(game_records)} new games after composite key duplicate check")
+            
+            # Step 3c: Handle games where game_uid exists but scores differ
+            # Check if master team IDs match - if not, it's a different game (e.g., U13 vs U14)
+            # and we should allow insertion (it will fail due to unique constraint, but we'll handle that)
+            games_to_update = []
+            games_to_insert = []
+            games_with_age_conflict = []
+            
+            for game in game_records:
+                game_uid = game.get('game_uid')
+                if game_uid and game_uid in existing_uids:
+                    # game_uid exists - check if master team IDs match
+                    db_master_ids = game_uid_to_master_ids.get(game_uid, {})
+                    csv_home_master = game.get('home_team_master_id')
+                    csv_away_master = game.get('away_team_master_id')
+                    db_home_master = db_master_ids.get('home_team_master_id')
+                    db_away_master = db_master_ids.get('away_team_master_id')
+                    
+                    # Check if master team IDs match (accounting for home/away swap)
+                    master_ids_match = (
+                        (csv_home_master == db_home_master and csv_away_master == db_away_master) or
+                        (csv_home_master == db_away_master and csv_away_master == db_home_master)
+                    )
+                    
+                    if master_ids_match:
+                        # Same teams, different scores - update existing game
+                        games_to_update.append(game)
+                        logger.info(
+                            f"[Pipeline] Will UPDATE game {game_uid}: scores differ "
+                            f"(home={game.get('home_provider_id')}, away={game.get('away_provider_id')}, "
+                            f"new scores={game.get('home_score')}-{game.get('away_score')})"
+                        )
+                    else:
+                        # Different teams (e.g., U13 vs U14, or HD vs AD) - this is a different game
+                        # This should be rare now since game_uid includes age_group and division
+                        # But handle it as a fallback for edge cases
+                        age_group = game.get('age_group', '').upper() if game.get('age_group') else None
+                        division = game.get('mls_division', '').upper() if game.get('mls_division') else None
+                        
+                        if age_group and division:
+                            # Generate modified game_uid with age group and division: modular11:2025-09-06:14:249:U14:HD
+                            # Extract components from original game_uid
+                            parts = game_uid.split(':')
+                            if len(parts) >= 4:
+                                provider = parts[0]
+                                date = parts[1]
+                                team1 = parts[2]
+                                team2 = parts[3]
+                                # Create new game_uid with age group and division suffix
+                                modified_game_uid = f"{provider}:{date}:{team1}:{team2}:{age_group}:{division}"
+                                game['game_uid'] = modified_game_uid
+                                logger.info(
+                                    f"[Pipeline] Modified game_uid for conflict: {game_uid} -> {modified_game_uid} "
+                                    f"(CSV teams: home={csv_home_master}, away={csv_away_master}, "
+                                    f"DB teams: home={db_home_master}, away={db_away_master})"
+                                )
+                                games_to_insert.append(game)
+                            else:
+                                logger.warning(
+                                    f"[Pipeline] Cannot parse game_uid {game_uid} to add age_group/division - skipping"
+                                )
+                        elif age_group:
+                            # Fallback: age group only
+                            parts = game_uid.split(':')
+                            if len(parts) >= 4:
+                                provider = parts[0]
+                                date = parts[1]
+                                team1 = parts[2]
+                                team2 = parts[3]
+                                modified_game_uid = f"{provider}:{date}:{team1}:{team2}:{age_group}"
+                                game['game_uid'] = modified_game_uid
+                                logger.info(
+                                    f"[Pipeline] Modified game_uid for conflict (age only): {game_uid} -> {modified_game_uid}"
+                                )
+                                games_to_insert.append(game)
+                            else:
+                                logger.warning(f"[Pipeline] Cannot parse game_uid {game_uid} - skipping")
+                        else:
+                            # No age group available - this shouldn't happen for Modular11, but log it
+                            logger.warning(
+                                f"[Pipeline] game_uid conflict but no age_group in game data - "
+                                f"CSV teams: home={csv_home_master}, away={csv_away_master}, "
+                                f"DB teams: home={db_home_master}, away={db_away_master}. "
+                                f"Will attempt insertion but may fail due to unique constraint."
+                            )
+                            games_to_insert.append(game)
+                        
+                        games_with_age_conflict.append(game)
+                else:
+                    games_to_insert.append(game)
+            
+            if games_with_age_conflict:
+                logger.warning(
+                    f"[Pipeline] Found {len(games_with_age_conflict)} games with game_uid conflicts "
+                    f"due to age group mismatch (U13 vs U14). These will fail insertion due to unique constraint."
+                )
+            
+            if games_to_update:
+                logger.info(f"[Pipeline] Found {len(games_to_update)} games to update (game_uid exists with different scores)")
+                # Update existing games with CSV scores
+                updated_count = await self._update_games_with_scores(games_to_update)
+                batch_metrics.games_accepted += updated_count
+                self.metrics.games_accepted += updated_count
+                logger.info(f"[Pipeline] Updated {updated_count} games with new scores from CSV")
+            
+            # Use games_to_insert for the rest of the pipeline
+            game_records = games_to_insert
+            logger.info(f"[Pipeline] Final count: {len(game_records)} new games ready for insertion")
             
             # Step 4: Filter games with invalid scores before bulk insert
             valid_game_records = []
@@ -817,33 +926,48 @@ class EnhancedETLPipeline:
         
         return transformed
     
-    async def _check_duplicates(self, games: List[Dict]) -> set:
-        """Check for existing game UIDs - OPTIMIZED with larger batches"""
+    async def _check_duplicates(self, games: List[Dict]) -> Tuple[set, Dict[str, Dict]]:
+        """
+        Check for existing game UIDs - OPTIMIZED with larger batches.
+        
+        Returns:
+            Tuple of (existing_game_uids_set, game_uid_to_master_ids_dict)
+            The dict maps game_uid to {'home_team_master_id': ..., 'away_team_master_id': ...}
+        """
         if not games:
-            return set()
+            return set(), {}
         
         # Extract game UIDs
         game_uids = [g.get('game_uid') for g in games if g.get('game_uid')]
         
         if not game_uids:
-            return set()
+            return set(), {}
         
         # OPTIMIZED: Use larger batches (2000 instead of 1000) for fewer queries
         existing = set()
+        game_uid_to_master_ids = {}  # Map game_uid to master team IDs
+        
         for chunk in self._chunks(game_uids, 2000):  # Increased from 1000
             try:
-                # Query Supabase for existing game_uid values
-                result = self.supabase.table('games').select('game_uid').in_(
-                    'game_uid', chunk
-                ).execute()
+                # Query Supabase for existing game_uid values AND master team IDs
+                result = self.supabase.table('games').select(
+                    'game_uid, home_team_master_id, away_team_master_id'
+                ).in_('game_uid', chunk).execute()
                 
                 if result.data:
-                    existing.update(row['game_uid'] for row in result.data if row.get('game_uid'))
+                    for row in result.data:
+                        game_uid = row.get('game_uid')
+                        if game_uid:
+                            existing.add(game_uid)
+                            game_uid_to_master_ids[game_uid] = {
+                                'home_team_master_id': row.get('home_team_master_id'),
+                                'away_team_master_id': row.get('away_team_master_id')
+                            }
             except Exception as e:
                 logger.warning(f"Error checking duplicates: {e}")
                 # Continue processing even if duplicate check fails
         
-        return existing
+        return existing, game_uid_to_master_ids
     
     async def _check_duplicates_by_composite_key(self, game_records: List[Dict]) -> set:
         """
@@ -910,6 +1034,42 @@ class EnhancedETLPipeline:
                 # Continue processing even if duplicate check fails
         
         return existing_composite_keys
+    
+    async def _update_games_with_scores(self, game_records: List[Dict]) -> int:
+        """
+        Update existing games with new scores from CSV.
+        
+        This handles cases where game_uid exists but scores differ.
+        Since CSV is fresh data, we trust it over existing database scores.
+        """
+        if not game_records:
+            return 0
+        
+        updated_count = 0
+        
+        for game in game_records:
+            game_uid = game.get('game_uid')
+            if not game_uid:
+                continue
+            
+            try:
+                # Update the game by game_uid
+                update_data = {
+                    'home_score': game.get('home_score'),
+                    'away_score': game.get('away_score'),
+                }
+                
+                # Only update if scores are valid
+                if update_data['home_score'] is not None and update_data['away_score'] is not None:
+                    result = self.supabase.table('games').update(update_data).eq('game_uid', game_uid).execute()
+                    if result.data:
+                        updated_count += 1
+                        logger.debug(f"Updated game {game_uid} with scores {update_data['home_score']}-{update_data['away_score']}")
+            except Exception as e:
+                logger.warning(f"Failed to update game {game_uid}: {e}")
+                continue
+        
+        return updated_count
     
     async def _bulk_insert_games(self, game_records: List[Dict]) -> int:
         """Bulk insert games using Supabase batch operations"""
@@ -1080,33 +1240,77 @@ class EnhancedETLPipeline:
                     error_str = str(e).lower()
                     error_type = type(e).__name__
                     
-                    logger.error(f"Exception during batch insert (attempt {attempt + 1}/{max_retries}): {error_type}: {str(e)}")
+                    # Check for HTTP status code (Supabase APIError has code attribute)
+                    status_code = None
+                    if hasattr(e, 'code'):
+                        status_code = e.code
+                    elif hasattr(e, 'status_code'):
+                        status_code = e.status_code
                     
-                    # Check for duplicate/unique constraint violations
-                    if 'duplicate' in error_str or 'unique' in error_str or '23505' in error_str:
-                        # Duplicate key violation - fall back to individual inserts to save valid records
-                        logger.warning(f"⚠️  Duplicate key violation in batch of {len(chunk)} games - falling back to individual inserts")
+                    logger.error(f"Exception during batch insert (attempt {attempt + 1}/{max_retries}): {error_type}: {str(e)}")
+                    if status_code:
+                        logger.error(f"HTTP status code: {status_code}")
+                    logger.debug(f"Full traceback: {traceback.format_exc()}")
+                    
+                    # Check for duplicate/unique constraint violations or 409 Conflict
+                    is_duplicate_error = (
+                        'duplicate' in error_str or 
+                        'unique' in error_str or 
+                        '23505' in error_str or
+                        status_code == 409 or
+                        ('409' in error_str and 'conflict' in error_str)
+                    )
+                    
+                    if is_duplicate_error:
+                        # Duplicate key violation or 409 Conflict - fall back to individual inserts to save valid records
+                        logger.warning(f"⚠️  Duplicate key violation or 409 Conflict in batch of {len(chunk)} games - falling back to individual inserts")
+                        logger.debug(f"Full error details: {str(e)}")
 
                         # Try inserting each record individually to save valid ones
                         individual_inserted = 0
                         individual_duplicates = 0
+                        individual_other_errors = 0
 
-                        for record in chunk:
+                        for idx, record in enumerate(chunk):
                             try:
                                 self.supabase.table('games').insert(record, returning='minimal').execute()
                                 individual_inserted += 1
                             except Exception as individual_e:
                                 individual_error_str = str(individual_e).lower()
-                                if 'duplicate' in individual_error_str or 'unique' in individual_error_str or '23505' in individual_error_str:
+                                individual_status_code = None
+                                if hasattr(individual_e, 'code'):
+                                    individual_status_code = individual_e.code
+                                elif hasattr(individual_e, 'status_code'):
+                                    individual_status_code = individual_e.status_code
+                                
+                                is_individual_duplicate = (
+                                    'duplicate' in individual_error_str or 
+                                    'unique' in individual_error_str or 
+                                    '23505' in individual_error_str or
+                                    individual_status_code == 409 or
+                                    ('409' in individual_error_str and 'conflict' in individual_error_str)
+                                )
+                                
+                                if is_individual_duplicate:
                                     individual_duplicates += 1
+                                    if individual_duplicates <= 3:  # Log first 3 duplicate errors
+                                        logger.debug(f"Individual duplicate (game {idx}): {str(individual_e)}")
                                 else:
-                                    logger.debug(f"Individual insert failed: {individual_e}")
+                                    individual_other_errors += 1
+                                    logger.warning(f"Individual insert failed (NOT duplicate, game {idx}): {type(individual_e).__name__}: {str(individual_e)}")
+                                    if individual_status_code:
+                                        logger.warning(f"  HTTP status code: {individual_status_code}")
+                                    logger.debug(f"Failed record: game_uid={record.get('game_uid')}, home_provider_id={record.get('home_provider_id')}, away_provider_id={record.get('away_provider_id')}")
+                                    logger.debug(f"Full error: {traceback.format_exc()}")
 
                         inserted += individual_inserted
                         duplicate_violations += individual_duplicates
                         self.metrics.duplicates_found += individual_duplicates
+                        
+                        if individual_other_errors > 0:
+                            logger.error(f"⚠️  {individual_other_errors} games failed for NON-DUPLICATE reasons! Check logs above.")
 
-                        logger.info(f"✅ Fallback complete: {individual_inserted} inserted, {individual_duplicates} duplicates skipped")
+                        logger.info(f"✅ Fallback complete: {individual_inserted} inserted, {individual_duplicates} duplicates skipped, {individual_other_errors} other errors")
                         inserted_chunk = True
                         break
                     elif '429' in error_str or 'rate limit' in error_str or 'too many requests' in error_str:

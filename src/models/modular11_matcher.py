@@ -1708,14 +1708,66 @@ class Modular11GameMatcher(GameHistoryMatcher):
             )
         
         # Generate game UID if missing
+        # CRITICAL: For Modular11, include age_group AND division in game_uid to prevent collisions
+        # between U13/U14 games (same provider IDs, different age groups)
+        # AND between HD/AD games (same provider IDs, same age group, different divisions)
+        # Format: modular11:{date}:{team1}:{team2}:{age_group}:{division}
+        # Examples:
+        #   - U14 HD: modular11:2025-09-06:14:249:U14:HD
+        #   - U14 AD: modular11:2025-09-06:14:249:U14:AD
+        #   - U13 HD: modular11:2025-09-06:14:249:U13:HD
         if not game_data.get('game_uid'):
             provider_code = game_data.get('provider', '')
-            game_uid = self.generate_game_uid(
-                provider=provider_code,
-                game_date=game_data.get('game_date', ''),
-                team1_id=home_provider_id or game_data.get('team_id', ''),
-                team2_id=away_provider_id or game_data.get('opponent_id', '')
-            )
+            age_group = game_data.get('age_group', '').upper() if game_data.get('age_group') else None
+            division = game_data.get('mls_division', '').upper() if game_data.get('mls_division') else None
+            
+            # For Modular11, include age_group AND division in game_uid
+            # This matches the alias format: {provider_id}_{age_group}_{division}
+            if age_group and division:
+                # Format: modular11:{date}:{team1}:{team2}:{age_group}:{division}
+                team1_id = home_provider_id or game_data.get('team_id', '')
+                team2_id = away_provider_id or game_data.get('opponent_id', '')
+                
+                # Normalize team IDs
+                def normalize_team_id(team_id):
+                    if not team_id or team_id == '' or str(team_id).strip().lower() == 'none':
+                        return ''
+                    try:
+                        return str(int(float(str(team_id))))
+                    except (ValueError, TypeError):
+                        return str(team_id).strip()
+                
+                team1_str = normalize_team_id(team1_id)
+                team2_str = normalize_team_id(team2_id)
+                sorted_teams = sorted([team1_str, team2_str])
+                
+                game_uid = f"{provider_code}:{game_data.get('game_date', '')}:{sorted_teams[0]}:{sorted_teams[1]}:{age_group}:{division}"
+            elif age_group:
+                # Fallback: include age_group only if division not available
+                team1_id = home_provider_id or game_data.get('team_id', '')
+                team2_id = away_provider_id or game_data.get('opponent_id', '')
+                
+                def normalize_team_id(team_id):
+                    if not team_id or team_id == '' or str(team_id).strip().lower() == 'none':
+                        return ''
+                    try:
+                        return str(int(float(str(team_id))))
+                    except (ValueError, TypeError):
+                        return str(team_id).strip()
+                
+                team1_str = normalize_team_id(team1_id)
+                team2_str = normalize_team_id(team2_id)
+                sorted_teams = sorted([team1_str, team2_str])
+                
+                game_uid = f"{provider_code}:{game_data.get('game_date', '')}:{sorted_teams[0]}:{sorted_teams[1]}:{age_group}"
+            else:
+                # Fallback to standard format if age_group not available
+                game_uid = self.generate_game_uid(
+                    provider=provider_code,
+                    game_date=game_data.get('game_date', ''),
+                    team1_id=home_provider_id or game_data.get('team_id', ''),
+                    team2_id=away_provider_id or game_data.get('opponent_id', '')
+                )
         else:
             game_uid = game_data.get('game_uid')
         
@@ -1769,10 +1821,14 @@ class Modular11GameMatcher(GameHistoryMatcher):
         for multiple age groups. We MUST validate age_group to prevent
         cross-age matches (e.g., U16 games matching to U13 teams).
 
+        Supports semicolon-separated aliases (e.g., "391;392_U14_AD").
+        If multiple aliases are provided, tries each one until a match is found.
+
         Alias lookup priority (most specific to least specific):
         1. {id}_{age}_{division} (e.g., "391_U16_AD") - new format
-        2. {id}_{division} (e.g., "391_AD") - backwards compatible
-        3. {id} (e.g., "391") - original format
+        2. {id}_{age} (e.g., "391_U16")
+        3. {id}_{division} (e.g., "391_AD") - backwards compatible
+        4. {id} (e.g., "391") - original format
 
         This allows gradual migration from old aliases while new imports
         create properly suffixed aliases.
@@ -1780,144 +1836,206 @@ class Modular11GameMatcher(GameHistoryMatcher):
         if not provider_team_id:
             return None
 
-        team_id_str = str(provider_team_id)
-
-        # Build list of alias formats to try (most specific first)
-        team_ids_to_try = []
-
+        provider_team_id_str = str(provider_team_id).strip()
+        
+        # Check if provider_team_id contains semicolon-separated aliases
+        # Examples: "391;392_U14_AD", "391;392", "391_U14_AD;392_U14_AD"
+        base_ids = []
+        
+        if ';' in provider_team_id_str:
+            # Split on semicolon
+            parts = [p.strip() for p in provider_team_id_str.split(';')]
+            
+            # Check if any part has a suffix pattern (e.g., "_U14_AD", "_U14", "_AD")
+            # If found, extract it and apply to all base IDs
+            extracted_suffix = None
+            for part in parts:
+                if '_' in part:
+                    # Try to find suffix pattern (starts with underscore, contains U/HD/AD)
+                    # Look for patterns like "_U14", "_AD", "_U14_AD", "_HD", etc.
+                    # Match underscore followed by U followed by digits, optionally followed by _HD or _AD
+                    suffix_match = re.search(r'_U\d+(_(HD|AD))?$', part, re.IGNORECASE)
+                    if suffix_match:
+                        extracted_suffix = suffix_match.group(0)
+                        break
+                    # Also check for just "_HD" or "_AD" at the end
+                    if part.upper().endswith('_HD') or part.upper().endswith('_AD'):
+                        extracted_suffix = part[part.rfind('_'):]
+                        break
+            
+            # Extract base IDs (remove suffix if found)
+            if extracted_suffix:
+                base_ids = []
+                for part in parts:
+                    if part.endswith(extracted_suffix):
+                        base_id = part[:-len(extracted_suffix)]
+                        if base_id:
+                            base_ids.append(base_id)
+                    else:
+                        # This part doesn't have the suffix, treat as base ID
+                        base_ids.append(part)
+            else:
+                # No suffix pattern found, all parts are base IDs
+                base_ids = parts
+        else:
+            # Single ID, no semicolon
+            base_ids = [provider_team_id_str]
+        
         # Normalize age format
         age_normalized = None
         if age_group:
             age_normalized = age_group.upper() if age_group.lower().startswith('u') else f"U{age_group}"
-
-        # 1. Try full suffix: {id}_{age}_{division} (e.g., "391_U16_AD")
-        if age_normalized and division and division.upper() in ('HD', 'AD'):
-            team_ids_to_try.append(f"{team_id_str}_{age_normalized}_{division.upper()}")
-
-        # 2. Try age-only suffix: {id}_{age} (e.g., "391_U16")
-        if age_normalized:
-            team_ids_to_try.append(f"{team_id_str}_{age_normalized}")
-
-        # 3. Try division-only suffix: {id}_{division} (e.g., "391_AD") - backwards compatible
-        if division and division.upper() in ('HD', 'AD'):
-            team_ids_to_try.append(f"{team_id_str}_{division.upper()}")
-
-        # 4. Always fall back to original ID
-        team_ids_to_try.append(team_id_str)
         
-        # Check cache first (if available) - try division-suffixed IDs first
-        for try_id in team_ids_to_try:
-            if self.alias_cache and try_id in self.alias_cache:
-                cached = self.alias_cache[try_id]
-                team_id_master = cached['team_id_master']
+        # Try each base ID until we find a match
+        for base_id in base_ids:
+            # Build list of alias formats to try for this base ID (most specific first)
+            team_ids_to_try = []
+            
+            # 1. Try full suffix: {id}_{age}_{division} (e.g., "391_U16_AD")
+            if age_normalized and division and division.upper() in ('HD', 'AD'):
+                team_ids_to_try.append(f"{base_id}_{age_normalized}_{division.upper()}")
+            
+            # 2. Try age-only suffix: {id}_{age} (e.g., "391_U16")
+            if age_normalized:
+                team_ids_to_try.append(f"{base_id}_{age_normalized}")
+            
+            # 3. Try division-only suffix: {id}_{division} (e.g., "391_AD") - backwards compatible
+            if division and division.upper() in ('HD', 'AD'):
+                team_ids_to_try.append(f"{base_id}_{division.upper()}")
+            
+            # 4. Always fall back to original base ID
+            team_ids_to_try.append(base_id)
+            
+            # 1. Try full suffix: {id}_{age}_{division} (e.g., "391_U16_AD")
+            if age_normalized and division and division.upper() in ('HD', 'AD'):
+                team_ids_to_try.append(f"{base_id}_{age_normalized}_{division.upper()}")
+            
+            # 2. Try age-only suffix: {id}_{age} (e.g., "391_U16")
+            if age_normalized:
+                team_ids_to_try.append(f"{base_id}_{age_normalized}")
+            
+            # 3. Try division-only suffix: {id}_{division} (e.g., "391_AD") - backwards compatible
+            if division and division.upper() in ('HD', 'AD'):
+                team_ids_to_try.append(f"{base_id}_{division.upper()}")
+            
+            # 4. Always fall back to original base ID
+            team_ids_to_try.append(base_id)
+            
+            # Check cache first (if available) - try division-suffixed IDs first
+            for try_id in team_ids_to_try:
+                if self.alias_cache and try_id in self.alias_cache:
+                    cached = self.alias_cache[try_id]
+                    team_id_master = cached['team_id_master']
 
-                # MODULAR11: ALWAYS validate age_group if provided
-                if age_group:
-                    if not self._validate_team_age_group(team_id_master, age_group, gender):
-                        # Get team details for logging
-                        try:
-                            team_result = self.db.table('teams').select('team_name, age_group, gender').eq('team_id_master', team_id_master).single().execute()
-                            if team_result.data:
-                                team_age = team_result.data.get('age_group', 'Unknown')
-                                team_gender = team_result.data.get('gender', 'Unknown')
-                                self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team {team_age})")
-                            else:
-                                self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team Unknown)")
-                        except:
-                            self._dlog(f"Alias rejected: age mismatch (incoming {age_group})")
-                        logger.debug(
-                            f"[Modular11] Provider ID {try_id} matched to team {team_id_master} "
-                            f"but age_group mismatch (game: {age_group}, team: ?). Rejecting match."
-                        )
-                        continue  # Try next ID instead of returning None
+                    # MODULAR11: ALWAYS validate age_group if provided
+                    if age_group:
+                        if not self._validate_team_age_group(team_id_master, age_group, gender):
+                            # Get team details for logging
+                            try:
+                                team_result = self.db.table('teams').select('team_name, age_group, gender').eq('team_id_master', team_id_master).single().execute()
+                                if team_result.data:
+                                    team_age = team_result.data.get('age_group', 'Unknown')
+                                    team_gender = team_result.data.get('gender', 'Unknown')
+                                    self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team {team_age})")
+                                else:
+                                    self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team Unknown)")
+                            except:
+                                self._dlog(f"Alias rejected: age mismatch (incoming {age_group})")
+                            logger.debug(
+                                f"[Modular11] Provider ID {try_id} matched to team {team_id_master} "
+                                f"but age_group mismatch (game: {age_group}, team: ?). Rejecting match."
+                            )
+                            continue  # Try next ID instead of returning None
 
-                # Prefer direct_id matches
-                if cached.get('match_method') == 'direct_id':
-                    self._dlog(f"Cache hit: {try_id} -> {team_id_master} (direct_id)")
+                    # Prefer direct_id matches
+                    if cached.get('match_method') == 'direct_id':
+                        self._dlog(f"Cache hit: {try_id} -> {team_id_master} (direct_id)")
+                        return {
+                            'team_id_master': team_id_master,
+                            'review_status': cached.get('review_status', 'approved'),
+                            'match_method': 'direct_id'
+                        }
+                    # Fallback to any cached match
+                    self._dlog(f"Cache hit: {try_id} -> {team_id_master}")
                     return {
                         'team_id_master': team_id_master,
                         'review_status': cached.get('review_status', 'approved'),
-                        'match_method': 'direct_id'
+                        'match_method': cached.get('match_method')
                     }
-                # Fallback to any cached match
-                self._dlog(f"Cache hit: {try_id} -> {team_id_master}")
-                return {
-                    'team_id_master': team_id_master,
-                    'review_status': cached.get('review_status', 'approved'),
-                    'match_method': cached.get('match_method')
-                }
-        
-        # Tier 1: Direct ID match (from team importer) - try division-suffixed IDs first
-        for try_id in team_ids_to_try:
-            try:
-                result = self.db.table('team_alias_map').select(
-                    'team_id_master, review_status, match_method'
-                ).eq('provider_id', provider_id).eq(
-                    'provider_team_id', try_id
-                ).eq('match_method', 'direct_id').eq(
-                    'review_status', 'approved'
-                ).single().execute()
+            
+            # Tier 1: Direct ID match (from team importer) - try division-suffixed IDs first
+            for try_id in team_ids_to_try:
+                try:
+                    result = self.db.table('team_alias_map').select(
+                        'team_id_master, review_status, match_method'
+                    ).eq('provider_id', provider_id).eq(
+                        'provider_team_id', try_id
+                    ).eq('match_method', 'direct_id').eq(
+                        'review_status', 'approved'
+                    ).single().execute()
 
-                if result.data:
-                    team_id_master = result.data['team_id_master']
-                    # MODULAR11: ALWAYS validate age_group if provided
-                    if age_group:
-                        if not self._validate_team_age_group(team_id_master, age_group, gender):
-                            # Get team details for logging
-                            try:
-                                team_result = self.db.table('teams').select('team_name, age_group, gender').eq('team_id_master', team_id_master).single().execute()
-                                if team_result.data:
-                                    team_age = team_result.data.get('age_group', 'Unknown')
-                                    team_gender = team_result.data.get('gender', 'Unknown')
-                                    self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team {team_age})")
-                                else:
-                                    self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team Unknown)")
-                            except:
-                                self._dlog(f"Alias rejected: age mismatch (incoming {age_group})")
-                            logger.debug(
-                                f"[Modular11] Provider ID {try_id} matched to team {team_id_master} "
-                                f"but age_group mismatch (game: {age_group}). Rejecting match."
-                            )
-                            continue  # Try next ID
-                    self._dlog(f"Tier 1 match: {try_id} -> {team_id_master} (direct_id)")
-                    return result.data
-            except Exception as e:
-                logger.debug(f"No direct_id match found for {try_id}: {e}")
-        
-        # Tier 2: Any approved alias map entry (fallback) - try division-suffixed IDs first
-        for try_id in team_ids_to_try:
-            try:
-                result = self.db.table('team_alias_map').select(
-                    'team_id_master, review_status, match_method'
-                ).eq('provider_id', provider_id).eq(
-                    'provider_team_id', try_id
-                ).eq('review_status', 'approved').single().execute()
+                    if result.data:
+                        team_id_master = result.data['team_id_master']
+                        # MODULAR11: ALWAYS validate age_group if provided
+                        if age_group:
+                            if not self._validate_team_age_group(team_id_master, age_group, gender):
+                                # Get team details for logging
+                                try:
+                                    team_result = self.db.table('teams').select('team_name, age_group, gender').eq('team_id_master', team_id_master).single().execute()
+                                    if team_result.data:
+                                        team_age = team_result.data.get('age_group', 'Unknown')
+                                        team_gender = team_result.data.get('gender', 'Unknown')
+                                        self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team {team_age})")
+                                    else:
+                                        self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team Unknown)")
+                                except:
+                                    self._dlog(f"Alias rejected: age mismatch (incoming {age_group})")
+                                logger.debug(
+                                    f"[Modular11] Provider ID {try_id} matched to team {team_id_master} "
+                                    f"but age_group mismatch (game: {age_group}). Rejecting match."
+                                )
+                                continue  # Try next ID
+                        self._dlog(f"Tier 1 match: {try_id} -> {team_id_master} (direct_id)")
+                        return result.data
+                except Exception as e:
+                    logger.debug(f"No direct_id match found for {try_id}: {e}")
+            
+            # Tier 2: Any approved alias map entry (fallback) - try division-suffixed IDs first
+            for try_id in team_ids_to_try:
+                try:
+                    result = self.db.table('team_alias_map').select(
+                        'team_id_master, review_status, match_method'
+                    ).eq('provider_id', provider_id).eq(
+                        'provider_team_id', try_id
+                    ).eq('review_status', 'approved').single().execute()
 
-                if result.data:
-                    team_id_master = result.data['team_id_master']
-                    # MODULAR11: ALWAYS validate age_group if provided
-                    if age_group:
-                        if not self._validate_team_age_group(team_id_master, age_group, gender):
-                            # Get team details for logging
-                            try:
-                                team_result = self.db.table('teams').select('team_name, age_group, gender').eq('team_id_master', team_id_master).single().execute()
-                                if team_result.data:
-                                    team_age = team_result.data.get('age_group', 'Unknown')
-                                    team_gender = team_result.data.get('gender', 'Unknown')
-                                    self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team {team_age})")
-                                else:
-                                    self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team Unknown)")
-                            except:
-                                self._dlog(f"Alias rejected: age mismatch (incoming {age_group})")
-                            logger.debug(
-                                f"[Modular11] Provider ID {try_id} matched to team {team_id_master} "
-                                f"but age_group mismatch (game: {age_group}). Rejecting match."
-                            )
-                            continue  # Try next ID
-                    self._dlog(f"Tier 2 match: {try_id} -> {team_id_master}")
-                    return result.data
-            except Exception as e:
-                logger.debug(f"No alias map match found for {try_id}: {e}")
+                    if result.data:
+                        team_id_master = result.data['team_id_master']
+                        # MODULAR11: ALWAYS validate age_group if provided
+                        if age_group:
+                            if not self._validate_team_age_group(team_id_master, age_group, gender):
+                                # Get team details for logging
+                                try:
+                                    team_result = self.db.table('teams').select('team_name, age_group, gender').eq('team_id_master', team_id_master).single().execute()
+                                    if team_result.data:
+                                        team_age = team_result.data.get('age_group', 'Unknown')
+                                        team_gender = team_result.data.get('gender', 'Unknown')
+                                        self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team {team_age})")
+                                    else:
+                                        self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team Unknown)")
+                                except:
+                                    self._dlog(f"Alias rejected: age mismatch (incoming {age_group})")
+                                logger.debug(
+                                    f"[Modular11] Provider ID {try_id} matched to team {team_id_master} "
+                                    f"but age_group mismatch (game: {age_group}). Rejecting match."
+                                )
+                                continue  # Try next ID
+                        self._dlog(f"Tier 2 match: {try_id} -> {team_id_master}")
+                        return result.data
+                except Exception as e:
+                    logger.debug(f"No alias map match found for {try_id}: {e}")
+        
+        # No match found for any base ID
         return None
     
     def _validate_team_age_group(
