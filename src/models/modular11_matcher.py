@@ -1784,8 +1784,26 @@ class Modular11GameMatcher(GameHistoryMatcher):
             away_provider_id_final = str(away_provider_id).strip() if away_provider_id else ''
         
         # Extract age_group and division for Modular11 (required for unique constraint)
-        age_group = game_data.get('age_group', '').upper() if game_data.get('age_group') else None
-        mls_division = game_data.get('mls_division', '').upper() if game_data.get('mls_division') else None
+        raw_age_group = game_data.get('age_group')
+        raw_mls_division = game_data.get('mls_division')
+        age_group = raw_age_group.upper() if raw_age_group else None
+        mls_division = raw_mls_division.upper() if raw_mls_division else None
+        
+        # Debug logging
+        logger.info(
+            f"[Modular11Matcher] Extracting age_group/division: "
+            f"raw_age_group={raw_age_group} (type={type(raw_age_group)}), "
+            f"raw_mls_division={raw_mls_division} (type={type(raw_mls_division)}), "
+            f"extracted age_group={age_group}, mls_division={mls_division}"
+        )
+        
+        # Log if missing (for debugging) - use module-level logger
+        if not age_group or not mls_division:
+            logger.warning(
+                f"[Modular11Matcher] Missing age_group/division in game_data: "
+                f"age_group={raw_age_group}, mls_division={raw_mls_division}, "
+                f"game_data keys={list(game_data.keys())[:10]}"
+            )
         
         game_record = {
             'game_uid': game_uid,
@@ -1812,6 +1830,12 @@ class Modular11GameMatcher(GameHistoryMatcher):
             'age_group': age_group,
             'mls_division': mls_division
         }
+        
+        # Debug: Verify they're in the record
+        logger.info(
+            f"[Modular11Matcher] Created game_record with age_group={game_record.get('age_group')}, "
+            f"mls_division={game_record.get('mls_division')}, game_uid={game_record.get('game_uid')}"
+        )
         
         return game_record
     

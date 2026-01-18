@@ -321,13 +321,21 @@ class EnhancedETLPipeline:
                             game['gender'] = 'Female'
                         # Keep other values as-is (Male, Female, Coed, etc.)
                     
-                    # Log game details before matching
-                    logger.debug(
-                        f"[Pipeline] Matching game {game_uid}: "
-                        f"team_id={game.get('team_id')}, opponent_id={game.get('opponent_id')}, "
-                        f"age_group={game.get('age_group')}, gender={game.get('gender')}, "
-                        f"game_date={game.get('game_date')}"
-                    )
+                    # Log game details before matching (including mls_division for Modular11)
+                    if self.provider_code and self.provider_code.lower() == 'modular11':
+                        logger.info(
+                            f"[Pipeline] Matching Modular11 game {game_uid}: "
+                            f"team_id={game.get('team_id')}, opponent_id={game.get('opponent_id')}, "
+                            f"age_group={game.get('age_group')}, mls_division={game.get('mls_division')}, "
+                            f"gender={game.get('gender')}, game_date={game.get('game_date')}"
+                        )
+                    else:
+                        logger.debug(
+                            f"[Pipeline] Matching game {game_uid}: "
+                            f"team_id={game.get('team_id')}, opponent_id={game.get('opponent_id')}, "
+                            f"age_group={game.get('age_group')}, gender={game.get('gender')}, "
+                            f"game_date={game.get('game_date')}"
+                        )
                     
                     # Match game history to get structured game record
                     # Pass dry_run flag to game_data for diagnostic mode
@@ -958,9 +966,11 @@ class EnhancedETLPipeline:
         transformed['_source_opponent_id'] = opponent_id
         transformed['_source_home_away'] = home_away
         
-        # Preserve mls_division for Modular11 (needed for division-aware matching)
+        # Preserve mls_division and age_group for Modular11 (needed for division-aware matching and unique constraint)
         if 'mls_division' in game:
             transformed['mls_division'] = game['mls_division']
+        if 'age_group' in game:
+            transformed['age_group'] = game['age_group']
         
         return transformed
     
@@ -1167,7 +1177,10 @@ class EnhancedETLPipeline:
                 'source_url': game.get('source_url'),
                 'scraped_at': game.get('scraped_at'),
                 'is_immutable': True,
-                'original_import_id': None  # Can be set to build_id if needed
+                'original_import_id': None,  # Can be set to build_id if needed
+                # CRITICAL: Include age_group and mls_division for Modular11 unique constraint
+                'age_group': game.get('age_group'),
+                'mls_division': game.get('mls_division')
             }
             
             # Validate required fields before adding to insert batch
@@ -1319,6 +1332,17 @@ class EnhancedETLPipeline:
 
                         for idx, record in enumerate(chunk):
                             try:
+                                # Debug: Log what we're inserting for Modular11
+                                if self.provider_code and self.provider_code.lower() == 'modular11' and idx < 3:
+                                    logger.info(
+                                        f"[Pipeline] Inserting Modular11 game {idx}: "
+                                        f"game_uid={record.get('game_uid')}, "
+                                        f"age_group={record.get('age_group')}, "
+                                        f"mls_division={record.get('mls_division')}, "
+                                        f"home_provider_id={record.get('home_provider_id')}, "
+                                        f"away_provider_id={record.get('away_provider_id')}, "
+                                        f"game_date={record.get('game_date')}"
+                                    )
                                 self.supabase.table('games').insert(record, returning='minimal').execute()
                                 individual_inserted += 1
                             except Exception as individual_e:
