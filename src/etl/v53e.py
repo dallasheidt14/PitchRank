@@ -859,12 +859,23 @@ def compute_rankings(
     # Layer 10: Core PowerScore + Provisional
     # -------------------------
     # Uses PERF_BLEND_WEIGHT to control how much performance adjustment affects final score
+    #
+    # IMPORTANT: perf_centered ranges [-0.5, +0.5], so the theoretical max of the raw sum
+    # is 1.0 + 0.5 * PERF_BLEND_WEIGHT = 1.075. We normalize by this max to ensure
+    # powerscore_core stays in [0, 1] range. This prevents ceiling clipping that would
+    # cause multiple top teams to have identical power scores.
+    #
+    # Without normalization: 10-20 top teams per cohort all get clipped to 1.0
+    # With normalization: full differentiation preserved among top teams
+
+    MAX_POWERSCORE_THEORETICAL = 1.0 + 0.5 * cfg.PERF_BLEND_WEIGHT  # = 1.075 with default config
+
     team["powerscore_core"] = (
         cfg.OFF_WEIGHT * team["off_norm"]
         + cfg.DEF_WEIGHT * team["def_norm"]
         + cfg.SOS_WEIGHT * team["sos_norm"]
         + team["perf_centered"] * cfg.PERF_BLEND_WEIGHT
-    )
+    ) / MAX_POWERSCORE_THEORETICAL
 
     team["provisional_mult"] = team["gp"].apply(
         lambda gp: _provisional_multiplier(int(gp), cfg.MIN_GAMES_PROVISIONAL)
