@@ -390,10 +390,17 @@ class EnhancedETLPipeline:
             # If game_uid doesn't exist, trust it (even if composite key matches, because composite key doesn't include age_group/division).
             # For other providers: composite key is authoritative (includes scores).
             if self.provider_code and self.provider_code.lower() == 'modular11':
+                # For Modular11, game_uid was regenerated during team matching with age_group/division.
+                # We need to check duplicates again using the regenerated game_uids.
+                existing_uids, game_uid_to_master_ids = await self._check_duplicates(game_records)
+                logger.info(f"[Pipeline] Modular11: Re-checked duplicates after team matching, found {len(existing_uids)} existing game_uids out of {len(game_records)} total games")
+                
                 # For Modular11, check game_uid first (it includes age_group and division)
                 # Only check composite key for games where game_uid already exists (to catch score updates)
                 games_with_existing_uid = [g for g in game_records if g.get('game_uid') and g.get('game_uid') in existing_uids]
                 games_with_new_uid = [g for g in game_records if not g.get('game_uid') or g.get('game_uid') not in existing_uids]
+                
+                logger.info(f"[Pipeline] Modular11: {len(games_with_new_uid)} games with NEW game_uid, {len(games_with_existing_uid)} games with EXISTING game_uid")
                 
                 # For games with new game_uid, trust it (don't check composite key - it doesn't include age_group/division)
                 # For games with existing game_uid, check composite key to see if scores differ
@@ -409,7 +416,14 @@ class EnhancedETLPipeline:
                 
                 # Combine: games with new game_uid (trust them) + games with existing game_uid that passed composite key check
                 game_records = games_with_new_uid + games_with_existing_uid
-                logger.info(f"[Pipeline] Modular11: {len(games_with_new_uid)} games with new game_uid (trusted), {len(games_with_existing_uid)} games with existing game_uid (checked)")
+                logger.info(f"[Pipeline] Modular11: Final - {len(games_with_new_uid)} games with new game_uid (trusted), {len(games_with_existing_uid)} games with existing game_uid (checked), total: {len(game_records)}")
+                
+                # CRITICAL: For Modular11, skip composite key deduplication in _bulk_insert_games
+                # because composite key doesn't include age_group/division, but game_uid does.
+                # We've already filtered duplicates by game_uid above, so trust that.
+                # Store a flag to skip composite key dedup in bulk insert
+                for g in game_records:
+                    g['_skip_composite_dedup'] = True
             else:
                 # For other providers, composite key is authoritative
                 existing_composite_keys = await self._check_duplicates_by_composite_key(game_records)
@@ -1196,30 +1210,38 @@ class EnhancedETLPipeline:
         
         # Deduplicate using composite key constraint (matches DB unique constraint)
         # This prevents duplicate constraint violations during insert
-        seen_composite_keys = set()
-        deduped_records = []
-        composite_duplicates_count = 0
+        # EXCEPTION: For Modular11, skip composite key dedup because composite key doesn't include
+        # age_group/division, but game_uid does. We've already filtered by game_uid above.
+        skip_composite_dedup = self.provider_code and self.provider_code.lower() == 'modular11'
         
-        for record in insert_records:
-            composite_key = self._make_composite_key(record)
-            game_uid = record.get('game_uid', 'N/A')
-            if composite_key not in seen_composite_keys:
-                seen_composite_keys.add(composite_key)
-                deduped_records.append(record)
-            else:
-                composite_duplicates_count += 1
-                logger.debug(
-                    f"[Pipeline] Duplicate detected pre-insert for game {game_uid}: "
-                    f"composite_key={composite_key}"
+        if skip_composite_dedup:
+            logger.info(f"[Pipeline] Modular11: Skipping composite key deduplication (game_uid is authoritative)")
+            deduped_records = insert_records
+        else:
+            seen_composite_keys = set()
+            deduped_records = []
+            composite_duplicates_count = 0
+            
+            for record in insert_records:
+                composite_key = self._make_composite_key(record)
+                game_uid = record.get('game_uid', 'N/A')
+                if composite_key not in seen_composite_keys:
+                    seen_composite_keys.add(composite_key)
+                    deduped_records.append(record)
+                else:
+                    composite_duplicates_count += 1
+                    logger.debug(
+                        f"[Pipeline] Duplicate detected pre-insert for game {game_uid}: "
+                        f"composite_key={composite_key}"
+                    )
+                    # These are cross-run duplicates (already exist in DB by composite constraint)
+                    self.metrics.duplicates_found += 1
+            
+            if composite_duplicates_count > 0:
+                logger.warning(
+                    f"[Pipeline] Deduped {composite_duplicates_count} games pre-insert "
+                    f"using composite constraint (already exist in DB)"
                 )
-                # These are cross-run duplicates (already exist in DB by composite constraint)
-                self.metrics.duplicates_found += 1
-        
-        if composite_duplicates_count > 0:
-            logger.warning(
-                f"[Pipeline] Deduped {composite_duplicates_count} games pre-insert "
-                f"using composite constraint (already exist in DB)"
-            )
         
         insert_records = deduped_records
         
@@ -1315,7 +1337,47 @@ class EnhancedETLPipeline:
                                     ('409' in individual_error_str and 'conflict' in individual_error_str)
                                 )
                                 
-                                if is_individual_duplicate:
+                                # For Modular11: The composite key constraint doesn't include age_group/division.
+                                # So if game_uid is unique (includes age_group/division), it's NOT a duplicate,
+                                # even if the composite key collides. The composite key collision is expected
+                                # for different age groups/divisions with same provider IDs/date/scores.
+                                is_modular11_false_duplicate = False
+                                if self.provider_code and self.provider_code.lower() == 'modular11' and is_individual_duplicate:
+                                    # Check if game_uid exists in DB - if NOT, then this is a FALSE duplicate
+                                    # (composite key collision but game_uid is unique)
+                                    game_uid = record.get('game_uid')
+                                    if game_uid:
+                                        try:
+                                            uid_check = self.supabase.table('games').select('game_uid').eq('game_uid', game_uid).limit(1).execute()
+                                            if not uid_check.data or len(uid_check.data) == 0:
+                                                # game_uid doesn't exist = this is a FALSE duplicate
+                                                # The composite key constraint is blocking a legitimate unique game
+                                                # This happens when: same provider IDs/date/scores but different age_group/division
+                                                # Example: 14_U14_HD vs 14_U15_HD playing on same date with same scores
+                                                is_modular11_false_duplicate = True
+                                                logger.error(
+                                                    f"[Pipeline] Modular11 FALSE DUPLICATE DETECTED: "
+                                                    f"game_uid={game_uid} is UNIQUE (not in DB), "
+                                                    f"but composite key constraint is blocking insertion. "
+                                                    f"This is a database constraint limitation - "
+                                                    f"composite key doesn't include age_group/division. "
+                                                    f"Game cannot be inserted due to DB constraint."
+                                                )
+                                        except Exception as check_e:
+                                            logger.debug(f"Error checking game_uid: {check_e}")
+                                            # If check fails, treat as duplicate to be safe
+                                
+                                if is_modular11_false_duplicate:
+                                    # This is a FALSE duplicate - game_uid is unique but composite key collides
+                                    # We cannot insert due to database constraint, but it's NOT a real duplicate
+                                    # Count as "other error" not "duplicate"
+                                    individual_other_errors += 1
+                                    logger.error(
+                                        f"[Pipeline] BLOCKED: Modular11 game with unique game_uid={record.get('game_uid')} "
+                                        f"cannot be inserted due to composite key constraint. "
+                                        f"This game is UNIQUE (different age_group/division) but DB constraint blocks it."
+                                    )
+                                elif is_individual_duplicate:
                                     individual_duplicates += 1
                                     if individual_duplicates <= 3:  # Log first 3 duplicate errors
                                         logger.debug(f"Individual duplicate (game {idx}): {str(individual_e)}")

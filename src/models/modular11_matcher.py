@@ -1707,7 +1707,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 f"Age validation rejected the game"
             )
         
-        # Generate game UID if missing
+        # Generate game UID - ALWAYS regenerate for Modular11 to ensure it includes age_group and division
         # CRITICAL: For Modular11, include age_group AND division in game_uid to prevent collisions
         # between U13/U14 games (same provider IDs, different age groups)
         # AND between HD/AD games (same provider IDs, same age group, different divisions)
@@ -1716,7 +1716,9 @@ class Modular11GameMatcher(GameHistoryMatcher):
         #   - U14 HD: modular11:2025-09-06:14:249:U14:HD
         #   - U14 AD: modular11:2025-09-06:14:249:U14:AD
         #   - U13 HD: modular11:2025-09-06:14:249:U13:HD
-        if not game_data.get('game_uid'):
+        # NOTE: We always regenerate game_uid here (even if one exists) because validation
+        # may have generated one without age_group/division, and we need the full format.
+        if True:  # Always regenerate for Modular11 to ensure correct format
             provider_code = game_data.get('provider', '')
             age_group = game_data.get('age_group', '').upper() if game_data.get('age_group') else None
             division = game_data.get('mls_division', '').upper() if game_data.get('mls_division') else None
@@ -1768,8 +1770,8 @@ class Modular11GameMatcher(GameHistoryMatcher):
                     team1_id=home_provider_id or game_data.get('team_id', ''),
                     team2_id=away_provider_id or game_data.get('opponent_id', '')
                 )
-        else:
-            game_uid = game_data.get('game_uid')
+        
+        # game_uid is now always regenerated with correct format (including age_group/division if available)
         
         # Build game record
         try:
@@ -1780,6 +1782,10 @@ class Modular11GameMatcher(GameHistoryMatcher):
             away_provider_id_final = str(int(float(away_provider_id))) if away_provider_id and str(away_provider_id).strip() else ''
         except (ValueError, TypeError):
             away_provider_id_final = str(away_provider_id).strip() if away_provider_id else ''
+        
+        # Extract age_group and division for Modular11 (required for unique constraint)
+        age_group = game_data.get('age_group', '').upper() if game_data.get('age_group') else None
+        mls_division = game_data.get('mls_division', '').upper() if game_data.get('mls_division') else None
         
         game_record = {
             'game_uid': game_uid,
@@ -1801,7 +1807,10 @@ class Modular11GameMatcher(GameHistoryMatcher):
             'source_url': game_data.get('source_url'),
             'scraped_at': game_data.get('scraped_at'),
             'match_status': match_status,
-            'raw_data': game_data
+            'raw_data': game_data,
+            # CRITICAL: Add age_group and mls_division for Modular11 unique constraint
+            'age_group': age_group,
+            'mls_division': mls_division
         }
         
         return game_record
