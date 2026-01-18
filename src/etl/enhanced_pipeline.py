@@ -386,16 +386,40 @@ class EnhancedETLPipeline:
             logger.info(f"Matched {len(game_records)} games (matched: {matched_count}, partial: {partial_count}, failed: {failed_count})")
             
             # Step 3b: Check for duplicates using composite key (after team matching)
-            # This is the AUTHORITATIVE duplicate check - it includes scores, so it catches true duplicates.
-            # game_uid check above was just for reference (game_uid doesn't include scores).
-            existing_composite_keys = await self._check_duplicates_by_composite_key(game_records)
-            if existing_composite_keys:
-                logger.info(f"[Pipeline] Found {len(existing_composite_keys)} duplicate games by composite key (already in DB)")
-                # Filter out games with existing composite keys
-                game_records = [g for g in game_records if self._make_composite_key(g) not in existing_composite_keys]
-                batch_metrics.duplicates_found = len(existing_composite_keys)  # Set (not +=) because this is the authoritative count
-                self.metrics.duplicates_found += len(existing_composite_keys)
-                logger.info(f"[Pipeline] Filtered to {len(game_records)} new games after composite key duplicate check")
+            # For Modular11: game_uid now includes age_group and division, so it's more specific than composite key.
+            # If game_uid doesn't exist, trust it (even if composite key matches, because composite key doesn't include age_group/division).
+            # For other providers: composite key is authoritative (includes scores).
+            if self.provider_code and self.provider_code.lower() == 'modular11':
+                # For Modular11, check game_uid first (it includes age_group and division)
+                # Only check composite key for games where game_uid already exists (to catch score updates)
+                games_with_existing_uid = [g for g in game_records if g.get('game_uid') and g.get('game_uid') in existing_uids]
+                games_with_new_uid = [g for g in game_records if not g.get('game_uid') or g.get('game_uid') not in existing_uids]
+                
+                # For games with new game_uid, trust it (don't check composite key - it doesn't include age_group/division)
+                # For games with existing game_uid, check composite key to see if scores differ
+                if games_with_existing_uid:
+                    existing_composite_keys = await self._check_duplicates_by_composite_key(games_with_existing_uid)
+                    if existing_composite_keys:
+                        logger.info(f"[Pipeline] Found {len(existing_composite_keys)} duplicate games by composite key (already in DB)")
+                        # Filter out games with existing composite keys
+                        games_with_existing_uid = [g for g in games_with_existing_uid if self._make_composite_key(g) not in existing_composite_keys]
+                        batch_metrics.duplicates_found = len(existing_composite_keys)
+                        self.metrics.duplicates_found += len(existing_composite_keys)
+                        logger.info(f"[Pipeline] Filtered to {len(games_with_existing_uid)} games after composite key duplicate check")
+                
+                # Combine: games with new game_uid (trust them) + games with existing game_uid that passed composite key check
+                game_records = games_with_new_uid + games_with_existing_uid
+                logger.info(f"[Pipeline] Modular11: {len(games_with_new_uid)} games with new game_uid (trusted), {len(games_with_existing_uid)} games with existing game_uid (checked)")
+            else:
+                # For other providers, composite key is authoritative
+                existing_composite_keys = await self._check_duplicates_by_composite_key(game_records)
+                if existing_composite_keys:
+                    logger.info(f"[Pipeline] Found {len(existing_composite_keys)} duplicate games by composite key (already in DB)")
+                    # Filter out games with existing composite keys
+                    game_records = [g for g in game_records if self._make_composite_key(g) not in existing_composite_keys]
+                    batch_metrics.duplicates_found = len(existing_composite_keys)  # Set (not +=) because this is the authoritative count
+                    self.metrics.duplicates_found += len(existing_composite_keys)
+                    logger.info(f"[Pipeline] Filtered to {len(game_records)} new games after composite key duplicate check")
             
             # Step 3c: Handle games where game_uid exists but scores differ
             # Check if master team IDs match - if not, it's a different game (e.g., U13 vs U14)
