@@ -1,0 +1,36 @@
+# Large data files (exceed GitHub's 100MB limit)
+data/backtest_results/raw_backtest.csv
+data/master/all_games_master.csv
+psql/postgresql_16.exe
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Environment variables
+.env
+.env.local
+
+# Test files
+test_modular11_200.csv
