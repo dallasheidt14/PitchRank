@@ -905,70 +905,88 @@ def compute_rankings(
     if cfg.SOS_POWER_ITERATIONS > 0:
         logger.info(f"🔄 Starting Power-SOS co-calculation ({cfg.SOS_POWER_ITERATIONS} iterations)...")
 
+        # Pre-compute static values outside loop
+        team_ids = team["team_id"].values
+        provisional_mults = team["provisional_mult"].values
+        off_norms = team["off_norm"].values
+        def_norms = team["def_norm"].values
+        perf_centereds = team["perf_centered"].values
+        anchors = team["anchor"].values
+        gps = team["gp"].values
+
+        # Pre-compute weights for power score formula
+        w_off = cfg.OFF_WEIGHT
+        w_def = cfg.DEF_WEIGHT
+        w_sos = cfg.SOS_WEIGHT
+        w_perf = cfg.PERF_BLEND_WEIGHT
+
+        # Build opponent lookup from g_sos once (game-level data doesn't change)
+        opp_ids_array = g_sos["opp_id"].values
+        team_ids_sos = g_sos["team_id"].values
+        w_sos_array = g_sos["w_sos"].values
+
         for power_iter in range(cfg.SOS_POWER_ITERATIONS):
             # Store previous values for convergence tracking
-            prev_sos = team["sos"].copy()
-            prev_power = team["powerscore_adj"].copy()
+            prev_sos = team["sos"].values.copy()
+            prev_power = team["powerscore_adj"].values.copy()
 
-            # Step 1: Build FULL power strength map (includes SOS contribution)
-            # Use powerscore_adj * anchor for cross-age scaling consistency
-            full_power_strength_map = {}
-            for _, row in team.iterrows():
-                tid = row["team_id"]
-                # Full power includes off/def/sos/perf, scaled by anchor
-                full_power = row["powerscore_adj"] * row["anchor"]
-                full_power_strength_map[tid] = float(np.clip(full_power, 0.0, 1.0))
+            # Step 1: Build FULL power strength map (vectorized - no iterrows)
+            full_power_values = (team["powerscore_adj"].values * anchors).clip(0.0, 1.0)
+            full_power_strength_map = dict(zip(team_ids, full_power_values))
 
-            # Step 2: Recalculate opponent strength using FULL power
-            def get_full_opponent_strength(opp_id):
-                # Try local cohort first (same age/gender)
+            # Step 2: Vectorized opponent strength lookup
+            def lookup_strength(opp_id):
                 if opp_id in full_power_strength_map:
                     return full_power_strength_map[opp_id]
-                # Fall back to global map (cross-age/cross-gender)
                 opp_id_str = str(opp_id)
                 if global_strength_map and opp_id_str in global_strength_map:
                     return global_strength_map[opp_id_str]
-                # Unknown opponent
                 return cfg.UNRANKED_SOS_BASE
 
-            g_sos["opp_full_strength"] = g_sos["opp_id"].map(get_full_opponent_strength)
+            # Use numpy vectorize for faster lookup (still has overhead but cleaner)
+            opp_strengths = np.array([lookup_strength(oid) for oid in opp_ids_array])
+            g_sos["opp_full_strength"] = opp_strengths
 
-            # Step 3: Recalculate SOS using full opponent strength
+            # Step 3: Recalculate SOS using full opponent strength (vectorized groupby)
             sos_full = (
-                g_sos.groupby("team_id", group_keys=False).apply(
-                    lambda d: _avg_weighted(d, "opp_full_strength", "w_sos")
-                ).rename("sos").reset_index()
+                g_sos.groupby("team_id", group_keys=False)
+                .apply(lambda d: _avg_weighted(d, "opp_full_strength", "w_sos"), include_groups=False)
+                .rename("sos")
+                .reset_index()
             )
 
-            # Step 4: Update team SOS
-            team = team.drop(columns=["sos"])
-            team = team.merge(sos_full, on="team_id", how="left").fillna({"sos": 0.5})
+            # Step 4: Update team SOS (use update instead of drop/merge for efficiency)
+            sos_map = dict(zip(sos_full["team_id"], sos_full["sos"]))
+            team["sos"] = team["team_id"].map(sos_map).fillna(0.5)
 
             # Step 5: Re-normalize SOS within cohort
             team['sos_norm'] = team.groupby(['age', 'gender'])['sos'].transform(percentile_within_cohort)
             team['sos_norm'] = team['sos_norm'].fillna(0.5).clip(0.0, 1.0)
 
-            # Step 6: Apply low-sample shrinkage
-            low_sample_mask = team["gp"] < cfg.MIN_GAMES_FOR_TOP_SOS
-            gp_clipped = team["gp"].clip(lower=0)
-            shrink_factor = (gp_clipped / cfg.MIN_GAMES_FOR_TOP_SOS).clip(0.0, 1.0)
-            team.loc[low_sample_mask, "sos_norm"] = (
-                0.5 + shrink_factor[low_sample_mask] * (team.loc[low_sample_mask, "sos_norm"] - 0.5)
+            # Step 6: Apply low-sample shrinkage (vectorized)
+            low_sample_mask = gps < cfg.MIN_GAMES_FOR_TOP_SOS
+            shrink_factor = np.clip(gps / cfg.MIN_GAMES_FOR_TOP_SOS, 0.0, 1.0)
+            sos_norm_values = team['sos_norm'].values
+            sos_norm_values[low_sample_mask] = (
+                0.5 + shrink_factor[low_sample_mask] * (sos_norm_values[low_sample_mask] - 0.5)
             )
+            team['sos_norm'] = sos_norm_values
 
-            # Step 7: Recalculate power score with new SOS
-            team["powerscore_core"] = (
-                cfg.OFF_WEIGHT * team["off_norm"]
-                + cfg.DEF_WEIGHT * team["def_norm"]
-                + cfg.SOS_WEIGHT * team["sos_norm"]
-                + team["perf_centered"] * cfg.PERF_BLEND_WEIGHT
+            # Step 7: Recalculate power score with new SOS (vectorized)
+            sos_norm_arr = team['sos_norm'].values
+            powerscore_core = (
+                w_off * off_norms
+                + w_def * def_norms
+                + w_sos * sos_norm_arr
+                + perf_centereds * w_perf
             ) / MAX_POWERSCORE_THEORETICAL
 
-            team["powerscore_adj"] = team["powerscore_core"] * team["provisional_mult"]
+            team["powerscore_core"] = powerscore_core
+            team["powerscore_adj"] = powerscore_core * provisional_mults
 
             # Step 8: Calculate convergence metrics
-            sos_change = (team["sos"] - prev_sos).abs().mean()
-            power_change = (team["powerscore_adj"] - prev_power).abs().mean()
+            sos_change = np.abs(team["sos"].values - prev_sos).mean()
+            power_change = np.abs(team["powerscore_adj"].values - prev_power).mean()
 
             logger.info(
                 f"  📊 Power-SOS iteration {power_iter + 1}/{cfg.SOS_POWER_ITERATIONS}: "
