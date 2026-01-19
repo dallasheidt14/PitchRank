@@ -835,6 +835,7 @@ def v53e_to_rankings_full_format(
         'ml_overperf', 'ml_norm', 'powerscore_ml', 'rank_in_cohort_ml',
         'rank_in_cohort', 'national_rank', 'state_rank', 'global_rank',
         'rank_change_7d', 'rank_change_30d',
+        'rank_change_state_7d', 'rank_change_state_30d',  # State rank changes
         'national_power_score', 'global_power_score', 'power_score_final'
     ]
     
