@@ -38,8 +38,10 @@ export interface RankingRow {
   // Metadata
   last_calculated?: string | null; // ISO timestamp when rankings were last calculated
   // Rank change tracking (from rankings_full table)
-  rank_change_7d?: number | null; // Rank change over 7 days (positive = improved)
-  rank_change_30d?: number | null; // Rank change over 30 days (positive = improved)
+  rank_change_7d?: number | null; // National rank change over 7 days (positive = improved)
+  rank_change_30d?: number | null; // National rank change over 30 days (positive = improved)
+  rank_change_state_7d?: number | null; // State rank change over 7 days (positive = improved)
+  rank_change_state_30d?: number | null; // State rank change over 30 days (positive = improved)
   // Activity status (for filtering inactive teams)
   status?: 'Active' | 'Inactive' | 'Not Enough Ranked Games' | null; // Team activity status
   last_game?: string | null; // ISO timestamp of last game played
