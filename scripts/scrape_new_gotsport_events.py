@@ -12,10 +12,42 @@ import time
 import re
 import subprocess
 import sys
-from typing import List, Dict, Set
+import signal
+from typing import List, Dict, Set, Optional
 from urllib.parse import urlencode
 
 sys.path.append(str(Path(__file__).parent.parent))
+
+# Global timeout tracking
+_start_time: Optional[datetime] = None
+_max_runtime_seconds: int = 9000  # 2.5 hours default (leave 30min buffer for 3h limit)
+_timeout_triggered: bool = False
+
+
+def check_timeout() -> bool:
+    """Check if we've exceeded the maximum runtime. Returns True if timed out."""
+    global _timeout_triggered
+    if _start_time is None:
+        return False
+    elapsed = (datetime.now() - _start_time).total_seconds()
+    if elapsed > _max_runtime_seconds:
+        _timeout_triggered = True
+        return True
+    return False
+
+
+def get_elapsed_time() -> str:
+    """Get elapsed time as a human-readable string."""
+    if _start_time is None:
+        return "0s"
+    elapsed = int((datetime.now() - _start_time).total_seconds())
+    hours, remainder = divmod(elapsed, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours > 0:
+        return f"{hours}h {minutes}m {seconds}s"
+    elif minutes > 0:
+        return f"{minutes}m {seconds}s"
+    return f"{seconds}s"
 
 from supabase import create_client
 import os
@@ -47,18 +79,41 @@ logger = logging.getLogger(__name__)
 
 class EventDiscovery:
     """Discover GotSport events by searching their events page"""
-    
+
     BASE_URL = "https://home.gotsoccer.com"
     EVENTS_SEARCH_URL = "https://home.gotsoccer.com/events.aspx"
-    
-    def __init__(self):
+
+    def __init__(self, skip_date_extraction: bool = False):
+        """
+        Initialize event discovery.
+
+        Args:
+            skip_date_extraction: If True, skip extracting event dates during discovery
+                                 (much faster, dates will be extracted during scraping)
+        """
+        self.skip_date_extraction = skip_date_extraction
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.9',
         })
-    
+
+        # Cached scraper for event date extraction (created lazily)
+        self._cached_scraper: Optional[GotSportEventScraper] = None
+        self._cached_supabase = None
+
+    def _get_scraper(self) -> GotSportEventScraper:
+        """Get or create a cached scraper instance for date extraction."""
+        if self._cached_scraper is None:
+            if self._cached_supabase is None:
+                self._cached_supabase = create_client(
+                    os.getenv('SUPABASE_URL'),
+                    os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+                )
+            self._cached_scraper = GotSportEventScraper(self._cached_supabase, 'gotsport')
+        return self._cached_scraper
+
     def resolve_event_id(self, rankings_event_id: str) -> str:
         """
         Resolve the actual system.gotsport.com event ID from a rankings page EventID
@@ -259,22 +314,18 @@ class EventDiscovery:
                 event_date = search_date.isoformat()
                 event_start_date = None
                 event_end_date = None
-                try:
-                    from src.scrapers.gotsport_event import GotSportEventScraper
-                    from supabase import create_client
-                    supabase = create_client(
-                        os.getenv('SUPABASE_URL'),
-                        os.getenv('SUPABASE_SERVICE_ROLE_KEY')
-                    )
-                    scraper = GotSportEventScraper(supabase, 'gotsport')
-                    event_dates = scraper.extract_event_dates(actual_event_id)
-                    if event_dates:
-                        event_start_date, event_end_date = event_dates
-                        # Use start date for display, but store both
-                        event_date = event_start_date.isoformat()
-                        logger.debug(f"Found actual event dates: {event_start_date} to {event_end_date}")
-                except Exception as e:
-                    logger.debug(f"Could not extract event dates, using search date: {e}")
+                if not self.skip_date_extraction:
+                    try:
+                        # Use cached scraper instead of creating new instances each time
+                        scraper = self._get_scraper()
+                        event_dates = scraper.extract_event_dates(actual_event_id)
+                        if event_dates:
+                            event_start_date, event_end_date = event_dates
+                            # Use start date for display, but store both
+                            event_date = event_start_date.isoformat()
+                            logger.debug(f"Found actual event dates: {event_start_date} to {event_end_date}")
+                    except Exception as e:
+                        logger.debug(f"Could not extract event dates, using search date: {e}")
                 
                 # Only include events that have already ended (or end today)
                 # Filter out future events
@@ -323,21 +374,17 @@ class EventDiscovery:
                         event_date = search_date.isoformat()
                         event_start_date = None
                         event_end_date = None
-                        try:
-                            from src.scrapers.gotsport_event import GotSportEventScraper
-                            from supabase import create_client
-                            supabase = create_client(
-                                os.getenv('SUPABASE_URL'),
-                                os.getenv('SUPABASE_SERVICE_ROLE_KEY')
-                            )
-                            scraper = GotSportEventScraper(supabase, 'gotsport')
-                            event_dates = scraper.extract_event_dates(actual_event_id)
-                            if event_dates:
-                                event_start_date, event_end_date = event_dates
-                                event_date = event_start_date.isoformat()
-                                logger.debug(f"Found actual event dates: {event_start_date} to {event_end_date}")
-                        except Exception as e:
-                            logger.debug(f"Could not extract event dates, using search date: {e}")
+                        if not self.skip_date_extraction:
+                            try:
+                                # Use cached scraper instead of creating new instances each time
+                                scraper = self._get_scraper()
+                                event_dates = scraper.extract_event_dates(actual_event_id)
+                                if event_dates:
+                                    event_start_date, event_end_date = event_dates
+                                    event_date = event_start_date.isoformat()
+                                    logger.debug(f"Found actual event dates: {event_start_date} to {event_end_date}")
+                            except Exception as e:
+                                logger.debug(f"Could not extract event dates, using search date: {e}")
                         
                         # Only include events that have already ended (or end today)
                         # Filter out future events
@@ -600,22 +647,34 @@ def scrape_new_events(
     output_file: str = None,
     scraped_events_file: str = None,
     auto_import: bool = True,
-    manual_event_ids: List[str] = None
+    manual_event_ids: List[str] = None,
+    max_events: int = 0,
+    max_runtime_minutes: int = 150,
+    skip_date_extraction: bool = True
 ):
     """
     Scrape games from new events
-    
+
     Args:
-        days_back: How many days back to look for events (default: 7 = last week)
+        days_back: How many days back to look for events (default: 10)
         lookback_days: How many days of games to scrape from event teams (default: 30)
         output_file: Output file path (default: auto-generated)
         scraped_events_file: File to track scraped events (default: data/raw/scraped_events.json)
         manual_event_ids: List of event IDs to scrape manually (for known missed events)
+        max_events: Maximum number of events to scrape (0 = no limit, default)
+        max_runtime_minutes: Maximum runtime in minutes (default: 150 = 2.5 hours)
+        skip_date_extraction: Skip date extraction during discovery for faster runs (default: True)
     """
+    global _start_time, _max_runtime_seconds
+    _start_time = datetime.now()
+    _max_runtime_seconds = max_runtime_minutes * 60
+
+    max_events_str = f", max {max_events} events" if max_events > 0 else ""
     console.print(Panel.fit(
         f"[bold green]Weekly GotSport Event Scraper[/bold green]\n"
-        f"[dim]Looking for events in last {days_back} days[/dim]\n"
-        f"[dim]Scraping games from last {lookback_days} days[/dim]",
+        f"[dim]Looking for events in last {days_back} days{max_events_str}[/dim]\n"
+        f"[dim]Scraping games from last {lookback_days} days[/dim]\n"
+        f"[dim]Max runtime: {max_runtime_minutes} minutes[/dim]",
         style="green"
     ))
     
@@ -645,9 +704,11 @@ def scrape_new_events(
     
     console.print(f"[cyan]Searching for events from {start_date} to {end_date}...[/cyan]")
     console.print(f"[dim]Today is {date.today()}, searching {days_back} days back[/dim]")
-    
-    discovery = EventDiscovery()
+
+    # Use skip_date_extraction for faster discovery (dates extracted during scraping)
+    discovery = EventDiscovery(skip_date_extraction=skip_date_extraction)
     all_events = discovery.discover_events_in_range(start_date, end_date)
+    console.print(f"[dim]Elapsed time: {get_elapsed_time()}[/dim]")
     
     logger.info(f"Discovery complete: Found {len(all_events)} total events in date range {start_date} to {end_date}")
     
@@ -724,11 +785,16 @@ def scrape_new_events(
             console.print(f"  [dim]- {event['event_id']}: {event['event_name']}[/dim]")
 
     console.print(f"[green]✅ Found {len(new_events)} new events (out of {len(all_events)} total)[/green]\n")
-    
+
     if not new_events:
         console.print("[yellow]No new events to scrape![/yellow]")
         return None
-    
+
+    # Apply max_events limit if specified
+    if max_events > 0 and len(new_events) > max_events:
+        console.print(f"[yellow]⚠️  Limiting to {max_events} events (from {len(new_events)} found)[/yellow]")
+        new_events = new_events[:max_events]
+
     # Display new events
     table = Table(title="New Events Found", box=box.ROUNDED, show_header=True)
     table.add_column("Event ID", style="cyan")
@@ -774,11 +840,17 @@ def scrape_new_events(
         task = progress.add_task("[cyan]Scraping events...", total=len(new_events))
         
         for i, event in enumerate(new_events, 1):
+            # Check for timeout before processing each event
+            if check_timeout():
+                console.print(f"\n[yellow]⚠️  Timeout reached ({get_elapsed_time()}) - stopping scraping[/yellow]")
+                console.print(f"[yellow]   Processed {i-1}/{len(new_events)} events before timeout[/yellow]")
+                break
+
             event_id = event['event_id']
             event_name = event['event_name']
-            
-            progress.update(task, description=f"[cyan]Scraping {event_name[:40]}... ({i}/{len(new_events)})")
-            
+
+            progress.update(task, description=f"[cyan]Scraping {event_name[:40]}... ({i}/{len(new_events)}) [{get_elapsed_time()}]")
+
             try:
                 # Extract teams from event
                 # Note: The EventID from search page may not match system.gotsport.com event ID
@@ -863,11 +935,14 @@ def scrape_new_events(
                 console.print(f"  [red]Error scraping {event_name}: {e}[/red]")
             
             progress.advance(task)
-            
-            # Rate limiting between events
-            time.sleep(2)
+
+            # Reduced rate limiting between events (scraper has internal delays)
+            time.sleep(1)
     
-    console.print(f"\n[bold green]✅ Scraped {len(all_games)} total games from {len(new_events)} events[/bold green]\n")
+    events_processed = len(event_results)
+    timeout_msg = " (stopped early due to timeout)" if _timeout_triggered else ""
+    console.print(f"\n[bold green]✅ Scraped {len(all_games)} total games from {events_processed}/{len(new_events)} events{timeout_msg}[/bold green]")
+    console.print(f"[dim]Total elapsed time: {get_elapsed_time()}[/dim]\n")
     
     # Summary table
     summary_table = Table(title="Scraping Summary", box=box.ROUNDED, show_header=True)
@@ -1049,20 +1124,23 @@ if __name__ == '__main__':
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Default: Last 7 days of events, scrape last 30 days of games, auto-import enabled
+  # Default: Last 10 days of events, scrape last 30 days of games, auto-import enabled
   python scripts/scrape_new_gotsport_events.py
-  
+
   # Skip automatic import
   python scripts/scrape_new_gotsport_events.py --no-auto-import
-  
+
   # Last 14 days of events, scrape last 60 days of games
   python scripts/scrape_new_gotsport_events.py --days-back 14 --lookback-days 60
-  
+
+  # Limit to 20 events with 2-hour max runtime
+  python scripts/scrape_new_gotsport_events.py --max-events 20 --max-runtime 120
+
   # Custom output and tracking files
   python scripts/scrape_new_gotsport_events.py --output data/raw/weekly_events.jsonl --scraped-events data/raw/events_tracked.json
         """
     )
-    
+
     parser.add_argument('--days-back', type=int, default=10,
                        help='How many days back to look for events (default: 10)')
     parser.add_argument('--lookback-days', type=int, default=30,
@@ -1075,18 +1153,29 @@ Examples:
                        help='Skip automatic import after scraping (default: auto-import is enabled)')
     parser.add_argument('--manual-event-ids', type=str, nargs='+',
                        help='Manually specify event IDs to scrape (for known missed events, e.g., --manual-event-ids 45163 45164)')
-    
+    parser.add_argument('--max-events', type=int, default=0,
+                       help='Maximum number of events to scrape (0 = no limit, default: 0)')
+    parser.add_argument('--max-runtime', type=int, default=150,
+                       help='Maximum runtime in minutes (default: 150 = 2.5 hours)')
+    parser.add_argument('--extract-dates', dest='skip_date_extraction', action='store_false',
+                       help='Extract event dates during discovery (slower but more accurate filtering)')
+
     args = parser.parse_args()
-    
+
     # Default to True if --no-auto-import was not specified
     auto_import = getattr(args, 'auto_import', True)
-    
+    # Default to True (skip date extraction) unless --extract-dates is specified
+    skip_date_extraction = getattr(args, 'skip_date_extraction', True)
+
     scrape_new_events(
         days_back=args.days_back,
         lookback_days=args.lookback_days,
         output_file=args.output,
         scraped_events_file=args.scraped_events,
         auto_import=auto_import,
-        manual_event_ids=args.manual_event_ids
+        manual_event_ids=args.manual_event_ids,
+        max_events=args.max_events,
+        max_runtime_minutes=args.max_runtime,
+        skip_date_extraction=skip_date_extraction
     )
 

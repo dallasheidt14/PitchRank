@@ -45,19 +45,20 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           PYTHONPATH: ${{ github.workspace }}
-          # Optional: Configure scraping delays
-          GOTSPORT_DELAY_MIN: '1.5'
-          GOTSPORT_DELAY_MAX: '2.5'
+          # Optimized scraping delays (reduced from 1.5-2.5s to 0.8-1.2s)
+          GOTSPORT_DELAY_MIN: '0.8'
+          GOTSPORT_DELAY_MAX: '1.2'
           GOTSPORT_MAX_RETRIES: '3'
           GOTSPORT_TIMEOUT: '30'
         run: |
           # Set Python path to include project root
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
-          # Run the event scraper (auto-import is enabled by default)
-          # This will: 1) Find events from last 10 days (with pagination support for all pages),
-          #           2) Scrape games from event teams, 3) Auto-import to database
+          # Run the event scraper with timeout protection
+          # --max-runtime 150: Stop after 2.5 hours (leave 30min buffer for 3h limit)
+          # --max-events 50: Limit to 50 events per run to prevent timeout
+          # Auto-import is enabled by default
           # Note: Pagination support ensures all event pages are fetched (Page=2, Page=4, etc.)
-          python scripts/scrape_new_gotsport_events.py || exit 1
+          python scripts/scrape_new_gotsport_events.py --max-runtime 150 --max-events 50 || exit 1
       
       - name: Upload scraped data
         if: always()
