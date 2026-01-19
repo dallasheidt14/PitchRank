@@ -1,16 +1,17 @@
 name: Modular11 Events Weekly Scrape
 
 on:
-  schedule:
-    # Run every Sunday at 11pm Mountain Time
-    # MT is UTC-6 (MDT) or UTC-7 (MST)
-    # Sunday 11pm MDT = Monday 5am UTC
-    # Sunday 11pm MST = Monday 6am UTC
-    # Using Monday 5am UTC to cover most of the year (daylight time)
-    # Cron format: minute hour day-of-month month day-of-week
-    # 0 = Sunday, 1 = Monday
-    - cron: '0 5 * * 1'  # Every Monday at 5am UTC (Sunday 11pm MT)
-  workflow_dispatch:  # Allow manual triggering
+  # Schedule disabled - manual runs only
+  # schedule:
+  #   # Run every Sunday at 11pm Mountain Time
+  #   # MT is UTC-6 (MDT) or UTC-7 (MST)
+  #   # Sunday 11pm MDT = Monday 5am UTC
+  #   # Sunday 11pm MST = Monday 6am UTC
+  #   # Using Monday 5am UTC to cover most of the year (daylight time)
+  #   # Cron format: minute hour day-of-month month day-of-week
+  #   # 0 = Sunday, 1 = Monday
+  #   - cron: '0 5 * * 1'  # Every Monday at 5am UTC (Sunday 11pm MT)
+  workflow_dispatch:  # Allow manual triggering only
 
 jobs:
   scrape-and-import:
