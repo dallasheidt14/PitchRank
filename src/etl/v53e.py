@@ -61,6 +61,7 @@ class V53EConfig:
     # This ensures that playing teams with tough schedules properly boosts your SOS
     # Set to 0 to disable (use old off/def-only approach), 2-3 iterations recommended
     SOS_POWER_ITERATIONS: int = 3  # Number of power-SOS refinement cycles (0 = disabled)
+    SOS_POWER_DAMPING: float = 0.7  # Damping factor to prevent oscillation (0.5-0.9 recommended)
 
     # SOS sample size weighting
     # NOTE: SOS_SAMPLE_SIZE_THRESHOLD is DEPRECATED - pre-percentile shrinkage was removed
@@ -955,9 +956,11 @@ def compute_rankings(
                 .reset_index()
             )
 
-            # Step 4: Update team SOS (use update instead of drop/merge for efficiency)
+            # Step 4: Update team SOS with damping to prevent oscillation
+            # new_sos = damping * calculated_sos + (1 - damping) * previous_sos
             sos_map = dict(zip(sos_full["team_id"], sos_full["sos"]))
-            team["sos"] = team["team_id"].map(sos_map).fillna(0.5)
+            new_sos = team["team_id"].map(sos_map).fillna(0.5)
+            team["sos"] = cfg.SOS_POWER_DAMPING * new_sos + (1 - cfg.SOS_POWER_DAMPING) * prev_sos
 
             # Step 5: Re-normalize SOS within cohort
             team['sos_norm'] = team.groupby(['age', 'gender'])['sos'].transform(percentile_within_cohort)
