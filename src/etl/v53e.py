@@ -57,6 +57,12 @@ class V53EConfig:
     SOS_ITERATIONS: int = 3
     SOS_TRANSITIVITY_LAMBDA: float = 0.20  # Balanced transitivity weight (80% direct, 20% transitive)
 
+    # Power-SOS Co-Calculation: Use opponent's FULL power score (including their SOS) for SOS calculation
+    # This ensures that playing teams with tough schedules properly boosts your SOS
+    # Set to 0 to disable (use old off/def-only approach), 2-3 iterations recommended
+    SOS_POWER_ITERATIONS: int = 3  # Number of power-SOS refinement cycles (0 = disabled)
+    SOS_POWER_DAMPING: float = 0.7  # Damping factor to prevent oscillation (0.5-0.9 recommended)
+
     # SOS sample size weighting
     # NOTE: SOS_SAMPLE_SIZE_THRESHOLD is DEPRECATED - pre-percentile shrinkage was removed
     # because it caused games-played bias in sos_norm. Kept for backward compatibility only.
@@ -881,6 +887,126 @@ def compute_rankings(
         lambda gp: _provisional_multiplier(int(gp), cfg.MIN_GAMES_PROVISIONAL)
     )
     team["powerscore_adj"] = team["powerscore_core"] * team["provisional_mult"]
+
+    # -------------------------
+    # Power-SOS Co-Calculation: Use opponent's FULL power for SOS
+    # -------------------------
+    # This iteratively refines SOS using opponent's full power score (including their SOS),
+    # rather than just their off/def. This ensures that playing teams with tough schedules
+    # properly boosts your SOS.
+    #
+    # Algorithm:
+    # 1. Initial pass already calculated SOS using off/def only (base_strength_map)
+    # 2. Now we have initial powerscore_adj which includes that SOS
+    # 3. Rebuild strength map using full power (includes SOS)
+    # 4. Recalculate SOS using full power strength map
+    # 5. Recalculate power score with new SOS
+    # 6. Repeat until convergence
+
+    if cfg.SOS_POWER_ITERATIONS > 0:
+        logger.info(f"🔄 Starting Power-SOS co-calculation ({cfg.SOS_POWER_ITERATIONS} iterations)...")
+
+        # Pre-compute static values outside loop
+        team_ids = team["team_id"].values
+        provisional_mults = team["provisional_mult"].values
+        off_norms = team["off_norm"].values
+        def_norms = team["def_norm"].values
+        perf_centereds = team["perf_centered"].values
+        anchors = team["anchor"].values
+        gps = team["gp"].values
+
+        # Pre-compute weights for power score formula
+        w_off = cfg.OFF_WEIGHT
+        w_def = cfg.DEF_WEIGHT
+        w_sos = cfg.SOS_WEIGHT
+        w_perf = cfg.PERF_BLEND_WEIGHT
+
+        # Build opponent lookup from g_sos once (game-level data doesn't change)
+        opp_ids_array = g_sos["opp_id"].values
+        team_ids_sos = g_sos["team_id"].values
+        w_sos_array = g_sos["w_sos"].values
+
+        for power_iter in range(cfg.SOS_POWER_ITERATIONS):
+            # Store previous values for convergence tracking
+            prev_sos = team["sos"].values.copy()
+            prev_power = team["powerscore_adj"].values.copy()
+
+            # Step 1: Build FULL power strength map (vectorized - no iterrows)
+            full_power_values = (team["powerscore_adj"].values * anchors).clip(0.0, 1.0)
+            full_power_strength_map = dict(zip(team_ids, full_power_values))
+
+            # Step 2: Vectorized opponent strength lookup
+            def lookup_strength(opp_id):
+                if opp_id in full_power_strength_map:
+                    return full_power_strength_map[opp_id]
+                opp_id_str = str(opp_id)
+                if global_strength_map and opp_id_str in global_strength_map:
+                    return global_strength_map[opp_id_str]
+                return cfg.UNRANKED_SOS_BASE
+
+            # Use numpy vectorize for faster lookup (still has overhead but cleaner)
+            opp_strengths = np.array([lookup_strength(oid) for oid in opp_ids_array])
+            g_sos["opp_full_strength"] = opp_strengths
+
+            # Step 3: Recalculate SOS using full opponent strength (vectorized groupby)
+            sos_full = (
+                g_sos.groupby("team_id", group_keys=False)
+                .apply(lambda d: _avg_weighted(d, "opp_full_strength", "w_sos"), include_groups=False)
+                .rename("sos")
+                .reset_index()
+            )
+
+            # Step 4: Update team SOS with damping to prevent oscillation
+            # new_sos = damping * calculated_sos + (1 - damping) * previous_sos
+            sos_map = dict(zip(sos_full["team_id"], sos_full["sos"]))
+            new_sos = team["team_id"].map(sos_map).fillna(0.5)
+            team["sos"] = cfg.SOS_POWER_DAMPING * new_sos + (1 - cfg.SOS_POWER_DAMPING) * prev_sos
+
+            # Step 5: Re-normalize SOS within cohort
+            team['sos_norm'] = team.groupby(['age', 'gender'])['sos'].transform(percentile_within_cohort)
+            team['sos_norm'] = team['sos_norm'].fillna(0.5).clip(0.0, 1.0)
+
+            # Step 6: Apply low-sample shrinkage (vectorized)
+            low_sample_mask = gps < cfg.MIN_GAMES_FOR_TOP_SOS
+            shrink_factor = np.clip(gps / cfg.MIN_GAMES_FOR_TOP_SOS, 0.0, 1.0)
+            sos_norm_values = team['sos_norm'].values
+            sos_norm_values[low_sample_mask] = (
+                0.5 + shrink_factor[low_sample_mask] * (sos_norm_values[low_sample_mask] - 0.5)
+            )
+            team['sos_norm'] = sos_norm_values
+
+            # Step 7: Recalculate power score with new SOS (vectorized)
+            sos_norm_arr = team['sos_norm'].values
+            powerscore_core = (
+                w_off * off_norms
+                + w_def * def_norms
+                + w_sos * sos_norm_arr
+                + perf_centereds * w_perf
+            ) / MAX_POWERSCORE_THEORETICAL
+
+            team["powerscore_core"] = powerscore_core
+            team["powerscore_adj"] = powerscore_core * provisional_mults
+
+            # Step 8: Calculate convergence metrics
+            sos_change = np.abs(team["sos"].values - prev_sos).mean()
+            power_change = np.abs(team["powerscore_adj"].values - prev_power).mean()
+
+            logger.info(
+                f"  📊 Power-SOS iteration {power_iter + 1}/{cfg.SOS_POWER_ITERATIONS}: "
+                f"sos_change={sos_change:.6f}, power_change={power_change:.6f}, "
+                f"sos_range=[{team['sos'].min():.4f}, {team['sos'].max():.4f}]"
+            )
+
+            # Early termination if converged
+            if sos_change < 0.0001 and power_change < 0.0001:
+                logger.info(f"  ✅ Power-SOS converged after {power_iter + 1} iterations")
+                break
+
+        logger.info(
+            f"✅ Power-SOS co-calculation complete: "
+            f"final_sos_range=[{team['sos'].min():.4f}, {team['sos'].max():.4f}], "
+            f"final_power_range=[{team['powerscore_adj'].min():.4f}, {team['powerscore_adj'].max():.4f}]"
+        )
 
     # NOTE: Anchor-based scaling is now applied globally in compute_all_cohorts()
     # after all cohorts are combined. This ensures proper cross-age scaling.
