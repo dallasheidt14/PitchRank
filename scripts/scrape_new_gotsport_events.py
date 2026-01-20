@@ -851,77 +851,42 @@ def scrape_new_events(
 
             progress.update(task, description=f"[cyan]Scraping {event_name[:40]}... ({i}/{len(new_events)}) [{get_elapsed_time()}]")
 
+            event_start_time = datetime.now()
+
             try:
-                # Extract teams from event
-                # Note: The EventID from search page may not match system.gotsport.com event ID
-                # We'll try it anyway - if it doesn't work, we'll skip it
-                team_ids = scraper.extract_event_teams(event_id)
-                
-                if not team_ids:
-                    # Try alternative method: scrape directly from schedule pages
-                    # This bypasses team extraction and works even if event ID doesn't match
-                    logger.info(f"Event {event_id} has no teams via extract_event_teams, trying schedule page method...")
-                    try:
-                        games = scraper.scrape_games_from_schedule_pages(
-                            event_id,
-                            event_name=event_name,
-                            since_date=since_date
-                        )
-                        
-                        if games:
-                            event_results.append({
-                                'event_id': event_id,
-                                'event_name': event_name,
-                                'teams_count': len(set(g.team_id for g in games if g.team_id)),
-                                'games_count': len(games),
-                                'status': 'success',
-                                'note': 'Scraped via schedule pages (bypassed team extraction)'
-                            })
-                            all_games.extend(games)
-                            console.print(f"  [green]✅ {event_name}: {len(games)} games (via schedule pages)[/green]")
-                            # Mark as scraped since we got games
-                            save_scraped_event(scraped_events_path, event_id)
-                            progress.advance(task)
-                            continue
-                    except Exception as e:
-                        logger.debug(f"Schedule page method also failed: {e}")
-                    
-                    # If schedule page method also fails, mark as no_teams
+                # Scrape games directly from schedule pages (FAST PATH)
+                # This is more reliable than extract_event_teams and avoids redundant HTTP requests
+                games = scraper.scrape_games_from_schedule_pages(
+                    event_id,
+                    event_name=event_name,
+                    since_date=since_date
+                )
+
+                event_elapsed = (datetime.now() - event_start_time).total_seconds()
+                teams_count = len(set(g.team_id for g in games if g.team_id)) if games else 0
+
+                if games:
+                    event_results.append({
+                        'event_id': event_id,
+                        'event_name': event_name,
+                        'teams_count': teams_count,
+                        'games_count': len(games),
+                        'status': 'success'
+                    })
+                    all_games.extend(games)
+                    console.print(f"  [dim]{event_name}: {teams_count} teams, {len(games)} games ({event_elapsed:.1f}s)[/dim]")
+                    # Mark as scraped
+                    save_scraped_event(scraped_events_path, event_id)
+                else:
                     event_results.append({
                         'event_id': event_id,
                         'event_name': event_name,
                         'teams_count': 0,
                         'games_count': 0,
-                        'status': 'no_teams',
-                        'note': 'EventID may not match system.gotsport.com format, schedule page method also failed'
+                        'status': 'no_games'
                     })
-                    console.print(f"  [yellow]⚠️  {event_name}: No teams found (EventID may not match)[/yellow]")
-                    # Don't mark as scraped - allow retry on next run
-                    progress.advance(task)
-                    continue
-                
-                # Scrape games directly from schedule pages (uses team ID resolution)
-                # This method resolves event registration IDs to API team IDs automatically
-                games = scraper.scrape_event_games(
-                    event_id,
-                    event_name=event_name,
-                    since_date=since_date
-                )
-                
-                event_results.append({
-                    'event_id': event_id,
-                    'event_name': event_name,
-                    'teams_count': len(team_ids),
-                    'games_count': len(games),
-                    'status': 'success'
-                })
-                
-                all_games.extend(games)
-                console.print(f"  [dim]{event_name}: {len(team_ids)} teams, {len(games)} games[/dim]")
-                
-                # Mark as scraped
-                save_scraped_event(scraped_events_path, event_id)
-                
+                    console.print(f"  [yellow]⚠️  {event_name}: No games found ({event_elapsed:.1f}s)[/yellow]")
+
             except Exception as e:
                 logger.error(f"Error scraping event {event_id}: {e}")
                 event_results.append({
@@ -955,6 +920,7 @@ def scrape_new_events(
         status_icon = {
             'success': '✅',
             'no_teams': '⚠️',
+            'no_games': '⚠️',
             'error': '❌'
         }.get(result['status'], '?')
         

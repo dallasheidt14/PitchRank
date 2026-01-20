@@ -43,41 +43,44 @@ class EventTeam:
 class GotSportEventScraper:
     """
     Scraper for GotSport events/tournaments
-    
+
     This scraper:
     1. Extracts team IDs from an event page
     2. Uses the existing GotSportScraper to get games for those teams
     3. Filters games to only include those from the specified event
     """
-    
+
     BASE_URL = "https://system.gotsport.com"
     EVENT_BASE = "https://system.gotsport.com/org_event/events"
-    
-    def __init__(self, supabase_client, provider_code: str = 'gotsport'):
+
+    def __init__(self, supabase_client, provider_code: str = 'gotsport', skip_team_id_resolution: bool = True):
         """
         Initialize the event scraper
-        
+
         Args:
             supabase_client: Supabase client instance
             provider_code: Provider code (default: 'gotsport')
+            skip_team_id_resolution: If True, skip expensive API team ID resolution
+                                    and use registration IDs directly (default: True)
         """
         self.supabase_client = supabase_client
         self.provider_code = provider_code
-        
+        self.skip_team_id_resolution = skip_team_id_resolution
+
         # Use the existing team scraper for actual game scraping
         self.team_scraper = GotSportScraper(supabase_client, provider_code)
-        
-        # Configuration
-        self.delay_min = float(os.getenv('GOTSPORT_DELAY_MIN', '1.5'))
-        self.delay_max = float(os.getenv('GOTSPORT_DELAY_MAX', '2.5'))
-        self.max_retries = int(os.getenv('GOTSPORT_MAX_RETRIES', '3'))
-        self.timeout = int(os.getenv('GOTSPORT_TIMEOUT', '30'))
-        self.retry_delay = float(os.getenv('GOTSPORT_RETRY_DELAY', '2.0'))
-        
+
+        # Configuration - use faster defaults
+        self.delay_min = float(os.getenv('GOTSPORT_DELAY_MIN', '0.5'))
+        self.delay_max = float(os.getenv('GOTSPORT_DELAY_MAX', '1.0'))
+        self.max_retries = int(os.getenv('GOTSPORT_MAX_RETRIES', '2'))
+        self.timeout = int(os.getenv('GOTSPORT_TIMEOUT', '20'))
+        self.retry_delay = float(os.getenv('GOTSPORT_RETRY_DELAY', '1.0'))
+
         # Session setup
         self.session = self._init_http_session()
-        
-        logger.info("Initialized GotSportEventScraper")
+
+        logger.info(f"Initialized GotSportEventScraper (skip_team_id_resolution={skip_team_id_resolution})")
     
     def _init_http_session(self) -> requests.Session:
         """Initialize HTTP session with retry logic"""
@@ -1019,8 +1022,14 @@ class GotSportEventScraper:
                         schedule_url = href
                     schedule_urls.add(schedule_url)
             
-            logger.info(f"Found {len(schedule_urls)} schedule pages to scrape")
-            
+            # Limit schedule pages to prevent timeout on large events
+            max_schedule_pages = int(os.getenv('GOTSPORT_MAX_SCHEDULE_PAGES', '30'))
+            if len(schedule_urls) > max_schedule_pages:
+                logger.warning(f"Event has {len(schedule_urls)} schedule pages, limiting to {max_schedule_pages}")
+                schedule_urls = list(schedule_urls)[:max_schedule_pages]
+
+            logger.info(f"Scraping {len(schedule_urls)} schedule pages")
+
             # Cache for resolved API team IDs (registration_id -> api_team_id)
             # This avoids hitting the same team's event page multiple times
             api_team_id_cache: Dict[str, Optional[str]] = {}
@@ -1101,7 +1110,7 @@ class GotSportEventScraper:
                     )
                     games.extend(schedule_games)
                     logger.debug(f"Found {len(schedule_games)} games from {schedule_url}")
-                    time.sleep(0.5)  # Rate limiting
+                    time.sleep(0.2)  # Minimal rate limiting (reduced from 0.5s)
                 except Exception as e:
                     logger.warning(f"Error parsing schedule page {schedule_url}: {e}")
                     continue
@@ -1232,19 +1241,23 @@ class GotSportEventScraper:
                                         # Priority 2: Check cache
                                         elif reg_id in api_team_id_cache:
                                             home_team_id = api_team_id_cache[reg_id]
+                                        # Priority 3: Skip expensive resolution if configured (MAJOR PERFORMANCE FIX)
+                                        elif self.skip_team_id_resolution:
+                                            # Use registration ID directly - faster but may not match DB
+                                            home_team_id = reg_id
+                                            api_team_id_cache[reg_id] = reg_id
                                         else:
-                                            # Priority 3: Resolve API team ID by following the team's event page
+                                            # Priority 4: Resolve API team ID by following the team's event page (SLOW!)
                                             home_team_id = self._resolve_api_team_id_from_event_page(event_id, reg_id, home_team_name)
                                             api_team_id_cache[reg_id] = home_team_id
 
                                         if not home_team_id:
-                                            # Priority 4: Fallback to name-based mapping
+                                            # Priority 5: Fallback to name-based mapping
                                             if teams_by_name and home_team_name:
                                                 normalized_name = ' '.join(home_team_name.split()).lower()
                                                 home_team_id = teams_by_name.get(normalized_name)
-                                            # Last resort: use registration ID (with warning)
+                                            # Last resort: use registration ID
                                             if not home_team_id:
-                                                logger.warning(f"Could not resolve API team ID for home team '{home_team_name}' (reg_id={reg_id}), using registration ID")
                                                 home_team_id = reg_id
                         
                         # Extract away team
@@ -1272,19 +1285,23 @@ class GotSportEventScraper:
                                         # Priority 2: Check cache
                                         elif reg_id in api_team_id_cache:
                                             away_team_id = api_team_id_cache[reg_id]
+                                        # Priority 3: Skip expensive resolution if configured (MAJOR PERFORMANCE FIX)
+                                        elif self.skip_team_id_resolution:
+                                            # Use registration ID directly - faster but may not match DB
+                                            away_team_id = reg_id
+                                            api_team_id_cache[reg_id] = reg_id
                                         else:
-                                            # Priority 3: Resolve API team ID by following the team's event page
+                                            # Priority 4: Resolve API team ID by following the team's event page (SLOW!)
                                             away_team_id = self._resolve_api_team_id_from_event_page(event_id, reg_id, away_team_name)
                                             api_team_id_cache[reg_id] = away_team_id
 
                                         if not away_team_id:
-                                            # Priority 4: Fallback to name-based mapping
+                                            # Priority 5: Fallback to name-based mapping
                                             if teams_by_name and away_team_name:
                                                 normalized_name = ' '.join(away_team_name.split()).lower()
                                                 away_team_id = teams_by_name.get(normalized_name)
-                                            # Last resort: use registration ID (with warning)
+                                            # Last resort: use registration ID
                                             if not away_team_id:
-                                                logger.warning(f"Could not resolve API team ID for away team '{away_team_name}' (reg_id={reg_id}), using registration ID")
                                                 away_team_id = reg_id
                         
                         if not home_team_name or not away_team_name:
