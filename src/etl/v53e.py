@@ -72,6 +72,11 @@ class V53EConfig:
     # NOTE: SOS_TOP_CAP_FOR_LOW_SAMPLE is DEPRECATED - hard caps were replaced with soft shrinkage
     SOS_TOP_CAP_FOR_LOW_SAMPLE: float = 0.70  # DEPRECATED: no longer used
 
+    # Minimum games to appear in SOS rankings (teams below this get NULL sos_rank)
+    # This prevents teams with very few games from appearing as #1 SOS nationally
+    # NOTE: This affects SOS RANKING only, not the SOS VALUE (sos_norm still computed for PowerScore)
+    MIN_GAMES_FOR_SOS_RANK: int = 10
+
     # Opponent-adjusted offense/defense (fixes double-counting)
     OPPONENT_ADJUST_ENABLED: bool = True
     OPPONENT_ADJUST_BASELINE: float = 0.5  # Reference strength for adjustment
@@ -1102,15 +1107,34 @@ def compute_rankings(
     teams["rank_in_state_final"] = teams["rank_in_cohort_final"]
 
     # SOS rankings: compute ranks within each (age, gender) cohort
-    # Handle NULL values: rank() will assign NaN to NULL values, which is correct
-    teams["sos_rank_national"] = teams.groupby(["age", "gender"])["sos_norm"].rank(
-        ascending=False, method="min"
+    # Only teams with >= MIN_GAMES_FOR_SOS_RANK games get SOS rankings
+    # Teams below threshold get NULL sos_rank (prevents 3-game teams from being #1 SOS)
+    min_games_for_sos_rank = cfg.MIN_GAMES_FOR_SOS_RANK
+
+    # Create mask for teams eligible for SOS ranking
+    sos_rank_eligible = teams["gp"] >= min_games_for_sos_rank
+
+    # Initialize sos_rank_national as None (will be filled only for eligible teams)
+    teams["sos_rank_national"] = pd.Series([None] * len(teams), dtype="Int64")
+
+    # Compute SOS rank only for eligible teams within each cohort
+    for (age, gender), cohort_df in teams.groupby(["age", "gender"]):
+        eligible_mask = sos_rank_eligible & (teams["age"] == age) & (teams["gender"] == gender)
+        eligible_idx = teams.loc[eligible_mask].index
+
+        if len(eligible_idx) > 0:
+            # Rank only among eligible teams (those with enough games)
+            eligible_sos_values = teams.loc[eligible_idx, "sos_norm"]
+            ranks = eligible_sos_values.rank(ascending=False, method="min")
+            teams.loc[eligible_idx, "sos_rank_national"] = ranks.astype("Int64")
+
+    # Log how many teams are excluded from SOS ranking
+    excluded_count = (~sos_rank_eligible).sum()
+    total_count = len(teams)
+    logger.info(
+        f"📊 SOS Ranking: {total_count - excluded_count:,} teams eligible (>= {min_games_for_sos_rank} games), "
+        f"{excluded_count:,} teams excluded (< {min_games_for_sos_rank} games)"
     )
-    # Convert to int, but preserve NaN (which becomes NULL in database)
-    teams["sos_rank_national"] = teams["sos_rank_national"].where(
-        teams["sos_rank_national"].notna(),
-        None
-    ).astype("Int64")  # Nullable integer type
 
     # State rank: fallback to national rank if state unavailable
     # (State information is not available in v53e output, will be computed later in pipeline)

@@ -520,8 +520,20 @@ async def compute_all_cohorts(
         # Initialize new SOS columns
         teams_combined['sos_norm_national'] = 0.0
         teams_combined['sos_norm_state'] = 0.0
-        teams_combined['sos_rank_national'] = 0
-        teams_combined['sos_rank_state'] = 0
+        # Use nullable Int64 type for ranks to support NULL values for ineligible teams
+        teams_combined['sos_rank_national'] = pd.array([pd.NA] * len(teams_combined), dtype="Int64")
+        teams_combined['sos_rank_state'] = pd.array([pd.NA] * len(teams_combined), dtype="Int64")
+
+        # Get minimum games threshold for SOS ranking eligibility
+        cfg = v53_cfg or V53EConfig()
+        min_games_for_sos_rank = cfg.MIN_GAMES_FOR_SOS_RANK
+
+        # Create mask for teams eligible for SOS ranking (must have 'gp' column from v53e output)
+        if 'gp' in teams_combined.columns:
+            sos_rank_eligible = teams_combined['gp'] >= min_games_for_sos_rank
+        else:
+            logger.warning("⚠️ 'gp' column not found - all teams will be eligible for SOS ranking")
+            sos_rank_eligible = pd.Series([True] * len(teams_combined), index=teams_combined.index)
 
         # Compute national and state SOS rankings per cohort (age, gender)
         for (age, gender), cohort_df in teams_combined.groupby(['age', 'gender']):
@@ -529,34 +541,46 @@ async def compute_all_cohorts(
 
             # National normalization: percentile rank across all states in this cohort
             # rank(pct=True) gives values from 0 to 1
+            # NOTE: ALL teams get sos_norm values (for PowerScore), regardless of games played
             teams_combined.loc[cohort_idx, 'sos_norm_national'] = (
                 cohort_df['sos_raw'].rank(method='average', pct=True).fillna(0.5)
             )
 
-            # National rank: descending rank (highest SOS = rank 1)
-            teams_combined.loc[cohort_idx, 'sos_rank_national'] = (
-                cohort_df['sos_raw'].rank(method='min', ascending=False).fillna(0).astype(int)
-            )
+            # National rank: only for eligible teams (>= MIN_GAMES_FOR_SOS_RANK games)
+            # This prevents teams with few games from appearing as #1 SOS nationally
+            eligible_mask = sos_rank_eligible.loc[cohort_idx]
+            eligible_idx = cohort_df[eligible_mask].index
+            if len(eligible_idx) > 0:
+                eligible_sos_values = teams_combined.loc[eligible_idx, 'sos_raw']
+                ranks = eligible_sos_values.rank(method='min', ascending=False).astype("Int64")
+                teams_combined.loc[eligible_idx, 'sos_rank_national'] = ranks
 
             # State-level normalization and ranking within this cohort
             for state, state_df in cohort_df.groupby('state_code'):
                 state_idx = state_df.index
 
-                # State normalization: percentile rank within state
+                # State normalization: percentile rank within state (ALL teams)
                 teams_combined.loc[state_idx, 'sos_norm_state'] = (
                     state_df['sos_raw'].rank(method='average', pct=True).fillna(0.5)
                 )
 
-                # State rank: descending rank within state
-                teams_combined.loc[state_idx, 'sos_rank_state'] = (
-                    state_df['sos_raw'].rank(method='min', ascending=False).fillna(0).astype(int)
-                )
+                # State rank: only for eligible teams within state
+                state_eligible_mask = sos_rank_eligible.loc[state_idx]
+                state_eligible_idx = state_df[state_eligible_mask].index
+                if len(state_eligible_idx) > 0:
+                    state_eligible_sos = teams_combined.loc[state_eligible_idx, 'sos_raw']
+                    state_ranks = state_eligible_sos.rank(method='min', ascending=False).astype("Int64")
+                    teams_combined.loc[state_eligible_idx, 'sos_rank_state'] = state_ranks
 
         # Log SOS normalization results
+        excluded_count = (~sos_rank_eligible).sum()
+        total_count = len(teams_combined)
+        ranked_national = teams_combined['sos_rank_national'].notna().sum()
         logger.info(
             f"✅ National/State SOS normalization complete: "
             f"sos_norm_national range=[{teams_combined['sos_norm_national'].min():.3f}, {teams_combined['sos_norm_national'].max():.3f}], "
-            f"sos_rank_national range=[{teams_combined['sos_rank_national'].min()}, {teams_combined['sos_rank_national'].max()}]"
+            f"SOS ranking: {ranked_national:,} teams eligible (>= {min_games_for_sos_rank} games), "
+            f"{excluded_count:,} teams excluded (< {min_games_for_sos_rank} games)"
         )
 
         # Sample state distribution for diagnostics
