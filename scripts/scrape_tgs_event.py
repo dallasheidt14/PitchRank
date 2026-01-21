@@ -9,7 +9,8 @@ import requests
 import sys
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
@@ -62,24 +63,27 @@ REQUIRED_COLUMNS = [
 def resolve_config():
     """Load configuration with precedence: CLI > ENV > Defaults"""
     parser = argparse.ArgumentParser(description="TGS API Scraper")
-    
+
     parser.add_argument("--start-event", type=int, help="Start event ID")
     parser.add_argument("--end-event", type=int, help="End event ID")
     parser.add_argument("--output-dir", type=str, help="Output directory")
     parser.add_argument("--dry-run", action="store_true", help="Validate without writing output")
-    
+    parser.add_argument("--max-workers", type=int, help="Max parallel workers for flight processing (default: 8)")
+
     args = parser.parse_args()
-    
+
     # CLI > ENV > Default
     start_event = args.start_event or int(os.getenv("TGS_START_EVENT", "3900"))
     end_event = args.end_event or int(os.getenv("TGS_END_EVENT", "4000"))
     output_dir = args.output_dir or os.getenv("TGS_OUTPUT_DIR", OUTPUT_DIR)
-    
+    max_workers = args.max_workers or int(os.getenv("TGS_MAX_WORKERS", "8"))
+
     return {
         "start_event": start_event,
         "end_event": end_event,
         "output_dir": output_dir,
-        "dry_run": args.dry_run
+        "dry_run": args.dry_run,
+        "max_workers": max_workers
     }
 
 
@@ -456,27 +460,117 @@ def normalize_api_game(
 # SCRAPER CORE
 # -----------------------------
 
+def process_single_flight(
+    flight_info: Dict,
+    event_id: int,
+    event_name: str,
+    parent_division_name: str
+) -> Tuple[List[Dict], str]:
+    """
+    Process a single flight: get division info, get games, normalize records.
+
+    This function is designed to be called in parallel via ThreadPoolExecutor.
+
+    Args:
+        flight_info: Flight dict with flightID, flightName, hasActiveSchedule
+        event_id: Parent event ID
+        event_name: Parent event name
+        parent_division_name: Division name from parent structure (fallback)
+
+    Returns:
+        Tuple of (list of game records, status message)
+    """
+    flight_id = flight_info.get("flightID")
+    flight_name = flight_info.get("flightName", "")
+    records = []
+
+    # EARLY FILTER: Check division name from parent structure first
+    # This avoids making API calls for divisions outside U10-U18 range
+    age_year_early = extract_year(parent_division_name)
+    if not age_year_early:
+        return [], f"⏭️  {parent_division_name} - {flight_name}: skipped (not U10-U18)"
+
+    # Step 1: Get division info (age_year, gender)
+    flight_division = get_flight_division(flight_id)
+    if not flight_division:
+        return [], f"⚠️  {flight_name} ({flight_id}): no division info"
+
+    division_name_from_api = flight_division.get("divisionName", parent_division_name)
+
+    # SECOND FILTER: Check API-returned division name
+    age_year = extract_year(division_name_from_api)
+    if not age_year:
+        return [], f"⏭️  {division_name_from_api} - {flight_name}: skipped (not U10-U18)"
+
+    # Step 2: Get games for this flight (THE MONEY ENDPOINT)
+    games = get_games_for_flight(event_id, flight_id)
+    if not games:
+        return [], f"⚠️  {division_name_from_api} - {flight_name}: no games"
+
+    # Create division info for normalization
+    division_info = {
+        "divisionID": flight_id,
+        "divisionName": division_name_from_api
+    }
+
+    # Step 3: Generate records for each game (both home and away perspectives)
+    games_added = 0
+    games_skipped_future = 0
+
+    for game in games:
+        # Home perspective
+        home_record = normalize_api_game(
+            game, event_id, event_name, division_info, "H",
+            SCRAPE_RUN_ID, SCRAPE_TS
+        )
+
+        # Skip future games (haven't been played yet)
+        if is_future_game(home_record.get("game_date", "")):
+            games_skipped_future += 1
+            continue
+
+        records.append(home_record)
+
+        # Away perspective (same game, so we know it's not future)
+        away_record = normalize_api_game(
+            game, event_id, event_name, division_info, "A",
+            SCRAPE_RUN_ID, SCRAPE_TS
+        )
+        records.append(away_record)
+        games_added += 1
+
+    # Build status message
+    if games_skipped_future > 0:
+        status = f"✅ {division_name_from_api} - {flight_name}: {games_added} games (+{games_skipped_future} future skipped)"
+    else:
+        status = f"✅ {division_name_from_api} - {flight_name}: {games_added} games"
+
+    return records, status
+
+
 def scrape_event(event_id: int, config: Dict, records: List[Dict]) -> None:
-    """Scrape a single event using the correct API chain.
+    """Scrape a single event using parallel flight processing.
 
     Only includes games that have already been played (game_date <= today).
     Future scheduled games are skipped.
+
+    Uses ThreadPoolExecutor for parallel flight processing (8x speedup typical).
     """
+    event_start = time.time()
     print(f"\n📌 EVENT {event_id}")
-    
+
     # Get event details to extract event name
     event_details = get_event_details(event_id)
     event_name = event_details.get("eventName", f"Event {event_id}") if event_details else f"Event {event_id}"
     print(f"  Event Name: {event_name}")
-    
+
     # Step 1: Get event navigation to discover flights
     nav_data = get_event_nav(event_id)
     if not nav_data:
         print("❌ Event nav not found")
         return
-    
+
     # Extract flight list from schedule/standings endpoint
-    # Use get-event-schedule-or-standings to get the flight structure
     schedule_url = f"{BASE}/Event/get-event-schedule-or-standings/{event_id}"
     headers = {
         "Origin": "https://public.totalglobalsports.com",
@@ -484,7 +578,7 @@ def scrape_event(event_id: int, config: Dict, records: List[Dict]) -> None:
         "Accept": "application/json, text/plain, */*",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     }
-    
+
     try:
         r = requests.get(schedule_url, headers=headers, timeout=20)
         if r.status_code != 200:
@@ -494,92 +588,71 @@ def scrape_event(event_id: int, config: Dict, records: List[Dict]) -> None:
     except Exception as e:
         print(f"⚠️ Error getting schedule structure: {e}")
         return
-    
+
     # Extract divisions and flights
     data = schedule_data.get("data", {}) if isinstance(schedule_data, dict) else {}
     girls_divs = data.get("girlsDivAndFlightList", [])
     boys_divs = data.get("boysDivAndFlightList", [])
     all_divisions = girls_divs + boys_divs
-    
-    print(f"✅ Found {len(all_divisions)} divisions")
-    
-    # Step 2 & 3: For each flight, get division info and games
-    total_flights = 0
+
+    # Build list of active flights with their parent division info
+    active_flights = []
     for division in all_divisions:
         division_name = division.get("divisionName", "")
         flight_list = division.get("flightList", [])
-        
+
         for flight in flight_list:
-            if not flight.get("hasActiveSchedule", False):
-                continue
-            
-            flight_id = flight.get("flightID")
-            flight_name = flight.get("flightName", "")
-            total_flights += 1
-            
-            # Step 2a: Get division info (age_year, gender)
-            flight_division = get_flight_division(flight_id)
-            if not flight_division:
-                print(f"  ⚠️ Could not get division info for flight {flight_name} ({flight_id})")
-                continue
-            
-            division_name_from_api = flight_division.get("divisionName", division_name)
-            
-            # Step 2b: Get games for this flight (THE MONEY ENDPOINT)
-            games = get_games_for_flight(event_id, flight_id)
-            if not games:
-                print(f"  ⚠️ No games found for {division_name_from_api} - {flight_name} ({flight_id})")
-                continue
-            
-            # Create division info for normalization
-            division_info = {
-                "divisionID": flight_id,  # Use flightID as schedule_id
-                "divisionName": division_name_from_api  # Use division name for age/gender extraction
-            }
+            if flight.get("hasActiveSchedule", False):
+                active_flights.append({
+                    "flight": flight,
+                    "division_name": division_name
+                })
 
-            # Check if this division has a valid age group (U10-U18 / birth years 2008-2016)
-            age_year = extract_year(division_name_from_api)
-            if not age_year:
-                print(f"  ⏭️  Skipping {division_name_from_api} - {flight_name}: age group not in U10-U18 range")
-                continue
+    print(f"✅ Found {len(all_divisions)} divisions, {len(active_flights)} active flights")
 
-            # Step 3: Generate records for each game (both home and away perspectives)
-            # Filter out future games - we only want games that have already been played
-            games_added = 0
-            games_skipped_future = 0
+    if not active_flights:
+        print(f"  ⚠️ No active flights to process")
+        return
 
-            for game in games:
-                # Home perspective
-                home_record = normalize_api_game(
-                    game, event_id, event_name, division_info, "H",
-                    SCRAPE_RUN_ID, SCRAPE_TS
-                )
+    # Process flights in PARALLEL using ThreadPoolExecutor
+    max_workers = config.get("max_workers", 8)
+    flight_records = []
+    status_messages = []
 
-                # Skip future games (haven't been played yet)
-                if is_future_game(home_record.get("game_date", "")):
-                    games_skipped_future += 1
-                    continue
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all flight processing tasks
+        future_to_flight = {
+            executor.submit(
+                process_single_flight,
+                flight_info["flight"],
+                event_id,
+                event_name,
+                flight_info["division_name"]
+            ): flight_info
+            for flight_info in active_flights
+        }
 
-                records.append(home_record)
+        # Collect results as they complete
+        for future in as_completed(future_to_flight):
+            try:
+                flight_recs, status = future.result()
+                if flight_recs:
+                    flight_records.extend(flight_recs)
+                status_messages.append(status)
+            except Exception as e:
+                flight_info = future_to_flight[future]
+                status_messages.append(f"❌ {flight_info['flight'].get('flightName', 'Unknown')}: {e}")
 
-                # Away perspective (same game, so we know it's not future)
-                away_record = normalize_api_game(
-                    game, event_id, event_name, division_info, "A",
-                    SCRAPE_RUN_ID, SCRAPE_TS
-                )
-                records.append(away_record)
-                games_added += 1
+    # Add all flight records to main records list
+    records.extend(flight_records)
 
-            # Log results for this flight
-            if games_skipped_future > 0:
-                print(f"  ✅ {division_name_from_api} - {flight_name}: {games_added} games added, {games_skipped_future} future games skipped")
-            else:
-                print(f"  ✅ {division_name_from_api} - {flight_name}: {games_added} games")
+    # Print status messages (sorted for readability)
+    for msg in sorted(status_messages):
+        print(f"  {msg}")
 
-            # Small delay between flights
-            time.sleep(0.3)
-
-    print(f"✅ Processed {total_flights} flights")
+    event_duration = time.time() - event_start
+    games_count = len(flight_records) // 2  # Divide by 2 since each game has home+away records
+    print(f"⏱️  Event {event_id} completed in {event_duration:.1f}s ({games_count} games from {len(active_flights)} flights)")
 
 
 # -----------------------------
@@ -621,40 +694,67 @@ def write_output(records: List[Dict], output_dir: str, start_event: int, end_eve
 def main():
     """Main entry point"""
     global SCRAPE_TS, SCRAPE_RUN_ID
-    
+
     # Generate scrape run identifiers
     SCRAPE_TS = datetime.now(timezone.utc).isoformat()
     SCRAPE_RUN_ID = f"{SCRAPE_TS}_{uuid.uuid4().hex[:6]}"
-    
+
     config = resolve_config()
     records = []
-    
+
     start_event = config["start_event"]
     end_event = config["end_event"]
-    
-    print(f"🚀 TGS API Scraper")
-    print(f"📅 Event range: {start_event} - {end_event}")
+    max_workers = config.get("max_workers", 8)
+    total_events = end_event - start_event + 1
+
+    print(f"🚀 TGS API Scraper (PARALLEL MODE)")
+    print(f"📅 Event range: {start_event} - {end_event} ({total_events} events)")
+    print(f"🔄 Max parallel workers: {max_workers}")
     print(f"🆔 Scrape run ID: {SCRAPE_RUN_ID}")
-    
+
+    # Track overall timing
+    scrape_start = time.time()
+
     # Scrape each event in range
-    for event_id in range(start_event, end_event + 1):
+    for i, event_id in enumerate(range(start_event, end_event + 1), 1):
         scrape_event(event_id, config, records)
-        time.sleep(0.5)  # Delay between events
-    
+
+        # Progress update every 10 events
+        if i % 10 == 0:
+            elapsed = time.time() - scrape_start
+            events_per_min = (i / elapsed) * 60
+            remaining_events = total_events - i
+            eta_min = remaining_events / events_per_min if events_per_min > 0 else 0
+            print(f"\n📊 Progress: {i}/{total_events} events ({i/total_events*100:.0f}%) | "
+                  f"{len(records)//2} games | {events_per_min:.1f} events/min | ETA: {eta_min:.1f} min")
+
+        time.sleep(0.3)  # Reduced delay between events (was 0.5)
+
+    scrape_duration = time.time() - scrape_start
+
     if not records:
         print("❌ No games scraped")
         return
-    
+
     # Validate records
     validate_records(records)
-    
+
     # Write output (unless dry-run)
     if not config["dry_run"]:
         write_output(records, config["output_dir"], start_event, end_event)
     else:
         print(f"\n🔍 DRY RUN — {len(records)} records validated (not written)")
-    
-    print(f"\n✅ SCRAPE COMPLETE — {len(records)} total records")
+
+    # Final summary
+    games_count = len(records) // 2  # Each game has home + away records
+    print(f"\n{'='*60}")
+    print(f"✅ SCRAPE COMPLETE")
+    print(f"{'='*60}")
+    print(f"  📊 Total records: {len(records)} ({games_count} games × 2 perspectives)")
+    print(f"  📅 Events scraped: {total_events}")
+    print(f"  ⏱️  Total time: {scrape_duration:.1f}s ({scrape_duration/60:.1f} min)")
+    print(f"  ⚡ Rate: {total_events/scrape_duration*60:.1f} events/min, {games_count/scrape_duration:.1f} games/sec")
+    print(f"{'='*60}")
 
 
 if __name__ == "__main__":
