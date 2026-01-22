@@ -430,29 +430,33 @@ class GameHistoryMatcher:
         }
 
     def _match_by_provider_id(
-        self, 
-        provider_id: str, 
-        provider_team_id: str, 
+        self,
+        provider_id: str,
+        provider_team_id: str,
         age_group: Optional[str] = None,
         gender: Optional[str] = None
     ) -> Optional[Dict]:
         """
-        Match by exact provider ID - only checks team_alias_map (canonical source).
-        
+        Match by provider ID - checks team_alias_map (canonical source).
+
+        Handles semicolon-separated provider_team_ids in alias map entries.
+        For example, if alias has "123456;789012", this will match lookup for "123456".
+
         CRITICAL: For providers like Modular11 where the same provider_team_id (club ID)
         is used for multiple age groups, we MUST validate age_group to prevent
         U16 games from matching to U13 teams.
         """
         if not provider_team_id:
             return None
-        
-        team_id_str = str(provider_team_id)
-        
+
+        team_id_str = str(provider_team_id).strip()
+
         # Check cache first (if available)
+        # Cache should already have semicolon-separated IDs expanded (done in enhanced_pipeline.py)
         if self.alias_cache and team_id_str in self.alias_cache:
             cached = self.alias_cache[team_id_str]
             team_id_master = cached['team_id_master']
-            
+
             # Validate age_group if provided
             if age_group:
                 if not self._validate_team_age_group(team_id_master, age_group, gender):
@@ -461,7 +465,7 @@ class GameHistoryMatcher:
                         f"but age_group mismatch (game: {age_group}, team: ?). Rejecting match."
                     )
                     return None
-            
+
             # Prefer direct_id matches
             if cached.get('match_method') == 'direct_id':
                 return {
@@ -475,8 +479,8 @@ class GameHistoryMatcher:
                 'review_status': cached.get('review_status', 'approved'),
                 'match_method': cached.get('match_method')
             }
-        
-        # Tier 1: Direct ID match (from team importer)
+
+        # Tier 1: Direct ID match - exact match (from team importer)
         try:
             result = self.db.table('team_alias_map').select(
                 'team_id_master, review_status, match_method'
@@ -485,7 +489,7 @@ class GameHistoryMatcher:
             ).eq('match_method', 'direct_id').eq(
                 'review_status', 'approved'
             ).single().execute()
-            
+
             if result.data:
                 team_id_master = result.data['team_id_master']
                 # Validate age_group if provided
@@ -498,16 +502,51 @@ class GameHistoryMatcher:
                         return None
                 return result.data
         except Exception as e:
-            logger.debug(f"No direct_id match found: {e}")
-        
-        # Tier 2: Any approved alias map entry (fallback)
+            logger.debug(f"No exact direct_id match found: {e}")
+
+        # Tier 2: Check for semicolon-separated aliases containing this ID
+        # This handles merged teams where provider_team_id is "123456;789012"
+        try:
+            # Use LIKE to find aliases containing this ID
+            # Pattern: starts with ID, ends with ID, or ID is in middle (surrounded by semicolons)
+            result = self.db.table('team_alias_map').select(
+                'team_id_master, review_status, match_method, provider_team_id'
+            ).eq('provider_id', provider_id).eq(
+                'review_status', 'approved'
+            ).like('provider_team_id', f'%{team_id_str}%').execute()
+
+            if result.data:
+                # Verify this is actually a match (not a substring of a different ID)
+                for alias in result.data:
+                    alias_ids = str(alias['provider_team_id']).split(';')
+                    alias_ids = [id.strip() for id in alias_ids]
+                    if team_id_str in alias_ids:
+                        team_id_master = alias['team_id_master']
+                        # Validate age_group if provided
+                        if age_group:
+                            if not self._validate_team_age_group(team_id_master, age_group, gender):
+                                logger.debug(
+                                    f"Provider ID {provider_team_id} matched to team {team_id_master} "
+                                    f"but age_group mismatch (game: {age_group}). Rejecting match."
+                                )
+                                continue  # Try next alias
+                        logger.debug(f"Matched {team_id_str} via semicolon-separated alias: {alias['provider_team_id']}")
+                        return {
+                            'team_id_master': team_id_master,
+                            'review_status': alias.get('review_status', 'approved'),
+                            'match_method': alias.get('match_method')
+                        }
+        except Exception as e:
+            logger.debug(f"No semicolon-separated alias match found: {e}")
+
+        # Tier 3: Any approved alias map entry - exact match (fallback)
         try:
             result = self.db.table('team_alias_map').select(
                 'team_id_master, review_status, match_method'
             ).eq('provider_id', provider_id).eq(
                 'provider_team_id', team_id_str
             ).eq('review_status', 'approved').single().execute()
-            
+
             if result.data:
                 team_id_master = result.data['team_id_master']
                 # Validate age_group if provided
