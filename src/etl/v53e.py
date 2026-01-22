@@ -53,7 +53,7 @@ class V53EConfig:
 
     # Layer 8 (SOS)
     UNRANKED_SOS_BASE: float = 0.35
-    SOS_REPEAT_CAP: int = 4
+    SOS_REPEAT_CAP: int = 2  # Reduced from 4 to prevent regional rivals from dominating SOS
     SOS_ITERATIONS: int = 3
     SOS_TRANSITIVITY_LAMBDA: float = 0.20  # Balanced transitivity weight (80% direct, 20% transitive)
 
@@ -100,6 +100,82 @@ class V53EConfig:
 
     # Normalization mode
     NORM_MODE: str = "zscore"  # or "percentile"
+
+    # =========================
+    # Regional Bubble Detection (Layer 8b)
+    # =========================
+    # Schedule Connectivity Factor (SCF) - measures how connected a team's schedule is
+    # to the broader national network. Teams playing only in isolated regional bubbles
+    # (e.g., Idaho Rush vs Idaho Juniors vs Missoula Surf) get SOS dampened toward neutral.
+    #
+    # The problem: Circular inflation occurs when teams only play each other:
+    #   - Idaho Rush beats Idaho Juniors → Idaho Rush OFF ↑
+    #   - Idaho Juniors beats Missoula Surf → Idaho Juniors OFF ↑
+    #   - Missoula Surf beats Idaho Rush → Missoula Surf OFF ↑
+    #   - All three inflate each other's SOS with NO anchor to national reality
+    #
+    # Solution: SCF measures schedule diversity. Low SCF → dampen SOS toward 0.5
+    SCF_ENABLED: bool = True  # Enable Schedule Connectivity Factor
+    SCF_MIN_UNIQUE_STATES: int = 2  # Minimum unique opponent states for full SOS credit
+    SCF_DIVERSITY_DIVISOR: float = 3.0  # divisor for state diversity score
+    SCF_FLOOR: float = 0.4  # Minimum SCF (even isolated teams get some SOS credit)
+    SCF_NEUTRAL_SOS: float = 0.5  # SOS value to dampen toward for low-connectivity teams
+
+    # Isolation Penalty via Bridge Games
+    # Bridge games = games against teams from outside your state cluster
+    # If a team has few bridge games, their SOS is less reliable
+    ISOLATION_PENALTY_ENABLED: bool = True
+    MIN_BRIDGE_GAMES: int = 2  # Minimum games vs out-of-state opponents for full SOS
+    ISOLATION_SOS_CAP: float = 0.70  # Max SOS for teams with no bridge games
+
+    # Regional clustering (US geographic regions for better granularity)
+    # Teams playing only within their region get lower SCF than teams playing nationally
+    REGIONAL_CLUSTERING_ENABLED: bool = True
+
+    # =========================
+    # PageRank-Style SOS Dampening (Layer 8c)
+    # =========================
+    # Math safety net: Prevents SOS from drifting upward infinitely in isolated clusters.
+    # Even if SCF isn't applied, this ensures iterations converge toward reality.
+    #
+    # Formula: SOS_new = (1 - alpha) * baseline + alpha * avg(opponent_strengths)
+    # Where alpha is the dampening factor (like PageRank's damping factor)
+    #
+    # With alpha=0.85 (default), 15% of SOS is anchored to baseline, 85% from opponents.
+    # This prevents isolated clusters from inflating beyond a certain point.
+    PAGERANK_DAMPENING_ENABLED: bool = True
+    PAGERANK_ALPHA: float = 0.85  # Dampening factor (0.85 = 15% baseline anchor)
+    PAGERANK_BASELINE: float = 0.5  # Baseline SOS to anchor toward (neutral)
+
+
+# =========================
+# US State to Region mapping (for SCF calculation)
+# =========================
+STATE_TO_REGION = {
+    # Pacific
+    'CA': 'pacific', 'OR': 'pacific', 'WA': 'pacific', 'AK': 'pacific', 'HI': 'pacific',
+    # Mountain
+    'MT': 'mountain', 'ID': 'mountain', 'WY': 'mountain', 'NV': 'mountain',
+    'UT': 'mountain', 'CO': 'mountain', 'AZ': 'mountain', 'NM': 'mountain',
+    # West North Central
+    'ND': 'west_north_central', 'SD': 'west_north_central', 'NE': 'west_north_central',
+    'KS': 'west_north_central', 'MN': 'west_north_central', 'IA': 'west_north_central', 'MO': 'west_north_central',
+    # West South Central
+    'TX': 'west_south_central', 'OK': 'west_south_central', 'AR': 'west_south_central', 'LA': 'west_south_central',
+    # East North Central
+    'WI': 'east_north_central', 'MI': 'east_north_central', 'IL': 'east_north_central',
+    'IN': 'east_north_central', 'OH': 'east_north_central',
+    # East South Central
+    'KY': 'east_south_central', 'TN': 'east_south_central', 'MS': 'east_south_central', 'AL': 'east_south_central',
+    # South Atlantic
+    'WV': 'south_atlantic', 'VA': 'south_atlantic', 'MD': 'south_atlantic', 'DE': 'south_atlantic',
+    'DC': 'south_atlantic', 'NC': 'south_atlantic', 'SC': 'south_atlantic', 'GA': 'south_atlantic', 'FL': 'south_atlantic',
+    # Middle Atlantic
+    'NY': 'middle_atlantic', 'PA': 'middle_atlantic', 'NJ': 'middle_atlantic',
+    # New England
+    'CT': 'new_england', 'RI': 'new_england', 'MA': 'new_england',
+    'VT': 'new_england', 'NH': 'new_england', 'ME': 'new_england',
+}
 
 
 # Required team-centric columns (one row per team per game)
@@ -200,6 +276,185 @@ def _provisional_multiplier(gp: int, min_games: int) -> float:
     return 1.0
 
 
+def compute_schedule_connectivity(
+    games_df: pd.DataFrame,
+    team_state_map: Dict[str, str],
+    cfg: V53EConfig
+) -> Dict[str, Dict]:
+    """
+    Compute Schedule Connectivity Factor (SCF) for each team.
+
+    SCF measures how connected a team's schedule is to the broader national network.
+    Teams playing only in isolated regional bubbles (e.g., Idaho teams only playing
+    other Idaho teams) get lower SCF, which dampens their SOS toward neutral.
+
+    The problem this solves:
+    - Idaho Rush beats Idaho Juniors → Idaho Rush OFF ↑
+    - Idaho Juniors beats Missoula Surf → Idaho Juniors OFF ↑
+    - Missoula Surf beats Idaho Rush → Missoula Surf OFF ↑
+    - All inflate each other's SOS with NO anchor to national reality
+
+    Returns:
+        Dict[team_id, {
+            'scf': float (0.4 to 1.0),
+            'unique_states': int,
+            'unique_regions': int,
+            'bridge_games': int,
+            'home_state': str,
+            'is_isolated': bool
+        }]
+    """
+    result = {}
+
+    if not cfg.SCF_ENABLED:
+        # If disabled, return SCF=1.0 for all teams (no dampening)
+        for team_id in games_df['team_id'].unique():
+            result[team_id] = {
+                'scf': 1.0,
+                'unique_states': 0,
+                'unique_regions': 0,
+                'bridge_games': 0,
+                'home_state': team_state_map.get(str(team_id), 'UNKNOWN'),
+                'is_isolated': False
+            }
+        return result
+
+    # Group games by team to analyze each team's schedule
+    for team_id, team_games in games_df.groupby('team_id'):
+        team_id_str = str(team_id)
+        home_state = team_state_map.get(team_id_str, 'UNKNOWN')
+        home_region = STATE_TO_REGION.get(home_state, 'unknown')
+
+        # Get all opponent states
+        opp_ids = team_games['opp_id'].unique()
+        opp_states = set()
+        opp_regions = set()
+        bridge_games = 0
+
+        for opp_id in opp_ids:
+            opp_state = team_state_map.get(str(opp_id), 'UNKNOWN')
+            opp_region = STATE_TO_REGION.get(opp_state, 'unknown')
+
+            if opp_state != 'UNKNOWN':
+                opp_states.add(opp_state)
+
+            if opp_region != 'unknown':
+                opp_regions.add(opp_region)
+
+            # Count bridge games (games vs teams from different states)
+            if opp_state != home_state and opp_state != 'UNKNOWN':
+                # Count how many games against this out-of-state opponent
+                games_vs_opp = len(team_games[team_games['opp_id'] == opp_id])
+                bridge_games += games_vs_opp
+
+        # Calculate SCF based on schedule diversity
+        unique_states = len(opp_states)
+        unique_regions = len(opp_regions)
+
+        # Base SCF from state diversity
+        state_diversity = min(unique_states / cfg.SCF_DIVERSITY_DIVISOR, 1.0)
+
+        # Bonus for regional diversity (playing teams from different parts of country)
+        if cfg.REGIONAL_CLUSTERING_ENABLED and unique_regions > 1:
+            region_bonus = min((unique_regions - 1) * 0.1, 0.2)  # Up to 0.2 bonus
+        else:
+            region_bonus = 0.0
+
+        # Calculate SCF with floor
+        scf_raw = state_diversity + region_bonus
+        scf = max(cfg.SCF_FLOOR, min(1.0, scf_raw))
+
+        # Determine if team is isolated (no bridge games or very few unique states)
+        is_isolated = (
+            bridge_games < cfg.MIN_BRIDGE_GAMES or
+            unique_states < cfg.SCF_MIN_UNIQUE_STATES
+        )
+
+        result[team_id_str] = {
+            'scf': scf,
+            'unique_states': unique_states,
+            'unique_regions': unique_regions,
+            'bridge_games': bridge_games,
+            'home_state': home_state,
+            'is_isolated': is_isolated
+        }
+
+    return result
+
+
+def apply_scf_to_sos(
+    team_df: pd.DataFrame,
+    scf_data: Dict[str, Dict],
+    cfg: V53EConfig
+) -> pd.DataFrame:
+    """
+    Apply Schedule Connectivity Factor to dampen SOS for isolated teams.
+
+    For teams with low SCF (isolated regional bubbles):
+    - SOS is dampened toward neutral (0.5)
+    - This prevents circular inflation in isolated clusters
+
+    Formula: sos_adjusted = neutral + SCF * (sos_raw - neutral)
+    """
+    if not cfg.SCF_ENABLED:
+        return team_df
+
+    team_df = team_df.copy()
+
+    # Add SCF columns
+    team_df['scf'] = team_df['team_id'].map(
+        lambda tid: scf_data.get(str(tid), {}).get('scf', 1.0)
+    )
+    team_df['bridge_games'] = team_df['team_id'].map(
+        lambda tid: scf_data.get(str(tid), {}).get('bridge_games', 0)
+    )
+    team_df['is_isolated'] = team_df['team_id'].map(
+        lambda tid: scf_data.get(str(tid), {}).get('is_isolated', False)
+    )
+    team_df['unique_opp_states'] = team_df['team_id'].map(
+        lambda tid: scf_data.get(str(tid), {}).get('unique_states', 0)
+    )
+
+    # Store original SOS before adjustment
+    team_df['sos_raw_before_scf'] = team_df['sos'].copy()
+
+    # Apply SCF dampening to raw SOS
+    # Formula: sos_adjusted = neutral + SCF * (sos_raw - neutral)
+    neutral = cfg.SCF_NEUTRAL_SOS
+    team_df['sos'] = neutral + team_df['scf'] * (team_df['sos'] - neutral)
+
+    # Apply isolation penalty cap if enabled
+    if cfg.ISOLATION_PENALTY_ENABLED:
+        # Teams with insufficient bridge games get SOS capped
+        isolation_mask = team_df['bridge_games'] < cfg.MIN_BRIDGE_GAMES
+        team_df.loc[isolation_mask, 'sos'] = team_df.loc[isolation_mask, 'sos'].clip(
+            upper=cfg.ISOLATION_SOS_CAP
+        )
+
+    # Log statistics
+    isolated_count = team_df['is_isolated'].sum()
+    avg_scf = team_df['scf'].mean()
+    low_scf_count = (team_df['scf'] < 0.7).sum()
+
+    logger.info(
+        f"🔗 Schedule Connectivity Factor applied: "
+        f"avg_scf={avg_scf:.3f}, isolated_teams={isolated_count}, "
+        f"low_scf_teams={low_scf_count}"
+    )
+
+    # Log some examples of isolated teams (for debugging)
+    if isolated_count > 0 and isolated_count <= 10:
+        isolated_teams = team_df[team_df['is_isolated']].head(5)
+        for _, row in isolated_teams.iterrows():
+            logger.info(
+                f"  📍 Isolated: team={row['team_id'][:8]}... "
+                f"scf={row['scf']:.2f}, bridge_games={row['bridge_games']}, "
+                f"unique_states={row['unique_opp_states']}"
+            )
+
+    return team_df
+
+
 def _adjust_for_opponent_strength(
     games: pd.DataFrame,
     strength_map: Dict[str, float],
@@ -266,6 +521,7 @@ def compute_rankings(
     today: Optional[pd.Timestamp] = None,
     cfg: Optional[V53EConfig] = None,
     global_strength_map: Optional[Dict[str, float]] = None,
+    team_state_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, pd.DataFrame]:
     """
     Returns:
@@ -280,6 +536,8 @@ def compute_rankings(
         cfg: V53E configuration
         global_strength_map: Optional dict of team_id -> abs_strength from all cohorts
                             Used for cross-age/cross-gender opponent lookups in SOS
+        team_state_map: Optional dict of team_id -> state_code for Schedule Connectivity
+                       Factor (SCF) calculation. If not provided, SCF is disabled.
     """
     cfg = cfg or V53EConfig()
     
@@ -673,6 +931,17 @@ def compute_rankings(
     )
     sos_curr = direct.rename(columns={"sos_direct": "sos"}).copy()
 
+    # PageRank-style dampening on initial SOS (Pass 1)
+    # This anchors even the first pass toward baseline, preventing inflated bubbles
+    if cfg.PAGERANK_DAMPENING_ENABLED:
+        sos_curr["sos"] = (
+            (1 - cfg.PAGERANK_ALPHA) * cfg.PAGERANK_BASELINE
+            + cfg.PAGERANK_ALPHA * sos_curr["sos"]
+        )
+        logger.info(
+            f"📌 PageRank dampening applied: alpha={cfg.PAGERANK_ALPHA}, baseline={cfg.PAGERANK_BASELINE}"
+        )
+
     # Log initial SOS (Pass 1: Direct)
     logger.info(
         f"🔄 SOS Pass 1 (Direct): mean={sos_curr['sos'].mean():.4f}, "
@@ -717,6 +986,16 @@ def compute_rankings(
             (1 - cfg.SOS_TRANSITIVITY_LAMBDA) * merged["sos_direct"]
             + cfg.SOS_TRANSITIVITY_LAMBDA * merged["sos_trans"]
         )
+
+        # PageRank-style dampening: anchor SOS toward baseline to prevent infinite drift
+        # Formula: SOS_final = (1 - alpha) * baseline + alpha * SOS_calculated
+        # This ensures isolated clusters can't inflate SOS beyond a certain point
+        if cfg.PAGERANK_DAMPENING_ENABLED:
+            merged["sos"] = (
+                (1 - cfg.PAGERANK_ALPHA) * cfg.PAGERANK_BASELINE
+                + cfg.PAGERANK_ALPHA * merged["sos"]
+            )
+
         # SOS stability guard: clip values between 0.0 and 1.0
         merged["sos"] = merged["sos"].clip(0.0, 1.0)
         sos_curr = merged[["team_id", "sos"]]
@@ -745,6 +1024,38 @@ def compute_rankings(
     )
 
     team = team.merge(sos_curr, on="team_id", how="left").fillna({"sos": 0.5})
+
+    # -------------------------
+    # Layer 8b: Schedule Connectivity Factor (SCF) - Regional Bubble Detection
+    # -------------------------
+    # Apply SCF to dampen SOS for teams in isolated regional bubbles.
+    # This prevents circular inflation where teams like Idaho Rush, Idaho Juniors,
+    # and Missoula Surf inflate each other's SOS without any national anchor.
+    if cfg.SCF_ENABLED and team_state_map is not None:
+        logger.info("🔗 Computing Schedule Connectivity Factor (SCF) for regional bubble detection...")
+
+        # Compute SCF for each team based on their schedule diversity
+        scf_data = compute_schedule_connectivity(
+            games_df=g,  # Use the filtered games DataFrame
+            team_state_map=team_state_map,
+            cfg=cfg
+        )
+
+        # Apply SCF dampening to raw SOS
+        team = apply_scf_to_sos(team, scf_data, cfg)
+
+        # Log before/after comparison for diagnostics
+        logger.info(
+            f"📊 SOS after SCF adjustment: "
+            f"mean={team['sos'].mean():.4f}, "
+            f"std={team['sos'].std():.4f}, "
+            f"range=[{team['sos'].min():.4f}, {team['sos'].max():.4f}]"
+        )
+    elif cfg.SCF_ENABLED and team_state_map is None:
+        logger.warning(
+            "⚠️  SCF enabled but team_state_map not provided. "
+            "Regional bubble detection disabled for this run."
+        )
 
     # NOTE: Pre-percentile SOS shrinkage was REMOVED (was buggy)
     # The old code shrunk raw SOS toward cohort mean before percentile normalization,
@@ -799,11 +1110,14 @@ def compute_rankings(
     )
 
     # Soft shrinkage: blend toward neutral (0.5) based on sample size
-    # shrink_factor = 0.0 for 0 games (fully shrunk to 0.5)
-    # shrink_factor = 1.0 for MIN_GAMES_FOR_TOP_SOS+ games (no shrinkage)
+    # Using QUADRATIC shrinkage for more aggressive dampening of low-sample teams:
+    # - 0 games: shrink_factor = 0.0 (fully shrunk to 0.5)
+    # - 5 games: shrink_factor = 0.25 (only 25% of raw SOS retained)
+    # - 8 games: shrink_factor = 0.64 (64% of raw SOS retained)
+    # - 10+ games: shrink_factor = 1.0 (no shrinkage)
     low_sample_mask = team["gp"] < cfg.MIN_GAMES_FOR_TOP_SOS
     gp_clipped = team["gp"].clip(lower=0)
-    shrink_factor = (gp_clipped / cfg.MIN_GAMES_FOR_TOP_SOS).clip(0.0, 1.0)
+    shrink_factor = ((gp_clipped / cfg.MIN_GAMES_FOR_TOP_SOS) ** 2).clip(0.0, 1.0)
 
     # Apply shrinkage: sos_norm = 0.5 + shrink_factor * (sos_norm - 0.5)
     team.loc[low_sample_mask, "sos_norm"] = (
@@ -971,9 +1285,9 @@ def compute_rankings(
             team['sos_norm'] = team.groupby(['age', 'gender'])['sos'].transform(percentile_within_cohort)
             team['sos_norm'] = team['sos_norm'].fillna(0.5).clip(0.0, 1.0)
 
-            # Step 6: Apply low-sample shrinkage (vectorized)
+            # Step 6: Apply low-sample shrinkage (vectorized) - QUADRATIC for aggressive dampening
             low_sample_mask = gps < cfg.MIN_GAMES_FOR_TOP_SOS
-            shrink_factor = np.clip(gps / cfg.MIN_GAMES_FOR_TOP_SOS, 0.0, 1.0)
+            shrink_factor = np.clip((gps / cfg.MIN_GAMES_FOR_TOP_SOS) ** 2, 0.0, 1.0)
             sos_norm_values = team['sos_norm'].values
             sos_norm_values[low_sample_mask] = (
                 0.5 + shrink_factor[low_sample_mask] * (sos_norm_values[low_sample_mask] - 0.5)
@@ -1092,6 +1406,11 @@ def compute_rankings(
         "perf_raw", "perf_centered",
         "powerscore_core", "provisional_mult", "powerscore_adj"
     ]
+    # Add SCF columns if they exist (from regional bubble detection)
+    scf_cols = ["scf", "bridge_games", "is_isolated", "unique_opp_states"]
+    for col in scf_cols:
+        if col in team.columns:
+            keep_cols.append(col)
     teams = team[keep_cols].copy()
 
     # === Restore legacy frontend fields ===

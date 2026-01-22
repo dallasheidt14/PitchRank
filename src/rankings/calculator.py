@@ -92,6 +92,7 @@ async def compute_rankings_with_ml(
     save_snapshot: bool = True,  # Set to False when called from compute_all_cohorts
     global_strength_map: Optional[Dict] = None,  # For cross-age SOS lookups
     merge_version: Optional[str] = None,  # For cache invalidation when merges change
+    team_state_map: Optional[Dict[str, str]] = None,  # For SCF regional bubble detection
 ) -> Dict[str, pd.DataFrame]:
     """
     Runs your deterministic v53E engine, then applies the Supabase-aware ML adjustment.
@@ -106,6 +107,7 @@ async def compute_rankings_with_ml(
         lookback_days: Days to look back for rankings
         provider_filter: Optional provider code filter
         merge_version: Version hash from MergeResolver for cache invalidation
+        team_state_map: Optional dict of team_id -> state_code for SCF calculation
 
     Returns:
         {
@@ -182,6 +184,7 @@ async def compute_rankings_with_ml(
             today=today,
             cfg=v53_cfg,
             global_strength_map=global_strength_map,
+            team_state_map=team_state_map,  # For SCF regional bubble detection
         )
         logger.info(f"✅ v53e engine completed: {len(base['teams']):,} teams ranked")
 
@@ -312,11 +315,13 @@ async def compute_rankings_v53e_only(
     lookback_days: int = 365,
     provider_filter: Optional[str] = None,
     force_rebuild: bool = False,
+    team_state_map: Optional[Dict[str, str]] = None,  # For SCF regional bubble detection
 ) -> Dict[str, pd.DataFrame]:
     """
     Run v53e rankings engine only (without ML layer).
 
     Useful for comparison or when ML is disabled.
+    Note: team_state_map is optional - if not provided, SCF will be disabled.
     """
     v53_cfg = v53_cfg or V53EConfig()
 
@@ -344,7 +349,12 @@ async def compute_rankings_v53e_only(
 
     # Run v53e rankings engine
     logger.info("⚙️  Running v53e rankings engine...")
-    result = compute_rankings(games_df=games_df, today=today, cfg=v53_cfg)
+    result = compute_rankings(
+        games_df=games_df,
+        today=today,
+        cfg=v53_cfg,
+        team_state_map=team_state_map,  # For SCF regional bubble detection
+    )
     logger.info(f"✅ v53e engine completed: {len(result['teams']):,} teams ranked")
 
     return result
@@ -395,6 +405,44 @@ async def compute_all_cohorts(
             "games_used": pd.DataFrame()
         }
 
+    # ========== FETCH TEAM STATE METADATA FOR SCF ==========
+    # Fetch state_code for all teams to enable Schedule Connectivity Factor (SCF)
+    # which detects and dampens regional bubbles (e.g., Idaho teams only playing each other)
+    team_ids = set()
+    team_ids.update(games_df['team_id'].dropna().astype(str).tolist())
+    team_ids.update(games_df['opp_id'].dropna().astype(str).tolist())
+
+    team_state_map = {}
+    if team_ids:
+        logger.info(f"🗺️  Fetching state metadata for {len(team_ids):,} teams (for SCF)...")
+        team_ids_list = list(team_ids)
+        batch_size = 100
+
+        for i in range(0, len(team_ids_list), batch_size):
+            batch = team_ids_list[i:i + batch_size]
+            try:
+                result = supabase_client.table('teams').select(
+                    'team_id_master, state_code'
+                ).in_('team_id_master', batch).execute()
+                if result.data:
+                    for row in result.data:
+                        team_id = str(row.get('team_id_master', ''))
+                        state_code = row.get('state_code', 'UNKNOWN')
+                        if team_id:
+                            team_state_map[team_id] = state_code if state_code else 'UNKNOWN'
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to fetch state metadata batch {i}: {str(e)[:100]}")
+                continue
+
+        # Count states for logging
+        state_counts = {}
+        for state in team_state_map.values():
+            state_counts[state] = state_counts.get(state, 0) + 1
+        top_states = sorted(state_counts.items(), key=lambda x: -x[1])[:5]
+        logger.info(f"✅ Fetched state_code for {len(team_state_map):,} teams. Top states: {dict(top_states)}")
+    else:
+        logger.warning("⚠️ No team IDs found for state metadata fetch - SCF will be disabled")
+
     # Group by (age, gender) cohorts
     cohorts = list(games_df.groupby(["age", "gender"]))
     logger.info(f"🔄 Two-pass SOS: Processing {len(cohorts)} cohorts")
@@ -416,6 +464,7 @@ async def compute_all_cohorts(
             save_snapshot=False,
             global_strength_map=None,  # No global map yet
             merge_version=merge_version,  # For cache invalidation
+            team_state_map=team_state_map,  # For SCF regional bubble detection
         )
         pass1_tasks.append(task)
 
@@ -450,6 +499,7 @@ async def compute_all_cohorts(
             save_snapshot=False,
             global_strength_map=global_strength_map,  # Now with cross-age strengths
             merge_version=merge_version,  # For cache invalidation
+            team_state_map=team_state_map,  # For SCF regional bubble detection
         )
         pass2_tasks.append(task)
 
