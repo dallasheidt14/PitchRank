@@ -1023,8 +1023,8 @@ class GotSportEventScraper:
                     schedule_urls.add(schedule_url)
             
             # Limit schedule pages to prevent timeout on large events
-            # Default reduced from 30 to 15 for faster scraping
-            max_schedule_pages = int(os.getenv('GOTSPORT_MAX_SCHEDULE_PAGES', '15'))
+            # Default of 25 captures most tournaments (U9-U19 both genders = ~22 brackets)
+            max_schedule_pages = int(os.getenv('GOTSPORT_MAX_SCHEDULE_PAGES', '25'))
             if len(schedule_urls) > max_schedule_pages:
                 logger.warning(f"Event has {len(schedule_urls)} schedule pages, limiting to {max_schedule_pages}")
                 schedule_urls = list(schedule_urls)[:max_schedule_pages]
