@@ -31,10 +31,10 @@ class TestSOSConfiguration:
         assert cfg.SOS_TRANSITIVITY_LAMBDA == 0.20, \
             "SOS_TRANSITIVITY_LAMBDA should be 0.20 (80% direct, 20% transitive)"
 
-    def test_sos_repeat_cap_is_four(self):
-        """Verify repeat cap limits to top 4 games per opponent"""
+    def test_sos_repeat_cap_is_two(self):
+        """Verify repeat cap limits to top 2 games per opponent (prevents regional rival dominance)"""
         cfg = V53EConfig()
-        assert cfg.SOS_REPEAT_CAP == 4, "SOS repeat cap should be 4"
+        assert cfg.SOS_REPEAT_CAP == 2, "SOS repeat cap should be 2"
 
     def test_unranked_sos_base_valid(self):
         """Verify unranked opponent SOS base is reasonable"""
@@ -207,9 +207,9 @@ class TestSOSDocumentation:
         assert cfg.SOS_TRANSITIVITY_LAMBDA == 0.20, \
             "SOS_TRANSITIVITY_LAMBDA should be 0.20 as documented"
 
-        # From docs: SOS_REPEAT_CAP = 4
-        assert cfg.SOS_REPEAT_CAP == 4, \
-            "SOS_REPEAT_CAP should be 4 as documented"
+        # From docs: SOS_REPEAT_CAP = 2 (reduced from 4 to prevent regional rival dominance)
+        assert cfg.SOS_REPEAT_CAP == 2, \
+            "SOS_REPEAT_CAP should be 2 as documented"
 
         # From docs: UNRANKED_SOS_BASE = 0.35
         assert cfg.UNRANKED_SOS_BASE == 0.35, \

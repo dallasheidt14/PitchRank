@@ -53,7 +53,7 @@ class V53EConfig:
 
     # Layer 8 (SOS)
     UNRANKED_SOS_BASE: float = 0.35
-    SOS_REPEAT_CAP: int = 4
+    SOS_REPEAT_CAP: int = 2  # Reduced from 4 to prevent regional rivals from dominating SOS
     SOS_ITERATIONS: int = 3
     SOS_TRANSITIVITY_LAMBDA: float = 0.20  # Balanced transitivity weight (80% direct, 20% transitive)
 
@@ -1110,11 +1110,14 @@ def compute_rankings(
     )
 
     # Soft shrinkage: blend toward neutral (0.5) based on sample size
-    # shrink_factor = 0.0 for 0 games (fully shrunk to 0.5)
-    # shrink_factor = 1.0 for MIN_GAMES_FOR_TOP_SOS+ games (no shrinkage)
+    # Using QUADRATIC shrinkage for more aggressive dampening of low-sample teams:
+    # - 0 games: shrink_factor = 0.0 (fully shrunk to 0.5)
+    # - 5 games: shrink_factor = 0.25 (only 25% of raw SOS retained)
+    # - 8 games: shrink_factor = 0.64 (64% of raw SOS retained)
+    # - 10+ games: shrink_factor = 1.0 (no shrinkage)
     low_sample_mask = team["gp"] < cfg.MIN_GAMES_FOR_TOP_SOS
     gp_clipped = team["gp"].clip(lower=0)
-    shrink_factor = (gp_clipped / cfg.MIN_GAMES_FOR_TOP_SOS).clip(0.0, 1.0)
+    shrink_factor = ((gp_clipped / cfg.MIN_GAMES_FOR_TOP_SOS) ** 2).clip(0.0, 1.0)
 
     # Apply shrinkage: sos_norm = 0.5 + shrink_factor * (sos_norm - 0.5)
     team.loc[low_sample_mask, "sos_norm"] = (
@@ -1282,9 +1285,9 @@ def compute_rankings(
             team['sos_norm'] = team.groupby(['age', 'gender'])['sos'].transform(percentile_within_cohort)
             team['sos_norm'] = team['sos_norm'].fillna(0.5).clip(0.0, 1.0)
 
-            # Step 6: Apply low-sample shrinkage (vectorized)
+            # Step 6: Apply low-sample shrinkage (vectorized) - QUADRATIC for aggressive dampening
             low_sample_mask = gps < cfg.MIN_GAMES_FOR_TOP_SOS
-            shrink_factor = np.clip(gps / cfg.MIN_GAMES_FOR_TOP_SOS, 0.0, 1.0)
+            shrink_factor = np.clip((gps / cfg.MIN_GAMES_FOR_TOP_SOS) ** 2, 0.0, 1.0)
             sos_norm_values = team['sos_norm'].values
             sos_norm_values[low_sample_mask] = (
                 0.5 + shrink_factor[low_sample_mask] * (sos_norm_values[low_sample_mask] - 0.5)
