@@ -551,11 +551,14 @@ class TGSGameMatcher(GameHistoryMatcher):
     ) -> Optional[Dict]:
         """
         Override base method to skip age_group validation for TGS.
-        
+
+        Handles semicolon-separated provider_team_ids in alias map entries.
+        For example, if alias has "123456;789012", this will match lookup for "123456".
+
         Unlike Modular11 where the same provider_team_id (club_id) is used for multiple
         age groups, TGS provider_team_id is unique per team. Therefore, we don't need
         age_group validation - if the provider_team_id matches, it's the correct team.
-        
+
         This prevents valid matches from being rejected due to:
         - Year rollover (U13 → U14)
         - Age group data inconsistencies
@@ -563,10 +566,11 @@ class TGSGameMatcher(GameHistoryMatcher):
         """
         if not provider_team_id:
             return None
-        
-        team_id_str = str(provider_team_id)
-        
+
+        team_id_str = str(provider_team_id).strip()
+
         # Check cache first (if available)
+        # Cache should already have semicolon-separated IDs expanded (done in enhanced_pipeline.py)
         if self.alias_cache and team_id_str in self.alias_cache:
             cached = self.alias_cache[team_id_str]
             # Skip age_group validation for TGS - provider_team_id is unique per team
@@ -582,8 +586,8 @@ class TGSGameMatcher(GameHistoryMatcher):
                 'review_status': cached.get('review_status', 'approved'),
                 'match_method': cached.get('match_method')
             }
-        
-        # Tier 1: Direct ID match (from team importer)
+
+        # Tier 1: Direct ID match - exact match (from team importer)
         try:
             result = self.db.table('team_alias_map').select(
                 'team_id_master, review_status, match_method'
@@ -592,21 +596,45 @@ class TGSGameMatcher(GameHistoryMatcher):
             ).eq('match_method', 'direct_id').eq(
                 'review_status', 'approved'
             ).single().execute()
-            
+
             if result.data:
                 # Skip age_group validation for TGS - provider_team_id is unique
                 return result.data
         except Exception as e:
-            logger.debug(f"No direct_id match found: {e}")
-        
-        # Tier 2: Any approved alias map entry (fallback)
+            logger.debug(f"No exact direct_id match found: {e}")
+
+        # Tier 2: Check for semicolon-separated aliases containing this ID
+        # This handles merged teams where provider_team_id is "123456;789012"
+        try:
+            result = self.db.table('team_alias_map').select(
+                'team_id_master, review_status, match_method, provider_team_id'
+            ).eq('provider_id', provider_id).eq(
+                'review_status', 'approved'
+            ).like('provider_team_id', f'%{team_id_str}%').execute()
+
+            if result.data:
+                # Verify this is actually a match (not a substring of a different ID)
+                for alias in result.data:
+                    alias_ids = str(alias['provider_team_id']).split(';')
+                    alias_ids = [id.strip() for id in alias_ids]
+                    if team_id_str in alias_ids:
+                        logger.debug(f"Matched {team_id_str} via semicolon-separated alias: {alias['provider_team_id']}")
+                        return {
+                            'team_id_master': alias['team_id_master'],
+                            'review_status': alias.get('review_status', 'approved'),
+                            'match_method': alias.get('match_method')
+                        }
+        except Exception as e:
+            logger.debug(f"No semicolon-separated alias match found: {e}")
+
+        # Tier 3: Any approved alias map entry - exact match (fallback)
         try:
             result = self.db.table('team_alias_map').select(
                 'team_id_master, review_status, match_method'
             ).eq('provider_id', provider_id).eq(
                 'provider_team_id', team_id_str
             ).eq('review_status', 'approved').single().execute()
-            
+
             if result.data:
                 # Skip age_group validation for TGS - provider_team_id is unique
                 return result.data

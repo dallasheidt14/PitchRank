@@ -118,6 +118,7 @@ class EnhancedETLPipeline:
         
         # Initialize matcher with provider_id to avoid repeated lookups
         # Preload alias map cache for fast lookups
+        # IMPORTANT: Handle semicolon-separated provider_team_ids (merged teams)
         self.alias_cache = {}
         try:
             alias_result = self.supabase.table('team_alias_map').select(
@@ -125,17 +126,30 @@ class EnhancedETLPipeline:
             ).eq('provider_id', self.provider_id).eq(
                 'review_status', 'approved'
             ).execute()
-            
+
             for alias in alias_result.data:
-                team_id = str(alias['provider_team_id'])
-                if team_id not in self.alias_cache:
-                    self.alias_cache[team_id] = {
-                        'team_id_master': alias['team_id_master'],
-                        'match_method': alias.get('match_method'),
-                        'review_status': alias.get('review_status')
-                    }
-            
-            logger.info(f"Loaded {len(self.alias_cache)} alias mappings into cache")
+                raw_team_id = str(alias['provider_team_id'])
+                cache_entry = {
+                    'team_id_master': alias['team_id_master'],
+                    'match_method': alias.get('match_method'),
+                    'review_status': alias.get('review_status')
+                }
+
+                # Handle semicolon-separated provider_team_ids (e.g., "123456;789012")
+                # Create cache entry for EACH individual ID so lookups work
+                if ';' in raw_team_id:
+                    individual_ids = [id.strip() for id in raw_team_id.split(';') if id.strip()]
+                    for individual_id in individual_ids:
+                        if individual_id not in self.alias_cache:
+                            self.alias_cache[individual_id] = cache_entry
+                    # Also store the full combined key for backwards compatibility
+                    if raw_team_id not in self.alias_cache:
+                        self.alias_cache[raw_team_id] = cache_entry
+                else:
+                    if raw_team_id not in self.alias_cache:
+                        self.alias_cache[raw_team_id] = cache_entry
+
+            logger.info(f"Loaded {len(self.alias_cache)} alias mappings into cache (with semicolon expansion)")
         except Exception as e:
             logger.warning(f"Could not preload alias cache: {e}")
             self.alias_cache = {}
