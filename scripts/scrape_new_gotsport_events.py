@@ -177,15 +177,22 @@ class EventDiscovery:
         # Fallback: return the original ID (might work, might not)
         return rankings_event_id
     
-    def _parse_events_from_page(self, soup: BeautifulSoup, search_date: date, seen_event_ids: set) -> tuple[List[Dict[str, str]], int, int, int]:
+    def _parse_events_from_page(
+        self,
+        soup: BeautifulSoup,
+        search_date: date,
+        seen_event_ids: set,
+        max_events_per_page: int = 20
+    ) -> tuple[List[Dict[str, str]], int, int, int]:
         """
         Parse events from a single page of search results
-        
+
         Args:
             soup: BeautifulSoup object of the page
             search_date: Date being searched
             seen_event_ids: Set of already-seen event IDs to avoid duplicates
-        
+            max_events_per_page: Max events to process per page (prevents runaway processing)
+
         Returns:
             Tuple of (events_list, events_found_count, events_filtered_future, events_filtered_archived)
         """
@@ -193,6 +200,7 @@ class EventDiscovery:
         events_found_count = 0
         events_filtered_future = 0
         events_filtered_archived = 0
+        events_processed_this_page = 0
         
         # Look for event links with EventID
         event_links = soup.find_all('a', href=re.compile(r'EventID=', re.I))
@@ -257,8 +265,18 @@ class EventDiscovery:
                     logger.info(f"  - {link.get('href', '')[:100]}")
         
         for link in event_links:
+            # Check for timeout before processing each event (expensive operation)
+            if check_timeout():
+                logger.warning(f"Timeout reached during event parsing for {search_date}")
+                break
+
+            # Limit events processed per page to prevent runaway processing
+            if events_processed_this_page >= max_events_per_page:
+                logger.info(f"Reached max_events_per_page limit ({max_events_per_page}) - skipping remaining events on page")
+                break
+
             href = link.get('href', '')
-            
+
             # Try multiple patterns to extract event ID
             rankings_event_id = None
             patterns = [
@@ -268,7 +286,7 @@ class EventDiscovery:
                 r'/events/(\d+)',      # Path: /events/12345
                 r'/event/(\d+)',       # Path: /event/12345
             ]
-            
+
             for pattern in patterns:
                 match = re.search(pattern, href, re.I)
                 if match:
@@ -277,8 +295,9 @@ class EventDiscovery:
                     if potential_id.isdigit() and len(potential_id) >= 4:
                         rankings_event_id = potential_id
                         break
-            
+
             if rankings_event_id and rankings_event_id not in seen_event_ids:
+                events_processed_this_page += 1
                 events_found_count += 1
                 # Get event name
                 event_name = link.get_text(strip=True)
@@ -568,32 +587,50 @@ class EventDiscovery:
         
         return all_events
     
-    def discover_events_in_range(self, start_date: date, end_date: date) -> List[Dict[str, str]]:
+    def discover_events_in_range(
+        self,
+        start_date: date,
+        end_date: date,
+        max_events: int = 0
+    ) -> List[Dict[str, str]]:
         """
         Discover events in a date range
-        
+
         Args:
             start_date: Start date
             end_date: End date
-        
+            max_events: Stop discovery early once this many events found (0 = no limit)
+
         Returns:
             List of events (deduplicated by event_id)
         """
         all_events = []
         seen_event_ids = set()
-        
+
         current_date = start_date
         while current_date <= end_date:
+            # Check for global timeout before processing each day
+            if check_timeout():
+                logger.warning(f"Timeout reached during discovery at {current_date}")
+                console.print(f"[yellow]⚠️  Timeout reached during discovery - returning {len(all_events)} events found so far[/yellow]")
+                break
+
             date_events = self.discover_events_by_date(current_date)
-            
+
             for event in date_events:
                 if event['event_id'] not in seen_event_ids:
                     all_events.append(event)
                     seen_event_ids.add(event['event_id'])
-            
+
+                    # Early exit if we've found enough events
+                    if max_events > 0 and len(all_events) >= max_events:
+                        logger.info(f"Reached max_events limit ({max_events}) during discovery - stopping early")
+                        console.print(f"[cyan]Found {max_events} events - stopping discovery early to save time[/cyan]")
+                        return all_events
+
             current_date += timedelta(days=1)
-            time.sleep(0.5)  # Rate limiting
-        
+            time.sleep(0.3)  # Reduced rate limiting (was 0.5s)
+
         return all_events
 
 
@@ -706,8 +743,9 @@ def scrape_new_events(
     console.print(f"[dim]Today is {date.today()}, searching {days_back} days back[/dim]")
 
     # Use skip_date_extraction for faster discovery (dates extracted during scraping)
+    # Pass max_events to stop discovery early once we have enough events
     discovery = EventDiscovery(skip_date_extraction=skip_date_extraction)
-    all_events = discovery.discover_events_in_range(start_date, end_date)
+    all_events = discovery.discover_events_in_range(start_date, end_date, max_events=max_events)
     console.print(f"[dim]Elapsed time: {get_elapsed_time()}[/dim]")
     
     logger.info(f"Discovery complete: Found {len(all_events)} total events in date range {start_date} to {end_date}")
@@ -839,6 +877,9 @@ def scrape_new_events(
     ) as progress:
         task = progress.add_task("[cyan]Scraping events...", total=len(new_events))
         
+        # Per-event timeout from environment variable (default: 300 seconds = 5 minutes)
+        event_timeout_seconds = int(os.getenv('GOTSPORT_EVENT_TIMEOUT', '300'))
+
         for i, event in enumerate(new_events, 1):
             # Check for timeout before processing each event
             if check_timeout():
@@ -863,6 +904,11 @@ def scrape_new_events(
                 )
 
                 event_elapsed = (datetime.now() - event_start_time).total_seconds()
+
+                # Check if event took too long - warn but don't fail
+                if event_elapsed > event_timeout_seconds:
+                    console.print(f"  [yellow]⚠️  Event {event_name[:30]} took {event_elapsed:.0f}s (limit: {event_timeout_seconds}s)[/yellow]")
+
                 teams_count = len(set(g.team_id for g in games if g.team_id)) if games else 0
 
                 if games:
@@ -901,8 +947,8 @@ def scrape_new_events(
             
             progress.advance(task)
 
-            # Reduced rate limiting between events (scraper has internal delays)
-            time.sleep(1)
+            # Minimal rate limiting between events (scraper has internal delays)
+            time.sleep(0.5)
     
     events_processed = len(event_results)
     timeout_msg = " (stopped early due to timeout)" if _timeout_triggered else ""

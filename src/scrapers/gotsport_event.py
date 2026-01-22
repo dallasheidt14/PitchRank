@@ -70,12 +70,12 @@ class GotSportEventScraper:
         # Use the existing team scraper for actual game scraping
         self.team_scraper = GotSportScraper(supabase_client, provider_code)
 
-        # Configuration - use faster defaults
-        self.delay_min = float(os.getenv('GOTSPORT_DELAY_MIN', '0.5'))
-        self.delay_max = float(os.getenv('GOTSPORT_DELAY_MAX', '1.0'))
+        # Configuration - aggressive defaults for speed
+        self.delay_min = float(os.getenv('GOTSPORT_DELAY_MIN', '0.1'))
+        self.delay_max = float(os.getenv('GOTSPORT_DELAY_MAX', '0.3'))
         self.max_retries = int(os.getenv('GOTSPORT_MAX_RETRIES', '2'))
-        self.timeout = int(os.getenv('GOTSPORT_TIMEOUT', '20'))
-        self.retry_delay = float(os.getenv('GOTSPORT_RETRY_DELAY', '1.0'))
+        self.timeout = int(os.getenv('GOTSPORT_TIMEOUT', '15'))
+        self.retry_delay = float(os.getenv('GOTSPORT_RETRY_DELAY', '0.5'))
 
         # Session setup
         self.session = self._init_http_session()
@@ -1023,10 +1023,13 @@ class GotSportEventScraper:
                     schedule_urls.add(schedule_url)
             
             # Limit schedule pages to prevent timeout on large events
-            max_schedule_pages = int(os.getenv('GOTSPORT_MAX_SCHEDULE_PAGES', '30'))
+            # Default of 25 captures most tournaments (U9-U19 both genders = ~22 brackets)
+            max_schedule_pages = int(os.getenv('GOTSPORT_MAX_SCHEDULE_PAGES', '25'))
             if len(schedule_urls) > max_schedule_pages:
                 logger.warning(f"Event has {len(schedule_urls)} schedule pages, limiting to {max_schedule_pages}")
                 schedule_urls = list(schedule_urls)[:max_schedule_pages]
+            else:
+                schedule_urls = list(schedule_urls)
 
             logger.info(f"Scraping {len(schedule_urls)} schedule pages")
 
@@ -1103,14 +1106,18 @@ class GotSportEventScraper:
                 logger.warning(f"Error extracting teams from jsonTeamRegs: {e}")
             
             # Scrape games from each schedule page
-            for schedule_url in schedule_urls:
+            # Delay between pages from environment (default: 0.1s for aggressive scraping)
+            page_delay = float(os.getenv('GOTSPORT_PAGE_DELAY', '0.1'))
+
+            for idx, schedule_url in enumerate(schedule_urls):
                 try:
                     schedule_games = self._parse_games_from_schedule_page(
                         schedule_url, event_id, event_name, since_date, teams_by_name, api_team_id_cache, registration_to_api
                     )
                     games.extend(schedule_games)
-                    logger.debug(f"Found {len(schedule_games)} games from {schedule_url}")
-                    time.sleep(0.2)  # Minimal rate limiting (reduced from 0.5s)
+                    logger.debug(f"Found {len(schedule_games)} games from {schedule_url} ({idx+1}/{len(schedule_urls)})")
+                    if page_delay > 0:
+                        time.sleep(page_delay)
                 except Exception as e:
                     logger.warning(f"Error parsing schedule page {schedule_url}: {e}")
                     continue

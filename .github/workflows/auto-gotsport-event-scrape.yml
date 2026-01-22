@@ -2,14 +2,11 @@ name: Auto GotSport Event Scrape
 
 on:
   schedule:
-    # Run every Sunday night at 11pm Mountain Time
+    # Run twice weekly to catch more events with smaller batches
+    # Sunday night + Wednesday night Mountain Time
     # GitHub Actions cron uses UTC timezone
-    # MST (UTC-7): 11:00 PM MST Sunday = 6:00 AM UTC Monday
-    # MDT (UTC-6): 11:00 PM MDT Sunday = 5:00 AM UTC Monday
-    # Using 6:00 AM UTC Monday means:
-    #   - During MST: runs at 11:00 PM Sunday ✅
-    #   - During MDT: runs at 12:00 AM Monday (1 hour later, acceptable)
-    - cron: '0 6 * * 1'  # Every Monday at 6:00 AM UTC (≈11:00 PM Mountain Time Sunday)
+    - cron: '0 6 * * 1'  # Monday 6:00 AM UTC (≈11:00 PM Sunday MT)
+    - cron: '0 6 * * 4'  # Thursday 6:00 AM UTC (≈11:00 PM Wednesday MT)
   workflow_dispatch: # Allow manual trigger from GitHub Actions tab
 
 jobs:
@@ -45,21 +42,25 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           PYTHONPATH: ${{ github.workspace }}
-          # Aggressive performance settings to prevent timeout
-          GOTSPORT_DELAY_MIN: '0.3'
-          GOTSPORT_DELAY_MAX: '0.6'
+          # Performance settings - balanced for speed + completeness
+          GOTSPORT_DELAY_MIN: '0.1'
+          GOTSPORT_DELAY_MAX: '0.2'
           GOTSPORT_MAX_RETRIES: '2'
-          GOTSPORT_TIMEOUT: '15'
-          GOTSPORT_MAX_SCHEDULE_PAGES: '20'
+          GOTSPORT_TIMEOUT: '12'
+          # Keep schedule pages high enough to capture all brackets
+          GOTSPORT_MAX_SCHEDULE_PAGES: '25'
+          GOTSPORT_PAGE_DELAY: '0.05'
+          # Per-event timeout: skip events taking >4 min (likely stuck)
+          GOTSPORT_EVENT_TIMEOUT: '240'
         run: |
           # Set Python path to include project root
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
-          # Run the event scraper with aggressive timeout protection
-          # --max-runtime 120: Stop after 2 hours (leave 1h buffer for 3h limit)
-          # --max-events 30: Limit to 30 events per run to prevent timeout
-          # --days-back 7: Reduce search range from 10 to 7 days
-          # Auto-import is enabled by default
-          python scripts/scrape_new_gotsport_events.py --max-runtime 120 --max-events 30 --days-back 7 || exit 1
+          # Run the event scraper with timeout protection
+          # --max-runtime 100: Stop after 100 min (leave 80 min buffer for 3h limit)
+          # --max-events 25: Process up to 25 events per run
+          # --days-back 7: Full week lookback for event discovery
+          # The key fix is early-exit from discovery once max_events found
+          python scripts/scrape_new_gotsport_events.py --max-runtime 100 --max-events 25 --days-back 7 || exit 1
       
       - name: Upload scraped data
         if: always()
