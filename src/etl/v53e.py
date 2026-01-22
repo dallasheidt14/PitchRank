@@ -1403,6 +1403,11 @@ def compute_rankings(
         "perf_raw", "perf_centered",
         "powerscore_core", "provisional_mult", "powerscore_adj"
     ]
+    # Add SCF columns if they exist (from regional bubble detection)
+    scf_cols = ["scf", "bridge_games", "is_isolated", "unique_opp_states"]
+    for col in scf_cols:
+        if col in team.columns:
+            keep_cols.append(col)
     teams = team[keep_cols].copy()
 
     # === Restore legacy frontend fields ===
