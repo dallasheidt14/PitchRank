@@ -859,8 +859,17 @@ def scrape_new_events(
         os.getenv('SUPABASE_URL'),
         os.getenv('SUPABASE_SERVICE_ROLE_KEY')
     )
-    
-    scraper = GotSportEventScraper(supabase, 'gotsport')
+
+    # Control team ID resolution via environment variable
+    # When True: Uses registration IDs directly (fast but may not match alias map)
+    # When False (default): Resolves registration IDs to API team IDs (slower but matches team imports)
+    skip_team_id_resolution = os.getenv('GOTSPORT_SKIP_TEAM_ID_RESOLUTION', 'false').lower() == 'true'
+    if skip_team_id_resolution:
+        console.print("[yellow]⚠️  Team ID resolution DISABLED - using registration IDs (may not match alias map)[/yellow]")
+    else:
+        console.print("[green]✓ Team ID resolution ENABLED - resolving to API team IDs[/green]")
+
+    scraper = GotSportEventScraper(supabase, 'gotsport', skip_team_id_resolution=skip_team_id_resolution)
     
     # Calculate since_date (lookback_days ago)
     since_date = datetime.now() - timedelta(days=lookback_days)
