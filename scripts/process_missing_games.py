@@ -118,11 +118,57 @@ class MissingGamesProcessor:
                 .eq('id', provider_id)\
                 .single()\
                 .execute()
-            
+
             return result.data['code'] if result.data else 'gotsport'
         except Exception as e:
             logger.warning(f"Error fetching provider code for {provider_id}: {e}")
             return 'gotsport'  # Default to gotsport
+
+    def get_gotsport_alias(self, team_id_master: str) -> Optional[Dict]:
+        """
+        Find a GotSport alias for a team via team_alias_map.
+
+        This is used when the canonical provider isn't scrapable (e.g., Modular11)
+        but the team has a GotSport alias that can be scraped.
+
+        Returns:
+            Dict with 'provider_id' and 'provider_team_id' if found, None otherwise
+        """
+        try:
+            # Get the GotSport provider ID
+            gotsport_result = self.supabase.table('providers')\
+                .select('id')\
+                .eq('code', 'gotsport')\
+                .single()\
+                .execute()
+
+            if not gotsport_result.data:
+                logger.warning("Could not find GotSport provider")
+                return None
+
+            gotsport_provider_id = gotsport_result.data['id']
+
+            # Check team_alias_map for a GotSport alias
+            alias_result = self.supabase.table('team_alias_map')\
+                .select('provider_id, provider_team_id')\
+                .eq('team_id_master', team_id_master)\
+                .eq('provider_id', gotsport_provider_id)\
+                .eq('review_status', 'approved')\
+                .limit(1)\
+                .execute()
+
+            if alias_result.data:
+                alias = alias_result.data[0]
+                logger.info(f"Found GotSport alias for team {team_id_master}: {alias['provider_team_id']}")
+                return {
+                    'provider_id': alias['provider_id'],
+                    'provider_team_id': alias['provider_team_id']
+                }
+
+            return None
+        except Exception as e:
+            logger.warning(f"Error finding GotSport alias for team {team_id_master}: {e}")
+            return None
     
     def scrape_games_for_date(self, provider_code: str, team_id: str, game_date: str) -> List[Dict]:
         """Scrape games for a specific team within a 61-day window (±30 days from selected date)"""
@@ -357,21 +403,41 @@ class MissingGamesProcessor:
         try:
             # Update status to processing
             self.update_request_status(request_id, 'processing')
-            
+
             # Get provider code
             provider_code = self.get_provider_code(provider_id)
-            
-            # Scrape games for the date (±2 days window to catch timezone issues)
+
+            # Check if we have a scraper for this provider
+            # If not, try to find a GotSport alias via team_alias_map
+            scrape_provider_code = provider_code
+            scrape_team_id = provider_team_id
+
+            if provider_code not in self.scrapers:
+                logger.info(f"No scraper for provider '{provider_code}', checking for GotSport alias...")
+                team_id_master = request.get('team_id_master')
+
+                if team_id_master:
+                    gotsport_alias = self.get_gotsport_alias(team_id_master)
+                    if gotsport_alias:
+                        scrape_provider_code = 'gotsport'
+                        scrape_team_id = gotsport_alias['provider_team_id']
+                        logger.info(f"Using GotSport alias: team_id={scrape_team_id}")
+                    else:
+                        raise ValueError(f"No scraper available for provider '{provider_code}' and no GotSport alias found")
+                else:
+                    raise ValueError(f"No scraper available for provider: {provider_code}")
+
+            # Scrape games for the date (±30 days window)
             games = self.scrape_games_for_date(
-                provider_code,
-                provider_team_id,
+                scrape_provider_code,
+                scrape_team_id,
                 game_date
             )
             
             # Import games if found
             games_imported = 0
             if games:
-                games_imported = self.import_games(games, provider_code)
+                games_imported = self.import_games(games, scrape_provider_code)
                 self.stats['games_found'] += games_imported
             
             # Update request as completed
