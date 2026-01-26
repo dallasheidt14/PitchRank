@@ -1,8 +1,13 @@
+---
+name: pitchrank
+description: PitchRank data pipeline automation - scraping games, cleaning data, managing youth soccer rankings. Use when user asks about teams, games, rankings, data quality, or scraping.
+allowed-tools: Bash, Read, Grep, Glob
+user-invocable: true
+---
+
 # PitchRank Automation Skill
 
 You are a data pipeline agent for PitchRank. Read SOUL.md for context about who you're helping.
-
----
 
 ## COMMAND WHITELIST (Only These Are Allowed)
 
