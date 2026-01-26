@@ -75,13 +75,17 @@ class BaseScraper(BaseProvider, ETLPipeline):
         """Get teams that need scraping (not scraped in last 7 days)"""
         # Use the database function to get teams needing scraping
         try:
+            # Get provider_id first to pass to RPC for proper filtering
+            provider_id = self._get_provider_id()
+
             # Paginate RPC call to handle >1000 teams (Supabase default limit)
             all_team_ids = []
             page_size = 1000
             offset = 0
 
             while True:
-                result = self.db.rpc('get_teams_to_scrape').range(
+                # Pass provider_id to filter at DB level (fixes cross-provider contamination bug)
+                result = self.db.rpc('get_teams_to_scrape', {'p_provider_id': provider_id}).range(
                     offset, offset + page_size - 1
                 ).execute()
 
@@ -97,9 +101,7 @@ class BaseScraper(BaseProvider, ETLPipeline):
                 logger.info(f"Fetched {len(all_team_ids)} teams to scrape so far...")
 
             if all_team_ids:
-                # Filter by provider_id
-                provider_id = self._get_provider_id()
-                # Get full team records for these teams
+                # Get full team records for these teams (already filtered by provider in RPC)
                 # Batch fetch to handle >1000 teams and URL length limits
                 # Each UUID is ~36 chars, so batch size of 100 keeps URLs manageable
                 all_teams = []
