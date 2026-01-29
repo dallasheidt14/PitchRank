@@ -119,7 +119,7 @@ I can fix these automatically:
 ## 📊 Process
 
 ### Optimized Workflow (v2)
-1. **One scan** — Pull ALL teams for scope in paginated query
+1. **One scan** — Pull ALL teams for scope in paginated query (use range() to get past 1000 limit)
 2. **Local analysis** — Find all caps issues + naming variations in Python (no extra API calls)
 3. **Auto-decide** — Pick majority option (more teams wins), fix caps autonomously
 4. **Generate SQL batch** — Create ONE SQL script with all UPDATEs
@@ -132,11 +132,40 @@ I can fix these automatically:
 - **Naming variations:** Go with majority (e.g., 24 teams beats 2 teams)
 - **Close calls:** Still go with majority, even if 12 vs 11
 - **Different clubs:** If clearly different orgs (e.g., CITY FC vs City SC), leave both
+- **Regional branches:** Different locations = different clubs (don't merge)
 
 ### Output
 - One SQL file for ALL states combined
 - Include comments showing what each fix does
-- Filter every UPDATE by state_code
+- Filter every UPDATE by state_code AND gender
+
+## 🤖 Sub-Agent Instructions
+
+When spawning a sub-agent for club name work, include these instructions:
+
+```
+TASK: Club name standardization for [SCOPE]
+
+READ FIRST: /Users/pitchrankio-dev/Projects/PitchRank/docs/CLUB_NAME_RULES.md
+
+REQUIREMENTS:
+1. Find BOTH caps issues AND naming variations (SC vs Soccer Club, FC vs Futbol Club)
+2. Use pagination to get ALL teams (range 0-999, 1000-1999, etc.)
+3. Apply MAJORITY RULE for all decisions
+4. ALWAYS filter by state_code in UPDATE statements
+5. Regional branches (CLW, TPA, North, South) are DIFFERENT clubs - don't merge
+
+OUTPUT:
+- Generate SQL file with all fixes
+- Include comments: -- [TYPE] "from" → "to" (N teams)
+- Wrap in BEGIN/COMMIT transaction
+- Save to: scripts/club_name_fixes_[scope].sql
+
+VERIFY:
+- Check that naming variations are caught (not just caps)
+- Ensure state_code filter is on every UPDATE
+- Report: X fixes, Y teams affected, by state breakdown
+```
 
 ## ⚠️ CRITICAL: Always Filter by State!
 
