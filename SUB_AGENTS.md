@@ -136,10 +136,10 @@ Motto: "Fresh data, every week"
 ### Schedule
 | Task | Frequency | Trigger |
 |------|-----------|---------|
-| GotSport team scrape | Monday 6:00 + 11:15 UTC | Scheduled |
-| GotSport event discovery | Monday + Thursday 6:00 UTC | Scheduled |
-| TGS event scrape | Sunday 6:30 UTC | Scheduled |
-| Missing games backfill | Hourly | Scheduled |
+| GotSport team scrape | Sunday night + Wednesday | Scheduled |
+| GotSport event discovery | Sunday night + Wednesday | Scheduled |
+| TGS event scrape | Sunday night | Scheduled |
+| Missing games backfill | Daily | Scheduled |
 
 ### Scripts & Tools
 
