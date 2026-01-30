@@ -136,6 +136,10 @@ The **"U" prefix is the signal:**
 - NO "U" → number is birth year
 - HAS "U" → number is age group
 
+**Gender equivalents:**
+- B = Boys = Male
+- G = Girls = Female
+
 **Age normalizer must convert:**
 - `2014` or `2014B` → `U12 Male`
 - `B2014` → `U12 Male`
