@@ -1,396 +1,280 @@
 # SKILLS_ROADMAP.md — Missing Capabilities for Sub-Agents
 
-> This document identifies scripts and tools that would make PitchRank's sub-agents more effective.
+> This document identifies **READ-ONLY monitoring scripts** that would make PitchRank's sub-agents more effective.
+
+---
+
+## ⚠️ IMPORTANT: Design Principles
+
+```
+1. NO MODIFICATIONS to existing pipelines
+2. NO CHANGES to team matching logic
+3. NO CHANGES to alias matching
+4. NO CHANGES to Cleany (it's perfect as-is)
+5. All new skills are READ-ONLY observers
+6. Skills report status, they don't fix things
+```
 
 ---
 
 ## Current State Summary
 
-| Agent | Core Skills | Completeness |
-|-------|-------------|--------------|
-| **Cleany** | Dedup, normalize, merge, validate | 95% ✅ |
-| **Scrappy** | GotSport, TGS, event discovery | 80% |
-| **Ranky** | v53e, ML Layer 13, SOS | 90% |
-| **Watchy** | Health checks (manual) | 60% |
+| Agent | Core Skills | Status |
+|-------|-------------|--------|
+| **Cleany** | Dedup, normalize, merge, validate | ✅ PERFECT - DO NOT MODIFY |
+| **Scrappy** | GotSport, TGS, event discovery | ✅ Working - needs monitoring |
+| **Ranky** | v53e, ML Layer 13, SOS | ✅ Working - needs monitoring |
+| **Watchy** | Health checks | ⚠️ Manual - needs automation |
 
 ---
 
-## 1. CLEANY — Missing Skills
+## 1. CLEANY — No Changes
 
-### ✅ Already Strong
-- Duplicate detection (100% success rate)
-- Team name normalization
-- Merge execution with audit trail
-- Revert capability
+### Status: ✅ COMPLETE
 
-### 🟡 Would Be Nice
+Cleany is production-ready with:
+- 100% merge success rate (1,286 merges, 0 failures)
+- Conservative thresholds (won't over-merge)
+- Full audit trail + reversibility
+- Division conflict detection
 
-#### 1.1 Quarantine Auto-Resolver
-**What**: Script to automatically resolve low-confidence quarantine entries
-**Why**: Quarantine backlog grows faster than manual review
-**Effort**: Medium
+**DO NOT add new functionality to Cleany.**
+
+---
+
+## 2. SCRAPPY — Read-Only Monitoring Skills
+
+> These skills **observe** scraper health. They do NOT modify scraping logic, team matching, or alias handling.
+
+### 2.1 Scraper Connectivity Test (READ-ONLY)
+**What**: Simple HTTP check if target sites are reachable
+**Touches**: Nothing - just checks URLs are up
+**Safe**: ✅ YES - read-only HTTP HEAD requests
 
 ```python
-# Proposed: scripts/resolve_quarantine.py
-def auto_resolve_quarantine(min_confidence=0.95):
+# scripts/test_scrapers.py
+# Does NOT use any scraper logic - just checks site availability
+def test_connectivity():
     """
-    Auto-resolve quarantine entries where:
-    - Fuzzy match score >= 95%
-    - Same state, age, gender
-    - No division conflicts
+    Simple connectivity check:
+    - HEAD request to gotsport.com
+    - HEAD request to tgs site
+    Returns: up/down status only
     """
     pass
 ```
 
-#### 1.2 Club Canonicalization Script
-**What**: Batch update teams with normalized club names
-**Why**: `club_normalizer.py` exists but no script applies it
-**Effort**: Low
+### 2.2 Provider Status Report (READ-ONLY)
+**What**: Query database for scraper metrics
+**Touches**: SELECT queries only
+**Safe**: ✅ YES - read-only database queries
 
 ```python
-# Proposed: scripts/apply_club_normalization.py
-def normalize_all_clubs(dry_run=True):
-    """Apply club_normalizer to all teams, update club_name field"""
+# scripts/provider_status.py
+# Queries existing data, does not modify anything
+def get_provider_status():
+    """
+    SELECT-only queries:
+    - Last scraped_at per provider
+    - Game count last 7 days
+    - Team count per provider
+    """
     pass
 ```
 
-#### 1.3 Merge Undo Dashboard
-**What**: CLI tool to quickly revert recent merges
-**Why**: `revert_team_merge()` exists but no convenient wrapper
-**Effort**: Low
+### 2.3 Scrape Delta Report (READ-ONLY)
+**What**: Compare two scrape output files (JSON/CSV)
+**Touches**: Local files only, no database
+**Safe**: ✅ YES - file comparison only
 
-```bash
-# Proposed: scripts/undo_merge.py
-python undo_merge.py --merge-id <uuid>
-python undo_merge.py --team-id <deprecated_team_id>
-python undo_merge.py --last 5  # Undo last 5 merges
+```python
+# scripts/scrape_delta.py
+# Compares two local files, no DB writes
+def compare_scrape_files(file_a, file_b):
+    """
+    File comparison only:
+    - Count difference
+    - New team IDs found
+    - Missing team IDs
+    Does NOT import or modify anything
+    """
+    pass
 ```
 
 ---
 
-## 2. SCRAPPY — Missing Skills
+## 3. RANKY — Read-Only Monitoring Skills
 
-### ✅ Already Strong
-- GotSport team scraping
-- Event discovery
-- Rate limiting
+> These skills **observe** ranking outputs. They do NOT modify calculation logic.
 
-### 🔴 Critical Gaps
-
-#### 2.1 Scraper Health Monitor
-**What**: Script to test if scrapers can reach target sites
-**Why**: Silent failures when site structure changes
-**Effort**: Low
+### 3.1 Rankings Diff Report (READ-ONLY)
+**What**: Compare current rankings to previous snapshot
+**Touches**: SELECT queries only
+**Safe**: ✅ YES - read-only analysis
 
 ```python
-# Proposed: scripts/test_scrapers.py
-def test_all_scrapers():
+# scripts/rankings_diff.py
+# SELECT-only comparison of ranking snapshots
+def compare_rankings():
     """
-    Quick connectivity test for all scrapers:
-    - GotSport: Can fetch team page?
-    - TGS: Can fetch event list?
-    - Returns: {scraper: status, error}
-    """
-    pass
-```
-
-#### 2.2 Scrape Delta Reporter
-**What**: Compare this week's scrape to last week
-**Why**: Detect anomalies (sudden drop in games, missing teams)
-**Effort**: Medium
-
-```python
-# Proposed: scripts/scrape_delta.py
-def compare_scrapes(current_file, previous_file):
-    """
-    Report:
-    - New teams found
-    - Teams with no new games
-    - Games count change (%)
-    - Missing expected events
-    """
-    pass
-```
-
-#### 2.3 Provider Status Dashboard
-**What**: Single view of all provider health
-**Why**: Currently need to check multiple logs
-**Effort**: Medium
-
-```python
-# Proposed: scripts/provider_status.py
-def get_all_provider_status():
-    """
-    Returns for each provider:
-    - Last successful scrape
-    - Games scraped (last 7 days)
-    - Error count
-    - Health status (OK/WARNING/CRITICAL)
-    """
-    pass
-```
-
-### 🟡 Would Be Nice
-
-#### 2.4 Event Auto-Discovery
-**What**: Automatically find new GotSport event IDs to scrape
-**Why**: Currently hardcoded ranges (4050-4150 for TGS)
-**Effort**: High
-
-#### 2.5 Retry Queue
-**What**: Track failed scrapes and auto-retry
-**Why**: Transient failures currently lost
-**Effort**: Medium
-
----
-
-## 3. RANKY — Missing Skills
-
-### ✅ Already Strong
-- v53e calculation
-- ML Layer 13
-- SOS iterations
-- Merge resolution
-
-### 🟡 Would Be Nice
-
-#### 3.1 Rankings Diff Report
-**What**: Compare current rankings to previous week
-**Why**: Detect unexpected rank changes (data quality signal)
-**Effort**: Low
-
-```python
-# Proposed: scripts/rankings_diff.py
-def compare_rankings(current_date, previous_date):
-    """
-    Report:
-    - Biggest movers (up/down)
+    Read-only analysis:
+    - Top movers up/down
     - New teams in top 100
-    - Teams dropped from rankings
-    - PowerScore distribution change
+    - PowerScore distribution
+    Does NOT recalculate anything
     """
     pass
 ```
 
-#### 3.2 Rankings Backtest Tool
-**What**: Test ranking changes against historical data
-**Why**: Validate algorithm changes before production
-**Effort**: Medium (partial exists in `data/backtest_results/`)
-
-#### 3.3 Cohort Coverage Report
-**What**: Identify age/gender/state combinations with thin data
-**Why**: Rankings less reliable with few games
-**Effort**: Low
+### 3.2 Coverage Report (READ-ONLY)
+**What**: Show data coverage by cohort
+**Touches**: SELECT queries only
+**Safe**: ✅ YES - read-only aggregation
 
 ```python
-# Proposed: scripts/coverage_report.py
+# scripts/coverage_report.py
+# Aggregate queries only
 def coverage_by_cohort():
     """
-    For each state/age/gender:
-    - Team count
+    SELECT COUNT(*) style queries:
+    - Teams per state/age/gender
     - Average games per team
-    - Teams with <5 games (unreliable rankings)
+    - Teams with <5 games
     """
     pass
 ```
 
 ---
 
-## 4. WATCHY — Missing Skills
+## 4. WATCHY — Monitoring Automation Skills
 
-### 🔴 Critical Gaps (Biggest Need)
+> These skills **automate HEARTBEAT.md checks**. They report status, they don't fix problems.
 
-#### 4.1 Automated Heartbeat Runner
-**What**: Script that runs all HEARTBEAT.md checks
-**Why**: Currently checks are documented but not automated
-**Effort**: Medium
+### 4.1 Heartbeat Runner (READ-ONLY)
+**What**: Execute all documented health checks
+**Touches**: SELECT queries, file reads, `git status`
+**Safe**: ✅ YES - read-only checks
 
 ```python
-# Proposed: scripts/run_heartbeat.py
+# scripts/run_heartbeat.py
+# Runs checks defined in HEARTBEAT.md
 def run_all_checks():
     """
-    Execute all HEARTBEAT.md checks:
-    1. Database health
-    2. Scraper status
-    3. File freshness
-    4. Repository state
-    5. etc.
+    Read-only checks:
+    - Supabase connectivity (SELECT 1)
+    - File freshness (stat files)
+    - Git status (read-only)
+    - Log file sizes
 
-    Returns: {check: status, details}
-    Outputs: logs/heartbeat.log
+    Outputs to: logs/heartbeat.log
+    Does NOT fix anything - just reports
     """
     pass
 ```
 
-#### 4.2 Alert Dispatcher
-**What**: Send alerts to configured channels
-**Why**: Currently no alerting beyond logs
-**Effort**: Medium
+### 4.2 Workflow Monitor (READ-ONLY)
+**What**: Check GitHub Actions status via CLI
+**Touches**: `gh run list` command only
+**Safe**: ✅ YES - read-only GitHub API
 
 ```python
-# Proposed: scripts/alert.py
-def send_alert(level, message, details):
-    """
-    Dispatch alert to configured channels:
-    - Log file (always)
-    - GitHub issue (if critical)
-    - Webhook (Slack/Discord)
-    - Email (if configured)
-    """
-    pass
-```
-
-#### 4.3 Log Analyzer
-**What**: Parse logs for error patterns
-**Why**: Currently manual grep through large logs
-**Effort**: Low
-
-```python
-# Proposed: scripts/analyze_logs.py
-def analyze_recent_logs(hours=24):
-    """
-    Scan logs and report:
-    - Error count by type
-    - Most common exceptions
-    - Warnings that might need attention
-    - Anomalous patterns
-    """
-    pass
-```
-
-#### 4.4 Workflow Monitor
-**What**: Check GitHub Actions status programmatically
-**Why**: Watchy needs to know if workflows failed
-**Effort**: Low
-
-```python
-# Proposed: scripts/check_workflows.py
-def get_workflow_status():
-    """
-    Query GitHub API for recent workflow runs:
-    - Last success/failure per workflow
-    - Failure rate (7 days)
-    - Currently running jobs
-    """
-    # Uses: gh run list --json
-    pass
-```
-
----
-
-## Priority Matrix
-
-| Skill | Agent | Priority | Effort | Impact |
-|-------|-------|----------|--------|--------|
-| Automated Heartbeat Runner | Watchy | 🔴 HIGH | Medium | Enables autonomous monitoring |
-| Alert Dispatcher | Watchy | 🔴 HIGH | Medium | Makes monitoring actionable |
-| Scraper Health Monitor | Scrappy | 🔴 HIGH | Low | Early failure detection |
-| Workflow Monitor | Watchy | 🟡 MEDIUM | Low | CI/CD visibility |
-| Log Analyzer | Watchy | 🟡 MEDIUM | Low | Faster debugging |
-| Rankings Diff Report | Ranky | 🟡 MEDIUM | Low | Quality assurance |
-| Quarantine Auto-Resolver | Cleany | 🟡 MEDIUM | Medium | Reduce manual work |
-| Provider Status Dashboard | Scrappy | 🟡 MEDIUM | Medium | Single pane of glass |
-| Club Canonicalization | Cleany | 🟢 LOW | Low | Data quality |
-| Scrape Delta Reporter | Scrappy | 🟢 LOW | Medium | Anomaly detection |
-| Coverage Report | Ranky | 🟢 LOW | Low | Data quality insight |
-
----
-
-## Recommended Implementation Order
-
-### Phase 1: Enable Watchy (1-2 days)
-```
-1. run_heartbeat.py      — Run all health checks
-2. alert.py              — Dispatch alerts
-3. check_workflows.py    — GitHub Actions status
-```
-
-**Result**: Watchy becomes fully autonomous
-
-### Phase 2: Strengthen Scrappy (1 day)
-```
-4. test_scrapers.py      — Connectivity tests
-5. provider_status.py    — Dashboard view
-```
-
-**Result**: Early detection of scraper issues
-
-### Phase 3: Enhance Cleany (1 day)
-```
-6. resolve_quarantine.py — Auto-resolve high-confidence
-7. apply_club_normalization.py — Batch normalize
-```
-
-**Result**: Reduced manual data hygiene work
-
-### Phase 4: Polish Ranky (1 day)
-```
-8. rankings_diff.py      — Week-over-week comparison
-9. coverage_report.py    — Data coverage analysis
-```
-
-**Result**: Better quality assurance
-
----
-
-## Quick Wins (Can Build Today)
-
-### 1. `scripts/quick_health.sh` (exists in HEARTBEAT.md)
-Already documented — just needs to be a real executable file.
-
-### 2. `scripts/check_workflows.py`
-```python
-#!/usr/bin/env python3
-import subprocess
-import json
-
+# scripts/check_workflows.py
+# Uses gh CLI to read workflow status
 def check_workflows():
-    result = subprocess.run(
-        ['gh', 'run', 'list', '--limit', '10', '--json', 'name,status,conclusion'],
-        capture_output=True, text=True
-    )
-    runs = json.loads(result.stdout)
-
-    failures = [r for r in runs if r['conclusion'] == 'failure']
-    if failures:
-        print(f"⚠️  {len(failures)} recent failures:")
-        for f in failures:
-            print(f"   - {f['name']}")
-    else:
-        print("✅ All recent workflows passed")
-
-if __name__ == '__main__':
-    check_workflows()
+    """
+    gh run list --json (read-only)
+    Reports: pass/fail status
+    Does NOT trigger or modify workflows
+    """
+    pass
 ```
 
-### 3. `scripts/test_scrapers.py`
+### 4.3 Log Analyzer (READ-ONLY)
+**What**: Parse log files for error patterns
+**Touches**: Log files (read-only)
+**Safe**: ✅ YES - file reading only
+
 ```python
-#!/usr/bin/env python3
-import requests
-
-TARGETS = {
-    'gotsport': 'https://www.gotsport.com',
-    'tgs': 'https://tgs.totalglobalsports.com',
-}
-
-def test_scrapers():
-    for name, url in TARGETS.items():
-        try:
-            r = requests.head(url, timeout=10)
-            status = "✅" if r.status_code == 200 else f"⚠️ {r.status_code}"
-        except Exception as e:
-            status = f"❌ {e}"
-        print(f"{name}: {status}")
-
-if __name__ == '__main__':
-    test_scrapers()
+# scripts/analyze_logs.py
+# Grep through log files
+def analyze_logs():
+    """
+    Read log files and count:
+    - Errors by type
+    - Exception frequency
+    - Warning patterns
+    Does NOT modify logs
+    """
+    pass
 ```
+
+### 4.4 Alert Dispatcher (NOTIFICATION ONLY)
+**What**: Send alerts to configured channels
+**Touches**: External services (Slack, GitHub Issues)
+**Safe**: ✅ YES - outbound notifications only
+
+```python
+# scripts/alert.py
+# Sends notifications, does not modify PitchRank data
+def send_alert(level, message):
+    """
+    Outbound only:
+    - Write to logs/heartbeat.log
+    - Create GitHub issue (optional)
+    - Send webhook (optional)
+    Does NOT modify any PitchRank data
+    """
+    pass
+```
+
+---
+
+## Priority Matrix (Read-Only Skills Only)
+
+| Skill | Agent | Type | Priority |
+|-------|-------|------|----------|
+| `run_heartbeat.py` | Watchy | Read-only checks | 🔴 HIGH |
+| `check_workflows.py` | Watchy | Read-only API | 🔴 HIGH |
+| `test_scrapers.py` | Scrappy | Read-only HTTP | 🔴 HIGH |
+| `alert.py` | Watchy | Outbound only | 🟡 MEDIUM |
+| `analyze_logs.py` | Watchy | Read-only files | 🟡 MEDIUM |
+| `provider_status.py` | Scrappy | Read-only DB | 🟡 MEDIUM |
+| `rankings_diff.py` | Ranky | Read-only DB | 🟢 LOW |
+| `coverage_report.py` | Ranky | Read-only DB | 🟢 LOW |
+
+---
+
+## What These Skills Do NOT Touch
+
+```
+❌ Team matching logic (src/utils/merge_suggester.py)
+❌ Alias matching (team_alias_map table)
+❌ ETL pipeline (src/etl/)
+❌ Scraper logic (src/scrapers/)
+❌ Rankings calculation (src/rankings/)
+❌ Cleany scripts (scripts/run_all_merges.py, etc.)
+❌ Database writes of any kind
+```
+
+---
+
+## Implementation Safety Rules
+
+When building any skill:
+
+1. **No imports from src/etl/** — Don't touch pipeline
+2. **No imports from src/scrapers/** — Don't touch scraping
+3. **No imports from src/rankings/** — Don't touch calculations
+4. **No Supabase `.insert()`, `.update()`, `.delete()`** — Read-only
+5. **No `git commit`, `git push`** — Observation only
+6. **All database queries must be SELECT** — No modifications
 
 ---
 
 ## Version
 
 ```
-SKILLS_ROADMAP.md v1.0.0
+SKILLS_ROADMAP.md v1.1.0
 Last Updated: 2026-01-30
+Note: Removed all Cleany modifications per owner request
 ```
