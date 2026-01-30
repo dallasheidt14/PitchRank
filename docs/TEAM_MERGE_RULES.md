@@ -104,11 +104,21 @@ Youth soccer uses TWO naming systems interchangeably:
 - `Phoenix Premier FC B2014`
 - `Phoenix Premier FC 12B`
 
+**CRITICAL: B/G usually means GENDER, not "Boys U-age"**
+- `14B` = 2014 Boys = **U12 Male** (birth year!)
+- `14G` = 2014 Girls = **U12 Female**
+- `U14B` = U14 Boys = **U14 Male** (age group - DIFFERENT!)
+
+The **"U" prefix is the signal:**
+- NO "U" → number is birth year
+- HAS "U" → number is age group
+
 **Age normalizer must convert:**
-- `2014` → `U12`
-- `B2014` → `U12B`
-- `G2016` → `U10G`
-- `14B` → `U14B`
+- `2014` or `2014B` → `U12 Male`
+- `B2014` → `U12 Male`
+- `G2016` or `2016G` → `U10 Female`
+- `14B` → `U12 Male` (NOT U14!)
+- `U14B` → `U14 Male`
 
 ---
 
