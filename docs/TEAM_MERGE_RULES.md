@@ -79,6 +79,29 @@ Actual naming differences requiring judgment.
 - Different states (even if same name)
 - Different genders
 - Different age groups (u14 vs u15)
+- **Different squad identifiers** (see below)
+
+---
+
+## Team Name Structure
+
+```
+[Club Name] + [Age/Gender] + [Squad Identifier]
+```
+
+**Squad identifiers distinguish teams within same club/age:**
+- **Roman numerals:** I, II, III, IV, V
+- **Colors:** Black, Blue, Red, White, Navy, Gold, Orange, Green
+- **Coach names:** Ruiz, Valdez, Smith, Mahe, etc.
+- **Divisions:** Premier, Elite, Academy, Select, ECNL, DPL, DPLO, NPL, GA, MLS Next
+- **Regions:** North, South, SW, Central, East, West
+
+**Examples:**
+```
+Phoenix Premier FC 14B Black  ≠  Phoenix Premier FC 14B Blue    ❌ DIFFERENT TEAMS
+Phoenix Premier FC 14B Black  =  Phoenix Premier FC B2014 Black ✅ SAME TEAM
+Rebels SC 2014G Premier       ≠  Rebels SC 2014G Academy       ❌ DIFFERENT TEAMS
+```
 
 ---
 
