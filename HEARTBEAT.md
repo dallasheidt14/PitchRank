@@ -505,13 +505,13 @@ git diff HEAD~5 --name-only -- .github/workflows/ | wc -l
 
 | Check Category | Frequency | Notes |
 |----------------|-----------|-------|
-| Database Health | Daily (6 AM UTC) | After overnight processes |
-| Data Pipeline Health | Daily (7 AM UTC) | Check import results |
+| Database Health | Every 3 days | Monday/Thursday |
+| Data Pipeline Health | Every 3 days | After scrape cycles |
 | Scraper Status | Every 3 days | Matches scrape schedule |
 | File Freshness | Weekly (Sunday) | Low urgency |
 | Repository State | Weekly (Sunday) | Before hygiene run |
 | Environment Availability | On startup only | No periodic check needed |
-| Runtime Errors | Daily (8 AM UTC) | Review overnight logs |
+| Runtime Errors | Every 3 days | Catch issues |
 | Production Safety | Weekly (Sunday) | Security audit |
 
 ---

@@ -15,7 +15,7 @@
 
   "heartbeat": {
     "enabled": true,
-    "interval_minutes": 1440,
+    "interval_minutes": 4320,
     "active_hours": {
       "start": "06:00",
       "end": "22:00",
@@ -24,9 +24,9 @@
     "checks": {
       "database_health": {
         "enabled": true,
-        "interval_minutes": 1440,
+        "interval_minutes": 4320,
         "priority": "critical",
-        "schedule": "daily at 6 AM UTC"
+        "schedule": "every 3 days"
       },
       "scraper_status": {
         "enabled": true,
@@ -36,9 +36,9 @@
       },
       "data_pipeline_health": {
         "enabled": true,
-        "interval_minutes": 1440,
+        "interval_minutes": 4320,
         "priority": "high",
-        "schedule": "daily at 7 AM UTC"
+        "schedule": "every 3 days"
       },
       "repository_state": {
         "enabled": true,
@@ -48,9 +48,9 @@
       },
       "runtime_errors": {
         "enabled": true,
-        "interval_minutes": 1440,
+        "interval_minutes": 4320,
         "priority": "medium",
-        "schedule": "daily at 8 AM UTC"
+        "schedule": "every 3 days"
       },
       "file_freshness": {
         "enabled": true,
