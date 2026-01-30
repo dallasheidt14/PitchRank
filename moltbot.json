@@ -1,0 +1,223 @@
+{
+  "$schema": "https://moltbot.dev/schemas/config-v1.json",
+  "version": "1.0.0",
+  "project": {
+    "name": "PitchRank",
+    "description": "Youth soccer ranking platform with data pipelines, scrapers, and ML-enhanced rankings",
+    "repository": "dallasheidt14/PitchRank"
+  },
+
+  "governance": {
+    "soul": "./SOUL.md",
+    "agents": "./AGENTS.md",
+    "heartbeat": "./HEARTBEAT.md"
+  },
+
+  "heartbeat": {
+    "enabled": true,
+    "interval_minutes": 60,
+    "active_hours": {
+      "start": "06:00",
+      "end": "22:00",
+      "timezone": "America/Denver"
+    },
+    "checks": {
+      "database_health": {
+        "enabled": true,
+        "interval_minutes": 60,
+        "priority": "critical"
+      },
+      "scraper_status": {
+        "enabled": true,
+        "interval_minutes": 240,
+        "priority": "high"
+      },
+      "data_pipeline_health": {
+        "enabled": true,
+        "interval_minutes": 360,
+        "priority": "high"
+      },
+      "repository_state": {
+        "enabled": true,
+        "interval_minutes": 120,
+        "priority": "medium"
+      },
+      "runtime_errors": {
+        "enabled": true,
+        "interval_minutes": 120,
+        "priority": "medium"
+      },
+      "file_freshness": {
+        "enabled": true,
+        "interval_minutes": 720,
+        "priority": "low"
+      },
+      "production_safety": {
+        "enabled": true,
+        "interval_minutes": 720,
+        "priority": "critical"
+      },
+      "environment_availability": {
+        "enabled": true,
+        "interval_minutes": 240,
+        "priority": "high"
+      }
+    },
+    "alerting": {
+      "log_file": "./logs/heartbeat.log",
+      "create_github_issues": false,
+      "webhook_url": null,
+      "suppress_duplicate_alerts_minutes": 60
+    }
+  },
+
+  "execution": {
+    "sandbox": {
+      "enabled": true,
+      "allow_network": true,
+      "allow_file_write": true,
+      "restricted_paths": [
+        ".env",
+        ".env.local",
+        ".github/workflows/",
+        "supabase/config.toml"
+      ]
+    },
+    "max_concurrency": 2,
+    "timeout_seconds": {
+      "default": 300,
+      "scraping": 3600,
+      "rankings": 1800,
+      "import": 1200
+    },
+    "retry": {
+      "max_attempts": 3,
+      "backoff_multiplier": 2,
+      "initial_delay_seconds": 2
+    }
+  },
+
+  "git": {
+    "default_branch": "main",
+    "branch_prefix": "claude/",
+    "auto_commit": false,
+    "require_approval_for_push": true,
+    "protected_branches": ["main", "production"],
+    "commit_message_format": "<type>: <description>"
+  },
+
+  "agents": {
+    "roles": {
+      "observer": {
+        "description": "Read-only monitoring and analysis",
+        "permissions": ["read", "analyze", "report"],
+        "restrictions": ["no_write", "no_execute"]
+      },
+      "developer": {
+        "description": "Development and testing tasks",
+        "permissions": ["read", "write", "execute_safe"],
+        "restrictions": ["no_production", "require_dry_run"]
+      },
+      "operator": {
+        "description": "Full operational access with safety checks",
+        "permissions": ["read", "write", "execute"],
+        "restrictions": ["require_approval_for_destructive"]
+      }
+    },
+    "default_role": "developer",
+    "escalation_required": [
+      "delete_database_records",
+      "push_to_protected_branch",
+      "modify_workflows",
+      "run_without_dry_run"
+    ]
+  },
+
+  "context": {
+    "startup_files": [
+      "SOUL.md",
+      "AGENTS.md",
+      "HEARTBEAT.md",
+      "PROJECT_FLOW.md",
+      "SYSTEM_OVERVIEW.md"
+    ],
+    "priority_paths": [
+      "src/rankings/",
+      "src/etl/",
+      "src/scrapers/",
+      "scripts/",
+      ".github/workflows/"
+    ],
+    "ignore_paths": [
+      "node_modules/",
+      ".git/",
+      "data/backtest_results/",
+      "__pycache__/"
+    ]
+  },
+
+  "safety": {
+    "require_dry_run_first": true,
+    "max_batch_size": 2000,
+    "dangerous_patterns": [
+      "DELETE FROM",
+      "DROP TABLE",
+      "TRUNCATE",
+      "--force",
+      "-rf",
+      "reset --hard"
+    ],
+    "sensitive_files": [
+      ".env",
+      ".env.local",
+      "credentials.json",
+      "*.pem",
+      "*.key"
+    ],
+    "rate_limits": {
+      "gotsport": {
+        "requests_per_minute": 30,
+        "min_delay_seconds": 0.1,
+        "max_delay_seconds": 2.5
+      },
+      "supabase": {
+        "requests_per_second": 100,
+        "batch_size": 1000
+      }
+    }
+  },
+
+  "notifications": {
+    "channels": {
+      "log": {
+        "enabled": true,
+        "path": "./logs/moltbot.log",
+        "level": "info"
+      },
+      "github": {
+        "enabled": false,
+        "create_issues_for": ["critical"],
+        "labels": ["moltbot", "automated"]
+      },
+      "webhook": {
+        "enabled": false,
+        "url": null,
+        "events": ["critical", "task_complete"]
+      }
+    },
+    "quiet_hours": {
+      "enabled": true,
+      "start": "22:00",
+      "end": "06:00",
+      "timezone": "America/Denver",
+      "allow_critical": true
+    }
+  },
+
+  "metadata": {
+    "created": "2026-01-30",
+    "created_by": "Moltbot governance setup",
+    "last_updated": "2026-01-30",
+    "config_version": "1.0.0"
+  }
+}
