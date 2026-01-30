@@ -1,0 +1,100 @@
+name: Weekly Data Hygiene
+
+on:
+  schedule:
+    # Run every Sunday at 3:00 AM UTC (Saturday 8:00 PM MST)
+    # Before Monday's scrape cycle
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (scan only, no merges)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+jobs:
+  duplicate-team-merge:
+    name: Merge Duplicate Teams
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install supabase python-dotenv
+
+      - name: Fix hardcoded paths in scripts
+        run: |
+          # Update scripts to use environment variables instead of hardcoded paths
+          sed -i "s|load_dotenv('/Users/pitchrankio-dev/Projects/PitchRank/.env')|load_dotenv()|g" scripts/run_all_merges.py
+          sed -i "s|load_dotenv('/Users/pitchrankio-dev/Projects/PitchRank/.env')|load_dotenv()|g" scripts/find_duplicates.py
+          sed -i "s|/Users/pitchrankio-dev/Projects/PitchRank/|./|g" scripts/run_all_merges.py
+
+      - name: Run duplicate team merger
+        id: merge
+        run: |
+          cd scripts
+
+          # Determine if dry run
+          DRY_RUN_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+            DRY_RUN_FLAG="--dry-run"
+            echo "Running in DRY RUN mode"
+          fi
+
+          # Run the merger
+          python run_all_merges.py $DRY_RUN_FLAG 2>&1 | tee ../logs/merge_$(date +%Y%m%d).log
+
+          # Extract summary for job output
+          DUPES=$(grep "duplicates found" ../logs/merge_$(date +%Y%m%d).log | grep -oP '\d+(?= duplicates)' || echo "0")
+          MERGED=$(grep "Merges complete" ../logs/merge_$(date +%Y%m%d).log | grep -oP '\d+(?= succeeded)' || echo "0")
+
+          echo "duplicates_found=$DUPES" >> $GITHUB_OUTPUT
+          echo "teams_merged=$MERGED" >> $GITHUB_OUTPUT
+
+      - name: Upload merge logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: merge-logs-${{ github.run_number }}
+          path: |
+            logs/merge_*.log
+            scripts/merges/merge_tracker.json
+            scripts/merges/MERGE_SUMMARY.md
+          retention-days: 30
+
+      - name: Summary
+        run: |
+          echo "## 🔄 Duplicate Team Merge Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Duplicates Found | ${{ steps.merge.outputs.duplicates_found }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Teams Merged | ${{ steps.merge.outputs.teams_merged }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Mode | ${{ github.event.inputs.dry_run == 'true' && 'Dry Run' || 'Live' }} |" >> $GITHUB_STEP_SUMMARY
+
+  # Future: Add more hygiene tasks here
+  # club-name-normalization:
+  #   name: Normalize Club Names
+  #   runs-on: ubuntu-latest
+  #   needs: duplicate-team-merge
+  #   steps:
+  #     - ...
