@@ -94,7 +94,8 @@ Actual naming differences requiring judgment.
 - **Colors:** Black, Blue, Red, White, Navy, Gold, Orange, Green
 - **Coach names:** Ruiz, Valdez, Smith, Mahe, etc.
 - **Divisions:** Premier, Elite, Academy, Select, DPL, DPLO, NPL, GA, MLS Next
-- **ECNL tiers:** ECNL (top team) ≠ ECNL-RL / RL (second team)
+- **ECNL tiers:** ECNL ≠ ECNL-RL / RL ≠ Pre-ECNL (all different, need manual review)
+- **MLS NEXT / HD / AD:** Cannot auto-match across these divisions (need manual)
 - **Regions:** North, South, SW, Central, East, West
 
 **Examples:**

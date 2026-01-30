@@ -1,0 +1,351 @@
+#!/usr/bin/env python3
+"""
+Team Name Normalizer for PitchRank
+
+Parses team names into structured components:
+- Club name
+- Age (normalized to U-age format)
+- Gender (Male/Female)
+- Squad identifier (color, Roman numeral, coach, division, etc.)
+
+Key rules:
+- B/G = gender (Boys/Girls), NOT part of age
+- No "U" prefix = birth year (14B = 2014 Boys = U12 Male)
+- "U" prefix = age group (U14B = U14 Boys = U14 Male)
+- ECNL ≠ ECNL-RL (different tiers)
+"""
+
+import re
+from typing import Optional, Dict, Tuple
+
+# Birth year to U-age mapping (as of 2026 season)
+BIRTH_YEAR_TO_AGE = {
+    2016: 'U10', 2015: 'U11', 2014: 'U12', 2013: 'U13',
+    2012: 'U14', 2011: 'U15', 2010: 'U16', 2009: 'U17', 2008: 'U18',
+    2017: 'U9', 2018: 'U8', 2007: 'U19', 2006: 'U20'
+}
+
+# Known squad identifiers (things that distinguish teams within same club/age)
+COLORS = {'black', 'blue', 'red', 'white', 'navy', 'gold', 'orange', 'green', 
+          'silver', 'gray', 'grey', 'purple', 'yellow', 'pink', 'maroon', 'teal'}
+
+DIVISIONS = {'premier', 'elite', 'academy', 'select', 'classic', 'competitive',
+             'ecnl', 'ecnl-rl', 'ecrl', 'rl', 'dpl', 'dplo', 'npl', 'ga', 
+             'mls next', 'mls-next', 'pre-ecnl', 'pre-academy', 'development'}
+
+ROMAN_NUMERALS = {'i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x'}
+
+REGIONS = {'north', 'south', 'east', 'west', 'central', 'sw', 'ne', 'nw', 'se'}
+
+
+def normalize_gender(text: str) -> Optional[str]:
+    """Convert gender indicators to Male/Female."""
+    text = text.lower().strip()
+    if text in ('b', 'boys', 'boy', 'male', 'm'):
+        return 'Male'
+    elif text in ('g', 'girls', 'girl', 'female', 'f'):
+        return 'Female'
+    return None
+
+
+def parse_age_gender(token: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Parse an age/gender token.
+    
+    Returns: (normalized_age, gender) tuple
+    
+    Examples:
+        '14B' -> ('U12', 'Male')  # 14 = 2014 birth year, B = Boys
+        'U14B' -> ('U14', 'Male')  # U14 = age group, B = Boys
+        'G2016' -> ('U10', 'Female')  # G = Girls, 2016 = birth year
+        '2014' -> ('U12', None)  # birth year only
+        'U14' -> ('U14', None)  # age only
+    """
+    token = token.strip()
+    original = token
+    
+    # Try various patterns
+    
+    # Pattern: U## or u## (age group format)
+    match = re.match(r'^[Uu](\d{1,2})([BbGg]?)$', token)
+    if match:
+        age_num = int(match.group(1))
+        gender_char = match.group(2)
+        gender = normalize_gender(gender_char) if gender_char else None
+        return (f'U{age_num}', gender)
+    
+    # Pattern: ##B or ##G (birth year + gender, 2 digit)
+    match = re.match(r'^(\d{2})([BbGg])$', token)
+    if match:
+        year_short = int(match.group(1))
+        gender_char = match.group(2)
+        # Assume 20XX for years < 30, 19XX otherwise
+        birth_year = 2000 + year_short if year_short < 30 else 1900 + year_short
+        age = BIRTH_YEAR_TO_AGE.get(birth_year)
+        gender = normalize_gender(gender_char)
+        return (age, gender)
+    
+    # Pattern: B## or G## (gender + birth year, 2 digit)
+    match = re.match(r'^([BbGg])(\d{2})$', token)
+    if match:
+        gender_char = match.group(1)
+        year_short = int(match.group(2))
+        birth_year = 2000 + year_short if year_short < 30 else 1900 + year_short
+        age = BIRTH_YEAR_TO_AGE.get(birth_year)
+        gender = normalize_gender(gender_char)
+        return (age, gender)
+    
+    # Pattern: ####B or ####G (4-digit birth year + gender)
+    match = re.match(r'^(\d{4})([BbGg])$', token)
+    if match:
+        birth_year = int(match.group(1))
+        gender_char = match.group(2)
+        age = BIRTH_YEAR_TO_AGE.get(birth_year)
+        gender = normalize_gender(gender_char)
+        return (age, gender)
+    
+    # Pattern: B#### or G#### (gender + 4-digit birth year)
+    match = re.match(r'^([BbGg])(\d{4})$', token)
+    if match:
+        gender_char = match.group(1)
+        birth_year = int(match.group(2))
+        age = BIRTH_YEAR_TO_AGE.get(birth_year)
+        gender = normalize_gender(gender_char)
+        return (age, gender)
+    
+    # Pattern: #### alone (4-digit birth year)
+    match = re.match(r'^(\d{4})$', token)
+    if match:
+        birth_year = int(match.group(1))
+        age = BIRTH_YEAR_TO_AGE.get(birth_year)
+        return (age, None)
+    
+    # Pattern: ## alone (2-digit, could be age or year - ambiguous)
+    # We'll assume birth year if 08-18, age if other
+    match = re.match(r'^(\d{2})$', token)
+    if match:
+        num = int(match.group(1))
+        if 8 <= num <= 18:
+            # Could be either - prefer birth year interpretation
+            birth_year = 2000 + num
+            age = BIRTH_YEAR_TO_AGE.get(birth_year)
+            if age:
+                return (age, None)
+        # Fall back to age
+        return (f'U{num}', None)
+    
+    return (None, None)
+
+
+def extract_squad_identifier(tokens: list) -> str:
+    """Extract squad identifiers from remaining tokens."""
+    squad_parts = []
+    
+    for token in tokens:
+        t_lower = token.lower().strip()
+        
+        # Check if it's a known squad identifier
+        if t_lower in COLORS:
+            squad_parts.append(token.title())
+        elif t_lower in DIVISIONS:
+            squad_parts.append(token.upper() if len(token) <= 4 else token.title())
+        elif t_lower in ROMAN_NUMERALS:
+            squad_parts.append(token.upper())
+        elif t_lower in REGIONS:
+            squad_parts.append(token.upper() if len(token) <= 2 else token.title())
+        else:
+            # Could be coach name or other identifier
+            squad_parts.append(token)
+    
+    return ' '.join(squad_parts).strip()
+
+
+def parse_team_name(team_name: str, club_name: str = None) -> Dict:
+    """
+    Parse a team name into structured components.
+    
+    Args:
+        team_name: Full team name (e.g., "Phoenix Premier FC 14B Black")
+        club_name: Optional club name to help with parsing
+        
+    Returns:
+        {
+            'original': original team name,
+            'club': extracted club name,
+            'age': normalized age (e.g., 'U12'),
+            'gender': 'Male' or 'Female' or None,
+            'squad': squad identifier (color, division, etc.),
+            'normalized': normalized full identifier
+        }
+    """
+    result = {
+        'original': team_name,
+        'club': club_name,
+        'age': None,
+        'gender': None,
+        'squad': None,
+        'normalized': None
+    }
+    
+    if not team_name:
+        return result
+    
+    # Clean up the team name
+    name = team_name.strip()
+    
+    # If club name is provided, try to extract the part after the club name
+    remaining = name
+    if club_name:
+        # Try to find club name in team name (case insensitive)
+        club_lower = club_name.lower()
+        name_lower = name.lower()
+        
+        if club_lower in name_lower:
+            idx = name_lower.find(club_lower)
+            remaining = name[idx + len(club_name):].strip()
+            # Remove leading/trailing hyphens and spaces
+            remaining = remaining.strip('- ')
+    
+    # Tokenize remaining part
+    # Split on spaces, hyphens (but keep hyphenated terms together for things like ECNL-RL)
+    tokens = re.split(r'[\s]+', remaining)
+    tokens = [t.strip('()[]') for t in tokens if t.strip('()[]')]
+    
+    # Find age/gender token
+    age = None
+    gender = None
+    remaining_tokens = []
+    
+    for token in tokens:
+        if age is None:
+            parsed_age, parsed_gender = parse_age_gender(token)
+            if parsed_age:
+                age = parsed_age
+                if parsed_gender:
+                    gender = parsed_gender
+                continue
+        
+        # Check for standalone gender
+        if gender is None:
+            g = normalize_gender(token)
+            if g:
+                gender = g
+                continue
+        
+        remaining_tokens.append(token)
+    
+    # Extract squad identifier from remaining tokens
+    squad = extract_squad_identifier(remaining_tokens)
+    
+    result['age'] = age
+    result['gender'] = gender
+    result['squad'] = squad if squad else None
+    
+    # Build normalized identifier
+    parts = []
+    if club_name:
+        parts.append(club_name)
+    if age:
+        parts.append(age)
+    if gender:
+        parts.append(gender[0])  # M or F
+    if squad:
+        parts.append(squad)
+    
+    result['normalized'] = ' | '.join(parts) if parts else None
+    
+    return result
+
+
+def teams_match(parsed_a: Dict, parsed_b: Dict) -> Tuple[bool, str]:
+    """
+    Determine if two parsed teams represent the same team.
+    
+    Returns: (match: bool, reason: str)
+    """
+    # Must have same club (if known)
+    if parsed_a.get('club') and parsed_b.get('club'):
+        if parsed_a['club'].lower() != parsed_b['club'].lower():
+            return (False, 'Different clubs')
+    
+    # Must have same age
+    if parsed_a.get('age') != parsed_b.get('age'):
+        # Check if both are None (couldn't parse)
+        if parsed_a.get('age') is None or parsed_b.get('age') is None:
+            return (False, 'Could not parse age')
+        return (False, f"Different ages: {parsed_a.get('age')} vs {parsed_b.get('age')}")
+    
+    # Must have same gender (if known)
+    if parsed_a.get('gender') and parsed_b.get('gender'):
+        if parsed_a['gender'] != parsed_b['gender']:
+            return (False, f"Different genders: {parsed_a.get('gender')} vs {parsed_b.get('gender')}")
+    
+    # Squad identifier comparison (case-insensitive)
+    squad_a = (parsed_a.get('squad') or '').lower().strip()
+    squad_b = (parsed_b.get('squad') or '').lower().strip()
+    
+    # Normalize squad for comparison
+    squad_a_norm = re.sub(r'[^a-z0-9]', '', squad_a)
+    squad_b_norm = re.sub(r'[^a-z0-9]', '', squad_b)
+    
+    if squad_a_norm != squad_b_norm:
+        # Check if one is subset of other (e.g., "Black" vs "SW Black")
+        if squad_a_norm and squad_b_norm:
+            if squad_a_norm not in squad_b_norm and squad_b_norm not in squad_a_norm:
+                return (False, f"Different squads: '{parsed_a.get('squad')}' vs '{parsed_b.get('squad')}'")
+            else:
+                return (True, f"Squad variation: '{parsed_a.get('squad')}' ~ '{parsed_b.get('squad')}'")
+    
+    return (True, 'Match')
+
+
+# Test cases
+if __name__ == '__main__':
+    test_cases = [
+        ('Phoenix Premier FC 14B Black', 'Phoenix Premier FC'),
+        ('Phoenix Premier FC B2014 Black', 'Phoenix Premier FC'),
+        ('Phoenix Premier FC U12B Black', 'Phoenix Premier FC'),
+        ('SS Academy 2014G Select', 'SS Academy'),
+        ('East Coast Surf G2016', 'East Coast Surf'),
+        ('East Coast Surf 2016G', 'East Coast Surf'),
+        ('Rebels SC B2010 Premier', 'Rebels SC'),
+        ('Utah Royals FC-AZ ECNL G12', 'Utah Royals FC - AZ'),
+        ('Utah Royals FC-AZ RL G12', 'Utah Royals FC - AZ'),
+        ('Napa United 14B Development', 'Napa United'),
+    ]
+    
+    print("=== TEAM NAME PARSER TEST ===\n")
+    for team_name, club in test_cases:
+        result = parse_team_name(team_name, club)
+        print(f"Input: {team_name}")
+        print(f"  Club: {result['club']}")
+        print(f"  Age: {result['age']}")
+        print(f"  Gender: {result['gender']}")
+        print(f"  Squad: {result['squad']}")
+        print(f"  Normalized: {result['normalized']}")
+        print()
+    
+    # Test matching
+    print("=== MATCH TESTS ===\n")
+    
+    match_tests = [
+        (('Phoenix Premier FC 14B Black', 'Phoenix Premier FC'), 
+         ('Phoenix Premier FC B2014 Black', 'Phoenix Premier FC')),
+        (('East Coast Surf G2016', 'East Coast Surf'), 
+         ('East Coast Surf 2016G', 'East Coast Surf')),
+        (('Phoenix Premier FC 14B Black', 'Phoenix Premier FC'), 
+         ('Phoenix Premier FC 14B Blue', 'Phoenix Premier FC')),
+        (('Utah Royals FC-AZ ECNL G12', 'Utah Royals FC - AZ'), 
+         ('Utah Royals FC-AZ RL G12', 'Utah Royals FC - AZ')),
+    ]
+    
+    for (name_a, club_a), (name_b, club_b) in match_tests:
+        parsed_a = parse_team_name(name_a, club_a)
+        parsed_b = parse_team_name(name_b, club_b)
+        match, reason = teams_match(parsed_a, parsed_b)
+        
+        symbol = '✅' if match else '❌'
+        print(f"{symbol} {name_a}")
+        print(f"   vs {name_b}")
+        print(f"   → {reason}")
+        print()
