@@ -142,12 +142,19 @@ The **"U" prefix is the signal:**
 - B = Boys = Male
 - G = Girls = Female
 
-**Age normalizer must convert:**
-- `2014` or `2014B` → `U12 Male`
-- `B2014` → `U12 Male`
-- `G2016` or `2016G` → `U10 Female`
-- `14B` → `U12 Male` (NOT U14!)
-- `U14B` → `U14 Male`
+**Age normalizer must normalize to:**
+
+**Birth year formats → 4-digit year (gender extracted separately):**
+- `12B` / `B12` → `2012` + Male
+- `2012B` / `B2012` → `2012` + Male
+- `12 Boys` / `2012 Boys` → `2012` + Male
+- `G2016` / `2016G` → `2016` + Female
+
+**Age group formats → `U##` (gender extracted separately):**
+- `U14B` / `U-14` / `BU14` → `U14` + Male
+- `U14` → `U14` (no gender)
+
+**Key principle:** Preserve the original system (birth year vs age group), just strip gender indicators.
 
 ---
 

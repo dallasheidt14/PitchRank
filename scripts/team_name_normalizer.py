@@ -33,6 +33,9 @@ DIVISIONS = {'premier', 'elite', 'academy', 'select', 'classic', 'competitive',
              'ecnl', 'ecnl-rl', 'ecrl', 'rl', 'dpl', 'dplo', 'npl', 'ga', 
              'mls next', 'mls-next', 'pre-ecnl', 'pre-academy', 'development'}
 
+# Provider alias suffixes that indicate different divisions (DO NOT auto-merge)
+ALIAS_DIVISION_SUFFIXES = {'_ad', '_hd', '_ea', '_mlsnext', '_mls'}
+
 ROMAN_NUMERALS = {'i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x'}
 
 REGIONS = {'north', 'south', 'east', 'west', 'central', 'sw', 'ne', 'nw', 'se'}
@@ -54,85 +57,102 @@ def parse_age_gender(token: str) -> Tuple[Optional[str], Optional[str]]:
     
     Returns: (normalized_age, gender) tuple
     
+    NEW NORMALIZATION RULES (Jan 2026):
+    - Birth year formats → 4-digit year: '12B' -> '2012', 'B2012' -> '2012'
+    - Age group formats → U##: 'U14B' -> 'U14', 'U-14' -> 'U14', 'BU14' -> 'U14'
+    - Gender is extracted separately, stripped from age token
+    
     Examples:
-        '14B' -> ('U12', 'Male')  # 14 = 2014 birth year, B = Boys
+        '14B' -> ('2012', 'Male')  # 14 = 2014 birth year, B = Boys
+        'B14' -> ('2012', 'Male')  # B = Boys, 14 = 2014 birth year
+        '2014B' -> ('2014', 'Male')  # 4-digit birth year + gender
+        'B2014' -> ('2014', 'Male')  # gender + 4-digit birth year
         'U14B' -> ('U14', 'Male')  # U14 = age group, B = Boys
-        'G2016' -> ('U10', 'Female')  # G = Girls, 2016 = birth year
-        '2014' -> ('U12', None)  # birth year only
+        'U-14' -> ('U14', None)  # age group with hyphen
+        'BU14' -> ('U14', 'Male')  # gender prefix on age group
+        '2014' -> ('2014', None)  # birth year only
         'U14' -> ('U14', None)  # age only
     """
     token = token.strip()
-    original = token
     
-    # Try various patterns
-    
-    # Pattern: U## or u## (age group format)
-    match = re.match(r'^[Uu](\d{1,2})([BbGg]?)$', token)
+    # Pattern: U-## (age group with hyphen)
+    match = re.match(r'^[Uu]-?(\d{1,2})([BbGg]?)$', token)
     if match:
         age_num = int(match.group(1))
         gender_char = match.group(2)
         gender = normalize_gender(gender_char) if gender_char else None
         return (f'U{age_num}', gender)
     
-    # Pattern: ##B or ##G (birth year + gender, 2 digit)
+    # Pattern: BU## or GU## (gender prefix on age group)
+    match = re.match(r'^([BbGg])[Uu]-?(\d{1,2})$', token)
+    if match:
+        gender_char = match.group(1)
+        age_num = int(match.group(2))
+        gender = normalize_gender(gender_char)
+        return (f'U{age_num}', gender)
+    
+    # Pattern: ##B or ##G (birth year + gender, 2 digit) -> 4-digit year
     match = re.match(r'^(\d{2})([BbGg])$', token)
     if match:
         year_short = int(match.group(1))
         gender_char = match.group(2)
         # Assume 20XX for years < 30, 19XX otherwise
         birth_year = 2000 + year_short if year_short < 30 else 1900 + year_short
-        age = BIRTH_YEAR_TO_AGE.get(birth_year)
         gender = normalize_gender(gender_char)
-        return (age, gender)
+        return (str(birth_year), gender)
     
-    # Pattern: B## or G## (gender + birth year, 2 digit)
+    # Pattern: B## or G## (gender + birth year, 2 digit) -> 4-digit year
     match = re.match(r'^([BbGg])(\d{2})$', token)
     if match:
         gender_char = match.group(1)
         year_short = int(match.group(2))
         birth_year = 2000 + year_short if year_short < 30 else 1900 + year_short
-        age = BIRTH_YEAR_TO_AGE.get(birth_year)
         gender = normalize_gender(gender_char)
-        return (age, gender)
+        return (str(birth_year), gender)
     
-    # Pattern: ####B or ####G (4-digit birth year + gender)
+    # Pattern: ####B or ####G (4-digit birth year + gender) -> 4-digit year
     match = re.match(r'^(\d{4})([BbGg])$', token)
     if match:
         birth_year = int(match.group(1))
         gender_char = match.group(2)
-        age = BIRTH_YEAR_TO_AGE.get(birth_year)
         gender = normalize_gender(gender_char)
-        return (age, gender)
+        return (str(birth_year), gender)
     
-    # Pattern: B#### or G#### (gender + 4-digit birth year)
+    # Pattern: B#### or G#### (gender + 4-digit birth year) -> 4-digit year
     match = re.match(r'^([BbGg])(\d{4})$', token)
     if match:
         gender_char = match.group(1)
         birth_year = int(match.group(2))
-        age = BIRTH_YEAR_TO_AGE.get(birth_year)
         gender = normalize_gender(gender_char)
-        return (age, gender)
+        return (str(birth_year), gender)
     
-    # Pattern: #### alone (4-digit birth year)
+    # Pattern: #### alone (4-digit birth year) -> keep as-is
     match = re.match(r'^(\d{4})$', token)
     if match:
-        birth_year = int(match.group(1))
-        age = BIRTH_YEAR_TO_AGE.get(birth_year)
-        return (age, None)
+        return (token, None)
     
     # Pattern: ## alone (2-digit, could be age or year - ambiguous)
-    # We'll assume birth year if 08-18, age if other
+    # Assume birth year if 08-18 (valid birth years), convert to 4-digit
     match = re.match(r'^(\d{2})$', token)
     if match:
         num = int(match.group(1))
-        if 8 <= num <= 18:
-            # Could be either - prefer birth year interpretation
+        if 6 <= num <= 18:  # Valid birth years 2006-2018
             birth_year = 2000 + num
-            age = BIRTH_YEAR_TO_AGE.get(birth_year)
-            if age:
-                return (age, None)
-        # Fall back to age
+            return (str(birth_year), None)
+        # Outside birth year range - treat as age group
         return (f'U{num}', None)
+    
+    # Pattern: ## Boys or ## Girls (with word gender)
+    match = re.match(r'^(\d{2,4})\s*(boys?|girls?|male|female)$', token, re.IGNORECASE)
+    if match:
+        year_str = match.group(1)
+        gender_word = match.group(2)
+        gender = normalize_gender(gender_word)
+        if len(year_str) == 2:
+            num = int(year_str)
+            birth_year = 2000 + num if num < 30 else 1900 + num
+            return (str(birth_year), gender)
+        return (year_str, gender)
     
     return (None, None)
 
@@ -301,6 +321,35 @@ def teams_match(parsed_a: Dict, parsed_b: Dict) -> Tuple[bool, str]:
 
 # Test cases
 if __name__ == '__main__':
+    # First, test the parse_age_gender function directly
+    print("=== AGE/GENDER PARSING (New Rules Jan 2026) ===\n")
+    print("Birth year formats → 4-digit year:")
+    age_tests = [
+        ('12B', '2012 + Male'),
+        ('B12', '2012 + Male'),
+        ('2012B', '2012 + Male'),
+        ('B2012', '2012 + Male'),
+        ('G2016', '2016 + Female'),
+        ('2016G', '2016 + Female'),
+        ('2014', '2014 (no gender)'),
+    ]
+    for token, expected in age_tests:
+        age, gender = parse_age_gender(token)
+        print(f"  {token:10} → {age} + {gender or '(no gender)'} (expected: {expected})")
+    
+    print("\nAge group formats → U##:")
+    age_tests2 = [
+        ('U14B', 'U14 + Male'),
+        ('U14', 'U14 (no gender)'),
+        ('U-14', 'U14 (no gender)'),
+        ('BU14', 'U14 + Male'),
+        ('GU12', 'U12 + Female'),
+    ]
+    for token, expected in age_tests2:
+        age, gender = parse_age_gender(token)
+        print(f"  {token:10} → {age} + {gender or '(no gender)'} (expected: {expected})")
+    
+    print("\n=== TEAM NAME PARSER TEST ===\n")
     test_cases = [
         ('Phoenix Premier FC 14B Black', 'Phoenix Premier FC'),
         ('Phoenix Premier FC B2014 Black', 'Phoenix Premier FC'),
@@ -314,7 +363,6 @@ if __name__ == '__main__':
         ('Napa United 14B Development', 'Napa United'),
     ]
     
-    print("=== TEAM NAME PARSER TEST ===\n")
     for team_name, club in test_cases:
         result = parse_team_name(team_name, club)
         print(f"Input: {team_name}")
