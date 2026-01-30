@@ -322,32 +322,34 @@ def teams_match(parsed_a: Dict, parsed_b: Dict) -> Tuple[bool, str]:
 # Test cases
 if __name__ == '__main__':
     # First, test the parse_age_gender function directly
-    print("=== AGE/GENDER PARSING (New Rules Jan 2026) ===\n")
+    print("=== AGE NORMALIZATION (Jan 2026 Rules) ===\n")
     print("Birth year formats → 4-digit year:")
     age_tests = [
-        ('12B', '2012 + Male'),
-        ('B12', '2012 + Male'),
-        ('2012B', '2012 + Male'),
-        ('B2012', '2012 + Male'),
-        ('G2016', '2016 + Female'),
-        ('2016G', '2016 + Female'),
-        ('2014', '2014 (no gender)'),
+        ('12B', '2012'),
+        ('B12', '2012'),
+        ('2012B', '2012'),
+        ('B2012', '2012'),
+        ('G2016', '2016'),
+        ('2016G', '2016'),
+        ('2014', '2014'),
     ]
     for token, expected in age_tests:
-        age, gender = parse_age_gender(token)
-        print(f"  {token:10} → {age} + {gender or '(no gender)'} (expected: {expected})")
+        age, _ = parse_age_gender(token)
+        status = '✅' if age == expected else '❌'
+        print(f"  {status} {token:10} → {age} (expected: {expected})")
     
     print("\nAge group formats → U##:")
     age_tests2 = [
-        ('U14B', 'U14 + Male'),
-        ('U14', 'U14 (no gender)'),
-        ('U-14', 'U14 (no gender)'),
-        ('BU14', 'U14 + Male'),
-        ('GU12', 'U12 + Female'),
+        ('U14B', 'U14'),
+        ('U14', 'U14'),
+        ('U-14', 'U14'),
+        ('BU14', 'U14'),
+        ('GU12', 'U12'),
     ]
     for token, expected in age_tests2:
-        age, gender = parse_age_gender(token)
-        print(f"  {token:10} → {age} + {gender or '(no gender)'} (expected: {expected})")
+        age, _ = parse_age_gender(token)
+        status = '✅' if age == expected else '❌'
+        print(f"  {status} {token:10} → {age} (expected: {expected})")
     
     print("\n=== TEAM NAME PARSER TEST ===\n")
     test_cases = [
