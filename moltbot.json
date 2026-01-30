@@ -15,7 +15,7 @@
 
   "heartbeat": {
     "enabled": true,
-    "interval_minutes": 60,
+    "interval_minutes": 1440,
     "active_hours": {
       "start": "06:00",
       "end": "22:00",
@@ -24,43 +24,51 @@
     "checks": {
       "database_health": {
         "enabled": true,
-        "interval_minutes": 60,
-        "priority": "critical"
+        "interval_minutes": 1440,
+        "priority": "critical",
+        "schedule": "daily at 6 AM UTC"
       },
       "scraper_status": {
         "enabled": true,
-        "interval_minutes": 240,
-        "priority": "high"
+        "interval_minutes": 4320,
+        "priority": "high",
+        "schedule": "every 3 days"
       },
       "data_pipeline_health": {
         "enabled": true,
-        "interval_minutes": 360,
-        "priority": "high"
+        "interval_minutes": 1440,
+        "priority": "high",
+        "schedule": "daily at 7 AM UTC"
       },
       "repository_state": {
         "enabled": true,
-        "interval_minutes": 120,
-        "priority": "medium"
+        "interval_minutes": 10080,
+        "priority": "medium",
+        "schedule": "weekly on Sunday"
       },
       "runtime_errors": {
         "enabled": true,
-        "interval_minutes": 120,
-        "priority": "medium"
+        "interval_minutes": 1440,
+        "priority": "medium",
+        "schedule": "daily at 8 AM UTC"
       },
       "file_freshness": {
         "enabled": true,
-        "interval_minutes": 720,
-        "priority": "low"
+        "interval_minutes": 10080,
+        "priority": "low",
+        "schedule": "weekly on Sunday"
       },
       "production_safety": {
         "enabled": true,
-        "interval_minutes": 720,
-        "priority": "critical"
+        "interval_minutes": 10080,
+        "priority": "critical",
+        "schedule": "weekly on Sunday"
       },
       "environment_availability": {
         "enabled": true,
-        "interval_minutes": 240,
-        "priority": "high"
+        "interval_minutes": 10080,
+        "priority": "high",
+        "schedule": "on startup + weekly"
       }
     },
     "alerting": {
@@ -218,6 +226,7 @@
     "created": "2026-01-30",
     "created_by": "Moltbot governance setup",
     "last_updated": "2026-01-30",
-    "config_version": "1.0.0"
+    "config_version": "1.1.0",
+    "notes": "Reduced heartbeat frequencies to daily/weekly"
   }
 }

@@ -505,14 +505,14 @@ git diff HEAD~5 --name-only -- .github/workflows/ | wc -l
 
 | Check Category | Frequency | Notes |
 |----------------|-----------|-------|
-| Data Pipeline Health | Every 6 hours | Detect stalls early |
-| Scraper Status | Every 4 hours | Critical for data freshness |
-| File Freshness | Every 12 hours | Low urgency |
-| Repository State | Every 2 hours | Keep dev environment clean |
-| Database Health | Every 1 hour | Highest priority |
-| Environment Availability | Every 4 hours | Startup + periodic |
-| Runtime Errors | Every 2 hours | Catch issues early |
-| Production Safety | Every 12 hours | Security checks |
+| Database Health | Daily (6 AM UTC) | After overnight processes |
+| Data Pipeline Health | Daily (7 AM UTC) | Check import results |
+| Scraper Status | Every 3 days | Matches scrape schedule |
+| File Freshness | Weekly (Sunday) | Low urgency |
+| Repository State | Weekly (Sunday) | Before hygiene run |
+| Environment Availability | On startup only | No periodic check needed |
+| Runtime Errors | Daily (8 AM UTC) | Review overnight logs |
+| Production Safety | Weekly (Sunday) | Security audit |
 
 ---
 
@@ -593,7 +593,8 @@ echo "=== Check Complete ==="
 ## Version
 
 ```
-HEARTBEAT.md v1.0.0
+HEARTBEAT.md v1.1.0
 PitchRank Repository
 Last Updated: 2026-01-30
+Changed: Reduced check frequencies to daily/weekly intervals
 ```
