@@ -509,11 +509,99 @@ To add a new sub-agent:
 
 ---
 
+## Planned Agents
+
+> Future agents to be implemented when ready.
+
+---
+
+### MOVY — Content & Analytics Specialist (Planned)
+
+```yaml
+Name: Movy
+Role: Rankings Analyst & Content Creator
+Personality: Trend-spotter, engaging, data-storyteller
+Motto: "Every climb tells a story"
+Status: PLANNED
+```
+
+#### Concept
+Movy tracks ranking movements and creates social media content around the biggest movers - teams climbing or falling in the rankings over time.
+
+#### Planned Responsibilities
+- Track 7-day ranking changes (weekly movers)
+- Track 30-day ranking changes (monthly trends)
+- Identify biggest climbers and fallers per cohort
+- Generate social media content (Twitter/X, Instagram)
+- Create leaderboard graphics and visualizations
+
+#### Data Requirements
+```sql
+-- 7-day movers query concept
+SELECT
+    t.team_name,
+    t.age_group,
+    t.gender,
+    r_current.national_rank AS current_rank,
+    r_7d_ago.national_rank AS rank_7d_ago,
+    (r_7d_ago.national_rank - r_current.national_rank) AS rank_change
+FROM teams t
+JOIN rankings_full r_current ON t.team_id_master = r_current.team_id
+JOIN rankings_history r_7d_ago ON t.team_id_master = r_7d_ago.team_id
+WHERE r_7d_ago.calculated_at >= NOW() - INTERVAL '7 days'
+ORDER BY rank_change DESC
+LIMIT 10;
+```
+
+#### Prerequisites Before Implementation
+- [ ] `rankings_history` table for historical snapshots
+- [ ] Weekly snapshot job (after rankings calculation)
+- [ ] Social media API credentials (Twitter/X, Instagram)
+- [ ] Content templates and brand guidelines
+- [ ] Image generation capability (optional)
+
+#### Planned Schedule
+| Task | Frequency | Trigger |
+|------|-----------|---------|
+| Weekly movers report | Tuesday (after Monday rankings) | Scheduled |
+| Monthly trends report | 1st of month | Scheduled |
+| Social media posts | After each report | Automated |
+
+#### Content Ideas
+```
+📈 BIGGEST CLIMBERS (7-Day)
+"FC Dallas U14B jumped 47 spots this week!
+From #89 → #42 after dominant tournament run 🔥"
+
+📉 WATCH LIST (30-Day)
+"Top 10 teams that dropped 20+ spots -
+what's happening with these former elites?"
+
+🏆 COHORT SPOTLIGHT
+"U15 Girls is the most competitive age group right now -
+only 0.03 PowerScore separates ranks #5-#15"
+```
+
+#### Integration Points
+```
+RANKY completes → MOVY analyzes changes
+MOVY generates content → Posts to social media
+MOVY creates reports → Available in dashboard
+```
+
+#### Notes
+- Requires rankings_history table (not yet implemented)
+- Social media posting may need human approval initially
+- Consider A/B testing content formats
+
+---
+
 ## Version
 
 ```
-SUB_AGENTS.md v1.1.0
+SUB_AGENTS.md v1.2.0
 PitchRank Repository
 Last Updated: 2026-01-30
 Added: Codey (Software Engineering Specialist)
+Added: Planned Agents section with Movy concept
 ```
