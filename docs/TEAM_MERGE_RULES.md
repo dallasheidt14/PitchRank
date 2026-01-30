@@ -82,6 +82,36 @@ Actual naming differences requiring judgment.
 
 ---
 
+## Age Group ↔ Birth Year Mapping (CRITICAL)
+
+Youth soccer uses TWO naming systems interchangeably:
+
+| Birth Year | Age Group |
+|------------|-----------|
+| 2016 | U10 |
+| 2015 | U11 |
+| 2014 | U12 |
+| 2013 | U13 |
+| 2012 | U14 |
+| 2011 | U15 |
+| 2010 | U16 |
+| 2009 | U17 |
+| 2008 | U18 |
+
+**All of these refer to the SAME team:**
+- `Phoenix Premier FC 2014B`
+- `Phoenix Premier FC U12B`
+- `Phoenix Premier FC B2014`
+- `Phoenix Premier FC 12B`
+
+**Age normalizer must convert:**
+- `2014` → `U12`
+- `B2014` → `U12B`
+- `G2016` → `U10G`
+- `14B` → `U14B`
+
+---
+
 ## Data Sources & Their Quirks
 
 | Source | Common Patterns |
