@@ -28,10 +28,32 @@ CONSERVATIVE BY DEFAULT
 
 **These thresholds are intentionally conservative. DO NOT lower them.**
 
+## Age Normalization Rules (CRITICAL)
+
+**ALWAYS normalize ages this way — strip gender, preserve format:**
+
+**Birth year formats → 4-digit year:**
+- `12B` / `B12` → `2012`
+- `2012B` / `B2012` → `2012`
+- `12 Boys` / `2012 Boys` → `2012`
+- `G2016` / `2016G` → `2016`
+
+**Age group formats → `U##`:**
+- `U14B` / `U-14` / `BU14` → `U14`
+- `U14` → `U14`
+
+**Gender is tracked in the `gender` field — NEVER include B/G/Boys/Girls in normalized age.**
+
+**The "U" prefix is the signal:**
+- NO "U" → number is birth year (e.g., `14B` = 2014)
+- HAS "U" → number is age group (e.g., `U14` = under-14)
+
+Use `scripts/team_name_normalizer.py` for consistent parsing.
+
 ## When to MERGE (All must be true)
 
 ✅ Same club name (normalized)
-✅ Same age group
+✅ Same age group (normalized per rules above)
 ✅ Same gender
 ✅ Same state
 ✅ No division conflicts (AD/HD/ECNL markers)
