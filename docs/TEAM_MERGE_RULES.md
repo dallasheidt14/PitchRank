@@ -93,7 +93,8 @@ Actual naming differences requiring judgment.
 - **Roman numerals:** I, II, III, IV, V
 - **Colors:** Black, Blue, Red, White, Navy, Gold, Orange, Green
 - **Coach names:** Ruiz, Valdez, Smith, Mahe, etc.
-- **Divisions:** Premier, Elite, Academy, Select, ECNL, DPL, DPLO, NPL, GA, MLS Next
+- **Divisions:** Premier, Elite, Academy, Select, DPL, DPLO, NPL, GA, MLS Next
+- **ECNL tiers:** ECNL (top team) ≠ ECNL-RL / RL (second team)
 - **Regions:** North, South, SW, Central, East, West
 
 **Examples:**
