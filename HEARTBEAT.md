@@ -408,7 +408,47 @@ gh run list --status failure --limit 5 --json databaseId,conclusion,name 2>/dev/
 
 ---
 
-## 8. Production Safety
+## 8. Data Hygiene
+
+### 8.1 Weekly Merge Run
+
+**What to check**: Last successful duplicate team merge
+
+**Detection**:
+```bash
+# Check merge tracker
+cat scripts/merges/merge_tracker.json | jq '.last_run'
+```
+
+| Status | Condition | Action |
+|--------|-----------|--------|
+| ✅ OK | last_run within 10 days | Silent |
+| ⚠️ WARNING | last_run 10-14 days ago | Log: "Data hygiene overdue" |
+| ❌ CRITICAL | last_run > 14 days or missing | Alert: "Weekly merge hasn't run" |
+
+---
+
+### 8.2 Quarantine Growth Rate
+
+**What to check**: Teams added to quarantine vs merged
+
+**Detection**:
+```python
+# Compare quarantine size week-over-week
+result = client.table('team_quarantine').select('id', count='exact').is_('resolved_at', 'null').execute()
+current = result.count or 0
+# Compare to last week's count from merge_tracker.json
+```
+
+| Status | Condition | Action |
+|--------|-----------|--------|
+| ✅ OK | Growth < 50/week | Silent |
+| ⚠️ WARNING | 50 ≤ growth < 100 | Log: "Quarantine growing faster than merges" |
+| ❌ CRITICAL | Growth ≥ 100/week | Alert: "Quarantine backlog accelerating" |
+
+---
+
+## 9. Production Safety
 
 ### 8.1 Exposed Secrets Check
 
