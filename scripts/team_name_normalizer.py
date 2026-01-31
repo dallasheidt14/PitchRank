@@ -30,8 +30,19 @@ COLORS = {'black', 'blue', 'red', 'white', 'navy', 'gold', 'orange', 'green',
           'silver', 'gray', 'grey', 'purple', 'yellow', 'pink', 'maroon', 'teal'}
 
 DIVISIONS = {'premier', 'elite', 'academy', 'select', 'classic', 'competitive',
-             'ecnl', 'ecnl-rl', 'ecrl', 'rl', 'dpl', 'dplo', 'npl', 'ga', 
+             'ecnl', 'ecnl rl', 'ecnl-rl', 'ecrl', 'rl', 'dpl', 'dplo', 'npl', 'ga', 
              'mls next', 'mls-next', 'pre-ecnl', 'pre-academy', 'development'}
+
+# Normalize division name variations to standard form
+DIVISION_ALIASES = {
+    'ecnl-rl': 'ECNL RL',
+    'ecnl rl': 'ECNL RL',
+    'ecrl': 'ECNL RL',  # Common abbreviation
+    'mls-next': 'MLS NEXT',
+    'mls next': 'MLS NEXT',
+    'pre-ecnl': 'Pre-ECNL',
+    'pre ecnl': 'Pre-ECNL',
+}
 
 # Provider alias suffixes that indicate different divisions (DO NOT auto-merge)
 ALIAS_DIVISION_SUFFIXES = {'_ad', '_hd', '_ea', '_mlsnext', '_mls'}
@@ -161,11 +172,40 @@ def extract_squad_identifier(tokens: list) -> str:
     """Extract squad identifiers from remaining tokens."""
     squad_parts = []
     
-    for token in tokens:
+    # First pass: join tokens that form multi-word divisions (e.g., "ECNL" + "RL" -> "ECNL RL")
+    i = 0
+    merged_tokens = []
+    while i < len(tokens):
+        token = tokens[i]
         t_lower = token.lower().strip()
         
+        # Check for ECNL + RL pattern
+        if t_lower == 'ecnl' and i + 1 < len(tokens) and tokens[i + 1].lower() == 'rl':
+            merged_tokens.append('ECNL RL')
+            i += 2
+            continue
+        # Check for MLS + NEXT pattern
+        elif t_lower == 'mls' and i + 1 < len(tokens) and tokens[i + 1].lower() == 'next':
+            merged_tokens.append('MLS NEXT')
+            i += 2
+            continue
+        # Check for Pre + ECNL pattern
+        elif t_lower == 'pre' and i + 1 < len(tokens) and tokens[i + 1].lower() == 'ecnl':
+            merged_tokens.append('Pre-ECNL')
+            i += 2
+            continue
+        else:
+            merged_tokens.append(token)
+            i += 1
+    
+    for token in merged_tokens:
+        t_lower = token.lower().strip()
+        
+        # Check for division aliases first (normalize variations)
+        if t_lower in DIVISION_ALIASES:
+            squad_parts.append(DIVISION_ALIASES[t_lower])
         # Check if it's a known squad identifier
-        if t_lower in COLORS:
+        elif t_lower in COLORS:
             squad_parts.append(token.title())
         elif t_lower in DIVISIONS:
             squad_parts.append(token.upper() if len(token) <= 4 else token.title())

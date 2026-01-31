@@ -328,7 +328,665 @@
       "total_duplicates": 1286,
       "total_merged": 1286,
       "failed_merges": []
+    },
+    {
+      "run_date": "2026-01-31T13:37:39.387462",
+      "dry_run": true,
+      "by_state": {
+        "AK": {
+          "teams": 120,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "AL": {
+          "teams": 673,
+          "duplicates": 1,
+          "merged": 0
+        },
+        "AR": {
+          "teams": 389,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "AZ": {
+          "teams": 1867,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "CA": {
+          "teams": 13735,
+          "duplicates": 17,
+          "merged": 0
+        },
+        "CO": {
+          "teams": 1364,
+          "duplicates": 2,
+          "merged": 0
+        },
+        "CT": {
+          "teams": 1131,
+          "duplicates": 2,
+          "merged": 0
+        },
+        "DC": {
+          "teams": 14,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "DE": {
+          "teams": 204,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "FL": {
+          "teams": 5169,
+          "duplicates": 5,
+          "merged": 0
+        },
+        "GA": {
+          "teams": 2279,
+          "duplicates": 1,
+          "merged": 0
+        },
+        "HI": {
+          "teams": 205,
+          "duplicates": 1,
+          "merged": 0
+        },
+        "IA": {
+          "teams": 769,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "ID": {
+          "teams": 781,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "IL": {
+          "teams": 3738,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "IN": {
+          "teams": 1374,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "KS": {
+          "teams": 1212,
+          "duplicates": 1,
+          "merged": 0
+        },
+        "KY": {
+          "teams": 1015,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "LA": {
+          "teams": 520,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "MA": {
+          "teams": 2368,
+          "duplicates": 4,
+          "merged": 0
+        },
+        "MD": {
+          "teams": 2220,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "ME": {
+          "teams": 375,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "MI": {
+          "teams": 3067,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "MN": {
+          "teams": 1377,
+          "duplicates": 1,
+          "merged": 0
+        },
+        "MO": {
+          "teams": 1848,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "MS": {
+          "teams": 497,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "MT": {
+          "teams": 341,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "NC": {
+          "teams": 2515,
+          "duplicates": 1,
+          "merged": 0
+        },
+        "ND": {
+          "teams": 150,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "NE": {
+          "teams": 789,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "NH": {
+          "teams": 560,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "NJ": {
+          "teams": 4571,
+          "duplicates": 3,
+          "merged": 0
+        },
+        "NM": {
+          "teams": 447,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "NV": {
+          "teams": 731,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "NY": {
+          "teams": 4864,
+          "duplicates": 16,
+          "merged": 0
+        },
+        "OH": {
+          "teams": 4460,
+          "duplicates": 1,
+          "merged": 0
+        },
+        "OK": {
+          "teams": 1053,
+          "duplicates": 1,
+          "merged": 0
+        },
+        "OR": {
+          "teams": 1331,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "PA": {
+          "teams": 3739,
+          "duplicates": 1,
+          "merged": 0
+        },
+        "RI": {
+          "teams": 337,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "SC": {
+          "teams": 811,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "SD": {
+          "teams": 227,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "TN": {
+          "teams": 1349,
+          "duplicates": 1,
+          "merged": 0
+        },
+        "TX": {
+          "teams": 9007,
+          "duplicates": 6,
+          "merged": 0
+        },
+        "UT": {
+          "teams": 1803,
+          "duplicates": 1,
+          "merged": 0
+        },
+        "VA": {
+          "teams": 2662,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "VT": {
+          "teams": 301,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "WA": {
+          "teams": 3146,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "WI": {
+          "teams": 1280,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "WV": {
+          "teams": 211,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "WY": {
+          "teams": 192,
+          "duplicates": 0,
+          "merged": 0
+        }
+      },
+      "by_gender": {
+        "Male": {
+          "teams": 58702,
+          "duplicates": 34,
+          "merged": 0
+        },
+        "Female": {
+          "teams": 36486,
+          "duplicates": 32,
+          "merged": 0
+        }
+      },
+      "by_age": {
+        "U10": {
+          "teams": 5803,
+          "duplicates": 4,
+          "merged": 0
+        },
+        "U11": {
+          "teams": 12984,
+          "duplicates": 6,
+          "merged": 0
+        },
+        "U12": {
+          "teams": 14385,
+          "duplicates": 8,
+          "merged": 0
+        },
+        "U13": {
+          "teams": 14774,
+          "duplicates": 19,
+          "merged": 0
+        },
+        "U14": {
+          "teams": 11944,
+          "duplicates": 4,
+          "merged": 0
+        },
+        "U15": {
+          "teams": 11378,
+          "duplicates": 4,
+          "merged": 0
+        },
+        "U16": {
+          "teams": 9972,
+          "duplicates": 7,
+          "merged": 0
+        },
+        "U17": {
+          "teams": 8211,
+          "duplicates": 10,
+          "merged": 0
+        },
+        "U18": {
+          "teams": 5268,
+          "duplicates": 3,
+          "merged": 0
+        },
+        "U19": {
+          "teams": 469,
+          "duplicates": 1,
+          "merged": 0
+        }
+      },
+      "total_teams": 95188,
+      "total_duplicates": 66,
+      "total_merged": 0,
+      "failed_merges": []
+    },
+    {
+      "run_date": "2026-01-31T13:39:29.079350",
+      "dry_run": false,
+      "by_state": {
+        "AK": {
+          "teams": 120,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "AL": {
+          "teams": 673,
+          "duplicates": 1,
+          "merged": 1
+        },
+        "AR": {
+          "teams": 389,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "AZ": {
+          "teams": 1867,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "CA": {
+          "teams": 13735,
+          "duplicates": 17,
+          "merged": 17
+        },
+        "CO": {
+          "teams": 1364,
+          "duplicates": 2,
+          "merged": 2
+        },
+        "CT": {
+          "teams": 1131,
+          "duplicates": 2,
+          "merged": 2
+        },
+        "DC": {
+          "teams": 14,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "DE": {
+          "teams": 204,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "FL": {
+          "teams": 5169,
+          "duplicates": 5,
+          "merged": 5
+        },
+        "GA": {
+          "teams": 2279,
+          "duplicates": 1,
+          "merged": 1
+        },
+        "HI": {
+          "teams": 205,
+          "duplicates": 1,
+          "merged": 1
+        },
+        "IA": {
+          "teams": 769,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "ID": {
+          "teams": 781,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "IL": {
+          "teams": 3738,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "IN": {
+          "teams": 1374,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "KS": {
+          "teams": 1212,
+          "duplicates": 1,
+          "merged": 1
+        },
+        "KY": {
+          "teams": 1015,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "LA": {
+          "teams": 520,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "MA": {
+          "teams": 2368,
+          "duplicates": 4,
+          "merged": 4
+        },
+        "MD": {
+          "teams": 2220,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "ME": {
+          "teams": 375,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "MI": {
+          "teams": 3067,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "MN": {
+          "teams": 1377,
+          "duplicates": 1,
+          "merged": 1
+        },
+        "MO": {
+          "teams": 1848,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "MS": {
+          "teams": 497,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "MT": {
+          "teams": 341,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "NC": {
+          "teams": 2515,
+          "duplicates": 1,
+          "merged": 1
+        },
+        "ND": {
+          "teams": 150,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "NE": {
+          "teams": 789,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "NH": {
+          "teams": 560,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "NJ": {
+          "teams": 4571,
+          "duplicates": 3,
+          "merged": 3
+        },
+        "NM": {
+          "teams": 447,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "NV": {
+          "teams": 731,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "NY": {
+          "teams": 4864,
+          "duplicates": 16,
+          "merged": 16
+        },
+        "OH": {
+          "teams": 4460,
+          "duplicates": 1,
+          "merged": 1
+        },
+        "OK": {
+          "teams": 1053,
+          "duplicates": 1,
+          "merged": 1
+        },
+        "OR": {
+          "teams": 1331,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "PA": {
+          "teams": 3739,
+          "duplicates": 1,
+          "merged": 1
+        },
+        "RI": {
+          "teams": 337,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "SC": {
+          "teams": 811,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "SD": {
+          "teams": 227,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "TN": {
+          "teams": 1349,
+          "duplicates": 1,
+          "merged": 1
+        },
+        "TX": {
+          "teams": 9007,
+          "duplicates": 6,
+          "merged": 6
+        },
+        "UT": {
+          "teams": 1803,
+          "duplicates": 1,
+          "merged": 1
+        },
+        "VA": {
+          "teams": 2662,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "VT": {
+          "teams": 301,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "WA": {
+          "teams": 3146,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "WI": {
+          "teams": 1280,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "WV": {
+          "teams": 211,
+          "duplicates": 0,
+          "merged": 0
+        },
+        "WY": {
+          "teams": 192,
+          "duplicates": 0,
+          "merged": 0
+        }
+      },
+      "by_gender": {
+        "Male": {
+          "teams": 58702,
+          "duplicates": 34,
+          "merged": 34
+        },
+        "Female": {
+          "teams": 36486,
+          "duplicates": 32,
+          "merged": 32
+        }
+      },
+      "by_age": {
+        "U10": {
+          "teams": 5803,
+          "duplicates": 4,
+          "merged": 4
+        },
+        "U11": {
+          "teams": 12984,
+          "duplicates": 6,
+          "merged": 6
+        },
+        "U12": {
+          "teams": 14385,
+          "duplicates": 8,
+          "merged": 8
+        },
+        "U13": {
+          "teams": 14774,
+          "duplicates": 19,
+          "merged": 19
+        },
+        "U14": {
+          "teams": 11944,
+          "duplicates": 4,
+          "merged": 4
+        },
+        "U15": {
+          "teams": 11378,
+          "duplicates": 4,
+          "merged": 4
+        },
+        "U16": {
+          "teams": 9972,
+          "duplicates": 7,
+          "merged": 7
+        },
+        "U17": {
+          "teams": 8211,
+          "duplicates": 10,
+          "merged": 10
+        },
+        "U18": {
+          "teams": 5268,
+          "duplicates": 3,
+          "merged": 3
+        },
+        "U19": {
+          "teams": 469,
+          "duplicates": 1,
+          "merged": 1
+        }
+      },
+      "total_teams": 95188,
+      "total_duplicates": 66,
+      "total_merged": 66,
+      "failed_merges": []
     }
   ],
-  "last_run": "2026-01-29T19:19:20.578926"
+  "last_run": "2026-01-31T13:39:29.079350"
 }
