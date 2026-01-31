@@ -662,18 +662,68 @@ Title: "U14 Boys Rankings: January Week 4 Analysis"
 - Teams on the rise
 ```
 
-#### SEO Features
-```yaml
-Keyword Gap Analysis:
-  - Scan current pages for ranking keywords
-  - Identify missing age group/region pages
-  - Suggest new content opportunities
-  - Track competitor keywords (optional)
+#### SEO Features (Codey implements, Socialy orchestrates)
 
-Auto-Generated Pages:
-  - State-level ranking pages
-  - Age group deep-dives
-  - Tournament preview/recap pages
+**1. Programmatic SEO Pages**
+```
+Generate ranking pages for every combination:
+/rankings/[state]/[age-group]/[gender]
+/rankings/texas/u14/boys
+/rankings/california/u15/girls
+/rankings/florida/u13/boys
+→ 50 states × 8 age groups × 2 genders = 800+ pages
+```
+
+**2. Schema Markup (JSON-LD)**
+```json
+{
+  "@context": "https://schema.org",
+  "@type": "SportsTeam",
+  "name": "FC Dallas U14B",
+  "sport": "Soccer",
+  "memberOf": {
+    "@type": "SportsOrganization",
+    "name": "ECNL"
+  },
+  "ranking": {
+    "@type": "Ranking",
+    "position": 42,
+    "totalItems": 5000
+  }
+}
+```
+
+**3. Auto-Generated Meta Tags**
+```yaml
+Title: "U14 Boys Soccer Rankings - Texas | PitchRank"
+Description: "Live rankings for U14 Boys soccer teams in Texas.
+Updated weekly. See PowerScores, head-to-head records, and more."
+```
+
+**4. Internal Linking**
+```
+On each team page, auto-link to:
+- Other teams in same state
+- Other teams in same age group
+- Teams they've played against
+- Similar-ranked teams nationally
+```
+
+**5. Sitemap Generation**
+```
+Auto-update sitemap.xml when:
+- New teams added
+- New programmatic pages created
+- Rankings updated (lastmod)
+```
+
+**6. Google Search Console Integration**
+```yaml
+Weekly GSC Pull:
+  - Top queries driving traffic
+  - Pages with low CTR (need better titles)
+  - Keywords you rank #4-10 (opportunity to improve)
+  - 404 errors to fix
 ```
 
 #### Prerequisites Before Implementation
@@ -710,11 +760,33 @@ SOCIALY drafts ready → Notify for approval
 Human approves → SOCIALY posts (if connected)
 ```
 
+#### Codey Collaboration (Implementation Tasks)
+```yaml
+Phase 1 - Foundation:
+  - [ ] Create dynamic route: /rankings/[state]/[age]/[gender]
+  - [ ] Build state/age/gender data from existing rankings
+  - [ ] Add JSON-LD schema to team pages
+  - [ ] Auto-generate meta titles/descriptions
+
+Phase 2 - Scale:
+  - [ ] Generate 800+ programmatic pages
+  - [ ] Add internal linking component
+  - [ ] Create sitemap.xml generator
+  - [ ] Set up weekly sitemap refresh
+
+Phase 3 - Optimize:
+  - [ ] GSC API integration
+  - [ ] Weekly SEO report generation
+  - [ ] Low-CTR page detection
+  - [ ] Keyword opportunity alerts
+```
+
 #### Notes
 - Human-in-the-loop for all publishing (initially)
 - Can share rankings_history table with Movy
 - Start with drafts only, add auto-posting later
 - Track which content types perform best
+- Codey builds the infrastructure, Socialy runs the strategy
 
 ---
 
