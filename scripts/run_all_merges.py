@@ -92,12 +92,31 @@ def find_duplicates_for_cohort(state: str, gender: str, age_group: str):
     
     # Find duplicates
     duplicates = []
+    
+    # Skip teams with these markers - they need manual review
+    MANUAL_REVIEW_MARKERS = {'ad', 'hd', 'mls next', 'mls-next', 'mlsnext'}
+    
     for key, group in groups.items():
         unique_ids = list(set(t['id'] for t in group))
         if len(unique_ids) < 2:
             continue
         
-        # Check for division conflicts
+        # Skip if any team has AD/HD/MLS NEXT markers (manual review required)
+        has_manual_marker = False
+        for t in group:
+            name_lower = t['name'].lower()
+            for marker in MANUAL_REVIEW_MARKERS:
+                # Check for marker as whole word (not part of another word)
+                if f' {marker} ' in f' {name_lower} ' or name_lower.endswith(f' {marker}') or name_lower.startswith(f'{marker} '):
+                    has_manual_marker = True
+                    break
+            if has_manual_marker:
+                break
+        
+        if has_manual_marker:
+            continue  # Skip - needs manual review
+        
+        # Check for division conflicts in aliases
         divisions = {t['id']: get_alias_division(t['id']) for t in group}
         unique_divs = set(d for d in divisions.values() if d)
         
