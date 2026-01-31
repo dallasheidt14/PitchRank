@@ -607,12 +607,123 @@ MOVY creates reports → Available in dashboard
 
 ---
 
+### SOCIALY — Content & SEO Automation Specialist (Planned)
+
+```yaml
+Name: Socialy
+Role: Content & SEO Strategist
+Personality: Creative, SEO-savvy, low-effort-high-impact focused
+Motto: "Compound your content"
+Status: PLANNED
+Model: Sonnet (creative content generation)
+```
+
+#### Concept
+Socialy automates weekly content generation for social media and SEO. Low effort, compounding returns - drafts content for human approval before posting.
+
+#### Planned Responsibilities
+- Pull "top movers" and "biggest upsets" from rankings data
+- Draft 3-5 post templates per week (X/Twitter, Instagram, blog stubs)
+- Generate "keyword gap" notes (what pages to create next)
+- Track content performance over time
+- Suggest SEO improvements for existing pages
+
+#### Weekly Cron Workflow
+```
+1. Query last 7 days of ranking changes
+2. Identify top movers + biggest upsets
+3. Draft social media posts:
+   - 2-3 X/Twitter posts
+   - 1-2 Instagram captions
+   - 1 blog stub/outline
+4. Generate keyword gap analysis
+5. Queue drafts for human approval
+6. Post approved content (or flag for manual posting)
+```
+
+#### Content Templates
+```
+📊 WEEKLY MOVERS
+"This week's biggest climbers in [age group]:
+1. [Team] +47 spots
+2. [Team] +38 spots
+3. [Team] +29 spots
+Who's your pick for next week? 👇"
+
+⚽ UPSET ALERT
+"[Lower-ranked team] just beat [Higher-ranked team]!
+PowerScore impact: [details]
+#YouthSoccer #Rankings"
+
+📝 BLOG STUB
+Title: "U14 Boys Rankings: January Week 4 Analysis"
+- Top 5 movers and why
+- Upcoming tournaments to watch
+- Teams on the rise
+```
+
+#### SEO Features
+```yaml
+Keyword Gap Analysis:
+  - Scan current pages for ranking keywords
+  - Identify missing age group/region pages
+  - Suggest new content opportunities
+  - Track competitor keywords (optional)
+
+Auto-Generated Pages:
+  - State-level ranking pages
+  - Age group deep-dives
+  - Tournament preview/recap pages
+```
+
+#### Prerequisites Before Implementation
+- [ ] Rankings history data (shared with Movy)
+- [ ] Social media API credentials
+- [ ] Blog/CMS integration (if auto-posting)
+- [ ] Content approval queue system
+- [ ] SEO tracking tools (optional)
+
+#### Planned Schedule
+| Task | Frequency | Trigger |
+|------|-----------|---------|
+| Weekly content draft | Tuesday | After rankings update |
+| Keyword gap analysis | Monthly (1st) | Scheduled |
+| Performance review | Monthly (15th) | Scheduled |
+
+#### Approval Flow
+```
+SOCIALY drafts content
+    ↓
+Queued for review (chat notification)
+    ↓
+Human approves/edits/rejects
+    ↓
+Approved → Auto-post or manual post
+Rejected → Logged for learning
+```
+
+#### Integration Points
+```
+RANKY completes → SOCIALY pulls movers data
+MOVY provides analytics → SOCIALY drafts posts
+SOCIALY drafts ready → Notify for approval
+Human approves → SOCIALY posts (if connected)
+```
+
+#### Notes
+- Human-in-the-loop for all publishing (initially)
+- Can share rankings_history table with Movy
+- Start with drafts only, add auto-posting later
+- Track which content types perform best
+
+---
+
 ## Version
 
 ```
-SUB_AGENTS.md v1.2.0
+SUB_AGENTS.md v1.3.0
 PitchRank Repository
-Last Updated: 2026-01-30
+Last Updated: 2026-01-31
 Added: Codey (Software Engineering Specialist)
-Added: Planned Agents section with Movy concept
+Added: Planned Agents section with Movy and Socialy concepts
 ```
