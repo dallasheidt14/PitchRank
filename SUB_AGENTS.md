@@ -607,12 +607,195 @@ MOVY creates reports → Available in dashboard
 
 ---
 
+### SOCIALY — Content & SEO Automation Specialist (Planned)
+
+```yaml
+Name: Socialy
+Role: Content & SEO Strategist
+Personality: Creative, SEO-savvy, low-effort-high-impact focused
+Motto: "Compound your content"
+Status: PLANNED
+Model: Sonnet (creative content generation)
+```
+
+#### Concept
+Socialy automates weekly content generation for social media and SEO. Low effort, compounding returns - drafts content for human approval before posting.
+
+#### Planned Responsibilities
+- Pull "top movers" and "biggest upsets" from rankings data
+- Draft 3-5 post templates per week (X/Twitter, Instagram, blog stubs)
+- Generate "keyword gap" notes (what pages to create next)
+- Track content performance over time
+- Suggest SEO improvements for existing pages
+
+#### Weekly Cron Workflow
+```
+1. Query last 7 days of ranking changes
+2. Identify top movers + biggest upsets
+3. Draft social media posts:
+   - 2-3 X/Twitter posts
+   - 1-2 Instagram captions
+   - 1 blog stub/outline
+4. Generate keyword gap analysis
+5. Queue drafts for human approval
+6. Post approved content (or flag for manual posting)
+```
+
+#### Content Templates
+```
+📊 WEEKLY MOVERS
+"This week's biggest climbers in [age group]:
+1. [Team] +47 spots
+2. [Team] +38 spots
+3. [Team] +29 spots
+Who's your pick for next week? 👇"
+
+⚽ UPSET ALERT
+"[Lower-ranked team] just beat [Higher-ranked team]!
+PowerScore impact: [details]
+#YouthSoccer #Rankings"
+
+📝 BLOG STUB
+Title: "U14 Boys Rankings: January Week 4 Analysis"
+- Top 5 movers and why
+- Upcoming tournaments to watch
+- Teams on the rise
+```
+
+#### SEO Features (Codey implements, Socialy orchestrates)
+
+**1. Programmatic SEO Pages**
+```
+Generate ranking pages for every combination:
+/rankings/[state]/[age-group]/[gender]
+/rankings/texas/u14/boys
+/rankings/california/u15/girls
+/rankings/florida/u13/boys
+→ 50 states × 8 age groups × 2 genders = 800+ pages
+```
+
+**2. Schema Markup (JSON-LD)**
+```json
+{
+  "@context": "https://schema.org",
+  "@type": "SportsTeam",
+  "name": "FC Dallas U14B",
+  "sport": "Soccer",
+  "memberOf": {
+    "@type": "SportsOrganization",
+    "name": "ECNL"
+  },
+  "ranking": {
+    "@type": "Ranking",
+    "position": 42,
+    "totalItems": 5000
+  }
+}
+```
+
+**3. Auto-Generated Meta Tags**
+```yaml
+Title: "U14 Boys Soccer Rankings - Texas | PitchRank"
+Description: "Live rankings for U14 Boys soccer teams in Texas.
+Updated weekly. See PowerScores, head-to-head records, and more."
+```
+
+**4. Internal Linking**
+```
+On each team page, auto-link to:
+- Other teams in same state
+- Other teams in same age group
+- Teams they've played against
+- Similar-ranked teams nationally
+```
+
+**5. Sitemap Generation**
+```
+Auto-update sitemap.xml when:
+- New teams added
+- New programmatic pages created
+- Rankings updated (lastmod)
+```
+
+**6. Google Search Console Integration**
+```yaml
+Weekly GSC Pull:
+  - Top queries driving traffic
+  - Pages with low CTR (need better titles)
+  - Keywords you rank #4-10 (opportunity to improve)
+  - 404 errors to fix
+```
+
+#### Prerequisites Before Implementation
+- [ ] Rankings history data (shared with Movy)
+- [ ] Social media API credentials
+- [ ] Blog/CMS integration (if auto-posting)
+- [ ] Content approval queue system
+- [ ] SEO tracking tools (optional)
+
+#### Planned Schedule
+| Task | Frequency | Trigger |
+|------|-----------|---------|
+| Weekly content draft | Tuesday | After rankings update |
+| Keyword gap analysis | Monthly (1st) | Scheduled |
+| Performance review | Monthly (15th) | Scheduled |
+
+#### Approval Flow
+```
+SOCIALY drafts content
+    ↓
+Queued for review (chat notification)
+    ↓
+Human approves/edits/rejects
+    ↓
+Approved → Auto-post or manual post
+Rejected → Logged for learning
+```
+
+#### Integration Points
+```
+RANKY completes → SOCIALY pulls movers data
+MOVY provides analytics → SOCIALY drafts posts
+SOCIALY drafts ready → Notify for approval
+Human approves → SOCIALY posts (if connected)
+```
+
+#### Codey Collaboration (Implementation Tasks)
+```yaml
+Phase 1 - Foundation:
+  - [ ] Create dynamic route: /rankings/[state]/[age]/[gender]
+  - [ ] Build state/age/gender data from existing rankings
+  - [ ] Add JSON-LD schema to team pages
+  - [ ] Auto-generate meta titles/descriptions
+
+Phase 2 - Scale:
+  - [ ] Generate 800+ programmatic pages
+  - [ ] Add internal linking component
+  - [ ] Create sitemap.xml generator
+  - [ ] Set up weekly sitemap refresh
+
+Phase 3 - Optimize:
+  - [ ] GSC API integration
+  - [ ] Weekly SEO report generation
+  - [ ] Low-CTR page detection
+  - [ ] Keyword opportunity alerts
+```
+
+#### Notes
+- Human-in-the-loop for all publishing (initially)
+- Can share rankings_history table with Movy
+- Start with drafts only, add auto-posting later
+- Track which content types perform best
+- Codey builds the infrastructure, Socialy runs the strategy
+
+---
+
 ## Version
 
 ```
-SUB_AGENTS.md v1.2.0
+SUB_AGENTS.md v1.3.0
 PitchRank Repository
-Last Updated: 2026-01-30
+Last Updated: 2026-01-31
 Added: Codey (Software Engineering Specialist)
-Added: Planned Agents section with Movy concept
+Added: Planned Agents section with Movy and Socialy concepts
 ```
