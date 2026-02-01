@@ -565,11 +565,12 @@ LIMIT 10;
 ```
 
 #### Prerequisites Before Implementation
-- [ ] `rankings_history` table for historical snapshots
-- [ ] Weekly snapshot job (after rankings calculation)
+- [x] `rankings_history` table for historical snapshots ✅ DONE
+- [x] Weekly snapshot job (after rankings calculation) ✅ DONE
+- [x] 7-day and 30-day rank change tracking ✅ DONE
+- [x] RecentMovers frontend component ✅ DONE
 - [ ] Social media API credentials (Twitter/X, Instagram)
-- [ ] Content templates and brand guidelines
-- [ ] Image generation capability (optional)
+- [ ] Automated weekly cron trigger
 
 #### Planned Schedule
 | Task | Frequency | Trigger |
@@ -601,8 +602,9 @@ MOVY creates reports → Available in dashboard
 ```
 
 #### Notes
-- Requires rankings_history table (not yet implemented)
-- Social media posting may need human approval initially
+- Rankings history table EXISTS and is populated daily
+- Infographic templates already built at /infographics
+- Just needs automation layer (cron + approval queue)
 - Consider A/B testing content formats
 
 ---
@@ -726,11 +728,46 @@ Weekly GSC Pull:
   - 404 errors to fix
 ```
 
-#### Prerequisites Before Implementation
-- [ ] Rankings history data (shared with Movy)
-- [ ] Social media API credentials
-- [ ] Blog/CMS integration (if auto-posting)
+#### Already Built (Existing Infrastructure)
+```yaml
+Infographics System: ✅ COMPLETE
+  Location: frontend/app/infographics/page.tsx
+  Templates:
+    - Top10Infographic.tsx          # Top 10 leaderboard
+    - BiggestMoversPreview.tsx      # Rising/falling teams
+    - TeamSpotlightPreview.tsx      # Single team feature
+    - HeadToHeadPreview.tsx         # Team comparison
+    - StateChampionsPreview.tsx     # #1 per state
+    - storyTemplateRenderer.ts      # IG story templates
+    - coverImageRenderer.ts         # Social headers
+
+  Platforms Supported:
+    - Instagram Post (1080x1080)
+    - Instagram Story (1080x1920)
+    - Twitter/X Post (1200x675)
+    - Facebook Post (1200x630)
+    - Cover images (Twitter, FB, LinkedIn)
+
+Caption Generator: ✅ COMPLETE
+  Location: frontend/components/infographics/CaptionGenerator.tsx
+  Features:
+    - Pre-built templates per infographic type
+    - Auto-generated hashtags (age, gender, engagement)
+    - Character count for each platform
+    - One-click copy
+
+Rankings History: ✅ COMPLETE
+  - ranking_history table
+  - save_ranking_snapshot()
+  - rank_change_7d, rank_change_30d
+  - rank_change_state_7d, rank_change_state_30d
+```
+
+#### Still Needed
+- [ ] Weekly automation cron (trigger infographic generation)
 - [ ] Content approval queue system
+- [ ] Social media API credentials
+- [ ] Auto-posting integration
 - [ ] SEO tracking tools (optional)
 
 #### Planned Schedule
@@ -793,9 +830,10 @@ Phase 3 - Optimize:
 ## Version
 
 ```
-SUB_AGENTS.md v1.3.0
+SUB_AGENTS.md v1.4.0
 PitchRank Repository
-Last Updated: 2026-01-31
+Last Updated: 2026-02-01
 Added: Codey (Software Engineering Specialist)
 Added: Planned Agents section with Movy and Socialy concepts
+Updated: Documented existing infrastructure (rankings_history, infographics, captions)
 ```
