@@ -44,7 +44,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const parentRef = useRef<HTMLDivElement>(null);
 
-  const { data: rankings, isLoading, isError, error, refetch } = useRankings(region, ageGroup, gender);
+  const { data: rankings, isLoading, isFetching, isError, error, refetch } = useRankings(region, ageGroup, gender);
   const prefetchTeam = usePrefetchTeam();
 
   // Track rankings viewed when data loads
@@ -262,8 +262,12 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     <Card className="overflow-hidden border-0 shadow-lg">
       <CardHeader className="bg-gradient-to-r from-primary to-[oklch(0.28_0.08_165)] text-primary-foreground relative">
         <div className="absolute right-0 top-0 w-2 h-full bg-accent -skew-x-12" aria-hidden="true" />
-        <CardTitle className="text-2xl sm:text-3xl font-bold uppercase tracking-wide">
+        <CardTitle className="text-2xl sm:text-3xl font-bold uppercase tracking-wide flex items-center gap-2">
           Complete Rankings
+          {/* Show loading indicator when fetching new data (but not initial load) */}
+          {isFetching && !isLoading && (
+            <span className="inline-block w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" aria-label="Loading..." />
+          )}
         </CardTitle>
         <CardDescription className="text-primary-foreground/90 text-sm sm:text-base">
           {description}

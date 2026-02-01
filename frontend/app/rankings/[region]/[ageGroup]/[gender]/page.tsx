@@ -100,5 +100,9 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
   const resolvedParams = await params;
   const { region, ageGroup, gender } = resolvedParams;
 
-  return <RankingsPageContent region={region} ageGroup={ageGroup} gender={gender} />;
+  // key prop forces React to unmount/remount the component when route params change
+  // This ensures fresh data fetching on client-side navigation between different rankings pages
+  const routeKey = `${region}-${ageGroup}-${gender}`;
+
+  return <RankingsPageContent key={routeKey} region={region} ageGroup={ageGroup} gender={gender} />;
 }
