@@ -13,6 +13,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { formatPowerScore } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
 import { trackRankingsViewed, trackSortUsed, trackTeamRowClicked } from '@/lib/events';
+import { RankingsSchema } from '@/components/RankingsSchema';
 
 interface RankingsTableProps {
   region: string | null; // null = national
@@ -258,8 +259,27 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
       ? totalHeight - (virtualItems[virtualItems.length - 1]?.end ?? 0)
       : 0;
 
+  // Prepare top teams for schema
+  const topTeamsForSchema = sortedRankings.slice(0, 10).map(team => ({
+    teamName: team.team_name,
+    clubName: team.club_name,
+    rank: team.national_rank,
+    powerScore: team.national_power_score,
+    state: team.state_code,
+  }));
+
   return (
-    <Card className="overflow-hidden border-0 shadow-lg">
+    <>
+      {/* Rankings Schema for SEO */}
+      <RankingsSchema
+        region={region || 'national'}
+        ageGroup={ageGroup}
+        gender={gender === 'M' || gender === 'B' ? 'male' : 'female'}
+        topTeams={topTeamsForSchema}
+        totalTeams={sortedRankings.length}
+        lastUpdated={rankings?.[0]?.last_calculated}
+      />
+      <Card className="overflow-hidden border-0 shadow-lg">
       <CardHeader className="bg-gradient-to-r from-primary to-[oklch(0.28_0.08_165)] text-primary-foreground relative">
         <div className="absolute right-0 top-0 w-2 h-full bg-accent -skew-x-12" aria-hidden="true" />
         <CardTitle className="text-2xl sm:text-3xl font-bold uppercase tracking-wide flex items-center gap-2">
@@ -425,5 +445,6 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
         )}
       </CardContent>
     </Card>
+    </>
   );
 }
