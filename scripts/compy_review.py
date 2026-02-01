@@ -52,10 +52,18 @@ def get_recent_sessions(hours: int = 24):
 
 
 def parse_session(session_path: Path):
-    """Parse a session JSONL file and extract key information."""
+    """Parse a session JSONL file and extract key information.
+    
+    Moltbot JSONL format:
+    - Top level: {"type": "message", "message": {...}}
+    - message.role: "user" or "assistant"
+    - message.content[]: array with types "text", "toolCall", "thinking"
+    - message.errorMessage: error string if present
+    """
     messages = []
     tools_used = set()
     errors = []
+    user_messages = []
     
     try:
         with open(session_path, 'r') as f:
@@ -63,19 +71,35 @@ def parse_session(session_path: Path):
                 try:
                     entry = json.loads(line)
                     
+                    # Skip non-message entries
+                    if entry.get('type') != 'message':
+                        continue
+                    
+                    msg = entry.get('message', {})
+                    role = msg.get('role')
+                    content = msg.get('content', [])
+                    
+                    # Extract user messages for context
+                    if role == 'user' and isinstance(content, list):
+                        for item in content:
+                            if item.get('type') == 'text':
+                                text = item.get('text', '')
+                                # Strip Telegram prefix for cleaner text
+                                if '[message_id:' in text:
+                                    text = text.split(']', 2)[-1].strip() if text.count(']') >= 2 else text
+                                user_messages.append(text[:300])
+                    
                     # Extract assistant messages
-                    if entry.get('role') == 'assistant':
-                        content = entry.get('content', [])
-                        if isinstance(content, list):
-                            for item in content:
-                                if item.get('type') == 'text':
-                                    messages.append(item.get('text', '')[:500])
-                                elif item.get('type') == 'toolCall':
-                                    tools_used.add(item.get('name', 'unknown'))
+                    if role == 'assistant' and isinstance(content, list):
+                        for item in content:
+                            if item.get('type') == 'text':
+                                messages.append(item.get('text', '')[:500])
+                            elif item.get('type') == 'toolCall':
+                                tools_used.add(item.get('name', 'unknown'))
                     
                     # Check for errors
-                    if entry.get('errorMessage'):
-                        errors.append(entry.get('errorMessage'))
+                    if msg.get('errorMessage'):
+                        errors.append(msg.get('errorMessage'))
                         
                 except json.JSONDecodeError:
                     continue
@@ -85,9 +109,11 @@ def parse_session(session_path: Path):
     
     return {
         'message_count': len(messages),
+        'user_message_count': len(user_messages),
         'tools_used': list(tools_used),
         'errors': errors,
-        'sample_messages': messages[:5]  # First 5 messages
+        'sample_messages': messages[:5],  # First 5 assistant messages
+        'sample_user_messages': user_messages[:10]  # First 10 user messages for context
     }
 
 
@@ -96,19 +122,27 @@ def identify_agent(session_path: Path, parsed: dict):
     # Check tools used
     tools = set(parsed.get('tools_used', []))
     
-    # Check for agent patterns in messages
+    # Check for agent patterns in messages (both assistant and user)
     messages = ' '.join(parsed.get('sample_messages', []))
+    user_msgs = ' '.join(parsed.get('sample_user_messages', []))
+    all_text = f"{messages} {user_msgs}".lower()
     
-    if 'run_weekly_cleany' in messages or 'merge' in messages.lower():
+    if 'run_weekly_cleany' in all_text or 'cleany' in all_text:
         return 'Cleany'
-    if 'scrappy_monitor' in messages or 'scrape' in messages.lower():
+    if 'scrappy_monitor' in all_text or 'scrappy' in all_text:
         return 'Scrappy'
-    if 'watchy_health' in messages:
+    if 'watchy_health' in all_text or 'watchy' in all_text:
         return 'Watchy'
-    if 'movy_report' in messages or 'movers' in messages.lower():
+    if 'movy_report' in all_text or 'movy' in all_text:
         return 'Movy'
-    if 'codey' in messages.lower() or 'bug' in messages.lower() or 'fix' in messages.lower():
+    if 'compy' in all_text:
+        return 'Compy'
+    if 'codey' in all_text:
         return 'Codey'
+    
+    # Check for main session indicators
+    if parsed.get('user_message_count', 0) > 20 or 'telegram' in all_text:
+        return 'Main'
     
     return 'Unknown'
 
@@ -121,6 +155,7 @@ def generate_summary(sessions: list):
         'by_agent': {},
         'all_errors': [],
         'tools_used_frequency': {},
+        'conversation_samples': [],  # Sample exchanges for learning
     }
     
     for session in sessions:
@@ -134,14 +169,22 @@ def generate_summary(sessions: list):
             summary['by_agent'][agent] = {
                 'session_count': 0,
                 'total_messages': 0,
+                'user_messages': 0,
                 'errors': [],
-                'tools': set()
+                'tools': set(),
+                'sample_topics': []
             }
         
         summary['by_agent'][agent]['session_count'] += 1
         summary['by_agent'][agent]['total_messages'] += parsed.get('message_count', 0)
+        summary['by_agent'][agent]['user_messages'] += parsed.get('user_message_count', 0)
         summary['by_agent'][agent]['errors'].extend(parsed.get('errors', []))
         summary['by_agent'][agent]['tools'].update(parsed.get('tools_used', []))
+        
+        # Collect sample user messages as topic indicators
+        for msg in parsed.get('sample_user_messages', [])[:3]:
+            if msg and len(msg) > 10:
+                summary['by_agent'][agent]['sample_topics'].append(msg[:100])
         
         # Track all errors
         summary['all_errors'].extend(parsed.get('errors', []))
@@ -153,6 +196,8 @@ def generate_summary(sessions: list):
     # Convert sets to lists for JSON
     for agent in summary['by_agent']:
         summary['by_agent'][agent]['tools'] = list(summary['by_agent'][agent]['tools'])
+        # Keep only unique topics
+        summary['by_agent'][agent]['sample_topics'] = list(set(summary['by_agent'][agent]['sample_topics']))[:5]
     
     return summary
 
@@ -170,8 +215,17 @@ def format_for_compy(summary: dict):
     for agent, data in summary['by_agent'].items():
         lines.append(f"\n### {agent}")
         lines.append(f"- Sessions: {data['session_count']}")
-        lines.append(f"- Messages: {data['total_messages']}")
+        lines.append(f"- Assistant messages: {data['total_messages']}")
+        lines.append(f"- User messages: {data.get('user_messages', 0)}")
         lines.append(f"- Tools used: {', '.join(data['tools']) if data['tools'] else 'None'}")
+        
+        # Show sample topics (what was discussed)
+        topics = data.get('sample_topics', [])
+        if topics:
+            lines.append("- Topics discussed:")
+            for topic in topics[:5]:
+                lines.append(f"  - \"{topic}\"")
+        
         if data['errors']:
             lines.append(f"- Errors: {len(data['errors'])}")
             for err in data['errors'][:3]:  # First 3 errors
