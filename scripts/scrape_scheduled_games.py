@@ -20,10 +20,13 @@ import sys
 import json
 import argparse
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import time
 import random
+import logging
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -33,12 +36,80 @@ load_dotenv()
 
 import psycopg2
 
+# Try to import certifi for better SSL handling
+try:
+    import certifi
+    CERTIFI_AVAILABLE = True
+except ImportError:
+    CERTIFI_AVAILABLE = False
+    certifi = None
+
+# Logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 # GotSport API
 GOTSPORT_API = "https://system.gotsport.com/api/v1"
 
-# Rate limiting
-DELAY_MIN = 2.0  # Be nice to their API
-DELAY_MAX = 4.0
+# Rate limiting - configurable via environment
+DELAY_MIN = float(os.getenv('SCHEDULED_SCRAPER_DELAY_MIN', '1.5'))
+DELAY_MAX = float(os.getenv('SCHEDULED_SCRAPER_DELAY_MAX', '2.5'))
+MAX_RETRIES = int(os.getenv('SCHEDULED_SCRAPER_MAX_RETRIES', '3'))
+TIMEOUT = int(os.getenv('SCHEDULED_SCRAPER_TIMEOUT', '30'))
+RETRY_DELAY = float(os.getenv('SCHEDULED_SCRAPER_RETRY_DELAY', '2.0'))
+
+
+def create_http_session() -> requests.Session:
+    """
+    Create an optimized HTTP session with connection pooling and retry logic.
+    
+    Features:
+    - Connection pooling for reuse (faster, less overhead)
+    - Automatic retry on 500/502/503/504 errors
+    - Exponential backoff on retries
+    - Proper SSL certificate handling via certifi
+    """
+    session = requests.Session()
+    
+    # SSL configuration: use certifi if available
+    verify_ssl = True
+    if CERTIFI_AVAILABLE:
+        verify_ssl = certifi.where()
+        logger.debug(f"Using certifi certificates")
+    
+    # Configure retry strategy
+    retry_strategy = Retry(
+        total=3,
+        backoff_factor=0.3,  # 0.3, 0.6, 1.2 seconds
+        status_forcelist=[500, 502, 503, 504],
+        allowed_methods=["GET", "HEAD"]
+    )
+    
+    # HTTPAdapter with connection pooling
+    adapter = HTTPAdapter(
+        pool_connections=20,  # Number of connection pools
+        pool_maxsize=20,      # Max connections per pool
+        max_retries=retry_strategy
+    )
+    
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    
+    # Set SSL verification
+    session.verify = verify_ssl
+    
+    # Set headers to look like a real browser
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Origin': 'https://rankings.gotsport.com',
+        'Referer': 'https://rankings.gotsport.com/',
+        'Connection': 'keep-alive',
+    })
+    
+    return session
 
 
 def get_db_connection():
@@ -46,22 +117,25 @@ def get_db_connection():
     return psycopg2.connect(os.environ['DATABASE_URL'])
 
 
-def get_top_teams(conn, limit: int = 100, state: Optional[str] = None, 
-                   top_per_group: int = 10, top_per_state: int = 20) -> List[Dict]:
+def get_top_teams(conn, limit: int = 2000, state: Optional[str] = None, 
+                   top_per_group: int = 100) -> List[Dict]:
     """Get top-ranked teams with their GotSport provider IDs.
     
     Strategy: Get top N teams PER AGE GROUP/GENDER to ensure coverage across
-    all competitive brackets. This is better for finding big matchups since
-    teams only play within their age group.
+    all competitive brackets. Teams only play within their age group, so this
+    ensures we catch big matchups in every bracket.
     
     Args:
         conn: Database connection
-        limit: Max total teams to return
+        limit: Max total teams to return (default 2000 = ~100 per group * 18 groups)
         state: Filter to specific state (optional)
-        top_per_group: Include top N teams per age group/gender combo
-        top_per_state: Also include teams ranked top N in their state
+        top_per_group: Include top N teams per age group/gender combo (default 100)
     """
     cur = conn.cursor()
+    
+    # Valid age groups: U10-U18 only (no U8, U9, U19+)
+    valid_age_groups = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18',
+                        'U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U18']
     
     # Get top-ranked teams PER AGE GROUP/GENDER
     # First dedupe teams, then rank within each group
@@ -84,6 +158,7 @@ def get_top_teams(conn, limit: int = 100, state: Optional[str] = None,
             WHERE g.home_provider_id IS NOT NULL
             AND LENGTH(g.home_provider_id) <= 10
             AND cr.national_rank IS NOT NULL
+            AND t.age_group IN ('u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U18')
     '''
     
     params = []
@@ -98,18 +173,17 @@ def get_top_teams(conn, limit: int = 100, state: Optional[str] = None,
         ranked_by_group AS (
             SELECT *,
                 ROW_NUMBER() OVER (
-                    PARTITION BY age_group, gender 
+                    PARTITION BY LOWER(age_group), gender 
                     ORDER BY national_rank
                 ) as rank_in_group
             FROM team_rankings
         )
         SELECT * FROM ranked_by_group
         WHERE rank_in_group <= %s
-        OR state_rank <= %s
         ORDER BY age_group, gender, national_rank
         LIMIT %s
     '''
-    params.extend([top_per_group, top_per_state, limit])
+    params.extend([top_per_group, limit])
     
     cur.execute(query, params)
     columns = [desc[0] for desc in cur.description]
@@ -122,23 +196,62 @@ def get_top_teams(conn, limit: int = 100, state: Optional[str] = None,
     return teams
 
 
-def fetch_team_matches(team_id: str, timeout: int = 30) -> Optional[List[Dict]]:
-    """Fetch all matches for a team from GotSport API."""
+def fetch_team_matches(session: requests.Session, team_id: str) -> Optional[List[Dict]]:
+    """
+    Fetch all matches for a team from GotSport API.
+    
+    Uses manual retry loop on top of urllib3's automatic retries for:
+    - Timeout errors
+    - Connection errors
+    - SSL errors (with session reset)
+    """
     url = f"{GOTSPORT_API}/teams/{team_id}/matches"
     
-    try:
-        resp = requests.get(url, timeout=timeout)
-        if resp.status_code == 200:
-            return resp.json()
-        else:
-            print(f"  API returned {resp.status_code} for team {team_id}")
+    for attempt in range(MAX_RETRIES):
+        try:
+            resp = session.get(url, timeout=TIMEOUT)
+            
+            if resp.status_code == 200:
+                return resp.json()
+            elif resp.status_code == 404:
+                logger.debug(f"Team {team_id} not found (404)")
+                return None
+            else:
+                logger.warning(f"API returned {resp.status_code} for team {team_id}")
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(RETRY_DELAY * (attempt + 1))
+                    continue
+                return None
+                
+        except requests.exceptions.Timeout:
+            if attempt < MAX_RETRIES - 1:
+                wait_time = RETRY_DELAY * (attempt + 1)
+                logger.warning(f"Timeout for team {team_id} (attempt {attempt + 1}/{MAX_RETRIES}), retrying in {wait_time:.1f}s...")
+                time.sleep(wait_time)
+                continue
+            logger.error(f"Timeout for team {team_id} after {MAX_RETRIES} attempts")
             return None
-    except requests.exceptions.Timeout:
-        print(f"  Timeout for team {team_id}")
-        return None
-    except Exception as e:
-        print(f"  Error fetching team {team_id}: {e}")
-        return None
+            
+        except requests.exceptions.SSLError as e:
+            if attempt < MAX_RETRIES - 1:
+                # Exponential backoff for SSL errors
+                wait_time = RETRY_DELAY * (2 ** attempt) + random.uniform(0, 1.0)
+                logger.warning(f"SSL error for team {team_id} (attempt {attempt + 1}/{MAX_RETRIES}), retrying in {wait_time:.1f}s...")
+                time.sleep(wait_time)
+                continue
+            logger.error(f"SSL error for team {team_id} after {MAX_RETRIES} attempts: {e}")
+            return None
+            
+        except requests.exceptions.RequestException as e:
+            if attempt < MAX_RETRIES - 1:
+                wait_time = RETRY_DELAY * (attempt + 1)
+                logger.warning(f"Request error for team {team_id} (attempt {attempt + 1}/{MAX_RETRIES}): {e}, retrying...")
+                time.sleep(wait_time)
+                continue
+            logger.error(f"Request failed for team {team_id} after {MAX_RETRIES} attempts: {e}")
+            return None
+    
+    return None
 
 
 def extract_future_games(matches: List[Dict], team_info: Dict) -> List[Dict]:
@@ -265,7 +378,7 @@ def save_scheduled_games(conn, games: List[Dict]):
             ))
             inserted += 1
         except Exception as e:
-            print(f"  Error saving game {game.get('match_id')}: {e}")
+            logger.warning(f"Error saving game {game.get('match_id')}: {e}")
     
     conn.commit()
     return inserted
@@ -276,13 +389,23 @@ def main():
     parser.add_argument('--limit', type=int, default=50, help='Number of teams to check')
     parser.add_argument('--state', type=str, help='Filter by state code (e.g., TX, CA)')
     parser.add_argument('--dry-run', action='store_true', help='Print findings without saving')
+    parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose logging')
     args = parser.parse_args()
+    
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
     
     print(f"🔮 Scheduled Games Scraper")
     print(f"   Checking up to {args.limit} teams" + (f" in {args.state}" if args.state else ""))
+    print(f"   Rate limiting: {DELAY_MIN:.1f}-{DELAY_MAX:.1f}s between requests")
+    print(f"   Max retries: {MAX_RETRIES}, timeout: {TIMEOUT}s")
     print()
     
     conn = get_db_connection()
+    
+    # Create reusable HTTP session with connection pooling
+    session = create_http_session()
+    logger.info("Created HTTP session with connection pooling and retry logic")
     
     # Get teams to check
     teams = get_top_teams(conn, limit=args.limit, state=args.state)
@@ -290,15 +413,22 @@ def main():
     
     all_future_games = []
     teams_with_future = 0
+    failed_requests = 0
     
     for i, team in enumerate(teams):
         provider_id = team['provider_id']
-        print(f"[{i+1}/{len(teams)}] {team['club_name']} {team['team_name']} ({provider_id})...", end=' ')
+        print(f"[{i+1}/{len(teams)}] {team['club_name']} {team['team_name']} ({provider_id})...", end=' ', flush=True)
         
-        # Rate limiting
-        time.sleep(random.uniform(DELAY_MIN, DELAY_MAX))
+        # Rate limiting (before request, not after, to avoid unnecessary delay at end)
+        if i > 0:
+            time.sleep(random.uniform(DELAY_MIN, DELAY_MAX))
         
-        matches = fetch_team_matches(provider_id)
+        matches = fetch_team_matches(session, provider_id)
+        if matches is None:
+            print("failed")
+            failed_requests += 1
+            continue
+        
         if not matches:
             print("no data")
             continue
@@ -316,10 +446,14 @@ def main():
         else:
             print("no future games")
     
+    # Close session
+    session.close()
+    
     print()
     print(f"=" * 50)
     print(f"Summary:")
     print(f"  Teams checked: {len(teams)}")
+    print(f"  Failed requests: {failed_requests}")
     print(f"  Teams with future games: {teams_with_future}")
     print(f"  Total future games found: {len(all_future_games)}")
     
