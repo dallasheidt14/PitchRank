@@ -8,6 +8,7 @@ import { RankingsTableSkeleton } from '@/components/skeletons/RankingsTableSkele
 import { ShareButtons } from '@/components/ShareButtons';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { US_STATES } from '@/lib/constants';
+import { RelatedRankings } from '@/components/RelatedRankings';
 
 interface RankingsPageContentProps {
   region: string;
@@ -66,6 +67,13 @@ export function RankingsPageContent({ region, ageGroup, gender }: RankingsPageCo
             gender={genderForAPI}
           />
         </Suspense>
+
+        {/* Internal linking for SEO */}
+        <RelatedRankings
+          currentRegion={region}
+          currentAgeGroup={ageGroup}
+          currentGender={gender}
+        />
       </div>
     </div>
   );
