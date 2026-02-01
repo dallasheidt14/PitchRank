@@ -46,40 +46,69 @@ def get_db_connection():
     return psycopg2.connect(os.environ['DATABASE_URL'])
 
 
-def get_top_teams(conn, limit: int = 100, state: Optional[str] = None) -> List[Dict]:
-    """Get teams with their GotSport provider IDs from recent games."""
+def get_top_teams(conn, limit: int = 100, state: Optional[str] = None, 
+                   top_per_state: int = 20, top_national: int = 300) -> List[Dict]:
+    """Get top-ranked teams with their GotSport provider IDs.
+    
+    Strategy: Get top N teams per state OR top M nationally, whichever produces
+    teams that matter for "big game" content.
+    
+    Args:
+        conn: Database connection
+        limit: Max total teams to return
+        state: Filter to specific state (optional)
+        top_per_state: Include teams ranked top N in their state
+        top_national: Include teams ranked top N nationally
+    """
     cur = conn.cursor()
     
-    # Get distinct provider IDs from recent games
-    # We'll fetch team details from GotSport API directly
+    # Get top-ranked teams by joining current_rankings to games for provider IDs
     query = '''
-        SELECT DISTINCT 
-            g.home_provider_id as provider_id,
-            g.home_team_master_id as team_id,
-            g.event_name,
-            g.age_group,
-            COUNT(*) as game_count
-        FROM games g
-        WHERE g.home_provider_id IS NOT NULL
-        AND LENGTH(g.home_provider_id) <= 10
-        AND g.game_date > NOW() - INTERVAL '90 days'
-        GROUP BY g.home_provider_id, g.home_team_master_id, g.event_name, g.age_group
-        ORDER BY COUNT(*) DESC
-        LIMIT %s
+        WITH ranked_teams AS (
+            SELECT DISTINCT ON (cr.team_id)
+                cr.team_id,
+                cr.national_rank,
+                cr.state_rank,
+                cr.national_power_score,
+                t.team_name,
+                t.club_name,
+                t.state_code,
+                t.age_group,
+                t.gender,
+                g.home_provider_id as provider_id
+            FROM current_rankings cr
+            JOIN teams t ON cr.team_id = t.team_id_master
+            JOIN games g ON cr.team_id = g.home_team_master_id
+            WHERE g.home_provider_id IS NOT NULL
+            AND LENGTH(g.home_provider_id) <= 10
+            AND (
+                cr.national_rank <= %s
+                OR cr.state_rank <= %s
+            )
     '''
     
-    cur.execute(query, (limit,))
+    params = [top_national, top_per_state]
+    
+    if state:
+        query += ' AND t.state_code = %s'
+        params.append(state)
+    
+    query += '''
+            ORDER BY cr.team_id, cr.national_rank NULLS LAST
+        )
+        SELECT * FROM ranked_teams
+        ORDER BY national_rank NULLS LAST
+        LIMIT %s
+    '''
+    params.append(limit)
+    
+    cur.execute(query, params)
+    columns = [desc[0] for desc in cur.description]
     
     teams = []
     for row in cur.fetchall():
-        teams.append({
-            'provider_id': row[0],
-            'team_id': row[1],
-            'team_name': f"Team {row[0]}",  # Placeholder, will get from API
-            'club_name': row[2] or 'Unknown',  # Use event as club placeholder
-            'state_code': 'US',
-            'age_group': row[3],
-        })
+        team = dict(zip(columns, row))
+        teams.append(team)
     
     return teams
 
