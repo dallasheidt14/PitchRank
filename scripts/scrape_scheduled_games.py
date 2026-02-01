@@ -47,24 +47,26 @@ def get_db_connection():
 
 
 def get_top_teams(conn, limit: int = 100, state: Optional[str] = None, 
-                   top_per_state: int = 20, top_national: int = 300) -> List[Dict]:
+                   top_per_group: int = 10, top_per_state: int = 20) -> List[Dict]:
     """Get top-ranked teams with their GotSport provider IDs.
     
-    Strategy: Get top N teams per state OR top M nationally, whichever produces
-    teams that matter for "big game" content.
+    Strategy: Get top N teams PER AGE GROUP/GENDER to ensure coverage across
+    all competitive brackets. This is better for finding big matchups since
+    teams only play within their age group.
     
     Args:
         conn: Database connection
         limit: Max total teams to return
         state: Filter to specific state (optional)
-        top_per_state: Include teams ranked top N in their state
-        top_national: Include teams ranked top N nationally
+        top_per_group: Include top N teams per age group/gender combo
+        top_per_state: Also include teams ranked top N in their state
     """
     cur = conn.cursor()
     
-    # Get top-ranked teams by joining current_rankings to games for provider IDs
+    # Get top-ranked teams PER AGE GROUP/GENDER
+    # First dedupe teams, then rank within each group
     query = '''
-        WITH ranked_teams AS (
+        WITH team_rankings AS (
             SELECT DISTINCT ON (cr.team_id)
                 cr.team_id,
                 cr.national_rank,
@@ -81,26 +83,33 @@ def get_top_teams(conn, limit: int = 100, state: Optional[str] = None,
             JOIN games g ON cr.team_id = g.home_team_master_id
             WHERE g.home_provider_id IS NOT NULL
             AND LENGTH(g.home_provider_id) <= 10
-            AND (
-                cr.national_rank <= %s
-                OR cr.state_rank <= %s
-            )
+            AND cr.national_rank IS NOT NULL
     '''
     
-    params = [top_national, top_per_state]
+    params = []
     
     if state:
         query += ' AND t.state_code = %s'
         params.append(state)
     
     query += '''
-            ORDER BY cr.team_id, cr.national_rank NULLS LAST
+            ORDER BY cr.team_id, cr.national_rank
+        ),
+        ranked_by_group AS (
+            SELECT *,
+                ROW_NUMBER() OVER (
+                    PARTITION BY age_group, gender 
+                    ORDER BY national_rank
+                ) as rank_in_group
+            FROM team_rankings
         )
-        SELECT * FROM ranked_teams
-        ORDER BY national_rank NULLS LAST
+        SELECT * FROM ranked_by_group
+        WHERE rank_in_group <= %s
+        OR state_rank <= %s
+        ORDER BY age_group, gender, national_rank
         LIMIT %s
     '''
-    params.append(limit)
+    params.extend([top_per_group, top_per_state, limit])
     
     cur.execute(query, params)
     columns = [desc[0] for desc in cur.description]

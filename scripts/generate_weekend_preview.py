@@ -65,8 +65,7 @@ def enrich_with_rankings(conn, games: List[Dict]) -> List[Dict]:
     
     cur = conn.cursor()
     
-    # Build lookup of team rankings
-    # We'll try to match by club name or team name
+    # Build lookup of team rankings with full team name for precise matching
     cur.execute('''
         SELECT 
             t.club_name,
@@ -82,15 +81,14 @@ def enrich_with_rankings(conn, games: List[Dict]) -> List[Dict]:
         WHERE cr.national_rank <= 500 OR cr.state_rank <= 50
     ''')
     
-    rankings = {}
+    rankings_list = []
     for row in cur.fetchall():
         club, team, state, age, gender, nat_rank, state_rank, power = row
-        # Create multiple lookup keys
-        key1 = f"{club}_{team}".lower()
-        key2 = club.lower() if club else ""
-        key3 = team.lower() if team else ""
+        # Create full name for matching
+        full_name = f"{club} {team}".lower().strip()
         
-        info = {
+        rankings_list.append({
+            'full_name': full_name,
             'club_name': club,
             'team_name': team,
             'state': state,
@@ -99,36 +97,62 @@ def enrich_with_rankings(conn, games: List[Dict]) -> List[Dict]:
             'national_rank': nat_rank,
             'state_rank': state_rank,
             'power_score': power
-        }
+        })
+    
+    def find_best_match(team_name: str, exclude_match: dict = None) -> Optional[dict]:
+        """Find best ranking match for a team name, optionally excluding a match."""
+        if not team_name:
+            return None
         
-        rankings[key1] = info
-        if key2 and key2 not in rankings:
-            rankings[key2] = info
+        team_lower = team_name.lower().strip()
+        best_match = None
+        best_score = 0
+        
+        for info in rankings_list:
+            # Skip if this is the excluded match (to prevent same team matching both sides)
+            if exclude_match and info['full_name'] == exclude_match.get('full_name'):
+                continue
+            
+            # Calculate match score - prefer longer matches
+            score = 0
+            
+            # Exact full name match
+            if info['full_name'] == team_lower:
+                score = 100
+            # Full name contains team name or vice versa
+            elif info['full_name'] in team_lower:
+                score = len(info['full_name'])
+            elif team_lower in info['full_name']:
+                score = len(team_lower)
+            # Club name match (weaker)
+            elif info['club_name'] and info['club_name'].lower() in team_lower:
+                score = len(info['club_name']) * 0.5
+            
+            # Update best if this is better
+            if score > best_score and score >= 5:  # Minimum 5 chars to match
+                best_score = score
+                best_match = info
+        
+        return best_match
     
     # Enrich games
     enriched = []
     for game in games:
-        home = game['home_team_name'].lower() if game['home_team_name'] else ''
-        away = game['away_team_name'].lower() if game['away_team_name'] else ''
+        home = game['home_team_name']
+        away = game['away_team_name']
         
-        home_rank = None
-        away_rank = None
+        # Find home ranking first
+        home_rank = find_best_match(home)
         
-        # Try to find rankings
-        for key, info in rankings.items():
-            if key in home or home in key:
-                if home_rank is None or (info['national_rank'] and info['national_rank'] < home_rank.get('national_rank', 9999)):
-                    home_rank = info
-            if key in away or away in key:
-                if away_rank is None or (info['national_rank'] and info['national_rank'] < away_rank.get('national_rank', 9999)):
-                    away_rank = info
+        # Find away ranking, excluding home match to prevent duplicates
+        away_rank = find_best_match(away, exclude_match=home_rank)
         
         game['home_ranking'] = home_rank
         game['away_ranking'] = away_rank
         
-        # Calculate "big game" score
+        # Calculate "big game" score - both teams must be DIFFERENT and ranked
         game['is_big_game'] = False
-        if home_rank and away_rank:
+        if home_rank and away_rank and home_rank['full_name'] != away_rank['full_name']:
             h_nat = home_rank.get('national_rank') or 9999
             a_nat = away_rank.get('national_rank') or 9999
             # Both teams in top 200 nationally = big game
