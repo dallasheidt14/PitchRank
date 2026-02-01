@@ -262,10 +262,10 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   // Prepare top teams for schema
   const topTeamsForSchema = sortedRankings.slice(0, 10).map(team => ({
     teamName: team.team_name,
-    clubName: team.club_name,
-    rank: team.national_rank,
-    powerScore: team.national_power_score,
-    state: team.state_code,
+    clubName: team.club_name ?? undefined,
+    rank: team.national_rank ?? undefined,
+    powerScore: team.national_power_score ?? undefined,
+    state: team.state_code ?? undefined,
   }));
 
   return (

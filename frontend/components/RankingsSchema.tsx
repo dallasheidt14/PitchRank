@@ -2,10 +2,10 @@
 
 interface RankedTeam {
   teamName: string;
-  clubName?: string;
-  rank: number;
-  powerScore?: number;
-  state?: string;
+  clubName?: string | null;
+  rank?: number | null;
+  powerScore?: number | null;
+  state?: string | null;
 }
 
 interface RankingsSchemaProps {
@@ -14,7 +14,7 @@ interface RankingsSchemaProps {
   gender: string;
   topTeams: RankedTeam[];
   totalTeams?: number;
-  lastUpdated?: string;
+  lastUpdated?: string | null;
 }
 
 /**
@@ -35,43 +35,52 @@ export function RankingsSchema({
   const ageDisplay = ageGroup.toUpperCase();
 
   // ItemList schema for rankings
-  const rankingsSchema = {
+  const rankingsSchema: Record<string, unknown> = {
     '@context': 'https://schema.org',
     '@type': 'ItemList',
     name: `${ageDisplay} ${genderDisplay} Soccer Rankings - ${regionDisplay}`,
     description: `Top ${ageDisplay} ${genderDisplay.toLowerCase()} soccer team rankings ${region === 'national' ? 'nationally' : `in ${regionDisplay}`}`,
     url: `${baseUrl}/rankings/${region}/${ageGroup}/${gender}`,
     numberOfItems: totalTeams || topTeams.length,
-    ...(lastUpdated && { dateModified: lastUpdated }),
-    itemListElement: topTeams.slice(0, 10).map((team, index) => ({
-      '@type': 'ListItem',
-      position: team.rank || index + 1,
-      item: {
+    itemListElement: topTeams.slice(0, 10).map((team, index) => {
+      const item: Record<string, unknown> = {
         '@type': 'SportsTeam',
         name: team.teamName,
         sport: 'Soccer',
-        ...(team.clubName && {
-          memberOf: {
-            '@type': 'SportsOrganization',
-            name: team.clubName,
+      };
+      
+      if (team.clubName) {
+        item.memberOf = {
+          '@type': 'SportsOrganization',
+          name: team.clubName,
+        };
+      }
+      
+      if (team.state) {
+        item.location = {
+          '@type': 'Place',
+          address: {
+            '@type': 'PostalAddress',
+            addressRegion: team.state,
+            addressCountry: 'US',
           },
-        }),
-        ...(team.state && {
-          location: {
-            '@type': 'Place',
-            address: {
-              '@type': 'PostalAddress',
-              addressRegion: team.state,
-              addressCountry: 'US',
-            },
-          },
-        }),
-      },
-    })),
+        };
+      }
+      
+      return {
+        '@type': 'ListItem',
+        position: team.rank ?? index + 1,
+        item,
+      };
+    }),
   };
 
+  if (lastUpdated) {
+    rankingsSchema.dateModified = lastUpdated;
+  }
+
   // WebPage schema
-  const webPageSchema = {
+  const webPageSchema: Record<string, unknown> = {
     '@context': 'https://schema.org',
     '@type': 'WebPage',
     name: `${ageDisplay} ${genderDisplay} Soccer Rankings - ${regionDisplay}`,
@@ -86,9 +95,12 @@ export function RankingsSchema({
       '@type': 'Thing',
       name: `${ageDisplay} ${genderDisplay} Youth Soccer`,
     },
-    ...(lastUpdated && { dateModified: lastUpdated }),
     mainEntity: rankingsSchema,
   };
+
+  if (lastUpdated) {
+    webPageSchema.dateModified = lastUpdated;
+  }
 
   return (
     <>
