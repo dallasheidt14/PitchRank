@@ -24,5 +24,13 @@ When encountering Anthropic API errors, check these in order:
 
 These errors can cascade (136 errors in one session) when the root cause isn't addressed. Fix auth/billing first before retrying.
 
+### 2026-02-01: API Error Cascading Confirmed
+Today's main session had 174 errors, confirming the cascading pattern:
+- Multiple 401 "invalid x-api-key" errors
+- 400 "credit balance too low" errors  
+- Several connection errors
+
+**Key insight**: Once API auth fails, it creates a storm of follow-up errors. The agent keeps retrying with the same bad credentials. Need better error handling to detect and halt on auth failures.
+
 ---
-*Last updated: 2026-01-31*
+*Last updated: 2026-02-01*
