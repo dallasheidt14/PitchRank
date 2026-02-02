@@ -188,9 +188,14 @@ def main():
             for provider, count in stats_24h['aliases_by_provider']:
                 lines.append(f"    - {provider}: {count:,}")
         
-        # Weekly stats (if full report)
+        # Weekly stats (always check for alerts, display if full report)
+        stats_7d = get_weekly_stats(cur)
+        
+        # Check for critical alert: no games imported in 7 days
+        if stats_7d['total_games'] == 0:
+            alerts.append("CRITICAL: No games imported in the last 7 days")
+        
         if args.full:
-            stats_7d = get_weekly_stats(cur)
             lines.append("")
             lines.append("**Last 7 Days:**")
             lines.append(f"  📊 Games imported: {stats_7d['total_games']:,}")
@@ -200,6 +205,10 @@ def main():
                 lines.append("  New aliases by provider:")
                 for provider, count in stats_7d['aliases_by_provider']:
                     lines.append(f"    - {provider}: {count:,}")
+        else:
+            # Even in short mode, show 7-day stats for context
+            lines.append("")
+            lines.append(f"**Over the last 7 days, we imported {stats_7d['total_games']:,} games**")
         
         conn.close()
     except Exception as e:
