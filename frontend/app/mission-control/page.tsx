@@ -26,6 +26,10 @@ interface AgentStatus {
   emoji: string;
   role: string;
   model: 'Haiku' | 'Sonnet' | 'Opus';
+  description: string;
+  schedule: string;
+  collaborates: string[];
+  spawns: string[];
   status: 'active' | 'idle' | 'blocked' | 'error';
   currentTask: string | null;
   lastRun: string | null;
@@ -80,6 +84,7 @@ function AgentCard({ agent }: { agent: AgentStatus }) {
   const Icon = AGENT_ICONS[agent.id] || Brain;
   const statusConfig = STATUS_CONFIG[agent.status];
   const StatusIcon = statusConfig.icon;
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <Card className="relative overflow-hidden">
@@ -103,21 +108,61 @@ function AgentCard({ agent }: { agent: AgentStatus }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-2">
+        {/* Description */}
+        <p className="text-sm text-muted-foreground">{agent.description}</p>
+        
+        {/* Schedule */}
+        <div className="text-sm flex items-center gap-1">
+          <Clock className="h-3 w-3 text-muted-foreground" />
+          <span className="text-muted-foreground">{agent.schedule}</span>
+        </div>
+
+        {/* Current task if active */}
         {agent.currentTask && (
-          <div className="text-sm">
-            <span className="font-medium">Current:</span> {agent.currentTask}
+          <div className="text-sm bg-green-50 dark:bg-green-950 p-2 rounded">
+            <span className="font-medium text-green-700 dark:text-green-300">Running:</span> {agent.currentTask}
           </div>
         )}
-        {agent.lastRun && (
-          <div className="text-sm text-muted-foreground">
-            <span className="font-medium">Last:</span> {agent.lastRun}
+
+        {/* Expandable details */}
+        <button 
+          onClick={() => setExpanded(!expanded)}
+          className="text-xs text-blue-600 hover:underline"
+        >
+          {expanded ? 'Show less' : 'Show more'}
+        </button>
+
+        {expanded && (
+          <div className="space-y-2 pt-2 border-t">
+            {/* Relationships */}
+            {agent.collaborates.length > 0 && (
+              <div className="text-sm">
+                <span className="font-medium">Works with:</span>{' '}
+                <span className="text-muted-foreground">{agent.collaborates.join(', ')}</span>
+              </div>
+            )}
+            {agent.spawns.length > 0 && (
+              <div className="text-sm">
+                <span className="font-medium">Can spawn:</span>{' '}
+                <span className="text-muted-foreground">{agent.spawns.join(', ')}</span>
+              </div>
+            )}
+
+            {/* Last/Next run */}
+            {agent.lastRun && (
+              <div className="text-sm text-muted-foreground">
+                <span className="font-medium">Last run:</span> {agent.lastRun}
+              </div>
+            )}
+            {agent.nextRun && (
+              <div className="text-sm text-muted-foreground">
+                <span className="font-medium">Next run:</span> {agent.nextRun}
+              </div>
+            )}
           </div>
         )}
-        {agent.nextRun && (
-          <div className="text-sm text-muted-foreground">
-            <span className="font-medium">Next:</span> {agent.nextRun}
-          </div>
-        )}
+
+        {/* Alerts */}
         {agent.alerts && agent.alerts.length > 0 && (
           <div className="mt-2 space-y-1">
             {agent.alerts.map((alert, i) => (
@@ -128,6 +173,8 @@ function AgentCard({ agent }: { agent: AgentStatus }) {
             ))}
           </div>
         )}
+
+        {/* Blockers */}
         {agent.blockers && agent.blockers.length > 0 && (
           <div className="mt-2 space-y-1">
             {agent.blockers.map((blocker, i) => (

@@ -9,6 +9,10 @@ interface AgentStatus {
   emoji: string;
   role: string;
   model: 'Haiku' | 'Sonnet' | 'Opus';
+  description: string;
+  schedule: string;
+  collaborates: string[];
+  spawns: string[];
   status: 'active' | 'idle' | 'blocked' | 'error';
   currentTask: string | null;
   lastRun: string | null;
@@ -17,15 +21,96 @@ interface AgentStatus {
   alerts: string[];
 }
 
-const AGENTS_CONFIG: Record<string, { name: string; emoji: string; role: string; model: 'Haiku' | 'Sonnet' | 'Opus' }> = {
-  cleany: { name: 'Cleany', emoji: '🧹', role: 'Data Hygiene', model: 'Haiku' },
-  watchy: { name: 'Watchy', emoji: '👁️', role: 'Monitoring', model: 'Haiku' },
-  compy: { name: 'Compy', emoji: '🧠', role: 'Meta-Learning', model: 'Sonnet' },
-  scrappy: { name: 'Scrappy', emoji: '🕷️', role: 'Data Acquisition', model: 'Haiku' },
-  ranky: { name: 'Ranky', emoji: '📊', role: 'Rankings Engine', model: 'Haiku' },
-  movy: { name: 'Movy', emoji: '📈', role: 'Content & Analytics', model: 'Haiku' },
-  codey: { name: 'Codey', emoji: '💻', role: 'Engineering', model: 'Sonnet' },
-  socialy: { name: 'Socialy', emoji: '📱', role: 'SEO & Content', model: 'Haiku' },
+const AGENTS_CONFIG: Record<string, { 
+  name: string; 
+  emoji: string; 
+  role: string; 
+  model: 'Haiku' | 'Sonnet' | 'Opus';
+  description: string;
+  schedule: string;
+  collaborates: string[];
+  spawns: string[];
+}> = {
+  cleany: { 
+    name: 'Cleany', 
+    emoji: '🧹', 
+    role: 'Data Hygiene', 
+    model: 'Haiku',
+    description: 'Normalizes club names, team names, and merges duplicate teams. Keeps the database clean so rankings are accurate.',
+    schedule: 'Sunday 7pm MT',
+    collaborates: ['Ranky'],
+    spawns: ['Codey'],
+  },
+  watchy: { 
+    name: 'Watchy', 
+    emoji: '👁️', 
+    role: 'System Monitor', 
+    model: 'Haiku',
+    description: 'Daily health checks on quarantine queues, rankings freshness, and data quality. First line of defense.',
+    schedule: 'Daily 8am MT',
+    collaborates: [],
+    spawns: ['Codey'],
+  },
+  compy: { 
+    name: 'Compy', 
+    emoji: '🧠', 
+    role: 'Meta-Learning', 
+    model: 'Sonnet',
+    description: 'Reviews all agent sessions nightly, extracts patterns and gotchas, updates learning files. Makes every agent smarter over time.',
+    schedule: 'Nightly 10:30pm MT',
+    collaborates: ['All agents'],
+    spawns: [],
+  },
+  scrappy: { 
+    name: 'Scrappy', 
+    emoji: '🕷️', 
+    role: 'Data Acquisition', 
+    model: 'Haiku',
+    description: 'Monitors GitHub Actions scrapes, fetches future games for preview content. Ensures fresh data flows in.',
+    schedule: 'Monday 10am, Wednesday 6am MT',
+    collaborates: ['Ranky', 'Movy'],
+    spawns: ['Codey'],
+  },
+  ranky: { 
+    name: 'Ranky', 
+    emoji: '📊', 
+    role: 'Rankings Engine', 
+    model: 'Haiku',
+    description: 'Runs the v53e PowerScore algorithm with ML adjustments. Calculates rankings for 90k+ teams.',
+    schedule: 'Monday 12pm MT',
+    collaborates: ['Scrappy', 'Movy'],
+    spawns: ['Codey'],
+  },
+  movy: { 
+    name: 'Movy', 
+    emoji: '📈', 
+    role: 'Content & Analytics', 
+    model: 'Haiku',
+    description: 'Generates weekly movers reports and weekend previews. Creates social content with narrative commentary.',
+    schedule: 'Tuesday 10am, Wednesday 11am MT',
+    collaborates: ['Ranky', 'Scrappy', 'Socialy'],
+    spawns: ['Codey'],
+  },
+  codey: { 
+    name: 'Codey', 
+    emoji: '💻', 
+    role: 'Engineering', 
+    model: 'Sonnet',
+    description: 'On-demand engineer spawned by other agents to fix issues, build features, and investigate errors. Escalates to Opus for complex tasks.',
+    schedule: 'On-demand',
+    collaborates: ['All agents'],
+    spawns: [],
+  },
+  socialy: { 
+    name: 'Socialy', 
+    emoji: '📱', 
+    role: 'SEO & Growth', 
+    model: 'Haiku',
+    description: 'Analyzes Google Search Console data, identifies SEO opportunities, and coordinates content creation.',
+    schedule: 'Wednesday 9am MT',
+    collaborates: ['Movy', 'Codey'],
+    spawns: ['Codey', 'Movy'],
+  },
 };
 
 function parseWorkingFile(content: string): Partial<AgentStatus> {
@@ -125,6 +210,10 @@ export async function GET() {
       emoji: config.emoji,
       role: config.role,
       model: config.model,
+      description: config.description,
+      schedule: config.schedule,
+      collaborates: config.collaborates,
+      spawns: config.spawns,
       status: parsed.status || 'idle',
       currentTask: parsed.currentTask || null,
       lastRun: parsed.lastRun || null,
