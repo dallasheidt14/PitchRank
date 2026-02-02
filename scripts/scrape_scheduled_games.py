@@ -118,7 +118,8 @@ def get_db_connection():
 
 
 def get_top_teams(conn, limit: int = 2000, state: Optional[str] = None, 
-                   top_per_group: int = 100) -> List[Dict]:
+                   top_per_group: int = 100, all_states: bool = False,
+                   states: Optional[List[str]] = None) -> List[Dict]:
     """Get top-ranked teams with their GotSport provider IDs.
     
     Strategy: Get top N teams PER AGE GROUP/GENDER to ensure coverage across
@@ -128,8 +129,10 @@ def get_top_teams(conn, limit: int = 2000, state: Optional[str] = None,
     Args:
         conn: Database connection
         limit: Max total teams to return (default 2000 = ~100 per group * 18 groups)
-        state: Filter to specific state (optional)
-        top_per_group: Include top N teams per age group/gender combo (default 100)
+        state: Filter to specific state (optional, ignored if all_states=True)
+        top_per_group: Include top N teams per group combo (default 100)
+        all_states: If True, partition by state/age/gender and use state_rank
+        states: List of state codes to filter (implies all_states mode)
     """
     cur = conn.cursor()
     
@@ -137,53 +140,109 @@ def get_top_teams(conn, limit: int = 2000, state: Optional[str] = None,
     valid_age_groups = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18',
                         'U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U18']
     
-    # Get top-ranked teams PER AGE GROUP/GENDER
-    # First dedupe teams, then rank within each group
-    query = '''
-        WITH team_rankings AS (
-            SELECT DISTINCT ON (cr.team_id)
-                cr.team_id,
-                cr.national_rank,
-                cr.state_rank,
-                cr.national_power_score,
-                t.team_name,
-                t.club_name,
-                t.state_code,
-                t.age_group,
-                t.gender,
-                g.home_provider_id as provider_id
-            FROM current_rankings cr
-            JOIN teams t ON cr.team_id = t.team_id_master
-            JOIN games g ON cr.team_id = g.home_team_master_id
-            WHERE g.home_provider_id IS NOT NULL
-            AND LENGTH(g.home_provider_id) <= 10
-            AND cr.national_rank IS NOT NULL
-            AND t.age_group IN ('u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U18')
-    '''
-    
     params = []
     
-    if state:
-        query += ' AND t.state_code = %s'
-        params.append(state)
+    # If states list provided, use all_states mode
+    if states:
+        all_states = True
     
-    query += '''
-            ORDER BY cr.team_id, cr.national_rank
-        ),
-        ranked_by_group AS (
-            SELECT *,
-                ROW_NUMBER() OVER (
-                    PARTITION BY LOWER(age_group), gender 
-                    ORDER BY national_rank
-                ) as rank_in_group
-            FROM team_rankings
-        )
-        SELECT * FROM ranked_by_group
-        WHERE rank_in_group <= %s
-        ORDER BY age_group, gender, national_rank
-        LIMIT %s
-    '''
-    params.extend([top_per_group, limit])
+    if all_states:
+        # Get top N teams PER STATE/AGE GROUP/GENDER
+        # Compute state_rank on-the-fly from national_power_score within state/age/gender
+        
+        # Build state filter if specific states requested
+        state_filter = ""
+        if states:
+            placeholders = ','.join(['%s'] * len(states))
+            state_filter = f"AND t.state_code IN ({placeholders})"
+            params.extend(states)
+        
+        query = f'''
+            WITH team_with_providers AS (
+                SELECT DISTINCT ON (cr.team_id)
+                    cr.team_id,
+                    cr.national_rank,
+                    cr.national_power_score,
+                    t.team_name,
+                    t.club_name,
+                    t.state_code,
+                    t.age_group,
+                    t.gender,
+                    g.home_provider_id as provider_id
+                FROM current_rankings cr
+                JOIN teams t ON cr.team_id = t.team_id_master
+                JOIN games g ON cr.team_id = g.home_team_master_id
+                WHERE g.home_provider_id IS NOT NULL
+                AND LENGTH(g.home_provider_id) <= 10
+                AND cr.national_rank IS NOT NULL
+                AND t.state_code IS NOT NULL
+                {state_filter}
+                AND t.age_group IN ('u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U18')
+                ORDER BY cr.team_id, cr.national_rank
+            ),
+            ranked_by_state_group AS (
+                SELECT *,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY state_code, LOWER(age_group), gender 
+                        ORDER BY national_power_score DESC NULLS LAST, national_rank ASC
+                    ) as state_rank,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY state_code, LOWER(age_group), gender 
+                        ORDER BY national_power_score DESC NULLS LAST, national_rank ASC
+                    ) as rank_in_group
+                FROM team_with_providers
+            )
+            SELECT * FROM ranked_by_state_group
+            WHERE rank_in_group <= %s
+            ORDER BY state_code, age_group, gender, state_rank
+            LIMIT %s
+        '''
+        params.extend([top_per_group, limit])
+    else:
+        # Original behavior: top N teams PER AGE GROUP/GENDER using national_rank
+        query = '''
+            WITH team_rankings AS (
+                SELECT DISTINCT ON (cr.team_id)
+                    cr.team_id,
+                    cr.national_rank,
+                    cr.state_rank,
+                    cr.national_power_score,
+                    t.team_name,
+                    t.club_name,
+                    t.state_code,
+                    t.age_group,
+                    t.gender,
+                    g.home_provider_id as provider_id
+                FROM current_rankings cr
+                JOIN teams t ON cr.team_id = t.team_id_master
+                JOIN games g ON cr.team_id = g.home_team_master_id
+                WHERE g.home_provider_id IS NOT NULL
+                AND LENGTH(g.home_provider_id) <= 10
+                AND cr.national_rank IS NOT NULL
+                AND t.age_group IN ('u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U18')
+        '''
+        
+        if state:
+            query += ' AND t.state_code = %s'
+            params.append(state)
+        
+        query += '''
+                ORDER BY cr.team_id, cr.national_rank
+            ),
+            ranked_by_group AS (
+                SELECT *,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY LOWER(age_group), gender 
+                        ORDER BY national_rank
+                    ) as rank_in_group
+                FROM team_rankings
+            )
+            SELECT * FROM ranked_by_group
+            WHERE rank_in_group <= %s
+            ORDER BY age_group, gender, national_rank
+            LIMIT %s
+        '''
+        params.extend([top_per_group, limit])
     
     cur.execute(query, params)
     columns = [desc[0] for desc in cur.description]
@@ -386,8 +445,14 @@ def save_scheduled_games(conn, games: List[Dict]):
 
 def main():
     parser = argparse.ArgumentParser(description='Scrape scheduled/future games from GotSport')
-    parser.add_argument('--limit', type=int, default=50, help='Number of teams to check')
+    parser.add_argument('--limit', type=int, default=50, help='Max total teams to check')
     parser.add_argument('--state', type=str, help='Filter by state code (e.g., TX, CA)')
+    parser.add_argument('--all-states', action='store_true', 
+                        help='Get top N teams per state/age/gender (use with --top-per-group)')
+    parser.add_argument('--states', type=str,
+                        help='Comma-separated state codes (e.g., CA,TX,AZ). Implies --all-states')
+    parser.add_argument('--top-per-group', type=int, default=25,
+                        help='Teams per group (default 25, used with --all-states or --states)')
     parser.add_argument('--dry-run', action='store_true', help='Print findings without saving')
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose logging')
     args = parser.parse_args()
@@ -395,8 +460,20 @@ def main():
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
     
+    # Parse states list if provided
+    states_list = None
+    if args.states:
+        states_list = [s.strip().upper() for s in args.states.split(',')]
+    
     print(f"🔮 Scheduled Games Scraper")
-    print(f"   Checking up to {args.limit} teams" + (f" in {args.state}" if args.state else ""))
+    if args.all_states or states_list:
+        if states_list:
+            print(f"   Mode: Top {args.top_per_group} teams per age/gender in {', '.join(states_list)}")
+        else:
+            print(f"   Mode: Top {args.top_per_group} teams per state/age/gender (all states)")
+        print(f"   Max total: {args.limit} teams")
+    else:
+        print(f"   Checking up to {args.limit} teams" + (f" in {args.state}" if args.state else ""))
     print(f"   Rate limiting: {DELAY_MIN:.1f}-{DELAY_MAX:.1f}s between requests")
     print(f"   Max retries: {MAX_RETRIES}, timeout: {TIMEOUT}s")
     print()
@@ -408,7 +485,14 @@ def main():
     logger.info("Created HTTP session with connection pooling and retry logic")
     
     # Get teams to check
-    teams = get_top_teams(conn, limit=args.limit, state=args.state)
+    teams = get_top_teams(
+        conn, 
+        limit=args.limit, 
+        state=args.state if not (args.all_states or states_list) else None,
+        top_per_group=args.top_per_group,
+        all_states=args.all_states,
+        states=states_list
+    )
     print(f"Found {len(teams)} teams with GotSport IDs")
     
     all_future_games = []
