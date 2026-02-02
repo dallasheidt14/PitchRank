@@ -154,7 +154,72 @@ def run_duplicate_merges():
     return results['total_merged']
 
 
+def preflight_check():
+    """Quick check if any work is needed. Returns (needs_work, reason)."""
+    conn = psycopg2.connect(DATABASE_URL)
+    cur = conn.cursor()
+    
+    # Check 1: Club case inconsistencies
+    cur.execute('''
+        SELECT COUNT(DISTINCT LOWER(club_name)) as unique_lower,
+               COUNT(DISTINCT club_name) as unique_exact
+        FROM teams 
+        WHERE club_name IS NOT NULL AND club_name != ''
+    ''')
+    row = cur.fetchone()
+    club_inconsistencies = row[1] - row[0] if row else 0
+    
+    # Check 2: Teams needing normalization
+    cur.execute('''
+        SELECT COUNT(*) FROM teams 
+        WHERE team_name_original IS NULL
+        LIMIT 1
+    ''')
+    needs_normalization = cur.fetchone()[0] > 0
+    
+    # Check 3: Quick duplicate estimate (same club + similar team names)
+    # This is a fast heuristic, not exact
+    cur.execute('''
+        SELECT COUNT(*) FROM (
+            SELECT club_name, LOWER(REGEXP_REPLACE(team_name, '[^a-zA-Z0-9]', '', 'g'))
+            FROM teams
+            WHERE is_deprecated = false AND club_name IS NOT NULL
+            GROUP BY club_name, LOWER(REGEXP_REPLACE(team_name, '[^a-zA-Z0-9]', '', 'g'))
+            HAVING COUNT(*) > 1
+            LIMIT 10
+        ) dupes
+    ''')
+    potential_dupes = cur.fetchone()[0]
+    
+    conn.close()
+    
+    if club_inconsistencies > 0:
+        return True, f"{club_inconsistencies} club case inconsistencies"
+    if needs_normalization:
+        return True, "Teams need normalization"
+    if potential_dupes > 0:
+        return True, f"~{potential_dupes}+ potential duplicate groups"
+    
+    return False, "No work needed"
+
+
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description='Weekly Cleany Job')
+    parser.add_argument('--preflight', action='store_true', 
+                       help='Quick check: exit 0 if no work (skip agent), exit 1 if work needed')
+    args = parser.parse_args()
+    
+    # Pre-flight mode
+    if args.preflight:
+        needs_work, reason = preflight_check()
+        if needs_work:
+            print(f"PREFLIGHT_NEEDED: {reason}")
+            sys.exit(1)
+        else:
+            print("PREFLIGHT_OK: No data hygiene work needed, skipping agent")
+            sys.exit(0)
+    
     print("=" * 60)
     print("WEEKLY CLEANY JOB")
     print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")

@@ -278,6 +278,7 @@ def main():
     parser = argparse.ArgumentParser(description='Watchy Health Check')
     parser.add_argument('--full', action='store_true', help='Full detailed report')
     parser.add_argument('--json', action='store_true', help='Output as JSON')
+    parser.add_argument('--preflight', action='store_true', help='Quick check: exit 0 if OK (skip agent), exit 1 if needs attention')
     args = parser.parse_args()
     
     conn = get_connection()
@@ -293,6 +294,15 @@ def main():
     status, alerts = evaluate_status(issues, freshness)
     
     conn.close()
+    
+    # Pre-flight mode: exit 0 if OK (no agent needed), exit 1 if work needed
+    if args.preflight:
+        if status == 'OK':
+            print("PREFLIGHT_OK: All systems nominal, skipping agent")
+            sys.exit(0)
+        else:
+            print(f"PREFLIGHT_NEEDED: Status={status}, {len(alerts)} alerts")
+            sys.exit(1)
     
     if args.json:
         import json
