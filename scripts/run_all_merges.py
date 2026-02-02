@@ -32,14 +32,26 @@ ALL_AGE_GROUPS = ['U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U18',
 ALL_GENDERS = ['Male', 'Female']
 
 
-def get_alias_division(team_id: str) -> str:
-    """Check team's aliases for division suffixes (AD, HD, EA, etc.)"""
+def get_team_division(team_id: str, provider_team_id: str = None) -> str:
+    """Check team's provider_team_id for division suffixes (AD, HD, EA, etc.)
+    
+    IMPORTANT: Check teams.provider_team_id FIRST, then fall back to alias table.
+    The primary division marker is in the teams table itself.
+    """
+    # First check the provider_team_id from teams table (passed in)
+    if provider_team_id:
+        pid = provider_team_id.upper()
+        for suffix in ALIAS_DIVISION_SUFFIXES:
+            if pid.endswith(suffix.upper()):
+                return suffix.strip('_').upper()
+    
+    # Fall back to alias table
     try:
         aliases = supabase.table('team_alias_map').select('provider_team_id').eq('team_id_master', team_id).execute()
         for a in aliases.data or []:
-            pid = (a.get('provider_team_id') or '').lower()
+            pid = (a.get('provider_team_id') or '').upper()
             for suffix in ALIAS_DIVISION_SUFFIXES:
-                if pid.endswith(suffix):
+                if pid.endswith(suffix.upper()):
                     return suffix.strip('_').upper()
     except:
         pass
@@ -69,7 +81,7 @@ def find_duplicates_for_cohort(state: str, gender: str, age_group: str):
     
     try:
         teams = supabase.table('teams').select(
-            'team_id_master, team_name, club_name'
+            'team_id_master, team_name, club_name, provider_team_id'
         ).eq('state_code', state).eq('gender', gender).eq('is_deprecated', False).or_(
             f'age_group.eq.{age_num},age_group.eq.u{age_num},age_group.eq.U{age_num}'
         ).execute()
@@ -87,7 +99,8 @@ def find_duplicates_for_cohort(state: str, gender: str, age_group: str):
         groups[key].append({
             'id': t['team_id_master'],
             'name': t['team_name'],
-            'club': t['club_name']
+            'club': t['club_name'],
+            'provider_team_id': t.get('provider_team_id')
         })
     
     # Find duplicates
@@ -116,12 +129,16 @@ def find_duplicates_for_cohort(state: str, gender: str, age_group: str):
         if has_manual_marker:
             continue  # Skip - needs manual review
         
-        # Check for division conflicts in aliases
-        divisions = {t['id']: get_alias_division(t['id']) for t in group}
+        # Check for division conflicts in provider_team_id (CRITICAL: AD vs HD are different teams!)
+        divisions = {t['id']: get_team_division(t['id'], t.get('provider_team_id')) for t in group}
         unique_divs = set(d for d in divisions.values() if d)
         
         if len(unique_divs) > 1:
-            # Different divisions - skip
+            # Different divisions (e.g., AD vs HD) - these are DIFFERENT teams, skip!
+            continue
+        
+        # Also skip if ANY team has a division marker - safer to not auto-merge MLS NEXT teams
+        if unique_divs:
             continue
         
         canonical, deprecated = pick_canonical(group)
