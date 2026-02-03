@@ -8,9 +8,10 @@ This document lists the correct model name formats for OpenClaw cron jobs and ag
 
 | Use Case | Model Name | Notes |
 |----------|------------|-------|
-| **Fast/Cheap tasks** | `anthropic/claude-haiku-4-5` | Daily health checks, simple crons |
-| **Standard tasks** | `anthropic/claude-sonnet-4-5` | Knowledge compounding, complex analysis |
-| **Best quality** | `anthropic/claude-opus-4-5` | Critical decisions, main agent default |
+| **Cron jobs** | `anthropic/claude-haiku-4-5` | ✅ Only model allowed for scheduled agents |
+| **Main session** | `anthropic/claude-opus-4-5` | Default, alias `opus` |
+
+⚠️ **Sonnet is NOT available for cron jobs** — `claude-sonnet-4-5` returns "model not allowed"
 
 ## Model Name Format
 
@@ -72,7 +73,7 @@ All crons now use `anthropic/claude-haiku-4-5` for cost efficiency:
 | Movy: Movers Report | `anthropic/claude-haiku-4-5` | Report generation |
 | Movy: Weekend Preview | `anthropic/claude-haiku-4-5` | Content generation |
 | Socialy: SEO Report | `anthropic/claude-haiku-4-5` | Analysis |
-| COMPY: Knowledge Compound | `anthropic/claude-sonnet-4-5` | Complex analysis (upgraded) |
+| COMPY: Knowledge Compound | `anthropic/claude-haiku-4-5` | Downgraded (Sonnet not allowed) |
 
 ## How to Update a Cron Model
 
