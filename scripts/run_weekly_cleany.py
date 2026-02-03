@@ -3,11 +3,13 @@
 Weekly Cleany Job - Run all data hygiene tasks
 
 Tasks in order:
+0. Auto-approve safe queue matches (95%+ confidence)
 1. Club name case normalization (majority rule)
 2. Team name normalization (ages, gender words)
 3. Duplicate team merges
 
 Run: python3 scripts/run_weekly_cleany.py
+Preflight: python3 scripts/run_weekly_cleany.py --preflight
 """
 
 import os
@@ -203,6 +205,36 @@ def preflight_check():
     return False, "No work needed"
 
 
+def run_queue_auto_merge():
+    """Auto-approve safe queue matches (95%+ confidence)."""
+    print("\n" + "=" * 60)
+    print("STEP 0: AUTO-APPROVE QUEUE MATCHES")
+    print("=" * 60)
+    
+    try:
+        from find_queue_matches import analyze_queue, execute_merges
+        
+        # Analyze up to 2000 queue entries
+        results = analyze_queue(limit=2000)
+        exact_count = len(results['exact'])
+        
+        if exact_count == 0:
+            print("No safe matches found in queue")
+            return 0
+        
+        print(f"Found {exact_count} safe matches (95%+)")
+        
+        # Execute the merges
+        approved, failed = execute_merges(results, dry_run=False)
+        
+        print(f"✅ Approved: {approved}, ❌ Failed: {failed}")
+        return approved
+        
+    except Exception as e:
+        print(f"❌ Queue auto-merge error: {e}")
+        return 0
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description='Weekly Cleany Job')
@@ -226,10 +258,16 @@ def main():
     print("=" * 60)
     
     results = {
+        'queue_approvals': 0,
         'club_fixes': 0,
         'team_normalizations': 0,
         'merges': 0
     }
+    
+    try:
+        results['queue_approvals'] = run_queue_auto_merge()
+    except Exception as e:
+        print(f"❌ Queue auto-merge error: {e}")
     
     try:
         results['club_fixes'] = run_club_case_normalization()
@@ -249,6 +287,7 @@ def main():
     print("\n" + "=" * 60)
     print("WEEKLY CLEANY COMPLETE")
     print("=" * 60)
+    print(f"Queue auto-approvals: {results['queue_approvals']}")
     print(f"Club case fixes: {results['club_fixes']}")
     print(f"Team normalizations: {results['team_normalizations']}")
     print(f"Duplicate merges: {results['merges']}")
