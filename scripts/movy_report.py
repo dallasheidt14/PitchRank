@@ -48,7 +48,9 @@ def get_biggest_climbers(cur, days=7, limit=10, age_group=None, gender=None, sta
     past_rank AS (
         SELECT DISTINCT ON (team_id, age_group, gender) team_id, rank_in_cohort, age_group, gender, snapshot_date
         FROM ranking_history
-        WHERE snapshot_date <= (SELECT MAX(snapshot_date) FROM ranking_history) - INTERVAL '%s days'
+        WHERE snapshot_date BETWEEN 
+            (SELECT MAX(snapshot_date) FROM ranking_history) - INTERVAL '14 days'
+            AND (SELECT MAX(snapshot_date) FROM ranking_history) - INTERVAL '%s days'
         ORDER BY team_id, age_group, gender, snapshot_date DESC
     )
     SELECT 
@@ -103,7 +105,9 @@ def get_biggest_fallers(cur, days=7, limit=10, age_group=None, gender=None, stat
     past_rank AS (
         SELECT DISTINCT ON (team_id, age_group, gender) team_id, rank_in_cohort, age_group, gender, snapshot_date
         FROM ranking_history
-        WHERE snapshot_date <= (SELECT MAX(snapshot_date) FROM ranking_history) - INTERVAL '%s days'
+        WHERE snapshot_date BETWEEN 
+            (SELECT MAX(snapshot_date) FROM ranking_history) - INTERVAL '14 days'
+            AND (SELECT MAX(snapshot_date) FROM ranking_history) - INTERVAL '%s days'
         ORDER BY team_id, age_group, gender, snapshot_date DESC
     )
     SELECT 
