@@ -34,14 +34,14 @@ def get_biggest_climbers(cur, days=7, limit=10, age_group=None, gender=None, sta
         filters.append("cr.gender = %s")
         params.insert(-1, gender)
     if state:
-        filters.append("cr.state_code = %s")
+        filters.append("t.state_code = %s")
         params.insert(-1, state)
     
     filter_sql = f"AND {' AND '.join(filters)}" if filters else ""
     
     query = f'''
     WITH current_rank AS (
-        SELECT team_id, rank_in_cohort, age_group, gender, state_code, power_score_final
+        SELECT team_id, rank_in_cohort, age_group, gender, power_score_final
         FROM ranking_history
         WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM ranking_history)
     ),
@@ -58,7 +58,7 @@ def get_biggest_climbers(cur, days=7, limit=10, age_group=None, gender=None, sta
         t.club_name,
         cr.age_group,
         cr.gender,
-        cr.state_code,
+        t.state_code,
         pr.rank_in_cohort as old_rank,
         cr.rank_in_cohort as new_rank,
         (pr.rank_in_cohort - cr.rank_in_cohort) as rank_change,
@@ -91,14 +91,14 @@ def get_biggest_fallers(cur, days=7, limit=10, age_group=None, gender=None, stat
         filters.append("cr.gender = %s")
         params.insert(-1, gender)
     if state:
-        filters.append("cr.state_code = %s")
+        filters.append("t.state_code = %s")
         params.insert(-1, state)
     
     filter_sql = f"AND {' AND '.join(filters)}" if filters else ""
     
     query = f'''
     WITH current_rank AS (
-        SELECT team_id, rank_in_cohort, age_group, gender, state_code, power_score_final
+        SELECT team_id, rank_in_cohort, age_group, gender, power_score_final
         FROM ranking_history
         WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM ranking_history)
     ),
@@ -115,7 +115,7 @@ def get_biggest_fallers(cur, days=7, limit=10, age_group=None, gender=None, stat
         t.club_name,
         cr.age_group,
         cr.gender,
-        cr.state_code,
+        t.state_code,
         pr.rank_in_cohort as old_rank,
         cr.rank_in_cohort as new_rank,
         (cr.rank_in_cohort - pr.rank_in_cohort) as rank_drop,
