@@ -26,6 +26,24 @@ Agents can assume different roles via prompts:
 
 This flexibility is good for workload distribution but can confuse session attribution. Consider standardizing cron job naming.
 
+### 2026-02-03: API & System Stability Critical Issues
+48-hour review (2026-02-01 to 2026-02-03) reveals:
+- **Main session**: 195 errors over 48h — primarily 401 auth failures and credit balance issues
+- **Root cause**: Persisting API key or billing configuration problem (first noted 2026-01-31, still unresolved)
+- **Impact**: High noise/error ratio, resource waste on failed API calls, but session remains functional
+- **Network issues**: 7+ connection errors in main session suggest intermittent server/network instability
+- **Model configuration bug**: Watchy's health check failing due to invalid model alias `-latest`
+
+**Cross-agent impact:**
+- Main agent continues operating despite error flood (resilient)
+- Scrappy successfully detected and escalated failures (good pattern)
+- Watchy health monitoring is BLIND — no checks running since 2026-02-02
+
+**Action items:**
+1. Fix API key/billing issue (CRITICAL — blocks all agents)
+2. Fix Watchy model configuration in cron (CRITICAL — monitoring is down)
+3. Investigate network/connection stability
+
 <!-- COMPY will append system patterns here -->
 
 ## Integration Learnings

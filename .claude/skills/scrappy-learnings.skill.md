@@ -10,6 +10,13 @@ Scrappy successfully delegated TGS scrape investigation to Codey:
 - **Benefit**: Scrappy stays focused on monitoring while Codey digs into root cause
 - **Communication**: Background task completion notifications work well for async coordination
 
+### 2026-02-03: Error Detection & Escalation Success
+Scrappy detected TGS scrape failure in Monday scrape monitor session:
+- **Achievement**: Proper error detection and diagnosis
+- **Action taken**: Spawned Codey for investigation instead of attempting fix directly
+- **Outcome**: Codey successfully completed investigation task
+- **Pattern**: Continue delegating complex troubleshooting to Codey while maintaining monitoring role
+
 <!-- COMPY will append learnings here -->
 
 ## Gotchas & Edge Cases
