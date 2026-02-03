@@ -46,10 +46,10 @@ def get_biggest_climbers(cur, days=7, limit=10, age_group=None, gender=None, sta
         WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM ranking_history)
     ),
     past_rank AS (
-        SELECT DISTINCT ON (team_id) team_id, rank_in_cohort, snapshot_date
+        SELECT DISTINCT ON (team_id, age_group, gender) team_id, rank_in_cohort, age_group, gender, snapshot_date
         FROM ranking_history
         WHERE snapshot_date <= (SELECT MAX(snapshot_date) FROM ranking_history) - INTERVAL '%s days'
-        ORDER BY team_id, snapshot_date DESC
+        ORDER BY team_id, age_group, gender, snapshot_date DESC
     )
     SELECT 
         t.team_name, 
@@ -63,6 +63,8 @@ def get_biggest_climbers(cur, days=7, limit=10, age_group=None, gender=None, sta
         cr.power_score_final
     FROM current_rank cr
     JOIN past_rank pr ON cr.team_id = pr.team_id
+        AND cr.age_group = pr.age_group
+        AND cr.gender = pr.gender
     JOIN teams t ON cr.team_id = t.team_id_master
     WHERE pr.rank_in_cohort - cr.rank_in_cohort > 0
     {filter_sql}
@@ -99,10 +101,10 @@ def get_biggest_fallers(cur, days=7, limit=10, age_group=None, gender=None, stat
         WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM ranking_history)
     ),
     past_rank AS (
-        SELECT DISTINCT ON (team_id) team_id, rank_in_cohort, snapshot_date
+        SELECT DISTINCT ON (team_id, age_group, gender) team_id, rank_in_cohort, age_group, gender, snapshot_date
         FROM ranking_history
         WHERE snapshot_date <= (SELECT MAX(snapshot_date) FROM ranking_history) - INTERVAL '%s days'
-        ORDER BY team_id, snapshot_date DESC
+        ORDER BY team_id, age_group, gender, snapshot_date DESC
     )
     SELECT 
         t.team_name, 
@@ -116,6 +118,8 @@ def get_biggest_fallers(cur, days=7, limit=10, age_group=None, gender=None, stat
         cr.power_score_final
     FROM current_rank cr
     JOIN past_rank pr ON cr.team_id = pr.team_id
+        AND cr.age_group = pr.age_group
+        AND cr.gender = pr.gender
     JOIN teams t ON cr.team_id = t.team_id_master
     WHERE cr.rank_in_cohort - pr.rank_in_cohort > 0
     {filter_sql}
