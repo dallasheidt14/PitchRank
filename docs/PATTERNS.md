@@ -27,6 +27,15 @@ High-activity sessions show consistent tool usage patterns:
 
 **Insight**: These 5 tools form the core workflow. Ensure they're optimized and reliable.
 
+### 2026-02-02: Sub-Agent Delegation for Investigation
+When monitoring agents (Scrappy, Watchy) detect issues:
+1. Don't investigate inline — it blocks monitoring
+2. Spawn sub-agent (Codey) with specific investigation task
+3. Continue monitoring while investigation runs async
+4. Receive completion notification when done
+
+**Example**: Scrappy detected TGS scrape failure → spawned "Codey: Investigate failed TGS scrape" → received findings asynchronously.
+
 ## Performance Patterns
 
 <!-- COMPY will append performance patterns here -->

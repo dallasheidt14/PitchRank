@@ -32,5 +32,17 @@ Today's main session had 174 errors, confirming the cascading pattern:
 
 **Key insight**: Once API auth fails, it creates a storm of follow-up errors. The agent keeps retrying with the same bad credentials. Need better error handling to detect and halt on auth failures.
 
+### 2026-02-02: Model Name Aliases Can Fail
+Watchy hit a 404 for `claude-3-5-haiku-latest` model. The `-latest` alias may not resolve on all API endpoints.
+- **Gotcha**: Don't assume `-latest` model aliases work everywhere
+- **Fix**: Use explicit dated model versions (e.g., `claude-3-5-haiku-20241022`)
+
+### 2026-02-02: Session/Agent Attribution Mismatch
+Sessions can be attributed to different agents than who's actually running:
+- Movy session showed "You are Codey 💻" prompts
+- Codey session ran as "Ranky 📊"
+
+**Gotcha**: Cron job naming may not match actual agent identity. When debugging, check the prompt content, not just the session label.
+
 ---
-*Last updated: 2026-02-01*
+*Last updated: 2026-02-02*
