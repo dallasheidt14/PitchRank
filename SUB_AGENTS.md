@@ -519,21 +519,22 @@ To add a new sub-agent:
 
 ---
 
-## Planned Agents
+## Additional Active Agents
 
-> Future agents to be implemented when ready.
+> Originally planned, now implemented and running.
 
 ---
 
-### MOVY — Content & Analytics Specialist (Planned)
+### MOVY — Content & Analytics Specialist ✅ ACTIVE
 
 ```yaml
 Name: Movy
 Role: Rankings Analyst & Content Creator
 Personality: Trend-spotter, engaging, data-storyteller
 Motto: "Every climb tells a story"
-Status: PLANNED
-Model: Sonnet (creative content needs smarter model)
+Status: ACTIVE
+Model: Haiku (cost-efficient, templates handle creativity)
+Cron: Tuesday 10am MT (movers report), Wednesday 11am MT (weekend preview)
 ```
 
 #### Concept
@@ -609,15 +610,16 @@ MOVY creates reports → Available in dashboard
 
 ---
 
-### SOCIALY — Content & SEO Automation Specialist (Planned)
+### SOCIALY — Content & SEO Automation Specialist ✅ ACTIVE
 
 ```yaml
 Name: Socialy
 Role: Content & SEO Strategist
 Personality: Creative, SEO-savvy, low-effort-high-impact focused
 Motto: "Compound your content"
-Status: PLANNED
-Model: Sonnet (creative content generation)
+Status: ACTIVE
+Model: Haiku (cost-efficient, can spawn Codey/Movy for complex tasks)
+Cron: Wednesday 9am MT (weekly SEO report)
 ```
 
 #### Concept
@@ -827,16 +829,17 @@ Phase 3 - Optimize:
 
 ---
 
-### COMPY — Knowledge Compounder & Meta-Learning Specialist (Planned)
+### COMPY — Knowledge Compounder & Meta-Learning Specialist ✅ ACTIVE
 
 ```yaml
 Name: Compy
 Role: Knowledge Compounder & Agent Teacher
 Personality: Reflective, pattern-seeking, wisdom-accumulator
 Motto: "Every session makes the system smarter"
-Status: PLANNED
-Model: Sonnet (needs reasoning for pattern extraction)
+Status: ACTIVE
+Model: Sonnet (claude-sonnet-4-5, needs reasoning for pattern extraction)
 Layer: META (operates above domain agents, below Moltbot)
+Cron: Nightly 10:30pm MT
 ```
 
 #### Concept
