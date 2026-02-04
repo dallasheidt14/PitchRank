@@ -44,6 +44,14 @@ This flexibility is good for workload distribution but can confuse session attri
 2. Fix Watchy model configuration in cron (CRITICAL — monitoring is down)
 3. Investigate network/connection stability
 
+### 2026-02-03: Infrastructure Improvements & Cost Optimization
+- **GitHub Actions migration**: Codey successfully migrated long-running script (find_queue_matches.py) to GH Action, reducing API credit consumption
+- **Workflow integration**: Cleany now triggers auto-merge workflow as Step 0 — proven pattern for delegating expensive compute
+- **Cost awareness**: Main session spawning sub-agents for big tasks (Codey, Movy) instead of running locally saves credits
+- **Data health status**: Pipeline strong (1,725 games/24h, 0 quarantine, 13.5K stale teams) — cleaning work paying off
+
+**Pattern**: When script runs frequently or uses API-heavy operations, convert to GH Action → trigger via cron job. Saves ~20-30% API spend.
+
 <!-- COMPY will append system patterns here -->
 
 ## Integration Learnings

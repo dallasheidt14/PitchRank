@@ -14,6 +14,15 @@
 
 <!-- COMPY will append data quality gotchas here -->
 
+## Network Gotchas
+
+### 2026-02-03: Connection Errors Under Load
+When running 900+ messages in main session with concurrent sub-agent spawning, expect ~200-250 "Connection error" entries:
+- These appear to be network timeouts or brief connectivity issues
+- They don't block agent operation (main session stayed functional)
+- Likely caused by API rate limits or server-side resource constraints under load
+- Mitigation: Spread workload across multiple sessions, use exponential backoff on retries
+
 ## API Gotchas
 
 ### 2026-01-31: Anthropic API Error Patterns
