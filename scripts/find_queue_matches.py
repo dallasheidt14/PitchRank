@@ -17,14 +17,62 @@ import argparse
 import re
 from pathlib import Path
 from dotenv import load_dotenv
-import psycopg2
-from psycopg2.extras import RealDictCursor
+from supabase import create_client
 from difflib import SequenceMatcher
 
 load_dotenv(Path(__file__).parent.parent / '.env')
 
+# Skip .env.local to avoid pooler connection issues in local dev
+# (GitHub Actions will use the correct secrets)
+
+def get_supabase():
+    """Create Supabase client for GitHub Actions compatibility."""
+    supabase_url = os.getenv('SUPABASE_URL')
+    supabase_key = os.getenv('SUPABASE_SERVICE_KEY') or os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+    
+    if not supabase_url or not supabase_key:
+        raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set")
+    
+    return create_client(supabase_url, supabase_key)
+
 def get_connection():
-    return psycopg2.connect(os.getenv('DATABASE_URL'))
+    """Get psycopg2 connection using Supabase pooler for complex SQL queries.
+    
+    This script needs complex SQL operations that are easier with psycopg2.
+    We use the Supabase connection pooler (port 6543) for IPv4 compatibility in GitHub Actions.
+    """
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    from urllib.parse import quote_plus
+    
+    # Get database URL - modify to use pooler if in GitHub Actions
+    database_url = os.getenv('DATABASE_URL')
+    supabase_url = os.getenv('SUPABASE_URL')
+    
+    # If we have SUPABASE_URL set (typically in GitHub Actions), use the pooler
+    if supabase_url and database_url:
+        # Extract project ref and password
+        import re
+        match = re.search(r'https://([^.]+)\.supabase\.co', supabase_url)
+        db_match = re.search(r'postgres://postgres:([^@]+)@', database_url)
+        
+        if match and db_match:
+            project_ref = match.group(1)
+            db_password = db_match.group(1)
+            
+            # Use Supabase transaction pooler (port 6543) instead of direct connection (port 5432)
+            # This provides IPv4 connectivity for GitHub Actions
+            # Format: postgresql://postgres:password@db.project-ref.supabase.co:6543/postgres
+            pooler_url = f"postgresql://postgres:{quote_plus(db_password)}@db.{project_ref}.supabase.co:6543/postgres?pgbouncer=true"
+            print(f"🔗 Using Supabase connection pooler (port 6543) for IPv4 compatibility")
+            return psycopg2.connect(pooler_url)
+    
+    # Fallback to DATABASE_URL for local development (direct connection is fine locally)
+    if database_url:
+        print(f"🔗 Using direct database connection")
+        return psycopg2.connect(database_url)
+    
+    raise ValueError("Must set DATABASE_URL (and optionally SUPABASE_URL for GitHub Actions)")
 
 def normalize_team_name(name):
     """Normalize team name for matching."""
@@ -312,6 +360,8 @@ def find_best_match(queue_entry, cursor):
 
 def analyze_queue(limit=100, min_confidence=0.90):
     """Analyze queue entries and find matches."""
+    from psycopg2.extras import RealDictCursor
+    
     conn = get_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     search_cur = conn.cursor()
