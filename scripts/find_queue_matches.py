@@ -39,29 +39,56 @@ def get_connection():
     """Get psycopg2 connection using Supabase pooler for GitHub Actions.
     
     GitHub Actions can't reach Supabase via IPv6 direct connection.
-    We use the connection pooler (port 6543) which provides IPv4.
+    We use the session mode pooler which provides IPv4 support.
+    
+    Priority order:
+    1. SUPABASE_POOLER_URL (if set) - recommended for GitHub Actions
+    2. DATABASE_URL (if contains pooler.supabase.com)
+    3. DATABASE_URL (convert to pooler format if in GitHub Actions)
+    4. DATABASE_URL (direct connection for local dev)
     """
     import psycopg2
-    from urllib.parse import quote_plus
+    import re
+    
+    # Check for dedicated pooler URL first (best for GitHub Actions)
+    pooler_url_env = os.getenv('SUPABASE_POOLER_URL')
+    if pooler_url_env:
+        print(f"🔗 Using SUPABASE_POOLER_URL")
+        return psycopg2.connect(pooler_url_env)
     
     database_url = os.getenv('DATABASE_URL')
     
     if not database_url:
         raise ValueError("DATABASE_URL must be set")
     
+    # Check if DATABASE_URL is already a pooler URL (contains pooler.supabase.com)
+    if 'pooler.supabase.com' in database_url:
+        print(f"🔗 Using Supabase pooler URL from DATABASE_URL")
+        return psycopg2.connect(database_url)
+    
     # Check if running in GitHub Actions
     is_github_actions = os.getenv('GITHUB_ACTIONS') == 'true'
     
     if is_github_actions:
-        # Convert direct connection URL to pooler URL
-        # From: postgresql://postgres:password@db.xxx.supabase.co:5432/postgres
-        # To:   postgresql://postgres:password@db.xxx.supabase.co:6543/postgres
-        if ':5432' in database_url:
-            pooler_url = database_url.replace(':5432', ':6543')
-            print(f"🔗 Using Supabase connection pooler (port 6543) for GitHub Actions")
+        # Parse DATABASE_URL to extract project ref and password
+        # From: postgresql://postgres:PASSWORD@db.PROJECT_REF.supabase.co:5432/postgres
+        # To:   postgresql://postgres.PROJECT_REF:PASSWORD@aws-1-us-west-1.pooler.supabase.com:5432/postgres
+        # 
+        # NOTE: The pooler may require a different password than direct connection.
+        # For best results, set SUPABASE_POOLER_URL secret in GitHub Actions.
+        match = re.match(r'postgresql://postgres:([^@]+)@db\.([^.]+)\.supabase\.co:\d+/postgres', database_url)
+        if match:
+            password = match.group(1)
+            project_ref = match.group(2)
+            # Use session mode pooler (port 5432) with modified username format
+            # Note: Region prefix is aws-1 for this project
+            pooler_url = f"postgresql://postgres.{project_ref}:{password}@aws-1-us-west-1.pooler.supabase.com:5432/postgres"
+            print(f"🔗 Using Supabase session pooler (IPv4) for GitHub Actions")
+            print(f"   Project ref: {project_ref}")
+            print(f"   ⚠️  Note: If connection fails, add SUPABASE_POOLER_URL secret to GitHub Actions")
             return psycopg2.connect(pooler_url)
         else:
-            print(f"🔗 Using DATABASE_URL as-is (no port 5432 found)")
+            print(f"⚠️  Could not parse DATABASE_URL for pooler conversion, using as-is")
             return psycopg2.connect(database_url)
     
     # Local development - direct connection works fine
