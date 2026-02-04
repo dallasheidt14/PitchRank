@@ -25,14 +25,13 @@ on:
         default: '2000'
         type: string
 
-env:
-  DATABASE_URL: ${{ secrets.DATABASE_URL }}
-
 jobs:
   auto-merge-queue:
     name: Auto-Merge Queue Entries
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
     steps:
       - name: Checkout repository
