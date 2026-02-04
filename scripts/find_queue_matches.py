@@ -561,6 +561,8 @@ def main():
                         help='Actually execute merges')
     parser.add_argument('--include-high', action='store_true',
                         help='Include 90%+ matches in auto-merge (not just 95%+)')
+    parser.add_argument('--yes', '-y', action='store_true',
+                        help='Skip confirmation prompt (for CI/automation)')
     args = parser.parse_args()
     
     print("=" * 70)
@@ -580,12 +582,17 @@ def main():
         if args.include_high:
             total += len(results['high'])
         
-        confirm = input(f"\n⚠️  Merge {total} entries? Type 'yes' to confirm: ")
-        if confirm.lower() == 'yes':
+        if args.yes:
+            print(f"\n⚠️  Auto-confirming merge of {total} entries (--yes flag)")
             approved, failed = execute_merges(results, dry_run=False, min_confidence=min_conf)
             print(f"\n✅ Approved: {approved}, ❌ Failed: {failed}")
         else:
-            print("Cancelled.")
+            confirm = input(f"\n⚠️  Merge {total} entries? Type 'yes' to confirm: ")
+            if confirm.lower() == 'yes':
+                approved, failed = execute_merges(results, dry_run=False, min_confidence=min_conf)
+                print(f"\n✅ Approved: {approved}, ❌ Failed: {failed}")
+            else:
+                print("Cancelled.")
     else:
         approved, _ = execute_merges(results, dry_run=True, min_confidence=min_conf)
         print(f"\n📊 DRY RUN: {approved} would be merged")

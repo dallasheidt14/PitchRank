@@ -58,7 +58,7 @@ jobs:
           # Determine execution mode
           EXECUTE_FLAG=""
           if [ "${{ github.event.inputs.dry_run }}" != "true" ]; then
-            EXECUTE_FLAG="--execute"
+            EXECUTE_FLAG="--execute --yes"
           fi
           
           # Set limit

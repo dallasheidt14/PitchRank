@@ -74,15 +74,17 @@ def main():
         if args.execute:
             new_id = str(uuid.uuid4())
             new_master = str(uuid.uuid4())
+            # Generate unique provider_team_id for new team (can't reuse alias due to unique constraint)
+            new_provider_team_id = f"unmerge_{new_id[:8]}"
             
             # Rename original
             cur.execute("UPDATE teams SET team_name = %s WHERE id = %s", (keep_name, tid))
             
-            # Create new team
+            # Create new team (include provider_team_id to satisfy NOT NULL constraint)
             cur.execute("""
-                INSERT INTO teams (id, team_id_master, team_name, club_name, age_group, gender, state_code, provider_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """, (new_id, new_master, new_name, club, age, gender, state, prov_id))
+                INSERT INTO teams (id, team_id_master, provider_team_id, team_name, club_name, age_group, gender, state_code, provider_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (new_id, new_master, new_provider_team_id, new_name, club, age, gender, state, prov_id))
             
             # Move aliases
             for alias in move_aliases:
