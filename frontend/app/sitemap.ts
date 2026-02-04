@@ -1,9 +1,10 @@
 import { MetadataRoute } from 'next';
 import { US_STATES } from '@/lib/constants';
+import { getAllBlogSlugs } from '@/lib/blog';
 
 /**
  * Dynamic sitemap generation for PitchRank
- * Generates URLs for all static pages, ranking combinations, and team pages
+ * Generates URLs for all static pages, ranking combinations, team pages, and blog posts
  */
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
@@ -43,7 +44,22 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: 'monthly',
       priority: 0.6,
     },
+    {
+      url: `${baseUrl}/blog`,
+      lastModified: new Date(),
+      changeFrequency: 'weekly',
+      priority: 0.7,
+    },
   ];
+
+  // Blog post pages
+  const blogSlugs = getAllBlogSlugs();
+  const blogPages: MetadataRoute.Sitemap = blogSlugs.map(slug => ({
+    url: `${baseUrl}/blog/${slug}`,
+    lastModified: new Date(),
+    changeFrequency: 'monthly' as const,
+    priority: 0.6,
+  }));
 
   // Generate all ranking page URLs (region × ageGroup × gender)
   // Total: 51 regions × 9 age groups × 2 genders = 918 URLs
@@ -63,7 +79,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   }
 
   // Combine all pages
-  const allPages = [...staticPages, ...rankingPages];
+  const allPages = [...staticPages, ...blogPages, ...rankingPages];
 
   return allPages;
 }

@@ -97,6 +97,13 @@ export function Navigation() {
           >
             Methodology
           </Link>
+          <Link
+            href="/blog"
+            className="text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent"
+            aria-label="Blog page"
+          >
+            Blog
+          </Link>
 
           {/* Auth Section */}
           {!isLoading && (
@@ -190,6 +197,13 @@ export function Navigation() {
               onClick={() => setMobileMenuOpen(false)}
             >
               Methodology
+            </Link>
+            <Link
+              href="/blog"
+              className="block text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent hover:bg-accent/10 py-3 px-2 rounded-md min-h-[44px] flex items-center"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              Blog
             </Link>
 
             {/* Mobile Auth Section */}

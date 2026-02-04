@@ -42,6 +42,7 @@ export function Footer() {
     ],
     Resources: [
       { name: 'Methodology', href: '/methodology' },
+      { name: 'Blog', href: '/blog' },
     ],
   };
 
