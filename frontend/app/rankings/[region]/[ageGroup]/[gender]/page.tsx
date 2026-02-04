@@ -104,5 +104,27 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
   // This ensures fresh data fetching on client-side navigation between different rankings pages
   const routeKey = `${region}-${ageGroup}-${gender}`;
 
-  return <RankingsPageContent key={routeKey} region={region} ageGroup={ageGroup} gender={gender} />;
+  // Prepare structured data for SEO
+  const formattedAgeGroup = formatAgeGroup(ageGroup);
+  const formattedGender = formatGender(gender);
+  const isNational = region.toLowerCase() === 'national';
+  const locationText = isNational ? 'National' : getStateName(region);
+  
+  const structuredData = {
+    '@context': 'https://schema.org',
+    '@type': 'RankingTable',
+    'name': `${formattedAgeGroup} ${formattedGender} Soccer Rankings${isNational ? '' : ` - ${locationText}`}`,
+    'description': 'Youth soccer team rankings by power rating',
+    'url': `https://pitchrank.io/rankings/${region}/${ageGroup}/${gender}`,
+  };
+
+  return (
+    <>
+      <RankingsPageContent key={routeKey} region={region} ageGroup={ageGroup} gender={gender} />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+      />
+    </>
+  );
 }
