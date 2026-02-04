@@ -4,6 +4,7 @@ import { TeamHeader } from '@/components/TeamHeader';
 import { TeamTrajectoryChart } from '@/components/TeamTrajectoryChart';
 import { GameHistoryTable } from '@/components/GameHistoryTable';
 import { MomentumMeter } from '@/components/MomentumMeter';
+import { TeamInsightsCard } from '@/components/TeamInsightsCard';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import dynamic from 'next/dynamic';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -20,7 +21,12 @@ const LazyTeamTrajectoryChart = dynamic(
 
 const LazyMomentumMeter = dynamic(
   () => import('@/components/MomentumMeter').then(mod => ({ default: mod.MomentumMeter })),
-  { ssr: true, loading: () => <div className="h-48 animate-pulse bg-muted rounded-lg" /> }
+  { ssr: true, loading: () => <div className="h-32 animate-pulse bg-muted rounded-lg" /> }
+);
+
+const LazyTeamInsightsCard = dynamic(
+  () => import('@/components/TeamInsightsCard').then(mod => ({ default: mod.TeamInsightsCard })),
+  { ssr: true, loading: () => <div className="h-40 animate-pulse bg-muted rounded-lg" /> }
 );
 
 interface TeamPageShellProps {
@@ -124,7 +130,11 @@ export function TeamPageShell({ id }: TeamPageShellProps) {
 
           <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2">
             <GameHistoryTable teamId={id} />
-            <LazyMomentumMeter teamId={id} />
+            {/* Right column: Momentum + Insights stacked */}
+            <div className="flex flex-col gap-4">
+              <LazyMomentumMeter teamId={id} />
+              <LazyTeamInsightsCard teamId={id} />
+            </div>
           </div>
 
           <LazyTeamTrajectoryChart teamId={id} />
