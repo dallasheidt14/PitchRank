@@ -1,5 +1,6 @@
 import { PageHeader } from '@/components/PageHeader';
 import { BlogContent } from '@/components/BlogContent';
+import { NewsletterSubscribe } from '@/components/NewsletterSubscribe';
 import { getBlogPost, getAllBlogSlugs } from '@/lib/blog';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
@@ -96,6 +97,11 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
         </div>
 
         <BlogContent content={post.content} />
+
+        {/* Newsletter Subscription */}
+        <div className="mt-16 mb-8">
+          <NewsletterSubscribe />
+        </div>
       </div>
     </div>
   );
