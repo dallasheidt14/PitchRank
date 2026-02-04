@@ -55,13 +55,9 @@ def get_connection():
     if is_github_actions:
         # Convert direct connection URL to pooler URL
         # From: postgresql://postgres:password@db.xxx.supabase.co:5432/postgres
-        # To:   postgresql://postgres:password@db.xxx.supabase.co:6543/postgres?pgbouncer=true
+        # To:   postgresql://postgres:password@db.xxx.supabase.co:6543/postgres
         if ':5432' in database_url:
             pooler_url = database_url.replace(':5432', ':6543')
-            if '?' in pooler_url:
-                pooler_url += '&pgbouncer=true'
-            else:
-                pooler_url += '?pgbouncer=true'
             print(f"🔗 Using Supabase connection pooler (port 6543) for GitHub Actions")
             return psycopg2.connect(pooler_url)
         else:
