@@ -6,17 +6,37 @@
  * - Flat Track Bully: Dominates weak teams, struggles vs top teams
  * - Gatekeeper: Beats bottom teams, rarely beats top
  * - Wildcard: No clear pattern
+ *
+ * ALIGNED WITH v53e:
+ * - Uses power score difference (0-1 scale) instead of fixed rank thresholds
+ * - This is cohort-size independent (works for 50 or 500 team cohorts)
+ * - Power score is the normalized metric v53e uses for team strength
  */
 
 import type { InsightInputData, PersonaInsight } from "./types";
 
 /**
- * Analyzes performance against opponents by tier
+ * Power score difference thresholds for opponent categorization
+ * Using power score (0-1 scale) instead of rank makes this cohort-size independent
+ *
+ * 0.08 power difference ≈ meaningful strength gap
+ * For context: In a 100-team cohort, this is roughly 8 percentile points
+ */
+const POWER_DIFF_THRESHOLD = 0.08;
+
+/**
+ * Big win/loss threshold - goal differential that indicates dominant/dominated result
+ * Matches v53e's treatment of decisive margins
+ */
+const BIG_MARGIN_THRESHOLD = 3;
+
+/**
+ * Analyzes performance against opponents by tier using power score
  */
 function analyzePerformanceByTier(
   games: InsightInputData["games"],
   teamId: string,
-  teamRank: number | null
+  teamPower: number | null
 ): {
   winsVsHigherRanked: number;
   totalVsHigherRanked: number;
@@ -40,7 +60,7 @@ function analyzePerformanceByTier(
     const isHome = game.home_team_master_id === teamId;
     const teamScore = isHome ? game.home_score : game.away_score;
     const oppScore = isHome ? game.away_score : game.home_score;
-    const oppRank = game.opponent_rank;
+    const oppPower = game.opponent_power_score;
 
     if (teamScore === null || oppScore === null) continue;
 
@@ -48,35 +68,30 @@ function analyzePerformanceByTier(
     const goalDiff = teamScore - oppScore;
 
     // Track big wins/losses (3+ goal margin)
-    if (goalDiff >= 3) bigWins++;
-    if (goalDiff <= -3) bigLosses++;
+    if (goalDiff >= BIG_MARGIN_THRESHOLD) bigWins++;
+    if (goalDiff <= -BIG_MARGIN_THRESHOLD) bigLosses++;
 
-    if (oppRank === null || teamRank === null) {
-      // If we don't have rank data, use power score
-      const oppPower = game.opponent_power_score;
-      if (oppPower !== null) {
-        // We'll treat it as similar if we can't determine
-        totalVsSimilar++;
-        if (won) winsVsSimilar++;
-      }
+    // Categorize opponent by power score difference (cohort-size independent)
+    if (teamPower === null || oppPower === null) {
+      // Fall back to similar if we can't determine power difference
+      totalVsSimilar++;
+      if (won) winsVsSimilar++;
       continue;
     }
 
-    // Categorize opponent by rank
-    // Higher ranked = lower number
-    // "Similar" is within 20 ranks
-    const rankDiff = teamRank - oppRank;
+    // Power difference: negative = opponent stronger, positive = opponent weaker
+    const powerDiff = teamPower - oppPower;
 
-    if (rankDiff > 20) {
-      // Opponent is ranked higher (better)
+    if (powerDiff < -POWER_DIFF_THRESHOLD) {
+      // Opponent has meaningfully higher power score (stronger)
       totalVsHigherRanked++;
       if (won) winsVsHigherRanked++;
-    } else if (rankDiff < -20) {
-      // Opponent is ranked lower (worse)
+    } else if (powerDiff > POWER_DIFF_THRESHOLD) {
+      // Opponent has meaningfully lower power score (weaker)
       totalVsLowerRanked++;
       if (won) winsVsLowerRanked++;
     } else {
-      // Similar rank
+      // Similar power level (within threshold)
       totalVsSimilar++;
       if (won) winsVsSimilar++;
     }
@@ -120,15 +135,15 @@ function determinePersona(stats: ReturnType<typeof analyzePerformanceByTier>): {
   const hasEnoughTopGames = totalVsHigherRanked >= 2;
   const hasEnoughBottomGames = totalVsLowerRanked >= 2;
 
-  // Giant Killer: Strong performance against higher-ranked teams (40%+ win rate)
+  // Giant Killer: Strong performance against stronger teams (40%+ win rate)
   if (hasEnoughTopGames && winRateVsTop >= 0.4 && winsVsHigherRanked >= 2) {
     return {
       label: "Giant Killer",
-      explanation: `Won ${winsVsHigherRanked} of ${totalVsHigherRanked} games against higher-ranked opponents. This team rises to the occasion against elite competition and shouldn't be underestimated in big matchups.`,
+      explanation: `Won ${winsVsHigherRanked} of ${totalVsHigherRanked} games against stronger opponents (by power score). This team rises to the occasion against elite competition and shouldn't be underestimated in big matchups.`,
     };
   }
 
-  // Flat Track Bully: Dominates lower teams but struggles against top
+  // Flat Track Bully: Dominates weaker teams but struggles against stronger
   if (
     hasEnoughTopGames &&
     hasEnoughBottomGames &&
@@ -137,11 +152,11 @@ function determinePersona(stats: ReturnType<typeof analyzePerformanceByTier>): {
   ) {
     return {
       label: "Flat Track Bully",
-      explanation: `Dominant against weaker competition (${Math.round(winRateVsBottom * 100)}% win rate vs lower-ranked teams) but struggles against elite opponents (${Math.round(winRateVsTop * 100)}% vs top teams). Their record may be inflated by soft scheduling.`,
+      explanation: `Dominant against weaker competition (${Math.round(winRateVsBottom * 100)}% win rate vs lower-powered teams) but struggles against elite opponents (${Math.round(winRateVsTop * 100)}% vs stronger teams). Their record may be inflated by favorable scheduling.`,
     };
   }
 
-  // Gatekeeper: Beats bottom teams reliably, competitive but rarely beats top
+  // Gatekeeper: Beats weaker teams reliably, competitive but rarely beats stronger
   if (
     hasEnoughBottomGames &&
     winRateVsBottom > 0.65 &&
@@ -149,7 +164,7 @@ function determinePersona(stats: ReturnType<typeof analyzePerformanceByTier>): {
   ) {
     return {
       label: "Gatekeeper",
-      explanation: `A reliable gatekeeper who consistently handles lower-ranked opponents (${Math.round(winRateVsBottom * 100)}% win rate) but hasn't broken through against top-tier teams. They define the line between contenders and pretenders.`,
+      explanation: `A reliable gatekeeper who consistently handles weaker opponents (${Math.round(winRateVsBottom * 100)}% win rate) but hasn't broken through against top-tier teams. They define the line between contenders and pretenders.`,
     };
   }
 
@@ -185,10 +200,11 @@ function determinePersona(stats: ReturnType<typeof analyzePerformanceByTier>): {
 export function generatePersonaInsight(data: InsightInputData): PersonaInsight {
   const { team, ranking, games } = data;
 
+  // Use power score for tier analysis (cohort-size independent)
   const stats = analyzePerformanceByTier(
     games,
     team.team_id_master,
-    ranking.rank_in_cohort_final
+    ranking.power_score_final
   );
 
   const { label, explanation } = determinePersona(stats);

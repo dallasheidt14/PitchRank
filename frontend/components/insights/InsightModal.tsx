@@ -19,6 +19,9 @@ import {
   Loader2,
   AlertCircle,
   ExternalLink,
+  Flame,
+  Snowflake,
+  Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type {
@@ -26,6 +29,7 @@ import type {
   SeasonTruthInsight,
   ConsistencyInsight,
   PersonaInsight,
+  FormSignal,
 } from "@/lib/insights/types";
 import Link from "next/link";
 
@@ -151,6 +155,33 @@ export function InsightModal({
                   <span className="text-xs px-2.5 py-1 rounded-full bg-muted text-muted-foreground font-medium">
                     SOS: {seasonTruth.details.sosPercentile}th percentile
                   </span>
+                  {/* Form Signal Badge - v53e perf_centered */}
+                  {seasonTruth.details.formSignal && seasonTruth.details.formSignal !== "meeting_expectations" && (
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium",
+                        seasonTruth.details.formSignal === "hot_streak"
+                          ? "bg-red-500/20 text-red-700 dark:text-red-400"
+                          : seasonTruth.details.formSignal === "overperforming"
+                            ? "bg-orange-500/20 text-orange-700 dark:text-orange-400"
+                            : seasonTruth.details.formSignal === "cold_streak"
+                              ? "bg-blue-500/20 text-blue-700 dark:text-blue-400"
+                              : "bg-cyan-500/20 text-cyan-700 dark:text-cyan-400"
+                      )}
+                    >
+                      {seasonTruth.details.formSignal === "hot_streak" && <Flame className="h-3 w-3" />}
+                      {seasonTruth.details.formSignal === "overperforming" && <TrendingUp className="h-3 w-3" />}
+                      {seasonTruth.details.formSignal === "cold_streak" && <Snowflake className="h-3 w-3" />}
+                      {seasonTruth.details.formSignal === "underperforming" && <TrendingDown className="h-3 w-3" />}
+                      {seasonTruth.details.formSignal === "hot_streak"
+                        ? "Hot Streak"
+                        : seasonTruth.details.formSignal === "overperforming"
+                          ? "Overperforming"
+                          : seasonTruth.details.formSignal === "cold_streak"
+                            ? "Cold Streak"
+                            : "Underperforming"}
+                    </span>
+                  )}
                 </div>
               </div>
             )}
