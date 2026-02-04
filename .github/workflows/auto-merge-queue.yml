@@ -1,0 +1,104 @@
+name: Auto Merge Queue
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Max entries to process'
+        required: false
+        default: '2000'
+        type: string
+      dry_run:
+        description: 'Dry run (no actual merges)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+  # Allow triggering from other workflows
+  workflow_call:
+    inputs:
+      limit:
+        description: 'Max entries to process'
+        required: false
+        default: '2000'
+        type: string
+
+env:
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+jobs:
+  auto-merge-queue:
+    name: Auto-Merge Queue Entries
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install psycopg2-binary python-dotenv
+
+      - name: Run queue auto-merge
+        id: merge
+        run: |
+          cd scripts
+          
+          # Determine execution mode
+          EXECUTE_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" != "true" ]; then
+            EXECUTE_FLAG="--execute"
+          fi
+          
+          # Set limit
+          LIMIT="${{ github.event.inputs.limit || '2000' }}"
+          
+          echo "🔍 Running queue auto-merge with limit=$LIMIT, dry_run=${{ github.event.inputs.dry_run || 'false' }}"
+          
+          # Run the script and capture output
+          python3 find_queue_matches.py --limit "$LIMIT" $EXECUTE_FLAG 2>&1 | tee ../auto-merge-output.log
+          
+          # Extract merge count from output
+          EXACT=$(grep "EXACT (95%+):" ../auto-merge-output.log | grep -oP '\d+(?=\s*-)' || echo "0")
+          HIGH=$(grep "HIGH (90-94%):" ../auto-merge-output.log | grep -oP '\d+(?=\s*-)' || echo "0")
+          MERGED=$(grep "Approved:" ../auto-merge-output.log | grep -oP '\d+(?=,)' || echo "0")
+          
+          echo "exact_matches=$EXACT" >> $GITHUB_OUTPUT
+          echo "high_matches=$HIGH" >> $GITHUB_OUTPUT
+          echo "teams_merged=$MERGED" >> $GITHUB_OUTPUT
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auto-merge-logs-${{ github.run_number }}
+          path: auto-merge-output.log
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## 🔗 Queue Auto-Merge Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Exact Matches (95%+) | ${{ steps.merge.outputs.exact_matches }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| High Confidence (90-94%) | ${{ steps.merge.outputs.high_matches }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Teams Merged | ${{ steps.merge.outputs.teams_merged }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Limit | ${{ github.event.inputs.limit || '2000' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Mode | ${{ github.event.inputs.dry_run == 'true' && 'Dry Run' || 'Live' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Protection Notes" >> $GITHUB_STEP_SUMMARY
+          echo "- Excludes AD/HD/MLS NEXT/EA teams (require manual review)" >> $GITHUB_STEP_SUMMARY
+          echo "- Strict variant matching (colors, directions, coach names)" >> $GITHUB_STEP_SUMMARY
+          echo "- Only merges 95%+ confidence matches" >> $GITHUB_STEP_SUMMARY

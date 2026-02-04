@@ -206,32 +206,39 @@ def preflight_check():
 
 
 def run_queue_auto_merge():
-    """Auto-approve safe queue matches (95%+ confidence)."""
+    """Trigger queue auto-merge GitHub Action."""
     print("\n" + "=" * 60)
-    print("STEP 0: AUTO-APPROVE QUEUE MATCHES")
+    print("STEP 0: AUTO-APPROVE QUEUE MATCHES (GitHub Action)")
     print("=" * 60)
     
     try:
-        from find_queue_matches import analyze_queue, execute_merges
+        import subprocess
         
-        # Analyze up to 2000 queue entries
-        results = analyze_queue(limit=2000)
-        exact_count = len(results['exact'])
+        # Trigger the GitHub Action
+        print("Triggering 'Auto Merge Queue' workflow...")
+        result = subprocess.run(
+            ['gh', 'workflow', 'run', 'Auto Merge Queue', '--repo', 'dallasheidt14/PitchRank'],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
         
-        if exact_count == 0:
-            print("No safe matches found in queue")
+        if result.returncode == 0:
+            print("✅ GitHub Action triggered successfully")
+            print("Note: Workflow runs asynchronously. Check GitHub Actions for results.")
+            return 0  # Can't return merge count since it's async
+        else:
+            print(f"❌ Failed to trigger workflow: {result.stderr}")
             return 0
         
-        print(f"Found {exact_count} safe matches (95%+)")
-        
-        # Execute the merges
-        approved, failed = execute_merges(results, dry_run=False)
-        
-        print(f"✅ Approved: {approved}, ❌ Failed: {failed}")
-        return approved
-        
+    except subprocess.TimeoutExpired:
+        print("❌ Timeout triggering workflow")
+        return 0
+    except FileNotFoundError:
+        print("❌ 'gh' CLI not found. Install GitHub CLI: brew install gh")
+        return 0
     except Exception as e:
-        print(f"❌ Queue auto-merge error: {e}")
+        print(f"❌ Queue auto-merge trigger error: {e}")
         return 0
 
 
