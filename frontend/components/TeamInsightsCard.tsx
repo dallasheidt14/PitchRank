@@ -162,6 +162,26 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
     );
   }
 
+  // No insights data available
+  if (!insights || !persona || !consistency || !seasonTruth) {
+    return (
+      <Card className="border-l-4 border-l-muted">
+        <CardHeader className="pb-3">
+          <CardTitle className="font-display uppercase tracking-wide text-base flex items-center gap-2">
+            <Brain className="h-4 w-4" />
+            Team Insights
+          </CardTitle>
+          <CardDescription>AI-powered scouting analysis</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground text-center py-2">
+            Insights not available for this team yet
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card className="border-l-4 border-l-primary">
       <CardHeader className="pb-3">
