@@ -2,15 +2,26 @@
  * Consistency Score Generator
  *
  * Computes a 0-100 score representing team reliability based on:
- * - Standard deviation of goal differential
+ * - Standard deviation of goal differential (capped at ±6 to match v53e)
  * - PowerScore volatility over time
  * - Streak fragmentation (how often results change)
+ *
+ * ALIGNED WITH v53e:
+ * - Goal diff capped at ±6 (GOAL_DIFF_CAP in v53e Layer 2)
+ * - Uses similar weighting philosophy to ranking components
  */
 
 import type { InsightInputData, ConsistencyInsight } from "./types";
 
 /**
+ * v53e GOAL_DIFF_CAP constant - blowout games beyond ±6 goals
+ * are capped to prevent single games from distorting metrics
+ */
+const GOAL_DIFF_CAP = 6;
+
+/**
  * Calculate standard deviation of goal differentials
+ * Caps goal differential at ±6 to match v53e engine
  */
 function calculateGoalDiffStdDev(
   games: InsightInputData["games"],
@@ -24,7 +35,10 @@ function calculateGoalDiffStdDev(
     const oppScore = isHome ? game.away_score : game.home_score;
 
     if (teamScore !== null && oppScore !== null) {
-      goalDiffs.push(teamScore - oppScore);
+      // Cap goal differential to match v53e Layer 2
+      const rawDiff = teamScore - oppScore;
+      const cappedDiff = Math.max(-GOAL_DIFF_CAP, Math.min(GOAL_DIFF_CAP, rawDiff));
+      goalDiffs.push(cappedDiff);
     }
   }
 
@@ -102,6 +116,11 @@ function calculatePowerScoreVolatility(
 /**
  * Convert raw metrics to a 0-100 consistency score
  * Higher score = more consistent
+ *
+ * Weights aligned with v53e philosophy:
+ * - Goal differential variance: 50% (primary performance signal)
+ * - Streak fragmentation: 30% (result predictability)
+ * - Power score volatility: 20% (rank stability)
  */
 function calculateConsistencyScore(
   goalDiffStdDev: number,
@@ -110,12 +129,15 @@ function calculateConsistencyScore(
 ): number {
   // Ideal values for a consistent team:
   // - Low goal differential std dev (< 1.5 is very consistent)
+  //   With ±6 cap, max possible stdDev is ~6 (all games at extremes)
+  //   Typical range: 1.0 - 3.5
   // - Low streak fragmentation (< 0.3 is consistent, long streaks)
   // - Low power score volatility (< 0.1 is stable)
 
   // Convert each metric to a 0-100 score (higher = more consistent)
 
   // Goal diff std dev: 0 -> 100, 4+ -> 0
+  // Adjusted for capped goal diffs (max realistic stdDev ~4)
   const gdScore = Math.max(0, 100 - goalDiffStdDev * 25);
 
   // Streak fragmentation: 0 -> 100, 1 -> 0
@@ -124,7 +146,7 @@ function calculateConsistencyScore(
   // Power score volatility: 0 -> 100, 0.2+ -> 0
   const pvScore = Math.max(0, 100 - powerScoreVolatility * 500);
 
-  // Weighted average (goal diff is most important)
+  // Weighted average
   const weightedScore = gdScore * 0.5 + sfScore * 0.3 + pvScore * 0.2;
 
   return Math.round(Math.min(100, Math.max(0, weightedScore)));

@@ -78,10 +78,10 @@ export async function GET(
       return NextResponse.json({ error: "Team not found" }, { status: 404 });
     }
 
-    // Fetch ranking data
+    // Fetch ranking data including v53e metrics (offense_norm, defense_norm, perf_centered)
     const { data: ranking, error: rankingError } = await supabase
       .from("rankings_view")
-      .select("*")
+      .select("*, offense_norm, defense_norm, perf_centered")
       .eq("team_id_master", teamId)
       .single();
 
@@ -223,6 +223,10 @@ export async function GET(
         games_played: ranking?.games_played ?? 0,
         rank_change_7d: ranking?.rank_change_7d ?? null,
         rank_change_30d: ranking?.rank_change_30d ?? null,
+        // v53e metrics for improved insights
+        offense_norm: ranking?.offense_norm ?? null,
+        defense_norm: ranking?.defense_norm ?? null,
+        perf_centered: ranking?.perf_centered ?? null,
       },
       games: ((games || []) as GameRow[]).map((game: GameRow) => {
         const oppId =

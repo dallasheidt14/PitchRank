@@ -4,7 +4,19 @@
  */
 
 /**
+ * Form signal derived from v53e perf_centered metric
+ * Indicates whether team is over/underperforming expectations
+ */
+export type FormSignal =
+  | "hot_streak"
+  | "overperforming"
+  | "meeting_expectations"
+  | "underperforming"
+  | "cold_streak";
+
+/**
  * Season Truth Summary - narrative evaluation of team's season
+ * Now uses v53e metrics (off_norm, def_norm, perf_centered) for accurate analysis
  */
 export interface SeasonTruthInsight {
   type: "season_truth";
@@ -13,6 +25,14 @@ export interface SeasonTruthInsight {
     rankVsPowerScore: "underranked" | "overranked" | "accurate";
     sosPercentile: number;
     consistencyNote: string;
+    /** Form signal from v53e perf_centered - shows current momentum */
+    formSignal: FormSignal;
+    /** Raw perf_centered value from v53e (-0.5 to +0.5) */
+    perfCentered: number | null;
+    /** Offensive strength percentile (0-1) from v53e */
+    offenseNorm: number | null;
+    /** Defensive strength percentile (0-1) from v53e */
+    defenseNorm: number | null;
   };
 }
 
@@ -83,6 +103,12 @@ export interface InsightInputData {
     games_played: number;
     rank_change_7d: number | null;
     rank_change_30d: number | null;
+    /** Offensive strength from v53e Layer 9 (0-1 percentile) */
+    offense_norm: number | null;
+    /** Defensive strength from v53e Layer 9 (0-1 percentile) */
+    defense_norm: number | null;
+    /** Form/momentum signal from v53e Layer 6 (-0.5 to +0.5) */
+    perf_centered: number | null;
   };
   games: Array<{
     game_date: string;
