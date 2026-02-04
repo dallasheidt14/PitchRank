@@ -1,5 +1,6 @@
 import { PageHeader } from '@/components/PageHeader';
 import { BlogCard } from '@/components/BlogCard';
+import { NewsletterSubscribe } from '@/components/NewsletterSubscribe';
 import type { Metadata } from 'next';
 import { getAllBlogPosts } from '@/lib/blog';
 
@@ -56,6 +57,11 @@ export default function BlogPage() {
             ))}
           </div>
         )}
+
+        {/* Newsletter Subscription */}
+        <div className="mt-16 mb-8">
+          <NewsletterSubscribe />
+        </div>
       </div>
     </div>
   );
