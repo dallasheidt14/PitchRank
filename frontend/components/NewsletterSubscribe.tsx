@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { createClientSupabase } from '@/lib/supabase/client';
 import { Mail, Check, AlertCircle } from 'lucide-react';
 
 export function NewsletterSubscribe() {
@@ -27,27 +26,22 @@ export function NewsletterSubscribe() {
     setErrorMessage('');
 
     try {
-      const supabase = createClientSupabase();
-      
-      const { error } = await supabase
-        .from('newsletter_subscribers')
-        .insert([
-          { 
-            email: email.toLowerCase().trim(),
-            source: 'blog' 
-          }
-        ]);
+      const response = await fetch('/api/newsletter', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: email.toLowerCase().trim(),
+          source: 'blog',
+        }),
+      });
 
-      if (error) {
-        // Check if it's a duplicate email error
-        if (error.code === '23505') {
-          setStatus('error');
-          setErrorMessage("You're already subscribed!");
-        } else {
-          setStatus('error');
-          setErrorMessage('Something went wrong. Please try again.');
-          console.error('Newsletter subscription error:', error);
-        }
+      const data = await response.json();
+
+      if (!response.ok) {
+        setStatus('error');
+        setErrorMessage(data.error || 'Something went wrong. Please try again.');
       } else {
         setStatus('success');
         setEmail('');
