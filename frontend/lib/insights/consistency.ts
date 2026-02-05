@@ -121,30 +121,39 @@ function calculatePowerScoreVolatility(
  * - Goal differential variance: 50% (primary performance signal)
  * - Streak fragmentation: 30% (result predictability)
  * - Power score volatility: 20% (rank stability)
+ *
+ * Score distribution targets:
+ * - Top 10% teams (very consistent): 75-100
+ * - Average teams: 45-65
+ * - Bottom 10% (highly volatile): 0-35
  */
 function calculateConsistencyScore(
   goalDiffStdDev: number,
   streakFragmentation: number,
   powerScoreVolatility: number
 ): number {
-  // Ideal values for a consistent team:
-  // - Low goal differential std dev (< 1.5 is very consistent)
-  //   With ±6 cap, max possible stdDev is ~6 (all games at extremes)
-  //   Typical range: 1.0 - 3.5
-  // - Low streak fragmentation (< 0.3 is consistent, long streaks)
-  // - Low power score volatility (< 0.1 is stable)
+  // With ±6 cap goal diffs:
+  // - Very consistent teams: stdDev < 1.5 (tight margins)
+  // - Average teams: stdDev 2.0-2.5
+  // - Volatile teams: stdDev > 3.0 (blowouts and close losses)
+  //
+  // Score mapping (using shifted sigmoid-like curve for better spread):
+  // stdDev 1.0 -> ~85, stdDev 2.0 -> ~55, stdDev 3.0 -> ~25
+  const gdScore = Math.max(0, Math.min(100, 115 - goalDiffStdDev * 30));
 
-  // Convert each metric to a 0-100 score (higher = more consistent)
+  // Streak fragmentation (how often results change W/L/D):
+  // - Long streaks (0.2): very predictable -> high score
+  // - Alternating results (0.7+): unpredictable -> low score
+  // Shifted to center around typical values (0.4-0.6)
+  const sfScore = Math.max(0, Math.min(100, 130 - streakFragmentation * 150));
 
-  // Goal diff std dev: 0 -> 100, 4+ -> 0
-  // Adjusted for capped goal diffs (max realistic stdDev ~4)
-  const gdScore = Math.max(0, 100 - goalDiffStdDev * 25);
-
-  // Streak fragmentation: 0 -> 100, 1 -> 0
-  const sfScore = (1 - streakFragmentation) * 100;
-
-  // Power score volatility: 0 -> 100, 0.2+ -> 0
-  const pvScore = Math.max(0, 100 - powerScoreVolatility * 500);
+  // Power score volatility (coefficient of variation):
+  // - Stable ranking (< 0.05): very consistent -> high score
+  // - Volatile ranking (> 0.15): jumping around -> low score
+  // If no history data (volatility = 0), use neutral 60
+  const pvScore = powerScoreVolatility === 0
+    ? 60
+    : Math.max(0, Math.min(100, 100 - powerScoreVolatility * 400));
 
   // Weighted average
   const weightedScore = gdScore * 0.5 + sfScore * 0.3 + pvScore * 0.2;

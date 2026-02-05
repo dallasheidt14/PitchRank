@@ -9,20 +9,34 @@
  */
 
 /**
- * Parse a date-only string (YYYY-MM-DD) as a local date.
+ * Parse a date string as a local date.
  *
- * Use this instead of `new Date(dateString)` when you have a date-only string
- * and want to display it in the user's local timezone without day shifting.
+ * Handles both formats:
+ * - Date-only: "2025-11-02" (YYYY-MM-DD)
+ * - ISO timestamp: "2025-11-02T00:00:00.000Z"
  *
- * @param dateString - Date string in YYYY-MM-DD format (e.g., "2025-11-02")
+ * Use this instead of `new Date(dateString)` when you want to display
+ * the date in the user's local timezone without day shifting.
+ *
+ * @param dateString - Date string in YYYY-MM-DD or ISO format
  * @returns Date object representing local midnight on that date
  *
  * @example
- * // Instead of: new Date("2025-11-02") // UTC midnight, may show wrong day
- * // Use: parseLocalDate("2025-11-02") // Local midnight, correct day
+ * parseLocalDate("2025-11-02") // Local midnight, Nov 2
+ * parseLocalDate("2025-11-02T00:00:00.000Z") // Local midnight, Nov 2
  */
 export function parseLocalDate(dateString: string): Date {
-  const [year, month, day] = dateString.split('-').map(Number);
+  // Handle both YYYY-MM-DD and full ISO timestamps
+  // Extract just the date portion (first 10 characters)
+  const datePart = dateString.substring(0, 10);
+  const [year, month, day] = datePart.split('-').map(Number);
+
+  // Validate the parsed values
+  if (isNaN(year) || isNaN(month) || isNaN(day)) {
+    console.warn(`Invalid date string: ${dateString}`);
+    return new Date(NaN); // Return Invalid Date
+  }
+
   return new Date(year, month - 1, day); // month is 0-indexed in JS
 }
 
