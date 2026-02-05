@@ -437,7 +437,7 @@ def analyze_queue(limit=100, min_confidence=0.90):
     
     # Mark ALL analyzed entries with timestamp so we skip them next run
     # (Only entries that don't get merged - merged ones change status to 'approved')
-    analyzed_ids = [e[0] for e in entries]  # e[0] is the id
+    analyzed_ids = [e['id'] for e in entries]  # entries are dicts from RealDictCursor
     if analyzed_ids:
         cur.execute('''
             UPDATE team_match_review_queue 
