@@ -19,6 +19,7 @@ import {
   Pause,
   GitCommit,
 } from 'lucide-react';
+import { AgentCommsFeed } from '@/components/agent-comms-feed';
 
 interface AgentStatus {
   id: string;
@@ -327,6 +328,9 @@ export default function MissionControlPage() {
         </div>
         <ActivityFeed commits={data.commits} />
       </div>
+
+      {/* Agent Communications Feed */}
+      <AgentCommsFeed />
 
       {/* Agent Grid */}
       <div>
