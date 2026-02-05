@@ -48,7 +48,7 @@ export async function POST(req: Request) {
     // Create Stripe customer if one doesn't exist
     if (!customerId) {
       const customer = await stripe.customers.create({
-        email: user.email!,
+        ...(user.email ? { email: user.email } : {}),
         metadata: {
           supabase_user_id: user.id,
         },
@@ -56,15 +56,18 @@ export async function POST(req: Request) {
 
       customerId = customer.id;
 
-      // Save customer ID to profile
+      // Save customer ID to profile - this MUST succeed for webhooks to work
       const { error: updateError } = await supabase
         .from("user_profiles")
         .update({ stripe_customer_id: customerId })
         .eq("id", user.id);
 
       if (updateError) {
-        console.error("Error updating customer ID:", updateError);
-        // Continue anyway - we can still create the checkout session
+        console.error("Error saving customer ID to profile:", updateError);
+        return NextResponse.json(
+          { error: "Failed to link billing account. Please try again." },
+          { status: 500 }
+        );
       }
     }
 
