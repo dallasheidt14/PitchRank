@@ -136,50 +136,43 @@ export function InsightModal({
                   {seasonTruth.text}
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
+                  {/* Rank Trajectory Badge - based on perf_centered */}
                   <span
                     className={cn(
-                      "text-xs px-2.5 py-1 rounded-full font-medium",
-                      seasonTruth.details.rankVsPowerScore === "underranked"
+                      "inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium",
+                      seasonTruth.details.rankTrajectory === "rising"
                         ? "bg-green-500/20 text-green-700 dark:text-green-400"
-                        : seasonTruth.details.rankVsPowerScore === "overranked"
-                          ? "bg-amber-500/20 text-amber-700 dark:text-amber-400"
+                        : seasonTruth.details.rankTrajectory === "falling"
+                          ? "bg-red-500/20 text-red-700 dark:text-red-400"
                           : "bg-muted text-muted-foreground"
                     )}
                   >
-                    {seasonTruth.details.rankVsPowerScore === "underranked"
-                      ? "Underranked"
-                      : seasonTruth.details.rankVsPowerScore === "overranked"
-                        ? "Overranked"
-                        : "Accurately Ranked"}
+                    {seasonTruth.details.rankTrajectory === "rising" && <TrendingUp className="h-3 w-3" />}
+                    {seasonTruth.details.rankTrajectory === "falling" && <TrendingDown className="h-3 w-3" />}
+                    {seasonTruth.details.rankTrajectory === "rising"
+                      ? "Rank Rising"
+                      : seasonTruth.details.rankTrajectory === "falling"
+                        ? "Rank Falling"
+                        : "Rank Stable"}
                   </span>
+                  {/* SOS Badge - informational context only */}
                   <span className="text-xs px-2.5 py-1 rounded-full bg-muted text-muted-foreground font-medium">
                     SOS: {seasonTruth.details.sosPercentile}th percentile
                   </span>
-                  {/* Form Signal Badge - v53e perf_centered */}
-                  {seasonTruth.details.formSignal && seasonTruth.details.formSignal !== "meeting_expectations" && (
+                  {/* Form Signal Badge - only show notable streaks */}
+                  {seasonTruth.details.formSignal &&
+                   (seasonTruth.details.formSignal === "hot_streak" || seasonTruth.details.formSignal === "cold_streak") && (
                     <span
                       className={cn(
                         "inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium",
                         seasonTruth.details.formSignal === "hot_streak"
-                          ? "bg-red-500/20 text-red-700 dark:text-red-400"
-                          : seasonTruth.details.formSignal === "overperforming"
-                            ? "bg-orange-500/20 text-orange-700 dark:text-orange-400"
-                            : seasonTruth.details.formSignal === "cold_streak"
-                              ? "bg-blue-500/20 text-blue-700 dark:text-blue-400"
-                              : "bg-cyan-500/20 text-cyan-700 dark:text-cyan-400"
+                          ? "bg-orange-500/20 text-orange-700 dark:text-orange-400"
+                          : "bg-blue-500/20 text-blue-700 dark:text-blue-400"
                       )}
                     >
                       {seasonTruth.details.formSignal === "hot_streak" && <Flame className="h-3 w-3" />}
-                      {seasonTruth.details.formSignal === "overperforming" && <TrendingUp className="h-3 w-3" />}
                       {seasonTruth.details.formSignal === "cold_streak" && <Snowflake className="h-3 w-3" />}
-                      {seasonTruth.details.formSignal === "underperforming" && <TrendingDown className="h-3 w-3" />}
-                      {seasonTruth.details.formSignal === "hot_streak"
-                        ? "Hot Streak"
-                        : seasonTruth.details.formSignal === "overperforming"
-                          ? "Overperforming"
-                          : seasonTruth.details.formSignal === "cold_streak"
-                            ? "Cold Streak"
-                            : "Underperforming"}
+                      {seasonTruth.details.formSignal === "hot_streak" ? "Hot Streak" : "Cold Streak"}
                     </span>
                   )}
                 </div>
@@ -416,25 +409,27 @@ export function InsightPreview({
     );
   }
 
-  // Season truth - show rank assessment
+  // Season truth - show rank trajectory
   const seasonTruth = insight as SeasonTruthInsight;
   return (
     <div
       className={cn(
         "flex items-center gap-1.5 text-xs px-2 py-1 rounded-full font-medium",
-        seasonTruth.details.rankVsPowerScore === "underranked"
+        seasonTruth.details.rankTrajectory === "rising"
           ? "bg-green-500/20 text-green-700 dark:text-green-400"
-          : seasonTruth.details.rankVsPowerScore === "overranked"
-            ? "bg-amber-500/20 text-amber-700 dark:text-amber-400"
+          : seasonTruth.details.rankTrajectory === "falling"
+            ? "bg-red-500/20 text-red-700 dark:text-red-400"
             : "bg-muted text-muted-foreground"
       )}
     >
-      <Brain className="h-3 w-3" />
-      {seasonTruth.details.rankVsPowerScore === "underranked"
-        ? "Underranked"
-        : seasonTruth.details.rankVsPowerScore === "overranked"
-          ? "Overranked"
-          : "Accurately Ranked"}
+      {seasonTruth.details.rankTrajectory === "rising" && <TrendingUp className="h-3 w-3" />}
+      {seasonTruth.details.rankTrajectory === "falling" && <TrendingDown className="h-3 w-3" />}
+      {seasonTruth.details.rankTrajectory !== "rising" && seasonTruth.details.rankTrajectory !== "falling" && <Brain className="h-3 w-3" />}
+      {seasonTruth.details.rankTrajectory === "rising"
+        ? "Rising"
+        : seasonTruth.details.rankTrajectory === "falling"
+          ? "Falling"
+          : "Stable"}
     </div>
   );
 }
