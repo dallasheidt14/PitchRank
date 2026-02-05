@@ -2,80 +2,63 @@
  * Season Truth Summary Generator
  *
  * Computes a narrative evaluation of a team's season based on v53e metrics:
- * - Raw performance (off_norm + def_norm) vs SOS-adjusted power score
+ * - Rank trajectory from perf_centered (predicting rank movement)
  * - Form signal from perf_centered (overperforming/underperforming)
- * - SOS percentile context
+ * - SOS percentile context (informational only)
  * - Win/loss clustering patterns
  *
- * IMPORTANT: This version fixes the previous circular logic that compared
- * rank percentile to power percentile (which are nearly identical by design).
- * Instead, we now compare raw offensive/defensive performance to the
- * SOS-boosted final power score to identify true under/overranked teams.
+ * IMPORTANT: v53e ALREADY incorporates SOS (50% of formula) into the final rank.
+ * The rank v53e produces IS the "true rank" after adjusting for schedule.
+ * We should NOT use SOS to question the rank - that would contradict v53e's purpose.
+ *
+ * Instead, we use perf_centered (recent form) to predict TRAJECTORY:
+ * - High perf_centered = overperforming = rank likely to RISE
+ * - Low perf_centered = underperforming = rank likely to FALL
+ * - Neutral = rank is STABLE
  */
 
-import type { InsightInputData, SeasonTruthInsight, FormSignal } from "./types";
+import type { InsightInputData, SeasonTruthInsight, FormSignal, RankTrajectory } from "./types";
 
 /**
- * v53e Power Score formula reference:
- * power_score = (0.25 * off_norm + 0.25 * def_norm + 0.50 * sos_norm + 0.15 * perf_centered) / 1.075
+ * Determines rank trajectory based on recent form (perf_centered)
  *
- * This means:
- * - Raw talent = off_norm + def_norm (50% of formula, equally weighted)
- * - Schedule boost = sos_norm (50% of formula)
- * - Momentum = perf_centered (15% blended)
+ * perf_centered range: [-0.5, +0.5]
+ * - Positive values = team overperforming expectations = rank likely to rise
+ * - Negative values = team underperforming expectations = rank likely to fall
+ * - Near zero = performing as expected = rank stable
  *
- * A team is "SOS-carried" if their raw talent << final power (hard schedule inflates rank)
- * A team is "SOS-deflated" if their raw talent >> final power (easy schedule deflates rank)
+ * This is the correct approach because:
+ * - v53e already factored in SOS to calculate the current rank
+ * - perf_centered reflects RECENT performance vs expectations
+ * - If a team is consistently overperforming, their rank WILL improve
+ * - If a team is consistently underperforming, their rank WILL drop
  */
-
-/**
- * Determines if a team is underranked, overranked, or accurately ranked
- * by comparing raw performance (OFF+DEF) to SOS contribution
- */
-function analyzeRankVsPowerScore(
+function analyzeRankTrajectory(
   ranking: InsightInputData["ranking"]
-): "underranked" | "overranked" | "accurate" {
-  const { offense_norm, defense_norm, sos_norm, power_score_final } = ranking;
+): RankTrajectory {
+  const { perf_centered } = ranking;
 
-  // Need all v53e metrics for proper analysis
-  if (
-    offense_norm === null ||
-    defense_norm === null ||
-    sos_norm === null ||
-    power_score_final === null
-  ) {
-    return "accurate";
+  // Without perf_centered data, we can't predict trajectory
+  if (perf_centered === null) {
+    return "stable";
   }
 
-  // Raw talent = average of offense and defense (each is 0-1 percentile)
-  const rawTalent = (offense_norm + defense_norm) / 2;
+  // Thresholds based on perf_centered range [-0.5, +0.5]
+  // 0.10 is a meaningful deviation from expectations
+  const RISING_THRESHOLD = 0.10;
+  const FALLING_THRESHOLD = -0.10;
 
-  // SOS contribution to power score
-  // In v53e: power = 0.25*off + 0.25*def + 0.50*sos (normalized)
-  // So SOS "boost" = how much higher power is vs what raw talent alone would give
-  // If SOS > rawTalent, schedule is harder than avg and team gets boost
-  // If SOS < rawTalent, schedule is easier than avg and team gets penalty
-
-  const sosBoost = sos_norm - rawTalent;
-
-  // Thresholds for determining if the SOS significantly affects perception
-  // 0.10 = 10 percentile points difference
-  const UNDERRANKED_THRESHOLD = 0.08; // Team playing hard schedule, raw talent high
-  const OVERRANKED_THRESHOLD = -0.08; // Team playing easy schedule, raw talent low
-
-  if (sosBoost > UNDERRANKED_THRESHOLD && rawTalent > 0.55) {
-    // Team has good raw talent AND plays a hard schedule
-    // Their rank might be lower than their true ability
-    return "underranked";
+  if (perf_centered >= RISING_THRESHOLD) {
+    // Team overperforming → rank likely to improve
+    return "rising";
   }
 
-  if (sosBoost < OVERRANKED_THRESHOLD && rawTalent < 0.50) {
-    // Team has below-average raw talent AND plays an easy schedule
-    // Their rank might be higher than their true ability
-    return "overranked";
+  if (perf_centered <= FALLING_THRESHOLD) {
+    // Team underperforming → rank likely to drop
+    return "falling";
   }
 
-  return "accurate";
+  return "stable";
 }
 
 /**
@@ -188,12 +171,28 @@ function getFormNarrative(formSignal: FormSignal, perfCentered: number | null): 
 }
 
 /**
+ * Generates trajectory narrative based on perf_centered
+ */
+function getTrajectoryNarrative(trajectory: RankTrajectory, perfCentered: number | null): string {
+  if (perfCentered === null) return "";
+
+  switch (trajectory) {
+    case "rising":
+      return "Based on recent form, this team's rank is likely to improve in upcoming updates.";
+    case "falling":
+      return "Recent results suggest this team's rank may drop in upcoming updates.";
+    default:
+      return "";
+  }
+}
+
+/**
  * Generates the Season Truth insight
  */
 export function generateSeasonTruth(data: InsightInputData): SeasonTruthInsight {
   const { team, ranking, games, cohortStats } = data;
 
-  const rankVsPowerScore = analyzeRankVsPowerScore(ranking);
+  const rankTrajectory = analyzeRankTrajectory(ranking);
   const sosPercentile = ranking.sos_norm ? Math.round(ranking.sos_norm * 100) : 50;
   const consistencyNote = analyzeConsistencyPattern(games, team.team_id_master);
   const formSignal = getFormSignal(ranking.perf_centered);
@@ -205,36 +204,25 @@ export function generateSeasonTruth(data: InsightInputData): SeasonTruthInsight 
   if (rank !== null) {
     narrative = `This team is ranked #${rank} nationally`;
 
-    // Explain rank assessment using v53e logic
-    if (rankVsPowerScore === "underranked") {
-      narrative += `. Their raw offensive/defensive metrics suggest they're better than their current ranking`;
-      if (sosPercentile >= 70) {
-        narrative += ` - a brutal ${sosPercentile}th percentile strength of schedule has suppressed their position`;
-      }
-    } else if (rankVsPowerScore === "overranked") {
-      narrative += `, though their underlying talent metrics suggest the ranking may be inflated`;
-      if (sosPercentile <= 35) {
-        narrative += ` by a softer-than-average schedule (${sosPercentile}th percentile SOS)`;
-      }
-    } else {
-      narrative += `, which aligns well with their underlying performance metrics`;
+    // Add SOS context (informational only - v53e already factored this into the rank)
+    if (sosPercentile >= 75) {
+      narrative += ` and has earned that position against elite competition (${sosPercentile}th percentile SOS)`;
+    } else if (sosPercentile <= 25) {
+      narrative += ` against a lighter schedule (${sosPercentile}th percentile SOS)`;
     }
 
     narrative += ".";
 
-    // Add form/momentum signal (the key new insight from perf_centered)
+    // Add form/momentum signal (the key insight from perf_centered)
     const formNarrative = getFormNarrative(formSignal, ranking.perf_centered);
     if (formNarrative) {
       narrative += ` ${formNarrative}`;
     }
 
-    // Add SOS context if not already mentioned
-    if (rankVsPowerScore === "accurate") {
-      if (sosPercentile >= 75) {
-        narrative += ` They've faced one of the toughest schedules in their cohort (top ${100 - sosPercentile}% SOS).`;
-      } else if (sosPercentile <= 25) {
-        narrative += ` Their schedule has been relatively soft (bottom ${sosPercentile}% SOS).`;
-      }
+    // Add trajectory prediction based on recent form
+    const trajectoryNarrative = getTrajectoryNarrative(rankTrajectory, ranking.perf_centered);
+    if (trajectoryNarrative) {
+      narrative += ` ${trajectoryNarrative}`;
     }
 
     // Add consistency note
@@ -262,7 +250,7 @@ export function generateSeasonTruth(data: InsightInputData): SeasonTruthInsight 
     type: "season_truth",
     text: narrative,
     details: {
-      rankVsPowerScore,
+      rankTrajectory,
       sosPercentile,
       consistencyNote,
       formSignal,

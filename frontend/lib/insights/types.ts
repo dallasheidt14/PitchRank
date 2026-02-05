@@ -15,14 +15,26 @@ export type FormSignal =
   | "cold_streak";
 
 /**
+ * Rank trajectory derived from v53e perf_centered
+ * Indicates whether team's rank is likely to rise, fall, or stay stable
+ * based on recent performance vs expectations
+ *
+ * IMPORTANT: v53e already incorporates SOS into the final rank.
+ * We should NOT use SOS to question the rank - instead we use
+ * perf_centered (recent form) to predict rank movement.
+ */
+export type RankTrajectory = "rising" | "falling" | "stable";
+
+/**
  * Season Truth Summary - narrative evaluation of team's season
- * Now uses v53e metrics (off_norm, def_norm, perf_centered) for accurate analysis
+ * Uses v53e perf_centered to predict rank trajectory
  */
 export interface SeasonTruthInsight {
   type: "season_truth";
   text: string;
   details: {
-    rankVsPowerScore: "underranked" | "overranked" | "accurate";
+    /** Rank trajectory based on recent form (perf_centered) */
+    rankTrajectory: RankTrajectory;
     sosPercentile: number;
     consistencyNote: string;
     /** Form signal from v53e perf_centered - shows current momentum */

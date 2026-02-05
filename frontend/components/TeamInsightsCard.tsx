@@ -162,6 +162,26 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
     );
   }
 
+  // No insights data available
+  if (!insights || !persona || !consistency || !seasonTruth) {
+    return (
+      <Card className="border-l-4 border-l-muted">
+        <CardHeader className="pb-3">
+          <CardTitle className="font-display uppercase tracking-wide text-base flex items-center gap-2">
+            <Brain className="h-4 w-4" />
+            Team Insights
+          </CardTitle>
+          <CardDescription>AI-powered scouting analysis</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground text-center py-2">
+            Insights not available for this team yet
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card className="border-l-4 border-l-primary">
       <CardHeader className="pb-3">
@@ -238,58 +258,58 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
           </div>
         )}
 
-        {/* Season Truth Badges */}
+        {/* Season Truth - Structured list with labels */}
         {seasonTruth && (
-          <div className="flex flex-wrap gap-1.5">
-            {/* Rank Assessment */}
-            <span
-              className={cn(
-                'text-xs px-2 py-0.5 rounded-full font-medium',
-                seasonTruth.details.rankVsPowerScore === 'underranked'
-                  ? 'bg-green-500/20 text-green-700 dark:text-green-400'
-                  : seasonTruth.details.rankVsPowerScore === 'overranked'
-                    ? 'bg-amber-500/20 text-amber-700 dark:text-amber-400'
-                    : 'bg-muted text-muted-foreground'
-              )}
-            >
-              {seasonTruth.details.rankVsPowerScore === 'underranked'
-                ? 'Underranked'
-                : seasonTruth.details.rankVsPowerScore === 'overranked'
-                  ? 'Overranked'
-                  : 'Accurate'}
-            </span>
-
-            {/* SOS Badge */}
-            <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
-              SOS: {seasonTruth.details.sosPercentile}%
-            </span>
-
-            {/* Form Signal */}
-            {seasonTruth.details.formSignal && seasonTruth.details.formSignal !== 'meeting_expectations' && (
+          <div className="space-y-2 text-sm">
+            {/* Rank Trajectory - Based on recent form (perf_centered) */}
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Rank Trend</span>
               <span
                 className={cn(
-                  'inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium',
-                  seasonTruth.details.formSignal === 'hot_streak'
-                    ? 'bg-red-500/20 text-red-700 dark:text-red-400'
-                    : seasonTruth.details.formSignal === 'overperforming'
-                      ? 'bg-orange-500/20 text-orange-700 dark:text-orange-400'
-                      : seasonTruth.details.formSignal === 'cold_streak'
-                        ? 'bg-blue-500/20 text-blue-700 dark:text-blue-400'
-                        : 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-400'
+                  'inline-flex items-center gap-1 px-2 py-0.5 rounded font-medium',
+                  seasonTruth.details.rankTrajectory === 'rising'
+                    ? 'bg-green-500/20 text-green-700 dark:text-green-400'
+                    : seasonTruth.details.rankTrajectory === 'falling'
+                      ? 'bg-red-500/20 text-red-700 dark:text-red-400'
+                      : 'bg-muted text-muted-foreground'
                 )}
               >
-                {seasonTruth.details.formSignal === 'hot_streak' && <Flame className="h-3 w-3" />}
-                {seasonTruth.details.formSignal === 'overperforming' && <TrendingUp className="h-3 w-3" />}
-                {seasonTruth.details.formSignal === 'cold_streak' && <Snowflake className="h-3 w-3" />}
-                {seasonTruth.details.formSignal === 'underperforming' && <TrendingDown className="h-3 w-3" />}
-                {seasonTruth.details.formSignal === 'hot_streak'
-                  ? 'Hot'
-                  : seasonTruth.details.formSignal === 'overperforming'
-                    ? 'Up'
-                    : seasonTruth.details.formSignal === 'cold_streak'
-                      ? 'Cold'
-                      : 'Down'}
+                {seasonTruth.details.rankTrajectory === 'rising' && <TrendingUp className="h-3 w-3" />}
+                {seasonTruth.details.rankTrajectory === 'falling' && <TrendingDown className="h-3 w-3" />}
+                {seasonTruth.details.rankTrajectory === 'rising'
+                  ? 'Rising'
+                  : seasonTruth.details.rankTrajectory === 'falling'
+                    ? 'Falling'
+                    : 'Stable'}
               </span>
+            </div>
+
+            {/* Schedule Strength - Informational context */}
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Schedule Strength</span>
+              <span className="font-mono font-medium">
+                {seasonTruth.details.sosPercentile}th %ile
+              </span>
+            </div>
+
+            {/* Form/Momentum - Only show notable streaks */}
+            {seasonTruth.details.formSignal &&
+             (seasonTruth.details.formSignal === 'hot_streak' || seasonTruth.details.formSignal === 'cold_streak') && (
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Current Form</span>
+                <span
+                  className={cn(
+                    'inline-flex items-center gap-1 px-2 py-0.5 rounded font-medium',
+                    seasonTruth.details.formSignal === 'hot_streak'
+                      ? 'bg-orange-500/20 text-orange-700 dark:text-orange-400'
+                      : 'bg-blue-500/20 text-blue-700 dark:text-blue-400'
+                  )}
+                >
+                  {seasonTruth.details.formSignal === 'hot_streak' && <Flame className="h-3 w-3" />}
+                  {seasonTruth.details.formSignal === 'cold_streak' && <Snowflake className="h-3 w-3" />}
+                  {seasonTruth.details.formSignal === 'hot_streak' ? 'Hot Streak' : 'Cold Streak'}
+                </span>
+              </div>
             )}
           </div>
         )}
