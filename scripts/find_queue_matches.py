@@ -387,12 +387,13 @@ def analyze_queue(limit=100, min_confidence=0.90):
     cur = conn.cursor(cursor_factory=RealDictCursor)
     search_cur = conn.cursor()
     
-    # Get pending queue entries
+    # Get pending queue entries (skip recently analyzed ones that didn't match)
     cur.execute('''
         SELECT id, provider_id, provider_team_id, provider_team_name, 
                match_details, confidence_score
         FROM team_match_review_queue
         WHERE status = 'pending'
+          AND (last_analyzed_at IS NULL OR last_analyzed_at < NOW() - INTERVAL '7 days')
         ORDER BY created_at
         LIMIT %s
     ''', (limit,))
@@ -433,6 +434,18 @@ def analyze_queue(limit=100, min_confidence=0.90):
             results['low'].append(result)
         else:
             results['no_match'].append(result)
+    
+    # Mark ALL analyzed entries with timestamp so we skip them next run
+    # (Only entries that don't get merged - merged ones change status to 'approved')
+    analyzed_ids = [e[0] for e in entries]  # e[0] is the id
+    if analyzed_ids:
+        cur.execute('''
+            UPDATE team_match_review_queue 
+            SET last_analyzed_at = NOW()
+            WHERE id = ANY(%s) AND status = 'pending'
+        ''', (analyzed_ids,))
+        conn.commit()
+        print(f"  Marked {len(analyzed_ids)} entries as analyzed")
     
     conn.close()
     return results
