@@ -1,4 +1,5 @@
 import { createServerSupabase } from '@/lib/supabase/server';
+import { sendWelcomeEmail } from '@/lib/email';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
@@ -23,12 +24,13 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createServerSupabase();
+    const normalizedEmail = email.toLowerCase().trim();
 
     const { error } = await supabase
       .from('newsletter_subscribers')
       .insert([
         {
-          email: email.toLowerCase().trim(),
+          email: normalizedEmail,
           source: source,
         },
       ]);
@@ -59,8 +61,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Send welcome email (non-blocking - subscription succeeds even if email fails)
+    sendWelcomeEmail(normalizedEmail).catch((err) => {
+      console.error('Failed to send welcome email:', err);
+    });
+
     return NextResponse.json(
-      { success: true, message: 'Successfully subscribed!' },
+      { success: true, message: "You're subscribed! Welcome to PitchRank." },
       { status: 201 }
     );
   } catch (error) {
