@@ -1389,6 +1389,17 @@ class GotSportEventScraper:
                             elif re.search(r'\b(Girls?|Female)\b', division, re.I):
                                 gender = 'Girls'
                         
+                        # FILTER: Skip games for U9 and younger age groups
+                        # PitchRank only tracks U10 and older
+                        if age_group:
+                            age_number_match = re.search(r'U0*(\d+)', age_group, re.I)
+                            if age_number_match:
+                                age_number = int(age_number_match.group(1))
+                                if age_number < 10:
+                                    # Skip U9, U8, U7, U6, etc.
+                                    logger.debug(f"Skipping {age_group} game: {home_team_name} vs {away_team_name}")
+                                    continue
+                        
                         # Determine result
                         result = None
                         if goals_for is not None and goals_against is not None:
