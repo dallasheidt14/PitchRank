@@ -20,6 +20,7 @@ import {
   GitCommit,
 } from 'lucide-react';
 import { AgentCommsFeed } from '@/components/agent-comms-feed';
+import { TaskBoard, AnnouncementBanner } from '@/components/mission-control';
 
 interface AgentStatus {
   id: string;
@@ -300,6 +301,9 @@ export default function MissionControlPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
+      {/* Announcement Banner */}
+      <AnnouncementBanner />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -328,6 +332,9 @@ export default function MissionControlPage() {
         </div>
         <ActivityFeed commits={data.commits} />
       </div>
+
+      {/* Task Board - Kanban */}
+      <TaskBoard />
 
       {/* Agent Communications Feed */}
       <AgentCommsFeed />
