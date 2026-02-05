@@ -26,5 +26,30 @@ Daily health check cron (2026-02-03 08:23) failed again with 404 on `claude-3-5-
 
 <!-- COMPY will append false positive patterns here -->
 
----
-*Last updated: Initial creation*
+## Date: 2026-02-04
+
+### What Worked Well
+- **Data quality metrics discovery:** Successfully identified 475 teams with "No Club Selection" and 3,772 teams with missing `club_name` field
+- **Quarantine analysis:** Baseline established for quarantine trends — can now track if this number grows/shrinks over time
+- **Health pattern consistency:** Same monitoring approach works reliably when model is configured correctly
+
+### Metrics & Thresholds Discovered
+From Feb 4 data quality check:
+- **Teams with no club:** 475 (concerning — these can't be ranked properly)
+- **Teams with missing club_name:** 3,772 (data quality debt)
+- **Stale teams:** 47,996 teams not scraped recently
+- **Quarantine games:** 0 (clean state)
+
+**Alert suggestions:**
+- 🟡 WARN if teams_without_club > 500
+- 🔴 CRITICAL if teams_without_club > 1000 (breaks ranking engine)
+- 🟡 WARN if missing_club_name > 5000
+
+### Gotchas Discovered
+- **Club selection status:** Teams created without explicit club selection remain orphaned. Need data cleanup or UI validation on team creation
+- **Stale team tracking:** High number (47k) suggests scraping isn't covering all teams or isn't triggering frequently enough
+
+### For Next Time
+- Compare club selection metrics week-to-week to detect data entry problems
+- Alert D H immediately if any team without club exceeds 1,000
+- Consider blocking team creation without explicit club assignment in UI

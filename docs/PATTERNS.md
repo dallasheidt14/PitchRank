@@ -4,7 +4,21 @@
 
 ## Data Processing Patterns
 
-<!-- COMPY will append data patterns here -->
+### 2026-02-04: Team Division Separation (HD vs AD)
+Legitimate squads within the same club must stay separate:
+- **AD** (Academy Division): Younger/developing players
+- **HD** (Higher Division): Elite/older players  
+- **Strategy**: Teams may exist in multiple division sources; use provider aliases (`_AD`, `_HD` suffixes) to determine which division they belong to
+- **Tool**: `scripts/unmerge_hd_ad_teams.py --execute` separates incorrectly merged teams
+- **Learned**: First-created division determines the original team name; newer divisions get merged aliases
+
+### 2026-02-04: Data Quality Metrics to Track Weekly
+Establish baseline metrics and trend them:
+- Teams without club selection (should be < 100)
+- Teams missing `club_name` field (should be < 500)
+- Stale teams (not scraped in 7+ days)
+
+These metrics indicate data entry errors or scraper coverage gaps.
 
 ## Error Handling Patterns
 
@@ -35,6 +49,31 @@ When monitoring agents (Scrappy, Watchy) detect issues:
 4. Receive completion notification when done
 
 **Example**: Scrappy detected TGS scrape failure → spawned "Codey: Investigate failed TGS scrape" → received findings asynchronously.
+
+## Infrastructure Patterns
+
+### 2026-02-04: Supabase Connection Strategy (Direct vs Pooler)
+- **For local scripts/CLI**: Use direct connection (`postgresql://postgres:pass@db.REGION.supabase.co:5432/postgres`)
+  - Faster, fewer hops, no connection pooling overhead
+  - Only works with IPv6 access (local machines, not CI/CD)
+  
+- **For GitHub Actions/CI/CD**: Use pooler connection (`postgresql://postgres.REGION:pass@aws-1-us-west-1.pooler.supabase.com:5432/postgres`)
+  - IPv4-compatible, works in GitHub Actions runners
+  - Check Supabase dashboard for actual pooler hostname (varies by region)
+
+- **For remote/server access**: Use pooler connection
+  - More reliable, connection pooling improves concurrency
+  - Better for long-lived connections
+
+### 2026-02-04: Multi-Iteration CI/CD Debugging Pattern
+When GitHub Actions fails mysteriously:
+1. **Try quick fix** (env var, simple workaround)
+2. **If fails, diagnose root cause** (protocol? hostname? auth?)
+3. **Research the system** (what does GH Actions support?)
+4. **Document actual solution** for others
+5. **Verify in production** before declaring done
+
+Example: GH Actions pooler issue took 5 commits because each iteration revealed new information about IPv6/IPv4 networking.
 
 ## Performance Patterns
 

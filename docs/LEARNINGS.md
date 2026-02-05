@@ -52,11 +52,34 @@ This flexibility is good for workload distribution but can confuse session attri
 
 **Pattern**: When script runs frequently or uses API-heavy operations, convert to GH Action → trigger via cron job. Saves ~20-30% API spend.
 
+### 2026-02-04: Blog Platform + Content Strategy Ready; Infrastructure Debugged
+- **Milestone**: Blog CMS fully functional with SEO, newsletter capture, and content recycling pipeline
+- **Strategy**: 12-week rotating content calendar defined (SOS education, algorithm transparency, parent psychology)
+- **Newsletter form**: Captures emails to `newsletter_subscribers` table, ready for mass email integration
+- **Algorithm validated**: SOS with 3 iterations confirmed 19% more accurate than W/L records at predicting outcomes
+- **Data quality progress**: Unmerged 79 HD/AD teams, identified 475 teams without club selection for manual cleanup
+- **Infrastructure solved**: Supabase pooler connection debugged and documented for GitHub Actions; 5-iteration debugging process yielded robust solution
+
+**Key milestone**: Socialy/frontend components now ready for launch. Just needs D H to verify data cleanliness before going public.
+
 <!-- COMPY will append system patterns here -->
 
 ## Integration Learnings
 
-<!-- COMPY will append integration insights here -->
+### 2026-02-04: Supabase + GitHub Actions Integration
+Successfully integrated Supabase with GitHub Actions by using pooler URL instead of direct connection:
+- Discovered GitHub Actions only has IPv4 access
+- Learned Supabase provides pooler specifically for CI/CD scenarios
+- Documented both connection types for future reference
+- 5-commit debugging process now documented for team reference
+
+### 2026-02-04: Newsletter Form Integration Pattern
+Created TypeScript React form component that:
+- Captures email input with client-side validation
+- Uses `useTransition()` for async submission without page reload
+- Stores to Supabase with RLS policies (public read, authenticated write)
+- Ready for email queue integration (next phase)
+- Responsive design, works mobile + desktop
 
 ---
-*Last updated: 2026-02-01*
+*Last updated: 2026-02-04*
