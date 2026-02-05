@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Send, Clock, User, Trash2 } from 'lucide-react';
+import { TaskStatus } from './task-board';
 
 // Agent list for mentions and assignment
 const AGENTS = ['cleany', 'watchy', 'compy', 'scrappy', 'ranky', 'movy', 'codey', 'socialy', 'orchestrator'];
@@ -33,6 +34,7 @@ const AGENT_EMOJIS: Record<string, string> = {
   socialy: '📱',
   orchestrator: '🎛️',
   'D H': '👤',
+  system: '⚙️',
 };
 
 interface Comment {
@@ -47,7 +49,7 @@ interface Task {
   id: string;
   title: string;
   description: string | null;
-  status: 'todo' | 'in_progress' | 'done';
+  status: TaskStatus;
   assigned_agent: string | null;
   created_by: string;
   priority: 'low' | 'medium' | 'high';
@@ -117,7 +119,7 @@ export function TaskModal({ task, open, onOpenChange, onUpdate, onDelete }: Task
   const [loadingComments, setLoadingComments] = useState(false);
   const [newComment, setNewComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [status, setStatus] = useState<Task['status']>('todo');
+  const [status, setStatus] = useState<TaskStatus>('inbox');
   const [assignedAgent, setAssignedAgent] = useState<string>('');
   const [priority, setPriority] = useState<Task['priority']>('medium');
 
@@ -246,13 +248,15 @@ export function TaskModal({ task, open, onOpenChange, onUpdate, onDelete }: Task
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="text-xs font-medium mb-1 block">Status</label>
-              <Select value={status} onValueChange={(v) => setStatus(v as Task['status'])}>
+              <Select value={status} onValueChange={(v) => setStatus(v as TaskStatus)}>
                 <SelectTrigger className="h-9">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="todo">📋 To Do</SelectItem>
+                  <SelectItem value="inbox">📥 Inbox</SelectItem>
+                  <SelectItem value="assigned">👤 Assigned</SelectItem>
                   <SelectItem value="in_progress">🔄 In Progress</SelectItem>
+                  <SelectItem value="review">👁️ Review</SelectItem>
                   <SelectItem value="done">✅ Done</SelectItem>
                 </SelectContent>
               </Select>

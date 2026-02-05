@@ -5,7 +5,7 @@ export interface AgentTask {
   id: string;
   title: string;
   description: string | null;
-  status: 'todo' | 'in_progress' | 'done';
+  status: 'inbox' | 'assigned' | 'in_progress' | 'review' | 'done';
   assigned_agent: string | null;
   created_by: string;
   priority: 'low' | 'medium' | 'high';
@@ -43,6 +43,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Title is required' }, { status: 400 });
     }
 
+    // Determine initial status based on assignment
+    // If assigned, start in 'assigned' status; otherwise 'inbox'
+    const initialStatus = assigned_agent ? 'assigned' : 'inbox';
+
     const { data, error } = await supabase
       .from('agent_tasks')
       .insert({
@@ -51,7 +55,7 @@ export async function POST(request: NextRequest) {
         assigned_agent: assigned_agent || null,
         created_by: created_by || 'orchestrator',
         priority: priority || 'medium',
-        status: 'todo',
+        status: initialStatus,
       })
       .select()
       .single();

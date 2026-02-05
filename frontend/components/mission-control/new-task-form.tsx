@@ -19,6 +19,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Plus } from 'lucide-react';
+import { TaskStatus } from './task-board';
 
 const AGENTS = ['cleany', 'watchy', 'compy', 'scrappy', 'ranky', 'movy', 'codey', 'socialy', 'orchestrator'];
 const AGENT_EMOJIS: Record<string, string> = {

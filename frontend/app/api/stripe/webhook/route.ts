@@ -109,8 +109,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   }
 
   // Fetch subscription details to get period end
-  const subscriptionResponse = await stripe.subscriptions.retrieve(subscriptionId);
-  const periodEnd = subscriptionResponse.current_period_end ||
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  const periodEnd = (subscription as { current_period_end?: number }).current_period_end ||
     Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60; // Default to 30 days from now
 
   const { data, error } = await getSupabaseAdmin()
@@ -152,7 +152,7 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
     : "free";
 
   // Get period end from subscription
-  const periodEnd = subscription.current_period_end ||
+  const periodEnd = (subscription as unknown as { current_period_end?: number }).current_period_end ||
     Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
 
   const { data, error } = await getSupabaseAdmin()
@@ -227,8 +227,8 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
   }
 
   // Fetch subscription to get updated period end
-  const subscriptionResponse = await stripe.subscriptions.retrieve(subscriptionId);
-  const periodEnd = subscriptionResponse.current_period_end ||
+  const subscriptionData = await stripe.subscriptions.retrieve(subscriptionId);
+  const periodEnd = (subscriptionData as { current_period_end?: number }).current_period_end ||
     Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
 
   const { data, error } = await getSupabaseAdmin()

@@ -11,7 +11,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Megaphone, Plus, X } from 'lucide-react';
+import { Megaphone, Plus, X, Wifi } from 'lucide-react';
+import { createSupabaseBrowserClient } from '@/lib/supabaseBrowserClient';
 
 interface Announcement {
   id: string;
@@ -27,6 +28,7 @@ export function AnnouncementBanner() {
   const [newMessage, setNewMessage] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [isRealtime, setIsRealtime] = useState(false);
 
   const fetchAnnouncement = async () => {
     try {
@@ -41,6 +43,7 @@ export function AnnouncementBanner() {
           weekAgo.setDate(weekAgo.getDate() - 7);
           if (created > weekAgo) {
             setAnnouncement(latest);
+            setDismissed(false); // Reset dismissed state for new announcements
           }
         }
       }
@@ -53,6 +56,34 @@ export function AnnouncementBanner() {
 
   useEffect(() => {
     fetchAnnouncement();
+
+    // Set up Supabase Realtime subscription for announcements
+    const supabase = createSupabaseBrowserClient();
+    
+    const channel = supabase
+      .channel('announcements_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'announcements',
+        },
+        (payload) => {
+          console.log('New announcement:', payload);
+          const newAnnouncement = payload.new as Announcement;
+          setAnnouncement(newAnnouncement);
+          setDismissed(false); // Show new announcement
+        }
+      )
+      .subscribe((status) => {
+        console.log('Announcements realtime status:', status);
+        setIsRealtime(status === 'SUBSCRIBED');
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const handleCreateAnnouncement = async () => {
@@ -92,6 +123,7 @@ export function AnnouncementBanner() {
             <Button variant="outline" size="sm" className="gap-1">
               <Megaphone className="h-4 w-4" />
               New Announcement
+              {isRealtime && <Wifi className="h-3 w-3 text-green-500 ml-1" />}
             </Button>
           </DialogTrigger>
           <DialogContent>
@@ -144,6 +176,11 @@ export function AnnouncementBanner() {
             </p>
             <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
               — {announcement.author} • {timeStr}
+              {isRealtime && (
+                <span title="Real-time updates active">
+                  <Wifi className="inline h-3 w-3 text-green-500 ml-2" />
+                </span>
+              )}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
