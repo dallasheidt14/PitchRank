@@ -67,7 +67,7 @@ export const metadata: Metadata = {
     apple: "/logos/pitchrank-symbol.svg",
   },
   alternates: {
-    canonical: "/",
+    canonical: process.env.NEXT_PUBLIC_SITE_URL || "https://pitchrank.io",
   },
   openGraph: {
     type: "website",

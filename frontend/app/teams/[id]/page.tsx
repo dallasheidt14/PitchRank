@@ -63,6 +63,12 @@ export async function generateMetadata({ params }: TeamPageProps): Promise<Metad
       title,
       description,
       keywords,
+      // Prevent indexing of auth-gated team pages
+      // Googlebot cannot authenticate and will get redirected
+      robots: {
+        index: false,
+        follow: false,
+      },
       alternates: {
         canonical: teamUrl,
       },

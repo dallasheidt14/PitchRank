@@ -1,25 +1,29 @@
 import type { Metadata } from 'next';
 
+const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
+
 /**
  * Layout for rankings pages
  * Provides metadata for the /rankings landing page
  * Since the page.tsx is a client component, metadata must be in layout.tsx
+ * 
+ * NOTE: Uses absolute URLs for canonical/OG to avoid Google indexing issues
  */
 export const metadata: Metadata = {
   title: 'Youth Soccer Rankings',
   description: 'Browse comprehensive youth soccer team rankings for U10-U18 boys and girls teams. Filter by region, age group, and gender to find top teams nationwide.',
   alternates: {
-    canonical: '/rankings',
+    canonical: `${baseUrl}/rankings`,
   },
   openGraph: {
     title: 'Youth Soccer Rankings | PitchRank',
     description: 'Browse comprehensive youth soccer team rankings for U10-U18 boys and girls teams. Filter by region, age group, and gender to find top teams.',
-    url: '/rankings',
+    url: `${baseUrl}/rankings`,
     siteName: 'PitchRank',
     type: 'website',
     images: [
       {
-        url: '/logos/pitchrank-wordmark.svg',
+        url: `${baseUrl}/logos/pitchrank-wordmark.svg`,
         width: 1200,
         height: 630,
         alt: 'PitchRank - Youth Soccer Rankings',
@@ -30,7 +34,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'Youth Soccer Rankings | PitchRank',
     description: 'Browse comprehensive youth soccer team rankings for U10-U18 boys and girls teams.',
-    images: ['/logos/pitchrank-wordmark.svg'],
+    images: [`${baseUrl}/logos/pitchrank-wordmark.svg`],
   },
 };
 

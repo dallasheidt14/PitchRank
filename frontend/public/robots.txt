@@ -4,13 +4,25 @@
 User-agent: *
 Allow: /
 
-# Allow crawling of all ranking pages
+# Public pages - crawlable
 Allow: /rankings/
-Allow: /teams/
+Allow: /blog/
+Allow: /methodology
 
-# Disallow admin/test pages
+# Auth-gated pages - DO NOT crawl (will redirect)
+# These require authentication and will redirect Googlebot
+Disallow: /teams/
+Disallow: /watchlist
+Disallow: /compare
+Disallow: /login
+Disallow: /signup
+Disallow: /upgrade
+Disallow: /auth/
+
+# Admin/API/test pages
 Disallow: /api/
 Disallow: /test
+Disallow: /mission-control
 
 # Sitemap location
 Sitemap: https://pitchrank.io/sitemap.xml

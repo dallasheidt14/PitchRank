@@ -21,6 +21,7 @@ export async function generateStaticParams() {
 export async function generateMetadata({ params }: BlogPostPageProps): Promise<Metadata> {
   const { slug } = await params;
   const post = getBlogPost(slug);
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
   
   if (!post) {
     return {
@@ -28,23 +29,25 @@ export async function generateMetadata({ params }: BlogPostPageProps): Promise<M
     };
   }
 
+  const canonicalUrl = `${baseUrl}/blog/${slug}`;
+
   return {
     title: post.title,
     description: post.excerpt,
     alternates: {
-      canonical: `/blog/${slug}`,
+      canonical: canonicalUrl,
     },
     openGraph: {
       title: `${post.title} | PitchRank`,
       description: post.excerpt,
-      url: `/blog/${slug}`,
+      url: canonicalUrl,
       siteName: 'PitchRank',
       type: 'article',
       publishedTime: post.date,
       authors: [post.author],
       images: [
         {
-          url: '/logos/pitchrank-wordmark.svg',
+          url: `${baseUrl}/logos/pitchrank-wordmark.svg`,
           width: 1200,
           height: 630,
           alt: post.title,
@@ -55,7 +58,7 @@ export async function generateMetadata({ params }: BlogPostPageProps): Promise<M
       card: 'summary_large_image',
       title: `${post.title} | PitchRank`,
       description: post.excerpt,
-      images: ['/logos/pitchrank-wordmark.svg'],
+      images: [`${baseUrl}/logos/pitchrank-wordmark.svg`],
     },
   };
 }

@@ -7,6 +7,11 @@ import type { Metadata } from 'next';
 export const metadata: Metadata = {
   title: 'Compare/Predict Teams',
   description: 'Compare multiple youth soccer teams side-by-side to see their rankings, statistics, and performance metrics across different age groups and states.',
+  // Prevent indexing - this page is auth-gated and Googlebot will be redirected
+  robots: {
+    index: false,
+    follow: false,
+  },
   alternates: {
     canonical: '/compare',
   },

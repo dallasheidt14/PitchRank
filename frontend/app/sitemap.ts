@@ -4,7 +4,11 @@ import { getAllBlogSlugs } from '@/lib/blog';
 
 /**
  * Dynamic sitemap generation for PitchRank
- * Generates URLs for all static pages, ranking combinations, team pages, and blog posts
+ * Generates URLs for all PUBLIC pages only
+ * 
+ * NOTE: Auth-gated pages (/teams, /compare, /watchlist) are excluded
+ * because Googlebot cannot authenticate and will get redirected.
+ * This causes "Page with redirect" issues in Search Console.
  */
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
@@ -18,7 +22,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   // Regions: national + all US states
   const regions = ['national', ...US_STATES.map(state => state.code)];
 
-  // Static pages with high priority
+  // Static PUBLIC pages only (no auth-gated pages)
   const staticPages: MetadataRoute.Sitemap = [
     {
       url: baseUrl,
@@ -32,12 +36,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: 'daily',
       priority: 0.9,
     },
-    {
-      url: `${baseUrl}/compare`,
-      lastModified: new Date(),
-      changeFrequency: 'weekly',
-      priority: 0.7,
-    },
+    // NOTE: /compare is auth-gated, excluded from sitemap
     {
       url: `${baseUrl}/methodology`,
       lastModified: new Date(),
