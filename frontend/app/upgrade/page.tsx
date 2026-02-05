@@ -16,11 +16,10 @@ import { Badge } from "@/components/ui/badge";
 import { startCheckout } from "@/lib/stripe/client";
 import { useUser } from "@/hooks/useUser";
 
-// Price IDs from Stripe Dashboard
-// TODO: Replace with actual price IDs from your Stripe account
+// Price IDs from Stripe Dashboard (configured via environment variables)
 const PRICE_IDS = {
-  MONTHLY: process.env.NEXT_PUBLIC_STRIPE_PRICE_MONTHLY || "price_monthly",
-  YEARLY: process.env.NEXT_PUBLIC_STRIPE_PRICE_YEARLY || "price_yearly",
+  MONTHLY: process.env.NEXT_PUBLIC_STRIPE_PRICE_MONTHLY || "",
+  YEARLY: process.env.NEXT_PUBLIC_STRIPE_PRICE_YEARLY || "",
 };
 
 const FEATURES = [
@@ -50,6 +49,9 @@ export default function UpgradePage() {
 
     try {
       const priceId = plan === "monthly" ? PRICE_IDS.MONTHLY : PRICE_IDS.YEARLY;
+      if (!priceId) {
+        throw new Error("Pricing is not configured. Please contact support.");
+      }
       await startCheckout(priceId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
