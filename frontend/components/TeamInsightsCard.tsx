@@ -12,11 +12,13 @@ import {
   Flame,
   Snowflake,
   Lock,
+  Info,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUser, hasPremiumAccess } from '@/hooks/useUser';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type {
   TeamInsightsResponse,
   SeasonTruthInsight,
@@ -194,7 +196,7 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
       <CardContent className="space-y-4">
         {/* Persona Badge - Most visual, show first */}
         {persona && (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <div
               className={cn(
                 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold text-sm',
@@ -214,6 +216,23 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
               {persona.label === 'Wildcard' && '🃏'}
               {persona.label}
             </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-[280px]">
+                <p className="font-semibold mb-1">Team Persona</p>
+                <p className="text-xs">
+                  {persona.label === 'Giant Killer'
+                    ? 'This team punches above their weight - they consistently beat higher-ranked opponents.'
+                    : persona.label === 'Flat Track Bully'
+                      ? 'This team dominates weaker opponents but struggles against top competition.'
+                      : persona.label === 'Gatekeeper'
+                        ? 'A solid, reliable team that wins the games they should and keeps things competitive against stronger teams.'
+                        : 'Unpredictable results - this team can beat anyone or lose to anyone on any given day.'}
+                </p>
+              </TooltipContent>
+            </Tooltip>
           </div>
         )}
 
@@ -223,6 +242,22 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
             <div className="flex items-center gap-2 text-sm">
               <Target className="h-4 w-4 text-blue-500" />
               <span className="text-muted-foreground">Consistency</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-[280px]">
+                  <p className="font-semibold mb-1">Consistency Score (0-100)</p>
+                  <p className="text-xs">
+                    How predictable is this team? Higher scores mean they perform
+                    at a steady level game-to-game. Lower scores mean their results
+                    vary wildly - big wins followed by unexpected losses.
+                  </p>
+                  <p className="text-xs mt-1 text-muted-foreground">
+                    75+: Very reliable | 55-74: Steady | 35-54: Unpredictable | &lt;35: Volatile
+                  </p>
+                </TooltipContent>
+              </Tooltip>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
@@ -263,7 +298,22 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
           <div className="space-y-2 text-sm">
             {/* Rank Trajectory - Based on recent form (perf_centered) */}
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Rank Trend</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">Rank Trend</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-[280px]">
+                    <p className="font-semibold mb-1">Rank Trend</p>
+                    <p className="text-xs">
+                      Based on recent game results compared to expectations.
+                      Rising means the team is overperforming and their rank will likely
+                      improve. Falling means recent results suggest their rank may drop.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
               <span
                 className={cn(
                   'inline-flex items-center gap-1 px-2 py-0.5 rounded font-medium',
@@ -286,7 +336,25 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
 
             {/* Schedule Strength - Informational context */}
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Schedule Strength</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">Schedule Strength</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-[280px]">
+                    <p className="font-semibold mb-1">Strength of Schedule (SOS)</p>
+                    <p className="text-xs">
+                      How tough are the opponents this team has faced? Higher percentile
+                      means tougher competition. A team at 90th percentile has played
+                      one of the hardest schedules in their age group.
+                    </p>
+                    <p className="text-xs mt-1 text-muted-foreground">
+                      Note: Our ranking already factors in schedule strength.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
               <span className="font-mono font-medium">
                 {seasonTruth.details.sosPercentile}th %ile
               </span>
@@ -296,7 +364,22 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
             {seasonTruth.details.formSignal &&
              (seasonTruth.details.formSignal === 'hot_streak' || seasonTruth.details.formSignal === 'cold_streak') && (
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Current Form</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">Current Form</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-[280px]">
+                      <p className="font-semibold mb-1">Current Form</p>
+                      <p className="text-xs">
+                        {seasonTruth.details.formSignal === 'hot_streak'
+                          ? 'This team is on fire! They\'re winning games they\'re expected to lose and dominating matches they should win.'
+                          : 'This team is struggling. Recent results are below what you\'d expect based on their overall talent level.'}
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
                 <span
                   className={cn(
                     'inline-flex items-center gap-1 px-2 py-0.5 rounded font-medium',
