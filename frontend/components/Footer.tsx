@@ -130,7 +130,7 @@ export function Footer() {
                 Methodology
               </Link>
               <a
-                href="mailto:dallasheidt14@gmail.com"
+                href="mailto:pitchrankio@gmail.com"
                 className="text-sm text-muted-foreground hover:text-foreground transition-colors"
               >
                 Contact

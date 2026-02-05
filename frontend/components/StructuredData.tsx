@@ -22,7 +22,7 @@ export function StructuredData() {
     contactPoint: {
       '@type': 'ContactPoint',
       contactType: 'Customer Support',
-      email: 'dallasheidt14@gmail.com',
+      email: 'pitchrankio@gmail.com',
     },
   };
 
