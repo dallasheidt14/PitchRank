@@ -117,6 +117,90 @@ def normalize_team_name(name):
     
     return n
 
+def extract_club_from_name(provider_team_name):
+    """Extract club name from provider team name.
+    
+    Logic:
+    1. Split on age/year patterns (2014, U14, B2014, etc.)
+    2. Take the first part as club name
+    3. Remove duplicate words (e.g., "Kingman SC Kingman SC" → "Kingman SC")
+    4. Strip common suffixes (ECNL, RL, PRE, COMP)
+    
+    Examples:
+        "FC Tampa Rangers FCTS 2015 Falcons" → "FC Tampa Rangers FCTS"
+        "Phoenix Rising FC B2014 Black" → "Phoenix Rising FC"
+        "Kingman SC Kingman SC U14" → "Kingman SC"
+        "Real Salt Lake AZ ECNL 2014 Red" → "Real Salt Lake AZ"
+    """
+    if not provider_team_name:
+        return None
+    
+    name = provider_team_name.strip()
+    
+    # Age/year patterns to split on (from team_name_normalizer.py)
+    # Match: U14, U-14, 2014, B2014, 2014B, G2015, 15B, B15, etc.
+    age_patterns = [
+        r'\bU-?\d{1,2}\b',           # U14, U-14
+        r'\b[BG]?\d{4}[BG]?\b',      # 2014, B2014, 2014B, G2015, 2015G
+        r'\b[BG]\d{2}(?!\d)\b',      # B14, G15 (not followed by more digits)
+        r'\b\d{2}[BG](?!\d)\b',      # 14B, 15G (not followed by more digits)
+    ]
+    
+    # Find the earliest age pattern match
+    earliest_pos = len(name)
+    for pattern in age_patterns:
+        match = re.search(pattern, name, re.IGNORECASE)
+        if match and match.start() < earliest_pos:
+            earliest_pos = match.start()
+    
+    # Extract club name before the age pattern
+    if earliest_pos < len(name):
+        club_name = name[:earliest_pos].strip()
+    else:
+        # No age pattern found, use whole name
+        club_name = name
+    
+    # Remove common suffixes (case insensitive)
+    suffixes = [
+        r'\s+(ECNL-RL|ECNL RL|ECRL)\s*$',
+        r'\s+ECNL\s*$',
+        r'\s+RL\s*$',
+        r'\s+PRE-ECNL\s*$',
+        r'\s+PRE\s*$',
+        r'\s+COMP\s*$',
+        r'\s+GA\s*$',
+        r'\s+MLS NEXT\s*$',
+        r'\s+ACADEMY\s*$',
+        r'\s+SELECT\s*$',
+        r'\s+PREMIER\s*$',
+        r'\s+ELITE\s*$',
+    ]
+    
+    for suffix_pattern in suffixes:
+        club_name = re.sub(suffix_pattern, '', club_name, flags=re.IGNORECASE)
+    
+    # Remove trailing hyphens, dots, and extra whitespace
+    club_name = club_name.strip(' -.')
+    
+    # Remove duplicate words (e.g., "Kingman SC Kingman SC" → "Kingman SC")
+    words = club_name.split()
+    if len(words) >= 4:  # Only check if at least 4 words
+        # Check if first half == second half
+        mid = len(words) // 2
+        first_half = ' '.join(words[:mid])
+        second_half = ' '.join(words[mid:mid*2])
+        if first_half.lower() == second_half.lower():
+            club_name = first_half
+    
+    # Final cleanup
+    club_name = ' '.join(club_name.split())
+    
+    # Don't return empty or too-short club names
+    if not club_name or len(club_name) < 3:
+        return None
+    
+    return club_name
+
 # Common team colors and variants that indicate DIFFERENT teams
 TEAM_COLORS = {'red', 'blue', 'white', 'black', 'gold', 'grey', 'gray', 'green', 
                'orange', 'purple', 'yellow', 'navy', 'maroon', 'silver', 'pink', 'sky'}
@@ -260,6 +344,12 @@ def find_best_match(queue_entry, cursor):
     if has_protected_division(name):
         return None, 0.0, "protected_division"
     
+    # If club_name is empty, try to extract it from provider_team_name
+    if not club_name:
+        extracted_club = extract_club_from_name(name)
+        if extracted_club:
+            club_name = extracted_club
+    
     norm_name = normalize_team_name(name)
     age_group = extract_age_group(name, details)
     gender = extract_gender(name, details)
@@ -379,24 +469,42 @@ def find_best_match(queue_entry, cursor):
     
     return None, 0.0, "low_confidence"
 
-def analyze_queue(limit=100, min_confidence=0.90):
-    """Analyze queue entries and find matches."""
+def analyze_queue(limit=100, min_confidence=0.90, force=False):
+    """Analyze queue entries and find matches.
+    
+    Args:
+        limit: Max number of entries to analyze
+        min_confidence: Minimum confidence score (unused, kept for compatibility)
+        force: If True, ignore last_analyzed_at filter and reprocess all pending entries
+    """
     from psycopg2.extras import RealDictCursor
     
     conn = get_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     search_cur = conn.cursor()
     
-    # Get pending queue entries (skip recently analyzed ones that didn't match)
-    cur.execute('''
-        SELECT id, provider_id, provider_team_id, provider_team_name, 
-               match_details, confidence_score
-        FROM team_match_review_queue
-        WHERE status = 'pending'
-          AND (last_analyzed_at IS NULL OR last_analyzed_at < NOW() - INTERVAL '7 days')
-        ORDER BY created_at
-        LIMIT %s
-    ''', (limit,))
+    # Get pending queue entries
+    # If force=True, reprocess all pending entries (ignore last_analyzed_at)
+    # Otherwise, skip recently analyzed ones that didn't match (7 day cooldown)
+    if force:
+        cur.execute('''
+            SELECT id, provider_id, provider_team_id, provider_team_name, 
+                   match_details, confidence_score
+            FROM team_match_review_queue
+            WHERE status = 'pending'
+            ORDER BY created_at
+            LIMIT %s
+        ''', (limit,))
+    else:
+        cur.execute('''
+            SELECT id, provider_id, provider_team_id, provider_team_name, 
+                   match_details, confidence_score
+            FROM team_match_review_queue
+            WHERE status = 'pending'
+              AND (last_analyzed_at IS NULL OR last_analyzed_at < NOW() - INTERVAL '7 days')
+            ORDER BY created_at
+            LIMIT %s
+        ''', (limit,))
     
     entries = cur.fetchall()
     
@@ -576,15 +684,19 @@ def main():
                         help='Include 90%+ matches in auto-merge (not just 95%+)')
     parser.add_argument('--yes', '-y', action='store_true',
                         help='Skip confirmation prompt (for CI/automation)')
+    parser.add_argument('--force', action='store_true',
+                        help='Reprocess all pending entries (ignore last_analyzed_at filter)')
     args = parser.parse_args()
     
     print("=" * 70)
     print("🔍 QUEUE MATCH FINDER")
     print("=" * 70)
     print(f"Analyzing up to {args.limit} queue entries...")
+    if args.force:
+        print("⚡ FORCE mode: Reprocessing all pending entries")
     print()
     
-    results = analyze_queue(limit=args.limit)
+    results = analyze_queue(limit=args.limit, force=args.force)
     display_results(results, verbose=args.verbose)
     
     # Execute if requested
