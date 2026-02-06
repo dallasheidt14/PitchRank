@@ -37,6 +37,8 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    console.log('[Tasks API] POST body:', body);
+    
     const { title, description, assigned_agent, created_by, priority } = body;
 
     if (!title || typeof title !== 'string') {
@@ -59,6 +61,8 @@ export async function POST(request: NextRequest) {
       })
       .select()
       .single();
+
+    console.log('[Tasks API] Insert result:', { data, error });
 
     if (error) {
       console.error('Error creating task:', error);

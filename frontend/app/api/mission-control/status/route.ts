@@ -271,8 +271,17 @@ export async function GET() {
     error: agents.filter(a => a.status === 'error').length,
   };
 
+  // Verify blockers and alerts are always arrays
+  const agentsWithDefaults = agents.map(agent => ({
+    ...agent,
+    blockers: Array.isArray(agent.blockers) ? agent.blockers : [],
+    alerts: Array.isArray(agent.alerts) ? agent.alerts : [],
+  }));
+
+  console.log('[Mission Control] Response agents sample:', agentsWithDefaults[0]);
+
   return NextResponse.json({
-    agents,
+    agents: agentsWithDefaults,
     commits,
     stats,
     timestamp: new Date().toISOString(),
