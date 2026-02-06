@@ -168,6 +168,11 @@ class EnhancedETLPipeline:
             from src.models.tgs_matcher import TGSGameMatcher
             logger.info("Using TGSGameMatcher (with enhanced fuzzy matching)")
             self.matcher = TGSGameMatcher(supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
+        elif provider_code.lower() == 'gotsport':
+            # GotSport-specific matcher with auto team creation
+            from src.models.gotsport_matcher import GotSportGameMatcher
+            logger.info("Using GotSportGameMatcher (with auto team creation)")
+            self.matcher = GotSportGameMatcher(supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
         else:
             logger.info(f"Using standard GameHistoryMatcher for provider: {provider_code}")
             self.matcher = GameHistoryMatcher(supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
