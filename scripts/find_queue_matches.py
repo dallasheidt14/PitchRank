@@ -26,74 +26,14 @@ load_dotenv(Path(__file__).parent.parent / '.env')
 # (GitHub Actions will use the correct secrets)
 
 def get_supabase():
-    """Create Supabase client for GitHub Actions compatibility."""
+    """Create Supabase client."""
     supabase_url = os.getenv('SUPABASE_URL')
-    supabase_key = os.getenv('SUPABASE_SERVICE_KEY') or os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+    supabase_key = os.getenv('SUPABASE_KEY')
     
     if not supabase_url or not supabase_key:
-        raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set")
+        raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set")
     
     return create_client(supabase_url, supabase_key)
-
-def get_connection():
-    """Get psycopg2 connection using Supabase pooler for GitHub Actions.
-    
-    GitHub Actions can't reach Supabase via IPv6 direct connection.
-    We use the session mode pooler which provides IPv4 support.
-    
-    Priority order:
-    1. SUPABASE_POOLER_URL (if set) - recommended for GitHub Actions
-    2. DATABASE_URL (if contains pooler.supabase.com)
-    3. DATABASE_URL (convert to pooler format if in GitHub Actions)
-    4. DATABASE_URL (direct connection for local dev)
-    """
-    import psycopg2
-    import re
-    
-    # Check for dedicated pooler URL first (best for GitHub Actions)
-    pooler_url_env = os.getenv('SUPABASE_POOLER_URL')
-    if pooler_url_env:
-        print(f"🔗 Using SUPABASE_POOLER_URL")
-        return psycopg2.connect(pooler_url_env)
-    
-    database_url = os.getenv('DATABASE_URL')
-    
-    if not database_url:
-        raise ValueError("DATABASE_URL must be set")
-    
-    # Check if DATABASE_URL is already a pooler URL (contains pooler.supabase.com)
-    if 'pooler.supabase.com' in database_url:
-        print(f"🔗 Using Supabase pooler URL from DATABASE_URL")
-        return psycopg2.connect(database_url)
-    
-    # Check if running in GitHub Actions
-    is_github_actions = os.getenv('GITHUB_ACTIONS') == 'true'
-    
-    if is_github_actions:
-        # Parse DATABASE_URL to extract project ref and password
-        # From: postgresql://postgres:PASSWORD@db.PROJECT_REF.supabase.co:5432/postgres
-        # To:   postgresql://postgres.PROJECT_REF:PASSWORD@aws-1-us-west-1.pooler.supabase.com:5432/postgres
-        # 
-        # NOTE: The pooler may require a different password than direct connection.
-        # For best results, set SUPABASE_POOLER_URL secret in GitHub Actions.
-        match = re.match(r'postgresql://postgres:([^@]+)@db\.([^.]+)\.supabase\.co:\d+/postgres', database_url)
-        if match:
-            password = match.group(1)
-            project_ref = match.group(2)
-            # Use session mode pooler (port 5432) with modified username format
-            # Note: Region prefix is aws-1 for this project
-            pooler_url = f"postgresql://postgres.{project_ref}:{password}@aws-1-us-west-1.pooler.supabase.com:5432/postgres"
-            print(f"🔗 Using Supabase session pooler (IPv4) for GitHub Actions")
-            print(f"   Project ref: {project_ref}")
-            print(f"   ⚠️  Note: If connection fails, add SUPABASE_POOLER_URL secret to GitHub Actions")
-            return psycopg2.connect(pooler_url)
-        else:
-            print(f"⚠️  Could not parse DATABASE_URL for pooler conversion, using as-is")
-            return psycopg2.connect(database_url)
-    
-    # Local development - direct connection works fine
-    print(f"🔗 Using direct database connection (local)")
-    return psycopg2.connect(database_url)
 
 def normalize_team_name(name):
     """Normalize team name for matching."""
@@ -420,7 +360,7 @@ def has_protected_division(name):
         return True
     return False
 
-def find_best_match(queue_entry, cursor):
+def find_best_match(queue_entry, supabase):
     """Find the best matching team for a queue entry."""
     name = queue_entry['provider_team_name']
     details = queue_entry['match_details'] or {}
@@ -441,60 +381,33 @@ def find_best_match(queue_entry, cursor):
     gender = extract_gender(name, details)
     queue_variant = extract_team_variant(name)
     
-    # Build search query
-    conditions = ["1=1"]
-    params = []
-    
-    if gender:
-        conditions.append("LOWER(gender) = %s")
-        params.append(gender)
-    
-    if age_group:
-        conditions.append("LOWER(age_group) = %s")
-        params.append(age_group)
-    
-    # Search by club name first if available
-    # Try to get state from club lookup
+    # Build Supabase query
     state_code = None
     if club_name:
-        cursor.execute('''
-            SELECT DISTINCT state_code FROM teams 
-            WHERE LOWER(club_name) = LOWER(%s) AND state_code IS NOT NULL
-            LIMIT 1
-        ''', (club_name,))
-        state_row = cursor.fetchone()
-        if state_row:
-            state_code = state_row[0]
+        # Try to get state from club lookup
+        state_result = supabase.table('teams').select('state_code').ilike('club_name', club_name).not_.is_('state_code', 'null').limit(1).execute()
+        if state_result.data:
+            state_code = state_result.data[0]['state_code']
+    
+    # Build the query with filters
+    query = supabase.table('teams').select('team_id_master, team_name, club_name, gender, age_group, state_code')
     
     if club_name:
+        query = query.ilike('club_name', club_name)
         if state_code:
-            # Match by club AND state for extra safety
-            cursor.execute(f'''
-                SELECT id, team_name, club_name, gender, age_group, state_code
-                FROM teams
-                WHERE LOWER(club_name) = LOWER(%s)
-                  AND state_code = %s
-                  AND {" AND ".join(conditions)}
-                LIMIT 50
-            ''', [club_name, state_code] + params)
-        else:
-            cursor.execute(f'''
-                SELECT id, team_name, club_name, gender, age_group, state_code
-                FROM teams
-                WHERE LOWER(club_name) = LOWER(%s)
-                  AND {" AND ".join(conditions)}
-                LIMIT 50
-            ''', [club_name] + params)
-    else:
-        # Fallback: search by normalized name similarity
-        cursor.execute(f'''
-            SELECT id, team_name, club_name, gender, age_group, state_code
-            FROM teams
-            WHERE {" AND ".join(conditions)}
-            LIMIT 100
-        ''', params)
+            query = query.eq('state_code', state_code)
     
-    candidates = cursor.fetchall()
+    if gender:
+        query = query.ilike('gender', gender)
+    
+    if age_group:
+        query = query.ilike('age_group', age_group)
+    
+    # Set limit based on whether we have club_name
+    limit = 50 if club_name else 100
+    result = query.limit(limit).execute()
+    
+    candidates = result.data if result.data else []
     
     if not candidates:
         return None, 0.0, "no_candidates"
@@ -510,9 +423,10 @@ def find_best_match(queue_entry, cursor):
     has_pre_ecnl = 'pre-ecnl' in name_lower or 'pre ecnl' in name_lower
     
     for team in candidates:
-        team_norm = normalize_team_name(team[1])  # team_name
-        team_lower = team[1].lower()
-        team_variant = extract_team_variant(team[1])
+        team_name = team['team_name']
+        team_norm = normalize_team_name(team_name)
+        team_lower = team_name.lower()
+        team_variant = extract_team_variant(team_name)
         
         # CRITICAL: Variants must match EXACTLY
         # - Both have same variant: OK
@@ -526,7 +440,7 @@ def find_best_match(queue_entry, cursor):
         score = SequenceMatcher(None, norm_name, team_norm).ratio()
         
         # Boost if club name matches exactly
-        if club_name and team[2] and club_name.lower() == team[2].lower():
+        if club_name and team.get('club_name') and club_name.lower() == team['club_name'].lower():
             score = min(1.0, score + 0.15)
         
         # League matching: penalize mismatches, boost matches
@@ -543,11 +457,11 @@ def find_best_match(queue_entry, cursor):
         if score > best_score:
             best_score = score
             best_match = {
-                'id': team[0],
-                'team_name': team[1],
-                'club_name': team[2],
-                'gender': team[3],
-                'age_group': team[4]
+                'id': team['team_id_master'],
+                'team_name': team['team_name'],
+                'club_name': team.get('club_name'),
+                'gender': team.get('gender'),
+                'age_group': team.get('age_group')
             }
     
     if best_score >= 0.7:
@@ -563,36 +477,19 @@ def analyze_queue(limit=100, min_confidence=0.90, force=False):
         min_confidence: Minimum confidence score (unused, kept for compatibility)
         force: If True, ignore last_analyzed_at filter and reprocess all pending entries
     """
-    from psycopg2.extras import RealDictCursor
-    
-    conn = get_connection()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-    search_cur = conn.cursor()
+    supabase = get_supabase()
     
     # Get pending queue entries
     # If force=True, reprocess all pending entries (ignore last_analyzed_at)
     # Otherwise, skip recently analyzed ones that didn't match (7 day cooldown)
-    if force:
-        cur.execute('''
-            SELECT id, provider_id, provider_team_id, provider_team_name, 
-                   match_details, confidence_score
-            FROM team_match_review_queue
-            WHERE status = 'pending'
-            ORDER BY created_at
-            LIMIT %s
-        ''', (limit,))
-    else:
-        cur.execute('''
-            SELECT id, provider_id, provider_team_id, provider_team_name, 
-                   match_details, confidence_score
-            FROM team_match_review_queue
-            WHERE status = 'pending'
-              AND (last_analyzed_at IS NULL OR last_analyzed_at < NOW() - INTERVAL '7 days')
-            ORDER BY created_at
-            LIMIT %s
-        ''', (limit,))
+    query = supabase.table('team_match_review_queue').select('id, provider_id, provider_team_id, provider_team_name, match_details, confidence_score').eq('status', 'pending')
     
-    entries = cur.fetchall()
+    if not force:
+        # Filter for entries not analyzed in last 7 days
+        query = query.or_('last_analyzed_at.is.null,last_analyzed_at.lt.now()-7days')
+    
+    result = query.order('created_at').limit(limit).execute()
+    entries = result.data if result.data else []
     
     results = {
         'exact': [],      # 95%+ match
@@ -609,7 +506,7 @@ def analyze_queue(limit=100, min_confidence=0.90, force=False):
         if (i + 1) % 50 == 0:
             print(f"  Processed {i + 1}/{len(entries)}...")
         
-        match, score, method = find_best_match(entry, search_cur)
+        match, score, method = find_best_match(entry, supabase)
         
         result = {
             'queue_entry': entry,
@@ -631,17 +528,14 @@ def analyze_queue(limit=100, min_confidence=0.90, force=False):
     
     # Mark ALL analyzed entries with timestamp so we skip them next run
     # (Only entries that don't get merged - merged ones change status to 'approved')
-    analyzed_ids = [e['id'] for e in entries]  # entries are dicts from RealDictCursor
+    analyzed_ids = [e['id'] for e in entries]
     if analyzed_ids:
-        cur.execute('''
-            UPDATE team_match_review_queue 
-            SET last_analyzed_at = NOW()
-            WHERE id = ANY(%s) AND status = 'pending'
-        ''', (analyzed_ids,))
-        conn.commit()
+        from datetime import datetime
+        supabase.table('team_match_review_queue').update({
+            'last_analyzed_at': datetime.utcnow().isoformat()
+        }).in_('id', analyzed_ids).eq('status', 'pending').execute()
         print(f"  Marked {len(analyzed_ids)} entries as analyzed")
     
-    conn.close()
     return results
 
 def display_results(results, verbose=False):
@@ -701,8 +595,7 @@ def execute_merges(results, dry_run=True, min_confidence=0.95):
     else:
         print(f"\n⚡ EXECUTING {len(candidates)} merges\n")
     
-    conn = get_connection()
-    cur = conn.cursor()
+    supabase = get_supabase()
     
     approved = 0
     failed = 0
@@ -714,34 +607,32 @@ def execute_merges(results, dry_run=True, min_confidence=0.95):
         try:
             if not dry_run:
                 # Get provider UUID
-                cur.execute('SELECT id FROM providers WHERE code = %s', (q['provider_id'],))
-                provider_row = cur.fetchone()
-                if not provider_row:
+                provider_result = supabase.table('providers').select('id').eq('code', q['provider_id']).execute()
+                if not provider_result.data:
                     raise ValueError(f"Provider not found: {q['provider_id']}")
-                provider_uuid = provider_row[0]
+                provider_uuid = provider_result.data[0]['id']
                 
                 # Cap score at 0.99 for alias table
                 db_score = min(0.99, r['score'])
                 
                 # Create alias with correct column names
-                cur.execute('''
-                    INSERT INTO team_alias_map (team_id_master, provider_id, provider_team_id, 
-                                                match_confidence, match_method, review_status)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (provider_id, provider_team_id) DO NOTHING
-                ''', (m['id'], provider_uuid, q['provider_team_id'], db_score, 'fuzzy_auto', 'approved'))
+                supabase.table('team_alias_map').upsert({
+                    'team_id_master': m['id'],
+                    'provider_id': provider_uuid,
+                    'provider_team_id': q['provider_team_id'],
+                    'match_confidence': db_score,
+                    'match_method': 'fuzzy_auto',
+                    'review_status': 'approved'
+                }, on_conflict='provider_id,provider_team_id').execute()
                 
                 # Update queue - don't update confidence_score (constraint requires 0.75-0.90)
-                cur.execute('''
-                    UPDATE team_match_review_queue 
-                    SET status = 'approved',
-                        suggested_master_team_id = %s,
-                        reviewed_by = 'auto-merge-script',
-                        reviewed_at = NOW()
-                    WHERE id = %s
-                ''', (m['id'], q['id']))
-                
-                conn.commit()
+                from datetime import datetime
+                supabase.table('team_match_review_queue').update({
+                    'status': 'approved',
+                    'suggested_master_team_id': m['id'],
+                    'reviewed_by': 'auto-merge-script',
+                    'reviewed_at': datetime.utcnow().isoformat()
+                }).eq('id', q['id']).execute()
             
             approved += 1
             action = "Would merge" if dry_run else "Merged"
@@ -750,10 +641,7 @@ def execute_merges(results, dry_run=True, min_confidence=0.95):
         except Exception as e:
             failed += 1
             print(f"  ❌ Failed [{q['id']}]: {e}")
-            if not dry_run:
-                conn.rollback()
     
-    conn.close()
     return approved, failed
 
 def main():
