@@ -1,6 +1,13 @@
 -- Create get_biggest_movers RPC function
 -- Used by /api/infographic/movers to generate real movers infographics
 -- instead of hardcoded mock data
+--
+-- Schema reference (rankings_full):
+--   PK: team_id UUID (references teams.team_id_master)
+--   age_group TEXT (e.g., 'u12', '12')
+--   gender TEXT (e.g., 'Male', 'Female', 'M', 'F')
+--   rank_in_cohort INTEGER, rank_in_cohort_ml INTEGER
+--   rank_change_7d INTEGER, rank_change_30d INTEGER
 
 CREATE OR REPLACE FUNCTION get_biggest_movers(
   p_days INT DEFAULT 7,
@@ -27,10 +34,10 @@ AS $$
       WHEN p_days <= 7 THEN rf.rank_change_7d
       ELSE rf.rank_change_30d
     END AS rank_change,
-    rf.rank_in_cohort_final AS current_rank
+    COALESCE(rf.rank_in_cohort_ml, rf.rank_in_cohort) AS current_rank
   FROM rankings_full rf
-  JOIN teams t ON t.team_id_master = rf.team_id_master
-  WHERE rf.rank_in_cohort_final IS NOT NULL
+  JOIN teams t ON t.team_id_master = rf.team_id
+  WHERE COALESCE(rf.rank_in_cohort_ml, rf.rank_in_cohort) IS NOT NULL
     AND CASE
       WHEN p_days <= 7 THEN rf.rank_change_7d
       ELSE rf.rank_change_30d
@@ -40,8 +47,19 @@ AS $$
       OR
       (p_direction = 'down' AND CASE WHEN p_days <= 7 THEN rf.rank_change_7d ELSE rf.rank_change_30d END < 0)
     )
-    AND (p_age_group IS NULL OR rf.age::text = REPLACE(LOWER(p_age_group), 'u', ''))
-    AND (p_gender IS NULL OR LOWER(rf.gender) = LOWER(p_gender))
+    AND (
+      p_age_group IS NULL
+      OR LOWER(rf.age_group) = LOWER(p_age_group)
+      OR rf.age_group = REPLACE(LOWER(p_age_group), 'u', '')
+    )
+    AND (
+      p_gender IS NULL
+      OR LOWER(rf.gender) = LOWER(p_gender)
+      OR (LOWER(p_gender) = 'male' AND rf.gender IN ('M', 'Male', 'Boys'))
+      OR (LOWER(p_gender) = 'female' AND rf.gender IN ('F', 'Female', 'Girls'))
+      OR (LOWER(p_gender) = 'm' AND rf.gender IN ('M', 'Male', 'Boys'))
+      OR (LOWER(p_gender) = 'f' AND rf.gender IN ('F', 'Female', 'Girls'))
+    )
     AND t.is_deprecated IS NOT TRUE
   ORDER BY
     CASE
