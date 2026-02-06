@@ -197,15 +197,18 @@ async function fetchAgentLiveStatus(agentId: string): Promise<Partial<AgentStatu
       .order('created_at', { ascending: false })
       .limit(3);
 
-    const blockers = blockedTasks && blockedTasks.length > 0
+    // Assigned tasks are NOT blockers - they're just queued work
+    // Only show as blocked if there's an actual blocker (not implemented yet)
+    const assignedTasks = blockedTasks && blockedTasks.length > 0
       ? blockedTasks.map(t => t.title)
       : [];
 
     return {
-      status: isActive ? 'active' : blockers.length > 0 ? 'blocked' : 'idle',
+      // Active if working, otherwise idle (blocked would need explicit blocker flag)
+      status: isActive ? 'active' : 'idle',
       currentTask,
       lastRun,
-      blockers,
+      blockers: [], // No blockers for now - assigned tasks are just queued work
       alerts: [], // Could be populated from task comments if needed
     };
   } catch (error) {
