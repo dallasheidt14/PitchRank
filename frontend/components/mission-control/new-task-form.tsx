@@ -73,9 +73,14 @@ export function NewTaskForm({ onTaskCreated }: NewTaskFormProps) {
         setAssignedAgent('');
         setPriority('medium');
         setOpen(false);
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        console.error('Task creation failed:', res.status, errorData);
+        alert(`Failed to create task: ${errorData.error || res.statusText}`);
       }
     } catch (e) {
       console.error('Failed to create task:', e);
+      alert(`Failed to create task: ${e instanceof Error ? e.message : 'Unknown error'}`);
     } finally {
       setSubmitting(false);
     }
