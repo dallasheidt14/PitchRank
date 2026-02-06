@@ -54,9 +54,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log(`[AgentWebhook] ${action} - ${agentName} (${sessionKey.substring(0, 8)})`);
+
     // Handle different actions
     switch (action) {
       case 'spawn': {
+        // Create agent session record for live status tracking
+        const { error: sessionError } = await supabase
+          .from('agent_sessions')
+          .insert({
+            session_key: sessionKey,
+            agent_name: agentName,
+            task_description: task,
+            status: 'active',
+          });
+
+        if (sessionError) {
+          console.error('[AgentWebhook] Failed to create session:', sessionError);
+          // Don't fail the webhook if session tracking fails
+        } else {
+          console.log(`[AgentWebhook] Created session record for ${agentName}`);
+        }
+
         // Create new task in in_progress status
         const title = task.length > 100 ? task.substring(0, 97) + '...' : task;
         
@@ -95,6 +114,15 @@ export async function POST(request: NextRequest) {
       }
 
       case 'progress': {
+        // Update session's updated_at (keeps it "active" in the 5-minute window)
+        await supabase
+          .from('agent_sessions')
+          .update({ 
+            updated_at: new Date().toISOString(),
+            task_description: result || task, // Update task description with progress
+          })
+          .eq('session_key', sessionKey);
+
         // Find the task by session key in comments
         const { data: comments } = await supabase
           .from('task_comments')
@@ -115,10 +143,22 @@ export async function POST(request: NextRequest) {
           content: `📊 Progress: ${result || task}`,
         });
 
+        console.log(`[AgentWebhook] Updated progress for ${agentName}`);
+
         return NextResponse.json({ success: true, taskId, message: 'Progress recorded' });
       }
 
       case 'complete': {
+        // Update agent session to completed
+        await supabase
+          .from('agent_sessions')
+          .update({ 
+            status: 'completed',
+            completed_at: new Date().toISOString(),
+            result: result || 'Task finished successfully',
+          })
+          .eq('session_key', sessionKey);
+
         // Find the task by session key in comments
         const { data: comments } = await supabase
           .from('task_comments')
@@ -150,10 +190,22 @@ export async function POST(request: NextRequest) {
           content: `✅ Completed: ${result || 'Task finished successfully'}`,
         });
 
+        console.log(`[AgentWebhook] Marked session ${sessionKey.substring(0, 8)} as completed`);
+
         return NextResponse.json({ success: true, taskId, message: 'Task marked for review' });
       }
 
       case 'error': {
+        // Update agent session to error
+        await supabase
+          .from('agent_sessions')
+          .update({ 
+            status: 'error',
+            completed_at: new Date().toISOString(),
+            result: errorMsg || 'Task failed - needs retry',
+          })
+          .eq('session_key', sessionKey);
+
         // Find the task by session key in comments
         const { data: comments } = await supabase
           .from('task_comments')
@@ -167,10 +219,10 @@ export async function POST(request: NextRequest) {
 
         const taskId = comments[0].task_id;
 
-        // Update task status back to todo (needs retry)
+        // Update task status back to inbox (needs retry)
         const { error: updateError } = await supabase
           .from('agent_tasks')
-          .update({ status: 'todo' })
+          .update({ status: 'inbox' })
           .eq('id', taskId);
 
         if (updateError) {
@@ -184,6 +236,8 @@ export async function POST(request: NextRequest) {
           author: agentName,
           content: `❌ Error: ${errorMsg || 'Task failed - needs retry'}`,
         });
+
+        console.log(`[AgentWebhook] Marked session ${sessionKey.substring(0, 8)} as error`);
 
         return NextResponse.json({ success: true, taskId, message: 'Task marked for retry' });
       }

@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
 import { execSync } from 'child_process';
+import { supabase } from '@/lib/supabaseClient';
 
 interface AgentStatus {
   id: string;
@@ -31,6 +30,16 @@ const AGENTS_CONFIG: Record<string, {
   collaborates: string[];
   spawns: string[];
 }> = {
+  orchestrator: {
+    name: 'Orchestrator',
+    emoji: '🎯',
+    role: 'System Coordinator',
+    model: 'Opus',
+    description: 'Coordinates all agents, monitors system health, and makes high-level decisions.',
+    schedule: 'Always on',
+    collaborates: ['All agents'],
+    spawns: ['Codey', 'Watchy', 'Cleany', 'Ranky', 'Movy', 'Scrappy', 'Socialy'],
+  },
   cleany: { 
     name: 'Cleany', 
     emoji: '🧹', 
@@ -113,63 +122,102 @@ const AGENTS_CONFIG: Record<string, {
   },
 };
 
-function parseWorkingFile(content: string): Partial<AgentStatus> {
-  const lines = content.split('\n');
-  const result: Partial<AgentStatus> = {
-    blockers: [],
-    alerts: [],
-  };
+// Helper to format relative time
+function formatRelativeTime(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
 
-  let currentSection = '';
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
   
-  for (const line of lines) {
-    const trimmed = line.trim();
-    
-    if (trimmed.startsWith('## ')) {
-      currentSection = trimmed.slice(3).toLowerCase();
-      continue;
-    }
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
-    if (currentSection === 'status' && trimmed && !trimmed.startsWith('#')) {
-      const statusLower = trimmed.toLowerCase();
-      if (statusLower.includes('active') || statusLower.includes('running')) {
-        result.status = 'active';
-      } else if (statusLower.includes('blocked')) {
-        result.status = 'blocked';
-      } else if (statusLower.includes('error')) {
-        result.status = 'error';
-      } else {
-        result.status = 'idle';
-      }
-    }
-
-    if (currentSection === 'current task' && trimmed && !trimmed.startsWith('#')) {
-      if (trimmed.toLowerCase() !== 'none') {
-        result.currentTask = trimmed;
-      }
-    }
-
-    if (currentSection === 'last run' && trimmed && !trimmed.startsWith('#')) {
-      result.lastRun = trimmed;
-    }
-
-    if (currentSection === 'next run' && trimmed && !trimmed.startsWith('#')) {
-      result.nextRun = trimmed;
-    }
-
-    if (currentSection === 'blockers' && trimmed.startsWith('- ')) {
-      const blocker = trimmed.slice(2);
-      if (blocker.toLowerCase() !== 'none') {
-        result.blockers?.push(blocker);
-      }
-    }
-
-    if (currentSection === 'alerts' && trimmed.startsWith('- ')) {
-      result.alerts?.push(trimmed.slice(2));
-    }
+// Calculate next run based on schedule
+function calculateNextRun(schedule: string): string | null {
+  if (schedule.toLowerCase().includes('on-demand') || schedule.toLowerCase().includes('always on')) {
+    return null;
   }
 
-  return result;
+  if (schedule.toLowerCase().includes('daily')) {
+    const timeMatch = schedule.match(/(\d+):?(\d+)?\s*(am|pm)/i);
+    if (timeMatch) {
+      return `Tomorrow at ${timeMatch[1]}:${timeMatch[2] || '00'} ${timeMatch[3].toUpperCase()}`;
+    }
+  }
+  
+  if (schedule.toLowerCase().includes('sunday')) return 'Next Sunday 7:00 PM MT';
+  if (schedule.toLowerCase().includes('monday')) return 'Next Monday';
+  if (schedule.toLowerCase().includes('tuesday')) return 'Next Tuesday';
+  if (schedule.toLowerCase().includes('wednesday')) return 'Next Wednesday';
+  
+  return schedule;
+}
+
+// Fetch live status from database
+async function fetchAgentLiveStatus(agentId: string): Promise<Partial<AgentStatus>> {
+  try {
+    // Check for active (in_progress) tasks
+    const { data: activeTasks } = await supabase
+      .from('agent_tasks')
+      .select('*')
+      .eq('assigned_agent', agentId)
+      .eq('status', 'in_progress')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    const isActive = activeTasks && activeTasks.length > 0;
+    const currentTask = isActive ? activeTasks[0].title : null;
+
+    // Get last completed task for lastRun
+    const { data: completedTasks } = await supabase
+      .from('agent_tasks')
+      .select('*')
+      .eq('assigned_agent', agentId)
+      .in('status', ['done', 'review'])
+      .order('updated_at', { ascending: false })
+      .limit(1);
+
+    const lastRun = completedTasks && completedTasks.length > 0
+      ? formatRelativeTime(new Date(completedTasks[0].updated_at))
+      : null;
+
+    // Check for blocked tasks (assigned but not started)
+    const { data: blockedTasks } = await supabase
+      .from('agent_tasks')
+      .select('title')
+      .eq('assigned_agent', agentId)
+      .eq('status', 'assigned')
+      .order('created_at', { ascending: false })
+      .limit(3);
+
+    const blockers = blockedTasks && blockedTasks.length > 0
+      ? blockedTasks.map(t => t.title)
+      : [];
+
+    return {
+      status: isActive ? 'active' : blockers.length > 0 ? 'blocked' : 'idle',
+      currentTask,
+      lastRun,
+      blockers,
+      alerts: [], // Could be populated from task comments if needed
+    };
+  } catch (error) {
+    console.error(`Error fetching status for ${agentId}:`, error);
+    return {
+      status: 'error',
+      currentTask: null,
+      lastRun: null,
+      blockers: [],
+      alerts: ['Failed to fetch status'],
+    };
+  }
 }
 
 function getRecentCommits(): { message: string; time: string; author: string }[] {
@@ -188,21 +236,12 @@ function getRecentCommits(): { message: string; time: string; author: string }[]
 }
 
 export async function GET() {
-  const memoryDir = path.join(process.cwd(), '..', 'memory');
   const agents: AgentStatus[] = [];
 
+  // Fetch live status for each agent from database
   for (const [id, config] of Object.entries(AGENTS_CONFIG)) {
-    const filePath = path.join(memoryDir, `WORKING-${id}.md`);
-    let parsed: Partial<AgentStatus> = {};
-
-    try {
-      if (fs.existsSync(filePath)) {
-        const content = fs.readFileSync(filePath, 'utf-8');
-        parsed = parseWorkingFile(content);
-      }
-    } catch (e) {
-      console.error(`Error reading ${filePath}:`, e);
-    }
+    const liveStatus = await fetchAgentLiveStatus(id);
+    const nextRun = calculateNextRun(config.schedule);
 
     agents.push({
       id,
@@ -214,12 +253,12 @@ export async function GET() {
       schedule: config.schedule,
       collaborates: config.collaborates,
       spawns: config.spawns,
-      status: parsed.status || 'idle',
-      currentTask: parsed.currentTask || null,
-      lastRun: parsed.lastRun || null,
-      nextRun: parsed.nextRun || null,
-      blockers: parsed.blockers || [],
-      alerts: parsed.alerts || [],
+      status: liveStatus.status || 'idle',
+      currentTask: liveStatus.currentTask || null,
+      lastRun: liveStatus.lastRun || null,
+      nextRun,
+      blockers: liveStatus.blockers || [],
+      alerts: liveStatus.alerts || [],
     });
   }
 

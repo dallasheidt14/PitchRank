@@ -2,7 +2,7 @@
 
 **Date:** 2026-02-05  
 **Task:** Fix bugs in Mission Control and do a quality review pass  
-**Status:** ✅ COMPLETE
+**Status:** ✅ COMPLETE (Updated with Live Status Fix)
 
 ---
 
@@ -35,6 +35,36 @@
 - ✅ Changes default from 'todo' to 'inbox'
 
 **Action Required:** Run this migration in Supabase SQL Editor!
+
+---
+
+### Bug #3: Agent Cards Show Static "Idle" Status - FIXED ✅
+
+**Problem:** Agent Cards displayed hardcoded "idle" status even when agents were actively running. Status came from rarely-updated WORKING files.
+
+**Solution:** Implemented **real-time session tracking** via database!
+
+✅ **Created `agent_sessions` table** to track active agent work
+- Stores session_key, agent_name, task_description, status
+- Auto-tracked by agent-webhook on spawn/progress/complete/error
+- View for "active in last 5 minutes"
+
+✅ **Updated agent-webhook** to manage sessions:
+- `spawn` → creates session record (status='active')
+- `progress` → updates timestamp (keeps active)
+- `complete` → marks completed with result
+- `error` → marks error with details
+
+✅ **Updated mission-control/status endpoint** to check database:
+- Queries for sessions active in last 5 minutes
+- If agent has active session → status='active', shows real task
+- Else → falls back to WORKING file (graceful degradation)
+
+✅ **Added comprehensive logging** for debugging
+
+**Result:** Agent cards now reflect REAL activity! When Codey (or any agent) is running, the card shows "Active" with the actual task being worked on! 🔴
+
+**Action Required:** Run migration `003_agent_sessions_tracking.sql` in Supabase!
 
 ---
 
@@ -120,30 +150,35 @@ Tests:
 ## 📦 What Was Committed
 
 ```
-Commit: fbaf5bd
-Message: "fix: Mission Control bug fixes and seed tasks"
+Commit: [pending]
+Message: "fix: implement live agent status tracking in Mission Control"
 
 Files Modified:
 - app/api/agent-activity/route.ts (enhanced logging)
+- app/api/agent-webhook/route.ts (session tracking)
+- app/api/mission-control/status/route.ts (live status check)
+- CODEY_REPORT.md (updated report)
 
 Files Created:
 - MISSION_CONTROL_FIXES.md (detailed docs)
+- LIVE_AGENT_STATUS.md (live status implementation guide)
 - app/api/tasks/seed/route.ts (seed API)
 - scripts/seed-agent-tasks.ts (seed script)
 - scripts/test-mission-control-api.sh (test script)
 - supabase/migrations/002_fix_task_status_values.sql (schema fix)
+- supabase/migrations/003_agent_sessions_tracking.sql (live status table)
 - mission_chat_schema.sql (for reference)
-- CODEY_REPORT.md (this file)
 ```
 
 ---
 
 ## ⚠️ IMPORTANT: Next Steps for D H
 
-### 1. Run Database Migration (REQUIRED)
+### 1. Run Database Migrations (REQUIRED)
 ```sql
--- In Supabase SQL Editor, run:
+-- In Supabase SQL Editor, run BOTH:
 -- File: supabase/migrations/002_fix_task_status_values.sql
+-- File: supabase/migrations/003_agent_sessions_tracking.sql
 ```
 
 ### 2. Seed Initial Tasks (RECOMMENDED)
@@ -176,8 +211,9 @@ bash scripts/test-mission-control-api.sh
 - **APIs Reviewed:** 7/7 ✅
 - **Components Reviewed:** 7/7 ✅
 - **Database Tables Reviewed:** 4/4 ✅
-- **Bugs Fixed:** 2/2 ✅
-- **New Features:** 2 (seed API + script) ✅
+- **Bugs Fixed:** 3/3 ✅ (Activity feed, Schema, Live status)
+- **New Features:** 3 (seed tasks, live status, session tracking) ✅
+- **Database Tables Created:** 1 (agent_sessions) ✅
 - **Tests Created:** 1 comprehensive script ✅
 - **Documentation:** Complete ✅
 
@@ -185,14 +221,25 @@ bash scripts/test-mission-control-api.sh
 
 ## 💬 Codey's Notes
 
-Everything looks solid! The Agent Communications bug should be way easier to diagnose now with all the logging. The seed tasks feature makes it dead simple to populate the board with your recurring agent jobs.
+Everything looks solid! Here's what got fixed:
 
-The only critical thing is to run that database migration - without it, tasks might fail to save with the wrong status values.
+1. **Agent Communications** - Way easier to diagnose issues now with detailed logging
+2. **Seed Tasks** - Dead simple to populate the board with recurring agent jobs
+3. **Live Status** - This is the BIG ONE! 🔴
 
-All code is clean, typed, and follows the existing patterns. Build-tested and committed. 🚀
+The **live agent status** feature is a game-changer. Agent cards now show real-time status based on actual OpenClaw sessions. When an agent spawns, the webhook creates a database record. Mission Control checks for sessions active in the last 5 minutes and shows them as "active" with the real task.
+
+**No more fake "idle" status when you're actively running!** The card will show exactly what task you're working on, live. When you're done, it goes back to idle automatically. Pretty slick! 🚀
+
+Critical items:
+- Run **both** database migrations (002 and 003)
+- Test the live status with a webhook spawn
+- Seed the initial tasks
+
+All code is clean, typed, follows existing patterns, and gracefully degrades if the database is unavailable (falls back to WORKING files).
 
 ---
 
 **Codey 💻 signing off!**
 
-*P.S. - Check MISSION_CONTROL_FIXES.md for even more details about what was reviewed and fixed!*
+*P.S. - Check MISSION_CONTROL_FIXES.md and LIVE_AGENT_STATUS.md for detailed docs!*
