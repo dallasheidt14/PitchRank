@@ -15,6 +15,7 @@ import type { WatchlistResponse } from '@/app/api/watchlist/route';
 import { formatPowerScore } from '@/lib/utils';
 import { useUser, hasPremiumAccess } from '@/hooks/useUser';
 import { ShareButtons } from '@/components/ShareButtons';
+import { NotificationBell } from '@/components/NotificationBell';
 import { TeamSchema } from '@/components/TeamSchema';
 import { trackTeamPageViewed, trackWatchlistAdded, trackWatchlistRemoved } from '@/lib/events';
 import { toast } from '@/components/ui/Toaster';
@@ -365,6 +366,7 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                 )}
                 {isToggling ? 'Saving...' : watched ? 'Watching' : 'Watch'}
               </Button>
+              <NotificationBell />
             </div>
             <div className="text-left sm:text-right">
               <Tooltip>
@@ -437,6 +439,59 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
           </div>
 
           {teamRanking && (
+            <>
+            {/* Offense / Defense Gauges */}
+            {(teamRanking.offense_norm != null || teamRanking.defense_norm != null) && (
+              <div className="pt-4 border-t">
+                <div className="grid grid-cols-2 gap-4">
+                  {teamRanking.offense_norm != null && (() => {
+                    const pct = Math.round(teamRanking.offense_norm * 100);
+                    const color = pct >= 70 ? 'bg-green-500' : pct >= 40 ? 'bg-yellow-500' : 'bg-red-500';
+                    return (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div>
+                            <div className="flex justify-between text-xs sm:text-sm mb-1">
+                              <span className="text-muted-foreground">Offense</span>
+                              <span className="font-semibold">{pct}th %ile</span>
+                            </div>
+                            <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+                              <div className={`h-full ${color} rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
+                            </div>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Offensive strength: better than {pct}% of teams in this age group</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })()}
+                  {teamRanking.defense_norm != null && (() => {
+                    const pct = Math.round(teamRanking.defense_norm * 100);
+                    const color = pct >= 70 ? 'bg-green-500' : pct >= 40 ? 'bg-yellow-500' : 'bg-red-500';
+                    return (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div>
+                            <div className="flex justify-between text-xs sm:text-sm mb-1">
+                              <span className="text-muted-foreground">Defense</span>
+                              <span className="font-semibold">{pct}th %ile</span>
+                            </div>
+                            <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+                              <div className={`h-full ${color} rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
+                            </div>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Defensive strength: better than {pct}% of teams in this age group</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+
             <div className="pt-4 border-t">
               <div className="grid grid-cols-3 gap-4 text-sm">
                 <div>
@@ -450,25 +505,35 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span>
-                        <span className="text-muted-foreground">SOS Rank: </span>
+                        <span className="text-muted-foreground">State SOS: </span>
                         <span className="font-medium">
-                          {teamRanking.sos_rank_state ? `#${teamRanking.sos_rank_state} ${team.state || ''}` : '—'}
+                          {teamRanking.sos_rank_state ? `#${teamRanking.sos_rank_state} in ${team.state || 'state'}` : '—'}
                         </span>
                       </span>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>Strength of Schedule rank within state for this age group and gender.</p>
+                      <p>Strength of Schedule — #{teamRanking.sos_rank_state} toughest schedule in {team.state || 'state'} for this age group. Lower = harder opponents faced.</p>
                     </TooltipContent>
                   </Tooltip>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">National SOS: </span>
-                  <span className="font-medium">
-                    {teamRanking.sos_rank_national ? `#${teamRanking.sos_rank_national}` : '—'}
-                  </span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <span className="text-muted-foreground">National SOS: </span>
+                        <span className="font-medium">
+                          {teamRanking.sos_rank_national ? `#${teamRanking.sos_rank_national}` : '—'}
+                        </span>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>#{teamRanking.sos_rank_national} toughest schedule nationally for this age group. Lower = harder opponents faced.</p>
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
             </div>
+            </>
           )}
 
           {/* Share Buttons */}

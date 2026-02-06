@@ -64,22 +64,8 @@ export async function GET(request: Request) {
     story: { width: 1080, height: 1920 },
   }[platform] || { width: 1080, height: 1080 };
 
-  // Mock data for now (will use real data once RPC is set up)
-  const climbers: MoverTeam[] = [
-    { team_name: 'Lockhart United SC 2014', club_name: 'Lockhart YSA', state_code: 'TX', rank_change: 2255, current_rank: 1038 },
-    { team_name: 'Premier ECNL RL 2013', club_name: 'NCFC Youth', state_code: 'NC', rank_change: 2111, current_rank: 957 },
-    { team_name: 'Corte Madera FC White', club_name: 'Corte Madera FC', state_code: 'CA', rank_change: 2102, current_rank: 1309 },
-    { team_name: 'North Marin United 2014', club_name: 'North Marin United', state_code: 'CA', rank_change: 2094, current_rank: 1273 },
-    { team_name: 'CF 2012 South Black', club_name: 'Concorde Fire', state_code: 'GA', rank_change: 2093, current_rank: 1217 },
-  ].slice(0, limit);
-
-  const fallers: MoverTeam[] = [
-    { team_name: 'Premier 2014', club_name: 'Keystone FC', state_code: 'PA', rank_change: -2255, current_rank: 3972 },
-    { team_name: 'PA Classic Academy', club_name: 'PA Classics', state_code: 'PA', rank_change: -2185, current_rank: 3274 },
-    { team_name: 'LVU Rush PRE-ECNL', club_name: 'Lehigh Valley United', state_code: 'PA', rank_change: -2179, current_rank: 3247 },
-    { team_name: 'PRE-ECNL 2014', club_name: 'PSA Monmouth', state_code: 'NJ', rank_change: -2160, current_rank: 3934 },
-    { team_name: 'Philadelphia SC Surf', club_name: 'Philadelphia SC', state_code: 'PA', rank_change: -2124, current_rank: 2834 },
-  ].slice(0, limit);
+  // Fetch real movers data from RPC
+  const { climbers, fallers } = await getMoversData(ageGroup, gender, limit);
 
   const genderLabel = gender === 'female' ? 'GIRLS' : 'BOYS';
   const ageLabel = ageGroup?.toUpperCase() || 'ALL AGES';
