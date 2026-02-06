@@ -83,11 +83,35 @@ export async function GET() {
   try {
     const sessionsDir = path.join(os.homedir(), '.openclaw', 'agents', 'main', 'sessions');
     
+    console.log('[AgentActivity] Checking sessions directory:', sessionsDir);
+    
+    // Check if directory exists
+    try {
+      await fs.access(sessionsDir);
+      console.log('[AgentActivity] Directory exists and is accessible');
+    } catch (accessError) {
+      console.error('[AgentActivity] Directory not accessible:', accessError);
+      return NextResponse.json(
+        { 
+          error: 'Sessions directory not found or not accessible',
+          messages: [], 
+          count: 0,
+          debug: { path: sessionsDir, error: String(accessError) }
+        },
+        { status: 500 }
+      );
+    }
+    
     // Read all session files
     const files = await fs.readdir(sessionsDir);
     const jsonlFiles = files.filter(f => f.endsWith('.jsonl') && !f.includes('.deleted.'));
     
+    console.log(`[AgentActivity] Found ${files.length} files, ${jsonlFiles.length} active JSONL files`);
+    
     const messages: AgentMessage[] = [];
+    let filesProcessed = 0;
+    let linesProcessed = 0;
+    let messagesExtracted = 0;
     
     // Parse each session file
     for (const file of jsonlFiles) {
@@ -97,8 +121,10 @@ export async function GET() {
       try {
         const content = await fs.readFile(filePath, 'utf-8');
         const lines = content.split('\n').filter(line => line.trim());
+        filesProcessed++;
         
         for (const line of lines) {
+          linesProcessed++;
           try {
             const entry: SessionMessage = JSON.parse(line);
             
@@ -118,23 +144,29 @@ export async function GET() {
                   fullMessage,
                   sessionId,
                 });
+                messagesExtracted++;
               }
             }
           } catch (parseError) {
-            // Skip invalid JSON lines
+            // Skip invalid JSON lines silently
             continue;
           }
         }
       } catch (fileError) {
+        console.warn(`[AgentActivity] Could not read file ${file}:`, fileError);
         // Skip files that can't be read
         continue;
       }
     }
     
+    console.log(`[AgentActivity] Processed ${filesProcessed} files, ${linesProcessed} lines, extracted ${messagesExtracted} messages`);
+    
     // Sort by timestamp (most recent first) and take last 20
     const sortedMessages = messages
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       .slice(0, 20);
+    
+    console.log(`[AgentActivity] Returning ${sortedMessages.length} messages`);
     
     return NextResponse.json({
       messages: sortedMessages,
@@ -142,9 +174,14 @@ export async function GET() {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('Error reading agent activity:', error);
+    console.error('[AgentActivity] Unexpected error:', error);
     return NextResponse.json(
-      { error: 'Failed to read agent activity', messages: [], count: 0 },
+      { 
+        error: 'Failed to read agent activity', 
+        messages: [], 
+        count: 0,
+        debug: { error: String(error) }
+      },
       { status: 500 }
     );
   }
