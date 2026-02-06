@@ -1,176 +1,57 @@
-import { NextResponse } from 'next/server';
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import * as os from 'os';
-
-interface SessionMessage {
-  type: string;
-  timestamp: string;
-  message?: {
-    role: string;
-    content: Array<{
-      type: string;
-      text?: string;
-      name?: string;
-      arguments?: any;
-    }>;
-  };
-}
+import { NextRequest, NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabaseClient';
 
 interface AgentMessage {
-  timestamp: string;
-  agentName: string;
-  agentEmoji: string;
-  messagePreview: string;
-  fullMessage: string;
-  sessionId: string;
+  id: string;
+  session_key: string;
+  agent_name: string;
+  agent_emoji: string;
+  message_preview: string;
+  full_message: string;
+  message_type: string;
+  created_at: string;
 }
 
-// Map session filenames to agent names
-const AGENT_MAP: Record<string, { name: string; emoji: string }> = {
-  scrappy: { name: 'Scrappy', emoji: '🕷️' },
-  cleany: { name: 'Cleany', emoji: '🧹' },
-  watchy: { name: 'Watchy', emoji: '👀' },
-  compy: { name: 'Compy', emoji: '🧠' },
-  ranky: { name: 'Ranky', emoji: '📊' },
-  movy: { name: 'Movy', emoji: '🎬' },
-  codey: { name: 'Codey', emoji: '💻' },
-  socialy: { name: 'Socialy', emoji: '📱' },
-  main: { name: 'Main Agent', emoji: '🤖' },
-  subagent: { name: 'Sub-Agent', emoji: '🔧' },
-};
-
-function detectAgentFromMessage(message: string): { name: string; emoji: string } {
-  // Try to detect agent name from message content
-  for (const [key, value] of Object.entries(AGENT_MAP)) {
-    if (message.toLowerCase().includes(key) || message.includes(value.emoji)) {
-      return value;
-    }
-  }
-  
-  // Check for specific agent introductions
-  const agentMatch = message.match(/(?:I am|I'm|This is|Here's)\s+([A-Z][a-z]+)\s+[🕷️🧹👀🧠📊🎬💻📱🤖🔧]/);
-  if (agentMatch) {
-    const name = agentMatch[1];
-    const emoji = message.match(/[🕷️🧹👀🧠📊🎬💻📱🤖🔧]/)?.[0] || '🤖';
-    return { name, emoji };
-  }
-  
-  return { name: 'Agent', emoji: '🤖' };
-}
-
-function extractTextFromContent(content: any[]): string {
-  if (!content || !Array.isArray(content)) return '';
-  
-  const textParts: string[] = [];
-  for (const item of content) {
-    if (item.type === 'text' && item.text) {
-      textParts.push(item.text);
-    } else if (item.type === 'toolCall' && item.name) {
-      textParts.push(`[Tool: ${item.name}]`);
-    }
-  }
-  
-  return textParts.join(' ').trim();
-}
-
-function createPreview(text: string, maxLength: number = 150): string {
-  if (text.length <= maxLength) return text;
-  return text.substring(0, maxLength).trim() + '...';
-}
-
+// GET - fetch recent agent activity from Supabase
 export async function GET() {
   try {
-    const sessionsDir = path.join(os.homedir(), '.openclaw', 'agents', 'main', 'sessions');
+    console.log('[AgentActivity] Fetching from Supabase');
     
-    console.log('[AgentActivity] Checking sessions directory:', sessionsDir);
+    const { data, error } = await supabase
+      .from('agent_activity')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(50);
     
-    // Check if directory exists
-    try {
-      await fs.access(sessionsDir);
-      console.log('[AgentActivity] Directory exists and is accessible');
-    } catch (accessError) {
-      console.error('[AgentActivity] Directory not accessible:', accessError);
+    if (error) {
+      console.error('[AgentActivity] Supabase error:', error);
       return NextResponse.json(
         { 
-          error: 'Sessions directory not found or not accessible',
+          error: 'Failed to fetch agent activity',
           messages: [], 
           count: 0,
-          debug: { path: sessionsDir, error: String(accessError) }
+          debug: { error: error.message }
         },
         { status: 500 }
       );
     }
     
-    // Read all session files
-    const files = await fs.readdir(sessionsDir);
-    const jsonlFiles = files.filter(f => f.endsWith('.jsonl') && !f.includes('.deleted.'));
+    // Transform to match frontend expectations
+    const messages = (data || []).map((row: any) => ({
+      timestamp: row.created_at,
+      agentName: row.agent_name,
+      agentEmoji: row.agent_emoji,
+      messagePreview: row.message_preview,
+      fullMessage: row.full_message || row.message_preview,
+      sessionId: row.session_key || 'unknown',
+      messageType: row.message_type,
+    }));
     
-    console.log(`[AgentActivity] Found ${files.length} files, ${jsonlFiles.length} active JSONL files`);
-    
-    const messages: AgentMessage[] = [];
-    let filesProcessed = 0;
-    let linesProcessed = 0;
-    let messagesExtracted = 0;
-    
-    // Parse each session file
-    for (const file of jsonlFiles) {
-      const filePath = path.join(sessionsDir, file);
-      const sessionId = file.replace('.jsonl', '');
-      
-      try {
-        const content = await fs.readFile(filePath, 'utf-8');
-        const lines = content.split('\n').filter(line => line.trim());
-        filesProcessed++;
-        
-        for (const line of lines) {
-          linesProcessed++;
-          try {
-            const entry: SessionMessage = JSON.parse(line);
-            
-            // Only process message entries with assistant role
-            if (entry.type === 'message' && entry.message?.role === 'assistant') {
-              const fullMessage = extractTextFromContent(entry.message.content);
-              
-              if (fullMessage) {
-                const agent = detectAgentFromMessage(fullMessage);
-                const preview = createPreview(fullMessage);
-                
-                messages.push({
-                  timestamp: entry.timestamp,
-                  agentName: agent.name,
-                  agentEmoji: agent.emoji,
-                  messagePreview: preview,
-                  fullMessage,
-                  sessionId,
-                });
-                messagesExtracted++;
-              }
-            }
-          } catch (parseError) {
-            // Skip invalid JSON lines silently
-            continue;
-          }
-        }
-      } catch (fileError) {
-        console.warn(`[AgentActivity] Could not read file ${file}:`, fileError);
-        // Skip files that can't be read
-        continue;
-      }
-    }
-    
-    console.log(`[AgentActivity] Processed ${filesProcessed} files, ${linesProcessed} lines, extracted ${messagesExtracted} messages`);
-    
-    // Sort by timestamp (most recent first) and take last 20
-    const sortedMessages = messages
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      .slice(0, 20);
-    
-    console.log(`[AgentActivity] Returning ${sortedMessages.length} messages`);
+    console.log(`[AgentActivity] Returning ${messages.length} messages from Supabase`);
     
     return NextResponse.json({
-      messages: sortedMessages,
-      count: sortedMessages.length,
+      messages,
+      count: messages.length,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
@@ -182,6 +63,63 @@ export async function GET() {
         count: 0,
         debug: { error: String(error) }
       },
+      { status: 500 }
+    );
+  }
+}
+
+// POST - add new agent activity (called by webhook or agents)
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { 
+      session_key, 
+      agent_name, 
+      agent_emoji, 
+      message_preview, 
+      full_message, 
+      message_type 
+    } = body;
+    
+    // Validate required fields
+    if (!agent_name || !message_preview) {
+      return NextResponse.json(
+        { error: 'Missing required fields: agent_name, message_preview' },
+        { status: 400 }
+      );
+    }
+    
+    console.log(`[AgentActivity] Logging ${message_type || 'message'} from ${agent_name}`);
+    
+    const { data, error } = await supabase
+      .from('agent_activity')
+      .insert({
+        session_key: session_key || 'unknown',
+        agent_name,
+        agent_emoji: agent_emoji || '🤖',
+        message_preview,
+        full_message: full_message || message_preview,
+        message_type: message_type || 'message',
+      })
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('[AgentActivity] Insert error:', error);
+      return NextResponse.json(
+        { error: 'Failed to insert activity' },
+        { status: 500 }
+      );
+    }
+    
+    return NextResponse.json({ 
+      success: true, 
+      activity: data 
+    }, { status: 201 });
+  } catch (error) {
+    console.error('[AgentActivity] POST error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

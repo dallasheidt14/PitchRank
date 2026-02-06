@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { RefreshCw, MessageSquare, ChevronDown, ChevronUp } from 'lucide-react';
+import { supabase } from '@/lib/supabaseClient';
 
 interface AgentMessage {
   timestamp: string;
@@ -12,6 +13,7 @@ interface AgentMessage {
   messagePreview: string;
   fullMessage: string;
   sessionId: string;
+  messageType?: string;
 }
 
 interface AgentActivityResponse {
@@ -112,9 +114,45 @@ export function AgentCommsFeed() {
   };
 
   useEffect(() => {
+    // Initial fetch
     fetchActivity();
-    const interval = setInterval(fetchActivity, 30000); // Refresh every 30s
-    return () => clearInterval(interval);
+
+    // Subscribe to realtime updates
+    const channel = supabase
+      .channel('agent-activity-feed')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'agent_activity',
+      }, (payload) => {
+        console.log('[AgentComms] New activity:', payload.new);
+        
+        // Transform the payload to match our interface
+        const newMessage: AgentMessage = {
+          timestamp: payload.new.created_at,
+          agentName: payload.new.agent_name,
+          agentEmoji: payload.new.agent_emoji,
+          messagePreview: payload.new.message_preview,
+          fullMessage: payload.new.full_message || payload.new.message_preview,
+          sessionId: payload.new.session_key || 'unknown',
+          messageType: payload.new.message_type,
+        };
+
+        // Add to beginning of list and keep max 50
+        setData(prev => {
+          if (!prev) return { messages: [newMessage], count: 1, timestamp: new Date().toISOString() };
+          return {
+            messages: [newMessage, ...prev.messages].slice(0, 50),
+            count: prev.count + 1,
+            timestamp: new Date().toISOString(),
+          };
+        });
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   if (loading) {

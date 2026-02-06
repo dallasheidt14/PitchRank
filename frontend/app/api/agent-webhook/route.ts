@@ -23,6 +23,25 @@ interface WebhookPayload {
   error?: string;
 }
 
+// Agent emoji mapping
+const AGENT_EMOJIS: Record<string, string> = {
+  scrappy: '🕷️',
+  cleany: '🧹',
+  watchy: '👀',
+  compy: '🧠',
+  ranky: '📊',
+  movy: '🎬',
+  codey: '💻',
+  socialy: '📱',
+  main: '🤖',
+  subagent: '🔧',
+};
+
+function getAgentEmoji(agentName: string): string {
+  const key = agentName.toLowerCase().replace(/\s+/g, '');
+  return AGENT_EMOJIS[key] || '🤖';
+}
+
 // Simple auth check - can be enhanced with a shared secret
 function validateRequest(request: NextRequest): boolean {
   // For now, allow localhost requests and check for optional webhook secret
@@ -104,6 +123,16 @@ export async function POST(request: NextRequest) {
           task_id: newTask.id,
           author: 'system',
           content: `🤖 Task started by ${agentName}\nSession: ${sessionKey}`,
+        });
+
+        // Log to agent_activity for Agent Communications feed
+        await supabase.from('agent_activity').insert({
+          session_key: sessionKey,
+          agent_name: agentName,
+          agent_emoji: getAgentEmoji(agentName),
+          message_preview: `Starting: ${task.substring(0, 100)}${task.length > 100 ? '...' : ''}`,
+          full_message: task,
+          message_type: 'spawn',
         });
 
         return NextResponse.json({ 
@@ -190,6 +219,17 @@ export async function POST(request: NextRequest) {
           content: `✅ Completed: ${result || 'Task finished successfully'}`,
         });
 
+        // Log to agent_activity for Agent Communications feed
+        const completionMsg = result || 'Task finished successfully';
+        await supabase.from('agent_activity').insert({
+          session_key: sessionKey,
+          agent_name: agentName,
+          agent_emoji: getAgentEmoji(agentName),
+          message_preview: `Completed: ${completionMsg.substring(0, 100)}${completionMsg.length > 100 ? '...' : ''}`,
+          full_message: completionMsg,
+          message_type: 'complete',
+        });
+
         console.log(`[AgentWebhook] Marked session ${sessionKey.substring(0, 8)} as completed`);
 
         return NextResponse.json({ success: true, taskId, message: 'Task marked for review' });
@@ -235,6 +275,17 @@ export async function POST(request: NextRequest) {
           task_id: taskId,
           author: agentName,
           content: `❌ Error: ${errorMsg || 'Task failed - needs retry'}`,
+        });
+
+        // Log to agent_activity for Agent Communications feed
+        const errorMessage = errorMsg || 'Task failed - needs retry';
+        await supabase.from('agent_activity').insert({
+          session_key: sessionKey,
+          agent_name: agentName,
+          agent_emoji: getAgentEmoji(agentName),
+          message_preview: `Error: ${errorMessage.substring(0, 100)}${errorMessage.length > 100 ? '...' : ''}`,
+          full_message: errorMessage,
+          message_type: 'error',
         });
 
         console.log(`[AgentWebhook] Marked session ${sessionKey.substring(0, 8)} as error`);
