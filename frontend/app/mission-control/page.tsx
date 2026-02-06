@@ -20,7 +20,7 @@ import {
   GitCommit,
 } from 'lucide-react';
 import { AgentCommsFeed } from '@/components/agent-comms-feed';
-import { TaskBoard, AnnouncementBanner } from '@/components/mission-control';
+import { TaskBoard, AnnouncementBanner, GroupChat } from '@/components/mission-control';
 
 interface AgentStatus {
   id: string;
@@ -338,6 +338,9 @@ export default function MissionControlPage() {
 
       {/* Agent Communications Feed */}
       <AgentCommsFeed />
+
+      {/* Group Chat */}
+      <GroupChat />
 
       {/* Agent Grid */}
       <div>
