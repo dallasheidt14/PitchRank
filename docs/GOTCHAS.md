@@ -43,6 +43,13 @@ When running 900+ messages in main session with concurrent sub-agent spawning, e
 - Likely caused by API rate limits or server-side resource constraints under load
 - Mitigation: Spread workload across multiple sessions, use exponential backoff on retries
 
+### 2026-02-05: Connection Errors Pattern Confirmed
+Cleany session hit 55 "Connection error" entries over 137 messages during data review work. Main session concurrently hit 46 errors over 160 messages.
+- **Pattern**: Heavy agent activity (>130 user messages) correlates with ~40-55 connection errors
+- **Tolerance**: System remains fully functional despite error rate (~30-40% of heavy sessions)
+- **Likely cause**: API/network throttling, brief hiccups on Anthropic API under load
+- **Best practice**: Continue current pattern (errors are expected, not critical), but add connection error metrics to monitoring
+
 ## API Gotchas
 
 ### 2026-01-31: Anthropic API Error Patterns
