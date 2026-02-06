@@ -14,25 +14,33 @@ The playbook: **accurate rankings + shareable achievements + analytics dashboard
 
 ---
 
-## TIER 1: Quick Wins (Data Already Exists, Just Needs Frontend)
+## Already Built (Verified 2026-02-06)
 
-These features require NO new database work — the data is already computed and stored in `rankings_full` but hidden from parents.
+These features were proposed but **already exist** in the codebase:
 
-### 1.1 Team Persona Badges
-**Effort:** Small | **Impact:** High (shareability + pride)
+- **Team Persona Badges** — `TeamInsightsCard.tsx` displays Giant Killer / Flat Track Bully / Gatekeeper / Wildcard (premium-only via `/api/insights/[teamId]`)
+- **Consistency Score** — 0-100 with Very Reliable / Moderately Reliable / Unpredictable / Highly Volatile labels (premium-only)
+- **Form/Momentum Signal** — `MomentumMeter.tsx` shows Hot Streak / Building Momentum / As Expected / Struggling / Slumping from last 8 games (free, not paywalled)
+- **Season Truth Insights** — Rank trend (rising/stable/falling), SOS percentile, hot/cold streak indicators (premium-only)
+- **SOS Rankings** — Displayed in Rankings Table (sortable), Team Header (state + national), Compare Tool (radar chart + table), Watchlist (percentage)
+- **Shareable Infographics** — 7 graphic types (Top 10, Spotlight, Movers, H2H, State Champions, Stories, Covers) × 4 platforms (IG Post, IG Story, Twitter, Facebook) with caption generator
+- **Rank Change Widgets** — `HomeLeaderboard.tsx` arrows on top 10, `RecentMovers.tsx` biggest movers (7d/30d toggle)
 
-The insights API already computes team personas from game data:
-- **Giant Killer** — beats higher-ranked teams regularly
-- **Flat Track Bully** — dominates weaker opponents
-- **Gatekeeper** — solid mid-table, tough to beat
-- **Wildcard** — unpredictable results
+---
+
+## TIER 1: Quick Wins (Small Effort, High Impact)
+
+### 1.1 Rank Change Arrows on Every Rankings Row
+**Effort:** Small | **Impact:** High (drives engagement)
+
+`rank_change_7d` and `rank_change_30d` exist in `rankings_view` and are returned to the frontend, but only displayed in the homepage widgets (HomeLeaderboard, RecentMovers). The main `RankingsTable.tsx` does NOT show rank change arrows on individual team rows.
 
 **What to build:**
-- Display persona badge on team cards (rankings page + team detail)
-- Create shareable persona badge graphics (infographics engine)
-- Parents LOVE saying "My kid's team is a Giant Killer"
+- Green up-arrow / red down-arrow / gray dash next to rank number on every row
+- Tooltip: "+5 spots in the last 7 days"
+- Toggle between 7d and 30d view
 
-**Data source:** `frontend/app/api/insights/[teamId]/route.ts` already computes this
+**Data source:** Already in `rankings_view.rank_change_7d`, `rank_change_30d`
 
 ### 1.2 Offensive/Defensive Strength Gauges
 **Effort:** Small | **Impact:** Medium
@@ -46,47 +54,33 @@ The insights API already computes team personas from game data:
 
 **Data source:** `rankings_full.off_norm`, `rankings_full.def_norm`
 
-### 1.3 Consistency Score
-**Effort:** Small | **Impact:** Medium
-
-Already computed in insights from `goalDifferentialStdDev`, `streakFragmentation`, `powerScoreVolatility`.
-
-**What to build:**
-- 0-100 score on team page ("Consistency: 85/100 — Reliable")
-- Badge for top-consistency teams: "Most Consistent in State"
-- Parents of consistent teams will share this; inconsistent teams still visit to check
-
-**Data source:** `frontend/app/api/insights/[teamId]/route.ts`
-
-### 1.4 Form/Momentum Signal
-**Effort:** Small | **Impact:** High (drives repeat visits)
-
-`perf_centered` (-0.5 to +0.5) already shows if a team is on a hot or cold streak. Already computed in insights but not shown on main pages.
-
-**What to build:**
-- "Hot Streak" / "Cold Streak" / "Steady" badge on team cards
-- Flame icon for hot teams, snowflake for cold
-- "Your team is on fire — outperforming expectations by 40%!"
-- Parents on hot streaks will share; cold streak parents will check back daily
-
-**Data source:** `rankings_full.perf_centered`
-
-### 1.5 SOS Rankings Display
+### 1.3 Parent-Friendly SOS Context
 **Effort:** Small | **Impact:** Medium (validates the investment)
 
-`sos_rank_national` and `sos_rank_state` exist in database views but aren't displayed.
+SOS rank is already displayed but as a raw number ("#15"). Parents don't know what this means.
 
 **What to build:**
-- "Strength of Schedule: #15 toughest in the state"
+- Replace "#15" with "15th toughest schedule out of 847 teams — tougher than 98%"
+- Add plain-English tooltip: "Your team faces harder opponents than 98% of U14 Boys teams"
 - Parents love this: "We play the hardest schedule — our rank is EARNED"
 - Validates the club fees they're paying for a competitive program
 
-**Data source:** `rankings_view.sos_rank_national`, `state_rankings_view.sos_rank_state`
+**Data source:** `rankings_view.sos_rank_national` + cohort team count for percentile
 
-### 1.6 Enhanced Recent Movers
-**Effort:** Small | **Impact:** Medium
+### 1.4 Fix: Infographic Movers Uses Mock Data
+**Effort:** Small | **Impact:** Medium (bug fix)
 
-`rank_change_7d` and `rank_change_30d` exist but only show in the homepage sidebar widget.
+`/api/infographic/movers/route.tsx` calls an RPC function `get_biggest_movers` that **does not exist** in any migration. It falls back to hardcoded mock data.
+
+**What to build:**
+- Create `get_biggest_movers` RPC function in a new migration
+- Remove mock data fallback from the route
+- Real movers data will make the "Biggest Movers" infographic actually useful
+
+### 1.5 One-Tap "Share My Team" on Team Detail Page
+**Effort:** Small | **Impact:** High (closes the parent UX gap)
+
+The infographics system generates great content but lives on a separate `/infographics` page. Parents on the team detail page have no one-tap way to generate and share a card for *their specific team*.
 
 **What to build:**
 - "Biggest Movers This Week" featured section on homepage
@@ -100,25 +94,18 @@ Already computed in insights from `goalDifferentialStdDev`, `streakFragmentation
 
 ## TIER 2: Medium Effort (Data Exists, Needs Computation + Display)
 
-### 2.1 Shareable Ranking Cards (Instagram/Facebook Optimized)
-**Effort:** Medium | **Impact:** HIGHEST (viral growth engine)
+### 2.1 WhatsApp / iMessage / SMS Sharing Channels
+**Effort:** Medium | **Impact:** High (reaches parents where they are)
 
-The infographics engine already generates PNG images for 7 types. Extend it for parent-optimized sharing.
+`ShareButtons.tsx` currently supports Twitter and Facebook only. Most soccer parents communicate via WhatsApp groups, iMessage, and SMS — not Twitter.
 
 **What to build:**
-- One-tap "Share My Team's Rank" button on team page
-- Auto-generated card: Team name, rank, power score, trend arrow, persona badge
-- Instagram Story format (1080x1920) — vertical, bold, shareable
-- Instagram Post format (1080x1350)
-- Facebook-optimized (1200x630)
-- Pre-written captions: "My kid's team just cracked the Top 10! #PitchRank #YouthSoccer"
-- Share to WhatsApp, iMessage, SMS (not just Twitter/Facebook)
-- **Free tier:** 1 shareable card per month
-- **Premium:** Unlimited cards
+- Add WhatsApp share button (WhatsApp API link with pre-written text + URL)
+- Add native share via Web Share API (already used in infographics, but not in ShareButtons)
+- iMessage/SMS share via `sms:` URI scheme
+- Pre-written share text: "Check out my kid's team — ranked #12 in U14 Boys! [link]"
 
-**Why this is #1 priority:** Every share is free marketing. Instagram delivers 4x engagement of Facebook for sports content. The non-elite majority (your biggest audience) is MORE engaged with sharing than elite teams. 90% of Gen Z uses social media for sports content.
-
-**Data source:** Existing infographics engine + team data from `rankings_view`
+**Data source:** Extend existing `ShareButtons.tsx` component
 
 ### 2.2 Winning/Losing Streaks
 **Effort:** Medium | **Impact:** High
