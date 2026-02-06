@@ -22,7 +22,7 @@ if not supabase_url or not supabase_key:
 
 supabase = create_client(supabase_url, supabase_key)
 
-def update_teams_from_csv(csv_path: str):
+def update_teams_from_csv(csv_path: str, auto_yes: bool = False):
     """Update teams with state information from CSV"""
     
     csv_file = Path('data/exports') / csv_path if not Path(csv_path).is_absolute() else Path(csv_path)
@@ -85,11 +85,14 @@ def update_teams_from_csv(csv_path: str):
     
     # Confirm before updating
     print("\n" + "="*80)
-    response = input(f"Update {len(updates)} teams in the database? (yes/no): ").strip().lower()
-    
-    if response != 'yes':
-        print("Update cancelled.")
-        return
+    if not auto_yes:
+        response = input(f"Update {len(updates)} teams in the database? (yes/no): ").strip().lower()
+        
+        if response != 'yes':
+            print("Update cancelled.")
+            return
+    else:
+        print(f"Auto-confirming: Updating {len(updates)} teams in the database...")
     
     # Update teams in batches
     print("\nUpdating teams...")
@@ -137,14 +140,16 @@ def update_teams_from_csv(csv_path: str):
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print("Usage: python scripts/update_teams_state.py <csv_filename>")
+        print("Usage: python scripts/update_teams_state.py <csv_filename> [--yes]")
         print("\nExample:")
         print("  python scripts/update_teams_state.py teams_no_state_20250120_120000.csv")
+        print("  python scripts/update_teams_state.py teams_no_state_20250120_120000.csv --yes")
         print("\nThe CSV file should be in the data/exports/ directory")
         exit(1)
     
     csv_filename = sys.argv[1]
-    update_teams_from_csv(csv_filename)
+    auto_yes = '--yes' in sys.argv or '-y' in sys.argv
+    update_teams_from_csv(csv_filename, auto_yes=auto_yes)
 
 
 

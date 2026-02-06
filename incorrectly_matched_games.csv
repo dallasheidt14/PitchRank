@@ -1,2 +1,0 @@
-game_id,game_uid,game_date,team_type,provider_id,team_name,expected_age,expected_alias,matched_age,matched_team_id,matched_team_name,correct_alias,correct_team_id,correct_team_name,division
-12737e0c-1fea-4798-b1d1-43968035acea,modular11:2026-01-10:1096:1340,1/10/2026,away,1340,Westside Metros FC South U14 AD,u14,1340_U14_AD,u13,bf629688-00cd-44e6-b366-02171e06bd60,Westside Metros FC South U13 AD,1340_U14_AD,,,AD
