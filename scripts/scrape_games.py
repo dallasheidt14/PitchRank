@@ -306,7 +306,7 @@ async def scrape_games(
         console.print(f"[cyan]Incremental mode: Scraping teams not updated in last 7 days[/cyan]")
         console.print(f"[dim]Each team will use its cached last_scraped_at for incremental updates[/dim]")
 
-    # Filter out U8/U9 teams (PitchRank only supports U10+)
+    # Filter out U8/U9 and U19 teams (PitchRank only supports U10-U18)
     teams_before_filter = len(teams)
     filtered_teams = []
     skipped_count = 0
@@ -315,15 +315,15 @@ async def scrape_games(
         age_group = team.get('age_group', '').upper().strip()
         birth_year = team.get('birth_year')
         
-        # Skip if age_group matches U8/U9 patterns
-        if age_group in ['U8', 'U-8', 'U9', 'U-9']:
-            logger.debug(f"Skipping U8/U9 team (age_group={age_group}): {team.get('team_name', 'Unknown')}")
+        # Skip if age_group matches U8/U9/U19 patterns
+        if age_group in ['U8', 'U-8', 'U9', 'U-9', 'U19', 'U-19']:
+            logger.debug(f"Skipping U8/U9/U19 team (age_group={age_group}): {team.get('team_name', 'Unknown')}")
             skipped_count += 1
             continue
         
-        # Skip if birth_year is 2017, 2018, or 2019 (U8/U9)
-        if birth_year in [2017, 2018, 2019]:
-            logger.debug(f"Skipping U8/U9 team (birth_year={birth_year}): {team.get('team_name', 'Unknown')}")
+        # Skip if birth_year is 2017, 2018, 2019 (U8/U9) or 2005, 2006 (U19)
+        if birth_year in [2005, 2006, 2017, 2018, 2019]:
+            logger.debug(f"Skipping U8/U9/U19 team (birth_year={birth_year}): {team.get('team_name', 'Unknown')}")
             skipped_count += 1
             continue
         
@@ -331,7 +331,7 @@ async def scrape_games(
     
     teams = filtered_teams
     if skipped_count > 0:
-        console.print(f"[yellow]Filtered out {skipped_count} U8/U9 teams (PitchRank is U10+ only)[/yellow]")
+        console.print(f"[yellow]Filtered out {skipped_count} U8/U9/U19 teams (PitchRank is U10-U18 only)[/yellow]")
     
     # Apply skip and limit to teams list
     total_eligible = len(teams)
@@ -342,7 +342,7 @@ async def scrape_games(
         teams = teams[:limit_teams]
         console.print(f"[cyan]Limiting to {limit_teams} teams[/cyan]")
 
-    console.print(f"[bold cyan]Scraping games for {len(teams)} teams (of {total_eligible} eligible, {skipped_count} U8/U9 filtered)[/bold cyan]")
+    console.print(f"[bold cyan]Scraping games for {len(teams)} teams (of {total_eligible} eligible, {skipped_count} U8/U9/U19 filtered)[/bold cyan]")
     console.print(f"[cyan]Concurrency: {concurrency} teams at once[/cyan]")
     if since_date:
         console.print(f"[cyan]Using override since_date: {since_date}[/cyan]\n")
