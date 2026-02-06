@@ -263,11 +263,13 @@ PARALLEL_PROCESSING = os.getenv("PARALLEL_PROCESSING", "true").lower() == "true"
 DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
 
 # Validate critical configuration at startup
+import logging as _logging
+_settings_logger = _logging.getLogger(__name__)
 if not USE_LOCAL_SUPABASE:
     if not SUPABASE_URL:
-        raise EnvironmentError("SUPABASE_URL must be set in production mode")
+        _settings_logger.warning("SUPABASE_URL is not set — database calls will fail")
     if not SUPABASE_KEY:
-        raise EnvironmentError("SUPABASE_KEY must be set in production mode")
+        _settings_logger.warning("SUPABASE_KEY is not set — database calls will fail")
 
 # Validate ranking weights sum to 1.0
 _weight_sum = RANKING_CONFIG['off_weight'] + RANKING_CONFIG['def_weight'] + RANKING_CONFIG['sos_weight']
