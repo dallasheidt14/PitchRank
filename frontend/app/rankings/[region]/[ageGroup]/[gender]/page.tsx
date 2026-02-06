@@ -23,8 +23,15 @@ function formatAgeGroup(ageGroup: string): string {
 /**
  * Format gender for display (e.g., "male" -> "Boys", "female" -> "Girls")
  */
+const VALID_GENDERS: Record<string, string> = {
+  male: 'Boys',
+  female: 'Girls',
+  boys: 'Boys',
+  girls: 'Girls',
+};
+
 function formatGender(gender: string): string {
-  return gender.toLowerCase() === 'male' ? 'Boys' : 'Girls';
+  return VALID_GENDERS[gender.toLowerCase()] ?? 'Unknown';
 }
 
 /**
@@ -110,20 +117,28 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
   const isNational = region.toLowerCase() === 'national';
   const locationText = isNational ? 'National' : getStateName(region);
   
+  // Sanitize route params to prevent XSS via </script> injection in JSON-LD
+  const safeRegion = region.replace(/[<>"'&]/g, '');
+  const safeAgeGroup = ageGroup.replace(/[<>"'&]/g, '');
+  const safeGender = gender.replace(/[<>"'&]/g, '');
+
   const structuredData = {
     '@context': 'https://schema.org',
     '@type': 'RankingTable',
     'name': `${formattedAgeGroup} ${formattedGender} Soccer Rankings${isNational ? '' : ` - ${locationText}`}`,
     'description': 'Youth soccer team rankings by power rating',
-    'url': `https://pitchrank.io/rankings/${region}/${ageGroup}/${gender}`,
+    'url': `https://pitchrank.io/rankings/${safeRegion}/${safeAgeGroup}/${safeGender}`,
   };
+
+  // Escape </script> sequences to prevent XSS in JSON-LD structured data
+  const safeJsonLd = JSON.stringify(structuredData).replace(/</g, '\\u003c');
 
   return (
     <>
       <RankingsPageContent key={routeKey} region={region} ageGroup={ageGroup} gender={gender} />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd }}
       />
     </>
   );

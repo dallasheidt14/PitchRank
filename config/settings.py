@@ -261,3 +261,18 @@ LOG_DIR.mkdir(exist_ok=True)
 USE_CACHE = os.getenv("USE_CACHE", "true").lower() == "true"
 PARALLEL_PROCESSING = os.getenv("PARALLEL_PROCESSING", "true").lower() == "true"
 DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
+
+# Validate critical configuration at startup
+if not USE_LOCAL_SUPABASE:
+    if not SUPABASE_URL:
+        raise EnvironmentError("SUPABASE_URL must be set in production mode")
+    if not SUPABASE_KEY:
+        raise EnvironmentError("SUPABASE_KEY must be set in production mode")
+
+# Validate ranking weights sum to 1.0
+_weight_sum = RANKING_CONFIG['off_weight'] + RANKING_CONFIG['def_weight'] + RANKING_CONFIG['sos_weight']
+if abs(_weight_sum - 1.0) > 0.01:
+    raise ValueError(
+        f"Ranking weights must sum to 1.0, got {_weight_sum:.3f} "
+        f"(off={RANKING_CONFIG['off_weight']}, def={RANKING_CONFIG['def_weight']}, sos={RANKING_CONFIG['sos_weight']})"
+    )

@@ -196,7 +196,7 @@ class GotSportScraper(BaseScraper):
                                 else:
                                     game_date = datetime.strptime(match_date_str, '%Y-%m-%d').date()
                                 # If this game is before our cutoff, stop parsing (all remaining will be older)
-                                if game_date < since_date_obj:
+                                if since_date_obj is not None and game_date < since_date_obj:
                                     logger.debug(f"Reached date cutoff at {game_date}, stopping parse for team {normalized_team_id}")
                                     break
                             except (ValueError, TypeError):
@@ -284,7 +284,8 @@ class GotSportScraper(BaseScraper):
         }
         # Merge original params into URL
         if params:
-            url_with_params = f"{url}?" + "&".join([f"{k}={v}" for k, v in params.items()])
+            from urllib.parse import urlencode
+            url_with_params = f"{url}?{urlencode(params)}"
             zenrows_params['url'] = url_with_params
         
         return self.session.get(zenrows_url, params=zenrows_params, timeout=self.timeout)
@@ -358,7 +359,7 @@ class GotSportScraper(BaseScraper):
                 return None
             
             # Apply date filter
-            if game_date < since_date:
+            if since_date is not None and game_date < since_date:
                 return None
             
             # Extract scores

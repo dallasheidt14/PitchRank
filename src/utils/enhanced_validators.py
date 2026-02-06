@@ -47,13 +47,12 @@ class EnhancedDataValidator:
     def __init__(self):
         # Get valid age groups from config (convert keys to uppercase for compatibility)
         # Only U10-U18 are tracked (birth years 2008-2016 for 2025 season)
-        self.valid_age_groups = [age.lower() for age in AGE_GROUPS.keys()] + [
-            'u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18'
-        ]
-        # Also support uppercase versions
-        self.valid_age_groups.extend([age.upper() for age in self.valid_age_groups])
+        _age_groups_lower = [age.lower() for age in AGE_GROUPS.keys()]
+        self.valid_age_groups = frozenset(
+            _age_groups_lower + [age.upper() for age in _age_groups_lower]
+        )
 
-        self.valid_genders = ['Male', 'Female', 'Boys', 'Girls', 'Coed']
+        self.valid_genders = frozenset(['Male', 'Female', 'Boys', 'Girls', 'Coed'])
         
     def validate_team(self, team: Dict[str, Any]) -> Tuple[bool, List[str]]:
         """Validate team data with comprehensive checks"""
@@ -91,7 +90,7 @@ class EnhancedDataValidator:
         if 'age_group' in team and team.get('age_group'):
             age_group = str(team['age_group']).strip().lower()
             if age_group not in self.valid_age_groups:
-                errors.append(f"Invalid age group: '{team['age_group']}' (must be one of {self.valid_age_groups[:10]})")
+                errors.append(f"Invalid age group: '{team['age_group']}' (must be one of {sorted(self.valid_age_groups)[:10]})")
         
         # Validate gender
         if 'gender' in team and team.get('gender'):
@@ -271,7 +270,7 @@ class EnhancedDataValidator:
         if 'age_group' in game and game.get('age_group'):
             age_group = str(game['age_group']).strip().lower()
             if age_group not in self.valid_age_groups:
-                errors.append(f"Invalid age group: '{game['age_group']}' (must be one of {self.valid_age_groups[:10]})")
+                errors.append(f"Invalid age group: '{game['age_group']}' (must be one of {sorted(self.valid_age_groups)[:10]})")
                 
         if 'gender' in game and game.get('gender'):
             gender = str(game['gender']).strip()

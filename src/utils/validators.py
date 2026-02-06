@@ -33,7 +33,7 @@ class GameValidator(BaseValidator):
                     score = int(data[field])
                     if score < 0:
                         errors.append(f"Invalid score: {field} = {score}")
-                except:
+                except (ValueError, TypeError):
                     errors.append(f"Invalid score format: {field} = {data[field]}")
                     
         # Validate result
@@ -65,7 +65,7 @@ class TeamValidator(BaseValidator):
             errors.append(f"Invalid gender: {data['gender']}")
             
         # Validate state code
-        if 'state_code' in data and len(data.get('state_code', '')) != 2:
+        if 'state_code' in data and len(data.get('state_code') or '') != 2:
             errors.append(f"Invalid state code: {data['state_code']}")
             
         return len(errors) == 0, '; '.join(errors) if errors else None

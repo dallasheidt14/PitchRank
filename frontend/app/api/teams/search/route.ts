@@ -21,20 +21,26 @@ export async function GET(request: NextRequest) {
     const ageGroup = searchParams.get('ageGroup');
     const gender = searchParams.get('gender');
     const stateCode = searchParams.get('stateCode');
-    const limit = parseInt(searchParams.get('limit') || '20', 10);
+    const limit = Math.min(parseInt(searchParams.get('limit') || '20', 10), 100);
 
     if (!query || query.trim().length < 2) {
       return NextResponse.json({ teams: [] });
     }
 
+    // Sanitize query: strip PostgREST filter-injection characters
+    const sanitizedQuery = query.replace(/[%_(),.*\\]/g, '');
+    if (sanitizedQuery.length < 2) {
+      return NextResponse.json({ teams: [] });
+    }
+
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-    // Build query
+    // Build query using sanitized input to prevent PostgREST filter injection
     let teamsQuery = supabase
       .from('teams')
       .select('team_id_master, team_name, club_name, age_group, gender, state_code, state')
       .eq('is_deprecated', false) // Only show active teams
-      .or(`team_name.ilike.%${query}%,club_name.ilike.%${query}%`)
+      .or(`team_name.ilike.%${sanitizedQuery}%,club_name.ilike.%${sanitizedQuery}%`)
       .limit(limit);
 
     // Add filters if provided
