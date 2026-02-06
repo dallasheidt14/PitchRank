@@ -158,7 +158,7 @@ async def fetch_games_for_rankings(
         try:
             # Use retry wrapper for resilient fetching
             games_result = retry_supabase_query(
-                lambda: query.execute(),
+                lambda q=query: q.execute(),
                 max_retries=4,
                 initial_delay=2.0,
                 description=f"Fetching games batch at offset {offset}"
@@ -226,9 +226,9 @@ async def fetch_games_for_rankings(
         try:
             # Use retry wrapper for team metadata fetching
             teams_result = retry_supabase_query(
-                lambda: supabase_client.table('teams').select(
+                lambda b=batch: supabase_client.table('teams').select(
                     'team_id_master, age_group, gender'
-                ).in_('team_id_master', batch).execute(),
+                ).in_('team_id_master', b).execute(),
                 max_retries=4,
                 initial_delay=2.0,
                 description=f"Fetching team metadata batch {i}-{i+batch_size}"
@@ -575,7 +575,7 @@ def v53e_to_rankings_full_format(
     if 'age' in rankings_df.columns:
         rankings_df['age_group'] = rankings_df['age'].apply(lambda x: f"u{int(float(x))}" if pd.notna(x) and str(x).strip() else None)
         # Create numeric age column for anchor scaling
-        rankings_df['age_num'] = rankings_df['age'].astype(int)
+        rankings_df['age_num'] = pd.to_numeric(rankings_df['age'], errors='coerce').fillna(0).astype(int)
     
     # Normalize gender to match database format (Male/Female)
     # CRITICAL: gender is NOT NULL in rankings_full, so ensure it's always populated

@@ -74,8 +74,22 @@ export async function POST(req: Request) {
       );
     }
 
-    if (!watchlist) {
-      // No watchlist exists, nothing to remove
+    // Fallback: if no default watchlist found, try to find the most recent one
+    let resolvedWatchlist = watchlist;
+    if (!resolvedWatchlist) {
+      const { data: fallbackWatchlist } = await supabase
+        .from("watchlists")
+        .select("id")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      resolvedWatchlist = fallbackWatchlist;
+    }
+
+    if (!resolvedWatchlist) {
+      // No watchlist exists at all, nothing to remove
       return NextResponse.json({
         success: true,
         message: "No watchlist exists",
@@ -86,7 +100,7 @@ export async function POST(req: Request) {
     const { error: removeError } = await supabase
       .from("watchlist_items")
       .delete()
-      .eq("watchlist_id", watchlist.id)
+      .eq("watchlist_id", resolvedWatchlist.id)
       .eq("team_id_master", teamIdMaster);
 
     if (removeError) {

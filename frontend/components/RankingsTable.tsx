@@ -27,6 +27,38 @@ type SortDirection = 'asc' | 'desc';
 const ROW_HEIGHT = 60; // Estimated row height in pixels
 
 /**
+ * Sort button component - defined outside RankingsTable so memo() works correctly
+ */
+const SortButton = memo(({ field, label, sortField, sortDirection, onSort }: {
+  field: SortField;
+  label: string | React.ReactNode;
+  sortField: SortField;
+  sortDirection: SortDirection;
+  onSort: (field: SortField) => void;
+}) => {
+  const isActive = sortField === field;
+  const labelText = typeof label === 'string' ? label : 'Sort';
+  return (
+    <button
+      onClick={() => onSort(field)}
+      className="flex items-center gap-1 hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded"
+      aria-label={`Sort by ${labelText}`}
+    >
+      {label}
+      {isActive ? (
+        sortDirection === 'asc' ? (
+          <ArrowUp className="h-3 w-3" />
+        ) : (
+          <ArrowDown className="h-3 w-3" />
+        )
+      ) : (
+        <ArrowUpDown className="h-3 w-3 opacity-50" />
+      )}
+    </button>
+  );
+});
+
+/**
  * Get border color class for top teams - Athletic Editorial style
  */
 function getRankBorderClass(rank: number | null | undefined): string {
@@ -83,8 +115,8 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
           break;
         case 'powerScore':
           // Use power_score_final (ML-adjusted score) - primary sort field
-          aValue = a.power_score_final;
-          bValue = b.power_score_final;
+          aValue = a.power_score_final ?? 0;
+          bValue = b.power_score_final ?? 0;
           break;
         case 'sosRank':
           // Use pre-calculated SOS rank from database
@@ -151,29 +183,6 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
       setSortDirection('asc');
     }
   }, [sortField, sortDirection, region, ageGroup, gender]);
-
-  const SortButton = memo(({ field, label }: { field: SortField; label: string | React.ReactNode }) => {
-    const isActive = sortField === field;
-    const labelText = typeof label === 'string' ? label : 'Sort';
-    return (
-      <button
-        onClick={() => handleSort(field)}
-        className="flex items-center gap-1 hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded"
-        aria-label={`Sort by ${labelText}`}
-      >
-        {label}
-        {isActive ? (
-          sortDirection === 'asc' ? (
-            <ArrowUp className="h-3 w-3" />
-          ) : (
-            <ArrowDown className="h-3 w-3" />
-          )
-        ) : (
-          <ArrowUpDown className="h-3 w-3 opacity-50" />
-        )}
-      </button>
-    );
-  });
 
   // Build description text
   const description = useMemo(() => {
@@ -311,16 +320,16 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                 {/* Table Header */}
                 <div className="grid border-b-2 border-primary bg-secondary/50 sticky top-0 z-10" style={{ gridTemplateColumns: '60px 2fr 1fr 1fr' }}>
                   <div className="px-1.5 sm:px-4 py-2 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
-                    <SortButton field="rank" label="Rank" />
+                    <SortButton field="rank" label="Rank" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
                   </div>
                   <div className="px-1.5 sm:px-4 py-2 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
-                    <SortButton field="team" label="Team" />
+                    <SortButton field="team" label="Team" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
                   </div>
                   <div className="px-1.5 sm:px-4 py-2 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className="min-w-0 overflow-hidden">
-                          <SortButton field="powerScore" label={<><span className="hidden sm:inline">PowerScore (ML Adjusted)</span><span className="sm:hidden">PS</span></>} />
+                          <SortButton field="powerScore" label={<><span className="hidden sm:inline">PowerScore (ML Adjusted)</span><span className="sm:hidden">PS</span></>} sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
                         </div>
                       </TooltipTrigger>
                       <TooltipContent>
@@ -332,7 +341,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className="min-w-0 overflow-hidden">
-                          <SortButton field="sosRank" label={<><span className="hidden sm:inline">SOS Rank</span><span className="sm:hidden">SOS R</span></>} />
+                          <SortButton field="sosRank" label={<><span className="hidden sm:inline">SOS Rank</span><span className="sm:hidden">SOS R</span></>} sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
                         </div>
                       </TooltipTrigger>
                       <TooltipContent>
@@ -412,11 +421,8 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                             </Link>
                             <div className="text-xs sm:text-sm text-muted-foreground truncate w-full">
                               {team.club_name && <span>{team.club_name}</span>}
-                              {team.state && (
-                                <span className={team.club_name ? ' • ' : ''}>
-                                  {team.state}
-                                </span>
-                              )}
+                              {team.club_name && team.state && <span> &bull; </span>}
+                              {team.state && <span>{team.state}</span>}
                             </div>
                           </div>
                           <div className="px-1.5 sm:px-4 py-2 sm:py-3 text-right font-semibold flex items-center justify-end text-xs sm:text-sm min-w-0 overflow-hidden">

@@ -190,10 +190,10 @@ class AthleteOneScraper:
                     ),
                     competition=parsed_game.competition,
                     venue=parsed_game.venue,
-                    meta=meta,
+                    meta=meta.copy(),
                 )
             )
-            
+
             # Away team perspective
             game_data_list.append(
                 GameData(
@@ -212,7 +212,7 @@ class AthleteOneScraper:
                     ),
                     competition=parsed_game.competition,
                     venue=parsed_game.venue,
-                    meta=meta,
+                    meta=meta.copy(),
                 )
             )
         

@@ -455,7 +455,7 @@ class MergeSuggester:
             if isinstance(d, str):
                 try:
                     return datetime.fromisoformat(d.replace('Z', '+00:00')).date()
-                except:
+                except (ValueError, TypeError):
                     return None
             return None
 
