@@ -58,7 +58,7 @@ export function NewTaskForm({ onTaskCreated }: NewTaskFormProps) {
         body: JSON.stringify({
           title: title.trim(),
           description: description.trim() || null,
-          assigned_agent: assignedAgent || null,
+          assigned_agent: assignedAgent && assignedAgent !== 'unassigned' ? assignedAgent : null,
           priority,
           created_by: 'D H', // TODO: Get from auth
         }),
@@ -127,7 +127,7 @@ export function NewTaskForm({ onTaskCreated }: NewTaskFormProps) {
                   <SelectValue placeholder="Select agent" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Unassigned</SelectItem>
+                  <SelectItem value="unassigned">Unassigned</SelectItem>
                   {AGENTS.map((agent) => (
                     <SelectItem key={agent} value={agent}>
                       {AGENT_EMOJIS[agent]} {agent}
