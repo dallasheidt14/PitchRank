@@ -80,5 +80,14 @@ Sessions can be attributed to different agents than who's actually running:
 
 **Gotcha**: Cron job naming may not match actual agent identity. When debugging, check the prompt content, not just the session label.
 
+### 2026-02-06: Model Name Format in Cron Jobs
+When updating model configuration in cron jobs, use the full explicit model name:
+- ❌ **WRONG**: `"anthropic/haiku"` — Returns "model not found" error
+- ✅ **CORRECT**: `"anthropic/claude-haiku-4-5"` — Full explicit name required
+
+**Gotcha**: Shortened aliases that work in some contexts (like CLI overrides with `model=haiku`) don't work in cron job YAML configuration. The cron system requires full provider/model-version format.
+
+**Where this bit us**: Cleany's weekly cron was set to `"anthropic/haiku"` and silently failed until MOLTBOT fixed it at 4:14am on Feb 6. The agent caught the error during model initialization.
+
 ---
-*Last updated: 2026-02-02*
+*Last updated: 2026-02-06*

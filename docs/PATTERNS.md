@@ -50,6 +50,19 @@ When monitoring agents (Scrappy, Watchy) detect issues:
 
 **Example**: Scrappy detected TGS scrape failure → spawned "Codey: Investigate failed TGS scrape" → received findings asynchronously.
 
+### 2026-02-06: Policy Decision Pattern for Data Anomalies
+When monitoring discovers a consistent data pattern that looks wrong:
+1. **Verify it's actually a problem** — check business requirements first
+2. **Root cause analysis** — identify why this pattern exists
+3. **Present options to decision-maker** — not just "this is wrong"
+4. **Escalate with context** — include trend data (how many? over what timeframe?)
+
+**Example from Feb 6**: Watchy found 1,710 quarantine games, all U8 age group:
+- ✅ Root cause identified: Scraper pulling U8, validator rejects (project = U10+ only)
+- ✅ Options presented: (1) Clear quarantine, (2) Expand to U8/U9, (3) Filter upstream
+- ✅ D H can now make informed decision instead of "fix the quarantine"
+- Result: D H chose option 3 (upstream filtering), Codey implemented
+
 ## Infrastructure Patterns
 
 ### 2026-02-04: Supabase Connection Strategy (Direct vs Pooler)

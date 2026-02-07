@@ -1,0 +1,26 @@
+[
+  {
+    "timestamp": "2026-02-06T16:08:33.825122",
+    "metrics": {
+      "teams_active": 97334,
+      "teams_deprecated": 3418,
+      "teams_total": 100752,
+      "missing_club_name": 3721,
+      "missing_state_code": 1080,
+      "missing_age_group": 0,
+      "missing_gender": 0,
+      "quarantine_games_total": 0,
+      "quarantine_breakdown": {},
+      "review_queue_pending": 6144,
+      "review_queue_oldest_days": 56,
+      "teams_added_7d": 79,
+      "games_added_7d": 6481
+    },
+    "scores": {
+      "complete_data_pct": 96.1770809788974,
+      "club_consistency_pct": 100.0,
+      "auto_merge_success_pct": 0.0,
+      "recent_merges_30d": 2811
+    }
+  }
+]

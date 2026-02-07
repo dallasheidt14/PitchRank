@@ -53,3 +53,20 @@ From Feb 4 data quality check:
 - Compare club selection metrics week-to-week to detect data entry problems
 - Alert D H immediately if any team without club exceeds 1,000
 - Consider blocking team creation without explicit club assignment in UI
+
+## Date: 2026-02-06
+
+### What Worked Well
+- **Quarantine investigation pattern:** Successfully identified root cause (U8 age group rejections) and clearly presented three options to D H
+- **No false alarm:** Watchy correctly assessed this as "working as designed" not a bug
+- **Clear escalation:** Presented decision matrix to D H: (1) Clear quarantine, (2) Expand age range, (3) Filter upstream
+- **Sub-agent spawning:** Handed off investigation to Codey for deeper analysis while continuing scheduled monitoring
+
+### Gotchas Discovered
+- **Policy-dependent data validation:** What's a "bug" depends on project scope (U10+ only vs U8+ support). Need to confirm business rules before flagging anomalies.
+- **Quarantine backlog persistence:** Same U8 games appearing multiple days (916 + 794 = 1,710) suggests they're not being auto-cleared or archived
+
+### For Next Time
+- When identifying consistent backlog patterns, propose architectural solutions (auto-clear vs expand support)
+- Age group filtering is a business policy decision, not just a data quality issue
+- Scraper filtering upstream (GotSport step) may be more efficient than quarantine processing

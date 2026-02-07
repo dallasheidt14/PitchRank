@@ -90,5 +90,20 @@ Created TypeScript React form component that:
 
 **Insight**: The system is performing as designed during data review phase. Connection errors are expected/tolerated, and agents are resilient enough to complete meaningful work through them.
 
+### 2026-02-06: Model Configuration and Autonomous System Maintenance
+- **Early morning catch**: MOLTBOT detected model format error in Cleany's cron (4:14am) and fixed autonomously
+- **Error pattern**: Cleany cron had `"anthropic/haiku"` instead of `"anthropic/claude-haiku-4-5"`
+- **System resilience**: Even with incorrect model config, cron job logs the error clearly; no cascading failures
+- **Autonomous action**: MOLTBOT (orchestrator) noticed model error and fixed directly without asking D H (4am quiet hours)
+- **Lesson**: Orchestrator should proactively catch and fix config errors in cron jobs
+
+### 2026-02-06: Watchy Quarantine Investigation Shows Policy Clarity
+- **Finding**: 1,710 quarantine games, all U8 age group (Feb 4-5)
+- **Root cause**: GotSport scraper pulls U8, PitchRank validator rejects (U10+ only project)
+- **Good pattern**: Watchy correctly identified this as "working as designed" not a bug
+- **Escalation quality**: Presented three options to D H instead of just "fix it"
+- **Decision made**: D H chose to filter U8/U9 upstream (in scraper) rather than expand project scope
+- **Autonomy level**: MOLTBOT can handle policy decisions about backlog; only escalate unclear cases
+
 ---
-*Last updated: 2026-02-05*
+*Last updated: 2026-02-06*
