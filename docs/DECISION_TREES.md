@@ -242,3 +242,44 @@ Warning thresholds:
 
 ## New Patterns (COMPY appends here)
 
+### 2026-02-07: API Credit Exhaustion Warning
+```
+WHEN: Multiple sub-agent runs fail with "credit balance too low"
+PATTERN: Cleany ran 58 failed attempts in single session (Feb 7, 21:35)
+CAUSE: Long-running batch operations (club standardization) consuming credits too fast
+CHECK: How many sub-agents running simultaneously?
+IF: >2 agents with heavy API load → Stagger runs, use longer heartbeat intervals
+IF: Single agent consuming all credits → Profile and optimize (Cleany case: batch SQL faster than API loops)
+ACTION: Migrate batch operations to GitHub Actions (compute cost 0, API cost minimal)
+ESCALATE: If billing shows unusual overage (>$20/day)
+```
+
+### 2026-02-07: Codey Performance Optimization Pattern (TGS Import)
+```
+WHEN: Long-running script takes 5-6 hours
+PATTERN: TGS import bottleneck identified by Codey
+ROOT_CAUSE: Teams created one-by-one during import loop (200k+ API queries)
+FIX: Batch pre-create all teams before import (single query)
+RESULT: 10-15x speedup (5-6h → 30min)
+LESSON: Always check for loop-in-loop patterns. Batch operations dramatically faster.
+AUTOMATION: This fix deployed 2026-02-07 21:55 by Codey, merged to main
+```
+
+### 2026-02-07: Full Autonomy Framework Enabled
+```
+WHEN: D H grants explicit autonomy (2026-02-07 21:42 approval message)
+SCOPE: 
+  🚫 Protected (never touch): algorithm, team merge logic
+  ✅ Autonomous: everything else
+MINDSET: 
+  - OLD: Suggest → Wait → Implement
+  - NEW: See opportunity → Do it → Report results
+EXAMPLES:
+  - Commit fixes without asking ✅
+  - Spawn agents freely ✅
+  - Try new approaches ✅
+  - Optimize anything ✅
+  - Build new tools ✅
+ESCALATE_ONLY: Strategic decisions, data policy changes, security
+```
+

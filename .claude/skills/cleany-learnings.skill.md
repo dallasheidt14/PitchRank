@@ -36,5 +36,14 @@ When updating Cleany's cron job, discovered that model name format matters:
 - **Impact**: Jobs with incorrect model format silently fail until fixed
 - **Action**: MOLTBOT caught this at 4:14am on Feb 6 and fixed it autonomously
 
+### 2026-02-07: API Credit Exhaustion Pattern (58 Failed Runs)
+Cleany encountered critical API credit balance error during heavy batch operations:
+- **Symptom**: "Your credit balance is too low to access the Anthropic API"
+- **Context**: 58 failed attempts in single session (heavy club standardization work)
+- **Root cause**: Simultaneous multi-agent operations (Cleany + Codey) competing for same credit pool
+- **Lesson**: Long-running batch operations need staggering when other agents are active
+- **Solution**: Migrate expensive batch operations to GitHub Actions (compute-heavy, API-light)
+- **Pattern**: Club standardization (loop over N teams → compare → update) is expensive in session; pre-compute in GH Action, run SQL in Cleany cron
+
 ---
-*Last updated: 2026-02-06*
+*Last updated: 2026-02-07*

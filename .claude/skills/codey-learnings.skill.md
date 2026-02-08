@@ -64,3 +64,47 @@
 - Document pooler hostname immediately when setting up new Supabase projects
 - Newsletter forms should have rate limiting to prevent spam submissions
 - Blog content should auto-generate social media captions from markdown frontmatter
+
+## Date: 2026-02-07
+
+### Major Performance Win: TGS Import Optimization
+**Diagnosed & Deployed 10-15x Performance Improvement**
+
+**Problem:** TGS event import (10 events) taking 5-6 hours
+- Script: `scripts/extract_and_import_tgs_teams.py`
+- Bottleneck: Team creation happening inside import loop (200,000+ individual team creation queries)
+
+**Root Cause:** Loop-in-loop anti-pattern
+```python
+# ❌ SLOW: Create teams during import
+for event in events:
+  for team in event.teams:
+    create_team(team)  # 200k queries, one-by-one
+  import_games(event)
+```
+
+**Solution:** Batch pre-create all teams BEFORE import
+```python
+# ✅ FAST: Create all teams first (single query), then import
+teams_dict = {pre_create_all_teams_batch(all_teams)}  # 1 big query
+for event in events:
+  import_games_with_existing_teams(event, teams_dict)
+```
+
+**Result:** 5-6h → ~30 minutes (10-15x faster)
+**Status:** Deployed 2026-02-07 21:55, merged to main
+**Key lesson:** Batch operations are orders of magnitude faster than loop-in-loop API calls
+
+### Patterns for Future Use
+1. **Always audit loop nesting for batch opportunities** — any operation inside a loop should ask: "Can this be pre-computed?"
+2. **Pre-compute, then loop** — get all data ready, then do the work
+3. **For TGS imports specifically:** This is now the production path for all TGS event processing
+
+### Gotchas Discovered
+- **Performance can be hidden by familiarity:** 5-6h became normalized; only real investigation revealed the fix was 30min away
+- **Synchronous scripts can block workflow:** TGS import script ran sequentially; with async execution could pipeline multiple events
+
+### For Next Time
+- Profile long-running scripts proactively (>30min automatically suggests investigation)
+- Consider async import pattern for future large-scale data ingestion
+- Batch operations should be default pattern; sequential loops are optimization after proving need
