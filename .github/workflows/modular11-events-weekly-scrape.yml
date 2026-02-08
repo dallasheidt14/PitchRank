@@ -11,7 +11,25 @@ on:
   #   # Cron format: minute hour day-of-month month day-of-week
   #   # 0 = Sunday, 1 = Monday
   #   - cron: '0 5 * * 1'  # Every Monday at 5am UTC (Sunday 11pm MT)
-  workflow_dispatch:  # Allow manual triggering only
+  workflow_dispatch:
+    inputs:
+      age_min:
+        description: 'Minimum age group (e.g. 13 for U13)'
+        required: false
+        default: '13'
+      age_max:
+        description: 'Maximum age group (e.g. 17 for U17)'
+        required: false
+        default: '17'
+      days_back:
+        description: 'Number of days back to scrape'
+        required: false
+        default: '21'
+      dry_run:
+        description: 'Dry run (scrape only, no import)'
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   scrape-and-import:
@@ -49,11 +67,17 @@ jobs:
             exit 1
           fi
           
-          # Scrape all age groups (U13-U17) for events from the last 21 days
+          AGE_MIN="${{ github.event.inputs.age_min || '13' }}"
+          AGE_MAX="${{ github.event.inputs.age_max || '17' }}"
+          DAYS_BACK="${{ github.event.inputs.days_back || '21' }}"
+          
+          echo "Scraping events: U${AGE_MIN}-U${AGE_MAX}, last ${DAYS_BACK} days"
+          
+          # Scrape events for configured age range and days back
           python -m scrapy crawl modular11_events \
-            -a age_min=13 \
-            -a age_max=17 \
-            -a days_back=21
+            -a age_min=$AGE_MIN \
+            -a age_max=$AGE_MAX \
+            -a days_back=$DAYS_BACK
           
           # Find the most recent CSV file
           if [ ! -d "output" ]; then
@@ -70,12 +94,16 @@ jobs:
             exit 1
           fi
           
+          ROW_COUNT=$(wc -l < "$LATEST_CSV")
+          echo "Scraped file: $LATEST_CSV ($ROW_COUNT rows)"
+          
           # Get absolute path from workspace root
           CSV_PATH="${{ github.workspace }}/scrapers/modular11_scraper/output/$LATEST_CSV"
-          echo "Scraped file: $CSV_PATH"
           echo "CSV_FILE=$CSV_PATH" >> $GITHUB_ENV
+          echo "ROW_COUNT=$ROW_COUNT" >> $GITHUB_ENV
 
       - name: Import Games
+        if: ${{ github.event.inputs.dry_run != 'true' }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -92,8 +120,36 @@ jobs:
             exit 1
           fi
           
-          # Run import with summary only to reduce output
-          python scripts/import_games_enhanced.py "$CSV_FILE" modular11 --summary-only
+          echo "==========================================="
+          echo "IMPORTING: $CSV_FILE ($ROW_COUNT rows)"
+          echo "==========================================="
+          
+          # Run import with --batch-size 500 for Supabase reliability
+          # --summary-only to reduce log noise
+          python scripts/import_games_enhanced.py "$CSV_FILE" modular11 \
+            --batch-size 500 \
+            --summary-only
+
+      - name: Post-Import Duplicate Safety Check
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          cd ${{ github.workspace }}
+          
+          echo "==========================================="
+          echo "POST-IMPORT: Checking for duplicate games"
+          echo "==========================================="
+          
+          # Dry-run the composite-key duplicate checker
+          # If duplicates are found, this will report them (but NOT delete)
+          python scripts/cleanup_dupe_games_by_composite.py
 
       - name: Upload scraped data
         if: always()
@@ -121,8 +177,8 @@ jobs:
           echo "===================="
           echo "Modular11 Events Weekly Scrape completed"
           echo "===================="
-          echo "Date range: Last 21 days"
-          echo "Age groups: U13-U17"
-          echo "Source: MLS NEXT Events"
+          echo "Date range: Last ${{ github.event.inputs.days_back || '21' }} days"
+          echo "Age groups: U${{ github.event.inputs.age_min || '13' }}-U${{ github.event.inputs.age_max || '17' }}"
+          echo "Source: MLS NEXT Events/Showcases"
+          echo "Dry run: ${{ github.event.inputs.dry_run || 'false' }}"
           echo "Check artifacts for scraped data and logs"
-
