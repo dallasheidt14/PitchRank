@@ -169,26 +169,166 @@ ACTION: Fix autonomously if clear pattern, otherwise escalate
 
 ---
 
-## 🚨 Escalation Rules
+## 🚨 Escalation Ladder (Alert Routing)
 
-### Always Escalate
-- Data pipeline down (0 games for 48h+)
-- Multiple agent failures in same day
-- Anything affecting live rankings accuracy
-- Security/auth issues
+**All agents: Follow this ladder strictly. No surprises.**
+
+### LEVEL 0: SILENT (Log Only)
+**When:** Issue is expected, non-blocking, or already being handled
+- Transient network errors (auto-retry)
+- Duplicate data imports (normal)
+- Scrape age on non-scrape days (expected gaps)
+- Review queue count (D H actively working it)
+- Stale teams refreshed Mon/Wed (expected)
+
+**Action:** Log to AGENT_COMMS.md, continue working.
+
+---
+
+### LEVEL 1: FILE UPDATE (AGENT_COMMS.md)
+**When:** Issue found, fix in progress, no human input needed
+- Code fix spawned to Codey (note in comms what was spawned)
+- Data quality pattern identified (log finding + action)
+- Slow operation detected but within 3x baseline (log, profile later)
+- New pattern discovered worth documenting
+
+**Action:** Post to AGENT_COMMS.md Live Feed with:
+```
+### [TIME] AGENT_NAME
+Issue: [what you found]
+Action: [what you're doing]
+Status: [in progress / fixed / blocked]
+```
+
+**Wait for:** Nothing. Move on.
+
+---
+
+### LEVEL 2: TELEGRAM ALERT (This Chat)
+**When:** Issue needs human awareness but NOT emergency
+
+- Single cron job failed (agent error, you should know)
+- API/auth error that required workaround
+- Data quality issue that can't be auto-fixed
+- Slow operation >3x baseline (needs investigation)
+- Quarantine spike >500 in single import
+- Codey spawned to fix something significant
+- Ranking accuracy concern (needs eye test)
+
+**Action:** Use sessions_send() or message tool to post to this chat:
+```
+⚠️ **[Agent Name] Alert**
+Issue: [what happened]
+Action taken: [what we're doing]
+Need decision on: [if anything]
+```
+
+**Example:**
+```
+⚠️ **Codey Alert**
+Found 847 quarantine games after GotSport import.
+Spawned Cleany to analyze patterns.
+Checking if data quality issue or known pattern.
+```
+
+**Wait for:** D H response if you included a question. Otherwise, continue.
+
+---
+
+### LEVEL 3: CRITICAL TELEGRAM (RED ALERT)
+**When:** System is broken or data integrity at risk
+
+- 0 games imported for 48h+ (non-scrape periods OK)
+- Multiple agents failing in same day (systemic issue)
+- Data pipeline completely down
+- API credits exhausted (blocks everything)
+- Auth/security breach
+- Rankings calculation returning 0 teams (data integrity)
+
+**Action:** Post to chat with 🚨 prefix:
+```
+🚨 **CRITICAL: [Issue]**
+Impact: [what's broken]
+Next: [immediate fix being applied]
+```
+
+**Example:**
+```
+🚨 **CRITICAL: Zero Games Imported (48h)**
+Monday 6am scrape returned 0 games.
+Wednesday scrape also 0 games.
+Watchy spawned Scrappy for investigation.
+```
+
+**Wait for:** D H will respond immediately.
+
+---
+
+### LEVEL 4: ASK FIRST (Don't Execute)
+**When:** Decision is outside agent scope
+
+- Changing ranking algorithm
+- Team merge logic (beyond what's in TEAM_MERGE_RULES.md)
+- Major structural DB changes
+- New scrape targets / providers
+- Anything not covered in CODEY_TRUST_ZONE.md or this doc
+
+**Action:** Post to chat with ❓ prefix:
+```
+❓ **Decision Needed**
+Situation: [context]
+Options: [A, B, C]
+Recommendation: [what we'd do if approved]
+```
+
+**Example:**
+```
+❓ **New Scrape Target**
+GotSport's youth championships available.
+Could be high-value content for CA/TX.
+Recommend adding to Wednesday scrape rotation.
+Approve?
+```
+
+**Wait for:** D H approval before implementing.
+
+---
+
+## Quick Reference for Agents
+
+```
+Level 0: Silent logging → AGENT_COMMS.md only
+Level 1: Regular update → AGENT_COMMS.md + note in DAILY_CONTEXT.md  
+Level 2: Needs attention → 📢 Post to Telegram (use sessions_send)
+Level 3: System broken → 🚨 Post to Telegram (use sessions_send)
+Level 4: Out of scope → ❓ Ask D H (use sessions_send)
+```
+
+**When in doubt, Level 2 (Telegram alert). Better safe than silent.**
+
+---
+
+## 🚨 Escalation Rules (Original)
+
+### Always Escalate to Telegram (LEVEL 2+)
+- Data pipeline issues
+- Multiple agent failures
+- Anything affecting live rankings
+- Security/auth problems
 - Decisions requiring business judgment
 
-### Handle Autonomously
+### Handle Autonomously (LEVEL 0-1)
 - Model config fixes
-- Small quarantine backlogs (<500)
-- Duplicate data (already imported)
-- Retry transient failures
-- Clear pattern matches from this doc
+- Expected data patterns
+- Clear pattern matches from DECISION_TREES
+- Codey-handled code fixes
+- Performance within baselines
 
-### Ask First
-- Structural changes to DB
-- New scraper targets
-- Changes to ranking algorithm
+### Ask First (LEVEL 4)
+- Algorithm changes
+- Team merge logic changes
+- Major structural changes
+- New scrape targets
 - Anything not covered here
 
 ---

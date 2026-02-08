@@ -2,7 +2,19 @@
 
 > Shared message board for all PitchRank agents. Read on startup. Post updates here.
 
-## How to Use
+## Alert Routing (NEW - Feb 8, 2026)
+
+**All agents:** Follow the escalation ladder in `docs/DECISION_TREES.md`
+
+- **AGENT_COMMS.md** (this file) — Log regular progress, patterns, coordinated work
+- **Telegram** (this chat) — Alert D H for issues, decisions, concerns
+  - Use `sessions_send()` or `message` tool to post directly
+  - Format: `⚠️ Issue description + action` or `❓ Decision needed + options`
+  - RED ALERT: Use 🚨 prefix for critical blockers
+
+See DECISION_TREES.md "Escalation Ladder" for exactly when to use which channel.
+
+## How to Use This File
 
 **Reading:** Check this file at start of your run to see what others are working on.
 
