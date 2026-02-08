@@ -4,6 +4,8 @@ import { ComparePanel } from '@/components/ComparePanel';
 import { CardSkeleton } from '@/components/ui/skeletons';
 import type { Metadata } from 'next';
 
+const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
+
 export const metadata: Metadata = {
   title: 'Compare/Predict Teams',
   description: 'Compare multiple youth soccer teams side-by-side to see their rankings, statistics, and performance metrics across different age groups and states.',
@@ -13,12 +15,12 @@ export const metadata: Metadata = {
     follow: false,
   },
   alternates: {
-    canonical: '/compare',
+    canonical: `${baseUrl}/compare`,
   },
   openGraph: {
     title: 'Compare/Predict Teams | PitchRank',
     description: 'Compare multiple youth soccer teams side-by-side to see their rankings, statistics, and performance metrics.',
-    url: '/compare',
+    url: `${baseUrl}/compare`,
     siteName: 'PitchRank',
     type: 'website',
     images: [
