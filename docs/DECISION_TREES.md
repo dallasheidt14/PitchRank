@@ -193,6 +193,50 @@ ACTION: Fix autonomously if clear pattern, otherwise escalate
 
 ---
 
+## ⏱️ Performance Baselines
+
+Use these to detect anomalies. If runtime exceeds 3x baseline, investigate.
+
+| Operation | Normal | Warning (>2x) | Critical (>3x) |
+|-----------|--------|---------------|----------------|
+| TGS import (10 events) | 30 min* | >1h | >2h |
+| GotSport event scrape | 10 min | >20 min | >30 min |
+| Rankings calculation | 15-20 min | >40 min | >1h |
+| Watchy health check | <1 min | >2 min | >5 min |
+| Cleany weekly job | 5-10 min | >20 min | >30 min |
+| Team merge batch | 5 min | >15 min | >30 min |
+| GSC report | 2 min | >5 min | >10 min |
+
+*After batch team creation fix is implemented
+
+### Slow Operation Decision Tree
+```
+WHEN: Operation taking >2x baseline
+CHECK: Is data volume unusually high?
+IF: Yes (>2x normal records) → Expected, let it finish
+IF: No → Possible code issue or resource constraint
+CHECK: Are there errors in logs?
+IF: Errors present → Spawn Codey to investigate
+IF: No errors, just slow → Profile after completion, add to backlog
+ESCALATE: If >3x baseline AND blocking other work
+```
+
+### Data Volume Baselines
+```
+Normal daily volumes:
+- Games imported: 500-2,000/day during scrape days
+- Teams created: 50-200/day
+- Quarantine: <100 new/day
+- Match reviews: Variable (D H working through backlog)
+
+Warning thresholds:
+- 0 games for 48h+ (not counting weekends)
+- Quarantine spike >500 in single import
+- >1000 new teams in single import (data quality check needed)
+```
+
+---
+
 *Last updated: 2026-02-07 by Moltbot*
 *COMPY: Append new patterns below, do not modify above*
 

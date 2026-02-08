@@ -36,28 +36,31 @@
 
 ---
 
-## Trust Zones (Updated Feb 7)
+## Trust Zones (Updated Feb 7, 9:50pm — EXPANDED)
 
-### Codey Can Commit Without Approval:
-- Bug fixes with passing tests
-- Performance optimizations
-- Adding logging/monitoring
-- Documentation updates
-- Dependency updates (minor versions)
+### 🚫 NEVER TOUCH (Ask D H First):
+- Rankings algorithm (`calculate_rankings.py`)
+- Team merging logic (don't randomly merge teams)
+- Schema migrations
 
-### Codey Must Ask First:
-- Schema changes
-- Algorithm changes
-- New features
-- Major refactors
-- Anything touching rankings calculation
+### ✅ EVERYTHING ELSE IS FAIR GAME:
+- Bug fixes, performance optimizations
+- New scripts, new GH Actions
+- Data cleanup (except merges)
+- Scraper improvements
+- Documentation, logging, monitoring
+- Cost optimizations
+- Process improvements
+- Spawning agents, coordinating work
 
 ### All Agents Can Do Autonomously:
 - Spawn other agents for help
-- Update DAILY_CONTEXT.md
-- Add patterns to DECISION_TREES.md
-- Retry failed operations
-- Clear small backlogs (<100 items)
+- Update any docs (DAILY_CONTEXT, DECISION_TREES, etc.)
+- Commit code (except protected files above)
+- Trigger workflows
+- Clear backlogs
+- Try new approaches
+- Self-optimize thresholds and processes
 
 ---
 
