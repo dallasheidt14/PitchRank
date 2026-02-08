@@ -38,8 +38,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 console = Console()
 
-# Load environment
-load_dotenv()
+# Load environment (check .env.local first, then .env)
+env_local = Path('.env.local')
+if env_local.exists():
+    load_dotenv(env_local)
+else:
+    load_dotenv()
 
 
 def calculate_age_group_from_birth_year(birth_year: int, reference_year: int = 2026) -> str:
@@ -185,7 +189,7 @@ def batch_create_teams_and_aliases(
                 'provider_team_id': team_id,
                 'team_id_master': team_id_master,
                 'match_method': 'direct_id',
-                'confidence': 1.0,
+                'match_confidence': 1.0,
                 'review_status': 'approved',
                 'created_at': datetime.utcnow().isoformat() + 'Z'
             }
@@ -256,7 +260,7 @@ def main():
     
     # Initialize Supabase
     supabase_url = os.getenv('SUPABASE_URL')
-    supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('SUPABASE_SERVICE_KEY')
+    supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('SUPABASE_KEY')
     
     if not supabase_url or not supabase_key:
         console.print("[red]Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set[/red]")
