@@ -1932,27 +1932,29 @@ class Modular11GameMatcher(GameHistoryMatcher):
             if age_normalized:
                 team_ids_to_try.append(f"{base_id}_{age_normalized}")
             
-            # 3. Try division-only suffix: {id}_{division} (e.g., "391_AD") - backwards compatible
+            # 3. CRITICAL: When division is UNKNOWN (event/showcase games without HD/AD),
+            #    try BOTH divisions as fallback. The same club's alias exists as
+            #    {id}_{age}_AD or {id}_{age}_HD — we should find it either way.
+            #    Example: "490_U15" not found → try "490_U15_AD" then "490_U15_HD"
+            if age_normalized and not division:
+                team_ids_to_try.append(f"{base_id}_{age_normalized}_AD")
+                team_ids_to_try.append(f"{base_id}_{age_normalized}_HD")
+            
+            # 4. Try division-only suffix: {id}_{division} (e.g., "391_AD") - backwards compatible
             if division and division.upper() in ('HD', 'AD'):
                 team_ids_to_try.append(f"{base_id}_{division.upper()}")
             
-            # 4. Always fall back to original base ID
+            # 5. Always fall back to original base ID
             team_ids_to_try.append(base_id)
             
-            # 1. Try full suffix: {id}_{age}_{division} (e.g., "391_U16_AD")
-            if age_normalized and division and division.upper() in ('HD', 'AD'):
-                team_ids_to_try.append(f"{base_id}_{age_normalized}_{division.upper()}")
-            
-            # 2. Try age-only suffix: {id}_{age} (e.g., "391_U16")
-            if age_normalized:
-                team_ids_to_try.append(f"{base_id}_{age_normalized}")
-            
-            # 3. Try division-only suffix: {id}_{division} (e.g., "391_AD") - backwards compatible
-            if division and division.upper() in ('HD', 'AD'):
-                team_ids_to_try.append(f"{base_id}_{division.upper()}")
-            
-            # 4. Always fall back to original base ID
-            team_ids_to_try.append(base_id)
+            # Deduplicate while preserving order
+            seen = set()
+            unique_ids_to_try = []
+            for tid in team_ids_to_try:
+                if tid not in seen:
+                    seen.add(tid)
+                    unique_ids_to_try.append(tid)
+            team_ids_to_try = unique_ids_to_try
             
             # Check cache first (if available) - try division-suffixed IDs first
             for try_id in team_ids_to_try:

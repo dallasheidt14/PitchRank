@@ -121,13 +121,29 @@ class EnhancedETLPipeline:
         # IMPORTANT: Handle semicolon-separated provider_team_ids (merged teams)
         self.alias_cache = {}
         try:
-            alias_result = self.supabase.table('team_alias_map').select(
-                'provider_team_id, team_id_master, match_method, review_status'
-            ).eq('provider_id', self.provider_id).eq(
-                'review_status', 'approved'
-            ).execute()
+            # CRITICAL: Supabase default SELECT limit is 1000 rows.
+            # We MUST paginate to load ALL approved aliases, otherwise teams
+            # beyond the first 1000 won't be found and will be recreated as duplicates.
+            all_alias_data = []
+            page_size = 1000
+            offset = 0
+            while True:
+                alias_result = self.supabase.table('team_alias_map').select(
+                    'provider_team_id, team_id_master, match_method, review_status'
+                ).eq('provider_id', self.provider_id).eq(
+                    'review_status', 'approved'
+                ).range(offset, offset + page_size - 1).execute()
+                
+                if not alias_result.data:
+                    break
+                all_alias_data.extend(alias_result.data)
+                if len(alias_result.data) < page_size:
+                    break  # Last page
+                offset += page_size
+            
+            logger.info(f"Fetched {len(all_alias_data)} approved aliases from database ({offset // page_size + 1} pages)")
 
-            for alias in alias_result.data:
+            for alias in all_alias_data:
                 raw_team_id = str(alias['provider_team_id'])
                 cache_entry = {
                     'team_id_master': alias['team_id_master'],
@@ -743,7 +759,17 @@ class EnhancedETLPipeline:
             
             # Sort team IDs for consistent key (order doesn't matter)
             sorted_teams = sorted([team1_id, team2_id])
-            game_key = f"{provider_code}:{game_date_normalized}:{sorted_teams[0]}:{sorted_teams[1]}"
+            
+            # CRITICAL: For Modular11, include age_group AND division in the dedup key.
+            # Without this, two legitimate games between the same clubs on the same date
+            # but in different age groups (e.g., U14 HD and U15 AD) would be treated as
+            # duplicates, causing one to be silently dropped.
+            if provider_code and provider_code.lower() == 'modular11':
+                age_group_key = (game.get('age_group') or '').upper()
+                division_key = (game.get('mls_division') or '').upper()
+                game_key = f"{provider_code}:{game_date_normalized}:{sorted_teams[0]}:{sorted_teams[1]}:{age_group_key}:{division_key}"
+            else:
+                game_key = f"{provider_code}:{game_date_normalized}:{sorted_teams[0]}:{sorted_teams[1]}"
             
             # Check if we've seen this game before
             if game_key in seen_games:
@@ -847,7 +873,17 @@ class EnhancedETLPipeline:
             
             # Sort team IDs for consistent key (order doesn't matter)
             sorted_teams = sorted([team1_id, team2_id])
-            game_key = f"{provider_code}:{game_date_normalized}:{sorted_teams[0]}:{sorted_teams[1]}"
+            
+            # CRITICAL: For Modular11, include age_group AND division in the dedup key.
+            # Without this, two legitimate games between the same clubs on the same date
+            # but in different age groups (e.g., U14 HD and U15 AD) would be treated as
+            # duplicates, causing one to be silently dropped.
+            if provider_code and provider_code.lower() == 'modular11':
+                age_group_key = (game.get('age_group') or '').upper()
+                division_key = (game.get('mls_division') or '').upper()
+                game_key = f"{provider_code}:{game_date_normalized}:{sorted_teams[0]}:{sorted_teams[1]}:{age_group_key}:{division_key}"
+            else:
+                game_key = f"{provider_code}:{game_date_normalized}:{sorted_teams[0]}:{sorted_teams[1]}"
             
             # Check if we've seen this game before
             if game_key in seen_games:
@@ -1010,11 +1046,15 @@ class EnhancedETLPipeline:
         if not game_uids:
             return set(), {}
         
-        # OPTIMIZED: Use larger batches (2000 instead of 1000) for fewer queries
+        # CRITICAL: Use small batch size (200) to avoid Supabase URL length limit.
+        # Modular11 game_uids are long (e.g., "modular11:2025-12-15:74:85:U15:AD")
+        # and 2000 UIDs in an IN clause easily exceeds the ~8KB URL limit,
+        # causing the query to silently fail and ALL games to be treated as new.
         existing = set()
         game_uid_to_master_ids = {}  # Map game_uid to master team IDs
         
-        for chunk in self._chunks(game_uids, 2000):  # Increased from 1000
+        batch_size = 200  # Conservative batch size to stay well under URL length limit
+        for chunk in self._chunks(game_uids, batch_size):
             try:
                 # Query Supabase for existing game_uid values AND master team IDs
                 result = self.supabase.table('games').select(
@@ -1031,8 +1071,10 @@ class EnhancedETLPipeline:
                                 'away_team_master_id': row.get('away_team_master_id')
                             }
             except Exception as e:
-                logger.warning(f"Error checking duplicates: {e}")
-                # Continue processing even if duplicate check fails
+                logger.error(f"CRITICAL: Error checking duplicates for batch of {len(chunk)} UIDs: {e}")
+                # Re-raise instead of silently continuing - duplicate check failure
+                # means ALL games will be treated as new, causing mass duplication
+                raise
         
         return existing, game_uid_to_master_ids
     
