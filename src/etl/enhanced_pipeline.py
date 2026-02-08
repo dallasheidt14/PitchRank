@@ -438,6 +438,47 @@ class EnhancedETLPipeline:
                 existing_uids, game_uid_to_master_ids = await self._check_duplicates(game_records)
                 logger.info(f"[Pipeline] Modular11: Re-checked duplicates after team matching, found {len(existing_uids)} existing game_uids out of {len(game_records)} total games")
                 
+                # CRITICAL: Also check for LEGACY UIDs (without age_group/division suffix).
+                # Older imports used format "modular11:{date}:{team1}:{team2}" while new imports
+                # use "modular11:{date}:{team1}:{team2}:{age_group}:{division}".
+                # Without this check, games imported under the old format would be re-imported.
+                legacy_uid_map = {}  # maps legacy_uid -> new_uid for games not already matched
+                legacy_uids_to_check = []
+                for g in game_records:
+                    new_uid = g.get('game_uid', '')
+                    if new_uid and new_uid not in existing_uids:
+                        # Strip the :AGE_GROUP:DIVISION suffix to get the legacy UID
+                        parts = new_uid.split(':')
+                        if len(parts) >= 6:
+                            # New format: modular11:date:team1:team2:age_group:division
+                            legacy_uid = ':'.join(parts[:4])  # modular11:date:team1:team2
+                            legacy_uid_map[legacy_uid] = new_uid
+                            legacy_uids_to_check.append(legacy_uid)
+                
+                legacy_existing = set()
+                if legacy_uids_to_check:
+                    logger.info(f"[Pipeline] Modular11: Checking {len(legacy_uids_to_check)} legacy UIDs for backward compatibility")
+                    batch_size = 200
+                    for chunk in self._chunks(legacy_uids_to_check, batch_size):
+                        try:
+                            result = self.supabase.table('games').select('game_uid').in_('game_uid', chunk).execute()
+                            if result.data:
+                                for row in result.data:
+                                    uid = row.get('game_uid')
+                                    if uid:
+                                        legacy_existing.add(uid)
+                                        # Also add the corresponding new UID to existing_uids
+                                        # so it's treated as a duplicate
+                                        new_uid = legacy_uid_map.get(uid)
+                                        if new_uid:
+                                            existing_uids.add(new_uid)
+                        except Exception as e:
+                            logger.error(f"CRITICAL: Error checking legacy UIDs: {e}")
+                            raise
+                    
+                    if legacy_existing:
+                        logger.info(f"[Pipeline] Modular11: Found {len(legacy_existing)} games with LEGACY UIDs in DB (these are NOT new games)")
+                
                 # For Modular11, check game_uid first (it includes age_group and division)
                 # Only check composite key for games where game_uid already exists (to catch score updates)
                 games_with_existing_uid = [g for g in game_records if g.get('game_uid') and g.get('game_uid') in existing_uids]
