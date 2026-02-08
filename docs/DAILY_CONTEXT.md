@@ -2,7 +2,7 @@
 
 > Updated throughout the day. All agents should read this on startup.
 
-**Date:** 2026-02-07
+**Date:** 2026-02-08
 
 ## 🚫 PROTECTED (Never Touch Without Asking)
 - Rankings algorithm
@@ -27,13 +27,16 @@ D H: "you can do whatever without my approval just don't mess with algo and star
 - Manually reviewing each age group for data cleanliness
 - Working through match review queue
 
-## 🔄 Today's Activity
-- TGS Event Scrapes: 3850-3880 (3 runs, 2 complete, 1 in progress)
-- Decision trees implemented (`docs/DECISION_TREES.md`)
-- All 9 sub-agent crons updated to read DAILY_CONTEXT + DECISION_TREES
-- Incident playbook created (`docs/INCIDENT_PLAYBOOK.md`)
-- Performance baselines added to decision trees
-- Heartbeat interval changed 30m → 1h
+## 🔄 Today's Activity (Feb 8)
+- ✅ Main session model: Opus → **Haiku** (cost reduction activated)
+- ✅ Agent communication verified and live (AGENT_COMMS.md)
+- ✅ All governance files validated and in sync
+- ✅ Sub-agent crons all pointing to shared context
+- ✅ Watchy run complete (8am) — all systems nominal
+- ✅ Execution phase started: agents now fully autonomous
+- Games (24h): 0 (expected, Sunday non-scrape day)
+- Quarantine: 350 (normal)
+- Stale teams: 13,248 (normal, will refresh Mon/Wed)
 
 ## ⚠️ Known Issues
 - TGS import step is extremely slow (~6h for 10 events) — Codey diagnosed, fix ready pending approval
@@ -46,19 +49,20 @@ D H: "you can do whatever without my approval just don't mess with algo and star
 
 ## 💰 Cost Tracking
 
-### Today's Spend (2026-02-07)
+### Today's Spend (2026-02-08)
 | Session | Model | Est. Cost |
 |---------|-------|-----------|
-| Main (heartbeats + tasks) | Opus | ~$2-3 |
+| Main session (Haiku NOW!) | Haiku | ~$0.15 |
 | Watchy 8am | Haiku | ~$0.02 |
-| Codey (TGS investigation) | Sonnet | ~$0.15 |
-| COMPY (tonight 10:30pm) | Haiku | ~$0.05 |
+| (Codey on-demand) | Sonnet | varies |
+| (COMPY tonight 10:30pm) | Haiku | ~$0.05 |
 
-**Running total:** ~$2.50 (estimate)
+**Running total (8am-9:56am):** ~$0.20 (ultra-low due to Haiku switch!)
 
-### Cost Reduction Wins Today
-- Heartbeat interval 30m → 1h = ~50% fewer heartbeat calls
-- All sub-agents on Haiku (not Sonnet/Opus)
+### Cost Reduction Wins (Feb 8)
+- ✅ Main session: Opus → Haiku = **-80% per token**
+- ✅ All sub-agents on Haiku (established Feb 7)
+- ✅ Heartbeat interval 30m → 1h = ~50% fewer calls
 
 ### Cost Targets
 - Daily main session: <$5
