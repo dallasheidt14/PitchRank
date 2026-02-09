@@ -459,7 +459,8 @@ def _adjust_for_opponent_strength(
     games: pd.DataFrame,
     strength_map: Dict[str, float],
     cfg: V53EConfig,
-    baseline: Optional[float] = None
+    baseline: Optional[float] = None,
+    global_strength_map: Optional[Dict[str, float]] = None,
 ) -> pd.DataFrame:
     """
     Adjust goals for/against based on opponent strength to fix double-counting problem.
@@ -472,6 +473,8 @@ def _adjust_for_opponent_strength(
         strength_map: Dict mapping team_id to strength (0-1)
         cfg: Configuration
         baseline: Reference strength for adjustment (defaults to cfg.OPPONENT_ADJUST_BASELINE)
+        global_strength_map: Optional dict of team_id -> abs_strength from all cohorts.
+                            Used for cross-age/cross-gender opponent lookups.
 
     Returns:
         DataFrame with additional columns [gf_adjusted, ga_adjusted]
@@ -483,9 +486,17 @@ def _adjust_for_opponent_strength(
         baseline = cfg.OPPONENT_ADJUST_BASELINE
 
     # Get opponent strength for each game
-    g["opp_strength"] = g["opp_id"].map(
-        lambda o: strength_map.get(o, cfg.UNRANKED_SOS_BASE)
-    )
+    # Try local cohort first, then cross-age global map, then fallback
+    def _lookup_opp_strength(opp_id):
+        if opp_id in strength_map:
+            return strength_map[opp_id]
+        if global_strength_map:
+            opp_id_str = str(opp_id)
+            if opp_id_str in global_strength_map:
+                return global_strength_map[opp_id_str]
+        return cfg.UNRANKED_SOS_BASE
+
+    g["opp_strength"] = g["opp_id"].map(_lookup_opp_strength)
 
     # Calculate adjustment multipliers
     # Offense: score against strong opponent = more credit
@@ -749,7 +760,11 @@ def compute_rankings(
         baseline = actual_mean_strength
 
         # Adjust games for opponent strength
-        g_adjusted = _adjust_for_opponent_strength(g, strength_map, cfg, baseline=baseline)
+        # Pass global_strength_map so cross-age opponents get real strength instead of 0.35
+        g_adjusted = _adjust_for_opponent_strength(
+            g, strength_map, cfg, baseline=baseline,
+            global_strength_map=global_strength_map,
+        )
 
         # Re-aggregate with adjusted values
         g_adjusted["gf_weighted_adj"] = g_adjusted["gf_adjusted"] * g_adjusted["w_game"]
@@ -830,8 +845,18 @@ def compute_rankings(
     # -------------------------
     # Layer 5: Adaptive K per game (by abs strength gap)
     # -------------------------
+    def _lookup_strength(tid):
+        """Look up team strength from local cohort, then global cross-age map."""
+        if tid in strength_map:
+            return strength_map[tid]
+        if global_strength_map:
+            tid_str = str(tid)
+            if tid_str in global_strength_map:
+                return global_strength_map[tid_str]
+        return 0.5  # neutral fallback for adaptive K
+
     def adaptive_k(row) -> float:
-        gap = abs(strength_map.get(row["team_id"], 0.5) - strength_map.get(row["opp_id"], 0.5))
+        gap = abs(_lookup_strength(row["team_id"]) - _lookup_strength(row["opp_id"]))
         return cfg.ADAPTIVE_K_ALPHA * (1.0 + cfg.ADAPTIVE_K_BETA * gap)
 
     g["k_adapt"] = g.apply(adaptive_k, axis=1)
@@ -897,9 +922,10 @@ def compute_rankings(
     # This represents how good opponents are at OFF/DEF
     # For cross-age/cross-gender opponents, use global_strength_map if available
 
-    # Diagnostic: track cross-age lookups
+    # Diagnostic: track cross-age lookups and default credit assignments
     cross_age_found = 0
     cross_age_missing = 0
+    default_credit_opponents = []  # Track which opponent IDs got default credit
 
     def get_opponent_strength(opp_id):
         nonlocal cross_age_found, cross_age_missing
@@ -912,16 +938,41 @@ def compute_rankings(
         if global_strength_map and opp_id_str in global_strength_map:
             cross_age_found += 1
             return global_strength_map[opp_id_str]
-        # Unknown opponent
+        # Unknown opponent - track for diagnostics
         cross_age_missing += 1
+        default_credit_opponents.append(opp_id)
         return cfg.UNRANKED_SOS_BASE
 
     g_sos["opp_strength"] = g_sos["opp_id"].map(get_opponent_strength)
 
     # Log cross-age lookup stats
+    total_opp_lookups = len(g_sos)
+    local_found = total_opp_lookups - cross_age_found - cross_age_missing
     logger.info(
-        f"🔍 Cross-age SOS lookups: global_map_size={len(global_strength_map) if global_strength_map else 0}, "
-        f"found={cross_age_found}, missing={cross_age_missing}"
+        f"🔍 SOS opponent lookups: total={total_opp_lookups}, "
+        f"local_cohort={local_found}, cross_age_found={cross_age_found}, "
+        f"default_credit={cross_age_missing} "
+        f"(global_map_size={len(global_strength_map) if global_strength_map else 0})"
+    )
+    if cross_age_missing > 0:
+        unique_default = len(set(default_credit_opponents))
+        logger.warning(
+            f"⚠️  {cross_age_missing} opponent lookups ({unique_default} unique teams) "
+            f"fell back to UNRANKED_SOS_BASE={cfg.UNRANKED_SOS_BASE}. "
+            f"These opponents are not in any cohort's strength map."
+        )
+        # Log which teams are most affected by default credit opponents
+        if unique_default <= 20:
+            for opp_id in sorted(set(default_credit_opponents)):
+                count = default_credit_opponents.count(opp_id)
+                logger.warning(f"  📍 Default credit opponent: {str(opp_id)[:12]}... ({count} games)")
+
+    # Log cohort-level SOS stats for diagnostics
+    avg_base_strength = np.mean(list(base_strength_map.values())) if base_strength_map else 0.0
+    logger.info(
+        f"📊 Base strength map: n={len(base_strength_map)}, "
+        f"avg={avg_base_strength:.4f}, "
+        f"UNRANKED_SOS_BASE={cfg.UNRANKED_SOS_BASE}"
     )
 
     direct = (
