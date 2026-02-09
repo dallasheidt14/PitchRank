@@ -46,21 +46,31 @@ else:
     load_dotenv()
 
 
-async def save_rankings_to_supabase(supabase_client, teams_df, use_rankings_full=True, maintain_backward_compat=True):
+async def save_rankings_to_supabase(supabase_client, teams_df, use_rankings_full=True, maintain_backward_compat=True, merge_resolver=None):
     """Save rankings to rankings_full table (and optionally current_rankings for backward compatibility)
-    
+
     Args:
         supabase_client: Supabase client instance
         teams_df: DataFrame from v53e + Layer 13 output
         use_rankings_full: If True, save to rankings_full table (default: True)
         maintain_backward_compat: If True, also save to current_rankings table (default: True)
-    
+        merge_resolver: Optional MergeResolver to filter out deprecated teams before saving
+
     Returns:
         int: Number of records saved (0 if empty or error)
     """
     if teams_df.empty:
         console.print("[yellow]No rankings to save[/yellow]")
         return 0
+
+    # Filter out deprecated teams before saving
+    if merge_resolver is not None and merge_resolver.has_merges:
+        deprecated_ids = merge_resolver.get_deprecated_teams()
+        before_count = len(teams_df)
+        teams_df = teams_df[~teams_df['team_id'].astype(str).isin(deprecated_ids)].copy()
+        filtered_count = before_count - len(teams_df)
+        if filtered_count > 0:
+            console.print(f"[dim]Filtered {filtered_count} deprecated teams from rankings output[/dim]")
     
     # Fetch team metadata (age_group, gender, state_code) for rankings_full
     team_ids = teams_df['team_id'].astype(str).unique().tolist()
@@ -568,7 +578,7 @@ async def main():
         # Save to database
         saved_count = 0
         if not args.dry_run:
-            saved_count = await save_rankings_to_supabase(supabase, teams_df)
+            saved_count = await save_rankings_to_supabase(supabase, teams_df, merge_resolver=merge_resolver)
         else:
             console.print("\n[yellow]Dry run - rankings not saved to database[/yellow]")
             saved_count = filtered_teams  # Would-be saved count
