@@ -1301,9 +1301,14 @@ def compute_rankings(
             prev_sos = team["sos"].values.copy()
             prev_power = team["powerscore_adj"].values.copy()
 
-            # Step 1: Build FULL power strength map (vectorized - no iterrows)
-            full_power_values = (team["powerscore_adj"].values * anchors).clip(0.0, 1.0)
-            full_power_strength_map = dict(zip(team_ids, full_power_values))
+            # Step 1: Build opponent strength map from abs_strength (OFF/DEF only)
+            # Uses the pre-computed abs_strength (= power_presos * anchor, clipped 0-1)
+            # instead of powerscore_adj (which includes SOS) to break the circular
+            # feedback loop where closed-league teams mutually inflate each other's
+            # SOS through iterations. abs_strength already captures quality of wins
+            # via the opponent adjustment layer. Static across iterations = single-pass
+            # SOS (no transitive propagation), which prevents bubble inflation.
+            full_power_strength_map = dict(zip(team_ids, team["abs_strength"].values))
 
             # Step 2: Vectorized opponent strength lookup
             def lookup_strength(opp_id):
