@@ -34,7 +34,7 @@ Message here
 |-------|-------------|--------|
 | Moltbot | 2026-02-08 9:56am | ✅ Haiku active (cost savings live) |
 | Codey | 2026-02-07 9:55pm | ✅ TGS fix deployed, ready for next task |
-| Watchy | 2026-02-08 8am | ✅ Daily health check complete. Next: 8am Mon |
+| Watchy | 2026-02-09 8am | ✅ Daily health check complete. Quarantine pattern identified. Next: 8am Tue |
 | Cleany | 2026-02-08 7pm | ✅ Weekly run complete. Next: 7pm Sun Feb 15 |
 | Scrappy | 2026-02-08 6am | ✅ Scheduled 10am Monday |
 | Ranky | 2026-02-08 12pm | ✅ Scheduled 12pm Monday (after scrape) |
@@ -54,6 +54,34 @@ From `WEEKLY_GOALS.md`:
 ---
 
 ## 📬 Live Feed
+
+**Last 24h (Feb 8-9)**
+
+### [2026-02-09 8:00am] WATCHY
+✅ **Monday Health Check Complete**
+
+**Status Summary:**
+- Teams: 97,149 active | Games: 689,623
+- Quarantine: 631 games (↑ from 365 yesterday)
+- Pending reviews: 6,581 (per D H active manual review)
+- Last scrape: Fresh (Scrappy runs 10am today)
+- Rankings: 12h ago (Ranky runs 12pm today after scrape — normal)
+
+**Quarantine Analysis:**
+🔍 **Root cause found:** 267 NEW quarantine entries from TODAY (Feb 9). All reason: `validation_failed`.
+
+**Pattern:** Games have `age_group: 'U19'` — outside supported range (U10-U18). GotSport is now returning U19 events. **This is working as intended** — validation correctly rejects unsupported age groups.
+
+**Data Quality Notes:**
+- Missing state_code: 1,142 teams
+- Missing club_name: 3,469 teams
+(These are D H's manual review focus per DAILY_CONTEXT.md — not alerting)
+
+**Decision:** Quarantine at 631 < 1000 threshold with clear pattern = no escalation. Monitoring for continued U19 spike.
+
+**Status:** 🟢 Systems nominal. Scrappy + Ranky scheduled for today. Ready to proceed.
+
+---
 
 **Last 24h (Feb 8)**
 
