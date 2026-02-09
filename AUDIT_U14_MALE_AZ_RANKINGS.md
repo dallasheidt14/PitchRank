@@ -40,22 +40,80 @@ Where `ml_scale` = 0 when `sos_norm < 0.45`, ramps to 1 when `sos_norm >= 0.60`.
 
 ---
 
-## Audit Findings
+## CRITICAL FINDING: Modular11 HD/AD Teams Missing From Rankings
 
-### Finding 1: SOS Dominates PowerScore (52.8% of weight for top teams)
+### Phoenix Rising FC U14 HD — Case Study
 
-**Severity: Medium - By Design, But Creates Anomalies**
+**Team:** Phoenix Rising FC U14 HD (ID: `79c926e1-c42f-404f-afbd-4ef1b7eb2893`)
+**Division:** HD (High Development) — MLS NEXT-affiliated league (Modular11 provider)
 
-SOS accounts for ~52.8% of the effective PowerScore for top AZ teams (vs the nominal 43.5% = 0.50/1.075). This is because top AZ teams tend to have high SOS from playing ECNL/NL schedules.
+**The Problem:** This team plays elite HD division opponents — LAFC U14 HD, ALBION SC San Diego U14 HD, City SC San Diego U14 HD, FC Golden State U14 HD, LA Bulls U14 HD, Chula Vista FC U14 HD — but their SOS appears weak because **none of these opponents exist in the rankings**.
 
-**Impact on AZ rankings:**
-- **Scottsdale City 2012 Boys** (AZ #34, Nat #697): OFF=0.327, DEF=0.456, but SOS=0.945 carries them to a relatively high position despite being objectively weak offensively and defensively.
-- **AZ Thundercats 2012** (AZ #23, Nat #388): OFF=0.855, DEF=0.926 (elite in both) but SOS=0.365 pushes them to AZ #23 instead of top 10. This team dominates its opponents but gets penalized for schedule quality.
+**Root Cause:** The entire Modular11 HD/AD division ecosystem is missing from the ranking engine.
+
+| Check | Result |
+|-------|--------|
+| PRFC U14 HD in rankings snapshot | **NOT FOUND** |
+| PRFC U14 HD opponents in rankings | **0 of 13 found** |
+| Total HD teams in modular11 registry | 147 |
+| HD teams in rankings snapshot | **0 of 147** |
+| Modular11 provider registered? | Yes (`b376e2a4-4b81-47be-b2aa-a06ba0616110`) |
+| Modular11 import pipeline built? | Yes (`Modular11GameMatcher` in `enhanced_pipeline.py`) |
+| Weekly update logs mentioning modular11 | **Zero** |
+
+**Timeline:**
+- **2025-11-24:** Latest validation snapshot taken — no modular11 data exists yet
+- **2025-12-02:** First modular11 scrape (17,402 games)
+- **2025-12-27:** Large modular11 scrape (20,068 games including 3,794 U14 HD games)
+- **2026-01-16:** Latest modular11 scrape (3,828 games)
+
+**The import pipeline (`import_games_enhanced.py`) supports modular11** with a dedicated `Modular11GameMatcher`, but no weekly update log shows modular11 imports were ever executed. The games are scraped into `scrapers/modular11_scraper/output/` but were never fed into the database `games` table.
+
+**Impact:**
+- **All 147 HD division teams** are invisible to the ranking engine
+- **All HD opponents** default to `UNRANKED_SOS_BASE = 0.35` (barely above minimum)
+- Any team whose schedule is primarily HD/AD games will have artificially deflated SOS
+- This affects PRFC U14 HD, RSL Arizona U14 HD, SC Del Sol U14 HD, LAFC U14 HD, ALBION SC teams, and 140+ others nationally
+
+**PRFC U14 HD's actual schedule (from modular11 scraper):**
+```
+2025-09-13  vs FC Golden State U14 HD       L 0-1
+2025-09-14  vs Las Vegas Sports Academy HD  W 2-0
+2025-10-05  vs ALBION SC Las Vegas U14 HD   L 1-2
+2025-10-11  vs LAFC U14 HD                  L 0-3
+2025-10-19  vs RSL Arizona Mesa U14 HD      W 10-1
+2025-10-24  vs SC Del Sol U14 HD            L 2-4
+2025-10-26  vs ALBION SC San Diego U14 HD   D 2-2
+2025-11-01  vs City SC San Diego U14 HD     L 2-4
+2025-11-02  vs City SC Southwest U14 HD     W 5-2
+2025-11-08  vs Chula Vista FC U14 HD        L 0-3
+2025-11-15  vs RSL Arizona U14 HD           W 3-0
+2025-11-22  vs LA Bulls U14 HD              L 1-2
+2025-11-23  vs ALBION SC Los Angeles U14 HD W 2-0
+```
+
+These are strong opponents (MLS NEXT affiliates, top clubs nationally), but the ranking engine treats every one of them as strength 0.35 because their games haven't been imported.
+
+**Fix Required:** Run `import_games_enhanced.py` with the modular11 scraper output to populate the `games` table with HD/AD league games. Then recalculate rankings.
+
+---
+
+## Additional Audit Findings
+
+### Finding 1: SOS Weight Distribution for Top Teams
+
+**Severity: Low - Working As Designed**
+
+SOS accounts for ~52.8% of the effective PowerScore for top AZ teams. This is intentional — schedule strength should be the dominant differentiator. The config weights (OFF=0.25, DEF=0.25, SOS=0.50, Perf=0.15, normalized by /1.075) produce this balance.
 
 **Component breakdown for top 10 AZ:**
 ```
 OFF: 21.8%  DEF: 25.4%  SOS: 52.8%
 ```
+
+**Notable cases where SOS tells the correct story:**
+- **AZ Thundercats 2012** (AZ #23, Nat #388): OFF=0.855, DEF=0.926 but SOS=0.365. They dominate FBSL-tier opponents but haven't proven themselves against quality. The SOS penalty is correct — beating weak teams shouldn't rank you higher than competing with strong ones.
+- **Scottsdale City 2012 Boys** (AZ #34, Nat #697): OFF=0.327, DEF=0.456, SOS=0.945. They lose a lot in tough leagues. SOS rightfully acknowledges the quality of opposition even when results aren't great.
 
 ### Finding 2: Next Level Soccer (NLS) Club Dominance - Possible SOS Bubble
 
@@ -165,12 +223,13 @@ u18: max=0.7528 (anchor 1.000) - OK (below cap, just reflects team quality)
 
 | # | Finding | Severity | Actionable? |
 |---|---------|----------|-------------|
-| 1 | SOS weight at 52.8% dominates rankings | Medium | Config tunable (reduce SOS_WEIGHT) |
+| **CRITICAL** | **Modular11 HD/AD games never imported — 147+ teams invisible** | **CRITICAL** | **Run import_games_enhanced.py with modular11 data** |
+| 1 | SOS weight distribution for top teams | Low | Working as designed |
 | 2 | NLS club SOS bubble (6 teams in top 30) | Medium | Consider club-level repeat cap |
 | 3 | ML layer mixed direction | Low | Working as designed |
 | 4 | SOS-conditioned ML scaling discrepancy | Medium | Code fix in calculator.py |
 | 5 | LOW_SAMPLE teams at mid-high ranks | Low | Could increase MIN_GAMES_PROVISIONAL |
-| 6 | Strong OFF/DEF penalized by weak SOS | Medium | Structural - inherent to SOS weight |
+| 6 | Strong OFF/DEF penalized by weak SOS | Low | Working as designed (see Finding 1) |
 | 7 | Anchor scaling fixed in latest | None | Already resolved |
 
 ---
