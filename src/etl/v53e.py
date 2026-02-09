@@ -55,13 +55,13 @@ class V53EConfig:
     UNRANKED_SOS_BASE: float = 0.35
     SOS_REPEAT_CAP: int = 2  # Reduced from 4 to prevent regional rivals from dominating SOS
     SOS_ITERATIONS: int = 3
-    SOS_TRANSITIVITY_LAMBDA: float = 0.20  # Balanced transitivity weight (80% direct, 20% transitive)
+    SOS_TRANSITIVITY_LAMBDA: float = 0.30  # 70% direct, 30% transitive (increased from 0.20 to better capture opponent schedule quality)
 
     # Power-SOS Co-Calculation: Use opponent's FULL power score (including their SOS) for SOS calculation
     # This ensures that playing teams with tough schedules properly boosts your SOS
-    # Set to 0 to disable (use old off/def-only approach), 2-3 iterations recommended
-    SOS_POWER_ITERATIONS: int = 3  # Number of power-SOS refinement cycles (0 = disabled)
-    SOS_POWER_DAMPING: float = 0.7  # Damping factor to prevent oscillation (0.5-0.9 recommended)
+    # Set to 0 to disable (use old off/def-only approach), 3-5 iterations recommended
+    SOS_POWER_ITERATIONS: int = 5  # Number of power-SOS refinement cycles (0 = disabled)
+    SOS_POWER_DAMPING: float = 0.80  # Damping factor to prevent oscillation (0.5-0.9 recommended)
 
     # SOS sample size weighting
     # NOTE: SOS_SAMPLE_SIZE_THRESHOLD is DEPRECATED - pre-percentile shrinkage was removed
