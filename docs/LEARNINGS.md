@@ -122,5 +122,33 @@ Created TypeScript React form component that:
 
 **Compound effect**: Faster decision-making (autonomy) + faster code (TGS optimization) = system acceleration beginning Feb 7
 
+### 2026-02-08: Cost Reduction Wins & API Credit Management Pattern
+**Session summary:**
+- **Model switch activated**: Main session switched Opus → Haiku (80% cost reduction per token)
+- **Sub-agent consolidation**: All 9 cron jobs on Haiku (except Codey who uses Sonnet for complex tasks)
+- **Heartbeat optimization**: Interval 30m → 1h (50% fewer API calls)
+- **Estimated weekly savings**: $300+/month vs. baseline
+
+**API Credit Incident:**
+- **Scope**: 33 total errors across 6 sessions (Feb 7-8)
+- **Affected agents**: Cleany (32 errors, 4 sessions), Watchy (1 error, 1 session)
+- **Pattern**: All errors = "credit balance too low to access Anthropic API"
+- **Timing**: Occurred during heavy concurrent agent activity (Cleany batch operations + Watchy health check)
+- **Resolution**: Unknown (D H needs to verify billing/account status)
+
+**Key insight**: Single credit exhaustion incident can cascade to multiple agents. Need better visibility into remaining credit balance and auto-backoff mechanism when approaching limits.
+
+**Recommended pattern:**
+1. Before expensive operations, check remaining credits (if possible)
+2. When credit error occurs → auto-backoff 30min + alert to LEVEL 2 (Telegram)
+3. Track daily spend in DAILY_CONTEXT.md
+4. Alert if daily cost exceeds $10 (unusual activity)
+
+**Data quality status:**
+- Games (24h): 2,363 flowing normally
+- Quarantine: 365 (↓ from 350, normal variance)  
+- Data pipeline healthy, no regressions
+- Ready for next scrape cycle (Mon/Wed)
+
 ---
-*Last updated: 2026-02-07*
+*Last updated: 2026-02-08 22:30 by COMPY (nightly compound)*

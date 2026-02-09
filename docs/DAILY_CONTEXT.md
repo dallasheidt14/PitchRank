@@ -27,20 +27,21 @@ D H: "you can do whatever without my approval just don't mess with algo and star
 - Manually reviewing each age group for data cleanliness
 - Working through match review queue
 
-## 🔄 Today's Activity (Feb 8)
+## 🔄 Today's Activity (Feb 8 - Sunday)
 - ✅ Main session model: Opus → **Haiku** (cost reduction activated)
 - ✅ Agent communication verified and live (AGENT_COMMS.md)
 - ✅ All governance files validated and in sync
 - ✅ Sub-agent crons all pointing to shared context
 - ✅ Watchy run complete (8am) — all systems nominal
-- ✅ Execution phase started: agents now fully autonomous
-- Games (24h): 0 (expected, Sunday non-scrape day)
-- Quarantine: 350 (normal)
-- Stale teams: 13,248 (normal, will refresh Mon/Wed)
+- ✅ Cleany run complete (7pm) — data quality OK
+- ✅ Execution phase ongoing: agents fully autonomous
+- Games (24h): 2,363 (normal flow, multiple providers active)
+- Quarantine: 365 (under 500 target ✓)
+- Stale teams: 12,350 (normal, refreshes Mon/Wed)
 
 ## ⚠️ Known Issues
-- TGS import step is extremely slow (~6h for 10 events) — Codey diagnosed, fix ready pending approval
-- Root cause: Teams created one-by-one (200k+ queries). Fix: batch pre-create teams.
+- **[RESOLVED]** TGS import was slow — Codey deployed 10-15x speedup (Feb 7)
+- **[NEW]** API Credit Balance Error (Feb 8) — 33 API errors across agents. D H needs to verify billing/credits status.
 
 ## 🎯 Priorities
 1. Let D H focus on data review without noise

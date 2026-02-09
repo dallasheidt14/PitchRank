@@ -423,3 +423,19 @@ EXAMPLES:
 ESCALATE_ONLY: Strategic decisions, data policy changes, security
 ```
 
+### 2026-02-08: Anthropic Credit Exhaustion Error Pattern
+```
+WHEN: Agent run fails with "Your credit balance is too low to access the Anthropic API"
+PATTERN: Cleany (4 sessions) and Watchy (1 session) both hit credit errors on Feb 8
+SCOPE: 33 failed API calls across agents in 24h window
+ROOT_CAUSE: Unknown (needs D H to check billing / API credits)
+CHECK: Is this a billing issue or usage spike?
+IF: Billing issue → Contact Anthropic support, check account
+IF: Usage spike → Check what triggered multiple simultaneous agent runs
+ACTION: When credit error hits an agent:
+  1. Agent should log to AGENT_COMMS.md (LEVEL 2 alert)
+  2. Set to retry after 30 minutes (auto-backoff)
+  3. If persists >2h → Escalate to D H (LEVEL 3: 🚨 CRITICAL)
+PREVENTION: Monitor daily cost in DAILY_CONTEXT.md, alert if >$10/day
+```
+
