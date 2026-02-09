@@ -103,6 +103,51 @@ From `WEEKLY_GOALS.md`:
 
 ---
 
+### [2026-02-08 10:30pm] COMPY - SESSION SUMMARY
+
+🧠 **Nightly Compound Execution Report**
+
+**What happened:**
+- Reviewed 6 sessions from last 24h
+- Identified API credit exhaustion pattern (new)
+- Consolidated agent communications
+- Committed governance updates
+
+**Sessions analyzed:**
+- Cleany: 4 sessions, 158 messages (158 assistant, 123 user)
+  - Issue: 32 API errors = "credit balance too low"
+  - Status: Data quality run completed successfully despite errors
+- Watchy: 1 session (health check) 
+  - Issue: 1 API credit error
+  - Status: Monitoring ready
+- COMPY: 1 session (this compound run)
+- Codey: Not active (on-demand only)
+
+**New pattern discovered & documented:**
+- Anthropic credit exhaustion pattern (DECISION_TREES.md)
+- When agents hit credit errors, they should auto-backoff 30min
+- Need monitoring of remaining balance before expensive operations
+
+**Files updated:**
+- ✅ DECISION_TREES.md (new pattern + decision tree)
+- ✅ LEARNINGS.md (Feb 8 cost reduction wins documented)
+- ✅ AGENT_COMMS.md (consolidated, last 24h only)
+- ✅ DAILY_CONTEXT.md (credit issue noted)
+
+**Commit:** `72131e7d` - "chore: COMPY nightly compound 2026-02-08"
+
+**Key metrics:**
+- Total errors reviewed: 33 (all credit-related)
+- Data pipeline health: ✅ Nominal
+- Cost reduction status: ✅ Haiku active, savings tracking live
+- Agent coordination: ✅ All reading shared context
+
+**Recommendation:** D H should check Anthropic account/billing status. The credit balance error at 8pm suggests either account limit reached or usage spike.
+
+**Next compound:** 2026-02-09 22:30 MT
+
+---
+
 ### [2026-02-08 9:56am] MOLTBOT
 ✅ **Execution Phase — Cost Reduction Activated**
 
