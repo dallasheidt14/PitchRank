@@ -519,6 +519,16 @@ async def compute_all_cohorts(
     teams_combined = pd.concat(all_teams, ignore_index=True) if all_teams else pd.DataFrame()
     games_used_combined = pd.concat(all_games_used, ignore_index=True) if all_games_used else pd.DataFrame()
 
+    # ========== Filter deprecated teams ==========
+    # Remove any deprecated teams that slipped through game-level merge resolution
+    if merge_resolver is not None and merge_resolver.has_merges and not teams_combined.empty:
+        deprecated_ids = merge_resolver.get_deprecated_teams()
+        before_count = len(teams_combined)
+        teams_combined = teams_combined[~teams_combined['team_id'].astype(str).isin(deprecated_ids)].copy()
+        filtered_count = before_count - len(teams_combined)
+        if filtered_count > 0:
+            logger.info(f"🔀 Filtered {filtered_count} deprecated teams from ranking output")
+
     # ========== PASS 3: National/State SOS Normalization ==========
     # After all cohorts are combined, compute national and state-level SOS rankings
     if not teams_combined.empty and 'sos' in teams_combined.columns:
