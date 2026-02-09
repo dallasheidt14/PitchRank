@@ -321,8 +321,8 @@ async def scrape_games(
             skipped_count += 1
             continue
         
-        # Skip if birth_year is 2017, 2018, 2019 (U8/U9) or 2005, 2006 (U19)
-        if birth_year in [2005, 2006, 2017, 2018, 2019]:
+        # Skip if birth_year is 2017, 2018, 2019 (U8/U9) or 2005, 2006, 2007 (U19+)
+        if birth_year in [2005, 2006, 2007, 2017, 2018, 2019]:
             logger.debug(f"Skipping U8/U9/U19 team (birth_year={birth_year}): {team.get('team_name', 'Unknown')}")
             skipped_count += 1
             continue
