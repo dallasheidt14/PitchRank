@@ -439,3 +439,8 @@ ACTION: When credit error hits an agent:
 PREVENTION: Monitor daily cost in DAILY_CONTEXT.md, alert if >$10/day
 ```
 
+
+### Rankings Calculation Timing
+**IF** rankings calculation started  
+**THEN** wait at least 60 minutes before polling for completion  
+**REASON** Rankings takes 1hr+ to process all teams. Polling frequently wastes resources.
