@@ -520,14 +520,37 @@ async def compute_all_cohorts(
     games_used_combined = pd.concat(all_games_used, ignore_index=True) if all_games_used else pd.DataFrame()
 
     # ========== Filter deprecated teams ==========
-    # Remove any deprecated teams that slipped through game-level merge resolution
-    if merge_resolver is not None and merge_resolver.has_merges and not teams_combined.empty:
-        deprecated_ids = merge_resolver.get_deprecated_teams()
-        before_count = len(teams_combined)
-        teams_combined = teams_combined[~teams_combined['team_id'].astype(str).isin(deprecated_ids)].copy()
-        filtered_count = before_count - len(teams_combined)
-        if filtered_count > 0:
-            logger.info(f"🔀 Filtered {filtered_count} deprecated teams from ranking output")
+    # Remove any deprecated teams that slipped through game-level merge resolution.
+    # Check BOTH the merge resolver (team_merge_map) AND the teams.is_deprecated field
+    # to catch teams that are deprecated but not yet merged.
+    if not teams_combined.empty:
+        deprecated_ids = set()
+
+        # Source 1: merge resolver (teams in team_merge_map)
+        if merge_resolver is not None and merge_resolver.has_merges:
+            deprecated_ids.update(merge_resolver.get_deprecated_teams())
+
+        # Source 2: teams.is_deprecated field (canonical source of truth)
+        ranked_team_ids = teams_combined['team_id'].astype(str).unique().tolist()
+        batch_size = 100
+        for i in range(0, len(ranked_team_ids), batch_size):
+            batch = ranked_team_ids[i:i + batch_size]
+            try:
+                result = supabase_client.table('teams').select(
+                    'team_id_master'
+                ).in_('team_id_master', batch).eq('is_deprecated', True).execute()
+                if result.data:
+                    deprecated_ids.update(str(row['team_id_master']) for row in result.data)
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to check is_deprecated for batch {i}: {str(e)[:100]}")
+                continue
+
+        if deprecated_ids:
+            before_count = len(teams_combined)
+            teams_combined = teams_combined[~teams_combined['team_id'].astype(str).isin(deprecated_ids)].copy()
+            filtered_count = before_count - len(teams_combined)
+            if filtered_count > 0:
+                logger.info(f"🚫 Filtered {filtered_count} deprecated teams from ranking output")
 
     # ========== PASS 3: National/State SOS Normalization ==========
     # After all cohorts are combined, compute national and state-level SOS rankings

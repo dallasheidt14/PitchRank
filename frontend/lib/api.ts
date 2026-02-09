@@ -132,14 +132,15 @@ export const api = {
 
     // Fallback: If views returned no data, try querying rankings_full directly
     // This handles cases where teams exist in rankings_full but are filtered out by view WHERE clauses
+    // Skip this fallback for deprecated teams — they are intentionally excluded from views
     let rankingsFullData = null;
-    if (!rankingData && !stateRankData) {
+    if (!rankingData && !stateRankData && !teamData?.is_deprecated) {
       const { data: rfData, error: rfError } = await supabase
         .from('rankings_full')
         .select('*')
         .eq('team_id', id)
         .maybeSingle();
-      
+
       if (!rfError && rfData) {
         rankingsFullData = rfData;
         console.log('[api.getTeam] Found team in rankings_full directly (not in views)');

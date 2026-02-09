@@ -63,9 +63,29 @@ async def save_rankings_to_supabase(supabase_client, teams_df, use_rankings_full
         console.print("[yellow]No rankings to save[/yellow]")
         return 0
 
-    # Filter out deprecated teams before saving
+    # Filter out deprecated teams before saving.
+    # Check BOTH the merge resolver AND teams.is_deprecated to catch all cases.
+    deprecated_ids = set()
+
+    # Source 1: merge resolver (teams in team_merge_map)
     if merge_resolver is not None and merge_resolver.has_merges:
-        deprecated_ids = merge_resolver.get_deprecated_teams()
+        deprecated_ids.update(merge_resolver.get_deprecated_teams())
+
+    # Source 2: teams.is_deprecated field (canonical source of truth)
+    team_ids_to_check = teams_df['team_id'].astype(str).unique().tolist()
+    batch_size = 150
+    for i in range(0, len(team_ids_to_check), batch_size):
+        batch = team_ids_to_check[i:i + batch_size]
+        try:
+            result = supabase_client.table('teams').select(
+                'team_id_master'
+            ).in_('team_id_master', batch).eq('is_deprecated', True).execute()
+            if result.data:
+                deprecated_ids.update(str(row['team_id_master']) for row in result.data)
+        except Exception:
+            continue
+
+    if deprecated_ids:
         before_count = len(teams_df)
         teams_df = teams_df[~teams_df['team_id'].astype(str).isin(deprecated_ids)].copy()
         filtered_count = before_count - len(teams_df)
@@ -220,10 +240,13 @@ async def _save_batch_with_retry(supabase_client, table_name, records, table_nam
     try:
         # Use upsert (insert with conflict resolution)
         # First, try to delete all existing rankings
+        delete_succeeded = False
         try:
             supabase_client.table(table_name).delete().neq('team_id', '00000000-0000-0000-0000-000000000000').execute()
-        except:
-            pass  # If delete fails, continue with insert
+            delete_succeeded = True
+        except Exception as e:
+            console.print(f"[yellow]Warning: Full table delete failed for {table_display}: {e}[/yellow]")
+            console.print(f"[yellow]Will use upsert — stale entries for deprecated teams may persist[/yellow]")
         
         # Insert new rankings in batches with retry logic
         batch_size = 1000
@@ -307,6 +330,23 @@ async def _save_batch_with_retry(supabase_client, table_name, records, table_nam
                         else:
                             console.print(f"[red]Batch {batch_num} ({table_display}) failed after all retries: {e}[/red]")
         
+        # Safety net: explicitly delete any deprecated teams that may remain
+        # in the table (e.g., from a previous run where the full delete failed).
+        if not delete_succeeded:
+            try:
+                # Use a subquery approach: delete rankings whose team_id is deprecated
+                deprecated_result = supabase_client.table('teams').select(
+                    'team_id_master'
+                ).eq('is_deprecated', True).execute()
+                if deprecated_result.data:
+                    dep_ids = [str(row['team_id_master']) for row in deprecated_result.data]
+                    for i in range(0, len(dep_ids), 100):
+                        batch = dep_ids[i:i + 100]
+                        supabase_client.table(table_name).delete().in_('team_id', batch).execute()
+                    console.print(f"[dim]Cleaned up {len(dep_ids)} deprecated team entries from {table_display}[/dim]")
+            except Exception as e:
+                console.print(f"[yellow]Warning: deprecated team cleanup failed for {table_display}: {e}[/yellow]")
+
         console.print(f"[green]Saved {total_inserted} rankings to {table_display} table[/green]")
         return total_inserted
     except Exception as e:
