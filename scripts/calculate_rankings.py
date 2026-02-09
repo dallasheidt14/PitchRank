@@ -63,9 +63,29 @@ async def save_rankings_to_supabase(supabase_client, teams_df, use_rankings_full
         console.print("[yellow]No rankings to save[/yellow]")
         return 0
 
-    # Filter out deprecated teams before saving
+    # Filter out deprecated teams before saving.
+    # Check BOTH the merge resolver AND teams.is_deprecated to catch all cases.
+    deprecated_ids = set()
+
+    # Source 1: merge resolver (teams in team_merge_map)
     if merge_resolver is not None and merge_resolver.has_merges:
-        deprecated_ids = merge_resolver.get_deprecated_teams()
+        deprecated_ids.update(merge_resolver.get_deprecated_teams())
+
+    # Source 2: teams.is_deprecated field (canonical source of truth)
+    team_ids_to_check = teams_df['team_id'].astype(str).unique().tolist()
+    batch_size = 150
+    for i in range(0, len(team_ids_to_check), batch_size):
+        batch = team_ids_to_check[i:i + batch_size]
+        try:
+            result = supabase_client.table('teams').select(
+                'team_id_master'
+            ).in_('team_id_master', batch).eq('is_deprecated', True).execute()
+            if result.data:
+                deprecated_ids.update(str(row['team_id_master']) for row in result.data)
+        except Exception:
+            continue
+
+    if deprecated_ids:
         before_count = len(teams_df)
         teams_df = teams_df[~teams_df['team_id'].astype(str).isin(deprecated_ids)].copy()
         filtered_count = before_count - len(teams_df)

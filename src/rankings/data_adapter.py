@@ -220,14 +220,15 @@ async def fetch_games_for_rankings(
     teams_data = []
     team_ids_list = list(team_ids)
     batch_size = 100  # Reduced from 1000 to avoid URI too long errors
-    
+
     for i in range(0, len(team_ids_list), batch_size):
         batch = team_ids_list[i:i + batch_size]
         try:
             # Use retry wrapper for team metadata fetching
+            # Include is_deprecated to filter out deprecated teams
             teams_result = retry_supabase_query(
                 lambda b=batch: supabase_client.table('teams').select(
-                    'team_id_master, age_group, gender'
+                    'team_id_master, age_group, gender, is_deprecated'
                 ).in_('team_id_master', b).execute(),
                 max_retries=4,
                 initial_delay=2.0,
@@ -243,12 +244,23 @@ async def fetch_games_for_rankings(
         # Progress indicator for team fetching
         if (i + batch_size) % 1000 == 0 or (i + batch_size) >= len(team_ids_list):
             logger.info(f"  ✓ Fetched metadata for {len(teams_data):,} teams...")
-    
+
     if not teams_data:
         logger.warning("⚠️  No team metadata found")
         return pd.DataFrame()
-    
+
     teams_df = pd.DataFrame(teams_data)
+
+    # Build set of deprecated team IDs and exclude them from metadata lookups
+    # This prevents deprecated teams from appearing in rankings even if they
+    # aren't in the team_merge_map (e.g., deprecated but not yet merged)
+    deprecated_team_ids = set(
+        str(row['team_id_master'])
+        for row in teams_data
+        if row.get('is_deprecated', False)
+    )
+    if deprecated_team_ids:
+        logger.info(f"🚫 Found {len(deprecated_team_ids):,} deprecated teams — excluding from rankings input")
     teams_df['age'] = teams_df['age_group'].apply(age_group_to_age)
     # Normalize gender values
     teams_df["gender"] = (
@@ -345,6 +357,16 @@ async def fetch_games_for_rankings(
     if merge_resolver is not None and merge_resolver.has_merges:
         logger.info(f"🔀 Applying merge resolution ({merge_resolver.merge_count} merges, version: {merge_resolver.version})")
         v53e_df = merge_resolver.resolve_dataframe(v53e_df, ['team_id', 'opp_id'])
+
+    # Filter out perspective rows where team_id is a deprecated team.
+    # After merge resolution, most deprecated IDs are already resolved to canonical.
+    # This catches any that slipped through (e.g., deprecated without a merge mapping).
+    if deprecated_team_ids:
+        before_deprecated_filter = len(v53e_df)
+        v53e_df = v53e_df[~v53e_df['team_id'].astype(str).isin(deprecated_team_ids)]
+        removed_deprecated = before_deprecated_filter - len(v53e_df)
+        if removed_deprecated > 0:
+            logger.info(f"🚫 Removed {removed_deprecated:,} perspective rows for {len(deprecated_team_ids)} deprecated teams")
 
     # Filter out rows with missing scores
     before_filter = len(v53e_df)
