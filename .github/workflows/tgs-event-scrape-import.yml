@@ -95,6 +95,20 @@ jobs:
           echo "Found CSV file: $CSV_FILE"
           echo "csv_file=$CSV_FILE" >> $GITHUB_OUTPUT
 
+      - name: Pre-create TGS Teams (Prevents Review Queue Bloat)
+        if: ${{ github.event_name == 'schedule' || inputs.skip_import == false }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          CSV_FILE="${{ steps.find_csv.outputs.csv_file }}"
+          echo "Pre-creating teams from: $CSV_FILE"
+          echo "This prevents fuzzy matching during game import, which causes review queue bloat."
+          python scripts/extract_and_import_tgs_teams.py "$CSV_FILE" tgs
+
       - name: Import Games
         if: ${{ github.event_name == 'schedule' || inputs.skip_import == false }}
         env:
