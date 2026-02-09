@@ -358,6 +358,14 @@ async def fetch_games_for_rankings(
         logger.info(f"🔀 Applying merge resolution ({merge_resolver.merge_count} merges, version: {merge_resolver.version})")
         v53e_df = merge_resolver.resolve_dataframe(v53e_df, ['team_id', 'opp_id'])
 
+        # After merge resolution, team_id/opp_id point to canonical teams but
+        # age/gender still reflect the deprecated team's metadata.  Re-map them
+        # so the canonical team's games land in the correct cohort.
+        v53e_df['age'] = v53e_df['team_id'].map(team_age_map).fillna(v53e_df['age'])
+        v53e_df['gender'] = v53e_df['team_id'].map(team_gender_map).fillna(v53e_df['gender'])
+        v53e_df['opp_age'] = v53e_df['opp_id'].map(team_age_map).fillna(v53e_df['opp_age'])
+        v53e_df['opp_gender'] = v53e_df['opp_id'].map(team_gender_map).fillna(v53e_df['opp_gender'])
+
     # Filter out perspective rows where team_id is a deprecated team.
     # After merge resolution, most deprecated IDs are already resolved to canonical.
     # This catches any that slipped through (e.g., deprecated without a merge mapping).
