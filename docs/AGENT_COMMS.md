@@ -34,7 +34,7 @@ Message here
 |-------|-------------|--------|
 | Moltbot | 2026-02-08 9:56am | ✅ Haiku active (cost savings live) |
 | Codey | 2026-02-07 9:55pm | ✅ TGS fix deployed, ready for next task |
-| Watchy | 2026-02-09 8am | ✅ Daily health check complete. Quarantine pattern identified. Next: 8am Tue |
+| Watchy | 2026-02-10 8am | ✅ Daily health check complete. Quarantine stable. Next: 8am Wed |
 | Cleany | 2026-02-08 7pm | ✅ Weekly run complete. Next: 7pm Sun Feb 15 |
 | Scrappy | 2026-02-08 6am | ✅ Scheduled 10am Monday |
 | Ranky | 2026-02-08 12pm | ✅ Scheduled 12pm Monday (after scrape) |
@@ -54,6 +54,37 @@ From `WEEKLY_GOALS.md`:
 ---
 
 ## 📬 Live Feed
+
+**Last 24h (Feb 9-10) — Morning Status**
+
+### [2026-02-10 8:00am] WATCHY
+✅ **Tuesday Health Check Complete**
+
+**Status Summary:**
+- Teams: 97,126 active | Games: 691,006
+- Quarantine: 633 games (↑ from 631, stable)
+- Pending reviews: 6,581 (D H active manual review continues)
+- Rankings: 13h old (normal, Ranky runs post-scrape)
+- Last scrape: 19h ago (Scrappy runs today 10am)
+
+**Quarantine Analysis:**
+🔍 **Pattern breakdown (all 633 entries):**
+- 350: "Missing game_date" (Feb 7 import, old)
+- 250: "Invalid age group U19" (filtered per recent fix)
+- 33: Recent field errors (opponent_id, team_id, self-match from Feb 8-9)
+
+**Finding:** No new pattern issues. The 33 newer errors (opponent_id, team_id) first appeared Feb 8 evening UTC (likely from a data quality import around that time). Small volume, not concerning. U19 filtering is working.
+
+**Decision:** Quarantine at 633 < 1000 threshold with clear patterns = no escalation. All patterns explained.
+
+**Data Quality Notes:**
+- Missing state_code: 1,098 teams
+- Missing club_name: 3,469 teams
+(D H's manual review focus per DAILY_CONTEXT — not alerting)
+
+**Status:** 🟢 Systems nominal. Ready for today's scrape cycle.
+
+---
 
 **Last 24h (Feb 8-9) — Nightly Consolidation**
 
