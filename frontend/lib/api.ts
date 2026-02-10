@@ -147,11 +147,32 @@ export const api = {
       }
     }
 
+    // Resolve merged team IDs so total games include games from deprecated teams
+    // (mirrors the merge resolution in getTeamGames)
+    const teamIdsForGameCount = [id];
+    const { data: mergedTeams } = await supabase
+      .from('team_merge_map')
+      .select('deprecated_team_id')
+      .eq('canonical_team_id', id);
+
+    if (mergedTeams && mergedTeams.length > 0) {
+      mergedTeams.forEach((merge: { deprecated_team_id: string }) => {
+        if (merge.deprecated_team_id) {
+          teamIdsForGameCount.push(merge.deprecated_team_id);
+        }
+      });
+    }
+
     // Fetch all games to calculate total games and win/loss/draw record
+    // Query games for canonical + all deprecated (merged) team IDs
+    const gameOrConditions = teamIdsForGameCount
+      .map((teamId) => `home_team_master_id.eq.${teamId},away_team_master_id.eq.${teamId}`)
+      .join(',');
+
     const { data: gamesData, error: gamesDataError } = await supabase
       .from('games')
       .select('home_team_master_id, away_team_master_id, home_score, away_score')
-      .or(`home_team_master_id.eq.${id},away_team_master_id.eq.${id}`);
+      .or(gameOrConditions);
 
     // Calculate total games count and win/loss/draw record from games
     const totalGamesCount = gamesData?.length ?? 0;
@@ -159,10 +180,13 @@ export const api = {
     let calculatedLosses = 0;
     let calculatedDraws = 0;
 
+    // Build a Set for fast lookup of all team IDs belonging to this team
+    const teamIdSet = new Set(teamIdsForGameCount);
+
     if (gamesData && gamesData.length > 0) {
       gamesData.forEach(game => {
         if (game.home_score !== null && game.away_score !== null) {
-          const isHome = game.home_team_master_id === id;
+          const isHome = teamIdSet.has(game.home_team_master_id);
           const teamScore = isHome ? game.home_score : game.away_score;
           const opponentScore = isHome ? game.away_score : game.home_score;
 
