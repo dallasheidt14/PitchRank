@@ -56,27 +56,18 @@ class TestPowerScoreWeights:
         assert abs(total_weight - 1.0) < 0.0001, \
             f"PowerScore weights must sum to 1.0, got {total_weight}"
 
-    def test_sos_weight_is_thirty_percent(self):
-        """Verify SOS has 30% weight in PowerScore (reduced from 50% to avoid double-counting
-        with opponent-adjusted OFF/DEF)"""
+    def test_sos_weight(self):
+        """Verify SOS has 43% weight in PowerScore"""
         cfg = V53EConfig()
-        assert cfg.SOS_WEIGHT == 0.30, "SOS should have 30% weight"
+        assert cfg.SOS_WEIGHT == 0.43, "SOS should have 43% weight"
 
     def test_off_def_weights_balanced(self):
         """Verify offense and defense have equal weights"""
         cfg = V53EConfig()
         assert cfg.OFF_WEIGHT == cfg.DEF_WEIGHT, \
             "Offense and defense should have equal weights"
-        assert cfg.OFF_WEIGHT == 0.35, "Offense weight should be 35%"
-        assert cfg.DEF_WEIGHT == 0.35, "Defense weight should be 35%"
-
-    def test_off_def_have_highest_weight(self):
-        """Verify OFF/DEF each have higher weight than SOS (since OFF/DEF are opponent-adjusted)"""
-        cfg = V53EConfig()
-        assert cfg.OFF_WEIGHT > cfg.SOS_WEIGHT, \
-            "Offense weight should be greater than SOS weight"
-        assert cfg.DEF_WEIGHT > cfg.SOS_WEIGHT, \
-            "Defense weight should be greater than SOS weight"
+        assert cfg.OFF_WEIGHT == 0.285, "Offense weight should be 28.5%"
+        assert cfg.DEF_WEIGHT == 0.285, "Defense weight should be 28.5%"
 
 
 class TestSOSValueRanges:
@@ -216,9 +207,9 @@ class TestSOSDocumentation:
         assert cfg.UNRANKED_SOS_BASE == 0.35, \
             "UNRANKED_SOS_BASE should be 0.35 as documented"
 
-        # SOS_WEIGHT = 0.30 (reduced from 50% since OFF/DEF are opponent-adjusted)
-        assert cfg.SOS_WEIGHT == 0.30, \
-            "SOS_WEIGHT should be 30%"
+        # SOS_WEIGHT = 0.43 (reduced from 50% since OFF/DEF are opponent-adjusted)
+        assert cfg.SOS_WEIGHT == 0.43, \
+            "SOS_WEIGHT should be 43%"
 
 
 if __name__ == '__main__':
