@@ -142,9 +142,9 @@ RANKING_CONFIG = {
     'opponent_adjust_clip_max': float(os.getenv("OPPONENT_ADJUST_CLIP_MAX", 1.6)),  # V53EConfig.OPPONENT_ADJUST_CLIP_MAX
 
     # Layer 10 weights
-    'off_weight': float(os.getenv("OFF_WEIGHT", 0.35)),  # V53EConfig.OFF_WEIGHT
-    'def_weight': float(os.getenv("DEF_WEIGHT", 0.35)),  # V53EConfig.DEF_WEIGHT
-    'sos_weight': float(os.getenv("SOS_WEIGHT", 0.30)),  # V53EConfig.SOS_WEIGHT
+    'off_weight': float(os.getenv("OFF_WEIGHT", 0.285)),  # V53EConfig.OFF_WEIGHT
+    'def_weight': float(os.getenv("DEF_WEIGHT", 0.285)),  # V53EConfig.DEF_WEIGHT
+    'sos_weight': float(os.getenv("SOS_WEIGHT", 0.43)),  # V53EConfig.SOS_WEIGHT
     
     # Provisional
     'min_games_for_ranking': int(os.getenv("MIN_GAMES_FOR_RANKING", 5)),  # V53EConfig.MIN_GAMES_PROVISIONAL
