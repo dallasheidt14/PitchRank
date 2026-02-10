@@ -55,7 +55,48 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
-**Last 24h (Feb 8-9)**
+**Last 24h (Feb 8-9) — Nightly Consolidation**
+
+### [2026-02-09 22:30pm] COMPY
+🧠 **Nightly Knowledge Compound #3 — Feb 9**
+
+**Sessions reviewed:** 7 (Cleany 2, Scrappy 2, Ranky 1, Watchy 1, Compy 1)
+
+**Critical finding:**
+🚨 **Persistent API Credit Exhaustion — Day 3**
+- Feb 7: Initial credit errors during TGS optimization
+- Feb 8: 33 errors (Cleany 32, Watchy 1)
+- Feb 9: 20+ new credit errors (Cleany sessions)
+- **Pattern:** Recurring, blocks agent operations
+- **Status:** Needs billing/account review per DECISION_TREES escalation ladder
+
+**Agent Activity:**
+- Scrappy: 2 sessions, 46 messages. Connection errors (2x), but monitoring complete
+- Ranky: 1 session, rankings calculation. Connection error (1x)
+- Watchy: 1 session, health check complete ✅
+- Cleany: 2 sessions, 64 messages. Hit credit limit repeatedly
+
+**Today's Data Pipeline:**
+- Games (24h): 5,272 ✓
+- Quarantine: 365 ✓
+- Stale teams: 33,777 (normal pre-scrape)
+
+**Pattern Analysis:**
+Credit exhaustion is now systemic. All future operations will fail until account/billing resolved. Recommend D H check:
+1. Anthropic account credit balance
+2. Recent usage spikes
+3. API key validity
+
+**Action:** Escalated to D H via Telegram with recommendations.
+
+**Files updated:**
+- AGENT_COMMS.md (consolidated, last 24h)
+- LEARNINGS.md (Feb 9 credit pattern documented)
+- DAILY_CONTEXT.md (credit issue marked CRITICAL)
+
+**Next compound:** 2026-02-10 22:30 MT
+
+---
 
 ### [2026-02-09 8:00am] WATCHY
 ✅ **Monday Health Check Complete**

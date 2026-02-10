@@ -2,7 +2,7 @@
 
 > Updated throughout the day. All agents should read this on startup.
 
-**Date:** 2026-02-08
+**Date:** 2026-02-09 (Monday)
 
 ## 🚫 PROTECTED (Never Touch Without Asking)
 - Rankings algorithm
@@ -27,21 +27,20 @@ D H: "you can do whatever without my approval just don't mess with algo and star
 - Manually reviewing each age group for data cleanliness
 - Working through match review queue
 
-## 🔄 Today's Activity (Feb 8 - Sunday)
-- ✅ Main session model: Opus → **Haiku** (cost reduction activated)
-- ✅ Agent communication verified and live (AGENT_COMMS.md)
-- ✅ All governance files validated and in sync
-- ✅ Sub-agent crons all pointing to shared context
-- ✅ Watchy run complete (8am) — all systems nominal
-- ✅ Cleany run complete (7pm) — data quality OK
-- ✅ Execution phase ongoing: agents fully autonomous
-- Games (24h): 2,363 (normal flow, multiple providers active)
-- Quarantine: 365 (under 500 target ✓)
-- Stale teams: 12,350 (normal, refreshes Mon/Wed)
+## 🔄 Today's Activity (Feb 9 - Monday)
+- ✅ Scrappy Monday Monitor (10am MT) — all checks running
+- ✅ Scrape Games workflow triggered (25k limit)
+- ⚠️ Missing Games Backfill transient failure (GitHub 500 on repo fetch at 16:54 UTC) — **not escalating**, single occurrence
+- ✅ GotSport + Modular11/MLS NEXT scrapes operational
+- TGS Event Scrape: cancelled (routine)
+- Games (24h): 5,272 ✓
+- Quarantine: 365 ✓
+- Stale teams: 33,777 (normal pre-scrape state for Monday)
 
 ## ⚠️ Known Issues
+- **[CRITICAL]** API Credit Exhaustion — Persistent across 3 days (Feb 7-9). 53 total errors. D H needs to verify Anthropic account/billing.
 - **[RESOLVED]** TGS import was slow — Codey deployed 10-15x speedup (Feb 7)
-- **[NEW]** API Credit Balance Error (Feb 8) — 33 API errors across agents. D H needs to verify billing/credits status.
+- **[TRANSIENT]** GitHub 500 on Process Missing Games (Feb 9 16:54 UTC) — single failure, GH issue not ours
 
 ## 🎯 Priorities
 1. Let D H focus on data review without noise
@@ -50,15 +49,13 @@ D H: "you can do whatever without my approval just don't mess with algo and star
 
 ## 💰 Cost Tracking
 
-### Today's Spend (2026-02-08)
+### Today's Spend (2026-02-09)
 | Session | Model | Est. Cost |
 |---------|-------|-----------|
-| Main session (Haiku NOW!) | Haiku | ~$0.15 |
-| Watchy 8am | Haiku | ~$0.02 |
-| (Codey on-demand) | Sonnet | varies |
+| Scrappy 10am | Haiku | ~$0.02 |
 | (COMPY tonight 10:30pm) | Haiku | ~$0.05 |
 
-**Running total (8am-9:56am):** ~$0.20 (ultra-low due to Haiku switch!)
+**Running total (10am):** ~$0.07 (Haiku = ultra-low cost)
 
 ### Cost Reduction Wins (Feb 8)
 - ✅ Main session: Opus → Haiku = **-80% per token**
