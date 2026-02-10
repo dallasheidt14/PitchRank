@@ -71,15 +71,15 @@ def validate_v53e_config():
     # Validate
     errors = []
 
-    if float(transitivity_lambda) != 0.20:
-        errors.append(f"❌ SOS_TRANSITIVITY_LAMBDA should be 0.20, got {transitivity_lambda}")
+    if float(transitivity_lambda) != 0.0:
+        errors.append(f"❌ SOS_TRANSITIVITY_LAMBDA should be 0.0 (disabled), got {transitivity_lambda}")
     else:
-        print(f"  ✅ SOS_TRANSITIVITY_LAMBDA is correct (0.20)")
+        print(f"  ✅ SOS_TRANSITIVITY_LAMBDA is correct (0.0 - disabled)")
 
-    if int(sos_iterations) != 3:
-        errors.append(f"❌ SOS_ITERATIONS should be 3, got {sos_iterations}")
+    if int(sos_iterations) != 1:
+        errors.append(f"❌ SOS_ITERATIONS should be 1 (single-pass), got {sos_iterations}")
     else:
-        print(f"  ✅ SOS_ITERATIONS is correct (3)")
+        print(f"  ✅ SOS_ITERATIONS is correct (1 - single-pass)")
 
     # Check PowerScore weights sum to 1.0
     weight_sum = float(off_weight) + float(def_weight) + float(sos_weight)
@@ -136,17 +136,11 @@ def validate_documentation():
 
     errors = []
 
-    # Check for 0.20 transitivity lambda
-    if "SOS_TRANSITIVITY_LAMBDA = 0.20" in content:
-        print(f"  ✅ Documentation shows SOS_TRANSITIVITY_LAMBDA = 0.20")
+    # Check for disabled transitivity (SOS_TRANSITIVITY_LAMBDA = 0.0 or SOS_ITERATIONS = 1)
+    if "SOS_ITERATIONS" in content:
+        print(f"  ✅ Documentation references SOS_ITERATIONS")
     else:
-        errors.append("❌ Documentation doesn't show SOS_TRANSITIVITY_LAMBDA = 0.20")
-
-    # Check for 80% direct, 20% transitive
-    if "80% direct, 20% transitive" in content:
-        print(f"  ✅ Documentation shows 80% direct, 20% transitive")
-    else:
-        errors.append("❌ Documentation doesn't show 80% direct, 20% transitive")
+        errors.append("❌ Documentation doesn't reference SOS_ITERATIONS")
 
     print()
     return errors

@@ -54,8 +54,8 @@ class V53EConfig:
     # Layer 8 (SOS)
     UNRANKED_SOS_BASE: float = 0.35
     SOS_REPEAT_CAP: int = 2  # Reduced from 4 to prevent regional rivals from dominating SOS
-    SOS_ITERATIONS: int = 3
-    SOS_TRANSITIVITY_LAMBDA: float = 0.30  # 70% direct, 30% transitive (increased from 0.20 to better capture opponent schedule quality)
+    SOS_ITERATIONS: int = 1  # Single-pass: direct opponent strength only (no transitive propagation)
+    SOS_TRANSITIVITY_LAMBDA: float = 0.0  # Pure direct SOS — transitive propagation causes closed-league inflation
 
     # Power-SOS Co-Calculation: Use opponent's FULL power score (including their SOS) for SOS calculation
     # This ensures that playing teams with tough schedules properly boosts your SOS
@@ -864,7 +864,12 @@ def compute_rankings(
     # -------------------------
     # Layer 8: SOS (weights + repeat-cap + iterations)
     # -------------------------
-    g["w_sos"] = g["w_game"] * g["k_adapt"]
+    # SOS weight uses recency only (w_game), NOT adaptive K.
+    # Adaptive K over-weights games with large strength gaps, which systematically
+    # inflates SOS for weak teams (their strong opponents get high gap weight) and
+    # deflates SOS for strong teams (their strong opponents get low gap weight).
+    # SOS should measure average opponent strength with recency weighting only.
+    g["w_sos"] = g["w_game"]
 
     g = g.sort_values(["team_id", "opp_id", "w_sos"], ascending=[True, True, False])
     g["repeat_rank"] = g.groupby(["team_id", "opp_id"])["w_sos"].rank(ascending=False, method="first")
