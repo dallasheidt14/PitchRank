@@ -20,16 +20,16 @@ class TestSOSConfiguration:
         assert hasattr(cfg, 'SOS_REPEAT_CAP')
         assert hasattr(cfg, 'UNRANKED_SOS_BASE')
 
-    def test_sos_iterations_is_three(self):
-        """Verify 3-pass iterative SOS is configured"""
+    def test_sos_iterations_is_one(self):
+        """Verify single-pass SOS (no transitive propagation)"""
         cfg = V53EConfig()
-        assert cfg.SOS_ITERATIONS == 3, "SOS should use 3 iterations"
+        assert cfg.SOS_ITERATIONS == 1, "SOS should use 1 iteration (direct only, no transitive)"
 
-    def test_sos_transitivity_lambda_is_correct(self):
-        """Verify SOS transitivity lambda is 0.30"""
+    def test_sos_transitivity_lambda_is_zero(self):
+        """Verify SOS transitivity is disabled (prevents closed-league inflation)"""
         cfg = V53EConfig()
-        assert cfg.SOS_TRANSITIVITY_LAMBDA == 0.30, \
-            "SOS_TRANSITIVITY_LAMBDA should be 0.30 (70% direct, 30% transitive)"
+        assert cfg.SOS_TRANSITIVITY_LAMBDA == 0.0, \
+            "SOS_TRANSITIVITY_LAMBDA should be 0.0 (pure direct, no transitive)"
 
     def test_sos_repeat_cap_is_two(self):
         """Verify repeat cap limits to top 2 games per opponent (prevents regional rival dominance)"""
@@ -199,13 +199,13 @@ class TestSOSDocumentation:
         """Verify actual config matches SOS_FIELDS_EXPLANATION.md"""
         cfg = V53EConfig()
 
-        # From docs: SOS_ITERATIONS = 3
-        assert cfg.SOS_ITERATIONS == 3, \
-            "SOS_ITERATIONS should be 3 as documented"
+        # SOS_ITERATIONS = 1 (single-pass, no transitive)
+        assert cfg.SOS_ITERATIONS == 1, \
+            "SOS_ITERATIONS should be 1 (direct only)"
 
-        # From docs: SOS_TRANSITIVITY_LAMBDA = 0.30 (updated)
-        assert cfg.SOS_TRANSITIVITY_LAMBDA == 0.30, \
-            "SOS_TRANSITIVITY_LAMBDA should be 0.30 as documented"
+        # SOS_TRANSITIVITY_LAMBDA = 0.0 (disabled)
+        assert cfg.SOS_TRANSITIVITY_LAMBDA == 0.0, \
+            "SOS_TRANSITIVITY_LAMBDA should be 0.0 (disabled)"
 
         # From docs: SOS_REPEAT_CAP = 2 (reduced from 4 to prevent regional rival dominance)
         assert cfg.SOS_REPEAT_CAP == 2, \
