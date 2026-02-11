@@ -57,10 +57,16 @@ class V53EConfig:
     SOS_ITERATIONS: int = 1  # Single-pass: direct opponent strength only (no transitive propagation)
     SOS_TRANSITIVITY_LAMBDA: float = 0.0  # Pure direct SOS — transitive propagation causes closed-league inflation
 
-    # Power-SOS Co-Calculation: Use opponent's FULL power score (including their SOS) for SOS calculation
-    # This ensures that playing teams with tough schedules properly boosts your SOS
-    # Set to 0 to disable (use old off/def-only approach), 3-5 iterations recommended
-    SOS_POWER_ITERATIONS: int = 5  # Number of power-SOS refinement cycles (0 = disabled)
+    # Power-SOS Co-Calculation: DISABLED
+    # The loop was intended to iterate using powerscore_adj (includes SOS) as the strength
+    # source, letting schedule difficulty propagate transitively. However, to prevent circular
+    # inflation, it uses abs_strength (OFF/DEF only) — which is identical to base_strength_map
+    # used in the initial SOS pass. This means the loop recomputes the same raw SOS but WITHOUT
+    # PageRank dampening, SCF, or isolation cap. The 80/20 blend then exponentially washes away
+    # those protections (after 5 iterations: 0.20^5 = 0.03% dampened signal remains).
+    # Net effect: SCF team-specific dampening is erased, flipping rank order for isolated teams.
+    # Set to 0 to preserve SCF + PageRank + isolation cap from the initial SOS pass.
+    SOS_POWER_ITERATIONS: int = 0  # Disabled: loop erased SCF/PageRank (see comment above)
     SOS_POWER_DAMPING: float = 0.80  # Damping factor to prevent oscillation (0.5-0.9 recommended)
 
     # SOS sample size weighting
