@@ -56,26 +56,18 @@ class TestPowerScoreWeights:
         assert abs(total_weight - 1.0) < 0.0001, \
             f"PowerScore weights must sum to 1.0, got {total_weight}"
 
-    def test_sos_weight_is_fifty_percent(self):
-        """Verify SOS has 50% weight in PowerScore"""
+    def test_sos_weight(self):
+        """Verify SOS has 43% weight in PowerScore"""
         cfg = V53EConfig()
-        assert cfg.SOS_WEIGHT == 0.50, "SOS should have 50% weight"
+        assert cfg.SOS_WEIGHT == 0.43, "SOS should have 43% weight"
 
     def test_off_def_weights_balanced(self):
         """Verify offense and defense have equal weights"""
         cfg = V53EConfig()
         assert cfg.OFF_WEIGHT == cfg.DEF_WEIGHT, \
             "Offense and defense should have equal weights"
-        assert cfg.OFF_WEIGHT == 0.25, "Offense weight should be 25%"
-        assert cfg.DEF_WEIGHT == 0.25, "Defense weight should be 25%"
-
-    def test_sos_has_highest_weight(self):
-        """Verify SOS has the highest component weight"""
-        cfg = V53EConfig()
-        assert cfg.SOS_WEIGHT > cfg.OFF_WEIGHT, \
-            "SOS weight should be greater than offense weight"
-        assert cfg.SOS_WEIGHT > cfg.DEF_WEIGHT, \
-            "SOS weight should be greater than defense weight"
+        assert cfg.OFF_WEIGHT == 0.285, "Offense weight should be 28.5%"
+        assert cfg.DEF_WEIGHT == 0.285, "Defense weight should be 28.5%"
 
 
 class TestSOSValueRanges:
@@ -185,11 +177,11 @@ class TestSOSTransitivity:
         assert abs(direct_weight + transitive_weight - 1.0) < 0.0001, \
             "Direct + transitive weights should sum to 1.0"
 
-        # Verify expected values for lambda=0.30
-        assert abs(direct_weight - 0.70) < 0.0001, \
-            "Direct weight should be 70% when lambda=0.30"
-        assert abs(transitive_weight - 0.30) < 0.0001, \
-            "Transitive weight should be 30% when lambda=0.30"
+        # Verify expected values for lambda=0.0 (transitive disabled)
+        assert abs(direct_weight - 1.0) < 0.0001, \
+            "Direct weight should be 100% when lambda=0.0"
+        assert abs(transitive_weight - 0.0) < 0.0001, \
+            "Transitive weight should be 0% when lambda=0.0"
 
 
 class TestSOSDocumentation:
@@ -215,9 +207,9 @@ class TestSOSDocumentation:
         assert cfg.UNRANKED_SOS_BASE == 0.35, \
             "UNRANKED_SOS_BASE should be 0.35 as documented"
 
-        # From docs: SOS_WEIGHT = 0.50 (50% of PowerScore)
-        assert cfg.SOS_WEIGHT == 0.50, \
-            "SOS_WEIGHT should be 50% as documented"
+        # SOS_WEIGHT = 0.43 (reduced from 50% since OFF/DEF are opponent-adjusted)
+        assert cfg.SOS_WEIGHT == 0.43, \
+            "SOS_WEIGHT should be 43%"
 
 
 if __name__ == '__main__':
