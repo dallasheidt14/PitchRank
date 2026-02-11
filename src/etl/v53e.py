@@ -57,11 +57,10 @@ class V53EConfig:
     SOS_ITERATIONS: int = 3
     SOS_TRANSITIVITY_LAMBDA: float = 0.20  # Balanced transitivity weight (80% direct, 20% transitive)
 
-    # Power-SOS Co-Calculation: DISABLED — loop erases SCF + PageRank dampening.
-    # The loop rebuilds SOS from powerscore_adj*anchor (raw, no SCF/PageRank) then blends
-    # with damping=0.7. After 3 iterations: 97.3% raw / 2.7% SCF-dampened — effectively
-    # undoing all bubble protection. Set to 0 until loop is redesigned to re-apply SCF.
-    SOS_POWER_ITERATIONS: int = 0  # DISABLED: erases SCF after 3 iters (see math above)
+    # Power-SOS Co-Calculation: Use opponent's FULL power score (including their SOS) for SOS calculation
+    # This ensures that playing teams with tough schedules properly boosts your SOS
+    # Set to 0 to disable (use old off/def-only approach), 2-3 iterations recommended
+    SOS_POWER_ITERATIONS: int = 3  # Number of power-SOS refinement cycles (0 = disabled)
     SOS_POWER_DAMPING: float = 0.7  # Damping factor to prevent oscillation (0.5-0.9 recommended)
 
     # SOS sample size weighting
@@ -136,12 +135,15 @@ class V53EConfig:
     # =========================
     # PageRank-Style SOS Dampening (Layer 8c)
     # =========================
-    # DISABLED: Stacks with SCF causing double-dampening. PageRank compresses ALL teams
-    # by 15% toward 0.5 (blanket penalty), then SCF adds up to 60% more for isolated teams.
-    # Combined: isolated teams lose 77% of SOS deviation. SCF alone (60% max) is sufficient
-    # and more targeted. SOS_ITERATIONS with lambda=0.20 converges without PageRank
-    # since lambda < 1.0 guarantees contraction. Re-enable only if SCF is disabled.
-    PAGERANK_DAMPENING_ENABLED: bool = False
+    # Math safety net: Prevents SOS from drifting upward infinitely in isolated clusters.
+    # Even if SCF isn't applied, this ensures iterations converge toward reality.
+    #
+    # Formula: SOS_new = (1 - alpha) * baseline + alpha * avg(opponent_strengths)
+    # Where alpha is the dampening factor (like PageRank's damping factor)
+    #
+    # With alpha=0.85 (default), 15% of SOS is anchored to baseline, 85% from opponents.
+    # This prevents isolated clusters from inflating beyond a certain point.
+    PAGERANK_DAMPENING_ENABLED: bool = True
     PAGERANK_ALPHA: float = 0.85  # Dampening factor (0.85 = 15% baseline anchor)
     PAGERANK_BASELINE: float = 0.5  # Baseline SOS to anchor toward (neutral)
 
