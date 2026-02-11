@@ -139,14 +139,12 @@ class V53EConfig:
     # PageRank-Style SOS Dampening (Layer 8c)
     # =========================
     # Math safety net: Prevents SOS from drifting upward infinitely in isolated clusters.
-    # Even if SCF isn't applied, this ensures iterations converge toward reality.
-    #
-    # Formula: SOS_new = (1 - alpha) * baseline + alpha * avg(opponent_strengths)
-    # Where alpha is the dampening factor (like PageRank's damping factor)
-    #
-    # With alpha=0.85 (default), 15% of SOS is anchored to baseline, 85% from opponents.
-    # This prevents isolated clusters from inflating beyond a certain point.
-    PAGERANK_DAMPENING_ENABLED: bool = True
+    # DISABLED: Redundant when SCF is active — both compress SOS toward 0.5,
+    # and stacking them causes double-dampening that over-penalizes in-state teams.
+    # SCF handles bubble detection in a smarter, targeted way. PageRank adds a
+    # blanket 15% compression on ALL teams including well-connected ones.
+    # Re-enable only if SCF is disabled.
+    PAGERANK_DAMPENING_ENABLED: bool = False
     PAGERANK_ALPHA: float = 0.85  # Dampening factor (0.85 = 15% baseline anchor)
     PAGERANK_BASELINE: float = 0.5  # Baseline SOS to anchor toward (neutral)
 
