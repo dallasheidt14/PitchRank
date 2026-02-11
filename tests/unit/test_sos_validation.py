@@ -57,17 +57,17 @@ class TestPowerScoreWeights:
             f"PowerScore weights must sum to 1.0, got {total_weight}"
 
     def test_sos_weight(self):
-        """Verify SOS has 43% weight in PowerScore"""
+        """Verify SOS has 50% weight in PowerScore"""
         cfg = V53EConfig()
-        assert cfg.SOS_WEIGHT == 0.43, "SOS should have 43% weight"
+        assert cfg.SOS_WEIGHT == 0.50, "SOS should have 50% weight"
 
     def test_off_def_weights_balanced(self):
         """Verify offense and defense have equal weights"""
         cfg = V53EConfig()
         assert cfg.OFF_WEIGHT == cfg.DEF_WEIGHT, \
             "Offense and defense should have equal weights"
-        assert cfg.OFF_WEIGHT == 0.285, "Offense weight should be 28.5%"
-        assert cfg.DEF_WEIGHT == 0.285, "Defense weight should be 28.5%"
+        assert cfg.OFF_WEIGHT == 0.25, "Offense weight should be 25%"
+        assert cfg.DEF_WEIGHT == 0.25, "Defense weight should be 25%"
 
 
 class TestSOSValueRanges:
@@ -207,9 +207,9 @@ class TestSOSDocumentation:
         assert cfg.UNRANKED_SOS_BASE == 0.35, \
             "UNRANKED_SOS_BASE should be 0.35 as documented"
 
-        # SOS_WEIGHT = 0.43 (reduced from 50% since OFF/DEF are opponent-adjusted)
-        assert cfg.SOS_WEIGHT == 0.43, \
-            "SOS_WEIGHT should be 43%"
+        # SOS_WEIGHT = 0.50
+        assert cfg.SOS_WEIGHT == 0.50, \
+            "SOS_WEIGHT should be 50%"
 
 
 if __name__ == '__main__':
