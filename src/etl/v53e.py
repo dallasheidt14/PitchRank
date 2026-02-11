@@ -84,9 +84,9 @@ class V53EConfig:
     OPPONENT_ADJUST_CLIP_MAX: float = 1.6  # Max multiplier (conservative bounds)
 
     # Layer 10 weights
-    OFF_WEIGHT: float = 0.285
-    DEF_WEIGHT: float = 0.285
-    SOS_WEIGHT: float = 0.43
+    OFF_WEIGHT: float = 0.25
+    DEF_WEIGHT: float = 0.25
+    SOS_WEIGHT: float = 0.50
 
     # Provisional
     MIN_GAMES_PROVISIONAL: int = 5
