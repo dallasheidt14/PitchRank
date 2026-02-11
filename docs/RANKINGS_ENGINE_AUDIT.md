@@ -89,13 +89,14 @@ Uses strength estimates from pre-adjustment OFF/DEF to adjust OFF/DEF. A second 
 
 ## MEDIUM — Accuracy Degraders
 
-### 8. Power-SOS Co-Calculation Iterations Are Effectively No-Ops
+### 8. Power-SOS Co-Calculation Loop Erases SCF + PageRank — FIXED
 
 **Location**: `src/etl/v53e.py:1281-1383`
+**Status**: **FIXED** — `SOS_POWER_ITERATIONS` set to 0
 
-The loop uses `abs_strength` (static, OFF/DEF only) instead of `powerscore_adj` (which includes SOS). Since `abs_strength` doesn't change between iterations, the 5 iterations produce negligible change.
+The loop used `abs_strength` (identical to `base_strength_map`) to recompute the same raw SOS as the initial pass — but WITHOUT PageRank dampening, SCF, or isolation cap. The 80/20 blend (`SOS_POWER_DAMPING=0.80`) exponentially washed away the protected values: after 5 iterations, only `0.20^5 = 0.03%` of the SCF-corrected SOS remained. Since SCF is team-specific (unlike PageRank which is affine), this actively flipped rank order for isolated bubble teams.
 
-**Fix**: Either use `powerscore_adj` (accepting the circularity risk with dampening) or reduce `SOS_POWER_ITERATIONS` to 0 to save compute.
+**Fix applied**: `SOS_POWER_ITERATIONS: int = 0` — skips the loop entirely, preserving all anti-inflation mechanisms from the initial SOS pass.
 
 ### 9. Small Cohort SOS Percentile Normalization Creates Noise
 
