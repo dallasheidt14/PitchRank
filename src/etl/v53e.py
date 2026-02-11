@@ -54,17 +54,15 @@ class V53EConfig:
     # Layer 8 (SOS)
     UNRANKED_SOS_BASE: float = 0.35
     SOS_REPEAT_CAP: int = 2  # Reduced from 4 to prevent regional rivals from dominating SOS
-    SOS_ITERATIONS: int = 1  # Single-pass: direct opponent strength only (no transitive propagation)
-    SOS_TRANSITIVITY_LAMBDA: float = 0.0  # Pure direct SOS — transitive propagation causes closed-league inflation
+    SOS_ITERATIONS: int = 3
+    SOS_TRANSITIVITY_LAMBDA: float = 0.20  # Balanced transitivity weight (80% direct, 20% transitive)
 
-    # Power-SOS Co-Calculation: DISABLED — loop erases SCF + PageRank dampening
-    # The loop recomputes SOS from abs_strength (same inputs as the initial pass) but
-    # WITHOUT re-applying PageRank dampening, SCF, or isolation caps. After 5 iterations
-    # the 80/20 blend washes away all anti-inflation corrections, causing isolated regional
-    # bubble teams to show inflated SOS over nationally-scheduled teams.
-    # Set to 0 until the loop is redesigned to re-apply corrections each iteration.
-    SOS_POWER_ITERATIONS: int = 0  # DISABLED: was erasing SCF/PageRank (see comment above)
-    SOS_POWER_DAMPING: float = 0.80  # Damping factor to prevent oscillation (0.5-0.9 recommended)
+    # Power-SOS Co-Calculation: DISABLED — loop erases SCF + PageRank dampening.
+    # The loop rebuilds SOS from powerscore_adj*anchor (raw, no SCF/PageRank) then blends
+    # with damping=0.7. After 3 iterations: 97.3% raw / 2.7% SCF-dampened — effectively
+    # undoing all bubble protection. Set to 0 until loop is redesigned to re-apply SCF.
+    SOS_POWER_ITERATIONS: int = 0  # DISABLED: erases SCF after 3 iters (see math above)
+    SOS_POWER_DAMPING: float = 0.7  # Damping factor to prevent oscillation (0.5-0.9 recommended)
 
     # SOS sample size weighting
     # NOTE: SOS_SAMPLE_SIZE_THRESHOLD is DEPRECATED - pre-percentile shrinkage was removed
@@ -138,15 +136,12 @@ class V53EConfig:
     # =========================
     # PageRank-Style SOS Dampening (Layer 8c)
     # =========================
-    # Math safety net: Prevents SOS from drifting upward infinitely in isolated clusters.
-    # Even if SCF isn't applied, this ensures iterations converge toward reality.
-    #
-    # Formula: SOS_new = (1 - alpha) * baseline + alpha * avg(opponent_strengths)
-    # Where alpha is the dampening factor (like PageRank's damping factor)
-    #
-    # With alpha=0.85 (default), 15% of SOS is anchored to baseline, 85% from opponents.
-    # This prevents isolated clusters from inflating beyond a certain point.
-    PAGERANK_DAMPENING_ENABLED: bool = True
+    # DISABLED: Stacks with SCF causing double-dampening. PageRank compresses ALL teams
+    # by 15% toward 0.5 (blanket penalty), then SCF adds up to 60% more for isolated teams.
+    # Combined: isolated teams lose 77% of SOS deviation. SCF alone (60% max) is sufficient
+    # and more targeted. SOS_ITERATIONS with lambda=0.20 converges without PageRank
+    # since lambda < 1.0 guarantees contraction. Re-enable only if SCF is disabled.
+    PAGERANK_DAMPENING_ENABLED: bool = False
     PAGERANK_ALPHA: float = 0.85  # Dampening factor (0.85 = 15% baseline anchor)
     PAGERANK_BASELINE: float = 0.5  # Baseline SOS to anchor toward (neutral)
 
@@ -462,8 +457,7 @@ def _adjust_for_opponent_strength(
     games: pd.DataFrame,
     strength_map: Dict[str, float],
     cfg: V53EConfig,
-    baseline: Optional[float] = None,
-    global_strength_map: Optional[Dict[str, float]] = None,
+    baseline: Optional[float] = None
 ) -> pd.DataFrame:
     """
     Adjust goals for/against based on opponent strength to fix double-counting problem.
@@ -476,8 +470,6 @@ def _adjust_for_opponent_strength(
         strength_map: Dict mapping team_id to strength (0-1)
         cfg: Configuration
         baseline: Reference strength for adjustment (defaults to cfg.OPPONENT_ADJUST_BASELINE)
-        global_strength_map: Optional dict of team_id -> abs_strength from all cohorts.
-                            Used for cross-age/cross-gender opponent lookups.
 
     Returns:
         DataFrame with additional columns [gf_adjusted, ga_adjusted]
@@ -489,17 +481,9 @@ def _adjust_for_opponent_strength(
         baseline = cfg.OPPONENT_ADJUST_BASELINE
 
     # Get opponent strength for each game
-    # Try local cohort first, then cross-age global map, then fallback
-    def _lookup_opp_strength(opp_id):
-        if opp_id in strength_map:
-            return strength_map[opp_id]
-        if global_strength_map:
-            opp_id_str = str(opp_id)
-            if opp_id_str in global_strength_map:
-                return global_strength_map[opp_id_str]
-        return cfg.UNRANKED_SOS_BASE
-
-    g["opp_strength"] = g["opp_id"].map(_lookup_opp_strength)
+    g["opp_strength"] = g["opp_id"].map(
+        lambda o: strength_map.get(o, cfg.UNRANKED_SOS_BASE)
+    )
 
     # Calculate adjustment multipliers
     # Offense: score against strong opponent = more credit
@@ -763,11 +747,7 @@ def compute_rankings(
         baseline = actual_mean_strength
 
         # Adjust games for opponent strength
-        # Pass global_strength_map so cross-age opponents get real strength instead of 0.35
-        g_adjusted = _adjust_for_opponent_strength(
-            g, strength_map, cfg, baseline=baseline,
-            global_strength_map=global_strength_map,
-        )
+        g_adjusted = _adjust_for_opponent_strength(g, strength_map, cfg, baseline=baseline)
 
         # Re-aggregate with adjusted values
         g_adjusted["gf_weighted_adj"] = g_adjusted["gf_adjusted"] * g_adjusted["w_game"]
@@ -848,18 +828,8 @@ def compute_rankings(
     # -------------------------
     # Layer 5: Adaptive K per game (by abs strength gap)
     # -------------------------
-    def _lookup_strength(tid):
-        """Look up team strength from local cohort, then global cross-age map."""
-        if tid in strength_map:
-            return strength_map[tid]
-        if global_strength_map:
-            tid_str = str(tid)
-            if tid_str in global_strength_map:
-                return global_strength_map[tid_str]
-        return 0.5  # neutral fallback for adaptive K
-
     def adaptive_k(row) -> float:
-        gap = abs(_lookup_strength(row["team_id"]) - _lookup_strength(row["opp_id"]))
+        gap = abs(strength_map.get(row["team_id"], 0.5) - strength_map.get(row["opp_id"], 0.5))
         return cfg.ADAPTIVE_K_ALPHA * (1.0 + cfg.ADAPTIVE_K_BETA * gap)
 
     g["k_adapt"] = g.apply(adaptive_k, axis=1)
@@ -867,12 +837,7 @@ def compute_rankings(
     # -------------------------
     # Layer 8: SOS (weights + repeat-cap + iterations)
     # -------------------------
-    # SOS weight uses recency only (w_game), NOT adaptive K.
-    # Adaptive K over-weights games with large strength gaps, which systematically
-    # inflates SOS for weak teams (their strong opponents get high gap weight) and
-    # deflates SOS for strong teams (their strong opponents get low gap weight).
-    # SOS should measure average opponent strength with recency weighting only.
-    g["w_sos"] = g["w_game"]
+    g["w_sos"] = g["w_game"] * g["k_adapt"]
 
     g = g.sort_values(["team_id", "opp_id", "w_sos"], ascending=[True, True, False])
     g["repeat_rank"] = g.groupby(["team_id", "opp_id"])["w_sos"].rank(ascending=False, method="first")
@@ -930,10 +895,9 @@ def compute_rankings(
     # This represents how good opponents are at OFF/DEF
     # For cross-age/cross-gender opponents, use global_strength_map if available
 
-    # Diagnostic: track cross-age lookups and default credit assignments
+    # Diagnostic: track cross-age lookups
     cross_age_found = 0
     cross_age_missing = 0
-    default_credit_opponents = []  # Track which opponent IDs got default credit
 
     def get_opponent_strength(opp_id):
         nonlocal cross_age_found, cross_age_missing
@@ -946,41 +910,16 @@ def compute_rankings(
         if global_strength_map and opp_id_str in global_strength_map:
             cross_age_found += 1
             return global_strength_map[opp_id_str]
-        # Unknown opponent - track for diagnostics
+        # Unknown opponent
         cross_age_missing += 1
-        default_credit_opponents.append(opp_id)
         return cfg.UNRANKED_SOS_BASE
 
     g_sos["opp_strength"] = g_sos["opp_id"].map(get_opponent_strength)
 
     # Log cross-age lookup stats
-    total_opp_lookups = len(g_sos)
-    local_found = total_opp_lookups - cross_age_found - cross_age_missing
     logger.info(
-        f"🔍 SOS opponent lookups: total={total_opp_lookups}, "
-        f"local_cohort={local_found}, cross_age_found={cross_age_found}, "
-        f"default_credit={cross_age_missing} "
-        f"(global_map_size={len(global_strength_map) if global_strength_map else 0})"
-    )
-    if cross_age_missing > 0:
-        unique_default = len(set(default_credit_opponents))
-        logger.warning(
-            f"⚠️  {cross_age_missing} opponent lookups ({unique_default} unique teams) "
-            f"fell back to UNRANKED_SOS_BASE={cfg.UNRANKED_SOS_BASE}. "
-            f"These opponents are not in any cohort's strength map."
-        )
-        # Log which teams are most affected by default credit opponents
-        if unique_default <= 20:
-            for opp_id in sorted(set(default_credit_opponents)):
-                count = default_credit_opponents.count(opp_id)
-                logger.warning(f"  📍 Default credit opponent: {str(opp_id)[:12]}... ({count} games)")
-
-    # Log cohort-level SOS stats for diagnostics
-    avg_base_strength = np.mean(list(base_strength_map.values())) if base_strength_map else 0.0
-    logger.info(
-        f"📊 Base strength map: n={len(base_strength_map)}, "
-        f"avg={avg_base_strength:.4f}, "
-        f"UNRANKED_SOS_BASE={cfg.UNRANKED_SOS_BASE}"
+        f"🔍 Cross-age SOS lookups: global_map_size={len(global_strength_map) if global_strength_map else 0}, "
+        f"found={cross_age_found}, missing={cross_age_missing}"
     )
 
     direct = (
@@ -1309,14 +1248,9 @@ def compute_rankings(
             prev_sos = team["sos"].values.copy()
             prev_power = team["powerscore_adj"].values.copy()
 
-            # Step 1: Build opponent strength map from abs_strength (OFF/DEF only)
-            # Uses the pre-computed abs_strength (= power_presos * anchor, clipped 0-1)
-            # instead of powerscore_adj (which includes SOS) to break the circular
-            # feedback loop where closed-league teams mutually inflate each other's
-            # SOS through iterations. abs_strength already captures quality of wins
-            # via the opponent adjustment layer. Static across iterations = single-pass
-            # SOS (no transitive propagation), which prevents bubble inflation.
-            full_power_strength_map = dict(zip(team_ids, team["abs_strength"].values))
+            # Step 1: Build FULL power strength map (vectorized - no iterrows)
+            full_power_values = (team["powerscore_adj"].values * anchors).clip(0.0, 1.0)
+            full_power_strength_map = dict(zip(team_ids, full_power_values))
 
             # Step 2: Vectorized opponent strength lookup
             def lookup_strength(opp_id):
