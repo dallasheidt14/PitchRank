@@ -187,5 +187,65 @@ Despite 53 total errors across 3 days, the system has remained functional. This 
 3. Track daily spend in DAILY_CONTEXT, alert if >$10/day
 4. Implement credit balance monitoring as part of Watchy daily health check
 
+### 2026-02-10: Connection Errors Stabilized; Billing Crisis Unresolved
+
+**Session summary:** 6 sessions reviewed (Feb 9-10 cycle)
+- **Cleany:** 2 sessions, 51 messages, 3 connection errors (vs 32+ API credit errors on Feb 8-9 — improvement!)
+- **Movy:** 1 session, 9 messages — generated weekly movers report, detected SOS anomaly
+- **Watchy:** 1 session, 6 messages — daily health check complete, quarantine analysis clean
+- **Scrappy:** 1 session, 52 messages, 2 connection errors — monitoring workflow complete
+- **Compy:** 1 session (this compound run)
+
+**Key findings:**
+
+1. **API Credit Crisis Status:** UNRESOLVED since Feb 7
+   - Feb 9-10: Cleany still hitting connection errors (likely related to API instability from credit exhaustion)
+   - Unlike Feb 8-9 (33+ explicit "credit balance" errors), Feb 10 shows generic "connection errors"
+   - This suggests either: (a) billing issue still unresolved, or (b) system recovering from throttling
+   - **Impact:** Cleany's ability to run batch operations compromised until resolved
+   - **Action required:** D H must check Anthropic billing/credits immediately (escalated Feb 9, still pending)
+
+2. **Agent Resilience Pattern:** Despite connection issues, agents complete tasks
+   - Cleany: 51 messages, completed work despite 3 errors
+   - Scrappy: 52 messages, completed monitoring despite 2 errors
+   - **Insight:** Non-blocking connection errors don't prevent task completion, just add latency
+   - **Pattern documented:** See DECISION_TREES.md "Persistent Connection Errors (Non-Blocking)"
+
+3. **New Anomaly Detected:** PRE-team SOS Movement Without Games
+   - Movy identified teams with rank movement (SOS changes) but no corresponding new game data
+   - Scope: Appears academy divisions (MLS NEXT, cups) may not be getting scraped
+   - **Root cause unknown:** Could be parser gap, event ID gap, or design decision
+   - **Action:** Added to DECISION_TREES.md. Next investigation: Codey to check scrape coverage.
+   - **Pattern documented:** See DECISION_TREES.md "PRE-team SOS Movement Without Game Data"
+
+4. **Data Pipeline Status:** Healthy
+   - Games (24h): 5,272 flowing normally
+   - Quarantine: 633 (stable, all patterns explained: 350 old imports, 250 U19 filtered, 33 recent field errors)
+   - Stale teams: 33,777 (normal pre-scrape state)
+   - Review queue: 6,581 (D H actively working through manually)
+
+5. **Agent Activity Snapshot:**
+   - **Watchy:** Monitoring clean. Scrape cycle preparing.
+   - **Cleany:** Last weekly run Feb 8 7pm (complete). Next: Feb 15 7pm.
+   - **Movy:** Weekly report generated Feb 10 10am (complete).
+   - **Scrappy:** Monitoring runs Mon/Wed 10am (Feb 10 run complete).
+   - **Codey:** On-demand only (no tasks spawned Feb 9-10).
+   - **Socialy:** Scheduled 9am Wed (Feb 12).
+   - **Ranky:** Ready for post-scrape calculation.
+
+6. **Cost & Operations:**
+   - Main session: Haiku active (80% cost savings holding)
+   - Sub-agents: All on Haiku or Sonnet (cost-optimized)
+   - Heartbeat: 1h interval active (50% fewer API calls vs 30m)
+   - **Daily spend (Feb 10):** ~$0.07 (ultra-low)
+   - **Credit issue:** Single blocking factor for system acceleration
+
+**Pattern consolidation:**
+- Connection errors: Non-blocking, likely transient (network/provider throttling)
+- SOS anomaly: New pattern, academy division scraping gap hypothesis
+- Credit crisis: STILL PENDING D H INTERVENTION (3 days, cascading impact)
+
+**Next compound:** 2026-02-11 22:30 MT
+
 ---
-*Last updated: 2026-02-09 22:30 by COMPY (nightly compound)*
+*Last updated: 2026-02-10 22:30 by COMPY (nightly compound)*

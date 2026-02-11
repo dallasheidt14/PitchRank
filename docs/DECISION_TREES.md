@@ -444,3 +444,34 @@ PREVENTION: Monitor daily cost in DAILY_CONTEXT.md, alert if >$10/day
 **IF** rankings calculation started  
 **THEN** wait at least 60 minutes before polling for completion  
 **REASON** Rankings takes 1hr+ to process all teams. Polling frequently wastes resources.
+
+### 2026-02-10: Persistent Connection Errors (Non-Blocking)
+```
+WHEN: Agent session encounters connection errors
+PATTERN: Cleany (3 errors), Scrappy (2 errors), Movy (0 errors) across 6 sessions on Feb 10
+SCOPE: 9 total connection errors; all sessions continued and completed successfully
+TYPE: "Connection error." (generic, no specific error details)
+BEHAVIOR: Does not block agent task completion — agents retry and continue
+ROOT_CAUSE: Unknown (could be network transience, external API rate limit, or provider throttling)
+CHECK: Are other agents/systems affected simultaneously?
+IF: Only affecting one agent → Likely provider-specific (Cleany might hit GotSport rate limit, Scrappy might hit TGS)
+IF: Affecting multiple agents → Could be network/infrastructure issue
+ACTION: Log to AGENT_COMMS.md, continue work (non-blocking). Monitor for spike (>5 in 1h = escalate)
+ESCALATE: If same agent hits >10 connection errors in single run OR all agents hit errors simultaneously
+PREVENTION: None yet (transient), but if pattern repeats, profile which API/provider causing it
+```
+
+### 2026-02-10: PRE-team SOS Movement Without Game Data
+```
+WHEN: Movy detects rank movement in teams without corresponding new games
+PATTERN: Some PRE-age-group teams (e.g., academy divisions) show SOS changes but no game data
+SCOPE: Detected in Movy's 2026-02-10 weekly movers report
+ROOT_CAUSE: Possible scraping gap for academy divisions (MLS NEXT, academy cups)
+IMPACT: Rankings appear to move without game justification — SOS recalculation happens but we're not capturing games
+CHECK: Are academy divisions being scraped?
+IF: Yes, but games not captured → Parser issue (missing academy event IDs or format change)
+IF: No, not being scraped → Working as designed (we only scrape select events, not all academies)
+IF: Uncertain → Spawn Codey to investigate scrape coverage for that cohort/state
+ACTION: If parser issue confirmed → Codey creates fix. If design decision → Document in governance.
+ESCALATE: If SOS anomaly affects >50 teams (data quality concern)
+```

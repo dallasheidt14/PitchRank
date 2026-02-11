@@ -2,7 +2,7 @@
 
 > Updated throughout the day. All agents should read this on startup.
 
-**Date:** 2026-02-09 (Monday)
+**Date:** 2026-02-10 (Tuesday)
 
 ## 🚫 PROTECTED (Never Touch Without Asking)
 - Rankings algorithm
@@ -27,7 +27,8 @@ D H: "you can do whatever without my approval just don't mess with algo and star
 - Manually reviewing each age group for data cleanliness
 - Working through match review queue
 
-## 🔄 Today's Activity (Feb 9 - Monday)
+## 🔄 Today's Activity (Feb 10 - Tuesday)
+- ✅ Movy Weekly Report (10am MT) — Generated movers analysis, detected PRE-team SOS anomaly
 - ✅ Scrappy Monday Monitor (10am MT) — all checks running
 - ✅ Scrape Games workflow triggered (25k limit)
 - ⚠️ Missing Games Backfill transient failure (GitHub 500 on repo fetch at 16:54 UTC) — **not escalating**, single occurrence
@@ -39,6 +40,7 @@ D H: "you can do whatever without my approval just don't mess with algo and star
 
 ## ⚠️ Known Issues
 - **[CRITICAL]** API Credit Exhaustion — Persistent across 3 days (Feb 7-9). 53 total errors. D H needs to verify Anthropic account/billing.
+- **[MONITOR]** PRE-team movement driven purely by SOS, no game data — may indicate scraping gap for academy divisions
 - **[RESOLVED]** TGS import was slow — Codey deployed 10-15x speedup (Feb 7)
 - **[TRANSIENT]** GitHub 500 on Process Missing Games (Feb 9 16:54 UTC) — single failure, GH issue not ours
 
