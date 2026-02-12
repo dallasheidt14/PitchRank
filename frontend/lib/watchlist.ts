@@ -141,9 +141,6 @@ export async function fetchWatchlist(): Promise<WatchlistResponse | null> {
       teamsCount: result.teams?.length ?? 0,
       teamIds: result.teams?.map((t: any) => t.team_id_master) ?? [],
     });
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'watchlist.ts:137',message:'fetchWatchlist success',data:{hasWatchlist:!!result.watchlist,watchlistId:result.watchlist?.id,teamsCount:result.teams?.length??0,teamIds:result.teams?.map((t:any)=>t.team_id_master)??[],fullResponse:JSON.stringify(result).substring(0,500)},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'J'})}).catch(()=>{});
-    // #endregion
     return result;
   } catch (error) {
     console.error("[fetchWatchlist] Error:", error);
@@ -161,9 +158,6 @@ export async function addToSupabaseWatchlist(
 ): Promise<{ success: boolean; message: string }> {
   try {
     console.log("[Watchlist] Adding team to Supabase:", teamIdMaster);
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'watchlist.ts:158',message:'Starting addToSupabaseWatchlist',data:{teamIdMaster},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'G'})}).catch(()=>{});
-    // #endregion
 
     const response = await fetch("/api/watchlist/add", {
       method: "POST",
@@ -174,9 +168,6 @@ export async function addToSupabaseWatchlist(
 
     const data = await response.json();
     console.log("[Watchlist] Add response:", response.status, data);
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'watchlist.ts:168',message:'API response received',data:{status:response.status,ok:response.ok,error:data.error,success:data.success},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'G'})}).catch(()=>{});
-    // #endregion
 
     if (!response.ok) {
       return { success: false, message: data.error || "Failed to add team" };
@@ -185,9 +176,6 @@ export async function addToSupabaseWatchlist(
     return { success: true, message: data.message || "Team added" };
   } catch (error) {
     console.error("[Watchlist] Error adding to watchlist:", error);
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'watchlist.ts:177',message:'Error in addToSupabaseWatchlist',data:{error:error instanceof Error?error.message:String(error)},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'G'})}).catch(()=>{});
-    // #endregion
     return { success: false, message: "Network error" };
   }
 }

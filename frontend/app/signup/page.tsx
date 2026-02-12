@@ -47,7 +47,7 @@ export default function SignupPage() {
 
     try {
       const { data, error: signUpError } = await supabase.auth.signUp({
-        email,
+        email: email.trim().toLowerCase(),
         password,
         options: {
           // Redirect to rankings page (accessible to all users)

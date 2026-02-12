@@ -99,11 +99,6 @@ export default function WatchlistPage() {
     refetchOnWindowFocus: true, // Refetch when window regains focus
   });
 
-  // #region agent log
-  useEffect(() => {
-    fetch('http://127.0.0.1:7242/ingest/2bcc726e-79d9-45ad-9da4-0e207c1777ae',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'watchlist/page.tsx:103',message:'Watchlist query state changed',data:{teamsCount:watchlistData?.teams?.length??0,hasWatchlist:!!watchlistData?.watchlist,queryStatus,fetchStatus,watchlistLoading,watchlistFetching,enabled:!userLoading && isPremium && !!user,teamIds:watchlistData?.teams?.map(t=>t.team_id_master)??[]},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'L'})}).catch(()=>{});
-  }, [watchlistData, queryStatus, fetchStatus, watchlistLoading, watchlistFetching, userLoading, isPremium, user]);
-  // #endregion
 
   // Debug query status
   console.log("[Watchlist Page] Query:", {
