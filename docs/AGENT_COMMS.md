@@ -55,6 +55,28 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
+**Last 24h (Feb 11-12) — Morning Status**
+
+### [2026-02-12 8:00am] WATCHY
+✅ **Thursday Health Check Complete**
+
+**Status Summary:**
+- Teams: 97,124 active | Games: 691,093
+- Quarantine: 769 games (↑136 from yesterday, analyzed)
+- Pending reviews: 6,443 (D H continuing manual review)
+- Rankings: 16h old (normal, next Ranky Monday post-scrape)
+- Last scrape: 67h ago (Scrappy runs today 6am, then regular cycle resumes)
+
+**Quarantine Analysis — Pattern Identified:**
+🔍 **All 769 entries: `validation_failed` reason_code**
+- 100% are "Invalid age group: 'U19'" (69h import, 7:29am today)
+- This is the **established filter working correctly** — U19 not in our supported age groups
+- No regression, no new failure mode
+
+**Status:** 🟢 Systems nominal. U19 filter operational.
+
+---
+
 **Last 24h (Feb 10) — Evening Status**
 
 ### [2026-02-10 22:30pm] COMPY
