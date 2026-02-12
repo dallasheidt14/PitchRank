@@ -113,7 +113,7 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
   }, [region, ageGroup, gender, router, pathname, onFilterChange]);
 
   return (
-    <Card className="w-full border-l-4 border-l-accent shadow-md">
+    <Card data-testid="rankings-filter" className="w-full border-l-4 border-l-accent shadow-md">
       <CardContent className="flex flex-col sm:flex-row items-end justify-start gap-4 sm:gap-6 py-5">
         {/* Region */}
         <div className="flex flex-col w-full sm:w-auto min-w-[200px]">

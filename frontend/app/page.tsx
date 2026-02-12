@@ -9,7 +9,7 @@ export default function Home() {
   return (
     <>
       {/* Hero Section - Athletic Editorial Style */}
-      <div className="relative bg-gradient-to-br from-primary via-primary to-[oklch(0.28_0.08_163)] text-primary-foreground py-16 sm:py-24 overflow-hidden">
+      <div data-testid="hero-section" className="relative bg-gradient-to-br from-primary via-primary to-[oklch(0.28_0.08_163)] text-primary-foreground py-16 sm:py-24 overflow-hidden">
         {/* Diagonal stripe pattern overlay */}
         <div className="absolute inset-0 bg-diagonal-stripes opacity-50" aria-hidden="true" />
         {/* Diagonal slash accent */}
@@ -34,12 +34,12 @@ export default function Home() {
             <HomeStats />
 
             <div className="flex flex-wrap gap-3">
-              <Button size="lg" variant="secondary" asChild className="font-semibold uppercase tracking-wide">
+              <Button data-testid="cta-rankings" size="lg" variant="secondary" asChild className="font-semibold uppercase tracking-wide">
                 <Link href="/rankings">
                   View Rankings
                 </Link>
               </Button>
-              <Button size="lg" variant="outline" asChild className="font-semibold uppercase tracking-wide bg-transparent border-primary-foreground text-primary-foreground hover:bg-primary-foreground hover:text-primary">
+              <Button data-testid="cta-methodology" size="lg" variant="outline" asChild className="font-semibold uppercase tracking-wide bg-transparent border-primary-foreground text-primary-foreground hover:bg-primary-foreground hover:text-primary">
                 <Link href="/methodology">
                   Our Methodology
                 </Link>
