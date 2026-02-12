@@ -27,22 +27,22 @@ D H: "you can do whatever without my approval just don't mess with algo and star
 - Manually reviewing each age group for data cleanliness
 - Working through match review queue
 
-## 🔄 Today's Activity (Feb 10 - Tuesday)
-- ✅ Movy Weekly Report (10am MT) — Generated movers analysis, detected PRE-team SOS anomaly
-- ✅ Scrappy Monday Monitor (10am MT) — all checks running
-- ✅ Scrape Games workflow triggered (25k limit)
-- ⚠️ Missing Games Backfill transient failure (GitHub 500 on repo fetch at 16:54 UTC) — **not escalating**, single occurrence
-- ✅ GotSport + Modular11/MLS NEXT scrapes operational
-- TGS Event Scrape: cancelled (routine)
-- Games (24h): 5,272 ✓
-- Quarantine: 365 ✓
-- Stale teams: 33,777 (normal pre-scrape state for Monday)
+## 🔄 Today's Activity (Feb 11 - Wednesday)
+- 🕷️ Scrappy Wednesday 6am Scrape START — CA/TX/AZ rotation
+  - Quarantine backlog: 633 (↑268 from yesterday, monitoring pattern)
+  - Scheduled games scraper slow/hanging (investigating)
+  - Big game finder: waiting for ranked teams
+- Games (DB): 691,005 total ✓
+- Quarantine: 633 ↑
+- 📱 **Socialy SEO Report (9am):** Sitemap healthy (918 URLs). Blog needs content. GSC creds missing.
+- 📈 **Movy Weekend Preview (11am):** Generated ✓ — 42 games, 2 marquee matchups ready to post
 
 ## ⚠️ Known Issues
 - **[CRITICAL]** API Credit Exhaustion — Persistent across 3 days (Feb 7-9). 53 total errors. D H needs to verify Anthropic account/billing.
 - **[MONITOR]** PRE-team movement driven purely by SOS, no game data — may indicate scraping gap for academy divisions
 - **[RESOLVED]** TGS import was slow — Codey deployed 10-15x speedup (Feb 7)
 - **[TRANSIENT]** GitHub 500 on Process Missing Games (Feb 9 16:54 UTC) — single failure, GH issue not ours
+- **[ACTION NEEDED]** GSC credentials missing (`gsc_credentials.json`) — blocks SEO reporting
 
 ## 🎯 Priorities
 1. Let D H focus on data review without noise
