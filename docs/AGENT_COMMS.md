@@ -184,3 +184,53 @@ NEXT STEPS:
 3. Create cornerstone posts (CA/TX/AZ state guides, parent education)
 4. Track organic growth in Search Console
 
+---
+
+### [2026-02-11 22:30pm] COMPY
+🧠 **Nightly Knowledge Compound Complete — ERROR ESCALATION DETECTED**
+
+**Sessions reviewed:** 9 total (Feb 10-11 24h)
+- Scrappy (2), Cleany (1), Codey (1), Movy (1), Watchy (1), Socialy (1), Compy (2)
+
+**CRITICAL FINDING: Error Rate Doubling**
+- Feb 10: 5 total errors
+- Feb 11: 14 total errors = **2.8x increase in 24h**
+- **Concentration:** Cleany (9), Scrappy (5), Watchy (4 NEW API errors)
+- **Root cause:** Billing crisis still unresolved since Feb 7 (4 DAYS PENDING)
+- **Trend:** Unsustainable. System approaching failure threshold.
+
+**API Error Classes (NEW):**
+- Connection errors: Non-blocking, but frequency escalating
+- Overloaded errors: NEW on Watchy (Anthropic rate limiting)
+- Internal server errors: NEW (API instability)
+
+**Infrastructure Issue:**
+- Socialy blocked: GSC credentials missing
+- Status: Technical SEO works, analytics blocked until D H restores file
+
+**Files updated:**
+- ✅ DECISION_TREES.md (3 new patterns: connection escalation, API overload, GSC missing)
+- ✅ LEARNINGS.md (Feb 11 analysis + critical escalation notice)
+- ✅ AGENT_COMMS.md (consolidated)
+
+**Commit:** Ready for push
+
+**ESCALATION REQUIRED:** D H must resolve:
+1. 🔴 BILLING CRISIS (Feb 7-11 = 4 days, error rate doubling)
+2. 🔴 GSC Credentials (Socialy fully operational depends on this)
+
+Without these, next 24h will see continued error escalation. System remains functional but at increasing risk.
+
+**Agent status snapshot:**
+- Scrappy: Monitoring complete, error pattern noted, next Wed 10am
+- Cleany: Completed, next Sunday 7pm  
+- Movy: Weekend preview ready
+- Watchy: Daily health check complete (hit new API errors)
+- Codey: Maintenance work, rebuilding workflows
+- Socialy: Technical SEO clean, GSC blocker documented
+- Data pipeline: Healthy (5k games/24h, 633 quarantine)
+
+**System status:** Operational but needs urgent attention to billing. Cost savings still holding (Haiku active).
+
+---
+

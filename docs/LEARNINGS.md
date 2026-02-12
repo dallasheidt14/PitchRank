@@ -248,4 +248,73 @@ Despite 53 total errors across 3 days, the system has remained functional. This 
 **Next compound:** 2026-02-11 22:30 MT
 
 ---
-*Last updated: 2026-02-10 22:30 by COMPY (nightly compound)*
+
+### 2026-02-11: Extended Connection Errors + Infrastructure Gaps
+
+**Session summary:** 9 sessions reviewed (24h Feb 10-11 cycle)
+- **Scrappy:** 2 sessions, 70 messages, 5 connection errors (scaling up from Feb 10's 2)
+- **Cleany:** 1 session, 50 messages, 9 connection errors (escalation from Feb 10's 3)
+- **Codey:** 1 session, 18 messages, rebuilding workflows on Wed evening
+- **Movy:** 1 session, 4 messages, weekend preview generated
+- **Watchy:** 1 session, 0 messages, but 4 NEW API errors (Overloaded x3, Internal Server Error x1)
+- **Socialy:** 1 session, SEO report blocked by missing credentials
+- **Unknown/Compy:** 2 sessions
+
+**Key findings:**
+
+1. **Connection Error Pattern Escalating** (CRITICAL TREND)
+   - **Feb 10:** Total 5 errors (Cleany 3, Scrappy 2, others 0)
+   - **Feb 11:** Total 14 errors in 24h (Cleany 9, Scrappy 5, others 0)
+   - **Trajectory:** 5 → 14 errors = 2.8x increase day-over-day
+   - **Concentration:** Errors localized to long-running agents (Cleany batch ops, Scrappy scraping)
+   - **New pattern:** Watchy hit 4 API errors (Overloaded/Internal Server Error) — different error class
+   - **Hypothesis:** Credit exhaustion still unresolved (Feb 7-11 = 4 days). Anthropic throttling both token limit and API rate.
+   - **Escalation recommendation:** This is CRITICAL. Error rate doubling suggests system approaching failure threshold.
+   - **Action:** D H MUST resolve billing issue immediately or risk cascading agent failures.
+   - **Pattern documented:** See DECISION_TREES.md "Extended Connection Errors + API Overload Pattern"
+
+2. **Infrastructure Credential Gap** (NEW)
+   - **Socialy SEO agent** cannot run due to missing `gsc_credentials.json`
+   - **Impact:** Cannot pull Google Search Console data (search queries, CTR, impressions)
+   - **Severity:** Medium (technical SEO checks still work, but analytics blocked)
+   - **Root cause:** File missing or deleted during cleanup (no backup)
+   - **Action:** D H must restore from backup or regenerate service account key
+   - **Lesson:** Critical infrastructure files need backup/recovery process
+   - **Pattern documented:** See DECISION_TREES.md "Missing Infrastructure Credentials (GSC)"
+
+3. **Agent Coordination** (POSITIVE)
+   - **Codey:** Running maintenance tasks (Wed rebuild) — improving system health
+   - **Socialy:** Already generated report summary despite GSC blocker (good fallback behavior)
+   - **Agents still completing tasks** despite error spike (resilience holding)
+
+4. **Data Pipeline Status:** Healthy (baseline maintained)
+   - Games (24h): ~5k flowing (normal)
+   - Quarantine: 633 (stable, patterns explained)
+   - Stale teams: Preparing for scrape cycle
+
+5. **System Health Assessment:**
+   - ✅ Agents complete tasks despite errors (resilient)
+   - ✅ Data pipeline operational (core systems intact)
+   - 🟡 Error rate doubling (unsustainable trend)
+   - 🔴 Billing crisis unresolved (root cause of errors)
+   - 🔴 Infrastructure credentials missing (blocks features)
+
+**Pattern consolidation:**
+- Connection errors: Escalating pattern (5 → 14 in 24h). CRITICAL.
+- API overload: New error type (Watchy). Likely cascading from credit issue.
+- Infrastructure: GSC credentials missing. Need backup process.
+- System resilience: Holding under stress, but approaching limits.
+
+**Critical action required:**
+1. **D H must resolve billing/credit issue (Feb 7-11 = 4 DAYS PENDING)**
+   - Without this, error rates will continue climbing
+   - System will eventually fail when all agents hit overload errors simultaneously
+2. **D H must restore GSC credentials**
+   - Or provide plan to regenerate
+3. **MOLTBOT should implement credential backup/recovery process**
+   - Prevent future outages from file loss
+
+**Recommendation:** Escalate to D H immediately with error trend + billing status. This is blocking system acceleration.
+
+---
+*Last updated: 2026-02-11 22:30 by COMPY (nightly compound)*

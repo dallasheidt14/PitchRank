@@ -475,3 +475,41 @@ IF: Uncertain → Spawn Codey to investigate scrape coverage for that cohort/sta
 ACTION: If parser issue confirmed → Codey creates fix. If design decision → Document in governance.
 ESCALATE: If SOS anomaly affects >50 teams (data quality concern)
 ```
+
+### 2026-02-11: Extended Connection Errors + API Overload Pattern
+```
+WHEN: Multiple agents hit connection errors + overload errors in same cycle
+PATTERN: Feb 11 24h review shows:
+  - Scrappy: 5 connection errors during Wed scrape (carrying over from Feb 10)
+  - Cleany: 9 connection errors across sessions (escalation from Feb 10's 3)
+  - Watchy: 4 NEW API errors (Overloaded x3, Internal Server Error x1) — NEW ERROR TYPE
+SCOPE: 18 errors across 5 agent sessions in 24h
+ROOT_CAUSE: Likely cascading effect of underlying credit exhaustion + provider throttling
+BEHAVIOR: Non-blocking (agents continue), but increasing error frequency suggests system under strain
+CHECK: Is Anthropic API credit issue still unresolved?
+IF: Yes (credit balance still low) → Provider is throttling. Needs D H billing fix (escalated since Feb 7).
+IF: No, credit restored → Connection errors should drop. If not, may be provider-side issue.
+ACTION: 
+  1. Log error frequency spike to DAILY_CONTEXT.md
+  2. Monitor for >20 errors/24h (indicates systemic issue)
+  3. If >20 errors in next cycle → Escalate to D H (possible Anthropic account issue)
+ESCALATE: If error frequency increases OR if errors become blocking (agents fail tasks)
+PREVENTION: Resolve credit issue (CRITICAL since Feb 7). Once resolved, monitor if error rate returns to baseline.
+```
+
+### 2026-02-11: Missing Infrastructure Credentials (GSC)
+```
+WHEN: Socialy SEO agent cannot access Google Search Console
+ISSUE: File not found: `/Users/pitchrankio-dev/Projects/PitchRank/scripts/gsc_credentials.json`
+ERROR: Invalid JWT Signature (service account authentication failed)
+SCOPE: Blocks all Google Search Console analytics (search queries, CTR, impressions, indexing)
+IMPACT: Cannot validate SEO strategy effectiveness or keyword rankings
+ROOT_CAUSE: Credentials file missing or deleted (likely during infrastructure cleanup)
+ACTION: D H must restore `gsc_credentials.json` from backup or re-generate service account key
+WORKAROUND: Socialy can proceed with technical SEO checks (sitemap, robots.txt) until GSC restored
+NEXT_STEPS:
+  1. D H restores GSC credentials
+  2. Re-run Socialy with full suite enabled
+  3. Document in team wiki: "GSC credentials backed up to [location]"
+ESCALATE: If >1 critical credentials missing (indicates backup/recovery process broken)
+```
