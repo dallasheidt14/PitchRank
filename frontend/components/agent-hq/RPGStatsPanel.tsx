@@ -12,22 +12,38 @@ interface RPGStatsPanelProps {
   };
 }
 
+// Per-agent stat profiles (will be replaced with real data from cron runs/learnings)
+const AGENT_STAT_PROFILES: Record<AgentId, Record<StatType, number>> = {
+  cleany: { ACC: 92, VOL: 78, TRU: 88, SPD: 65, WIS: 70, CRE: 45 },
+  scrappy: { SPD: 94, VOL: 89, TRU: 72, ACC: 68, WIS: 55, CRE: 40 },
+  ranky: { ACC: 96, WIS: 85, TRU: 90, SPD: 58, VOL: 60, CRE: 35 },
+  watchy: { WIS: 88, TRU: 91, SPD: 75, ACC: 82, VOL: 50, CRE: 30 },
+  codey: { CRE: 90, SPD: 82, TRU: 78, WIS: 85, ACC: 75, VOL: 65 },
+  movy: { CRE: 95, VOL: 88, SPD: 80, TRU: 72, WIS: 55, ACC: 60 },
+  socialy: { WIS: 86, CRE: 82, TRU: 75, SPD: 68, ACC: 70, VOL: 55 },
+  compy: { WIS: 94, TRU: 88, CRE: 76, SPD: 62, ACC: 80, VOL: 45 },
+};
+
+// Per-agent levels based on "experience" (runs + learnings)
+const AGENT_LEVELS: Record<AgentId, number> = {
+  cleany: 8,
+  scrappy: 7,
+  ranky: 9,
+  watchy: 6,
+  codey: 12,
+  movy: 5,
+  socialy: 4,
+  compy: 7,
+};
+
 // Mock stat calculation based on runs/learnings (will be replaced with real data)
 function calculateStatValue(agentId: AgentId, stat: StatType, agentData?: RPGStatsPanelProps['agentData']): number {
   if (agentData?.statValues?.[stat]) {
     return agentData.statValues[stat];
   }
   
-  // Default mock values based on agent primary stats
-  const agent = AGENTS[agentId];
-  const statIndex = agent.stats.indexOf(stat);
-  
-  if (statIndex === 0) return 85; // Primary stat
-  if (statIndex === 1) return 72; // Secondary stat
-  if (statIndex === 2) return 68; // Tertiary stat
-  if (statIndex === 3) return 55; // Quaternary stat
-  
-  return 50; // Default
+  // Use per-agent profile
+  return AGENT_STAT_PROFILES[agentId][stat] || 50;
 }
 
 function calculateLevel(agentId: AgentId, agentData?: RPGStatsPanelProps['agentData']): number {
@@ -35,8 +51,8 @@ function calculateLevel(agentId: AgentId, agentData?: RPGStatsPanelProps['agentD
     return agentData.level;
   }
   
-  // Mock level calculation (will be based on runs + learnings)
-  return Math.floor(Math.random() * 5) + 3; // LV.3-7 for now
+  // Use per-agent level (based on runs + learnings)
+  return AGENT_LEVELS[agentId] || 5;
 }
 
 export function RPGStatsPanel({ agentId, agentData }: RPGStatsPanelProps) {
