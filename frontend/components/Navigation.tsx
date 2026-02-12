@@ -34,7 +34,7 @@ export function Navigation() {
   };
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 safe-top">
+    <header data-testid="main-navigation" className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 safe-top">
       <div className="container flex h-16 items-center justify-between gap-3 sm:gap-4 px-3 sm:px-4">
         <Link
           href="/"
@@ -60,11 +60,12 @@ export function Navigation() {
         </div>
 
         {/* Desktop Navigation */}
-        <nav className="hidden lg:flex items-center gap-4 xl:gap-6 flex-shrink-0">
+        <nav data-testid="desktop-nav" className="hidden lg:flex items-center gap-4 xl:gap-6 flex-shrink-0">
           <Link
             href="/"
             className="text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent"
             aria-label="Home page"
+            data-testid="nav-home"
           >
             Home
           </Link>
@@ -72,6 +73,7 @@ export function Navigation() {
             href="/rankings"
             className="text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent"
             aria-label="Rankings page"
+            data-testid="nav-rankings"
           >
             Rankings
           </Link>
@@ -79,6 +81,7 @@ export function Navigation() {
             href="/compare"
             className="text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent"
             aria-label="Compare/Predict teams page"
+            data-testid="nav-compare"
           >
             Compare/Predict
           </Link>
@@ -86,6 +89,7 @@ export function Navigation() {
             href="/watchlist"
             className="text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent flex items-center gap-1.5"
             aria-label="Watchlist page"
+            data-testid="nav-watchlist"
           >
             <Star className="h-3.5 w-3.5" />
             Watchlist
@@ -94,6 +98,7 @@ export function Navigation() {
             href="/methodology"
             className="text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent"
             aria-label="Methodology page"
+            data-testid="nav-methodology"
           >
             Methodology
           </Link>
@@ -101,6 +106,7 @@ export function Navigation() {
             href="/blog"
             className="text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent"
             aria-label="Blog page"
+            data-testid="nav-blog"
           >
             Blog
           </Link>
@@ -126,7 +132,7 @@ export function Navigation() {
                   </Button>
                 </div>
               ) : (
-                <Link href="/login">
+                <Link href="/login" data-testid="nav-signin">
                   <Button variant="outline" size="sm" className="gap-1.5 ml-2">
                     <LogIn className="h-3.5 w-3.5" />
                     Sign in
@@ -148,6 +154,7 @@ export function Navigation() {
             className="flex-shrink-0 min-w-[44px] min-h-[44px]"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-label="Toggle menu"
+            data-testid="mobile-menu-toggle"
           >
             {mobileMenuOpen ? (
               <X className="h-6 w-6" />
@@ -160,7 +167,7 @@ export function Navigation() {
 
       {/* Mobile Menu */}
       {mobileMenuOpen && (
-        <div className="lg:hidden border-t bg-background">
+        <div className="lg:hidden border-t bg-background" data-testid="mobile-menu">
           <nav className="container px-4 py-4 space-y-1">
             <Link
               href="/"

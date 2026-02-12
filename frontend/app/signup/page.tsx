@@ -79,7 +79,7 @@ export default function SignupPage() {
   if (isSuccess) {
     return (
       <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center px-4 py-12">
-        <Card className="w-full max-w-md" variant="elevated">
+        <Card data-testid="signup-success-card" className="w-full max-w-md" variant="elevated">
           <CardHeader className="space-y-1 text-center">
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-500/10">
               <CheckCircle2 className="h-6 w-6 text-green-600" />
@@ -110,7 +110,7 @@ export default function SignupPage() {
 
   return (
     <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center px-4 py-12">
-      <Card className="w-full max-w-md" variant="elevated">
+      <Card data-testid="signup-card" className="w-full max-w-md" variant="elevated">
         <CardHeader className="space-y-1 text-center">
           <CardTitle className="text-2xl font-bold tracking-tight">
             Create an account
@@ -123,7 +123,7 @@ export default function SignupPage() {
         <form onSubmit={handleSignup}>
           <CardContent className="space-y-4">
             {error && (
-              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+              <div data-testid="signup-error" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
                 {error}
               </div>
             )}
@@ -187,7 +187,7 @@ export default function SignupPage() {
             </p>
           </CardContent>
           <CardFooter className="flex flex-col gap-4">
-            <Button type="submit" className="w-full" disabled={isLoading}>
+            <Button data-testid="signup-submit" type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

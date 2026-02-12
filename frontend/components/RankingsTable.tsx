@@ -288,10 +288,10 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
         totalTeams={sortedRankings.length}
         lastUpdated={rankings?.[0]?.last_calculated}
       />
-      <Card className="overflow-hidden border-0 shadow-lg">
+      <Card data-testid="rankings-table-card" className="overflow-hidden border-0 shadow-lg">
       <CardHeader className="bg-gradient-to-r from-primary to-[oklch(0.28_0.08_165)] text-primary-foreground relative">
         <div className="absolute right-0 top-0 w-2 h-full bg-accent -skew-x-12" aria-hidden="true" />
-        <CardTitle className="text-2xl sm:text-3xl font-bold uppercase tracking-wide flex items-center gap-2">
+        <CardTitle data-testid="rankings-title" className="text-2xl sm:text-3xl font-bold uppercase tracking-wide flex items-center gap-2">
           Complete Rankings
           {/* Show loading indicator when fetching new data (but not initial load) */}
           {isFetching && !isLoading && (
@@ -318,7 +318,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
             <div className="overflow-x-auto -mx-4 sm:mx-0 touch-pan-x">
               <div className="inline-block min-w-full align-middle min-w-[400px] sm:min-w-[500px]">
                 {/* Table Header */}
-                <div className="grid border-b-2 border-primary bg-secondary/50 sticky top-0 z-10" style={{ gridTemplateColumns: '60px 2fr 1fr 1fr' }}>
+                <div data-testid="rankings-table-header" className="grid border-b-2 border-primary bg-secondary/50 sticky top-0 z-10" style={{ gridTemplateColumns: '60px 2fr 1fr 1fr' }}>
                   <div className="px-1.5 sm:px-4 py-2 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <SortButton field="rank" label="Rank" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
                   </div>
@@ -375,6 +375,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                         <div
                           key={team.team_id_master}
                           data-index={virtualRow.index}
+                          data-testid={`rankings-row-${virtualRow.index}`}
                           ref={virtualizer.measureElement}
                           className={`
                             grid border-b group cursor-pointer
