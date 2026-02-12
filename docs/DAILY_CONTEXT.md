@@ -34,7 +34,7 @@ D H: "you can do whatever without my approval just don't mess with algo and star
   - Big game finder: waiting for ranked teams
 - Games (DB): 691,005 total ✓
 - Quarantine: 633 ↑
-- 📱 **Socialy SEO Report (9am):** Sitemap healthy (918 URLs). Blog needs content. GSC creds missing.
+- 📱 **Socialy SEO Report (9am):** Sitemap healthy (918 URLs). Blog needs content. GSC creds restored.
 - 📈 **Movy Weekend Preview (11am):** Generated ✓ — 42 games, 2 marquee matchups ready to post
 
 ## ⚠️ Known Issues
