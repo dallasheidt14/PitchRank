@@ -103,7 +103,7 @@ test.describe('Signup Page', () => {
 
     // Login link
     await expect(page.getByText('Already have an account?')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+    await expect(signupCard.getByRole('link', { name: 'Sign in' })).toBeVisible();
   });
 
   test('password fields have minimum length requirement', async ({ page }) => {
@@ -141,14 +141,23 @@ test.describe('Signup Page', () => {
   });
 
   test('shows error for short password', async ({ page }) => {
+    const passwordInput = page.getByLabel('Password', { exact: true });
+    const confirmPasswordInput = page.getByLabel('Confirm Password');
+
     await page.getByLabel('Email').fill('test@test.com');
-    await page.getByLabel('Password', { exact: true }).fill('123');
-    await page.getByLabel('Confirm Password').fill('123');
+    await passwordInput.fill('123');
+    await confirmPasswordInput.fill('123');
     await page.locator('[data-testid="signup-submit"]').click();
 
-    const errorDiv = page.locator('[data-testid="signup-error"]');
-    await expect(errorDiv).toBeVisible({ timeout: 5_000 });
-    await expect(errorDiv).toContainText('at least 6 characters');
+    // Native form validation blocks submit for minlength violations.
+    const [passwordTooShort, confirmPasswordTooShort] = await Promise.all([
+      passwordInput.evaluate((input: HTMLInputElement) => input.validity.tooShort),
+      confirmPasswordInput.evaluate((input: HTMLInputElement) => input.validity.tooShort),
+    ]);
+
+    expect(passwordTooShort).toBe(true);
+    expect(confirmPasswordTooShort).toBe(true);
+    await expect(page.locator('[data-testid="signup-error"]')).toHaveCount(0);
   });
 });
 
@@ -158,7 +167,7 @@ test.describe('Auth - Cross-Page Navigation', () => {
     await page.getByRole('link', { name: 'Sign up' }).click();
     await expect(page).toHaveURL(/\/signup/);
 
-    await page.getByRole('link', { name: 'Sign in' }).click();
+    await page.locator('[data-testid="signup-card"]').getByRole('link', { name: 'Sign in' }).click();
     await expect(page).toHaveURL(/\/login/);
   });
 });

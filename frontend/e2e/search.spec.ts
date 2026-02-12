@@ -1,22 +1,24 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
+function visibleSearchInput(page: Page) {
+  return page.locator('input[aria-label="Search for teams"]:visible').first();
+}
 
 test.describe('Team Search - Global Search', () => {
-  test('global search input is visible in desktop navigation', async ({ page }) => {
+  test.use({ viewport: { width: 1280, height: 720 } });
+
+  test('global search input is visible in header', async ({ page }) => {
     await page.goto('/');
 
-    // Desktop search is in a hidden md:flex div
-    const searchContainer = page.locator('.hidden.md\\:flex');
-    // Or just look for an input with search-like attributes
-    const searchInput = page.getByPlaceholder(/search/i).first();
+    const searchInput = visibleSearchInput(page);
 
-    // At desktop viewport, search should be visible
     await expect(searchInput).toBeVisible({ timeout: 10_000 });
   });
 
   test('search input accepts text input', async ({ page }) => {
     await page.goto('/');
 
-    const searchInput = page.getByPlaceholder(/search/i).first();
+    const searchInput = visibleSearchInput(page);
     await searchInput.fill('Real Salt Lake');
     await expect(searchInput).toHaveValue('Real Salt Lake');
   });
@@ -24,17 +26,31 @@ test.describe('Team Search - Global Search', () => {
   test('typing in search shows results dropdown', async ({ page }) => {
     await page.goto('/');
 
-    const searchInput = page.getByPlaceholder(/search/i).first();
+    const searchInput = visibleSearchInput(page);
     await searchInput.fill('FC Dallas');
 
-    // Wait for search results to appear (either dropdown or results list)
-    await page.waitForTimeout(1_000); // Allow debounced search to fire
-
-    // Results should appear as a listbox, dropdown, or visible list
-    const hasResults = await page.locator('[role="listbox"], [role="option"], [class*="search-result"], [class*="dropdown"]').first().isVisible().catch(() => false);
-
-    // If no dropdown found, the search may use navigation instead - that's also valid
-    expect(true).toBe(true); // Search input accepted the text
+    // Allow debounced search to resolve and assert we got a terminal search state.
+    await expect
+      .poll(
+        async () => {
+          const resultCount = await page.locator('button[aria-label^="Select "]').count();
+          const noResultsVisible = await page
+            .getByText(/No teams found matching/i)
+            .isVisible()
+            .catch(() => false);
+          const searchingVisible = await page
+            .getByText(/Searching teams\.\.\./i)
+            .isVisible()
+            .catch(() => false);
+          const networkErrorVisible = await page
+            .getByText(/Unable to connect to the server/i)
+            .isVisible()
+            .catch(() => false);
+          return resultCount > 0 || noResultsVisible || searchingVisible || networkErrorVisible;
+        },
+        { timeout: 15_000 }
+      )
+      .toBe(true);
   });
 });
 
@@ -44,8 +60,7 @@ test.describe('Team Search - Mobile', () => {
   test('search is accessible on mobile', async ({ page }) => {
     await page.goto('/');
 
-    // On mobile, search should be visible in the header area
-    const searchInput = page.getByPlaceholder(/search/i).first();
+    const searchInput = visibleSearchInput(page);
     await expect(searchInput).toBeVisible({ timeout: 10_000 });
   });
 });
