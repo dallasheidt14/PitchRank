@@ -69,12 +69,12 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
       if (response.ok) {
         const data = await response.json();
         setAliases(data.aliases || []);
+        setAliasesFetched(true);
       }
     } catch (error) {
       console.error('Failed to fetch aliases:', error);
     } finally {
       setAliasesLoading(false);
-      setAliasesFetched(true);
     }
   }, [teamId, aliasesFetched, aliasesLoading]);
 

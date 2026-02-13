@@ -50,6 +50,7 @@ export default function UpgradePage() {
     try {
       const priceId = plan === "monthly" ? PRICE_IDS.MONTHLY : PRICE_IDS.YEARLY;
       if (!priceId) {
+        console.error("[UpgradePage] Missing Stripe price ID for plan:", plan, { monthly: !!PRICE_IDS.MONTHLY, yearly: !!PRICE_IDS.YEARLY });
         throw new Error("Pricing is not configured. Please contact support.");
       }
       await startCheckout(priceId);

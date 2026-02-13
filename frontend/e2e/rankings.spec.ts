@@ -1,4 +1,31 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
+const RANKINGS_LOAD_TIMEOUT = 30_000;
+
+// Live rankings pages depend on external API responses that can be transiently slow.
+test.describe.configure({ timeout: 90_000, retries: 1 });
+
+async function waitForRankingsTable(page: Page) {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const tableCard = page.locator('[data-testid="rankings-table-card"]');
+      await expect(tableCard).toBeVisible({ timeout: RANKINGS_LOAD_TIMEOUT });
+      await expect(page.locator('[data-testid="rankings-table-header"]')).toBeVisible({
+        timeout: 10_000,
+      });
+      return tableCard;
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0) {
+        await page.reload({ waitUntil: 'domcontentloaded' });
+      }
+    }
+  }
+
+  throw lastError;
+}
 
 test.describe('Rankings Page', () => {
   test('loads rankings page with filter and table @smoke', async ({ page }) => {
@@ -13,9 +40,7 @@ test.describe('Rankings Page', () => {
   test('displays rankings table with data', async ({ page }) => {
     await page.goto('/rankings/national/u12/male');
 
-    // Wait for the rankings table to load
-    const tableCard = page.locator('[data-testid="rankings-table-card"]');
-    await expect(tableCard).toBeVisible({ timeout: 15_000 });
+    const tableCard = await waitForRankingsTable(page);
 
     // Title should show
     const title = page.locator('[data-testid="rankings-title"]');
@@ -29,8 +54,8 @@ test.describe('Rankings Page', () => {
   test('rankings table has sortable columns', async ({ page }) => {
     await page.goto('/rankings/national/u12/male');
 
+    await waitForRankingsTable(page);
     const header = page.locator('[data-testid="rankings-table-header"]');
-    await expect(header).toBeVisible({ timeout: 15_000 });
 
     // Check sort buttons exist
     await expect(header.getByRole('button', { name: /Sort by Rank/i })).toBeVisible();
@@ -39,10 +64,11 @@ test.describe('Rankings Page', () => {
 
   test('rankings rows are clickable and link to team pages', async ({ page }) => {
     await page.goto('/rankings/national/u12/male');
+    await waitForRankingsTable(page);
 
     // Wait for at least one row to appear
     const firstRow = page.locator('[data-testid="rankings-row-0"]');
-    await expect(firstRow).toBeVisible({ timeout: 15_000 });
+    await expect(firstRow).toBeVisible({ timeout: 10_000 });
 
     // Row should contain a link to team detail
     const teamLink = firstRow.locator('a[href*="/teams/"]');
@@ -51,9 +77,10 @@ test.describe('Rankings Page', () => {
 
   test('rankings display rank numbers starting from #1', async ({ page }) => {
     await page.goto('/rankings/national/u12/male');
+    await waitForRankingsTable(page);
 
     const firstRow = page.locator('[data-testid="rankings-row-0"]');
-    await expect(firstRow).toBeVisible({ timeout: 15_000 });
+    await expect(firstRow).toBeVisible({ timeout: 10_000 });
 
     // First row should show #1
     await expect(firstRow).toContainText('#1');
@@ -83,22 +110,19 @@ test.describe('Rankings - Dynamic Routes', () => {
   test('national U14 boys rankings load correctly', async ({ page }) => {
     await page.goto('/rankings/national/u14/male');
 
-    const tableCard = page.locator('[data-testid="rankings-table-card"]');
-    await expect(tableCard).toBeVisible({ timeout: 15_000 });
+    await waitForRankingsTable(page);
   });
 
   test('national U12 girls rankings load correctly', async ({ page }) => {
     await page.goto('/rankings/national/u12/female');
 
-    const tableCard = page.locator('[data-testid="rankings-table-card"]');
-    await expect(tableCard).toBeVisible({ timeout: 15_000 });
+    await waitForRankingsTable(page);
   });
 
   test('state-level rankings load correctly (TX)', async ({ page }) => {
     await page.goto('/rankings/TX/u12/male');
 
-    const tableCard = page.locator('[data-testid="rankings-table-card"]');
-    await expect(tableCard).toBeVisible({ timeout: 15_000 });
+    const tableCard = await waitForRankingsTable(page);
 
     // Description should mention the state
     await expect(tableCard).toContainText('TX');
@@ -107,8 +131,7 @@ test.describe('Rankings - Dynamic Routes', () => {
   test('state-level rankings load correctly (CA)', async ({ page }) => {
     await page.goto('/rankings/CA/u14/female');
 
-    const tableCard = page.locator('[data-testid="rankings-table-card"]');
-    await expect(tableCard).toBeVisible({ timeout: 15_000 });
+    const tableCard = await waitForRankingsTable(page);
 
     await expect(tableCard).toContainText('CA');
   });
@@ -126,7 +149,7 @@ test.describe('Rankings - Dynamic Routes', () => {
 test.describe('Rankings - Sort', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/rankings/national/u12/male');
-    await page.locator('[data-testid="rankings-table-header"]').waitFor({ timeout: 15_000 });
+    await waitForRankingsTable(page);
   });
 
   test('clicking Rank sort button toggles direction', async ({ page }) => {
