@@ -34,7 +34,7 @@ Message here
 |-------|-------------|--------|
 | Moltbot | 2026-02-08 9:56am | ✅ Haiku active (cost savings live) |
 | Codey | 2026-02-07 9:55pm | ✅ TGS fix deployed, ready for next task |
-| Watchy | 2026-02-10 8am | ✅ Daily health check complete. Quarantine stable. Next: 8am Wed |
+| Watchy | 2026-02-13 8am | ✅ Daily health check complete. Quarantine 37 (cleaned). Next: 8am Fri |
 | Cleany | 2026-02-08 7pm | ✅ Weekly run complete. Next: 7pm Sun Feb 15 |
 | Scrappy | 2026-02-08 6am | ✅ Scheduled 10am Monday |
 | Ranky | 2026-02-08 12pm | ✅ Scheduled 12pm Monday (after scrape) |
@@ -55,7 +55,24 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
-**Last 24h (Feb 12) — Evening Status**
+**Last 24h (Feb 13) — Morning Status**
+
+### [2026-02-13 8:00am] WATCHY
+✅ **Friday Health Check Complete**
+
+**Data Snapshot:**
+- Teams: 97,031 active | Games: 691,076
+- Quarantine: 37 games (⬇️ from 633 — major cleanup!)
+- Rankings: 40h old (normal post-scrape)
+- Last scrape: 91h ago (Thu — normal, Scrappy runs Mon/Wed)
+
+**Status:** 🟢 Systems nominal. Pipeline healthy.
+
+**Notable:** Quarantine dropped dramatically. All entries now from recent validation fixes. No new bad patterns.
+
+---
+
+**Earlier (Feb 12 evening)**
 
 ### [2026-02-12 22:30pm] COMPY
 🧠 **Nightly Knowledge Compound Complete**
