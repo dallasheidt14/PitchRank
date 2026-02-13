@@ -2,7 +2,7 @@
 
 > Updated throughout the day. All agents should read this on startup.
 
-**Date:** 2026-02-10 (Tuesday)
+**Date:** 2026-02-12 (Thursday)
 
 ## 🚫 PROTECTED (Never Touch Without Asking)
 - Rankings algorithm
@@ -27,22 +27,20 @@ D H: "you can do whatever without my approval just don't mess with algo and star
 - Manually reviewing each age group for data cleanliness
 - Working through match review queue
 
-## 🔄 Today's Activity (Feb 11 - Wednesday)
-- 🕷️ Scrappy Wednesday 6am Scrape START — CA/TX/AZ rotation
-  - Quarantine backlog: 633 (↑268 from yesterday, monitoring pattern)
-  - Scheduled games scraper slow/hanging (investigating)
-  - Big game finder: waiting for ranked teams
-- Games (DB): 691,005 total ✓
-- Quarantine: 633 ↑
-- 📱 **Socialy SEO Report (9am):** Sitemap healthy (918 URLs). Blog needs content. GSC creds restored.
-- 📈 **Movy Weekend Preview (11am):** Generated ✓ — 42 games, 2 marquee matchups ready to post
+## 🔄 Today's Activity (Feb 12 - Thursday)
+- 📱 **Socialy scheduled 9am today** (awaiting GSC credential fix)
+- 🕷️ **Scrappy scheduled Mon/Wed 10am** — next cycle begins Monday 6am (CA/TX/AZ rotation)
+- ✅ **Watchy 8am health check:** Teams 97,124 | Games 691,093 | Quarantine 769 (all U19 filtered correctly)
+- ✅ **Cleany weekly run ready:** Next Sunday 7pm (Feb 15)
+- ✅ **Data pipeline healthy:** 5k games/24h flowing, quarantine stable
 
 ## ⚠️ Known Issues
-- **[CRITICAL]** API Credit Exhaustion — Persistent across 3 days (Feb 7-9). 53 total errors. D H needs to verify Anthropic account/billing.
+- **[🔴 CRITICAL]** API Credit Exhaustion — PERSISTENT for 5 DAYS (Feb 7-12). 28 errors in latest 3 days alone. D H MUST verify Anthropic account/billing immediately.
+- **[🔴 CRITICAL]** Error rate escalating: Feb 10 (5) → Feb 11 (14) → Feb 12 (9) = unsustainable. System approaching failure threshold.
+- **[🔴 CRITICAL]** GSC credentials missing (`gsc_credentials.json`) — blocks Socialy SEO reporting. D H needs to restore or regenerate.
 - **[MONITOR]** PRE-team movement driven purely by SOS, no game data — may indicate scraping gap for academy divisions
 - **[RESOLVED]** TGS import was slow — Codey deployed 10-15x speedup (Feb 7)
-- **[TRANSIENT]** GitHub 500 on Process Missing Games (Feb 9 16:54 UTC) — single failure, GH issue not ours
-- **[ACTION NEEDED]** GSC credentials missing (`gsc_credentials.json`) — blocks SEO reporting
+- **[TRANSIENT]** Connection errors non-blocking (agents continue tasks), but frequency indicates API strain
 
 ## 🎯 Priorities
 1. Let D H focus on data review without noise

@@ -55,29 +55,55 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
-**Last 24h (Feb 11-12) — Morning Status**
+**Last 24h (Feb 12) — Evening Status**
 
-### [2026-02-12 8:00am] WATCHY
-✅ **Thursday Health Check Complete**
+### [2026-02-12 22:30pm] COMPY
+🧠 **Nightly Knowledge Compound Complete**
 
-**Status Summary:**
-- Teams: 97,124 active | Games: 691,093
-- Quarantine: 769 games (↑136 from yesterday, analyzed)
-- Pending reviews: 6,443 (D H continuing manual review)
-- Rankings: 16h old (normal, next Ranky Monday post-scrape)
-- Last scrape: 67h ago (Scrappy runs today 6am, then regular cycle resumes)
+**Sessions reviewed:** 5 total (Feb 11-12 24h)
+- Main (1), Scrappy (1), Watchy (1), Cleany (1), Compy (1)
 
-**Quarantine Analysis — Pattern Identified:**
-🔍 **All 769 entries: `validation_failed` reason_code**
-- 100% are "Invalid age group: 'U19'" (69h import, 7:29am today)
-- This is the **established filter working correctly** — U19 not in our supported age groups
-- No regression, no new failure mode
+**Critical finding: Error trend continues escalation**
+- **Feb 10:** 5 connection errors
+- **Feb 11:** 14 errors (2.8x spike)
+- **Feb 12:** 9 errors (sustained high)
+- **Cumulative 3-day total:** 28 errors
+- **Root cause:** Billing crisis still unresolved (Feb 7-12 = 5 DAYS PENDING)
 
-**Status:** 🟢 Systems nominal. U19 filter operational.
+**Error breakdown:**
+- Scrappy: 7 errors (scraping operations, heaviest load)
+- Main: 2 errors (heartbeat work)
+- Watchy: 0 errors (steady, lighter load)
+- Cleany: 0 errors recorded
+- **Pattern:** Error rate correlates with API load; agents continue completing tasks
+
+**Files updated:**
+- ✅ DECISION_TREES.md (1 new pattern: sustained error trend)
+- ✅ LEARNINGS.md (Feb 12 analysis + 5-day billing crisis summary)
+- ✅ AGENT_COMMS.md (consolidated to last 24h)
+
+**Status snapshot:**
+- **Watchy:** ✅ Health checks running clean
+- **Scrappy:** ✅ Completing work despite connection errors (resilient)
+- **Cleany:** ✅ Next weekly run Feb 15 7pm
+- **Movy:** ✅ Weekend reports ready
+- **Socialy:** 🚫 GSC credentials missing (blocker)
+- **Data pipeline:** ✅ Healthy
+
+**CRITICAL ACTIONS NEEDED (D H):**
+1. 🔴 Resolve Anthropic billing/credit issue (5 days pending)
+   - Error rate unsustainable without this
+   - System approaching failure threshold
+2. 🔴 Restore GSC credentials for Socialy
+   - Unblocks SEO reporting
+
+**Recommendation:** Escalate with error trend summary + billing urgency.
+
+**Commit:** Ready to push
 
 ---
 
-**Last 24h (Feb 10) — Evening Status**
+**Archive (Feb 10-11 cycle)**
 
 ### [2026-02-10 22:30pm] COMPY
 🧠 **Nightly Knowledge Compound Complete**

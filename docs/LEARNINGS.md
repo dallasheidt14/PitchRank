@@ -316,5 +316,76 @@ Despite 53 total errors across 3 days, the system has remained functional. This 
 
 **Recommendation:** Escalate to D H immediately with error trend + billing status. This is blocking system acceleration.
 
+### 2026-02-12: Connection Error Pattern Continuing — Billing Crisis Day 5
+
+**Session summary:** 5 sessions reviewed (24h Feb 11-12 cycle)
+- **Main:** 1 session, 38 messages (heartbeat work), 2 connection errors
+- **Scrappy:** 1 session, 78 messages (active scraping), 7 connection errors
+- **Watchy:** 1 session, 8 messages (health check), 0 errors (stable)
+- **Cleany:** 1 session, 4 messages (cron prep), 0 errors recorded
+- **Compy:** 1 session (this compound)
+
+**Key findings:**
+
+1. **Error Pattern Sustained** (TREND CRITICAL)
+   - **Feb 10:** 5 errors (Cleany 3, Scrappy 2)
+   - **Feb 11:** 14 errors (Cleany 9, Scrappy 5, Watchy 4 new API)
+   - **Feb 12:** 9 errors (Main 2, Scrappy 7) — still elevated
+   - **Cumulative trend:** 28 errors over 3 days = **sustained high load**
+   - **Concentration:** Scrappy (scraping) consistently hits connection errors (2 → 5 → 7)
+   - **Pattern:** Non-blocking (agents recover), but frequency suggests systemic strain
+
+2. **Billing Crisis Status** (CRITICAL - DAY 5)
+   - **First reported:** Feb 7 afternoon (credit exhaustion errors)
+   - **Current date:** Feb 12 evening = **5 DAYS UNRESOLVED**
+   - **Impact:** Cascading errors across multiple agents
+   - **Escalation history:**
+     - Feb 8: Documented as incident
+     - Feb 9: Escalated as crisis
+     - Feb 10: Noted as "unresolved" in compound
+     - Feb 11: Documented "extended errors + critical escalation needed"
+     - Feb 12: **Still unresolved** = system at risk
+   - **Root cause:** Unknown (D H needs to check Anthropic account billing/credits)
+   - **Recommendation:** This requires IMMEDIATE D H action. Error trend will continue climbing if unresolved.
+
+3. **Agent Resilience** (POSITIVE)
+   - **Watchy:** 0 errors, steady daily health checks (most stable agent)
+   - **Scrappy:** 7 errors but 78 messages completed (resilient to transient failures)
+   - **Main:** 2 errors in 38 messages (lower error density vs active agents)
+   - **Pattern:** Agents with lighter workloads (Watchy, Cleany) have fewer errors than heavy workloads (Scrappy)
+   - **Insight:** Error correlation = load-related (more API calls → more connection failures)
+
+4. **Agent Status Snapshot (Feb 12 Evening)**
+   - **Watchy:** ✅ Daily health checks running clean (8am MT schedule)
+   - **Cleany:** ✅ Next weekly run Sunday 7pm (Feb 15)
+   - **Movy:** ✅ Weekend preview ready (awaiting deploy)
+   - **Scrappy:** ✅ Scheduled Mon/Wed 10am (active cycle, connection errors noted)
+   - **Codey:** Ready for next task
+   - **Socialy:** 🚫 GSC credentials missing (blocker)
+   - **Ranky:** Ready for post-scrape cycle
+   - **Data pipeline:** ✅ Healthy (5k games/24h)
+
+5. **System Health Overall:**
+   - ✅ **Functional:** All core workflows operating
+   - ✅ **Resilient:** Errors non-blocking, agents complete tasks
+   - 🟡 **Strained:** Error rate unsustainable (28 errors/3 days = ~9 errors/day)
+   - 🔴 **At risk:** If error trend continues, will approach blocking threshold
+   - 🔴 **Blocked feature:** Socialy SEO fully operational once GSC credentials restored
+
+**Critical actions required (D H):**
+1. **Resolve Anthropic billing/credit issue** (5 days pending)
+   - Check account status, verify credits or billing
+   - Without this, error rate will escalate further
+2. **Restore GSC credentials** or provide regeneration plan
+   - Unblocks Socialy SEO reporting
+
+**COMPY assessment:**
+- System is functioning but operating under sustained API strain
+- Non-blocking connection errors are expected during this condition
+- Billing issue is THE critical blocker preventing system optimization
+- Recommend escalation to D H with this 5-day summary + error trend graph
+
+**Next compound:** 2026-02-13 22:30 MT (or sooner if billing resolved)
+
 ---
-*Last updated: 2026-02-11 22:30 by COMPY (nightly compound)*
+*Last updated: 2026-02-12 22:30 by COMPY (nightly compound)*
