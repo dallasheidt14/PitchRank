@@ -52,6 +52,16 @@ jobs:
           pip install --upgrade pip
           pip install psycopg2-binary python-dotenv supabase
 
+      - name: Verify Supabase secrets
+        run: |
+          echo "SUPABASE_URL is set: $([ -n \"$SUPABASE_URL\" ] && echo yes || echo no)"
+          echo "SUPABASE_KEY is set: $([ -n \"$SUPABASE_KEY\" ] && echo yes || echo no)"
+          echo "SUPABASE_SERVICE_ROLE_KEY is set: $([ -n \"$SUPABASE_SERVICE_ROLE_KEY\" ] && echo yes || echo no)"
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
+            echo "::error::Missing secrets. In repo Settings → Secrets and variables → Actions, add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY."
+            exit 1
+          fi
+
       - name: Run queue auto-merge
         id: merge
         run: |
