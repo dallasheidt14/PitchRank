@@ -42,6 +42,18 @@ IF: Persistent → Check billing/credits
 ESCALATE: If billing issue persists >1 hour
 ```
 
+### Persistent Connection Errors (Billing Crisis Pattern - Feb 7-13)
+```
+WHEN: Multiple agents see "Connection error" in same 24h window
+CHECK: Is this happening across >2 agents?
+IF: Yes across Codey + Main + Scrappy → Likely API/infrastructure issue
+IF: Error count rising day-over-day (Feb 10: 5 → Feb 11: 14 → Feb 12: 9) → Sustainability concern
+IF: Correlates with Anthropic billing status → CRITICAL
+ESCALATE: IMMEDIATELY if error trend shows sustained elevation
+NOTE: Feb 7-13 billing crisis caused 28+ errors across 6 days. System remained functional but at risk.
+LEARNED: Monitor error rate as leading indicator of infrastructure health.
+```
+
 ---
 
 ## 📊 Data Quality Issues

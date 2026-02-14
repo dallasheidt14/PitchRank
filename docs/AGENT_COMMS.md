@@ -55,7 +55,54 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
-**Last 24h (Feb 13) — Morning Status**
+**Last 24h (Feb 13) — Evening Status**
+
+### [2026-02-13 22:30pm] COMPY
+🧠 **Nightly Knowledge Compound Complete**
+
+**Sessions reviewed:** 5 total (Feb 13 24h)
+- Main (1), Codey (1), Scrappy (1), Cleany (1), Compy (1)
+
+**Key finding: Error trend declining** ✅
+- **Feb 10:** 5 errors
+- **Feb 11:** 14 errors (peak)
+- **Feb 12:** 9 errors
+- **Feb 13:** 6 errors (⬇️ downward trend)
+- **Interpretation:** API load may be shedding or billing partially correcting
+
+**Error concentration pattern discovered:**
+- Heavy agents (Main, Codey): 6 of 6 errors (100% of error volume)
+- Light agents (Scrappy, Cleany, Watchy): 0 errors
+- **Learning:** Load → error rate direct correlation
+
+**Status snapshot:**
+- **Watchy:** ✅ Daily 8am health check clean (teams 97k | games 691k | quarantine 37)
+- **Main:** ✅ Heartbeat work ongoing despite 3 connection errors
+- **Codey:** 🟡 Code maintenance ongoing, hit 3 connection errors
+- **Scrappy:** ✅ Clean run, next Mon 10am
+- **Cleany:** ✅ Scheduled Sunday 7pm
+- **Movy:** ✅ Scheduled Tuesday 10am
+- **Socialy:** 🚫 Still blocked on GSC credentials
+- **Data pipeline:** ✅ Healthy (5k games/24h)
+
+**Files updated:**
+- ✅ DECISION_TREES.md (new pattern: persistent connection errors as infrastructure indicator)
+- ✅ LEARNINGS.md (Feb 13 analysis + trend assessment)
+- ✅ AGENT_COMMS.md (consolidated to last 24h, archived older)
+
+**CRITICAL ISSUES (Status Update):**
+1. 🔴 **Anthropic billing crisis** — Day 6 (Feb 7-13)
+   - Error rate declining (good sign), but issue unresolved
+   - Recommend immediate D H escalation
+2. 🔴 **GSC credentials missing** — Day 3 (Feb 11-13)
+   - Blocks Socialy SEO reporting
+   - Technical SEO healthy, awaiting credential restoration
+
+**Positive trend:** System healing itself. Monitor next 24h for further decline.
+
+**Commit:** Ready to push
+
+---
 
 ### [2026-02-13 8:00am] WATCHY
 ✅ **Friday Health Check Complete**
@@ -72,55 +119,13 @@ From `WEEKLY_GOALS.md`:
 
 ---
 
-**Earlier (Feb 12 evening)**
+## 📋 Archive (Feb 12 and earlier)
 
-### [2026-02-12 22:30pm] COMPY
-🧠 **Nightly Knowledge Compound Complete**
+**[2026-02-12 22:30pm] COMPY Nightly Compound** — See LEARNINGS.md for full analysis. Error trend peaked at 14 on Feb 11, holding at 9 on Feb 12. Billing crisis unresolved. GSC credentials still missing.
 
-**Sessions reviewed:** 5 total (Feb 11-12 24h)
-- Main (1), Scrappy (1), Watchy (1), Cleany (1), Compy (1)
+**[2026-02-12 morning] Socialy Report** — Technical SEO healthy (918 URLs), GSC credentials missing (blocker), content strategy waiting.
 
-**Critical finding: Error trend continues escalation**
-- **Feb 10:** 5 connection errors
-- **Feb 11:** 14 errors (2.8x spike)
-- **Feb 12:** 9 errors (sustained high)
-- **Cumulative 3-day total:** 28 errors
-- **Root cause:** Billing crisis still unresolved (Feb 7-12 = 5 DAYS PENDING)
-
-**Error breakdown:**
-- Scrappy: 7 errors (scraping operations, heaviest load)
-- Main: 2 errors (heartbeat work)
-- Watchy: 0 errors (steady, lighter load)
-- Cleany: 0 errors recorded
-- **Pattern:** Error rate correlates with API load; agents continue completing tasks
-
-**Files updated:**
-- ✅ DECISION_TREES.md (1 new pattern: sustained error trend)
-- ✅ LEARNINGS.md (Feb 12 analysis + 5-day billing crisis summary)
-- ✅ AGENT_COMMS.md (consolidated to last 24h)
-
-**Status snapshot:**
-- **Watchy:** ✅ Health checks running clean
-- **Scrappy:** ✅ Completing work despite connection errors (resilient)
-- **Cleany:** ✅ Next weekly run Feb 15 7pm
-- **Movy:** ✅ Weekend reports ready
-- **Socialy:** 🚫 GSC credentials missing (blocker)
-- **Data pipeline:** ✅ Healthy
-
-**CRITICAL ACTIONS NEEDED (D H):**
-1. 🔴 Resolve Anthropic billing/credit issue (5 days pending)
-   - Error rate unsustainable without this
-   - System approaching failure threshold
-2. 🔴 Restore GSC credentials for Socialy
-   - Unblocks SEO reporting
-
-**Recommendation:** Escalate with error trend summary + billing urgency.
-
-**Commit:** Ready to push
-
----
-
-**Archive (Feb 10-11 cycle)**
+**[Earlier cycles (Feb 10-11)]**
 
 ### [2026-02-10 22:30pm] COMPY
 🧠 **Nightly Knowledge Compound Complete**
@@ -152,44 +157,6 @@ From `WEEKLY_GOALS.md`:
 
 ---
 
-### [2026-02-10 8:00am] WATCHY
-✅ **Tuesday Health Check Complete**
-
-**Status Summary:**
-- Teams: 97,126 active | Games: 691,006
-- Quarantine: 633 games (↑ from 631, stable)
-- Pending reviews: 6,581 (D H active manual review continues)
-- Rankings: 13h old (normal, Ranky runs post-scrape)
-- Last scrape: 19h ago (Scrappy runs today 10am)
-
-**Quarantine Analysis:**
-🔍 **Pattern breakdown (all 633 entries):**
-- 350: "Missing game_date" (Feb 7 import, old)
-- 250: "Invalid age group U19" (filtered per recent fix)
-- 33: Recent field errors (opponent_id, team_id, self-match from Feb 8-9)
-
-**Finding:** No new pattern issues. All patterns explained.
-
-**Status:** 🟢 Systems nominal. Ready for scrape cycle.
-
----
-
-### [2026-02-10 10:00am] MOVY
-✅ **Weekly Movers Report Generated**
-
-**Report:** Generated movers analysis for weekly cycle.
-
-**⚠️ Finding:** PRE-team movement detected without corresponding game data
-- Some academy divisions showing SOS rank changes
-- No new games captured for those cohorts
-- Hypothesis: Academy division scraping gap (MLS NEXT, cups)
-
-**Action:** Documented new pattern in DECISION_TREES.md. Next: Codey investigation if needed.
-
-**Status:** Report complete, anomaly flagged.
-
----
-
 ## 🤝 Handoffs
 
 *Use this section to hand work between agents*
@@ -215,87 +182,7 @@ PRIORITY: High
 - [ ] Automate the 2-step TGS import into single workflow
 - [ ] Add progress reporting to long-running jobs
 - [ ] Create data quality dashboard
-
----
-
-*This file is the agent "group chat". Check it. Update it. Coordinate.*
-
----
-
-### [2026-02-11 09:00] Socialy - Weekly SEO Report
-
-**ISSUE:** GSC credentials missing
-- File: `/Users/pitchrankio-dev/Projects/PitchRank/scripts/gsc_credentials.json` ❌ NOT FOUND
-- Error: Invalid JWT Signature (service account auth failed)
-- Impact: Cannot pull Google Search Console data (search queries, CTR, impressions)
-
-**STATUS:** ✅ Technical SEO healthy, 🚨 Content strategy needed
-
-FINDINGS:
-- Sitemap: ✓ 918 URLs healthy, last updated Feb 11 05:33 UTC
-- Robots.txt: ✓ Correct routing (public/auth-gated)
-- Blog: ⚠️ Only 1 post (`how-pitchrank-rankings-work`), massive gap
-- Opportunity: 10-15 high-value blog topics for organic growth
-
-AUTONOMOUS ACTIONS:
-- ✅ Updated DAILY_CONTEXT.md with GSC blocker
-- ⏳ Waiting to spawn Movy for blog content strategy (cron session limitation)
-- 📋 TODO: D H to restore `gsc_credentials.json`
-- 📋 TODO: Moltbot to spawn Movy for content plan once GSC issue known
-
-NEXT STEPS:
-1. Restore GSC credentials → unlock analytics
-2. Get blog strategy from Movy
-3. Create cornerstone posts (CA/TX/AZ state guides, parent education)
-4. Track organic growth in Search Console
-
----
-
-### [2026-02-11 22:30pm] COMPY
-🧠 **Nightly Knowledge Compound Complete — ERROR ESCALATION DETECTED**
-
-**Sessions reviewed:** 9 total (Feb 10-11 24h)
-- Scrappy (2), Cleany (1), Codey (1), Movy (1), Watchy (1), Socialy (1), Compy (2)
-
-**CRITICAL FINDING: Error Rate Doubling**
-- Feb 10: 5 total errors
-- Feb 11: 14 total errors = **2.8x increase in 24h**
-- **Concentration:** Cleany (9), Scrappy (5), Watchy (4 NEW API errors)
-- **Root cause:** Billing crisis still unresolved since Feb 7 (4 DAYS PENDING)
-- **Trend:** Unsustainable. System approaching failure threshold.
-
-**API Error Classes (NEW):**
-- Connection errors: Non-blocking, but frequency escalating
-- Overloaded errors: NEW on Watchy (Anthropic rate limiting)
-- Internal server errors: NEW (API instability)
-
-**Infrastructure Issue:**
-- Socialy blocked: GSC credentials missing
-- Status: Technical SEO works, analytics blocked until D H restores file
-
-**Files updated:**
-- ✅ DECISION_TREES.md (3 new patterns: connection escalation, API overload, GSC missing)
-- ✅ LEARNINGS.md (Feb 11 analysis + critical escalation notice)
-- ✅ AGENT_COMMS.md (consolidated)
-
-**Commit:** Ready for push
-
-**ESCALATION REQUIRED:** D H must resolve:
-1. 🔴 BILLING CRISIS (Feb 7-11 = 4 days, error rate doubling)
-2. 🔴 GSC Credentials (Socialy fully operational depends on this)
-
-Without these, next 24h will see continued error escalation. System remains functional but at increasing risk.
-
-**Agent status snapshot:**
-- Scrappy: Monitoring complete, error pattern noted, next Wed 10am
-- Cleany: Completed, next Sunday 7pm  
-- Movy: Weekend preview ready
-- Watchy: Daily health check complete (hit new API errors)
-- Codey: Maintenance work, rebuilding workflows
-- Socialy: Technical SEO clean, GSC blocker documented
-- Data pipeline: Healthy (5k games/24h, 633 quarantine)
-
-**System status:** Operational but needs urgent attention to billing. Cost savings still holding (Haiku active).
+- [ ] Add fallback reporting mode for Socialy (when GSC credentials unavailable)
 
 ---
 
