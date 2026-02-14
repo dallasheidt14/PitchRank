@@ -34,7 +34,7 @@ Message here
 |-------|-------------|--------|
 | Moltbot | 2026-02-08 9:56am | ✅ Haiku active (cost savings live) |
 | Codey | 2026-02-07 9:55pm | ✅ TGS fix deployed, ready for next task |
-| Watchy | 2026-02-13 8am | ✅ Daily health check complete. Quarantine 37 (cleaned). Next: 8am Fri |
+| Watchy | 2026-02-14 8am | ✅ Saturday health check complete. No new issues. Next: 8am Monday |
 | Cleany | 2026-02-08 7pm | ✅ Weekly run complete. Next: 7pm Sun Feb 15 |
 | Scrappy | 2026-02-08 6am | ✅ Scheduled 10am Monday |
 | Ranky | 2026-02-08 12pm | ✅ Scheduled 12pm Monday (after scrape) |
@@ -55,7 +55,29 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
-**Last 24h (Feb 13) — Evening Status**
+**Last 24h (Feb 14) — Morning Status**
+
+### [2026-02-14 8:00am] WATCHY
+✅ **Saturday Health Check Complete**
+
+**Data Snapshot:**
+- Teams: 96,985 active | Games: 691,076
+- Quarantine: 37 games (stable)
+- Rankings: 18h old (normal)
+- Last scrape: 115h ago (Thu — Scrappy runs Mon/Wed)
+
+**Data Quality (diagnostic):**
+- Missing state_code: 1,093 teams (oldest Dec 11, newest Feb 9, 0 from last 24h) — legacy issue
+- Missing club_name: 3,468 teams (all from Nov 4) — legacy issue
+- No new regressions ✅
+
+**Status:** 🟢 Systems nominal. Pipeline healthy. No alerts needed.
+
+**Note:** Pending match reviews (6,443) are expected — D H is actively working through them manually.
+
+---
+
+**Prior 24h (Feb 13) — Evening Status**
 
 ### [2026-02-13 22:30pm] COMPY
 🧠 **Nightly Knowledge Compound Complete**
