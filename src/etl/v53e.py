@@ -76,7 +76,7 @@ class V53EConfig:
     # Aligned with MIN_GAMES_PROVISIONAL so every "Active" team shows an SOS rank.
     # Low-sample teams are already protected by quadratic shrinkage toward 0.5
     # (see Layer 9 low-sample handling), so this gate is only a display threshold.
-    MIN_GAMES_FOR_SOS_RANK: int = 5
+    MIN_GAMES_FOR_SOS_RANK: int = 8
 
     # Opponent-adjusted offense/defense (fixes double-counting)
     OPPONENT_ADJUST_ENABLED: bool = True
@@ -90,7 +90,7 @@ class V53EConfig:
     SOS_WEIGHT: float = 0.50
 
     # Provisional
-    MIN_GAMES_PROVISIONAL: int = 5
+    MIN_GAMES_PROVISIONAL: int = 8
 
     # Context multipliers
     TOURNAMENT_KO_MULT: float = 1.10
@@ -1343,7 +1343,7 @@ def compute_rankings(
     # Status priority:
     # 1. "Inactive" - No games in last 180 days (gp_last_180 == 0) OR last_game is NULL OR days_since_last >= 180
     #    Note: Use >= to match the gp_last_180 calculation which uses >= cutoff (includes games exactly 180 days ago)
-    # 2. "Not Enough Ranked Games" - Has games in last 180 days but < MIN_GAMES_PROVISIONAL (5 games)
+    # 2. "Not Enough Ranked Games" - Has games in last 180 days but < MIN_GAMES_PROVISIONAL (8 games)
     # 3. "Active" - Has >= MIN_GAMES_PROVISIONAL games in last 180 days
     team["status"] = np.where(
         (team["gp_last_180"] == 0) | 

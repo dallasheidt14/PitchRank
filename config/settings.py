@@ -147,7 +147,7 @@ RANKING_CONFIG = {
     'sos_weight': float(os.getenv("SOS_WEIGHT", 0.50)),  # V53EConfig.SOS_WEIGHT
     
     # Provisional
-    'min_games_for_ranking': int(os.getenv("MIN_GAMES_FOR_RANKING", 5)),  # V53EConfig.MIN_GAMES_PROVISIONAL
+    'min_games_for_ranking': int(os.getenv("MIN_GAMES_FOR_RANKING", 8)),  # V53EConfig.MIN_GAMES_PROVISIONAL
     
     # Context multipliers
     'tournament_ko_mult': float(os.getenv("TOURNAMENT_KO_MULT", 1.10)),  # V53EConfig.TOURNAMENT_KO_MULT
