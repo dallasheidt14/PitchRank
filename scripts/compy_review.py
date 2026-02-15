@@ -250,7 +250,7 @@ def main():
     parser.add_argument('--output', choices=['json', 'summary', 'compy'], default='compy',
                        help='Output format')
     parser.add_argument('--preflight', action='store_true',
-                       help='Quick check: exit 0 if no sessions (skip agent), exit 1 if sessions to review')
+                       help='Quick check: exit 0 always (success), outputs whether sessions need review')
     args = parser.parse_args()
     
     sessions = get_recent_sessions(args.hours)
@@ -258,7 +258,7 @@ def main():
     # Pre-flight mode
     if args.preflight:
         if not sessions:
-            print("PREFLIGHT_OK: No sessions in last 24h, skipping agent")
+            print("✅ PREFLIGHT_OK: No sessions in last 24h, skipping agent")
             sys.exit(0)
         
         # Check if sessions have meaningful content (not just heartbeats)
@@ -270,11 +270,11 @@ def main():
                 meaningful_sessions += 1
         
         if meaningful_sessions == 0:
-            print("PREFLIGHT_OK: Only trivial sessions, skipping agent")
+            print("✅ PREFLIGHT_OK: Only trivial sessions, skipping agent")
             sys.exit(0)
         
-        print(f"PREFLIGHT_NEEDED: {meaningful_sessions} meaningful sessions to review")
-        sys.exit(1)
+        print(f"✅ Found {meaningful_sessions} sessions to review, proceeding with COMPY analysis...")
+        sys.exit(0)  # Exit 0 - this is a success state, not an error
     
     if not sessions:
         print("No recent sessions found.")
