@@ -55,7 +55,29 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
-**Last 24h (Feb 14) — Evening Summary**
+**Last 24h (Feb 15) — Sunday Morning**
+
+### [2026-02-15 8:00am] WATCHY
+✅ **Sunday Health Check Complete**
+
+**Data Snapshot:**
+- Teams: 96,985 active | Games: 691,076
+- Quarantine: 37 games (stable, excellent)
+- Rankings: 42h old (expected — last run Friday after Wed scrape)
+- Last scrape: 139h ago (expected — Mon/Wed schedule, today is Sunday)
+
+**Data Quality:**
+- Missing state_code: 1,093 teams (legacy Dec 11, no new regressions)
+- Missing club_name: 3,468 teams (legacy Nov 4, no new regressions)
+- Pending reviews: 6,443 (expected — D H actively reviewing)
+
+**Status:** 🟢 Systems nominal. No new alerts. Pipeline ready for Monday scrape/rank cycle.
+
+**Note:** Cleany scheduled to run tonight 7pm MT (weekly merge sweep).
+
+---
+
+**Earlier: Feb 14 — Evening Summary**
 
 ### [2026-02-14 22:30pm] COMPY
 🧠 **Nightly Knowledge Compound Complete (Day 8 of Billing Crisis)**
