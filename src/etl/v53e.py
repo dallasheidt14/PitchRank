@@ -73,9 +73,10 @@ class V53EConfig:
     SOS_TOP_CAP_FOR_LOW_SAMPLE: float = 0.70  # DEPRECATED: no longer used
 
     # Minimum games to appear in SOS rankings (teams below this get NULL sos_rank)
-    # This prevents teams with very few games from appearing as #1 SOS nationally
-    # NOTE: This affects SOS RANKING only, not the SOS VALUE (sos_norm still computed for PowerScore)
-    MIN_GAMES_FOR_SOS_RANK: int = 10
+    # Aligned with MIN_GAMES_PROVISIONAL so every "Active" team shows an SOS rank.
+    # Low-sample teams are already protected by quadratic shrinkage toward 0.5
+    # (see Layer 9 low-sample handling), so this gate is only a display threshold.
+    MIN_GAMES_FOR_SOS_RANK: int = 5
 
     # Opponent-adjusted offense/defense (fixes double-counting)
     OPPONENT_ADJUST_ENABLED: bool = True
