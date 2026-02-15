@@ -607,15 +607,12 @@ async def compute_all_cohorts(
         teams_combined['sos_rank_national'] = pd.array([pd.NA] * len(teams_combined), dtype="Int64")
         teams_combined['sos_rank_state'] = pd.array([pd.NA] * len(teams_combined), dtype="Int64")
 
-        # Get minimum games threshold for SOS ranking eligibility
-        cfg = v53_cfg or V53EConfig()
-        min_games_for_sos_rank = cfg.MIN_GAMES_FOR_SOS_RANK
-
-        # Create mask for teams eligible for SOS ranking (must have 'gp' column from v53e output)
-        if 'gp' in teams_combined.columns:
-            sos_rank_eligible = teams_combined['gp'] >= min_games_for_sos_rank
+        # SOS rank eligibility is derived from Active status (which uses MIN_GAMES_PROVISIONAL)
+        # so the ranking gate and SOS gate can never drift apart.
+        if 'status' in teams_combined.columns:
+            sos_rank_eligible = teams_combined['status'] == 'Active'
         else:
-            logger.warning("⚠️ 'gp' column not found - all teams will be eligible for SOS ranking")
+            logger.warning("⚠️ 'status' column not found - all teams will be eligible for SOS ranking")
             sos_rank_eligible = pd.Series([True] * len(teams_combined), index=teams_combined.index)
 
         # Compute national and state SOS rankings per cohort (age, gender)
@@ -629,7 +626,7 @@ async def compute_all_cohorts(
                 cohort_df['sos_raw'].rank(method='average', pct=True).fillna(0.5)
             )
 
-            # National rank: only for eligible teams (>= MIN_GAMES_FOR_SOS_RANK games)
+            # National rank: only for Active teams
             # This prevents teams with few games from appearing as #1 SOS nationally
             eligible_mask = sos_rank_eligible.loc[cohort_idx]
             eligible_idx = cohort_df[eligible_mask].index
