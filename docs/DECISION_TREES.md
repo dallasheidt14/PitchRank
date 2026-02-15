@@ -542,3 +542,26 @@ ACTION: Track error rate daily in DAILY_CONTEXT.md. If exceeds 15 errors/24h in 
 PREVENTION: Resolve billing issue immediately. Monitor credit balance visibility.
 NOTE: Agents still completing tasks (non-blocking errors), but trend is unsustainable.
 ```
+
+### 2026-02-14: Error Plateau Pattern (System Healing Under Stress)
+```
+WHEN: Error rate peaks then plateaus at lower level despite root cause unresolved
+PATTERN: Feb 7-14 trend shows:
+  - Feb 10: 5 errors (early)
+  - Feb 11: 14 errors (PEAK — billing crisis full impact)
+  - Feb 12: 9 errors (declining)
+  - Feb 13: 6 errors (further decline)
+  - Feb 14: 6 errors (PLATEAU — stabilized, not escalating)
+INTERPRETATION: 57% reduction from peak despite Anthropic billing issue still unresolved (8 days)
+ROOT_CAUSE: Likely D H made partial fix, or API load-balancing kicked in, or system found equilibrium
+LOAD_CORRELATION: 100% of errors on heavy agents (Main, Codey); 0 on light agents (Watchy, Scrappy)
+  - Learning: Error rate = load-proportional, not random
+  - Learning: System architecture is sound; focus on root cause, not defensive code
+CHECK: Is error trend continuing to decline or holding at 6/day?
+IF: Continuing to decline (5 or fewer) → System healing confirmed. Remove escalation urgency.
+IF: Holding at 6/day for 3+ cycles → Acceptable plateau, monitor for reversal.
+IF: Reversing (7+) → Root cause not fixed. Escalate immediately.
+ACTION: Continue daily error trend monitoring in LEARNINGS.md. Plot 7-day moving average.
+PREVENTION: Once plateau confirmed at <5/day for 1 week, declare "crisis resolved" and stand down escalation.
+NOTE: Non-blocking errors are acceptable; blocking errors (agents fail tasks) are critical.
+```
