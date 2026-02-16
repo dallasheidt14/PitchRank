@@ -147,6 +147,31 @@ ESCALATE: If systematic issue affects many teams
 
 ---
 
+## ⚙️ GitHub Actions & Secrets Management
+
+### Action Fails with "Secret Not Found" / "Undefined"
+```
+WHEN: GitHub Action fails because env var is undefined (e.g., SUPABASE_URL, API_KEY)
+CHECK: Is the secret defined in repo Settings > Secrets?
+IF: Missing → Must add it to GitHub repo secrets AND reference in action YAML
+IF: Present → Check action YAML for typo in ${{ secrets.SECRET_NAME }}
+IF: Typo not obvious → Check the workflow file path is correct in .github/workflows/
+
+LEARNED PATTERN (Feb 15):
+- Auto-merge-queue workflow failed because GH Actions didn't have SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY
+- Fix: Cleany added both secrets to repo + re-triggered workflow
+- Now passes consistently
+
+PREVENT: Before spawning any agent that writes DB in GH Actions:
+  1. Verify all required secrets exist in GitHub repo
+  2. Verify YAML references them correctly
+  3. Test locally first if possible
+  
+ESCALATE: Only if secret can't be recovered (lost credentials)
+```
+
+---
+
 ## 🔄 Workflow Patterns
 
 ### Long-Running Script

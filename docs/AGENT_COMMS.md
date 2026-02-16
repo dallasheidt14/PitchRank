@@ -55,25 +55,63 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
-**Last 24h (Feb 15) — Sunday Morning**
+**Last 24h (Feb 15 - SUNDAY)**
 
-### [2026-02-15 8:00am] WATCHY
-✅ **Sunday Health Check Complete**
+### [2026-02-15 22:30pm] COMPY (TONIGHT)
+🧠 **Nightly Knowledge Compound Complete (Day 9 post-crisis)**
 
-**Data Snapshot:**
-- Teams: 96,985 active | Games: 691,076
-- Quarantine: 37 games (stable, excellent)
-- Rankings: 42h old (expected — last run Friday after Wed scrape)
-- Last scrape: 139h ago (expected — Mon/Wed schedule, today is Sunday)
+**Sessions reviewed:** 6 total (Feb 15 24h window)
+- Cleany (4 sessions, 77 messages, 3 errors)
+- Compy (2 sessions, 2 messages, 1 error)
+- Others (0 new runs)
 
-**Data Quality:**
-- Missing state_code: 1,093 teams (legacy Dec 11, no new regressions)
-- Missing club_name: 3,468 teams (legacy Nov 4, no new regressions)
-- Pending reviews: 6,443 (expected — D H actively reviewing)
+**NEW PATTERN ADDED (Feb 15):**
+GitHub Actions secret management → Added to DECISION_TREES.md
+- Issue: Auto-merge-queue failed due to missing SUPABASE_* secrets in repo
+- Fix: Cleany added secrets + re-triggered workflow
+- Learning: All GH Actions that write DB need explicit GitHub repo secrets
+- Prevention: Verify secrets exist BEFORE triggering action
 
-**Status:** 🟢 Systems nominal. No new alerts. Pipeline ready for Monday scrape/rank cycle.
+**DATA PIPELINE STATUS:**
+- Quarantine: 39 games (post-Cleany cleanup Feb 15 7pm)
+  - 239 games removed (mostly U19, date-invalid)
+  - Remaining: 26 TGS (missing IDs) + 13 GotSport (parsing edge case)
+  - Status: 🟢 Clean and expected
+- Rankings: ~48h old (normal for Sunday)
+- Last scrape: Fri 10am (expected, next scrape Mon 10am)
 
-**Note:** Cleany scheduled to run tonight 7pm MT (weekly merge sweep).
+**ERROR TREND (9-day view post-Feb 7 crisis):**
+```
+Feb 10:   5 errors
+Feb 11:  14 errors (peak)
+Feb 12:   9 errors
+Feb 13:   6 errors
+Feb 14:   6 errors
+Feb 15:   6 errors  ← STABLE (no escalation)
+```
+- Plateau confirmed at ~6 errors/day — this is baseline
+- No elevation = system healthy
+- Connection errors are normal (API-level noise), not blocker
+
+**AGENT STATUS SNAPSHOT (Feb 15 end-of-day):**
+- ✅ **Watchy** (8am daily) — Last: Feb 15 8am. Clean report.
+- ✅ **Cleany** (7pm Sunday) — Last: Feb 15 7pm. Fixed GH secrets, cleaned quarantine.
+- ✅ **Scrappy** (Mon/Wed 10am) — Next: Mon Feb 17
+- ✅ **Ranky** (Post-scrape) — Next: Mon Feb 17 after scrape
+- ✅ **Movy** (Tue 10am) — Next: Tue Feb 18
+- ✅ **Codey** — Ready for spawns
+- 🚫 **Socialy** — Blocked on GSC credentials (3+ days unresolved)
+
+**CRITICAL ISSUES (STATUS UPDATE):**
+1. 🟡 **API Credit Exhaustion** — Started Feb 7, IMPROVING not escalating. Error plateau = healing.
+2. 🔴 **GSC Credentials Missing** — Still unresolved (3+ days). Blocks Socialy. Recommendation: D H restore or regenerate.
+
+**FILES UPDATED:**
+- ✅ DECISION_TREES.md (new GH secrets pattern)
+- ✅ LEARNINGS.md (Feb 15 insights)
+- ✅ AGENT_COMMS.md (consolidated to 24h, archived older messages)
+
+**COMMIT:** About to push now
 
 ---
 

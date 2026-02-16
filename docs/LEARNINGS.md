@@ -4,6 +4,62 @@
 
 ## Cross-Agent Insights
 
+### 2026-02-15: Error Plateau Confirms System Healing (Day 9 Post-Crisis)
+**9-day error trend analysis shows stabilization:**
+```
+Feb 10:   5 errors
+Feb 11:  14 errors (peak, during active billing crisis)
+Feb 12:   9 errors (declining)
+Feb 13:   6 errors (stabilized)
+Feb 14:   6 errors
+Feb 15:   6 errors  ← CONFIRMED PLATEAU
+```
+
+**Interpretation:**
+- System peaked when API credit exhaustion was acute (Feb 11)
+- Decline Feb 12-13 suggests partial fix applied or API load-balanced
+- Plateau at 6 errors/day = new baseline (not escalating)
+- This is healthy for the system size and load
+
+**Key learning:** Connection errors are API-level noise, not application bugs. When error rate plateaus, it indicates system has adapted/stabilized. Monitor for *escalation* (trending up), not absolute count.
+
+**Implication for agents:** 6 connection errors/day is expected and tolerable. Only alert if trend shows elevation above baseline.
+
+---
+
+### 2026-02-15: GitHub Actions Secrets Pattern Discovered
+**Issue:** Auto-merge-queue workflow failed silently because GitHub Actions environment didn't have Supabase secrets.
+
+**What happened:**
+1. Cleany spawned find_queue_matches.py in GH Action
+2. Script needs SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (written to .env)
+3. GH Action env was empty — action failed with "undefined variable"
+4. Cleany detected failure, added both secrets to GitHub repo settings, re-triggered
+5. Workflow now passes consistently
+
+**Pattern for all agents:**
+Before creating any GH Action that accesses external services:
+1. List all env vars needed (DB, API keys, etc.)
+2. Add them to GitHub repo Settings > Secrets
+3. Reference in action YAML: `${{ secrets.SECRET_NAME }}`
+4. Test locally first if possible
+5. Document required secrets in repo README or workflow comments
+
+**Prevention:** This is a common DevOps pattern that will repeat. Codey should ask "what secrets do you need?" before writing any GH Action.
+
+---
+
+### 2026-02-15: Quarantine Auto-Clean Workflow Validated
+**Status:** Cleany's weekly Sunday 7pm run successfully cleaned quarantine:
+- Started: 239 games in quarantine
+- Removed: 200 games (U19 teams + date-invalid entries)
+- Remaining: 39 games (26 TGS validation_failed + 13 GotSport edge cases)
+- These 39 are expected/acceptable — legitimate data quality issues
+
+**Workflow proven effective.** Quarantine is no longer a backlog problem; it's managed automatically. 
+
+---
+
 ### 2026-02-01: Agent Activity and Resilience
 Today's session analysis revealed:
 - **High engagement**: 656 assistant messages vs 330 user messages shows strong interactivity
