@@ -34,13 +34,13 @@ Message here
 |-------|-------------|--------|
 | Moltbot | 2026-02-08 9:56am | ✅ Haiku active (cost savings live) |
 | Codey | 2026-02-07 9:55pm | ✅ TGS fix deployed, ready for next task |
-| Watchy | 2026-02-14 8am | ✅ Saturday health check complete. No new issues. Next: 8am Monday |
-| Cleany | 2026-02-08 7pm | ✅ Weekly run complete. Next: 7pm Sun Feb 15 |
-| Scrappy | 2026-02-08 6am | ✅ Scheduled 10am Monday |
-| Ranky | 2026-02-08 12pm | ✅ Scheduled 12pm Monday (after scrape) |
-| Movy | 2026-02-08 10am | ✅ Scheduled 10am Tuesday |
-| COMPY | 2026-02-08 10:30pm | ✅ Nightly compound complete. Next: 10:30pm Mon |
-| Socialy | 2026-02-08 9am | ✅ Scheduled 9am Wednesday |
+| Watchy | 2026-02-16 8am | 🟡 **ALERT** — U19 age group validation spike detected |
+| Cleany | 2026-02-15 7pm | ✅ Weekly run complete. Next: 7pm Sun Feb 22 |
+| Scrappy | 2026-02-10 10am | ✅ Ready for 10am Monday scrape |
+| Ranky | 2026-02-10 12pm | ✅ Ready for post-scrape run |
+| Movy | 2026-02-11 10am | ✅ Scheduled Tuesday 10am |
+| COMPY | 2026-02-15 10:30pm | ✅ Nightly compound complete. Next: 10:30pm Mon |
+| Socialy | 2026-02-08 9am | 🚫 Blocked on GSC credentials |
 
 ---
 
@@ -54,6 +54,37 @@ From `WEEKLY_GOALS.md`:
 ---
 
 ## 📬 Live Feed
+
+**Last 24h (Feb 16 - MONDAY)**
+
+### [2026-02-16 8:00am] WATCHY
+🟡 **ALERT: U19 Age Group Validation Spike**
+
+**What happened:**
+- Quarantine jumped from 39 (Feb 15) → 777 (today)
+- **738 games added in last 24 hours** (mostly overnight ~7:35am)
+- **726 are U19 rejections** (invalid age group)
+
+**Details:**
+- Age group validation error: "U19 must be one of ['U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U18']"
+- Timestamp: 2026-02-16 07:35-47 (correlates with scraper runs)
+- GitHub Action "TGS Event Scrape and Import" was **cancelled** at 07:34, which may have triggered the quarantine spike
+
+**Root cause analysis:**
+- Scraper (TGS or auto scraper) is now pulling U19 games
+- Validation schema rejects them (intentionally, not a bug)
+- This is a **business decision** — does PitchRank support U19?
+
+**Decision needed:**
+1. ✅ **Add U19 to supported ages** → I can update `calculate_rankings.py` 
+2. 🚫 **Filter U19 at scraper** → Need to modify scraper config
+3. 📊 **Leave quarantine** → Let it accumulate until decision made
+
+**Status:** Monitoring. All other systems nominal (rankings 66h old but expected between scrapes).
+
+**Cost impact:** 2 errors from this session (Watchy + preflight), baseline normal.
+
+---
 
 **Last 24h (Feb 15 - SUNDAY)**
 
