@@ -659,8 +659,8 @@ async def compute_all_cohorts(
         logger.info(
             f"✅ National/State SOS normalization complete: "
             f"sos_norm_national range=[{teams_combined['sos_norm_national'].min():.3f}, {teams_combined['sos_norm_national'].max():.3f}], "
-            f"SOS ranking: {ranked_national:,} teams eligible (>= {min_games_for_sos_rank} games), "
-            f"{excluded_count:,} teams excluded (< {min_games_for_sos_rank} games)"
+            f"SOS ranking: {ranked_national:,} Active teams eligible, "
+            f"{excluded_count:,} non-Active teams excluded"
         )
 
         # Sample state distribution for diagnostics
