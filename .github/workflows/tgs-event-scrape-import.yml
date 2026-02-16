@@ -28,7 +28,7 @@ on:
 jobs:
   scrape-and-import:
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # 6 hour timeout (GitHub Actions maximum) - scraping 100 events + import can take 4+ hours
+    timeout-minutes: 120  # 2 hour timeout - with --stream flag enabling concurrency, import should complete in 30-60 min
 
     env:
       # Default event range for scheduled runs
@@ -120,7 +120,7 @@ jobs:
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
           CSV_FILE="${{ steps.find_csv.outputs.csv_file }}"
           echo "Importing games from: $CSV_FILE"
-          python scripts/import_games_enhanced.py "$CSV_FILE" tgs --concurrency 8 --checkpoint
+          python scripts/import_games_enhanced.py "$CSV_FILE" tgs --stream --concurrency 8 --checkpoint
 
       - name: Maintain TGS Direct ID Aliases
         if: ${{ github.event_name == 'schedule' || inputs.skip_import == false }}
