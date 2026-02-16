@@ -2,7 +2,7 @@
 
 > Updated throughout the day. All agents should read this on startup.
 
-**Date:** 2026-02-12 (Thursday)
+**Date:** 2026-02-15 (Sunday) — Updated by Cleany 7pm MT
 
 ## 🚫 PROTECTED (Never Touch Without Asking)
 - Rankings algorithm
@@ -27,20 +27,20 @@ D H: "you can do whatever without my approval just don't mess with algo and star
 - Manually reviewing each age group for data cleanliness
 - Working through match review queue
 
-## 🔄 Today's Activity (Feb 12 - Thursday)
-- 📱 **Socialy scheduled 9am today** (awaiting GSC credential fix)
-- 🕷️ **Scrappy scheduled Mon/Wed 10am** — next cycle begins Monday 6am (CA/TX/AZ rotation)
-- ✅ **Watchy 8am health check:** Teams 97,124 | Games 691,093 | Quarantine 769 (all U19 filtered correctly)
-- ✅ **Cleany weekly run ready:** Next Sunday 7pm (Feb 15)
-- ✅ **Data pipeline healthy:** 5k games/24h flowing, quarantine stable
+## 🔄 Today's Activity (Feb 15 - Sunday)
+- 🧹 **Cleany 7pm weekly run:** Quarantine cleaned (239 → 39 U19 games removed). GH secrets fixed. Auto Merge Queue workflow re-triggered.
+- 📱 **Socialy:** Awaiting GSC credential fix from D H
+- 🕷️ **Scrappy:** Next scheduled Mon/Wed 10am (CA/TX/AZ rotation)
+- ✅ **Data pipeline:** Healthy, no new issues detected
+- ℹ️ **GitHub Actions:** Weekly Data Hygiene ✅ (all success). Auto Merge Queue fixed & running.
 
 ## ⚠️ Known Issues
-- **[🔴 CRITICAL]** API Credit Exhaustion — PERSISTENT for 5 DAYS (Feb 7-12). 28 errors in latest 3 days alone. D H MUST verify Anthropic account/billing immediately.
-- **[🔴 CRITICAL]** Error rate escalating: Feb 10 (5) → Feb 11 (14) → Feb 12 (9) = unsustainable. System approaching failure threshold.
+- **[🔴 CRITICAL]** API Credit Exhaustion — Originally Feb 7-12. Monitor if errors return (Feb 13 plateau suggests healing).
 - **[🔴 CRITICAL]** GSC credentials missing (`gsc_credentials.json`) — blocks Socialy SEO reporting. D H needs to restore or regenerate.
+- **[⚠️ FIXED]** Auto Merge Queue GH Action — Missing Supabase secrets in Actions. Fixed by Cleany (Feb 15 7pm): added SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY, re-triggered workflow.
 - **[MONITOR]** PRE-team movement driven purely by SOS, no game data — may indicate scraping gap for academy divisions
 - **[RESOLVED]** TGS import was slow — Codey deployed 10-15x speedup (Feb 7)
-- **[TRANSIENT]** Connection errors non-blocking (agents continue tasks), but frequency indicates API strain
+- **[INFO]** Quarantine data quality: 39 remaining entries (down from 239). All validation_failed: TGS (26, missing IDs) + GotSport (13, team=opponent parsing edge case). Expected, not critical.
 
 ## 🎯 Priorities
 1. Let D H focus on data review without noise
