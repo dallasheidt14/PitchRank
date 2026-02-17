@@ -252,6 +252,12 @@ async def scrape_games(
     provider_id = scraper._get_provider_id()
     
     # Get teams to scrape
+    # When limit_teams is specified, auto-enable include_recent so the user
+    # actually gets that many teams instead of being capped by the 7-day filter
+    if limit_teams and not null_teams_only and not include_recent:
+        include_recent = True
+        console.print(f"[cyan]--limit-teams={limit_teams} specified, auto-including all teams (sorted by stalest first)[/cyan]")
+
     if null_teams_only:
         # Get teams with NULL last_scraped_at (with pagination to handle >1000 teams)
         console.print("[cyan]Fetching teams with NULL last_scraped_at (paginated)...[/cyan]")
@@ -278,7 +284,8 @@ async def scrape_games(
         console.print(f"[cyan]Found {len(teams)} teams with NULL last_scraped_at[/cyan]")
     elif include_recent:
         # Include ALL teams (override 7-day filter) - useful for manual re-scrapes
-        console.print("[cyan]Fetching ALL teams (including recently scraped)...[/cyan]")
+        # Sort by last_scraped_at so stalest teams are scraped first
+        console.print("[cyan]Fetching ALL teams (including recently scraped, stalest first)...[/cyan]")
         teams = []
         page_size = 1000
         offset = 0
@@ -286,7 +293,7 @@ async def scrape_games(
         while True:
             teams_result = supabase.table('teams').select('*').eq(
                 'provider_id', provider_id
-            ).range(offset, offset + page_size - 1).execute()
+            ).order('last_scraped_at', desc=False, nullsfirst=True).range(offset, offset + page_size - 1).execute()
 
             if not teams_result.data:
                 break
