@@ -54,7 +54,7 @@ class V53EConfig:
     # Layer 8 (SOS)
     UNRANKED_SOS_BASE: float = 0.35
     SOS_REPEAT_CAP: int = 2  # Reduced from 4 to prevent regional rivals from dominating SOS
-    SOS_ITERATIONS: int = 3
+    SOS_ITERATIONS: int = 3  # Transitive SOS propagation passes (Feb 11 revert: 1→3, rankings improved)
     SOS_TRANSITIVITY_LAMBDA: float = 0.20  # Balanced transitivity weight (80% direct, 20% transitive)
 
     # Power-SOS Co-Calculation: Use opponent's FULL power score (including their SOS) for SOS calculation
@@ -98,7 +98,7 @@ class V53EConfig:
     ANCHOR_PERCENTILE: float = 0.98
 
     # Normalization mode
-    NORM_MODE: str = "zscore"  # or "percentile"
+    NORM_MODE: str = "zscore"  # zscore provides better spread; percentile caused bunching
 
     # =========================
     # Regional Bubble Detection (Layer 8b)
@@ -1078,8 +1078,8 @@ def compute_rankings(
     def percentile_within_cohort(x):
         if len(x) <= 1:
             return pd.Series([0.5] * len(x), index=x.index)
-        # rank(pct=True) gives values from 1/n to 1.0
-        # We want 0.0 to 1.0, so we adjust
+        # Manual percentile: maps ranks to [0.0, 1.0] where worst=0, best=1.
+        # With ties, rank(method='average') assigns the mean of tied positions.
         ranks = x.rank(method='average')
         return (ranks - 1) / (len(x) - 1) if len(x) > 1 else pd.Series([0.5], index=x.index)
 
@@ -1132,14 +1132,19 @@ def compute_rankings(
     # Correlation guardrail: detect if games-played is leaking into sos_norm
     # This check ensures the pre-percentile shrinkage bug doesn't silently return.
     # A correlation > 0.10 indicates systematic bias where more games → higher sos_norm.
-    gp_sos_corr = team[["gp", "sos_norm"]].corr().iloc[0, 1]
-    if abs(gp_sos_corr) > 0.10:
-        logger.warning(
-            f"⚠️  GP-SOS correlation detected: {gp_sos_corr:.3f} (threshold: ±0.10). "
-            f"This may indicate games-played bias in SOS calculation."
-        )
+    if len(team) < 3:
+        logger.info(f"✅ GP-SOS correlation check skipped: only {len(team)} team(s)")
     else:
-        logger.info(f"✅ GP-SOS correlation check passed: {gp_sos_corr:.3f} (within ±0.10)")
+        gp_sos_corr = team[["gp", "sos_norm"]].corr().iloc[0, 1]
+        if pd.isna(gp_sos_corr):
+            logger.warning("⚠️  GP-SOS correlation is NaN (possible zero variance). Skipping check.")
+        elif abs(gp_sos_corr) > 0.10:
+            logger.warning(
+                f"⚠️  GP-SOS correlation detected: {gp_sos_corr:.3f} (threshold: ±0.10). "
+                f"This may indicate games-played bias in SOS calculation."
+            )
+        else:
+            logger.info(f"✅ GP-SOS correlation check passed: {gp_sos_corr:.3f} (within ±0.10)")
 
     # -------------------------
     # Layer 6: Performance
@@ -1279,6 +1284,18 @@ def compute_rankings(
             sos_map = dict(zip(sos_full["team_id"], sos_full["sos"]))
             new_sos = team["team_id"].map(sos_map).fillna(0.5)
             team["sos"] = cfg.SOS_POWER_DAMPING * new_sos + (1 - cfg.SOS_POWER_DAMPING) * prev_sos
+
+            # Step 4b: Re-apply SCF dampening (prevents Power-SOS from erasing bubble detection)
+            # Without this, SCF corrections are ~97% erased after 3 Power-SOS iterations
+            # because each iteration recalculates SOS from full power without SCF.
+            if cfg.SCF_ENABLED and 'scf' in team.columns:
+                neutral = cfg.SCF_NEUTRAL_SOS
+                team["sos"] = neutral + team["scf"] * (team["sos"] - neutral)
+                if cfg.ISOLATION_PENALTY_ENABLED:
+                    isolation_mask = team['bridge_games'] < cfg.MIN_BRIDGE_GAMES
+                    team.loc[isolation_mask, 'sos'] = team.loc[isolation_mask, 'sos'].clip(
+                        upper=cfg.ISOLATION_SOS_CAP
+                    )
 
             # Step 5: Re-normalize SOS within cohort
             team['sos_norm'] = team.groupby(['age', 'gender'])['sos'].transform(percentile_within_cohort)

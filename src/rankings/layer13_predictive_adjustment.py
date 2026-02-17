@@ -148,8 +148,12 @@ def _extract_game_residuals(feats: pd.DataFrame, games_df: pd.DataFrame, cfg: La
     Since v53e format duplicates each game (home and away perspective), we filter to
     home team perspective only to get one residual per game.
 
+    NOTE: Only returns home-team perspective residuals for per-game display.
+    Per-team ML scores (ml_overperf, ml_norm) correctly aggregate both perspectives
+    via _aggregate_team_residuals. For away-team display, the frontend should negate
+    the home team's residual.
+
     The residual represents the home team's perspective (positive = home outperformed).
-    For display, the frontend should interpret this from each team's viewpoint.
 
     Returns DataFrame with columns: game_id (UUID), ml_overperformance (float)
     """

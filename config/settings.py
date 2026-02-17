@@ -9,7 +9,7 @@ load_dotenv()
 
 # Project Info
 PROJECT_NAME = "PitchRank"
-VERSION = "2.0.3-review-queue-fix"
+VERSION = "2.0.4-config-sync"
 
 # Build identification
 BUILD_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -132,8 +132,8 @@ RANKING_CONFIG = {
     # Layer 8 (SOS)
     'unranked_sos_base': float(os.getenv("UNRANKED_SOS_BASE", 0.35)),  # V53EConfig.UNRANKED_SOS_BASE
     'sos_repeat_cap': int(os.getenv("SOS_REPEAT_CAP", 2)),  # V53EConfig.SOS_REPEAT_CAP (reduced from 4)
-    'sos_iterations': int(os.getenv("SOS_ITERATIONS", 1)),  # V53EConfig.SOS_ITERATIONS (single-pass, no transitive)
-    'sos_transitivity_lambda': float(os.getenv("SOS_TRANSITIVITY_LAMBDA", 0.0)),  # V53EConfig.SOS_TRANSITIVITY_LAMBDA (disabled)
+    'sos_iterations': int(os.getenv("SOS_ITERATIONS", 3)),  # V53EConfig.SOS_ITERATIONS (3 passes, 80/20 direct/transitive)
+    'sos_transitivity_lambda': float(os.getenv("SOS_TRANSITIVITY_LAMBDA", 0.20)),  # V53EConfig.SOS_TRANSITIVITY_LAMBDA
 
     # Opponent-adjusted offense/defense (fixes double-counting problem)
     'opponent_adjust_enabled': os.getenv("OPPONENT_ADJUST_ENABLED", "true").lower() in ("true", "1", "yes"),  # V53EConfig.OPPONENT_ADJUST_ENABLED
@@ -157,7 +157,7 @@ RANKING_CONFIG = {
     'anchor_percentile': float(os.getenv("ANCHOR_PERCENTILE", 0.98)),  # V53EConfig.ANCHOR_PERCENTILE
     
     # Normalization mode
-    'norm_mode': os.getenv("NORM_MODE", "percentile"),  # V53EConfig.NORM_MODE
+    'norm_mode': os.getenv("NORM_MODE", "zscore"),  # V53EConfig.NORM_MODE
     
     # Legacy fields (for backward compatibility)
     'recent_games': 15,
@@ -272,6 +272,9 @@ if not USE_LOCAL_SUPABASE:
         _settings_logger.warning("SUPABASE_KEY is not set — database calls will fail")
 
 # Validate ranking weights sum to 1.0
+# Note: PERF_BLEND_WEIGHT is applied additively on top of this sum,
+# making the theoretical max 1.0 + 0.5 * PERF_BLEND_WEIGHT = 1.075.
+# The ranking engine normalizes by this max (see v53e.py MAX_POWERSCORE_THEORETICAL).
 _weight_sum = RANKING_CONFIG['off_weight'] + RANKING_CONFIG['def_weight'] + RANKING_CONFIG['sos_weight']
 if abs(_weight_sum - 1.0) > 0.01:
     raise ValueError(
