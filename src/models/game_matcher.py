@@ -488,10 +488,11 @@ class GameHistoryMatcher:
                 'provider_team_id', team_id_str
             ).eq('match_method', 'direct_id').eq(
                 'review_status', 'approved'
-            ).single().execute()
+            ).limit(1).execute()
 
             if result.data:
-                team_id_master = result.data['team_id_master']
+                match = result.data[0]
+                team_id_master = match['team_id_master']
                 # Validate age_group if provided
                 if age_group:
                     if not self._validate_team_age_group(team_id_master, age_group, gender):
@@ -500,7 +501,7 @@ class GameHistoryMatcher:
                             f"but age_group mismatch (game: {age_group}). Rejecting match."
                         )
                         return None
-                return result.data
+                return match
         except Exception as e:
             logger.debug(f"No exact direct_id match found: {e}")
 
@@ -545,10 +546,11 @@ class GameHistoryMatcher:
                 'team_id_master, review_status, match_method'
             ).eq('provider_id', provider_id).eq(
                 'provider_team_id', team_id_str
-            ).eq('review_status', 'approved').single().execute()
+            ).eq('review_status', 'approved').limit(1).execute()
 
             if result.data:
-                team_id_master = result.data['team_id_master']
+                match = result.data[0]
+                team_id_master = match['team_id_master']
                 # Validate age_group if provided
                 if age_group:
                     if not self._validate_team_age_group(team_id_master, age_group, gender):
@@ -557,7 +559,7 @@ class GameHistoryMatcher:
                             f"but age_group mismatch (game: {age_group}). Rejecting match."
                         )
                         return None
-                return result.data
+                return match
         except Exception as e:
             logger.debug(f"No alias map match found: {e}")
         return None
@@ -884,35 +886,27 @@ class GameHistoryMatcher:
     ):
         """Create or update team alias map entry"""
         try:
-            # Check if alias already exists
-            query = self.db.table('team_alias_map').select('id')
-            
+            # Check if alias already exists (by provider_id + provider_team_id)
+            existing = None
             if provider_team_id:
-                query = query.eq('provider_id', provider_id).eq(
+                existing = self.db.table('team_alias_map').select('id').eq(
+                    'provider_id', provider_id
+                ).eq(
                     'provider_team_id', provider_team_id
-                )
-            else:
-                age_group_normalized = age_group.lower() if age_group else age_group
-                query = query.eq('provider_id', provider_id).eq(
-                    'team_name', team_name
-                ).eq('age_group', age_group_normalized).eq('gender', gender)
-            
-            existing = query.execute()
-            
+                ).execute()
+
+            # Only include columns that exist in team_alias_map table
             alias_data = {
                 'provider_id': provider_id,
                 'provider_team_id': provider_team_id,
                 'team_id_master': team_id_master,
-                'team_name': team_name,
-                'age_group': age_group,
-                'gender': gender,
                 'match_method': match_method,
                 'match_confidence': confidence,
                 'review_status': review_status,
                 'created_at': datetime.now().isoformat()
             }
             
-            if existing.data:
+            if existing and existing.data:
                 # Update existing
                 self.db.table('team_alias_map').update(alias_data).eq(
                     'id', existing.data[0]['id']
