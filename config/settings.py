@@ -9,7 +9,7 @@ load_dotenv()
 
 # Project Info
 PROJECT_NAME = "PitchRank"
-VERSION = "2.0.3-review-queue-fix"
+VERSION = "2.0.4-config-sync"
 
 # Build identification
 BUILD_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -272,6 +272,9 @@ if not USE_LOCAL_SUPABASE:
         _settings_logger.warning("SUPABASE_KEY is not set — database calls will fail")
 
 # Validate ranking weights sum to 1.0
+# Note: PERF_BLEND_WEIGHT is applied additively on top of this sum,
+# making the theoretical max 1.0 + 0.5 * PERF_BLEND_WEIGHT = 1.075.
+# The ranking engine normalizes by this max (see v53e.py MAX_POWERSCORE_THEORETICAL).
 _weight_sum = RANKING_CONFIG['off_weight'] + RANKING_CONFIG['def_weight'] + RANKING_CONFIG['sos_weight']
 if abs(_weight_sum - 1.0) > 0.01:
     raise ValueError(
