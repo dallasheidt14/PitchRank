@@ -55,7 +55,71 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
-**Last 24h (Feb 16 - MONDAY)**
+**Last 24h (Feb 16-17 - MONDAY-TUESDAY)**
+
+### [2026-02-16 22:30pm] COMPY
+🧠 **Nightly Knowledge Compound Complete (Day 10 Post-Crisis)**
+
+**Sessions reviewed:** 7 total (Feb 16 24h window)
+- Cleany (2 sessions, 67 messages, 7 errors)
+- Ranky (1 session, 1 error — IN_PROGRESS at compound time)
+- Scrappy (1 session, 3 messages, 0 errors)
+- Watchy (1 session, 2 messages, U19 alert)
+- Compy (2 sessions, 9 messages, this compound)
+
+**CRITICAL DISCOVERY: U19 Age Group Policy Decision**
+Watchy detected 726 U19 games entering quarantine (Feb 16 7:35am):
+- Quarantine jumped: 39 (Feb 15) → 777 (Feb 16 morning)
+- Root cause: Scraper now pulling U19 events, validation rejects (intentional)
+- **This is NOT a bug — it's a business policy question**
+
+**Options documented in DECISION_TREES.md:**
+- **Option A:** Add U19 to supported ages → Update `calculate_rankings.py` (2-line change, requires D H approval as it touches algorithm)
+- **Option B:** Filter U19 at scraper → Exclude high school from import
+- **Option C:** Leave in quarantine → Accept but don't rank
+
+**Escalation:** LEVEL 4 (❓ Decision Needed) — Waiting for D H to choose.
+
+**Data Pipeline Status (Feb 16):**
+- Teams: 96,985 | Games: 691,076 (updated by Ranky at noon)
+- Rankings: 2026-02-16 ✅ (last: Feb 13)
+- Quarantine: 777 (mostly U19, manageable once policy set)
+- Error rate: 7 (Cleany 7), baseline stable, non-blocking
+
+**Agent Activity Summary:**
+- ✅ **Watchy** (8am) — Health check complete, detected U19 alert, escalated properly
+- ✅ **Scrappy** (10am) — Scrape monitor clean, triggered new scrape batch
+- ✅ **Ranky** (12pm) — Rankings calculation complete, dataset 340k+ games
+- ✅ **Cleany** — 7 connection errors (baseline normal for heavy agent)
+- 🚫 **Socialy** — Blocked on GSC credentials (still 3+ days pending)
+
+**FILES UPDATED:**
+- ✅ DECISION_TREES.md (new U19 age group decision pattern)
+- ✅ LEARNINGS.md (Feb 16 U19 discovery + learning for policy questions)
+- ✅ AGENT_COMMS.md (consolidated to 24h, this entry)
+- ✅ DAILY_CONTEXT.md (Feb 16 activity summary)
+
+**ERROR TREND (10-day view):**
+```
+Feb 10:   5 errors
+Feb 11:  14 errors (peak)
+Feb 12:   9 errors
+Feb 13:   6 errors
+Feb 14:   6 errors
+Feb 15:   6 errors
+Feb 16:   7 errors ← STILL STABLE (minor variation)
+```
+- System remains at plateau, no escalation
+- 7 errors vs 6 yesterday = expected variance
+- No errors > 1 (no errors blocking tasks)
+
+**CRITICAL ISSUES (Status Update):**
+1. 🟡 **API Credit Exhaustion** — Plateau at 6-7 errors/day since Feb 13 (3 days stable). Monitoring for reversal. System adapting well.
+2. 🔴 **GSC Credentials** — Still missing. Blocks Socialy. Recommendation: D H restore or regenerate.
+
+**NEXT COMPOUND:** 2026-02-17 22:30 MT
+
+---
 
 ### [2026-02-16 8:00am] WATCHY
 🟡 **ALERT: U19 Age Group Validation Spike**

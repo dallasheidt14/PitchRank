@@ -590,3 +590,34 @@ ACTION: Continue daily error trend monitoring in LEARNINGS.md. Plot 7-day moving
 PREVENTION: Once plateau confirmed at <5/day for 1 week, declare "crisis resolved" and stand down escalation.
 NOTE: Non-blocking errors are acceptable; blocking errors (agents fail tasks) are critical.
 ```
+
+### 2026-02-16: Age Group Support Policy Decision (U19)
+```
+WHEN: Quarantine contains high count of single unsupported age group
+PATTERN: Feb 16 8am Watchy alert shows:
+  - Quarantine jumped: 39 (Feb 15) → 777 (Feb 16 morning)
+  - 738 new games added overnight (7:35-47am)
+  - 726 games = U19 age group rejections
+TRIGGER: Scraper (TGS or auto-scraper) now pulling U19 games
+  - Age group validation rejects: "U19 must be one of ['U10'...'U18']"
+  - This is intentional validation, not a bug
+BUSINESS_DECISION: Does PitchRank support U19 (high school age)?
+OPTIONS:
+  A) **Add U19 support** → Update `calculate_rankings.py` age_groups validation list
+     - Impact: Expand rankings to include high school
+     - Effort: 2-line change in rankings algorithm
+     - Consideration: Touches protected algorithm (requires D H approval)
+  
+  B) **Filter U19 at scraper** → Modify scraper config to exclude U19 events
+     - Impact: No high school coverage, cleaner import pipeline
+     - Effort: Update TGS/GotSport event filters
+     - Owner: Scrappy or source config
+  
+  C) **Leave in quarantine** → Accept U19 games accumulate, do nothing
+     - Impact: Data sits unranked; unclear signal to users
+     - Effort: None
+     - Consideration: Not a good long-term solution
+ESCALATE: LEVEL 4 (❓ Decision Needed) — This is a business policy decision outside agent scope.
+ACTION_PENDING: Wait for D H to choose A/B/C, then implement.
+MONITORING: Track quarantine U19 count daily until decision made.
+```

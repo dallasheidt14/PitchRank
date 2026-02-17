@@ -4,6 +4,26 @@
 
 ## Cross-Agent Insights
 
+### 2026-02-16: U19 Age Group Coverage Decision (Business Policy)
+**Discovery:** Watchy detected 726 U19 games entering quarantine (Feb 16 7:35am).
+
+**What happened:**
+1. Scraper (TGS or auto) now pulling U19 events
+2. Age group validation rejects U19: "must be one of ['U10'...'U18']"
+3. Quarantine jumped 39 → 777 (738 new games)
+4. This is **not a bug** — it's a policy decision
+
+**Three options documented in DECISION_TREES.md:**
+- A) Add U19 to supported ages (expand rankings to high school)
+- B) Filter U19 at scraper (exclude high school)
+- C) Leave in quarantine (do nothing)
+
+**Escalation:** LEVEL 4 ❓ Decision Needed — Waiting for D H to choose A/B/C.
+
+**Learning for future:** When seeing large single age group in quarantine, it's usually a policy question, not a data quality issue. Check if age group is supported before treating as error.
+
+---
+
 ### 2026-02-15: Error Plateau Confirms System Healing (Day 9 Post-Crisis)
 **9-day error trend analysis shows stabilization:**
 ```
