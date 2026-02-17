@@ -29,12 +29,14 @@ from team_name_normalizer import parse_age_gender
 
 # Load environment
 from dotenv import load_dotenv
-load_dotenv()
+_env_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(_env_dir, '.env.local'))
+load_dotenv(os.path.join(_env_dir, '.env'))
 
 # Try direct DB connection first, fall back to Supabase REST API
 DATABASE_URL = os.getenv('DATABASE_URL')
 SUPABASE_URL = os.getenv('SUPABASE_URL')
-SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_KEY') or os.getenv('SUPABASE_KEY')
+SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('SUPABASE_SERVICE_KEY') or os.getenv('SUPABASE_KEY')
 
 # Known keywords to preserve with specific formatting
 LEAGUE_KEYWORDS = {
@@ -95,7 +97,7 @@ def normalize_team_name(team_name: str, club_name: str = None) -> str:
             continue
         
         # Handle combined age patterns like '15/16B' - take oldest year
-        slash_match = re.match(r'^(\d{2})/(\d{2})([BbGg])?$', clean_token)
+        slash_match = re.match(r'^(\d{2})/(\d{2})([BbGgMmFf])?$', clean_token)
         if slash_match and age_found is None:
             y1, y2 = int(slash_match.group(1)), int(slash_match.group(2))
             older = min(y1, y2)
@@ -331,14 +333,14 @@ def main():
     print(f"Mode: {'DRY RUN (preview only)' if args.dry_run else 'LIVE (will update database)'}")
     print()
     
-    # Use direct Postgres if available, otherwise Supabase REST
-    if DATABASE_URL:
-        run_with_psycopg2(args)
-    elif SUPABASE_URL and SUPABASE_KEY:
+    # Use Supabase REST API first (most reliable), fall back to direct Postgres
+    if SUPABASE_URL and SUPABASE_KEY:
         run_with_supabase(args)
+    elif DATABASE_URL:
+        run_with_psycopg2(args)
     else:
         print("❌ No database connection configured")
-        print("   Set DATABASE_URL or SUPABASE_URL + SUPABASE_KEY in .env")
+        print("   Set SUPABASE_URL + SUPABASE_KEY or DATABASE_URL in .env")
         sys.exit(1)
 
 

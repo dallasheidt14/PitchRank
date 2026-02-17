@@ -22,7 +22,7 @@ from supabase import create_client
 SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
 
-SKIP_STATES = {'CA', 'AZ'}
+SKIP_STATES = set()  # Scan all states (CA/AZ were previously skipped)
 
 # Acronyms to keep uppercase
 ACRONYMS = {
@@ -56,30 +56,44 @@ def proper_case(name):
     return ' '.join(result)
 
 def normalize_for_grouping(name):
-    """Normalize name to find naming variations (SC vs Soccer Club etc)."""
+    """Normalize name to find genuine naming variations.
+    
+    CONSERVATIVE approach: Normalize suffix/prefix variations to a canonical form
+    instead of stripping them. This prevents false matches like:
+      - "FC Arkansas" ≠ "Arkansas Soccer Club"  (prefix FC ≠ suffix SC)
+      - "FC United Soccer Club" ≠ "United Soccer Club"  (different clubs)
+    
+    Only matches genuine variations like:
+      - "Pride SC" = "Pride Soccer Club"  (same suffix, different abbreviation)
+      - "Florida West F.C." = "Florida West FC"  (same suffix, different format)
+    """
     n = name.lower().strip()
-    # Remove common suffixes for grouping
-    n = re.sub(r'\s+soccer\s+club\s*$', '', n)
-    n = re.sub(r'\s+futbol\s+club\s*$', '', n)
-    n = re.sub(r'\s+football\s+club\s*$', '', n)
-    n = re.sub(r'\s+sc\s*$', '', n)
-    n = re.sub(r'\s+fc\s*$', '', n)
-    n = re.sub(r'\s+f\.c\.\s*$', '', n)
-    n = re.sub(r'\s+s\.c\.\s*$', '', n)
-    # Remove leading FC
-    n = re.sub(r'^fc\s+', '', n)
+    
+    # Normalize trailing suffix variations to canonical "sc" or "fc"
+    # "Soccer Club" / "S.C." → " sc"
+    n = re.sub(r'\s+soccer\s+club\s*$', ' sc', n)
+    n = re.sub(r'\s+s\.c\.\s*$', ' sc', n)
+    
+    # "Football Club" / "Futbol Club" / "F.C." → " fc"
+    n = re.sub(r'\s+football\s+club\s*$', ' fc', n)
+    n = re.sub(r'\s+futbol\s+club\s*$', ' fc', n)
+    n = re.sub(r'\s+f\.c\.\s*$', ' fc', n)
+    
+    # Normalize leading prefix: "FC X" → "fc x" (keep the FC, just lowercase)
+    # Do NOT strip it — "FC Dallas" and "Dallas SC" are different clubs
+    
     return n.strip()
 
-def fetch_all_male_teams(client, state_code):
-    """Fetch all Male teams for a state using pagination."""
+def fetch_all_teams(client, state_code):
+    """Fetch all active teams for a state (both genders) using pagination."""
     all_teams = []
     offset = 0
     page_size = 1000
     
     while True:
         result = client.table('teams').select(
-            'team_id_master, team_name, club_name'
-        ).eq('gender', 'Male').eq('state_code', state_code).range(
+            'team_id_master, team_name, club_name, gender'
+        ).eq('state_code', state_code).eq('is_deprecated', False).range(
             offset, offset + page_size - 1
         ).execute()
         
@@ -94,7 +108,7 @@ def fetch_all_male_teams(client, state_code):
 
 def analyze_state(client, state_code):
     """Analyze club names in a state, return fixes needed."""
-    teams = fetch_all_male_teams(client, state_code)
+    teams = fetch_all_teams(client, state_code)
     if not teams:
         return [], 0
     
@@ -160,11 +174,11 @@ def analyze_state(client, state_code):
 def generate_sql(all_fixes):
     """Generate SQL UPDATE statements."""
     lines = [
-        "-- Club Name Standardization Fixes (Male teams only)",
-        "-- Generated automatically - excludes CA and AZ (already done)",
+        "-- Club Name Standardization Fixes (all teams, both genders)",
+        "-- Generated automatically by full_club_analysis.py",
         "-- Includes BOTH caps fixes AND naming variations",
         "--",
-        "-- IMPORTANT: Each UPDATE filtered by state_code AND gender='Male'",
+        "-- Each UPDATE filtered by state_code (applies to both Male and Female)",
         "",
         "BEGIN;",
         ""
@@ -182,23 +196,76 @@ def generate_sql(all_fixes):
             from_esc = fix['from'].replace("'", "''")
             to_esc = fix['to'].replace("'", "''")
             lines.append(f"-- [{fix['type']}] \"{fix['from']}\" → \"{fix['to']}\" ({fix['count']} teams)")
-            lines.append(f"UPDATE teams SET club_name = '{to_esc}' WHERE club_name = '{from_esc}' AND state_code = '{state}' AND gender = 'Male';")
+            lines.append(f"UPDATE teams SET club_name = '{to_esc}' WHERE club_name = '{from_esc}' AND state_code = '{state}';")
             lines.append("")
         lines.append("")
     
     lines.append("COMMIT;")
     return '\n'.join(lines)
 
+def execute_fixes(client, all_fixes, dry_run=True):
+    """Apply club name fixes directly via Supabase REST API."""
+    if not all_fixes:
+        print("No fixes to apply.")
+        return 0, 0
+    
+    if dry_run:
+        print(f"\n[DRY RUN] Would apply {len(all_fixes)} club name fixes")
+        for fix in all_fixes[:20]:
+            print(f"  {fix['state']}: \"{fix['from']}\" → \"{fix['to']}\" ({fix['count']} teams)")
+        if len(all_fixes) > 20:
+            print(f"  ... and {len(all_fixes) - 20} more")
+        return len(all_fixes), 0
+    
+    print(f"\nApplying {len(all_fixes)} club name fixes...")
+    applied = 0
+    failed = 0
+    
+    for fix in all_fixes:
+        try:
+            result = client.table('teams').update(
+                {'club_name': fix['to']}
+            ).eq('club_name', fix['from']).eq('state_code', fix['state']).execute()
+            applied += 1
+            print(f"  ✅ {fix['state']}: \"{fix['from']}\" → \"{fix['to']}\"")
+        except Exception as e:
+            failed += 1
+            print(f"  ❌ {fix['state']}: \"{fix['from']}\" → error: {e}")
+    
+    print(f"\nApplied: {applied}, Failed: {failed}")
+    return applied, failed
+
+
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description='Full club name analysis and fixing')
+    parser.add_argument('--execute', action='store_true', help='Apply fixes via Supabase (default: generate SQL only)')
+    parser.add_argument('--dry-run', action='store_true', help='Show what would be fixed without applying')
+    args = parser.parse_args()
+    
     client = create_client(SUPABASE_URL, SUPABASE_KEY)
     
-    # Get all states
+    # Get all states (paginate to ensure we capture every state_code)
     print("Fetching states...")
-    result = client.table('teams').select('state_code').eq('gender', 'Male').execute()
-    all_states = set(t['state_code'] for t in result.data if t['state_code'])
+    all_states = set()
+    offset = 0
+    page_size = 1000
+    while True:
+        result = client.table('teams').select('state_code').eq(
+            'is_deprecated', False
+        ).range(offset, offset + page_size - 1).execute()
+        if not result.data:
+            break
+        for t in result.data:
+            if t.get('state_code'):
+                all_states.add(t['state_code'])
+        if len(result.data) < page_size:
+            break
+        offset += page_size
     states = sorted(all_states - SKIP_STATES)
     
-    print(f"Processing {len(states)} states (skipping CA, AZ)\n")
+    skip_note = f" (skipping {', '.join(sorted(SKIP_STATES))})" if SKIP_STATES else ""
+    print(f"Processing {len(states)} states{skip_note}\n")
     
     all_fixes = []
     summary = {}
@@ -217,8 +284,8 @@ def main():
         else:
             print("clean")
     
-    # Generate SQL
-    output_path = '/Users/pitchrankio-dev/Projects/PitchRank/scripts/club_name_fixes_male_all_states.sql'
+    # Generate SQL (always, for audit trail)
+    output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'club_name_fixes_male_all_states.sql')
     sql = generate_sql(all_fixes)
     with open(output_path, 'w') as f:
         f.write(sql)
@@ -240,6 +307,12 @@ def main():
     print(f"TOTAL: {total_fixes} fixes ({total_caps} caps + {total_naming} naming)")
     print(f"       {total_affected} teams will be updated")
     print(f"\nSQL written to: {output_path}")
+    
+    # Execute if requested
+    if args.execute:
+        execute_fixes(client, all_fixes, dry_run=False)
+    elif args.dry_run:
+        execute_fixes(client, all_fixes, dry_run=True)
 
 if __name__ == '__main__':
     main()

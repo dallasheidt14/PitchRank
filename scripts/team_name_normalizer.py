@@ -30,14 +30,16 @@ COLORS = {'black', 'blue', 'red', 'white', 'navy', 'gold', 'orange', 'green',
           'silver', 'gray', 'grey', 'purple', 'yellow', 'pink', 'maroon', 'teal'}
 
 DIVISIONS = {'premier', 'elite', 'academy', 'select', 'classic', 'competitive',
-             'ecnl', 'ecnl rl', 'ecnl-rl', 'ecrl', 'rl', 'dpl', 'dplo', 'npl', 'ga', 
-             'mls next', 'mls-next', 'pre-ecnl', 'pre-academy', 'development'}
+             'ecnl', 'ecnl rl', 'ecnl-rl', 'ecrl', 'rl', 'dpl', 'dplo', 'npl', 'ga',
+             'mls next', 'mls-next', 'pre-ecnl', 'pre-academy', 'development',
+             'showcase', 'challenge', 'recreational', 'pre ecnl'}
 
 # Normalize division name variations to standard form
 DIVISION_ALIASES = {
     'ecnl-rl': 'ECNL RL',
     'ecnl rl': 'ECNL RL',
     'ecrl': 'ECNL RL',  # Common abbreviation
+    'rl': 'ECNL RL',  # Standalone RL = ECNL Regional League
     'mls-next': 'MLS NEXT',
     'mls next': 'MLS NEXT',
     'pre-ecnl': 'Pre-ECNL',
@@ -86,24 +88,24 @@ def parse_age_gender(token: str) -> Tuple[Optional[str], Optional[str]]:
     """
     token = token.strip()
     
-    # Pattern: U-## (age group with hyphen)
-    match = re.match(r'^[Uu]-?(\d{1,2})([BbGg]?)$', token)
+    # Pattern: U-## with optional gender suffix (U14, U14B, U-14, U14M)
+    match = re.match(r'^[Uu]-?(\d{1,2})([BbGgMmFf]?)$', token)
     if match:
         age_num = int(match.group(1))
         gender_char = match.group(2)
         gender = normalize_gender(gender_char) if gender_char else None
         return (f'U{age_num}', gender)
     
-    # Pattern: BU## or GU## (gender prefix on age group)
-    match = re.match(r'^([BbGg])[Uu]-?(\d{1,2})$', token)
+    # Pattern: BU## or GU## or MU## (gender prefix on age group)
+    match = re.match(r'^([BbGgMmFf])[Uu]-?(\d{1,2})$', token)
     if match:
         gender_char = match.group(1)
         age_num = int(match.group(2))
         gender = normalize_gender(gender_char)
         return (f'U{age_num}', gender)
     
-    # Pattern: ##B or ##G (birth year + gender, 2 digit) -> 4-digit year
-    match = re.match(r'^(\d{2})([BbGg])$', token)
+    # Pattern: ##B/G/M/F with optional trailing 's' (14B, 15M, b15s) -> 4-digit year
+    match = re.match(r'^(\d{2})([BbGgMmFf])[Ss]?$', token)
     if match:
         year_short = int(match.group(1))
         gender_char = match.group(2)
@@ -112,8 +114,8 @@ def parse_age_gender(token: str) -> Tuple[Optional[str], Optional[str]]:
         gender = normalize_gender(gender_char)
         return (str(birth_year), gender)
     
-    # Pattern: B## or G## (gender + birth year, 2 digit) -> 4-digit year
-    match = re.match(r'^([BbGg])(\d{2})$', token)
+    # Pattern: B/G/M/F## with optional trailing 's' (B14, M15, b15s) -> 4-digit year
+    match = re.match(r'^([BbGgMmFf])(\d{2})[Ss]?$', token)
     if match:
         gender_char = match.group(1)
         year_short = int(match.group(2))
@@ -121,16 +123,16 @@ def parse_age_gender(token: str) -> Tuple[Optional[str], Optional[str]]:
         gender = normalize_gender(gender_char)
         return (str(birth_year), gender)
     
-    # Pattern: ####B or ####G (4-digit birth year + gender) -> 4-digit year
-    match = re.match(r'^(\d{4})([BbGg])$', token)
+    # Pattern: ####B/G/M/F (4-digit birth year + gender) -> 4-digit year
+    match = re.match(r'^(\d{4})([BbGgMmFf])$', token)
     if match:
         birth_year = int(match.group(1))
         gender_char = match.group(2)
         gender = normalize_gender(gender_char)
         return (str(birth_year), gender)
     
-    # Pattern: B#### or G#### (gender + 4-digit birth year) -> 4-digit year
-    match = re.match(r'^([BbGg])(\d{4})$', token)
+    # Pattern: B/G/M/F#### (gender + 4-digit birth year) -> 4-digit year
+    match = re.match(r'^([BbGgMmFf])(\d{4})$', token)
     if match:
         gender_char = match.group(1)
         birth_year = int(match.group(2))
@@ -220,6 +222,70 @@ def extract_squad_identifier(tokens: list) -> str:
     return ' '.join(squad_parts).strip()
 
 
+# Common suffixes/prefixes to strip when matching club names to team names
+_CLUB_SUFFIXES = [
+    ' soccer club', ' football club', ' futbol club',
+    ' youth soccer', ' soccer association', ' youth academy',
+    ' soccer', ' futbol',
+    ' fc', ' sc', ' sa', ' ac', ' cf', ' cd',
+]
+_CLUB_PREFIXES = ['fc ', 'sc ']
+
+
+def _strip_club_from_name(team_name: str, club_name: str) -> str:
+    """
+    Remove club name from team name, trying multiple strategies.
+    Returns the remaining text (age, gender, squad, division, etc.)
+    """
+    if not club_name or not team_name:
+        return team_name
+
+    name_lower = team_name.lower()
+    club_lower = club_name.lower()
+
+    # Strategy 1: Exact substring match (handles club anywhere in name)
+    if club_lower in name_lower:
+        idx = name_lower.find(club_lower)
+        before = team_name[:idx]
+        after = team_name[idx + len(club_name):]
+        remaining = (before + ' ' + after).strip()
+        return remaining.strip('- ')
+
+    # Strategy 2: Strip common suffixes/prefixes from club and try again
+    # e.g. club="Solar SC" → core="Solar", team="Solar PRE-ECNL 2015"
+    club_core = club_lower
+    for suffix in _CLUB_SUFFIXES:
+        if club_core.endswith(suffix):
+            club_core = club_core[:-len(suffix)].strip()
+            break
+    for prefix in _CLUB_PREFIXES:
+        if club_core.startswith(prefix):
+            club_core = club_core[len(prefix):].strip()
+            break
+
+    # Also strip parenthetical qualifiers like "(Ca)", "(OR)"
+    club_core = re.sub(r'\s*\(.*?\)\s*$', '', club_core).strip()
+    # Strip slashes like "LouCity / Racing Youth Academy" → try first part
+    club_parts = [p.strip() for p in club_core.split('/') if p.strip()]
+
+    # Try each candidate core (full core + slash parts)
+    candidates = [club_core] + club_parts if len(club_parts) > 1 else [club_core]
+    for core in candidates:
+        if not core or len(core) < 3:
+            continue
+        # Use word boundary match to avoid partial word matches
+        pattern = re.compile(r'\b' + re.escape(core) + r'\b', re.IGNORECASE)
+        match = pattern.search(team_name)
+        if match:
+            before = team_name[:match.start()]
+            after = team_name[match.end():]
+            remaining = (before + ' ' + after).strip()
+            return remaining.strip('- ')
+
+    # Strategy 3: No match found — return full team name as-is
+    return team_name.strip('- ')
+
+
 def parse_team_name(team_name: str, club_name: str = None) -> Dict:
     """
     Parse a team name into structured components.
@@ -253,18 +319,10 @@ def parse_team_name(team_name: str, club_name: str = None) -> Dict:
     # Clean up the team name
     name = team_name.strip()
     
-    # If club name is provided, try to extract the part after the club name
+    # If club name is provided, try to extract everything except the club name
     remaining = name
     if club_name:
-        # Try to find club name in team name (case insensitive)
-        club_lower = club_name.lower()
-        name_lower = name.lower()
-        
-        if club_lower in name_lower:
-            idx = name_lower.find(club_lower)
-            remaining = name[idx + len(club_name):].strip()
-            # Remove leading/trailing hyphens and spaces
-            remaining = remaining.strip('- ')
+        remaining = _strip_club_from_name(name, club_name)
     
     # Tokenize remaining part
     # Split on spaces, hyphens (but keep hyphenated terms together for things like ECNL-RL)

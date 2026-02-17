@@ -2,34 +2,69 @@ name: Weekly Data Hygiene
 
 on:
   schedule:
-    # Run every Sunday at 3:00 AM UTC (Saturday 8:00 PM MST)
-    # Before Monday's scrape cycle
-    - cron: '0 3 * * 0'
+    # Run every Tuesday at 10:00 AM MST (5:00 PM UTC)
+    # MST (UTC-7): 10:00 AM = 17:00 UTC
+    # MDT (UTC-6): 10:00 AM = 16:00 UTC  (will run at 11 AM MDT in summer)
+    - cron: '0 17 * * 2'
   workflow_dispatch:
     inputs:
+      gender:
+        description: 'Gender to process'
+        required: true
+        default: 'male'
+        type: choice
+        options:
+          - 'male'
+          - 'female'
+          - 'both'
       dry_run:
-        description: 'Dry run (scan only, no merges)'
+        description: 'Dry run (scan only, no writes)'
         required: false
         default: 'false'
         type: choice
         options:
           - 'true'
           - 'false'
+      skip_steps:
+        description: 'Comma-separated step numbers to skip (e.g., 1,2)'
+        required: false
+        default: ''
+        type: string
+
+# ─────────────────────────────────────────────────────────────
+# Pipeline order (dependencies matter!):
+#
+#   1. full_club_analysis.py       — Standardize club name variants (SC vs Soccer Club, caps)
+#   2. normalize_team_names.py     — Ages (14B→2014, 15M→2015), strip gender words
+#   3. find_fuzzy_duplicate_teams  — Fuzzy-match & merge duplicate teams (all male age groups)
+#   4. find_queue_matches.py       — Match review queue entries to existing teams
+#
+# Why this order:
+#   • Club names must be clean BEFORE team name normalization
+#   • Team names must be normalized BEFORE finding duplicates
+#   • Fuzzy merge runs before queue matching (fewer orphan queue entries)
+# ─────────────────────────────────────────────────────────────
 
 env:
   SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
   SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
   SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+  SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  PYTHONUNBUFFERED: '1'
 
 jobs:
-  duplicate-team-merge:
-    name: Merge Duplicate Teams
+  data-hygiene-pipeline:
+    name: Full Data Hygiene Pipeline
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 180
 
     steps:
+      # ── Setup ─────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -40,61 +75,164 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install supabase python-dotenv
+          pip install supabase psycopg2-binary python-dotenv
+          echo "✅ Dependencies installed"
 
-      - name: Fix hardcoded paths in scripts
+      - name: Verify Supabase secrets
         run: |
-          # Update scripts to use environment variables instead of hardcoded paths
-          sed -i "s|load_dotenv('/Users/pitchrankio-dev/Projects/PitchRank/.env')|load_dotenv()|g" scripts/run_all_merges.py
-          sed -i "s|load_dotenv('/Users/pitchrankio-dev/Projects/PitchRank/.env')|load_dotenv()|g" scripts/find_duplicates.py
-          sed -i "s|/Users/pitchrankio-dev/Projects/PitchRank/|./|g" scripts/run_all_merges.py
+          echo "SUPABASE_URL is set: $([ -n "$SUPABASE_URL" ] && echo yes || echo no)"
+          echo "SUPABASE_KEY is set: $([ -n "$SUPABASE_KEY" ] && echo yes || echo no)"
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
+            echo "::error::Missing secrets. In repo Settings → Secrets and variables → Actions, add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY."
+            exit 1
+          fi
 
-      - name: Run duplicate team merger
-        id: merge
+      - name: Create logs directory
+        run: mkdir -p logs
+
+      # ── Step 1: Club Name Standardization ─────────────────
+      - name: 'Step 1: Club Name Standardization'
+        id: step1
+        if: ${{ !contains(github.event.inputs.skip_steps || '', '1') }}
         run: |
-          cd scripts
+          echo "═══════════════════════════════════════════════════"
+          echo "STEP 1: CLUB NAME STANDARDIZATION"
+          echo "═══════════════════════════════════════════════════"
 
-          # Determine if dry run
+          EXECUTE_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" != "true" ]; then
+            EXECUTE_FLAG="--execute"
+          else
+            EXECUTE_FLAG="--dry-run"
+          fi
+
+          python scripts/full_club_analysis.py $EXECUTE_FLAG 2>&1 | tee logs/step1_club_standardize.log
+
+          TOTAL_FIXES=$(grep -oP 'TOTAL: \K\d+' logs/step1_club_standardize.log || echo "0")
+          TEAMS_AFFECTED=$(grep -oP '\s+(\d+) teams will' logs/step1_club_standardize.log | grep -oP '\d+' || echo "0")
+          echo "naming_fixes=$TOTAL_FIXES" >> $GITHUB_OUTPUT
+          echo "teams_standardized=$TEAMS_AFFECTED" >> $GITHUB_OUTPUT
+
+      # ── Step 2: Normalize Team Names ──────────────────────
+      - name: 'Step 2: Normalize Team Names'
+        id: step2
+        if: ${{ !contains(github.event.inputs.skip_steps || '', '2') }}
+        run: |
+          echo "═══════════════════════════════════════════════════"
+          echo "STEP 2: NORMALIZE TEAM NAMES"
+          echo "═══════════════════════════════════════════════════"
+
           DRY_RUN_FLAG=""
           if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
             DRY_RUN_FLAG="--dry-run"
-            echo "Running in DRY RUN mode"
           fi
 
-          # Run the merger
-          python run_all_merges.py $DRY_RUN_FLAG 2>&1 | tee ../logs/merge_$(date +%Y%m%d).log
+          python scripts/normalize_team_names.py $DRY_RUN_FLAG 2>&1 | tee logs/step2_normalize_names.log
 
-          # Extract summary for job output
-          DUPES=$(grep "duplicates found" ../logs/merge_$(date +%Y%m%d).log | grep -oP '\d+(?= duplicates)' || echo "0")
-          MERGED=$(grep "Merges complete" ../logs/merge_$(date +%Y%m%d).log | grep -oP '\d+(?= succeeded)' || echo "0")
+          NORMALIZED=$(grep -oP '(Would update|Updated): \K\d+' logs/step2_normalize_names.log || echo "0")
+          echo "teams_normalized=$NORMALIZED" >> $GITHUB_OUTPUT
 
-          echo "duplicates_found=$DUPES" >> $GITHUB_OUTPUT
-          echo "teams_merged=$MERGED" >> $GITHUB_OUTPUT
+      # ── Step 3: Fuzzy Duplicate Merge ─────────────────────
+      - name: 'Step 3: Fuzzy Duplicate Merge'
+        id: step3
+        if: ${{ !contains(github.event.inputs.skip_steps || '', '3') }}
+        run: |
+          echo "═══════════════════════════════════════════════════"
+          echo "STEP 3: FUZZY DUPLICATE MERGE"
+          echo "═══════════════════════════════════════════════════"
 
-      - name: Upload merge logs
+          # Determine which genders to run (scheduled runs default to male)
+          GENDER_INPUT="${{ github.event.inputs.gender || 'male' }}"
+          if [ "$GENDER_INPUT" == "both" ]; then
+            GENDERS="male female"
+          else
+            GENDERS="$GENDER_INPUT"
+          fi
+
+          TOTAL_MERGED=0
+          TOTAL_SUGGESTED=0
+
+          for GENDER in $GENDERS; do
+            for AGE in u10 u11 u12 u13 u14 u15 u16 u17 u18 u19; do
+              echo ""
+              echo "── $AGE $GENDER ──"
+
+              if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+                python scripts/find_fuzzy_duplicate_teams.py \
+                  --age-group "$AGE" --gender "$GENDER" --dry-run --min-score 0.85 \
+                  2>&1 | tee -a logs/step3_fuzzy_merge.log
+              else
+                python scripts/find_fuzzy_duplicate_teams.py \
+                  --age-group "$AGE" --gender "$GENDER" --auto-merge --min-score 0.85 \
+                  2>&1 | tee -a logs/step3_fuzzy_merge.log
+              fi
+
+              # Accumulate counts
+              SUGGESTED=$(grep -oP 'Suggested merges.*?: \K\d+' logs/step3_fuzzy_merge.log | tail -1 || echo "0")
+              MERGED_NOW=$(grep -oP 'Done: \K\d+' logs/step3_fuzzy_merge.log | tail -1 || echo "0")
+              TOTAL_SUGGESTED=$((TOTAL_SUGGESTED + SUGGESTED))
+              TOTAL_MERGED=$((TOTAL_MERGED + MERGED_NOW))
+            done
+          done
+
+          echo "fuzzy_suggested=$TOTAL_SUGGESTED" >> $GITHUB_OUTPUT
+          echo "fuzzy_merged=$TOTAL_MERGED" >> $GITHUB_OUTPUT
+
+      # ── Step 4: Match Review Queue ────────────────────────
+      - name: 'Step 4: Match Review Queue'
+        id: step4
+        if: ${{ !contains(github.event.inputs.skip_steps || '', '4') }}
+        run: |
+          echo "═══════════════════════════════════════════════════"
+          echo "STEP 4: MATCH REVIEW QUEUE"
+          echo "═══════════════════════════════════════════════════"
+
+          EXECUTE_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" != "true" ]; then
+            EXECUTE_FLAG="--execute --yes"
+          fi
+
+          python scripts/find_queue_matches.py --force $EXECUTE_FLAG 2>&1 | tee logs/step4_queue_matches.log
+
+          EXACT=$(grep -oP 'EXACT \(95%\+\):\s+\K\d+' logs/step4_queue_matches.log || echo "0")
+          QUEUE_MERGED=$(grep -oP 'Approved: \K\d+' logs/step4_queue_matches.log || echo "0")
+          echo "exact_matches=$EXACT" >> $GITHUB_OUTPUT
+          echo "queue_merged=$QUEUE_MERGED" >> $GITHUB_OUTPUT
+
+      # ── Artifacts ─────────────────────────────────────────
+      - name: Upload logs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: merge-logs-${{ github.run_number }}
+          name: hygiene-logs-${{ github.run_number }}
           path: |
-            logs/merge_*.log
-            scripts/merges/merge_tracker.json
-            scripts/merges/MERGE_SUMMARY.md
+            logs/step*.log
+            scripts/club_name_fixes_male_all_states.sql
           retention-days: 30
 
-      - name: Summary
+      # ── Summary ───────────────────────────────────────────
+      - name: Pipeline Summary
+        if: always()
         run: |
-          echo "## 🔄 Duplicate Team Merge Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Duplicates Found | ${{ steps.merge.outputs.duplicates_found }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Teams Merged | ${{ steps.merge.outputs.teams_merged }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Mode | ${{ github.event.inputs.dry_run == 'true' && 'Dry Run' || 'Live' }} |" >> $GITHUB_STEP_SUMMARY
+          MODE="${{ github.event.inputs.dry_run == 'true' && '🔍 Dry Run' || '⚡ Live' }}"
 
-  # Future: Add more hygiene tasks here
-  # club-name-normalization:
-  #   name: Normalize Club Names
-  #   runs-on: ubuntu-latest
-  #   needs: duplicate-team-merge
-  #   steps:
-  #     - ...
+          echo "## 🧹 Weekly Data Hygiene Pipeline" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          GENDER="${{ github.event.inputs.gender || 'male' }}"
+          echo "**Mode:** $MODE | **Gender:** $GENDER" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Task | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 1 | Club Name Standardization | ${{ steps.step1.outputs.naming_fixes || 'skipped' }} fixes (${{ steps.step1.outputs.teams_standardized || '0' }} teams) |" >> $GITHUB_STEP_SUMMARY
+          echo "| 2 | Normalize Team Names | ${{ steps.step2.outputs.teams_normalized || 'skipped' }} normalized |" >> $GITHUB_STEP_SUMMARY
+          echo "| 3 | Fuzzy Duplicate Merge | ${{ steps.step3.outputs.fuzzy_suggested || 'skipped' }} suggested, ${{ steps.step3.outputs.fuzzy_merged || '0' }} merged |" >> $GITHUB_STEP_SUMMARY
+          echo "| 4 | Match Review Queue | ${{ steps.step4.outputs.exact_matches || 'skipped' }} exact, ${{ steps.step4.outputs.queue_merged || '0' }} merged |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pipeline Order" >> $GITHUB_STEP_SUMMARY
+          echo "1. Club names standardized → 2. Team names normalized → 3. Fuzzy duplicates merged → 4. Queue matched" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Safety Notes" >> $GITHUB_STEP_SUMMARY
+          echo "- Fuzzy merge only merges teams with same club_name and 85%+ similarity" >> $GITHUB_STEP_SUMMARY
+          echo "- Distinction-aware: colors, programs, numbers, regions all must match" >> $GITHUB_STEP_SUMMARY
+          echo "- Queue only auto-merges 95%+ confidence matches" >> $GITHUB_STEP_SUMMARY
+          echo "- All scripts use \`team_name_normalizer.py\` core parsing logic" >> $GITHUB_STEP_SUMMARY
