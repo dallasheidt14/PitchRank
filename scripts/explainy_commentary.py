@@ -18,7 +18,12 @@ DATABASE_URL = os.getenv('DATABASE_URL')
 
 def get_connection():
     import psycopg2
-    return psycopg2.connect(DATABASE_URL)
+    conn = psycopg2.connect(DATABASE_URL)
+    # Set statement timeout to 30 seconds to prevent hanging
+    cur = conn.cursor()
+    cur.execute("SET statement_timeout = '30s'")
+    conn.commit()
+    return conn
 
 
 def get_team_movement_analysis(cur, team_id, days=7):
@@ -61,7 +66,9 @@ def get_team_movement_analysis(cur, team_id, days=7):
     analysis['previous_power'] = float(previous[2]) if previous[2] else 0
     analysis['power_change'] = analysis['current_power'] - analysis['previous_power']
     
-    # Get recent games (within the period)
+    # Get recent games (within the period) - optimized query
+    # Note: Ensure index on games(home_team_master_id, game_date) and games(away_team_master_id, game_date)
+    start_date = previous[0] - timedelta(days=14)
     cur.execute('''
         SELECT 
             g.game_date,
@@ -77,10 +84,10 @@ def get_team_movement_analysis(cur, team_id, days=7):
         LEFT JOIN current_rankings cr_opp ON 
             CASE WHEN g.home_team_master_id = %s THEN g.away_team_master_id ELSE g.home_team_master_id END = cr_opp.team_id
         WHERE (g.home_team_master_id = %s OR g.away_team_master_id = %s)
-        AND g.game_date >= %s - INTERVAL '14 days'
+        AND g.game_date >= %s
         ORDER BY g.game_date DESC
         LIMIT 10
-    ''', (team_id, team_id, team_id, team_id, team_id, team_id, previous[0]))
+    ''', (team_id, team_id, team_id, team_id, team_id, team_id, start_date))
     
     games = []
     for row in cur.fetchall():
@@ -220,16 +227,26 @@ def get_top_movers_with_analysis(cur, days=7, limit=5, direction='up'):
         order = "ASC"
         change_filter = "< -50"
     
+    # Optimized: Get max date once, use it directly to avoid subquery repetition
+    cur.execute("SELECT MAX(snapshot_date) FROM ranking_history")
+    max_date = cur.fetchone()[0]
+    
+    if not max_date:
+        return []
+    
     cur.execute(f'''
         WITH current_rank AS (
             SELECT team_id, rank_in_cohort, age_group, gender, state_code
             FROM ranking_history
-            WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM ranking_history)
+            WHERE snapshot_date = %s
+            AND rank_in_cohort IS NOT NULL
         ),
         past_rank AS (
             SELECT DISTINCT ON (team_id) team_id, rank_in_cohort
             FROM ranking_history
-            WHERE snapshot_date <= (SELECT MAX(snapshot_date) FROM ranking_history) - INTERVAL '{days} days'
+            WHERE snapshot_date >= %s - INTERVAL '{days + 3} days'
+              AND snapshot_date <= %s - INTERVAL '{days - 2} days'
+              AND rank_in_cohort IS NOT NULL
             ORDER BY team_id, snapshot_date DESC
         )
         SELECT 
@@ -246,7 +263,7 @@ def get_top_movers_with_analysis(cur, days=7, limit=5, direction='up'):
         WHERE (pr.rank_in_cohort - cr.rank_in_cohort) {change_filter}
         ORDER BY rank_change {order}
         LIMIT {limit}
-    ''')
+    ''', (max_date, max_date, max_date))
     
     results = []
     for row in cur.fetchall():
