@@ -13,6 +13,14 @@ const AUTH_ROUTES = ["/login", "/signup"];
 export async function middleware(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl;
 
+  // SEO: Canonical URL redirect (www → non-www)
+  const hostname = request.headers.get("host") || "";
+  if (hostname.startsWith("www.")) {
+    const url = request.nextUrl.clone();
+    url.host = hostname.replace("www.", "");
+    return NextResponse.redirect(url, 301);
+  }
+
   // Redirect auth codes to /auth/callback
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");

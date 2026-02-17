@@ -61,8 +61,8 @@ export async function generateMetadata({ params }: RankingsPageProps): Promise<M
       ? 'National' 
       : getStateName(region);
     
-    const title = `${formattedAgeGroup} ${formattedGender} Soccer Rankings${isNational ? '' : ` - ${locationText}`} | PitchRank`;
-    const description = `View comprehensive ${formattedAgeGroup} ${formattedGender.toLowerCase()} soccer team rankings${isNational ? ' nationally' : ` in ${locationText}`}. Compare power scores, win percentages, and team performance metrics.`;
+    const title = `${locationText} ${formattedAgeGroup} ${formattedGender} Soccer Rankings | PitchRank`;
+    const description = `View ${locationText} ${formattedAgeGroup} ${formattedGender.toLowerCase()} youth soccer rankings. Updated weekly with PowerScore ratings for top teams. Compare win percentages and team performance.`;
 
     return {
       title,
@@ -125,8 +125,8 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
   const structuredData = {
     '@context': 'https://schema.org',
     '@type': 'RankingTable',
-    'name': `${formattedAgeGroup} ${formattedGender} Soccer Rankings${isNational ? '' : ` - ${locationText}`}`,
-    'description': 'Youth soccer team rankings by power rating',
+    'name': `${locationText} ${formattedAgeGroup} ${formattedGender} Soccer Rankings`,
+    'description': 'Youth soccer team rankings by PowerScore rating, updated weekly',
     'url': `https://pitchrank.io/rankings/${safeRegion}/${safeAgeGroup}/${safeGender}`,
   };
 
