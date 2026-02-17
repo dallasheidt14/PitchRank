@@ -595,11 +595,11 @@ class TGSGameMatcher(GameHistoryMatcher):
                 'provider_team_id', team_id_str
             ).eq('match_method', 'direct_id').eq(
                 'review_status', 'approved'
-            ).single().execute()
+            ).limit(1).execute()
 
             if result.data:
                 # Skip age_group validation for TGS - provider_team_id is unique
-                return result.data
+                return result.data[0]
         except Exception as e:
             logger.debug(f"No exact direct_id match found: {e}")
 
@@ -633,11 +633,11 @@ class TGSGameMatcher(GameHistoryMatcher):
                 'team_id_master, review_status, match_method'
             ).eq('provider_id', provider_id).eq(
                 'provider_team_id', team_id_str
-            ).eq('review_status', 'approved').single().execute()
+            ).eq('review_status', 'approved').limit(1).execute()
 
             if result.data:
                 # Skip age_group validation for TGS - provider_team_id is unique
-                return result.data
+                return result.data[0]
         except Exception as e:
             logger.debug(f"No alias map match found: {e}")
         return None
