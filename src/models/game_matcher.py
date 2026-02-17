@@ -3,6 +3,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
 from difflib import SequenceMatcher
 import logging
+import re
 import uuid
 import string
 import time
@@ -27,6 +28,207 @@ logger = logging.getLogger(__name__)
 
 # UUID namespace for deterministic game UIDs
 GAME_UID_NAMESPACE = uuid.UUID('6ba7b810-9dad-11d1-80b4-00c04fd430c8')  # Standard DNS namespace
+
+# --- Team variant detection (ported from find_queue_matches.py) ---
+# Colors that indicate DIFFERENT teams within the same club
+TEAM_COLORS = {'red', 'blue', 'white', 'black', 'gold', 'grey', 'gray', 'green',
+               'orange', 'purple', 'yellow', 'navy', 'maroon', 'silver', 'pink', 'sky'}
+
+# Directions that indicate DIFFERENT teams within the same club
+TEAM_DIRECTIONS = {'north', 'south', 'east', 'west', 'central'}
+
+# Known non-coach words used to filter false positives in coach name detection
+_NON_COACH_WORDS = frozenset({
+    'ecnl', 'boys', 'girls', 'academy', 'united', 'elite', 'club', 'futbol',
+    'soccer', 'youth', 'rush', 'surf', 'select', 'premier', 'gold', 'blue',
+    'white', 'black', 'grey', 'gray', 'green', 'maroon', 'navy', 'lafc', 'futeca',
+    'selection', 'fire', 'storm', 'fusion', 'athletico', 'atletico', 'fc', 'sc',
+    'real', 'inter', 'sporting', 'united',
+})
+
+_REGION_CODES = frozenset({
+    'ctx', 'phx', 'atx', 'dal', 'hou', 'san', 'sdg', 'sfv', 'oc', 'ie',
+    'la', 'bay', 'nyc', 'nj', 'dmv', 'pnw', 'sea', 'pdx', 'slc', 'den',
+    'chi', 'stl', 'kc', 'min', 'det', 'cle', 'pit', 'atl', 'mia', 'orl',
+    'tam', 'ral', 'cha', 'dc', 'md', 'va', 'pa', 'ma', 'ct', 'ri', 'vt',
+    'nh', 'me', 'az', 'ca', 'tx', 'fl', 'ny', 'ga', 'nc', 'sc',
+    'co', 'ut', 'nv', 'wa', 'or', 'id', 'mt', 'wy', 'nm', 'ok', 'ks',
+    'ne', 'sd', 'nd', 'mn', 'wi', 'mi', 'il', 'in', 'oh', 'ky', 'tn',
+    'al', 'ms', 'ar', 'mo', 'ia', 'ecnl', 'rl', 'ea', 'npl',
+    'usys', 'ayso', 'scdsl', 'dpl', 'mls', 'ussda', 'pre',
+})
+
+_PROGRAM_NAMES = frozenset({
+    'aspire', 'rise', 'revolution', 'evolution', 'dynasty', 'legacy', 'impact',
+    'force', 'thunder', 'lightning', 'blaze', 'inferno', 'phoenix', 'predators',
+    'raptors', 'lions', 'tigers', 'bears', 'eagles', 'hawks', 'falcons', 'united',
+    'strikers', 'raiders', 'warriors', 'knights', 'spartans', 'titans', 'trojans',
+})
+
+# Age/year patterns used for club extraction and variant detection
+_AGE_PATTERNS = [
+    r'\bU-?\d{1,2}\b',           # U14, U-14
+    r'\b[BG]?\d{4}[BG]?\b',     # 2014, B2014, 2014B, G2015, 2015G
+    r'\b[BG]\d{2}(?!\d)\b',     # B14, G15 (not followed by more digits)
+    r'\b\d{2}[BG](?!\d)\b',     # 14B, 15G (not followed by more digits)
+]
+
+
+def extract_team_variant(name: str) -> Optional[str]:
+    """Extract team variant (color, direction, coach name, roman numeral) from team name.
+
+    Teams like 'FC Dallas 2014 Blue' and 'FC Dallas 2014 Gold' are DIFFERENT teams.
+    Also 'Select North' and 'Select South' are DIFFERENT teams.
+    Coach names like 'Atletico Dallas 15G Riedell' and 'Atletico Dallas 15G Davis'
+    are DIFFERENT teams.
+
+    Returns the variant identifier or None.
+    """
+    if not name:
+        return None
+
+    name_lower = name.lower()
+    words = name_lower.split()
+
+    # Check for color ANYWHERE in name
+    for word in words:
+        word_clean = word.strip('-()[]')
+        if word_clean in TEAM_COLORS:
+            return word_clean
+
+    # Check for direction variants
+    for word in words:
+        word_clean = word.strip('-()[]')
+        if word_clean in TEAM_DIRECTIONS:
+            return word_clean
+
+    # Check for roman numerals or letter variants (I, II, III, A, B)
+    roman_match = re.search(r'\b(i{1,3}|iv|v|vi{0,3})\b', name_lower)
+    if roman_match:
+        return roman_match.group(1)
+
+    # Coach name detection: look for names AFTER age/year in the team name
+    age_end_pos = -1
+    for pattern in _AGE_PATTERNS:
+        match = re.search(pattern, name, re.IGNORECASE)
+        if match:
+            age_end_pos = match.end()
+            break
+
+    if age_end_pos > 0:
+        after_age = name[age_end_pos:].strip()
+        # Remove region markers in parentheses: "(CTX)" -> ""
+        after_age_clean = re.sub(r'\s*\([^)]+\)\s*$', '', after_age).strip()
+        after_words = after_age_clean.split()
+
+        for word in after_words:
+            word_clean = word.strip('-()[].,').lower()
+            if not word_clean or len(word_clean) < 3:
+                continue
+            if word_clean in _NON_COACH_WORDS:
+                continue
+            if word_clean in _REGION_CODES:
+                continue
+            if word_clean in _PROGRAM_NAMES:
+                continue
+            if word_clean in TEAM_COLORS:
+                continue
+            if word_clean in TEAM_DIRECTIONS:
+                continue
+            if word_clean.isdigit() or re.match(r'^[bug]?\d+', word_clean):
+                continue
+            # Looks like a coach name
+            return word_clean
+
+    # Check for coach names in parentheses: "2014 (Holohan)" but NOT regions like "(CTX)"
+    coach_match = re.search(r'\(([a-z]+)\)\s*$', name_lower)
+    if coach_match:
+        word = coach_match.group(1)
+        if word not in _REGION_CODES:
+            return word
+
+    # Fallback: ALL CAPS word after year
+    coach_after_year = re.search(r'20\d{2}\s+([A-Z]{4,})\b', name)
+    if coach_after_year:
+        word = coach_after_year.group(1).lower()
+        if word not in _NON_COACH_WORDS and word not in _REGION_CODES and word not in _PROGRAM_NAMES:
+            return word
+
+    # Fallback: capitalized name at end after age
+    name_parts = name.split()
+    if len(name_parts) >= 2:
+        last_part = name_parts[-1]
+        last_clean = last_part.strip('()[]').lower()
+        if (last_part[0].isupper()
+                and last_clean not in TEAM_COLORS
+                and last_clean not in _NON_COACH_WORDS
+                and last_clean not in _REGION_CODES
+                and last_clean not in _PROGRAM_NAMES
+                and not re.match(r'^[BG]?\d+', last_part)):
+            return last_clean
+
+    return None
+
+
+def extract_club_from_team_name(provider_team_name: str) -> Optional[str]:
+    """Extract club name from a provider team name by splitting on age/year patterns.
+
+    Examples:
+        "FC Tampa Rangers FCTS 2015 Falcons" -> "FC Tampa Rangers FCTS"
+        "Phoenix Rising FC B2014 Black"       -> "Phoenix Rising FC"
+        "Real Salt Lake AZ ECNL 2014 Red"     -> "Real Salt Lake AZ"
+    """
+    if not provider_team_name:
+        return None
+
+    name = provider_team_name.strip()
+
+    # Find earliest age pattern match
+    earliest_pos = len(name)
+    for pattern in _AGE_PATTERNS:
+        match = re.search(pattern, name, re.IGNORECASE)
+        if match and match.start() < earliest_pos:
+            earliest_pos = match.start()
+
+    # Extract club name before the age pattern
+    club_name = name[:earliest_pos].strip() if earliest_pos < len(name) else name
+
+    # Remove common league/tier suffixes
+    league_suffixes = [
+        r'\s+(ECNL-RL|ECNL RL|ECRL)\s*$',
+        r'\s+ECNL\s*$',
+        r'\s+RL\s*$',
+        r'\s+PRE-ECNL\s*$',
+        r'\s+PRE\s*$',
+        r'\s+COMP\s*$',
+        r'\s+GA\s*$',
+        r'\s+MLS NEXT\s*$',
+        r'\s+ACADEMY\s*$',
+        r'\s+SELECT\s*$',
+        r'\s+PREMIER\s*$',
+        r'\s+ELITE\s*$',
+    ]
+    for suffix_pattern in league_suffixes:
+        club_name = re.sub(suffix_pattern, '', club_name, flags=re.IGNORECASE)
+
+    # Remove trailing hyphens, dots, extra whitespace
+    club_name = club_name.strip(' -.')
+
+    # Remove duplicate words (e.g., "Kingman SC Kingman SC" -> "Kingman SC")
+    words = club_name.split()
+    if len(words) >= 4:
+        mid = len(words) // 2
+        first_half = ' '.join(words[:mid])
+        second_half = ' '.join(words[mid:mid * 2])
+        if first_half.lower() == second_half.lower():
+            club_name = first_half
+
+    club_name = ' '.join(club_name.split())
+
+    if not club_name or len(club_name) < 3:
+        return None
+
+    return club_name
 
 
 @dataclass
@@ -658,28 +860,68 @@ class GameHistoryMatcher:
         gender: str,
         club_name: Optional[str] = None
     ) -> Optional[Dict]:
-        """Fuzzy match team name against master teams with club name weighting"""
+        """Fuzzy match team name against master teams.
+
+        Enhanced with logic ported from the auto-merge script:
+        - Variant rejection: teams with different colors/directions/coaches are never matched
+        - Club extraction: derive club name from the provider team name when not supplied
+        - Club-first filtering: narrow candidates by club_name before scoring
+        - League boost/penalty: ECNL vs ECNL-RL mismatches are penalized
+        """
         try:
             # Normalize age_group to lowercase (DB uses 'u13', source may have 'U13')
             age_group_normalized = age_group.lower() if age_group else age_group
-            
-            # Get candidate teams including club_name
-            result = self.db.table('teams').select(
-                'team_id_master, team_name, club_name, age_group, gender, state_code'
-            ).eq('age_group', age_group_normalized).eq('gender', gender).execute()
-            
+
+            # --- Club extraction (from auto-merge) ---
+            # If no club_name was supplied, try to extract it from the team name
+            if not club_name:
+                extracted = extract_club_from_team_name(team_name)
+                if extracted:
+                    club_name = extracted
+
+            # --- Variant extraction (from auto-merge) ---
+            provider_variant = extract_team_variant(team_name)
+
+            # --- League marker detection (from auto-merge) ---
+            name_lower = team_name.lower() if team_name else ''
+            provider_has_rl = (' rl' in name_lower or '-rl' in name_lower
+                               or 'ecnl rl' in name_lower or 'ecnl-rl' in name_lower)
+            provider_has_ecnl = 'ecnl' in name_lower and not provider_has_rl
+
+            # --- Candidate retrieval ---
+            # Try club-first filtering to narrow the candidate set
+            result = None
+            if club_name:
+                result = self.db.table('teams').select(
+                    'team_id_master, team_name, club_name, age_group, gender, state_code'
+                ).eq('age_group', age_group_normalized).eq('gender', gender).ilike(
+                    'club_name', club_name
+                ).limit(50).execute()
+
+            # Fall back to broad query if club filter yielded nothing
+            if not result or not result.data:
+                result = self.db.table('teams').select(
+                    'team_id_master, team_name, club_name, age_group, gender, state_code'
+                ).eq('age_group', age_group_normalized).eq('gender', gender).execute()
+
             best_match = None
             best_score = 0.0
-            
-            # Prepare provider team dict for scoring
+
+            # Prepare provider team dict for weighted scoring
             provider_team = {
                 'team_name': team_name,
                 'club_name': club_name,
                 'age_group': age_group,
-                'state_code': None  # Will be extracted from game data if available
+                'state_code': None
             }
-            
+
             for team in result.data:
+                # --- Variant rejection (from auto-merge) ---
+                candidate_variant = extract_team_variant(team.get('team_name', ''))
+                if provider_variant != candidate_variant:
+                    # Different color/direction/coach = different team, skip
+                    continue
+
                 # Use weighted scoring which includes club name
                 candidate = {
                     'team_name': team.get('team_name', ''),
@@ -687,9 +929,22 @@ class GameHistoryMatcher:
                     'age_group': team.get('age_group', ''),
                     'state_code': team.get('state_code')
                 }
-                
+
                 score = self._calculate_match_score(provider_team, candidate)
-                
+
+                # --- League boost / penalty (from auto-merge) ---
+                cand_lower = team.get('team_name', '').lower()
+                cand_has_rl = (' rl' in cand_lower or '-rl' in cand_lower
+                               or 'ecnl rl' in cand_lower or 'ecnl-rl' in cand_lower)
+                cand_has_ecnl = 'ecnl' in cand_lower and not cand_has_rl
+
+                if provider_has_rl and cand_has_rl:
+                    score = min(1.0, score + 0.05)
+                elif provider_has_ecnl and cand_has_ecnl and not cand_has_rl:
+                    score = min(1.0, score + 0.05)
+                elif provider_has_rl != cand_has_rl:
+                    score = max(0.0, score - 0.08)
+
                 if score > best_score and score >= self.fuzzy_threshold:
                     best_score = score
                     best_match = {
@@ -697,9 +952,9 @@ class GameHistoryMatcher:
                         'team_name': team['team_name'],
                         'confidence': round(score, 3)
                     }
-            
+
             return best_match
-            
+
         except Exception as e:
             logger.error(f"Fuzzy match error: {e}")
             return None
@@ -718,16 +973,32 @@ class GameHistoryMatcher:
         return SequenceMatcher(None, str1, str2).ratio()
     
     def _normalize_team_name(self, name: str) -> str:
-        """Normalize team name for comparison with expanded suffixes and abbreviation expansion"""
+        """Normalize team name for comparison.
+
+        Strips league/tier markers, normalizes age formats, expands
+        abbreviations, and removes common suffixes - matching the logic
+        used in the auto-merge script for consistency.
+        """
         if not name:
             return ''
-        
+
         # Convert to lowercase
         name = name.lower().strip()
-        
+
+        # Strip league/tier markers (from auto-merge script)
+        name = re.sub(r'\s*(ecnl-rl|ecnl rl|ecrl|ecnl|pre-ecnl|pre ecnl|mls next|ga|rl)\s*', ' ', name)
+
+        # Replace dashes with spaces for consistency
+        name = re.sub(r'\s*-\s*', ' ', name)
+
+        # Normalize age formats (B2014 -> 2014, 2014B -> 2014, U 14 -> u14)
+        name = re.sub(r'\b[bg]\s*(\d{2,4})\b', r'\1', name)
+        name = re.sub(r'\b(\d{2,4})\s*[bg]\b', r'\1', name)
+        name = re.sub(r'\bu\s*(\d+)\b', r'u\1', name)
+
         # Remove punctuation
         name = name.translate(str.maketrans('', '', string.punctuation))
-        
+
         # Expand common abbreviations (only full word matches to avoid expanding within words)
         abbreviations = {
             'ys': 'youth soccer',
@@ -736,7 +1007,7 @@ class GameHistoryMatcher:
             'sa': 'soccer academy',
             'ac': 'academy'
         }
-        
+
         # Replace abbreviations with full forms (only if word matches exactly)
         words = name.split()
         expanded_words = []
@@ -746,7 +1017,7 @@ class GameHistoryMatcher:
             else:
                 expanded_words.append(word)
         name = ' '.join(expanded_words)
-        
+
         # Remove common suffixes (now expanded)
         suffixes = ['fc', 'sc', 'sa', 'ys', 'academy', 'soccer club', 'football club', 'youth soccer']
         # Sort by length (longest first) to match longer suffixes first
@@ -755,10 +1026,10 @@ class GameHistoryMatcher:
             if name.endswith(suffix):
                 name = name[:-len(suffix)].strip()
                 break
-        
+
         # Compress whitespace and remove extra spaces
         name = ' '.join(name.split())
-        
+
         return name
     
     def _calculate_match_score(self, provider_team: Dict, candidate: Dict) -> float:
