@@ -5,6 +5,7 @@ OPTIMIZED: Concurrent scraping with async/await, bulk operations, batched loggin
 """
 import asyncio
 import sys
+import re
 import argparse
 import subprocess
 from pathlib import Path
@@ -306,32 +307,40 @@ async def scrape_games(
         console.print(f"[cyan]Incremental mode: Scraping teams not updated in last 7 days[/cyan]")
         console.print(f"[dim]Each team will use its cached last_scraped_at for incremental updates[/dim]")
 
-    # Filter out U8/U9 and U19 teams (PitchRank only supports U10-U18)
+    # Filter out teams outside supported U10-U18 range
+    # Dynamically calculate based on current year
+    current_year = datetime.now().year
+    min_birth_year = current_year - 18  # oldest U18 player
+    max_birth_year = current_year - 10  # youngest U10 player
+
     teams_before_filter = len(teams)
     filtered_teams = []
     skipped_count = 0
-    
+
     for team in teams:
         age_group = team.get('age_group', '').upper().strip()
         birth_year = team.get('birth_year')
-        
-        # Skip if age_group matches U8/U9/U19 patterns
-        if age_group in ['U8', 'U-8', 'U9', 'U-9', 'U19', 'U-19']:
-            logger.debug(f"Skipping U8/U9/U19 team (age_group={age_group}): {team.get('team_name', 'Unknown')}")
+
+        # Skip if age_group is outside U10-U18 range
+        age_match = re.match(r'U-?(\d+)', age_group)
+        if age_match:
+            age_num = int(age_match.group(1))
+            if age_num < 10 or age_num > 18:
+                logger.debug(f"Skipping U{age_num} team (age_group={age_group}): {team.get('team_name', 'Unknown')}")
+                skipped_count += 1
+                continue
+
+        # Skip if birth_year is outside supported range
+        if birth_year is not None and (birth_year < min_birth_year or birth_year > max_birth_year):
+            logger.debug(f"Skipping team (birth_year={birth_year}, supported={min_birth_year}-{max_birth_year}): {team.get('team_name', 'Unknown')}")
             skipped_count += 1
             continue
-        
-        # Skip if birth_year is 2017, 2018, 2019 (U8/U9) or 2005, 2006, 2007 (U19+)
-        if birth_year in [2005, 2006, 2007, 2017, 2018, 2019]:
-            logger.debug(f"Skipping U8/U9/U19 team (birth_year={birth_year}): {team.get('team_name', 'Unknown')}")
-            skipped_count += 1
-            continue
-        
+
         filtered_teams.append(team)
     
     teams = filtered_teams
     if skipped_count > 0:
-        console.print(f"[yellow]Filtered out {skipped_count} U8/U9/U19 teams (PitchRank is U10-U18 only)[/yellow]")
+        console.print(f"[yellow]Filtered out {skipped_count} teams outside U10-U18 range (birth_year {min_birth_year}-{max_birth_year})[/yellow]")
     
     # Apply skip and limit to teams list
     total_eligible = len(teams)
