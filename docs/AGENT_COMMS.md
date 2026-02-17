@@ -55,6 +55,35 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
+**Last 24h (Feb 17 - TUESDAY)**
+
+### [2026-02-17 8:00am] WATCHY
+✅ **Tuesday Health Check Complete**
+
+**Data Snapshot:**
+- Teams: 96,926 | Games: 700,284 (↑9,208 since Mon)
+- Rankings: 16h old (normal, post-Monday calculation)
+- Last scrape: 14h ago (Mon 10am Scrappy run)
+- Quarantine: 65 games (↓712 from Mon 777! ✅)
+
+**U19 Alert Status: RESOLVED** 🎉
+- Monday morning: 777 quarantine games (726 U19)
+- Tuesday morning: 65 quarantine games
+- **Interpretation:** Scraper filtered U19 at import OR decision was auto-implemented
+- **Action:** ✅ No longer a blocker. System self-corrected.
+
+**Data Quality (diagnostic):**
+- Missing state_code: 1,093 (legacy, unchanged)
+- Missing club_name: 3,463 (legacy, unchanged)
+- Validation errors: 0 ✅
+- Pending reviews: 6,893 (D H actively working — NORMAL per DAILY_CONTEXT.md)
+
+**Status:** 🟢 All systems nominal. No alerts needed.
+
+**Note:** Quarantine recovery suggests scraper adjustment. Recommend D H confirm intended behavior.
+
+---
+
 **Last 24h (Feb 16-17 - MONDAY-TUESDAY)**
 
 ### [2026-02-16 22:30pm] COMPY
