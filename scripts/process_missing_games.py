@@ -64,7 +64,8 @@ class MissingGamesProcessor:
             'processed': 0,
             'successful': 0,
             'failed': 0,
-            'games_found': 0
+            'games_found': 0,
+            'games_imported': 0
         }
     
     def get_pending_requests(self, limit: int = 10) -> List[Dict]:
@@ -357,15 +358,31 @@ class MissingGamesProcessor:
                 logger.error(f"STDERR: {result.stderr}")
                 raise RuntimeError(f"Import failed: {result.stderr or 'Unknown error'}")
             
-            # Parse output to get number of games imported
-            # The script outputs metrics, but we'll use the games count as a proxy
-            # In a real scenario, you might want to parse the actual metrics from stdout
-            logger.info(f"Import completed successfully")
-            logger.debug(f"STDOUT: {result.stdout}")
-            
-            # Return the number of games we attempted to import
-            # The actual imported count would require parsing the output
-            return len(games)
+            # Parse machine-readable IMPORT_RESULT line from stdout
+            games_accepted = len(games)  # fallback if parsing fails
+            parsed_result = False
+            for line in result.stdout.splitlines():
+                if line.startswith("IMPORT_RESULT:"):
+                    try:
+                        import_data = json.loads(line[len("IMPORT_RESULT:"):])
+                        games_accepted = import_data.get('games_accepted', len(games))
+                        logger.info(
+                            f"Import completed: {import_data.get('games_processed', '?')} processed, "
+                            f"{games_accepted} accepted, "
+                            f"{import_data.get('duplicates_skipped', 0)} perspective dupes skipped, "
+                            f"{import_data.get('duplicates_found', 0)} already in DB, "
+                            f"{import_data.get('games_quarantined', 0)} quarantined"
+                        )
+                        parsed_result = True
+                        break
+                    except (json.JSONDecodeError, KeyError) as e:
+                        logger.warning(f"Failed to parse import result: {e}")
+
+            if not parsed_result:
+                logger.info(f"Import completed successfully (could not parse detailed metrics)")
+                logger.debug(f"STDOUT: {result.stdout}")
+
+            return games_accepted
             
         except Exception as e:
             logger.error(f"Error importing games: {e}")
@@ -438,7 +455,8 @@ class MissingGamesProcessor:
             games_imported = 0
             if games:
                 games_imported = self.import_games(games, scrape_provider_code)
-                self.stats['games_found'] += games_imported
+                self.stats['games_found'] += len(games)
+                self.stats['games_imported'] += games_imported
             
             # Update request as completed
             self.update_request_status(
@@ -506,10 +524,11 @@ class MissingGamesProcessor:
         """Log processing summary"""
         logger.info("=" * 50)
         logger.info("Processing Summary:")
-        logger.info(f"  Processed: {self.stats['processed']}")
-        logger.info(f"  Successful: {self.stats['successful']}")
-        logger.info(f"  Failed: {self.stats['failed']}")
+        logger.info(f"  Requests Processed: {self.stats['processed']}")
+        logger.info(f"  Requests Successful: {self.stats['successful']}")
+        logger.info(f"  Requests Failed: {self.stats['failed']}")
         logger.info(f"  Total Games Found: {self.stats['games_found']}")
+        logger.info(f"  Total Games Imported: {self.stats['games_imported']}")
         logger.info("=" * 50)
 
 
@@ -559,7 +578,8 @@ def main():
                     'processed': 0,
                     'successful': 0,
                     'failed': 0,
-                    'games_found': 0
+                    'games_found': 0,
+                    'games_imported': 0
                 }
                 
             except KeyboardInterrupt:

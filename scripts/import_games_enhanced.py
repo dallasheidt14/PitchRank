@@ -595,7 +595,11 @@ async def main():
         
         if not args.dry_run:
             console.print("\n[green]Check build_logs table for detailed metrics[/green]")
-        
+
+        # Output machine-readable summary for callers to parse
+        import json as _json
+        print(f"IMPORT_RESULT:{_json.dumps({'games_processed': aggregated_metrics.games_processed, 'games_accepted': aggregated_metrics.games_accepted, 'duplicates_skipped': aggregated_metrics.duplicates_skipped, 'duplicates_found': aggregated_metrics.duplicates_found, 'games_quarantined': aggregated_metrics.games_quarantined})}")
+
         # Exit code based on success/failure
         if use_streaming and 'total_batches' in dir():
             if failed_batches and len(failed_batches) == total_batches:
