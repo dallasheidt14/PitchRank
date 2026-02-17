@@ -6,95 +6,53 @@ Proactive SEO monitoring and optimization for PitchRank.
 
 | Check | Frequency | Purpose |
 |-------|-----------|---------|
-| GSC Quick Check | Daily (7:30am) | Impressions, clicks, errors |
-| Technical Audit | Weekly (Wed 9am) | Core Web Vitals, crawl issues |
-| Content Gaps | Weekly (Wed 9am) | Missing pages, thin content |
-| Competitor Watch | Monthly | Track competitor rankings |
+| GSC Quick Check | Daily 7:30am | Impressions, clicks, errors |
+| Full SEO Audit | Weekly Wed 9am | Technical, content, opportunities |
 
-## Daily Checks (7:30am)
+## Daily Checks
 
-1. **GSC Health**
-   - New crawl errors?
-   - Impressions trending up/down?
-   - Any pages dropped from index?
+1. **GSC Health** — New errors? Drops? Quick wins?
+2. **Only alert if something changed** — Don't spam
 
-2. **Quick Wins**
-   - Pages ranking #4-10 (push to top 3)
-   - High impressions, low CTR (fix meta descriptions)
-   - New queries appearing
-
-## Weekly Checks (Wednesday 9am)
+## Weekly Checks (Wednesday)
 
 ### Technical SEO
-- Core Web Vitals (LCP, INP, CLS)
-- Mobile usability issues
+- Core Web Vitals
 - Sitemap validity
-- Robots.txt changes
+- Robots.txt
 - Security headers
+- Mobile usability
 
 ### Content Analysis
-- Pages with <300 words (thin content)
+- Thin content pages
 - Missing meta descriptions
-- Duplicate title tags
-- Missing H1s
-- Image alt text coverage
+- Duplicate titles
+- Schema opportunities
 
-### Schema Markup
-- Validate existing schema
-- Identify missing schema opportunities
-- SportsTeam schema for team pages
-- BreadcrumbList for navigation
-
-## Monthly Checks
-
-### Competitor Analysis
-- Track rankings for key terms
-- Identify content gaps
-- Backlink opportunities
-
-### Content Planning
-- Suggest blog post topics
-- State-specific landing pages
-- Age group guides
+### Opportunities
+- Pages ranking #4-10 (push to top 3)
+- High impressions, low CTR
+- New queries to target
+- Content gaps by state
 
 ## Key Queries to Track
 
-### High Priority (State + Rankings)
+**High Priority:**
 - "[state] youth soccer rankings"
-- "[state] club soccer rankings"  
-- "best youth soccer teams in [state]"
+- "[state] club soccer rankings"
 
-### Medium Priority (Age Groups)
+**Medium Priority:**
 - "U[age] soccer rankings [state]"
-- "[birth year] boys/girls soccer rankings"
-
-### Long Tail
-- "[club name] soccer rankings"
-- "[team name] PowerScore"
 
 ## Autonomous Actions
 
-Socialy can:
-✅ Create GSC reports
-✅ Identify SEO issues
-✅ Write content briefs
-✅ Spawn Codey for technical fixes
-✅ Update SEO_ACTION_PLAN.md
+✅ Can do:
+- GSC reports
+- Spawn Codey for fixes
+- Update SEO docs
+- Create content briefs
 
-Socialy should ask first:
-❓ Major site structure changes
-❓ New page creation
-❓ External link building
-
-## Scripts
-
-- `scripts/gsc_report.py --days N` — GSC data
-- `scripts/check_core_web_vitals.py` — CWV audit (TODO)
-- `scripts/content_audit.py` — Thin content check (TODO)
-- `scripts/schema_validator.py` — Schema check (TODO)
-
-## Output Files
-
-- `docs/SEO_ACTION_PLAN.md` — Current priorities
-- `docs/SEO_WEEKLY_REPORT.md` — Weekly status
-- `docs/CONTENT_CALENDAR.md` — Planned content
+❓ Ask first:
+- Major structure changes
+- New page types
+- External outreach
