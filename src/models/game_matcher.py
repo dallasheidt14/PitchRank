@@ -24,6 +24,21 @@ try:
 except ImportError:
     HAVE_CLUB_NORMALIZER = False
 
+# Import structured team-name utilities for distinction-based matching
+try:
+    from src.utils.team_name_utils import (
+        extract_distinctions,
+        should_skip_pair,
+        normalize_name_for_matching,
+        normalize_club_for_comparison,
+        extract_club_from_team_name as extract_club_structured,
+        has_ecnl_rl,
+        has_ecnl_only,
+    )
+    HAVE_TEAM_NAME_UTILS = True
+except ImportError:
+    HAVE_TEAM_NAME_UTILS = False
+
 logger = logging.getLogger(__name__)
 
 # UUID namespace for deterministic game UIDs
@@ -862,34 +877,46 @@ class GameHistoryMatcher:
     ) -> Optional[Dict]:
         """Fuzzy match team name against master teams.
 
-        Enhanced with logic ported from the auto-merge script:
-        - Variant rejection: teams with different colors/directions/coaches are never matched
-        - Club extraction: derive club name from the provider team name when not supplied
-        - Club-first filtering: narrow candidates by club_name before scoring
-        - League boost/penalty: ECNL vs ECNL-RL mismatches are penalized
+        Uses structured distinction extraction for hard rejection and
+        component-aware scoring for candidates that pass.
+
+        Flow:
+          1. Extract club from provider name if not supplied
+          2. Extract structural distinctions from provider name
+          3. Retrieve candidates (club-first, then paginated fallback)
+          4. For each candidate:
+             a. Hard-reject if any distinction differs (color, direction,
+                program, team number, location code, squad word)
+             b. Score via component-aware weighted formula
+             c. Apply league boost/penalty
+          5. Return best match above threshold
         """
         try:
-            # Normalize age_group to lowercase (DB uses 'u13', source may have 'U13')
             age_group_normalized = age_group.lower() if age_group else age_group
 
-            # --- Club extraction (from auto-merge) ---
-            # If no club_name was supplied, try to extract it from the team name
+            # --- Club extraction ---
             if not club_name:
-                extracted = extract_club_from_team_name(team_name)
-                if extracted:
-                    club_name = extracted
+                if HAVE_TEAM_NAME_UTILS:
+                    club_name = extract_club_structured(team_name)
+                else:
+                    extracted = extract_club_from_team_name(team_name)
+                    if extracted:
+                        club_name = extracted
 
-            # --- Variant extraction (from auto-merge) ---
-            provider_variant = extract_team_variant(team_name)
-
-            # --- League marker detection (from auto-merge) ---
-            name_lower = team_name.lower() if team_name else ''
-            provider_has_rl = (' rl' in name_lower or '-rl' in name_lower
-                               or 'ecnl rl' in name_lower or 'ecnl-rl' in name_lower)
-            provider_has_ecnl = 'ecnl' in name_lower and not provider_has_rl
+            # --- Structural distinctions for hard rejection ---
+            if HAVE_TEAM_NAME_UTILS:
+                provider_distinctions = extract_distinctions(team_name)
+                provider_has_rl = has_ecnl_rl(team_name)
+                provider_has_ecnl = has_ecnl_only(team_name)
+            else:
+                # Fallback to legacy variant extraction
+                provider_distinctions = None
+                name_lower = team_name.lower() if team_name else ''
+                provider_has_rl = (' rl' in name_lower or '-rl' in name_lower
+                                   or 'ecnl rl' in name_lower or 'ecnl-rl' in name_lower)
+                provider_has_ecnl = 'ecnl' in name_lower and not provider_has_rl
 
             # --- Candidate retrieval ---
-            # Try club-first filtering to narrow the candidate set
             result = None
             if club_name:
                 result = self.db.table('teams').select(
@@ -898,14 +925,12 @@ class GameHistoryMatcher:
                     'club_name', club_name
                 ).limit(50).execute()
 
-            # Fall back to broad query if club filter yielded nothing
-            # Use pagination to avoid Supabase's 1000-row default limit
-            # which silently drops candidates beyond 1000, causing team fragmentation
+            # Fall back to paginated broad query
             if not result or not result.data:
                 all_candidates = []
                 page_size = 1000
                 page_offset = 0
-                max_candidates = 5000  # Safety cap to prevent runaway queries
+                max_candidates = 5000
 
                 while len(all_candidates) < max_candidates:
                     page_result = self.db.table('teams').select(
@@ -916,15 +941,11 @@ class GameHistoryMatcher:
 
                     if not page_result.data:
                         break
-
                     all_candidates.extend(page_result.data)
-
                     if len(page_result.data) < page_size:
                         break
-
                     page_offset += page_size
 
-                # Create a result-like object for downstream compatibility
                 class _PaginatedResult:
                     def __init__(self, data):
                         self.data = data
@@ -933,7 +954,6 @@ class GameHistoryMatcher:
             best_match = None
             best_score = 0.0
 
-            # Prepare provider team dict for weighted scoring
             provider_team = {
                 'team_name': team_name,
                 'club_name': club_name,
@@ -942,15 +962,38 @@ class GameHistoryMatcher:
             }
 
             for team in result.data:
-                # --- Variant rejection (from auto-merge) ---
-                candidate_variant = extract_team_variant(team.get('team_name', ''))
-                if provider_variant != candidate_variant:
-                    # Different color/direction/coach = different team, skip
-                    continue
+                cand_name = team.get('team_name', '')
 
-                # Use weighted scoring which includes club name
+                # --- Hard rejection via structured distinctions ---
+                if HAVE_TEAM_NAME_UTILS and provider_distinctions is not None:
+                    cand_distinctions = extract_distinctions(cand_name)
+                    # Colors must match (Red ≠ Blue)
+                    if provider_distinctions["colors"] != cand_distinctions["colors"]:
+                        continue
+                    # Directions must match (North ≠ South)
+                    if provider_distinctions["directions"] != cand_distinctions["directions"]:
+                        continue
+                    # Programs/leagues must match (Academy ≠ Premier, ECNL ≠ ECRL)
+                    if provider_distinctions["programs"] != cand_distinctions["programs"]:
+                        continue
+                    # Team numbers must match (I ≠ II, 1 ≠ 2)
+                    if provider_distinctions["team_number"] != cand_distinctions["team_number"]:
+                        continue
+                    # Location codes must match (SM ≠ AV, HB ≠ NB)
+                    if provider_distinctions["location_codes"] != cand_distinctions["location_codes"]:
+                        continue
+                    # Squad words must match (Bolts ≠ Clash, Gazelle ≠ Samba)
+                    if provider_distinctions["squad_words"] != cand_distinctions["squad_words"]:
+                        continue
+                else:
+                    # Legacy fallback: simple variant check
+                    provider_variant = extract_team_variant(team_name)
+                    candidate_variant = extract_team_variant(cand_name)
+                    if provider_variant != candidate_variant:
+                        continue
+
                 candidate = {
-                    'team_name': team.get('team_name', ''),
+                    'team_name': cand_name,
                     'club_name': team.get('club_name'),
                     'age_group': team.get('age_group', ''),
                     'state_code': team.get('state_code')
@@ -958,11 +1001,15 @@ class GameHistoryMatcher:
 
                 score = self._calculate_match_score(provider_team, candidate)
 
-                # --- League boost / penalty (from auto-merge) ---
-                cand_lower = team.get('team_name', '').lower()
-                cand_has_rl = (' rl' in cand_lower or '-rl' in cand_lower
-                               or 'ecnl rl' in cand_lower or 'ecnl-rl' in cand_lower)
-                cand_has_ecnl = 'ecnl' in cand_lower and not cand_has_rl
+                # --- League boost / penalty ---
+                if HAVE_TEAM_NAME_UTILS:
+                    cand_has_rl = has_ecnl_rl(cand_name)
+                    cand_has_ecnl = has_ecnl_only(cand_name)
+                else:
+                    cand_lower = cand_name.lower()
+                    cand_has_rl = (' rl' in cand_lower or '-rl' in cand_lower
+                                   or 'ecnl rl' in cand_lower or 'ecnl-rl' in cand_lower)
+                    cand_has_ecnl = 'ecnl' in cand_lower and not cand_has_rl
 
                 if provider_has_rl and cand_has_rl:
                     score = min(1.0, score + 0.05)
@@ -1001,172 +1048,99 @@ class GameHistoryMatcher:
     def _normalize_team_name(self, name: str) -> str:
         """Normalize team name for comparison.
 
-        Strips league/tier markers, normalizes age formats, expands
-        abbreviations, and removes common suffixes - matching the logic
-        used in the auto-merge script for consistency.
+        Uses the shared normalize_name_for_matching() which strips league
+        markers, normalizes age formats, removes gender words, and cleans
+        punctuation — matching the logic in the offline scripts.
         """
         if not name:
             return ''
 
-        # Convert to lowercase
+        if HAVE_TEAM_NAME_UTILS:
+            return normalize_name_for_matching(name)
+
+        # Fallback: minimal normalization if utils not available
         name = name.lower().strip()
-
-        # Strip league/tier markers (from auto-merge script)
         name = re.sub(r'\s*(ecnl-rl|ecnl rl|ecrl|ecnl|pre-ecnl|pre ecnl|mls next|ga|rl)\s*', ' ', name)
-
-        # Replace dashes with spaces for consistency
         name = re.sub(r'\s*-\s*', ' ', name)
-
-        # Normalize age formats (B2014 -> 2014, 2014B -> 2014, U 14 -> u14)
         name = re.sub(r'\b[bg]\s*(\d{2,4})\b', r'\1', name)
         name = re.sub(r'\b(\d{2,4})\s*[bg]\b', r'\1', name)
         name = re.sub(r'\bu\s*(\d+)\b', r'u\1', name)
-
-        # Remove punctuation
         name = name.translate(str.maketrans('', '', string.punctuation))
-
-        # Expand common abbreviations (only full word matches to avoid expanding within words)
-        abbreviations = {
-            'ys': 'youth soccer',
-            'fc': 'football club',
-            'sc': 'soccer club',
-            'sa': 'soccer academy',
-            'ac': 'academy'
-        }
-
-        # Replace abbreviations with full forms (only if word matches exactly)
-        words = name.split()
-        expanded_words = []
-        for word in words:
-            if word in abbreviations:
-                expanded_words.append(abbreviations[word])
-            else:
-                expanded_words.append(word)
-        name = ' '.join(expanded_words)
-
-        # Remove common suffixes (now expanded)
-        suffixes = ['fc', 'sc', 'sa', 'ys', 'academy', 'soccer club', 'football club', 'youth soccer']
-        # Sort by length (longest first) to match longer suffixes first
-        suffixes.sort(key=len, reverse=True)
-        for suffix in suffixes:
-            if name.endswith(suffix):
-                name = name[:-len(suffix)].strip()
-                break
-
-        # Compress whitespace and remove extra spaces
-        name = ' '.join(name.split())
-
-        return name
+        return ' '.join(name.split())
     
     def _calculate_match_score(self, provider_team: Dict, candidate: Dict) -> float:
-        """Calculate match score with multiple weighted factors including club name"""
-        
-        # Get weights from config with defaults
-        weights = MATCHING_CONFIG.get('weights', {
-            'team': 0.65,
-            'club': 0.25,
-            'age': 0.05,
-            'location': 0.05
-        })
-        
-        # Team name similarity
+        """Calculate match score with component-aware weighted factors.
+
+        Scoring layers:
+          1. Club name similarity (35% weight) — uses suffix-normalized
+             comparison ("Pride SC" == "Pride Soccer Club") via the shared
+             normalize_club_for_comparison(), falling back to club_normalizer
+             or rapidfuzz.
+          2. Normalized team name similarity (35% weight) — SequenceMatcher
+             on names after stripping league/age/gender noise.
+          3. Age group match (10% weight) — exact match on normalized age.
+          4. Location match (10% weight) — exact state_code match.
+          5. Club-match boost (+0.10) — if clubs are confidently the same,
+             reward heavily since the hard distinction rejection already
+             filtered out different squads within the same club.
+        """
         provider_name = provider_team.get('team_name', '')
         candidate_name = candidate.get('team_name', '')
-        team_score = self._calculate_similarity(provider_name, candidate_name) * weights['team']
-        
-        # Club name similarity (25% weight)
-        club_score = 0.0
+
+        # ── 1. Club name similarity (35%) ──
+        club_similarity = 0.0
         provider_club = provider_team.get('club_name')
         candidate_club = candidate.get('club_name')
-        
+
         if provider_club and candidate_club:
-            # Both club names present - calculate similarity with smart normalization
             if HAVE_CLUB_NORMALIZER:
-                # Use enhanced club normalizer module
                 provider_result = normalize_to_club(provider_club)
                 candidate_result = normalize_to_club(candidate_club)
-
-                # If both match to canonical clubs, compare club_ids
                 if provider_result.matched_canonical and candidate_result.matched_canonical:
-                    if provider_result.club_id == candidate_result.club_id:
-                        club_similarity = 1.0
-                    else:
-                        # Different canonical clubs
-                        club_similarity = 0.0
+                    club_similarity = 1.0 if provider_result.club_id == candidate_result.club_id else 0.0
                 else:
-                    # Use similarity score from normalizer
                     club_similarity = club_similarity_score(provider_club, candidate_club)
+            elif HAVE_TEAM_NAME_UTILS:
+                # Use suffix-normalized comparison from shared utils
+                prov_norm = normalize_club_for_comparison(provider_club)
+                cand_norm = normalize_club_for_comparison(candidate_club)
+                if prov_norm == cand_norm:
+                    club_similarity = 1.0
+                elif prov_norm in cand_norm or cand_norm in prov_norm:
+                    club_similarity = 0.92
+                else:
+                    club_similarity = SequenceMatcher(None, prov_norm, cand_norm).ratio()
             else:
-                # Fallback to basic normalization
-                from rapidfuzz import fuzz
+                club_similarity = SequenceMatcher(
+                    None, provider_club.lower(), candidate_club.lower()
+                ).ratio()
 
-                def normalize_club_name_basic(name):
-                    """Basic normalize club name by removing common suffixes/prefixes"""
-                    name_lower = name.lower().strip()
+        club_score = club_similarity * 0.35
 
-                    suffixes_to_strip = [' sa', ' sc', ' fc', ' cf', ' ac', ' afc',
-                                         ' soccer club', ' football club', ' soccer academy',
-                                         ' futbol club', ' athletic club', ' soccer', ' academy']
-                    for suffix in sorted(suffixes_to_strip, key=len, reverse=True):
-                        if name_lower.endswith(suffix):
-                            name_lower = name_lower[:-len(suffix)].strip()
-                            break
+        # ── 2. Normalized team name similarity (35%) ──
+        team_score = self._calculate_similarity(provider_name, candidate_name) * 0.35
 
-                    prefixes_to_strip = ['fc ', 'cf ', 'ac ', 'afc ']
-                    for prefix in prefixes_to_strip:
-                        if name_lower.startswith(prefix):
-                            name_lower = name_lower[len(prefix):].strip()
-                            break
+        # ── 3. Age group match (10%) ──
+        age_score = 0.0
+        provider_age = str(provider_team.get('age_group', '')).lower()
+        candidate_age = str(candidate.get('age_group', '')).lower()
+        if provider_age and candidate_age and provider_age == candidate_age:
+            age_score = 0.10
 
-                    return name_lower
-
-                provider_club_norm = normalize_club_name_basic(provider_club)
-                candidate_club_norm = normalize_club_name_basic(candidate_club)
-
-                scores = []
-                if provider_club_norm == candidate_club_norm:
-                    scores.append(1.0)
-                scores.append(fuzz.partial_ratio(provider_club_norm, candidate_club_norm) / 100.0)
-                scores.append(fuzz.token_set_ratio(provider_club_norm, candidate_club_norm) / 100.0)
-                if provider_club_norm in candidate_club_norm or candidate_club_norm in provider_club_norm:
-                    scores.append(0.95)
-                if provider_club_norm.split() and candidate_club_norm.split():
-                    first_word_match = fuzz.ratio(
-                        provider_club_norm.split()[0],
-                        candidate_club_norm.split()[0]
-                    ) / 100.0
-                    if first_word_match >= 0.9:
-                        scores.append(0.9)
-
-                club_similarity = max(scores) if scores else 0.0
-
-            club_score = club_similarity * weights['club']
-
-            # Boost for high confidence clubs
-            if club_similarity >= 0.90:
-                club_boost = MATCHING_CONFIG.get('club_boost_identical', 0.05)
-                club_score += club_boost
-        # If either club missing, ignore club weighting (no penalty)
-        
-        # Location match (5% weight)
+        # ── 4. Location match (10%) ──
         location_score = 0.0
         provider_state = provider_team.get('state_code') or provider_team.get('state', '')
         candidate_state = candidate.get('state_code') or candidate.get('state', '')
         if provider_state and candidate_state:
             if provider_state.upper() == candidate_state.upper():
-                location_score = weights['location']
-        
-        # Age group match (5% weight)
-        age_score = 0.0
-        provider_age = str(provider_team.get('age_group', '')).lower()
-        candidate_age = str(candidate.get('age_group', '')).lower()
-        if provider_age and candidate_age:
-            if provider_age == candidate_age:
-                age_score = weights['age']
-        
-        final_score = team_score + club_score + location_score + age_score
-        
-        # Cap at 1.0 (in case boost pushes it over)
+                location_score = 0.10
+
+        # ── 5. Club-match boost (+0.10) ──
+        club_boost = 0.0
+        if club_similarity >= 0.90:
+            club_boost = MATCHING_CONFIG.get('club_boost_identical', 0.10)
+
+        final_score = team_score + club_score + age_score + location_score + club_boost
         return min(final_score, 1.0)
 
     def _create_alias(
