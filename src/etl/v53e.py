@@ -127,6 +127,14 @@ class V53EConfig:
     SCF_FLOOR: float = 0.4  # Minimum SCF (even isolated teams get some SOS credit)
     SCF_NEUTRAL_SOS: float = 0.5  # SOS value to dampen toward for low-connectivity teams
 
+    # Opponent Quality Override for SCF
+    # If a team's opponents have high average pre-SCF power, boost SCF toward 1.0.
+    # This prevents penalizing national-level leagues (e.g., MLS NEXT) whose teams may
+    # play in regional conferences but face elite competition — NOT a bubble.
+    SCF_QUALITY_OVERRIDE_ENABLED: bool = True
+    SCF_QUALITY_PERCENTILE: float = 0.65  # Opponents avg power above this percentile → boost SCF
+    SCF_QUALITY_BOOST_MIN: float = 0.85   # Minimum SCF after quality boost (overrides geographic calc)
+
     # Isolation Penalty via Bridge Games
     # Bridge games = games against teams from outside your state cluster
     # If a team has few bridge games, their SOS is less reliable
@@ -287,7 +295,8 @@ def _provisional_multiplier(gp: int, min_games: int) -> float:
 def compute_schedule_connectivity(
     games_df: pd.DataFrame,
     team_state_map: Dict[str, str],
-    cfg: V53EConfig
+    cfg: V53EConfig,
+    strength_map: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Dict]:
     """
     Compute Schedule Connectivity Factor (SCF) for each team.
@@ -302,6 +311,13 @@ def compute_schedule_connectivity(
     - Missoula Surf beats Idaho Rush → Missoula Surf OFF ↑
     - All inflate each other's SOS with NO anchor to national reality
 
+    Quality override: If a team's opponents have high average power (e.g., MLS NEXT
+    teams in regional conferences), they are NOT in a bubble — boost SCF toward 1.0.
+
+    Args:
+        strength_map: Optional dict of team_id -> power_score (pre-SCF). Used to
+                      detect high-quality schedules that should bypass SCF penalty.
+
     Returns:
         Dict[team_id, {
             'scf': float (0.4 to 1.0),
@@ -309,7 +325,8 @@ def compute_schedule_connectivity(
             'unique_regions': int,
             'bridge_games': int,
             'home_state': str,
-            'is_isolated': bool
+            'is_isolated': bool,
+            'quality_boosted': bool
         }]
     """
     result = {}
@@ -323,9 +340,23 @@ def compute_schedule_connectivity(
                 'unique_regions': 0,
                 'bridge_games': 0,
                 'home_state': team_state_map.get(str(team_id), 'UNKNOWN'),
-                'is_isolated': False
+                'is_isolated': False,
+                'quality_boosted': False,
             }
         return result
+
+    # Pre-compute quality threshold for opponent quality override
+    quality_threshold = None
+    if cfg.SCF_QUALITY_OVERRIDE_ENABLED and strength_map:
+        all_strengths = [v for v in strength_map.values() if v > 0]
+        if all_strengths:
+            quality_threshold = float(np.percentile(all_strengths, cfg.SCF_QUALITY_PERCENTILE * 100))
+            logger.info(
+                f"🔗 SCF quality override: threshold={quality_threshold:.4f} "
+                f"(p{cfg.SCF_QUALITY_PERCENTILE*100:.0f} of {len(all_strengths)} teams)"
+            )
+
+    quality_boosted_count = 0
 
     # Group games by team to analyze each team's schedule
     for team_id, team_games in games_df.groupby('team_id'):
@@ -372,10 +403,29 @@ def compute_schedule_connectivity(
         scf_raw = state_diversity + region_bonus
         scf = max(cfg.SCF_FLOOR, min(1.0, scf_raw))
 
+        # Opponent Quality Override: if opponents are strong, this is NOT a bubble
+        # MLS NEXT teams play in regional conferences but face elite competition.
+        # Geographic isolation ≠ quality isolation.
+        quality_boosted = False
+        if quality_threshold is not None and strength_map and len(opp_ids) >= 3:
+            opp_strengths = [
+                strength_map.get(str(oid), 0.0) for oid in opp_ids
+                if str(oid) in strength_map
+            ]
+            if opp_strengths:
+                avg_opp_strength = float(np.mean(opp_strengths))
+                if avg_opp_strength >= quality_threshold:
+                    scf = max(scf, cfg.SCF_QUALITY_BOOST_MIN)
+                    quality_boosted = True
+                    quality_boosted_count += 1
+
         # Determine if team is isolated (no bridge games or very few unique states)
+        # Quality-boosted teams are NOT considered isolated
         is_isolated = (
-            bridge_games < cfg.MIN_BRIDGE_GAMES or
-            unique_states < cfg.SCF_MIN_UNIQUE_STATES
+            not quality_boosted and (
+                bridge_games < cfg.MIN_BRIDGE_GAMES or
+                unique_states < cfg.SCF_MIN_UNIQUE_STATES
+            )
         )
 
         result[team_id_str] = {
@@ -384,8 +434,15 @@ def compute_schedule_connectivity(
             'unique_regions': unique_regions,
             'bridge_games': bridge_games,
             'home_state': home_state,
-            'is_isolated': is_isolated
+            'is_isolated': is_isolated,
+            'quality_boosted': quality_boosted,
         }
+
+    if quality_boosted_count > 0:
+        logger.info(
+            f"🔗 SCF quality override applied to {quality_boosted_count} teams "
+            f"(opponents avg power >= p{cfg.SCF_QUALITY_PERCENTILE*100:.0f})"
+        )
 
     return result
 
@@ -431,10 +488,19 @@ def apply_scf_to_sos(
     neutral = cfg.SCF_NEUTRAL_SOS
     team_df['sos'] = neutral + team_df['scf'] * (team_df['sos'] - neutral)
 
-    # Apply isolation penalty cap if enabled
+    # Track quality-boosted teams
+    team_df['quality_boosted'] = team_df['team_id'].map(
+        lambda tid: scf_data.get(str(tid), {}).get('quality_boosted', False)
+    )
+
+    # Apply isolation penalty cap if enabled — but NOT for quality-boosted teams
     if cfg.ISOLATION_PENALTY_ENABLED:
         # Teams with insufficient bridge games get SOS capped
-        isolation_mask = team_df['bridge_games'] < cfg.MIN_BRIDGE_GAMES
+        # Quality-boosted teams are exempt (they play elite opponents, not a bubble)
+        isolation_mask = (
+            (team_df['bridge_games'] < cfg.MIN_BRIDGE_GAMES) &
+            (~team_df['quality_boosted'])
+        )
         team_df.loc[isolation_mask, 'sos'] = team_df.loc[isolation_mask, 'sos'].clip(
             upper=cfg.ISOLATION_SOS_CAP
         )
@@ -443,11 +509,12 @@ def apply_scf_to_sos(
     isolated_count = team_df['is_isolated'].sum()
     avg_scf = team_df['scf'].mean()
     low_scf_count = (team_df['scf'] < 0.7).sum()
+    quality_boosted_count = team_df['quality_boosted'].sum()
 
     logger.info(
         f"🔗 Schedule Connectivity Factor applied: "
         f"avg_scf={avg_scf:.3f}, isolated_teams={isolated_count}, "
-        f"low_scf_teams={low_scf_count}"
+        f"low_scf_teams={low_scf_count}, quality_boosted={quality_boosted_count}"
     )
 
     # Log some examples of isolated teams (for debugging)
@@ -1044,10 +1111,13 @@ def compute_rankings(
         logger.info("🔗 Computing Schedule Connectivity Factor (SCF) for regional bubble detection...")
 
         # Compute SCF for each team based on their schedule diversity
+        # Pass base_strength_map so quality override can detect elite schedules
+        # (e.g., MLS NEXT teams in regional conferences are NOT bubbles)
         scf_data = compute_schedule_connectivity(
             games_df=g,  # Use the filtered games DataFrame
             team_state_map=team_state_map,
-            cfg=cfg
+            cfg=cfg,
+            strength_map=base_strength_map,
         )
 
         # Apply SCF dampening to raw SOS
@@ -1421,7 +1491,7 @@ def compute_rankings(
         "powerscore_core", "provisional_mult", "powerscore_adj"
     ]
     # Add SCF columns if they exist (from regional bubble detection)
-    scf_cols = ["scf", "bridge_games", "is_isolated", "unique_opp_states"]
+    scf_cols = ["scf", "bridge_games", "is_isolated", "unique_opp_states", "quality_boosted"]
     for col in scf_cols:
         if col in team.columns:
             keep_cols.append(col)
