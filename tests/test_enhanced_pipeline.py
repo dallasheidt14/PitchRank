@@ -79,11 +79,12 @@ class TestEnhancedPipeline:
         }
         
         games = sample_games + [invalid_game]
-        valid, invalid = await pipeline._validate_games(games)
-        
+        valid, invalid, stats = await pipeline._validate_games(games)
+
         assert len(valid) == 2
         assert len(invalid) == 1
         assert 'validation_errors' in invalid[0]
+        assert 'duplicates_skipped' in stats
     
     @pytest.mark.asyncio
     async def test_duplicate_detection(self, mock_supabase, sample_games):
