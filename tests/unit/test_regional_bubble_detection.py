@@ -61,13 +61,18 @@ class TestScheduleConnectivityFactor:
         cfg = V53EConfig()
         scf_data = compute_schedule_connectivity(games_df, team_state_map, cfg)
 
-        # All teams should have low SCF (they only play 2 unique states in Mountain region)
+        # All teams should have low SCF (isolated Mountain region bubble)
         for team_id in ["idaho_rush", "idaho_juniors", "missoula_surf"]:
             assert team_id in scf_data
-            # With 2 unique states and SCF_DIVERSITY_DIVISOR=3.0, SCF should be ~0.67
             assert scf_data[team_id]["scf"] < 0.8, f"{team_id} SCF too high for isolated bubble"
-            assert scf_data[team_id]["unique_states"] == 2
             assert scf_data[team_id]["unique_regions"] == 1  # Both ID and MT are 'mountain'
+
+        # unique_states counts opponent states only:
+        # - Idaho teams play opponents from {ID, MT} = 2 unique states
+        # - Missoula plays opponents from {ID} = 1 unique state
+        assert scf_data["idaho_rush"]["unique_states"] == 2
+        assert scf_data["idaho_juniors"]["unique_states"] == 2
+        assert scf_data["missoula_surf"]["unique_states"] == 1
 
     def test_scf_national_schedule(self):
         """Teams playing opponents from multiple regions should have high SCF"""

@@ -550,7 +550,7 @@ def compute_rankings(
     g = games_df.copy()
     g["date"] = pd.to_datetime(g["date"], errors="coerce")
     if today is None:
-        today = pd.Timestamp(pd.Timestamp.utcnow().date())
+        today = pd.Timestamp(pd.Timestamp.now("UTC").date())
 
     # -------------------------
     # Layer 1: window filter
@@ -567,7 +567,7 @@ def compute_rankings(
         out["ga"] = _clip_outliers_series(out["ga"], cfg.OUTLIER_GUARD_ZSCORE)
         return out
 
-    g = g.groupby("team_id").apply(clip_team_games).reset_index(drop=True)
+    g = pd.concat([clip_team_games(grp) for _, grp in g.groupby("team_id")], ignore_index=True)
     g["gd"] = (g["gf"] - g["ga"]).clip(-cfg.GOAL_DIFF_CAP, cfg.GOAL_DIFF_CAP)
 
     # keep last N games per team (by date)
@@ -589,7 +589,7 @@ def compute_rankings(
         out["w_base"] = w
         return out
 
-    g = g.groupby("team_id").apply(apply_recency).reset_index(drop=True)
+    g = pd.concat([apply_recency(grp) for _, grp in g.groupby("team_id")], ignore_index=True)
 
     # -------------------------
     # Context multipliers (tournament/KO)
@@ -666,7 +666,7 @@ def compute_rankings(
         out["def_shrunk"] = 1.0 / (out["sad_shrunk"] + cfg.RIDGE_GA)
         return out
 
-    team = team.groupby(["age", "gender"]).apply(shrink_grp).reset_index(drop=True)
+    team = pd.concat([shrink_grp(grp) for _, grp in team.groupby(["age", "gender"])], ignore_index=True)
 
     # -------------------------
     # Layer 5: team-level outlier guard (OFF/DEF)
@@ -681,7 +681,7 @@ def compute_rankings(
                                   mu + cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd)
         return out
 
-    team = team.groupby(["age", "gender"]).apply(clip_team_level).reset_index(drop=True)
+    team = pd.concat([clip_team_level(grp) for _, grp in team.groupby(["age", "gender"])], ignore_index=True)
 
     # -------------------------
     # Layer 9: normalize OFF/DEF
@@ -794,7 +794,7 @@ def compute_rankings(
             out["def_shrunk"] = 1.0 / (out["sad_shrunk"] + cfg.RIDGE_GA)
             return out
 
-        team = team.groupby(["age", "gender"]).apply(shrink_grp_adj).reset_index(drop=True)
+        team = pd.concat([shrink_grp_adj(grp) for _, grp in team.groupby(["age", "gender"])], ignore_index=True)
 
         # Re-apply outlier clipping
         def clip_team_level_adj(df: pd.DataFrame) -> pd.DataFrame:
@@ -807,7 +807,7 @@ def compute_rankings(
                                       mu + cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd)
             return out
 
-        team = team.groupby(["age", "gender"]).apply(clip_team_level_adj).reset_index(drop=True)
+        team = pd.concat([clip_team_level_adj(grp) for _, grp in team.groupby(["age", "gender"])], ignore_index=True)
 
         # Re-normalize
         team = _normalize_by_cohort(team, "off_shrunk", "off_norm", cfg.NORM_MODE)
@@ -1292,7 +1292,7 @@ def compute_rankings(
             # Step 6: Apply low-sample shrinkage (vectorized) - QUADRATIC for aggressive dampening
             low_sample_mask = gps < cfg.MIN_GAMES_FOR_TOP_SOS
             shrink_factor = np.clip((gps / cfg.MIN_GAMES_FOR_TOP_SOS) ** 2, 0.0, 1.0)
-            sos_norm_values = team['sos_norm'].values
+            sos_norm_values = team['sos_norm'].values.copy()
             sos_norm_values[low_sample_mask] = (
                 0.5 + shrink_factor[low_sample_mask] * (sos_norm_values[low_sample_mask] - 0.5)
             )
@@ -1466,7 +1466,7 @@ def compute_rankings(
     teams["defense_norm"] = teams["def_norm"]
 
     # For data freshness
-    teams["last_calculated"] = pd.Timestamp.utcnow()
+    teams["last_calculated"] = pd.Timestamp.now("UTC")
 
     # Games played summary for the frontend
     teams["games_played"] = teams["gp"]

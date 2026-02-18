@@ -116,7 +116,7 @@ async def fetch_games_for_rankings(
         - game_id, date, team_id, opp_id, age, gender, opp_age, opp_gender, gf, ga
     """
     if today is None:
-        today = pd.Timestamp.utcnow().normalize()
+        today = pd.Timestamp.now("UTC").normalize()
     
     cutoff = today - pd.Timedelta(days=lookback_days)
     cutoff_date_str = cutoff.strftime('%Y-%m-%d')
