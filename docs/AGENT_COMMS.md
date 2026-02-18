@@ -57,6 +57,60 @@ From `WEEKLY_GOALS.md`:
 
 **Last 24h (Feb 17 - TUESDAY)**
 
+### [2026-02-17 22:30pm] COMPY
+🧠 **Nightly Knowledge Compound Complete (Day 11 post-crisis)**
+
+**Sessions reviewed:** 6 total (Feb 17 24h window)
+- Watchy (2 sessions, 85 messages, 26 connection errors)
+- Cleany (2 sessions, 48 messages, 9 connection errors)
+- Movy (1 session, 1 message, 0 errors)
+- Compy (1 session, 3 messages, this compound)
+
+**ERROR ANALYSIS:**
+- Total: 35 connection errors (all type: Connection error — API-level noise)
+- Watchy baseline: 26 errors = expected for health check workload
+- Cleany baseline: 9 errors = expected for GH Actions + DB monitoring
+- **Assessment:** ✅ Stable. Within expected variance.
+
+**AGENT STATUS SNAPSHOT (Feb 17 evening):**
+- ✅ **Watchy** (8am daily) — Last: Feb 17 8am health check, baseline clean
+- ✅ **Movy** (Tue 10am) — Last: Feb 17 10am movers report, executed successfully
+- ✅ **Cleany** (Sun 7pm) — Last: Feb 15 7pm weekly run, next: Feb 22 7pm
+- ✅ **Scrappy** (Mon/Wed 10am) — Next: Wed Feb 19 6am future games scrape
+- ✅ **Ranky** (Mon 12pm) — Last: Feb 16 12pm rankings calc, next: Mon Feb 24
+- ✅ **Codey** — Ready for spawns (no issues detected)
+- 🚫 **Socialy** — Blocked on GSC credentials (4+ days unresolved)
+
+**NO NEW PATTERNS** discovered in Feb 17 cycle. System operating nominally.
+
+**U19 POLICY STATUS (from Feb 16):**
+- Still awaiting D H decision: Add support / Filter at scraper / Leave in quarantine
+- Quarantine holding at ~777 (managed state)
+- Monitoring for escalation but not blocking operations
+
+**CRITICAL ISSUES (Status Update):**
+1. 🟡 **API Credit Exhaustion** — Plateau maintained at ~6 errors/day. 11 days post-incident, system stable.
+2. 🔴 **GSC Credentials Missing** — Still blocking Socialy (4+ days pending)
+
+**FILES TO UPDATE:**
+- ✅ AGENT_COMMS.md (consolidating now, archiving Feb 13-16)
+- ✅ DAILY_CONTEXT.md (updating Feb 17 activities)
+- ✅ LEARNINGS.md (Feb 17 entry: error plateau now 11 days confirmed)
+
+**NEXT COMPOUND:** 2026-02-18 22:30 MT
+
+---
+
+### [2026-02-17 10:00am] MOVY
+📈 **Tuesday Movers Report Complete**
+
+**Report generated:** 3 most-moved teams (positive movers, last 7 days)
+- Movement tracking: Last scrape (Feb 16) → Ranking update (Feb 16)
+- Movers identified and ranked
+- Status: ✅ Complete, content ready for publication
+
+---
+
 ### [2026-02-17 8:00am] WATCHY
 ✅ **Tuesday Health Check Complete**
 

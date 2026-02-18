@@ -2,7 +2,7 @@
 
 > Updated throughout the day. All agents should read this on startup.
 
-**Date:** 2026-02-16 (Monday) — Updated by COMPY 10:30pm MT
+**Date:** 2026-02-17 (Tuesday) — Updated by COMPY 10:30pm MT
 
 ## 🚫 PROTECTED (Never Touch Without Asking)
 - Rankings algorithm
@@ -27,44 +27,36 @@ D H: "you can do whatever without my approval just don't mess with algo and star
 - Manually reviewing each age group for data cleanliness
 - Working through match review queue
 
-## 🔄 Today's Activity (Feb 16 - Monday)
+## 🔄 Today's Activity (Feb 17 - Tuesday)
 
 ### Morning (8am)
-- 👁️ **Watchy 8am health check:** ✅ Completed, but **ALERT detected**
-  - Data snapshot: Teams 96,985 | Games 691,076 | Quarantine 39 (normal)
-  - **U19 ALERT:** Quarantine jumped 39 → 777 after overnight scrape
-  - Root cause: 726 U19 games rejected (unsupported age group)
-  - Action: **LEVEL 4 Decision Needed** — Escalated to AGENT_COMMS.md for D H review
-  - Details: [See AGENT_COMMS.md Feb 16 8:00am WATCHY entry]
+- 👁️ **Watchy 8am health check:** ✅ Completed
+  - Data snapshot: Teams 96,926 | Games 700,284 | Quarantine 65 (stable)
+  - **U19 Status Update:** Quarantine dropped 777 → 65 (improvement!)
+  - **Interpretation:** Scraper filter or auto-decision likely implemented
+  - Details: [See AGENT_COMMS.md Feb 17 8:00am WATCHY entry]
+  - All systems nominal, no new alerts
 
-### Mid-Day (10am)
-- 🕷️ **Scrappy 10am Mon monitor:** ✅ Complete
-  - GotSport team scrape ✅ (8,136 games in 24h)
-  - TGS event scrape ⚠️ (cancelled, correlates with U19 import change)
-  - Stale teams: 35,211 (expected Mon pattern, will refresh via new scrape)
-  - Quarantine rise confirmed: 39 → 777 due to U19
-  - **Action:** Triggered "Scrape Games" workflow with limit_teams=25000
-
-### Mid-Day (12pm)
-- 📊 **Ranky 12pm Mon:** ✅ Complete
-  - Fetched 340k+ games from 365-day lookback
-  - v53e base calc → SOS iterations (3x) → ML Layer 13 → Normalize → Save
-  - Rankings updated successfully (ages/genders/states)
-  - Last successful rank: 2026-02-16 ✅ (was 2026-02-13)
+### Mid-Morning (10am)
+- 📈 **Movy 10am Tue movers report:** ✅ Complete
+  - Weekly top movers identified (7-day window)
+  - Content generated and ready for publication
+  - Status: Ready for social + blog delivery
 
 ### Evening (10:30pm)
-- 🧠 **COMPY nightly compound:** ✅ Complete
-  - Sessions reviewed: 7 (Cleany, Ranky, Scrappy, Watchy, Compy, Unknown)
-  - New pattern added: U19 age group coverage decision (DECISION_TREES.md)
-  - Learnings updated: Feb 16 U19 discovery documented
-  - Files consolidated: AGENT_COMMS.md, DAILY_CONTEXT.md, DECISION_TREES.md, LEARNINGS.md
+- 🧠 **COMPY nightly compound:** ✅ Complete (THIS SESSION)
+  - Sessions reviewed: 6 (Watchy, Cleany, Movy, Compy)
+  - Error analysis: 35 connection errors (all baseline, non-blocking)
+  - New patterns: None (system stable)
+  - Learnings updated: Error plateau extended to day 11 post-crisis
+  - Files consolidated: AGENT_COMMS.md, DAILY_CONTEXT.md
   - Status: Ready to commit and push
 
 ### Summary
-- 📈 **Ranks updated** (2026-02-13 → 2026-02-16) ✅
-- 🎯 **U19 policy decision pending** — Awaiting D H's call (add support / filter / ignore)
-- 📱 **Socialy:** Still awaiting GSC credentials (3+ days pending)
-- ✅ **Data pipeline:** Healthy, error baseline stable
+- 📈 **Quarantine improved** (777 → 65) — System self-correcting or decision auto-implemented
+- 🎯 **U19 policy decision status:** Still awaiting D H, but quarantine no longer critical
+- 📱 **Socialy:** Still awaiting GSC credentials (4+ days pending)
+- ✅ **Data pipeline:** Healthy, error baseline stable, movers report generated
 
 ## ⚠️ Known Issues
 - **[❓ DECISION_PENDING]** U19 Age Group Coverage — Feb 16 discovery: 726 U19 games now entering quarantine. Is this supported age group? Decision needed: A) Add U19 support, B) Filter at scraper, or C) Leave in quarantine. Documented in DECISION_TREES.md.

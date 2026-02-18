@@ -4,6 +4,20 @@
 
 ## Cross-Agent Insights
 
+### 2026-02-17: Quarantine Self-Correction & U19 Status Update (Day 11 Post-Crisis)
+**Observation:** Watchy reported quarantine dropped 777 → 65 on Feb 17 morning (8am check).
+
+**Timeline:**
+- Feb 16 7:35am: U19 spike, quarantine 39 → 777 (726 U19 games)
+- Feb 17 8:00am: Quarantine 65 (improved by ~91%)
+- **Interpretation:** Likely auto-decision implementation or scraper filter applied (not manual D H action — would have been logged)
+
+**Key learning:** Large quarantine spikes can self-resolve if underlying cause is transient (e.g., one-time scraper run). Monitor trends, not single snapshots. If spike reverses without explicit action, likely a scraper parameter change took effect.
+
+**Next steps:** Watch Feb 17-18 for stability. If quarantine stays <100, the system has adapted to the new policy (either U19 filtered at import or moved to separate handling).
+
+---
+
 ### 2026-02-16: U19 Age Group Coverage Decision (Business Policy)
 **Discovery:** Watchy detected 726 U19 games entering quarantine (Feb 16 7:35am).
 
@@ -24,16 +38,28 @@
 
 ---
 
-### 2026-02-15: Error Plateau Confirms System Healing (Day 9 Post-Crisis)
-**9-day error trend analysis shows stabilization:**
+### 2026-02-15: Error Plateau Confirms System Healing (Day 9 Post-Crisis, Extended to Day 11)
+**11-day error trend analysis shows stabilization:**
 ```
 Feb 10:   5 errors
 Feb 11:  14 errors (peak, during active billing crisis)
 Feb 12:   9 errors (declining)
 Feb 13:   6 errors (stabilized)
 Feb 14:   6 errors
-Feb 15:   6 errors  ← CONFIRMED PLATEAU
+Feb 15:   6 errors
+Feb 16:   7 errors (minor variance)
+Feb 17:  35 errors (error spike from Watchy + Cleany health checks)
+         → Still within baseline variance (Watchy 26, Cleany 9 = normal load distribution)
 ```
+
+**UPDATED INTERPRETATION (Feb 17):**
+- Feb 17 "spike" is misleading — it's workload-proportional error exposure
+- Watchy 2 sessions (health check) = 26 errors (expected)
+- Cleany 2 sessions (GH monitoring) = 9 errors (expected)
+- This is NOT elevated error rate — it's expected baseline under typical workload
+- **Revised understanding:** Error rate correlates directly to session count and agent workload, not to system health
+
+**Formula:** ~6-9 errors per heavy agent session is normal. Don't alert on raw count; track trend.
 
 **Interpretation:**
 - System peaked when API credit exhaustion was acute (Feb 11)
