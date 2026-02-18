@@ -1,6 +1,7 @@
 import { RankingsPageContent } from '@/components/RankingsPageContent';
 import type { Metadata } from 'next';
 import { US_STATES } from '@/lib/constants';
+import BreadcrumbSchema from '@/components/BreadcrumbSchema';
 
 // Revalidate every hour for ISR caching
 export const revalidate = 3600;
@@ -133,9 +134,19 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
   // Escape </script> sequences to prevent XSS in JSON-LD structured data
   const safeJsonLd = JSON.stringify(structuredData).replace(/</g, '\\u003c');
 
+  // Build breadcrumb trail
+  const breadcrumbItems = [
+    { name: 'Home', href: '/' },
+    { name: 'Rankings', href: '/rankings' },
+    { name: locationText, href: `/rankings/${safeRegion}` },
+    { name: formattedAgeGroup, href: `/rankings/${safeRegion}/${safeAgeGroup}` },
+    { name: formattedGender, href: `/rankings/${safeRegion}/${safeAgeGroup}/${safeGender}` },
+  ];
+
   return (
     <>
       <RankingsPageContent key={routeKey} region={region} ageGroup={ageGroup} gender={gender} />
+      <BreadcrumbSchema items={breadcrumbItems} />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: safeJsonLd }}
