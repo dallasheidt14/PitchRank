@@ -1,5 +1,3 @@
-'use client';
-
 interface RankedTeam {
   teamName: string;
   clubName?: string | null;
