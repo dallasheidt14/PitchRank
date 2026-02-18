@@ -18,7 +18,7 @@ def draw_rounded_box(ax, x, y, w, h, text, color, text_color='white',
     """Draw a rounded rectangle with centered text."""
     box = FancyBboxPatch(
         (x, y), w, h,
-        boxstyle="round,pad=0.015",
+        boxstyle="round,pad=0.012",
         facecolor=color,
         edgecolor=border_color or color,
         linewidth=linewidth,
@@ -29,7 +29,7 @@ def draw_rounded_box(ax, x, y, w, h, text, color, text_color='white',
     weight = 'bold' if bold else 'normal'
 
     if text_lines:
-        line_height = fontsize * 0.0018
+        line_height = fontsize * 0.0013
         total_height = len(text_lines) * line_height
         start_y = y + h / 2 + total_height / 2 - line_height / 2
         for i, line in enumerate(text_lines):
@@ -69,7 +69,7 @@ def draw_section_bg(ax, x, y, w, h, color, label, label_color='#333333'):
     """Draw a section background with label."""
     rect = FancyBboxPatch(
         (x, y), w, h,
-        boxstyle="round,pad=0.01",
+        boxstyle="round,pad=0.008",
         facecolor=color,
         edgecolor='#cccccc',
         linewidth=1,
@@ -77,15 +77,16 @@ def draw_section_bg(ax, x, y, w, h, color, label, label_color='#333333'):
         zorder=0
     )
     ax.add_patch(rect)
-    ax.text(x + 0.012, y + h - 0.012, label,
-            ha='left', va='top', fontsize=9,
+    ax.text(x + 0.012, y + h - 0.008, label,
+            ha='left', va='top', fontsize=8,
             color=label_color, fontweight='bold', zorder=1,
             style='italic')
 
 
 def generate_pipeline_map():
     """Generate the full PitchRank pipeline process map."""
-    fig, ax = plt.subplots(1, 1, figsize=(28, 38))
+    # Use a taller figure for more vertical space
+    fig, ax = plt.subplots(1, 1, figsize=(30, 48))
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.axis('off')
@@ -106,404 +107,19 @@ def generate_pipeline_map():
     C_FRONTEND = '#457b9d'
     C_WORKFLOW = '#f4a261'
     C_DATA = '#606c38'
-    C_SUBBOX = '#333333'
 
     # ──────────────────────────────────────────
-    # TITLE
+    # TITLE (top of page)
     # ──────────────────────────────────────────
-    ax.text(0.5, 0.985, 'PitchRank — Complete Pipeline Process Map',
-            ha='center', va='top', fontsize=20, fontweight='bold',
+    ax.text(0.5, 0.99, 'PitchRank — Complete Pipeline Process Map',
+            ha='center', va='top', fontsize=22, fontweight='bold',
             color=C_HEADER, zorder=10)
-    ax.text(0.5, 0.975, 'v2.0.4-config-sync  |  Youth Soccer Team Ranking System  |  Data Collection → Rankings → Frontend',
+    ax.text(0.5, 0.982, 'v2.0.4-config-sync  |  Youth Soccer Team Ranking System  |  Data Collection \u2192 Rankings \u2192 Frontend',
             ha='center', va='top', fontsize=10, color='#666666', zorder=10)
 
-    # ══════════════════════════════════════════
-    # PHASE 1: SCHEDULING & TRIGGERS
-    # ══════════════════════════════════════════
-    phase1_y = 0.935
-    draw_section_bg(ax, 0.02, phase1_y - 0.055, 0.96, 0.06, '#fff3e0',
-                    'PHASE 1: SCHEDULING & TRIGGERS (GitHub Actions)')
-
-    # Cron triggers
-    bw = 0.18
-    bh = 0.028
-    gap = 0.03
-
-    triggers = [
-        ("scrape-games.yml", "Mon 6:00 & 11:15 AM UTC", 0.05),
-        ("calculate-rankings.yml", "Mon 4:45 PM UTC", 0.26),
-        ("data-hygiene-weekly.yml", "Weekly cleanup", 0.47),
-        ("auto-merge-queue.yml", "Auto merge teams", 0.68),
-    ]
-    for label, sub, xpos in triggers:
-        draw_rounded_box(ax, xpos, phase1_y - 0.048, bw, bh, '',
-                         C_TRIGGER, fontsize=7, bold=True,
-                         text_lines=[label, sub])
-
-    # Arrows from triggers down
-    arr_y_top = phase1_y - 0.048
-    arr_y_bot = phase1_y - 0.07
-
-    # ══════════════════════════════════════════
-    # PHASE 2: DATA COLLECTION (SCRAPING)
-    # ══════════════════════════════════════════
-    phase2_y = 0.82
-    draw_section_bg(ax, 0.02, phase2_y - 0.07, 0.96, 0.10, '#e3f2fd',
-                    'PHASE 2: DATA COLLECTION — Multi-Provider Scraping')
-
-    # Arrow from trigger to phase 2
-    draw_arrow(ax, 0.14, arr_y_top - bh, 0.14, phase2_y + 0.025, C_TRIGGER)
-
-    # Provider boxes
-    pw = 0.135
-    ph = 0.05
-    providers = [
-        ("GotSport API", "src/scrapers/gotsport.py\nSSL/certifi, async\nRate: 1.5-2.5s delay", 0.05),
-        ("TGS Events", "src/scrapers/tgs_event.py\nEvent discovery\nHTML parsing", 0.21),
-        ("AthleteOne", "src/scrapers/athleteone_scraper.py\nHTML + API client\nWeekly schedule", 0.37),
-        ("SincSports", "src/scrapers/sincsports.py\nEvent-based scraping", 0.53),
-        ("Modular11", "src/models/modular11_matcher.py\nWeekly scrape workflow", 0.69),
-        ("US Club Soccer", "config/settings.py\nProvider: 'usclub'", 0.85),
-    ]
-    for title, detail, xpos in providers:
-        draw_rounded_box(ax, xpos, phase2_y - 0.055, pw, ph, '',
-                         C_SCRAPE, fontsize=6.5,
-                         text_lines=[title, *detail.split('\n')])
-
-    # Scraping output
-    out_y = phase2_y - 0.068
-    draw_rounded_box(ax, 0.30, out_y - 0.022, 0.40, 0.02,
-                     'Output: JSONL / CSV files  →  data/raw/',
-                     C_DATA, fontsize=7, bold=True)
-
-    # Arrow down to ETL
-    draw_arrow(ax, 0.50, out_y - 0.022, 0.50, out_y - 0.045, '#333')
-
-    # ══════════════════════════════════════════
-    # PHASE 3: ETL PIPELINE — INGESTION & VALIDATION
-    # ══════════════════════════════════════════
-    phase3_y = 0.685
-    draw_section_bg(ax, 0.02, phase3_y - 0.11, 0.96, 0.145, '#e8f5e9',
-                    'PHASE 3: ETL PIPELINE — Ingestion, Validation & Deduplication')
-
-    # Entry point
-    ew = 0.28
-    draw_rounded_box(ax, 0.36, phase3_y + 0.015, ew, 0.022,
-                     'Entry: scripts/import_games_enhanced.py → EnhancedETLPipeline',
-                     C_ETL, fontsize=7, bold=True)
-
-    # ETL sub-steps (horizontal flow)
-    step_w = 0.17
-    step_h = 0.07
-    steps_y = phase3_y - 0.085
-
-    # Step 1: Stream
-    draw_rounded_box(ax, 0.03, steps_y, step_w, step_h, '',
-                     C_ETL, fontsize=6.5,
-                     text_lines=[
-                         '1. STREAM INPUT',
-                         'stream_games_csv()',
-                         'stream_games_jsonl()',
-                         'Batch size: 1000',
-                         'Memory-efficient generator'
-                     ])
-
-    # Arrow
-    draw_arrow(ax, 0.03 + step_w, steps_y + step_h/2,
-               0.03 + step_w + 0.015, steps_y + step_h/2, '#333')
-
-    # Step 2: Validate
-    draw_rounded_box(ax, 0.215, steps_y, step_w, step_h, '',
-                     C_VALIDATE, fontsize=6.5,
-                     text_lines=[
-                         '2. VALIDATE',
-                         'EnhancedDataValidator',
-                         'parse_game_date() → 3 formats',
-                         'Required: team, opponent,',
-                         'date, age_group, gender',
-                         'Invalid → quarantine_games'
-                     ])
-
-    draw_arrow(ax, 0.215 + step_w, steps_y + step_h/2,
-               0.215 + step_w + 0.015, steps_y + step_h/2, '#333')
-
-    # Step 3: Deduplicate
-    draw_rounded_box(ax, 0.40, steps_y, step_w, step_h, '',
-                     '#7b2cbf', fontsize=6.5,
-                     text_lines=[
-                         '3. DEDUPLICATE',
-                         'Generate game_uid (UUID)',
-                         'Deterministic hash of:',
-                         '  teams + date + scores',
-                         'Perspective dedup (~50%)',
-                         'Skip if already in DB'
-                     ])
-
-    draw_arrow(ax, 0.40 + step_w, steps_y + step_h/2,
-               0.40 + step_w + 0.015, steps_y + step_h/2, '#333')
-
-    # Step 4: Batch Insert
-    draw_rounded_box(ax, 0.585, steps_y, step_w, step_h, '',
-                     C_DB, fontsize=6.5,
-                     text_lines=[
-                         '4. BATCH INSERT',
-                         'Supabase PostgreSQL',
-                         'Batch size: 1000',
-                         'game_uid UNIQUE constraint',
-                         'ImportMetrics → build_logs',
-                         'games table updated'
-                     ])
-
-    draw_arrow(ax, 0.585 + step_w, steps_y + step_h/2,
-               0.585 + step_w + 0.015, steps_y + step_h/2, '#333')
-
-    # Step 5: Log metrics
-    draw_rounded_box(ax, 0.77, steps_y, 0.19, step_h, '',
-                     C_WORKFLOW, text_color='#1a1a1a', fontsize=6.5,
-                     text_lines=[
-                         '5. LOG METRICS',
-                         'ImportMetrics.to_dict()',
-                         'games_processed/accepted',
-                         'duplicates_found/skipped',
-                         'teams_matched/created',
-                         'fuzzy_auto/manual/rejected',
-                         'memory_usage_mb'
-                     ])
-
-    # ══════════════════════════════════════════
-    # PHASE 4: TEAM MATCHING
-    # ══════════════════════════════════════════
-    phase4_y = 0.52
-    draw_section_bg(ax, 0.02, phase4_y - 0.075, 0.96, 0.115, '#fce4ec',
-                    'PHASE 4: TEAM MATCHING — 3-Tier Identity Resolution')
-
-    # Arrow from ETL down
-    draw_arrow(ax, 0.50, steps_y, 0.50, phase4_y + 0.032, '#333')
-
-    # Matching tiers
-    tw = 0.28
-    th = 0.065
-
-    # Tier 1: Direct ID
-    draw_rounded_box(ax, 0.04, phase4_y - 0.06, tw, th, '',
-                     C_MATCH, fontsize=6.5,
-                     text_lines=[
-                         'TIER 1: DIRECT ID MATCH',
-                         'Confidence: 1.0 (100%)',
-                         'team_alias_map.match_method = "direct_id"',
-                         'Fastest path, exact provider_team_id',
-                     ])
-
-    # Tier 2: Alias Lookup
-    draw_rounded_box(ax, 0.36, phase4_y - 0.06, tw, th, '',
-                     '#1d7874', fontsize=6.5,
-                     text_lines=[
-                         'TIER 2: ALIAS LOOKUP',
-                         'Confidence: 0.90-1.0',
-                         'Pre-approved alias mappings',
-                         'match_method = "manual" or "approved"',
-                     ])
-
-    # Tier 3: Fuzzy Match
-    draw_rounded_box(ax, 0.68, phase4_y - 0.06, tw, th, '',
-                     '#e76f51', fontsize=6.5,
-                     text_lines=[
-                         'TIER 3: FUZZY MATCHING',
-                         'GameHistoryMatcher (game_matcher.py)',
-                         '65% name + 25% club + 5% age + 5% loc',
-                         '>=0.90: auto-approve | 0.75-0.90: review',
-                         '<0.75: reject'
-                     ])
-
-    # Fuzzy output boxes
-    fo_y = phase4_y - 0.075
-    small_w = 0.13
-    small_h = 0.015
-
-    # Arrows from tiers converge
-    draw_arrow(ax, 0.04 + tw/2, phase4_y - 0.06,
-               0.50, phase4_y - 0.088, '#555', lw=1)
-    draw_arrow(ax, 0.36 + tw/2, phase4_y - 0.06,
-               0.50, phase4_y - 0.088, '#555', lw=1)
-    draw_arrow(ax, 0.68 + tw/2, phase4_y - 0.06,
-               0.50, phase4_y - 0.088, '#555', lw=1)
-
-    # team_alias_map output
-    draw_rounded_box(ax, 0.35, phase4_y - 0.098, 0.30, 0.018,
-                     'team_alias_map → Maps provider IDs to team_id_master UUIDs',
-                     C_DB, fontsize=6.5, bold=True)
-
-    # ══════════════════════════════════════════
-    # PHASE 5: RANKING CALCULATION
-    # ══════════════════════════════════════════
-    phase5_y = 0.385
-    draw_section_bg(ax, 0.02, phase5_y - 0.16, 0.96, 0.19, '#f3e5f5',
-                    'PHASE 5: RANKING CALCULATION — v53e Algorithm + ML Layer 13')
-
-    # Arrow from team matching down
-    draw_arrow(ax, 0.50, phase4_y - 0.098, 0.50, phase5_y + 0.022, '#333')
-
-    # Entry point
-    draw_rounded_box(ax, 0.30, phase5_y + 0.005, 0.40, 0.02,
-                     'Entry: scripts/calculate_rankings.py → compute_rankings_with_ml()',
-                     C_RANK, fontsize=7, bold=True)
-
-    # V53E 10-layer box (left side)
-    v53_x = 0.04
-    v53_w = 0.44
-    v53_h = 0.155
-    v53_y = phase5_y - 0.155
-
-    draw_rounded_box(ax, v53_x, v53_y, v53_w, v53_h, '', C_RANK, fontsize=6,
-                     text_lines=[
-                         'V53E DETERMINISTIC ALGORITHM (src/etl/v53e.py)',
-                         '',
-                         'Layer 1:  Time Window — 365 days lookback, hide if >180d inactive',
-                         'Layer 2:  Game Limits — Max 30 games, goal diff cap ±6, outlier z>2.5',
-                         'Layer 3:  Recency Weighting — Recent K=15 @ 65%, dampen tail 0.8→0.4',
-                         'Layer 4:  Defense Ridge — Goals Against factor = 0.25',
-                         'Layer 5:  Adaptive K — Dynamic K-factor (α=0.5, β=0.6)',
-                         'Layer 6:  Performance — Per-game overperformance (decay=0.08, thresh=2.0)',
-                         'Layer 7:  Bayesian Shrinkage — Pool toward mean (τ=8.0)',
-                         'Layer 8:  Strength of Schedule — 3 iterations, power-SOS (damp=0.7, cap=2)',
-                         'Layer 9:  Opponent Adjustment — Fix double-count (baseline=0.5, clip 0.4-1.6)',
-                         'Layer 10: Final Blend — OFF=0.25 + DEF=0.25 + SOS=0.50 = power_score',
-                     ])
-
-    # ML Layer 13 box (right side)
-    ml_x = 0.52
-    ml_w = 0.44
-    ml_h = 0.155
-    ml_y = phase5_y - 0.155
-
-    draw_rounded_box(ax, ml_x, ml_y, ml_w, ml_h, '', C_ML, fontsize=6,
-                     text_lines=[
-                         'ML LAYER 13 (src/rankings/layer13_predictive_adjustment.py)',
-                         '',
-                         'Model:   XGBoost (primary) / RandomForest (fallback)',
-                         'Input:   Per-game features + v53e base scores',
-                         '',
-                         'Process:',
-                         '  1. Compute per-game ML residuals (actual vs predicted)',
-                         '  2. Aggregate residuals with recency decay (λ=0.06)',
-                         '  3. Normalize via percentile or z-score method',
-                         '  4. Blend into power score (α=0.15)',
-                         '  5. Batch update games.ml_overperformance via RPC',
-                         '',
-                         'Output:  Adjusted power_score per team',
-                         '         game_residuals persisted to DB',
-                     ])
-
-    # Arrow from v53e and ML to merge point
-    merge_y = v53_y - 0.012
-    draw_arrow(ax, v53_x + v53_w/2, v53_y, v53_x + v53_w/2, merge_y, C_RANK)
-    draw_arrow(ax, ml_x + ml_w/2, ml_y, ml_x + ml_w/2, merge_y, C_ML)
-
-    # Merge box
-    draw_rounded_box(ax, 0.30, merge_y - 0.018, 0.40, 0.018,
-                     'BLENDED FINAL POWER SCORE  →  National Rank + State Rank per cohort',
-                     '#4a0e4e', fontsize=7, bold=True)
-
-    # ══════════════════════════════════════════
-    # PHASE 6: STATE & CROSS-AGE RANKINGS
-    # ══════════════════════════════════════════
-    phase6_y = 0.17
-    draw_section_bg(ax, 0.02, phase6_y - 0.035, 0.96, 0.06, '#e0f7fa',
-                    'PHASE 6: RANKINGS PERSISTENCE & DERIVATION')
-
-    draw_arrow(ax, 0.50, merge_y - 0.018, 0.50, phase6_y + 0.018, '#333')
-
-    # Persistence targets
-    persist_w = 0.20
-    persist_h = 0.035
-    persist_y = phase6_y - 0.028
-
-    draw_rounded_box(ax, 0.04, persist_y, persist_w, persist_h, '',
-                     C_DB, fontsize=6.5,
-                     text_lines=[
-                         'rankings_full',
-                         'Comprehensive metrics',
-                         'All v53e + ML fields'
-                     ])
-
-    draw_rounded_box(ax, 0.27, persist_y, persist_w, persist_h, '',
-                     C_DB, fontsize=6.5,
-                     text_lines=[
-                         'current_rankings',
-                         'Backward compatibility',
-                         'National + State ranks'
-                     ])
-
-    draw_rounded_box(ax, 0.50, persist_y, persist_w, persist_h, '',
-                     C_DB, fontsize=6.5,
-                     text_lines=[
-                         'State Rankings',
-                         'Group by state_code',
-                         'Rank within each state'
-                     ])
-
-    draw_rounded_box(ax, 0.73, persist_y, persist_w + 0.03, persist_h, '',
-                     C_DB, fontsize=6.5,
-                     text_lines=[
-                         'Cross-Age Global Scores',
-                         'U10=0.40 → U18=1.00 anchors',
-                         'Enables cross-age SOS'
-                     ])
-
-    # ══════════════════════════════════════════
-    # PHASE 7: FRONTEND & USER-FACING
-    # ══════════════════════════════════════════
-    phase7_y = 0.085
-    draw_section_bg(ax, 0.02, phase7_y - 0.06, 0.96, 0.085, '#e8eaf6',
-                    'PHASE 7: FRONTEND — Next.js 16 + React 19 + Supabase Client')
-
-    draw_arrow(ax, 0.50, persist_y, 0.50, phase7_y + 0.018, '#333')
-
-    # Frontend components
-    fw = 0.175
-    fh = 0.045
-    fy = phase7_y - 0.05
-
-    fe_items = [
-        ("Rankings Pages", "/rankings\nBrowse by age/gender/state\nRankingsTable component", 0.04),
-        ("Team Detail", "/teams/[teamId]\nGame history, insights\nComparePanel, Predictions", 0.235),
-        ("API Routes (30+)", "/api/teams/search\n/api/watchlist, /api/stripe\n/api/mission-control", 0.43),
-        ("Embed & Reports", "/embed widgets\n/infographics\nRecentMovers, HomeStats", 0.625),
-        ("Mission Control", "/mission-control\nAgent orchestration\nTask management UI", 0.82),
-    ]
-    for title, detail, xpos in fe_items:
-        draw_rounded_box(ax, xpos, fy, fw, fh, '',
-                         C_FRONTEND, fontsize=6,
-                         text_lines=[title, *detail.split('\n')])
-
-    # ══════════════════════════════════════════
-    # DATA QUALITY FEEDBACK LOOPS (right sidebar)
-    # ══════════════════════════════════════════
-    # Side annotation
-    ax.text(0.99, 0.50, 'DATA QUALITY LOOPS',
-            ha='right', va='center', fontsize=8, fontweight='bold',
-            color='#888', rotation=90, zorder=5)
-
-    # ══════════════════════════════════════════
-    # DATABASE SCHEMA BOX (bottom)
-    # ══════════════════════════════════════════
-    db_y = 0.012
-    draw_section_bg(ax, 0.02, db_y, 0.96, 0.03, '#fff8e1',
-                    'DATABASE: Supabase PostgreSQL')
-
-    db_tables = [
-        'providers', 'teams', 'games', 'team_alias_map',
-        'current_rankings', 'rankings_full', 'build_logs',
-        'quarantine_games', 'game_corrections', 'user_profiles'
-    ]
-    table_str = '  |  '.join(db_tables)
-    ax.text(0.50, db_y + 0.012, table_str,
-            ha='center', va='center', fontsize=6.5, color='#333',
-            fontweight='normal', fontfamily='monospace', zorder=5)
-
-    # ══════════════════════════════════════════
-    # LEGEND
-    # ══════════════════════════════════════════
+    # ──────────────────────────────────────────
+    # LEGEND (below title, above Phase 1)
+    # ──────────────────────────────────────────
     legend_items = [
         (C_TRIGGER, 'GitHub Actions / Triggers'),
         (C_SCRAPE, 'Data Providers / Scrapers'),
@@ -517,13 +133,15 @@ def generate_pipeline_map():
         (C_WORKFLOW, 'Metrics / Logging'),
     ]
 
-    legend_x = 0.03
-    legend_y = 0.965
+    legend_y = 0.972
+    cols = 5
+    col_width = 0.19
+    legend_x_start = 0.03
     for i, (color, label) in enumerate(legend_items):
-        xi = legend_x + (i % 5) * 0.195
-        yi = legend_y - (i // 5) * 0.013
+        xi = legend_x_start + (i % cols) * col_width
+        yi = legend_y - (i // cols) * 0.011
         rect = FancyBboxPatch(
-            (xi, yi), 0.012, 0.008,
+            (xi, yi), 0.012, 0.007,
             boxstyle="round,pad=0.002",
             facecolor=color,
             edgecolor='none',
@@ -531,9 +149,387 @@ def generate_pipeline_map():
             zorder=10
         )
         ax.add_patch(rect)
-        ax.text(xi + 0.016, yi + 0.004, label,
+        ax.text(xi + 0.016, yi + 0.0035, label,
                 ha='left', va='center', fontsize=6.5,
                 color='#333', zorder=10)
+
+    # ══════════════════════════════════════════
+    # PHASE 1: SCHEDULING & TRIGGERS
+    # ══════════════════════════════════════════
+    p1_top = 0.945
+    p1_h = 0.05
+    p1_bot = p1_top - p1_h
+    draw_section_bg(ax, 0.02, p1_bot, 0.96, p1_h, '#fff3e0',
+                    'PHASE 1: SCHEDULING & TRIGGERS (GitHub Actions)')
+
+    bw = 0.18
+    bh = 0.025
+    box_y = p1_bot + 0.008
+
+    triggers = [
+        ("scrape-games.yml", "Mon 6:00 & 11:15 AM UTC", 0.05),
+        ("calculate-rankings.yml", "Mon 4:45 PM UTC", 0.26),
+        ("data-hygiene-weekly.yml", "Weekly cleanup", 0.47),
+        ("auto-merge-queue.yml", "Auto merge teams", 0.68),
+    ]
+    for label, sub, xpos in triggers:
+        draw_rounded_box(ax, xpos, box_y, bw, bh, '',
+                         C_TRIGGER, fontsize=7, bold=True,
+                         text_lines=[label, sub])
+
+    # Arrow from Phase 1 down to Phase 2
+    draw_arrow(ax, 0.14, box_y, 0.14, p1_bot - 0.008, C_TRIGGER)
+
+    # ══════════════════════════════════════════
+    # PHASE 2: DATA COLLECTION (SCRAPING)
+    # ══════════════════════════════════════════
+    p2_top = 0.88
+    p2_h = 0.09
+    p2_bot = p2_top - p2_h
+    draw_section_bg(ax, 0.02, p2_bot, 0.96, p2_h, '#e3f2fd',
+                    'PHASE 2: DATA COLLECTION \u2014 Multi-Provider Scraping')
+
+    pw = 0.13
+    ph = 0.045
+    prov_y = p2_top - 0.018 - ph
+
+    providers = [
+        ("GotSport API", "src/scrapers/gotsport.py\nSSL/certifi, async\nRate: 1.5-2.5s delay", 0.04),
+        ("TGS Events", "src/scrapers/tgs_event.py\nEvent discovery\nHTML parsing", 0.19),
+        ("AthleteOne", "src/scrapers/athleteone_scraper.py\nHTML + API client\nWeekly schedule", 0.34),
+        ("SincSports", "src/scrapers/sincsports.py\nEvent-based scraping", 0.49),
+        ("Modular11", "src/models/modular11_matcher.py\nWeekly scrape workflow", 0.64),
+        ("US Club Soccer", "config/settings.py\nProvider: 'usclub'", 0.82),
+    ]
+    for title, detail, xpos in providers:
+        draw_rounded_box(ax, xpos, prov_y, pw, ph, '',
+                         C_SCRAPE, fontsize=6,
+                         text_lines=[title, *detail.split('\n')])
+
+    # Output bar below providers
+    out_y = prov_y - 0.022
+    draw_rounded_box(ax, 0.30, out_y, 0.40, 0.016,
+                     'Output: JSONL / CSV files  \u2192  data/raw/',
+                     C_DATA, fontsize=7, bold=True)
+
+    # Arrow down to Phase 3
+    draw_arrow(ax, 0.50, out_y, 0.50, p2_bot - 0.008, '#333')
+
+    # ══════════════════════════════════════════
+    # PHASE 3: ETL PIPELINE
+    # ══════════════════════════════════════════
+    p3_top = 0.775
+    p3_h = 0.12
+    p3_bot = p3_top - p3_h
+    draw_section_bg(ax, 0.02, p3_bot, 0.96, p3_h, '#e8f5e9',
+                    'PHASE 3: ETL PIPELINE \u2014 Ingestion, Validation & Deduplication')
+
+    # Entry point
+    entry_y = p3_top - 0.020
+    draw_rounded_box(ax, 0.30, entry_y, 0.40, 0.016,
+                     'Entry: scripts/import_games_enhanced.py \u2192 EnhancedETLPipeline',
+                     C_ETL, fontsize=7, bold=True)
+
+    # ETL sub-steps (horizontal flow)
+    step_w = 0.155
+    step_h = 0.06
+    steps_y = entry_y - 0.068
+
+    # Step 1: Stream
+    draw_rounded_box(ax, 0.03, steps_y, step_w, step_h, '',
+                     C_ETL, fontsize=6,
+                     text_lines=[
+                         '1. STREAM INPUT',
+                         'stream_games_csv()',
+                         'stream_games_jsonl()',
+                         'Batch size: 1000',
+                         'Memory-efficient generator'
+                     ])
+    draw_arrow(ax, 0.03 + step_w + 0.002, steps_y + step_h/2,
+               0.205 - 0.002, steps_y + step_h/2, '#333')
+
+    # Step 2: Validate
+    draw_rounded_box(ax, 0.205, steps_y, step_w, step_h, '',
+                     C_VALIDATE, fontsize=6,
+                     text_lines=[
+                         '2. VALIDATE',
+                         'EnhancedDataValidator',
+                         'parse_game_date() \u2192 3 fmt',
+                         'Required: team, opp,',
+                         'date, age_group, gender',
+                         'Invalid \u2192 quarantine'
+                     ])
+    draw_arrow(ax, 0.205 + step_w + 0.002, steps_y + step_h/2,
+               0.38 - 0.002, steps_y + step_h/2, '#333')
+
+    # Step 3: Deduplicate
+    draw_rounded_box(ax, 0.38, steps_y, step_w, step_h, '',
+                     '#7b2cbf', fontsize=6,
+                     text_lines=[
+                         '3. DEDUPLICATE',
+                         'Generate game_uid (UUID)',
+                         'Deterministic hash:',
+                         '  teams + date + scores',
+                         'Perspective dedup (~50%)',
+                         'Skip if already in DB'
+                     ])
+    draw_arrow(ax, 0.38 + step_w + 0.002, steps_y + step_h/2,
+               0.555 - 0.002, steps_y + step_h/2, '#333')
+
+    # Step 4: Batch Insert
+    draw_rounded_box(ax, 0.555, steps_y, step_w, step_h, '',
+                     C_DB, fontsize=6,
+                     text_lines=[
+                         '4. BATCH INSERT',
+                         'Supabase PostgreSQL',
+                         'Batch size: 1000',
+                         'game_uid UNIQUE const.',
+                         'ImportMetrics \u2192 build_logs',
+                         'games table updated'
+                     ])
+    draw_arrow(ax, 0.555 + step_w + 0.002, steps_y + step_h/2,
+               0.73 - 0.002, steps_y + step_h/2, '#333')
+
+    # Step 5: Log metrics
+    draw_rounded_box(ax, 0.73, steps_y, 0.235, step_h, '',
+                     C_WORKFLOW, text_color='#1a1a1a', fontsize=6,
+                     text_lines=[
+                         '5. LOG METRICS',
+                         'ImportMetrics.to_dict()',
+                         'games_processed/accepted',
+                         'duplicates_found/skipped',
+                         'teams_matched/created',
+                         'fuzzy_auto/manual/rejected'
+                     ])
+
+    # Arrow down to Phase 4
+    draw_arrow(ax, 0.50, steps_y, 0.50, p3_bot - 0.008, '#333')
+
+    # ══════════════════════════════════════════
+    # PHASE 4: TEAM MATCHING
+    # ══════════════════════════════════════════
+    p4_top = 0.635
+    p4_h = 0.10
+    p4_bot = p4_top - p4_h
+    draw_section_bg(ax, 0.02, p4_bot, 0.96, p4_h, '#fce4ec',
+                    'PHASE 4: TEAM MATCHING \u2014 3-Tier Identity Resolution')
+
+    tw = 0.27
+    th = 0.055
+    tier_y = p4_top - 0.02 - th
+
+    # Tier 1: Direct ID
+    draw_rounded_box(ax, 0.04, tier_y, tw, th, '',
+                     C_MATCH, fontsize=6,
+                     text_lines=[
+                         'TIER 1: DIRECT ID MATCH',
+                         'Confidence: 1.0 (100%)',
+                         'team_alias_map.match_method = "direct_id"',
+                         'Fastest path, exact provider_team_id',
+                     ])
+
+    # Tier 2: Alias Lookup
+    draw_rounded_box(ax, 0.36, tier_y, tw, th, '',
+                     '#1d7874', fontsize=6,
+                     text_lines=[
+                         'TIER 2: ALIAS LOOKUP',
+                         'Confidence: 0.90-1.0',
+                         'Pre-approved alias mappings',
+                         'match_method = "manual" or "approved"',
+                     ])
+
+    # Tier 3: Fuzzy Match
+    draw_rounded_box(ax, 0.68, tier_y, tw, th, '',
+                     '#e76f51', fontsize=6,
+                     text_lines=[
+                         'TIER 3: FUZZY MATCHING',
+                         'GameHistoryMatcher (game_matcher.py)',
+                         '65% name + 25% club + 5% age + 5% loc',
+                         '>=0.90: auto | 0.75-0.90: review | <0.75: reject'
+                     ])
+
+    # Arrows from tiers converge down
+    converge_y = tier_y - 0.012
+    draw_arrow(ax, 0.04 + tw/2, tier_y, 0.50, converge_y, '#555', lw=1)
+    draw_arrow(ax, 0.36 + tw/2, tier_y, 0.50, converge_y, '#555', lw=1)
+    draw_arrow(ax, 0.68 + tw/2, tier_y, 0.50, converge_y, '#555', lw=1)
+
+    # team_alias_map output
+    alias_y = converge_y - 0.016
+    draw_rounded_box(ax, 0.30, alias_y, 0.40, 0.016,
+                     'team_alias_map \u2192 Maps provider IDs to team_id_master UUIDs',
+                     C_DB, fontsize=6.5, bold=True)
+
+    # Arrow down to Phase 5
+    draw_arrow(ax, 0.50, alias_y, 0.50, p4_bot - 0.008, '#333')
+
+    # ══════════════════════════════════════════
+    # PHASE 5: RANKING CALCULATION
+    # ══════════════════════════════════════════
+    p5_top = 0.51
+    p5_h = 0.18
+    p5_bot = p5_top - p5_h
+    draw_section_bg(ax, 0.02, p5_bot, 0.96, p5_h, '#f3e5f5',
+                    'PHASE 5: RANKING CALCULATION \u2014 v53e Algorithm + ML Layer 13')
+
+    # Entry point
+    entry5_y = p5_top - 0.020
+    draw_rounded_box(ax, 0.25, entry5_y, 0.50, 0.016,
+                     'Entry: scripts/calculate_rankings.py \u2192 compute_rankings_with_ml()',
+                     C_RANK, fontsize=7, bold=True)
+
+    # V53E box (left side)
+    algo_h = 0.12
+    algo_y = entry5_y - 0.008 - algo_h
+
+    draw_rounded_box(ax, 0.03, algo_y, 0.45, algo_h, '', C_RANK, fontsize=5.5,
+                     text_lines=[
+                         'V53E DETERMINISTIC ALGORITHM (src/etl/v53e.py)',
+                         '',
+                         'Layer 1:  Time Window \u2014 365 days lookback, hide if >180d inactive',
+                         'Layer 2:  Game Limits \u2014 Max 30 games, goal diff cap \u00b16, outlier z>2.5',
+                         'Layer 3:  Recency Weighting \u2014 Recent K=15 @ 65%, dampen tail 0.8\u21920.4',
+                         'Layer 4:  Defense Ridge \u2014 Goals Against factor = 0.25',
+                         'Layer 5:  Adaptive K \u2014 Dynamic K-factor (\u03b1=0.5, \u03b2=0.6)',
+                         'Layer 6:  Performance \u2014 Per-game overperformance (decay=0.08)',
+                         'Layer 7:  Bayesian Shrinkage \u2014 Pool toward mean (\u03c4=8.0)',
+                         'Layer 8:  Strength of Schedule \u2014 3 iters, power-SOS (damp=0.7)',
+                         'Layer 9:  Opponent Adjustment \u2014 Fix double-count (clip 0.4-1.6)',
+                         'Layer 10: Final Blend \u2014 OFF 0.25 + DEF 0.25 + SOS 0.50',
+                     ])
+
+    # ML Layer 13 box (right side)
+    draw_rounded_box(ax, 0.52, algo_y, 0.45, algo_h, '', C_ML, fontsize=5.5,
+                     text_lines=[
+                         'ML LAYER 13 (src/rankings/layer13_predictive_adjustment.py)',
+                         '',
+                         'Model:   XGBoost (primary) / RandomForest (fallback)',
+                         'Input:   Per-game features + v53e base scores',
+                         '',
+                         'Process:',
+                         '  1. Compute per-game ML residuals (actual vs predicted)',
+                         '  2. Aggregate residuals with recency decay (\u03bb=0.06)',
+                         '  3. Normalize via percentile or z-score method',
+                         '  4. Blend into power score (\u03b1=0.15)',
+                         '  5. Batch update games.ml_overperformance via RPC',
+                         '',
+                         'Output:  Adjusted power_score per team',
+                     ])
+
+    # Arrows from V53E and ML to merge point
+    merge_y = algo_y - 0.012
+    draw_arrow(ax, 0.03 + 0.45/2, algo_y, 0.03 + 0.45/2, merge_y, C_RANK)
+    draw_arrow(ax, 0.52 + 0.45/2, algo_y, 0.52 + 0.45/2, merge_y, C_ML)
+
+    # Merge box
+    draw_rounded_box(ax, 0.25, merge_y - 0.016, 0.50, 0.016,
+                     'BLENDED FINAL POWER SCORE  \u2192  National Rank + State Rank per cohort',
+                     '#4a0e4e', fontsize=7, bold=True)
+
+    # Arrow down to Phase 6
+    draw_arrow(ax, 0.50, merge_y - 0.016, 0.50, p5_bot - 0.008, '#333')
+
+    # ══════════════════════════════════════════
+    # PHASE 6: RANKINGS PERSISTENCE
+    # ══════════════════════════════════════════
+    p6_top = 0.30
+    p6_h = 0.06
+    p6_bot = p6_top - p6_h
+    draw_section_bg(ax, 0.02, p6_bot, 0.96, p6_h, '#e0f7fa',
+                    'PHASE 6: RANKINGS PERSISTENCE & DERIVATION')
+
+    persist_w = 0.19
+    persist_h = 0.032
+    persist_y = p6_top - 0.02 - persist_h
+
+    draw_rounded_box(ax, 0.04, persist_y, persist_w, persist_h, '',
+                     C_DB, fontsize=6,
+                     text_lines=[
+                         'rankings_full',
+                         'Comprehensive metrics',
+                         'All v53e + ML fields'
+                     ])
+
+    draw_rounded_box(ax, 0.26, persist_y, persist_w, persist_h, '',
+                     C_DB, fontsize=6,
+                     text_lines=[
+                         'current_rankings',
+                         'Backward compatibility',
+                         'National + State ranks'
+                     ])
+
+    draw_rounded_box(ax, 0.48, persist_y, persist_w, persist_h, '',
+                     C_DB, fontsize=6,
+                     text_lines=[
+                         'State Rankings',
+                         'Group by state_code',
+                         'Rank within each state'
+                     ])
+
+    draw_rounded_box(ax, 0.70, persist_y, 0.26, persist_h, '',
+                     C_DB, fontsize=6,
+                     text_lines=[
+                         'Cross-Age Global Scores',
+                         'U10=0.40 \u2192 U18=1.00 anchors',
+                         'Enables cross-age SOS'
+                     ])
+
+    # Arrow down to Phase 7
+    draw_arrow(ax, 0.50, persist_y, 0.50, p6_bot - 0.008, '#333')
+
+    # ══════════════════════════════════════════
+    # PHASE 7: FRONTEND & USER-FACING
+    # ══════════════════════════════════════════
+    p7_top = 0.215
+    p7_h = 0.08
+    p7_bot = p7_top - p7_h
+    draw_section_bg(ax, 0.02, p7_bot, 0.96, p7_h, '#e8eaf6',
+                    'PHASE 7: FRONTEND \u2014 Next.js 16 + React 19 + Supabase Client')
+
+    fw = 0.165
+    fh = 0.045
+    fy = p7_top - 0.02 - fh
+
+    fe_items = [
+        ("Rankings Pages", "/rankings\nBrowse by age/gender/state\nRankingsTable component", 0.04),
+        ("Team Detail", "/teams/[teamId]\nGame history, insights\nComparePanel, Predictions", 0.22),
+        ("API Routes (30+)", "/api/teams/search\n/api/watchlist, /api/stripe\n/api/mission-control", 0.40),
+        ("Embed & Reports", "/embed widgets\n/infographics\nRecentMovers, HomeStats", 0.58),
+        ("Mission Control", "/mission-control\nAgent orchestration\nTask management UI", 0.78),
+    ]
+    for title, detail, xpos in fe_items:
+        draw_rounded_box(ax, xpos, fy, fw, fh, '',
+                         C_FRONTEND, fontsize=5.5,
+                         text_lines=[title, *detail.split('\n')])
+
+    # Arrow down to DB
+    draw_arrow(ax, 0.50, fy, 0.50, p7_bot - 0.008, '#333')
+
+    # ══════════════════════════════════════════
+    # DATABASE SCHEMA (bottom)
+    # ══════════════════════════════════════════
+    db_top = 0.115
+    db_h = 0.03
+    db_bot = db_top - db_h
+    draw_section_bg(ax, 0.02, db_bot, 0.96, db_h, '#fff8e1',
+                    'DATABASE: Supabase PostgreSQL')
+
+    db_tables = [
+        'providers', 'teams', 'games', 'team_alias_map',
+        'current_rankings', 'rankings_full', 'build_logs',
+        'quarantine_games', 'game_corrections', 'user_profiles'
+    ]
+    table_str = '  |  '.join(db_tables)
+    ax.text(0.50, db_bot + db_h / 2 - 0.002, table_str,
+            ha='center', va='center', fontsize=6.5, color='#333',
+            fontweight='normal', fontfamily='monospace', zorder=5)
+
+    # ══════════════════════════════════════════
+    # DATA QUALITY LOOPS (right sidebar annotation)
+    # ══════════════════════════════════════════
+    ax.text(0.99, 0.50, 'DATA QUALITY LOOPS',
+            ha='right', va='center', fontsize=8, fontweight='bold',
+            color='#aaa', rotation=90, zorder=5)
 
     # ══════════════════════════════════════════
     # SAVE
