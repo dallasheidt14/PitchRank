@@ -1,10 +1,11 @@
 name: Modular11 Events Weekly Scrape
 
 on:
-  schedule:
-    # Run every Sunday at 11pm Mountain Time (events scrape)
-    # Offset by 1 hour from league scrape to avoid overlap
-    - cron: '0 6 * * 1'  # Every Monday at 6am UTC (Sunday midnight MT)
+  # Schedule disabled - manual runs only (enable when all age groups are imported)
+  # schedule:
+  #   # Run every Sunday at 11pm Mountain Time (events scrape)
+  #   # Offset by 1 hour from league scrape to avoid overlap
+  #   - cron: '0 6 * * 1'  # Every Monday at 6am UTC (Sunday midnight MT)
   workflow_dispatch:
     inputs:
       age_min:
