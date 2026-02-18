@@ -1,6 +1,7 @@
 import { PageHeader } from '@/components/PageHeader';
 import { BlogCard } from '@/components/BlogCard';
 import { NewsletterSubscribe } from '@/components/NewsletterSubscribe';
+import { BreadcrumbSchema } from '@/components/BreadcrumbSchema';
 import type { Metadata } from 'next';
 import { getAllBlogPosts } from '@/lib/blog';
 
@@ -40,6 +41,11 @@ export default function BlogPage() {
 
   return (
     <div className="container mx-auto py-8 px-4">
+      <BreadcrumbSchema
+        items={[
+          { name: 'Blog', href: '/blog' },
+        ]}
+      />
       <PageHeader
         title="PitchRank Blog"
         description="Educational content about youth soccer rankings, our algorithm, and competitive soccer insights"

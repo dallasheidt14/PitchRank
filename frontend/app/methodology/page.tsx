@@ -1,5 +1,6 @@
 import { PageHeader } from '@/components/PageHeader';
 import { MethodologySection } from '@/components/MethodologySection';
+import { BreadcrumbSchema } from '@/components/BreadcrumbSchema';
 import type { Metadata } from 'next';
 
 const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
@@ -36,13 +37,18 @@ export const metadata: Metadata = {
 export default function MethodologyPage() {
   return (
     <div className="container mx-auto py-8 px-4">
+      <BreadcrumbSchema
+        items={[
+          { name: 'Methodology', href: '/methodology' },
+        ]}
+      />
       <PageHeader
         title="Ranking Methodology"
         description="Understanding how PitchRank calculates team rankings and power scores"
         showBackButton
         backHref="/"
       />
-      
+
       <div className="max-w-4xl mx-auto">
         <MethodologySection />
       </div>

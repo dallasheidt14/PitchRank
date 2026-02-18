@@ -24,5 +24,51 @@ Disallow: /api/
 Disallow: /test
 Disallow: /mission-control
 
+# AI Search Crawlers - allow public content
+User-agent: GPTBot
+Allow: /
+Allow: /rankings/
+Allow: /blog/
+Allow: /methodology
+Disallow: /api/
+Disallow: /auth/
+Disallow: /teams/
+Disallow: /watchlist
+Disallow: /compare
+Disallow: /login
+Disallow: /signup
+Disallow: /mission-control
+
+User-agent: ClaudeBot
+Allow: /
+Allow: /rankings/
+Allow: /blog/
+Allow: /methodology
+Disallow: /api/
+Disallow: /auth/
+Disallow: /teams/
+Disallow: /watchlist
+Disallow: /compare
+Disallow: /login
+Disallow: /signup
+Disallow: /mission-control
+
+User-agent: PerplexityBot
+Allow: /
+Allow: /rankings/
+Allow: /blog/
+Allow: /methodology
+Disallow: /api/
+Disallow: /auth/
+Disallow: /teams/
+Disallow: /watchlist
+Disallow: /compare
+Disallow: /login
+Disallow: /signup
+Disallow: /mission-control
+
+User-agent: Bytespider
+Disallow: /
+
 # Sitemap location
 Sitemap: https://pitchrank.io/sitemap.xml

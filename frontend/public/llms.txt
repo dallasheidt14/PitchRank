@@ -1,0 +1,34 @@
+# PitchRank
+> Data-powered youth soccer team rankings and performance analytics
+
+## About
+PitchRank provides the most accurate youth soccer rankings in the United States, covering U10-U18 boys and girls teams across all 50 states. Rankings are updated every Monday with verified game data.
+
+## How Rankings Work
+PitchRank uses a two-part rating system:
+1. **Core Rating Engine** — evaluates opponent quality, competitiveness, strength of schedule, offensive/defensive balance, recency, and stability
+2. **Machine Learning Layer** — identifies teams trending up or down based on performance vs. expectations
+
+Key principles:
+- Strength of schedule matters: beating a top team counts more than rolling over a weak one
+- Consistency and trends are weighted: recent form matters more than old results
+- Cross-state connectivity: tournaments tie regional rankings into one national ecosystem
+- Fair onboarding: new teams start conservatively and rise as results prove themselves
+
+## Key Pages
+- [Home](https://pitchrank.io/): Main landing page
+- [Rankings](https://pitchrank.io/rankings): Browse national and state-level rankings by age group and gender
+- [Methodology](https://pitchrank.io/methodology): Detailed explanation of how rankings are calculated
+- [Blog](https://pitchrank.io/blog): Youth soccer insights, ranking analysis, and updates
+
+## Coverage
+- 50 US states + national rankings
+- Age groups: U10, U11, U12, U13, U14, U15, U16, U17, U18
+- Boys and girls divisions
+- Updated weekly (every Monday)
+
+## Contact
+- Website: https://pitchrank.io
+- Email: pitchrankio@gmail.com
+- Twitter: https://twitter.com/pitchrank
+- Instagram: https://instagram.com/pitchrank
