@@ -91,6 +91,7 @@ class EnhancedETLPipeline:
         self._log_every_n_batches = 50  # Log metrics to DB every N batches
         self._log_every_n_games = 10000  # Log progress updates every N games
         self._last_logged_games = 0  # Track last logged game count
+        self._total_games_hint = 0  # Set externally for ETA display (0 = unknown)
         self.validator = EnhancedDataValidator()
         self.build_id = BUILD_ID
         
@@ -116,6 +117,17 @@ class EnhancedETLPipeline:
                     logger.error(f"Provider not found after {max_retries} attempts: {provider_code}")
                     raise ValueError(f"Provider not found: {provider_code}") from e
         
+        # Pre-flight health check: verify Supabase can read AND write before
+        # spending minutes on validation/matching only to fail at insert time.
+        try:
+            self.supabase.table('games').select('game_uid').limit(1).execute()
+            logger.info("Pre-flight health check passed: Supabase connection OK")
+        except Exception as e:
+            raise ConnectionError(
+                f"Pre-flight health check failed — cannot reach Supabase: {e}. "
+                f"Check credentials and network before retrying."
+            ) from e
+
         # Initialize matcher with provider_id to avoid repeated lookups
         # Preload alias map cache for fast lookups
         # IMPORTANT: Handle semicolon-separated provider_team_ids (merged teams)
@@ -288,24 +300,24 @@ class EnhancedETLPipeline:
         
         try:
             # Step 1: Validate all games (or skip if flag is set)
-            # Store current duplicates_skipped before validation to calculate batch-specific value
-            prev_duplicates_skipped = self.metrics.duplicates_skipped
-            
             if self.skip_validation:
-                # Skip validation but still do schema coercion/transformation
-                valid_games, invalid_games = await self._validate_games_skip_validation(games)
+                valid_games, invalid_games, val_stats = await self._validate_games_skip_validation(games)
             else:
-                valid_games, invalid_games = await self._validate_games(games)
-            
-            # Track batch-specific metrics
+                valid_games, invalid_games, val_stats = await self._validate_games(games)
+
+            # Track batch-specific metrics (no self.metrics mutation in validation)
             batch_metrics.games_processed = len(games)
             batch_metrics.games_quarantined = len(invalid_games)
-            # Calculate batch-specific duplicates_skipped (validation method sets it, so get the delta)
-            batch_metrics.duplicates_skipped = self.metrics.duplicates_skipped - prev_duplicates_skipped
-            
+            batch_metrics.duplicates_skipped = val_stats['duplicates_skipped']
+            batch_metrics.skipped_empty_scores = val_stats['skipped_empty_scores']
+            if val_stats['date_mismatches'] > 0:
+                batch_metrics.errors.append(f"{val_stats['date_mismatches']} games had date mismatches")
+
             # Also update shared metrics for logging (but aggregation will use batch_metrics)
             self.metrics.games_processed += len(games)  # ACCUMULATE
             self.metrics.games_quarantined += len(invalid_games)  # ACCUMULATE
+            self.metrics.duplicates_skipped += val_stats['duplicates_skipped']  # ACCUMULATE
+            self.metrics.skipped_empty_scores += val_stats['skipped_empty_scores']  # ACCUMULATE
             
             # Log invalid games for review
             if invalid_games:
@@ -701,21 +713,27 @@ class EnhancedETLPipeline:
             if should_log_progress:
                 elapsed_time = (datetime.now() - getattr(self, "_import_start_time", datetime.now())).total_seconds()
                 games_per_sec = self.metrics.games_processed / elapsed_time if elapsed_time > 0 else 0
-                remaining_games = 996136 - self.metrics.games_processed  # Approximate total from CSV
-                eta_seconds = remaining_games / games_per_sec if games_per_sec > 0 else 0
-                eta_minutes = eta_seconds / 60
-                
+
+                # ETA based on total_games_hint if set, otherwise just show rate
+                eta_line = ""
+                if getattr(self, '_total_games_hint', 0) > 0:
+                    remaining = self._total_games_hint - self.metrics.games_processed
+                    if remaining > 0 and games_per_sec > 0:
+                        eta_minutes = (remaining / games_per_sec) / 60
+                        pct = (self.metrics.games_processed / self._total_games_hint) * 100
+                        eta_line = f"  ETA:             {eta_minutes:.1f} min remaining ({pct:.0f}% done)\n"
+
                 logger.info(
                     f"\n{'='*80}\n"
-                    f"📈 PROGRESS UPDATE ({self.metrics.games_processed:,} games processed)\n"
+                    f"PROGRESS UPDATE ({self.metrics.games_processed:,} games processed)\n"
                     f"{'='*80}\n"
-                    f"  ✅ Accepted:        {self.metrics.games_accepted:,} games\n"
-                    f"  ⚠️  Quarantined:     {self.metrics.games_quarantined:,} games\n"
-                    f"  🔄 Duplicates:       {self.metrics.duplicates_found:,} games (already in DB)\n"
-                    f"  📊 Perspective dup: {self.metrics.duplicates_skipped:,} skipped\n"
-                    f"  ⚡ Processing rate: {games_per_sec:.1f} games/sec\n"
-                    f"  ⏱️  Elapsed time:    {elapsed_time/60:.1f} minutes\n"
-                    f"  🎯 ETA:             {eta_minutes:.1f} minutes remaining\n"
+                    f"  Accepted:        {self.metrics.games_accepted:,} games\n"
+                    f"  Quarantined:     {self.metrics.games_quarantined:,} games\n"
+                    f"  Duplicates:      {self.metrics.duplicates_found:,} games (already in DB)\n"
+                    f"  Perspective dup: {self.metrics.duplicates_skipped:,} skipped\n"
+                    f"  Processing rate: {games_per_sec:.1f} games/sec\n"
+                    f"  Elapsed time:    {elapsed_time/60:.1f} minutes\n"
+                    f"{eta_line}"
                     f"{'='*80}\n"
                 )
                 self._last_logged_games = self.metrics.games_processed
@@ -738,245 +756,134 @@ class EnhancedETLPipeline:
             # Return batch metrics even on error so aggregation can track failures
             return batch_metrics
             
-    async def _validate_games(self, games: List[Dict]) -> Tuple[List[Dict], List[Dict]]:
+    async def _validate_games(self, games: List[Dict]) -> Tuple[List[Dict], List[Dict], Dict]:
+        """Validate, deduplicate, and transform games. Delegates to shared implementation."""
+        return await self._validate_and_dedup(games, run_validation=True)
+
+    async def _validate_games_skip_validation(self, games: List[Dict]) -> Tuple[List[Dict], List[Dict], Dict]:
+        """Dedup and transform without schema validation (for --skip-validation)."""
+        return await self._validate_and_dedup(games, run_validation=False)
+
+    @staticmethod
+    def _is_empty_score(score) -> bool:
+        return score is None or score == '' or str(score).strip().lower() in ('none', 'null')
+
+    async def _validate_and_dedup(
+        self, games: List[Dict], *, run_validation: bool = True
+    ) -> Tuple[List[Dict], List[Dict], Dict]:
         """
-        Validate games data, deduplicate perspective-based duplicates, and transform to neutral format.
-        
-        Source data has each game twice (once from each team's perspective):
-        - Format: team_id, opponent_id, home_away, goals_for, goals_against
-        - Need to deduplicate and convert to: home_team_id, away_team_id, home_score, away_score
+        Core validation + deduplication pipeline shared by both code paths.
+
+        Returns (valid_games, invalid_games, stats) where stats is a dict:
+            {duplicates_skipped, skipped_empty_scores, date_mismatches}
+
+        IMPORTANT: This method does NOT mutate self.metrics.  The caller
+        (import_games) is responsible for folding stats into batch_metrics
+        to avoid race conditions under concurrent batch processing.
         """
-        valid = []
-        invalid = []
-        seen_games = {}  # game_key -> first occurrence
+        valid: List[Dict] = []
+        invalid: List[Dict] = []
+        seen_games: Dict[str, Dict] = {}
         duplicates_skipped = 0
         date_mismatches = 0
         skipped_empty_scores = 0
-        
+
+        from src.models.game_matcher import GameHistoryMatcher
+
         for game in games:
-            # Skip games with no scores at all (both goals_for and goals_against are None/null/empty)
-            goals_for = game.get('goals_for')
-            goals_against = game.get('goals_against')
-            
-            # Check if both scores are missing
-            def is_empty_score(score):
-                return score is None or score == '' or str(score).strip().lower() == 'none'
-            
-            if is_empty_score(goals_for) and is_empty_score(goals_against):
+            # Skip games with no scores
+            if self._is_empty_score(game.get('goals_for')) and self._is_empty_score(game.get('goals_against')):
                 skipped_empty_scores += 1
-                if skipped_empty_scores <= 5:  # Log first 5 examples
-                    logger.debug(f"Skipping game with no scores: {game.get('team_id')} vs {game.get('opponent_id')} on {game.get('game_date')}")
+                if skipped_empty_scores <= 5:
+                    logger.debug(
+                        f"Skipping game with no scores: {game.get('team_id')} vs "
+                        f"{game.get('opponent_id')} on {game.get('game_date')}"
+                    )
                 continue
-            
-            # First validate the game
-            is_valid, errors = self.validator.validate_game(game)
-            if not is_valid:
-                game_copy = game.copy()
-                game_copy['validation_errors'] = errors
-                invalid.append(game_copy)
-                continue
-            
-            # Create game key for deduplication BEFORE transformation
-            # This ensures we catch duplicates regardless of perspective
+
+            # Schema validation (only when enabled)
+            if run_validation:
+                is_valid, errors = self.validator.validate_game(game)
+                if not is_valid:
+                    game_copy = game.copy()
+                    game_copy['validation_errors'] = errors
+                    invalid.append(game_copy)
+                    continue
+
+            # --- Perspective deduplication (shared by both paths) ---
             provider_code = game.get('provider', self.provider_code)
             game_date_raw = game.get('game_date', '')
-            
-            # Normalize date to YYYY-MM-DD format for consistent game_uid generation
-            # This ensures game_uid matches what's stored in the database
+
             try:
                 date_obj = parse_game_date(game_date_raw)
                 game_date_normalized = date_obj.strftime('%Y-%m-%d')
             except ValueError:
-                # If date parsing fails, use raw date (will be caught by validation later)
                 game_date_normalized = game_date_raw
-            
+
             team1_id = str(game.get('team_id', ''))
             team2_id = str(game.get('opponent_id', ''))
-            
-            # Sort team IDs for consistent key (order doesn't matter)
             sorted_teams = sorted([team1_id, team2_id])
-            
-            # CRITICAL: For Modular11, include age_group AND division in the dedup key.
-            # Without this, two legitimate games between the same clubs on the same date
-            # but in different age groups (e.g., U14 HD and U15 AD) would be treated as
-            # duplicates, causing one to be silently dropped.
+
+            # For Modular11, include age_group AND division in the dedup key
+            # to avoid silently dropping games in different age groups
             if provider_code and provider_code.lower() == 'modular11':
                 age_group_key = (game.get('age_group') or '').upper()
                 division_key = (game.get('mls_division') or '').upper()
-                game_key = f"{provider_code}:{game_date_normalized}:{sorted_teams[0]}:{sorted_teams[1]}:{age_group_key}:{division_key}"
+                game_key = (
+                    f"{provider_code}:{game_date_normalized}:"
+                    f"{sorted_teams[0]}:{sorted_teams[1]}:"
+                    f"{age_group_key}:{division_key}"
+                )
             else:
                 game_key = f"{provider_code}:{game_date_normalized}:{sorted_teams[0]}:{sorted_teams[1]}"
-            
-            # Check if we've seen this game before
+
             if game_key in seen_games:
-                # Duplicate found - validate dates match
-                existing_game = seen_games[game_key]
-                existing_date = existing_game.get('game_date', '')
-                current_date = game_date_normalized
-                
-                if existing_date != current_date:
+                existing_date = seen_games[game_key].get('game_date', '')
+                if existing_date != game_date_normalized:
                     logger.warning(
                         f"Date mismatch for game {game_key}: "
-                        f"existing={existing_date}, current={current_date}"
+                        f"existing={existing_date}, current={game_date_normalized}"
                     )
                     date_mismatches += 1
-                    # Use first occurrence's date
-                
                 duplicates_skipped += 1
                 logger.debug(f"Skipping duplicate game: {game_key}")
                 continue
-            
-            # Transform from perspective-based to neutral format
+
+            # Transform perspective → neutral home/away format
             transformed_game = self._transform_game_perspective(game)
-            
-            # Generate game_uid using normalized date format
-            from src.models.game_matcher import GameHistoryMatcher
             game_uid = GameHistoryMatcher.generate_game_uid(
                 provider=provider_code,
-                game_date=game_date_normalized,  # Use normalized date
+                game_date=game_date_normalized,
                 team1_id=sorted_teams[0],
-                team2_id=sorted_teams[1]
+                team2_id=sorted_teams[1],
             )
             transformed_game['game_uid'] = game_uid
-            # Store normalized date in transformed game for consistency
             transformed_game['game_date'] = game_date_normalized
-            
-            # First occurrence - store it
+
             seen_games[game_key] = transformed_game
             valid.append(transformed_game)
-        
-        # Update metrics
-        self.metrics.duplicates_skipped = duplicates_skipped
-        self.metrics.skipped_empty_scores = skipped_empty_scores
+
+        # Build stats dict (caller merges into metrics — no self.metrics mutation)
+        stats = {
+            'duplicates_skipped': duplicates_skipped,
+            'skipped_empty_scores': skipped_empty_scores,
+            'date_mismatches': date_mismatches,
+        }
+
         if date_mismatches > 0:
             logger.warning(f"Found {date_mismatches} games with date mismatches between perspectives")
-            self.metrics.errors.append(f"{date_mismatches} games had date mismatches")
         if skipped_empty_scores > 0:
             logger.info(f"Skipped {skipped_empty_scores} games with no scores")
-        
+
+        mode = "Validation" if run_validation else "Processing (validation skipped)"
         logger.info(
-            f"Validation complete: {len(valid)} unique games, "
+            f"{mode} complete: {len(valid)} unique games, "
             f"{duplicates_skipped} duplicates skipped, "
             f"{skipped_empty_scores} games with no scores skipped, "
             f"{len(invalid)} invalid"
         )
-        
-        return valid, invalid
-    
-    async def _validate_games_skip_validation(self, games: List[Dict]) -> Tuple[List[Dict], List[Dict]]:
-        """
-        Skip validation but still do schema coercion/transformation and deduplication.
-        
-        This is used when --skip-validation flag is set (after pre-validating with --validate-only).
-        """
-        valid = []
-        invalid = []  # Empty since we skip validation
-        seen_games = {}  # game_key -> first occurrence
-        duplicates_skipped = 0
-        date_mismatches = 0
-        skipped_empty_scores = 0
-        
-        for game in games:
-            # Skip games with no scores at all (both goals_for and goals_against are None/null/empty)
-            goals_for = game.get('goals_for')
-            goals_against = game.get('goals_against')
-            
-            # Check if both scores are missing
-            def is_empty_score(score):
-                return score is None or score == '' or str(score).strip().lower() == 'none'
-            
-            if is_empty_score(goals_for) and is_empty_score(goals_against):
-                skipped_empty_scores += 1
-                if skipped_empty_scores <= 5:  # Log first 5 examples
-                    logger.debug(f"Skipping game with no scores: {game.get('team_id')} vs {game.get('opponent_id')} on {game.get('game_date')}")
-                continue
-            
-            # Skip validation check, but still do deduplication and transformation
-            
-            # Create game key for deduplication BEFORE transformation
-            provider_code = game.get('provider', self.provider_code)
-            game_date_raw = game.get('game_date', '')
-            
-            # Normalize date to YYYY-MM-DD format for consistent game_uid generation
-            try:
-                date_obj = parse_game_date(game_date_raw)
-                game_date_normalized = date_obj.strftime('%Y-%m-%d')
-            except ValueError:
-                game_date_normalized = game_date_raw
-            
-            team1_id = str(game.get('team_id', ''))
-            team2_id = str(game.get('opponent_id', ''))
-            
-            # Sort team IDs for consistent key (order doesn't matter)
-            sorted_teams = sorted([team1_id, team2_id])
-            
-            # CRITICAL: For Modular11, include age_group AND division in the dedup key.
-            # Without this, two legitimate games between the same clubs on the same date
-            # but in different age groups (e.g., U14 HD and U15 AD) would be treated as
-            # duplicates, causing one to be silently dropped.
-            if provider_code and provider_code.lower() == 'modular11':
-                age_group_key = (game.get('age_group') or '').upper()
-                division_key = (game.get('mls_division') or '').upper()
-                game_key = f"{provider_code}:{game_date_normalized}:{sorted_teams[0]}:{sorted_teams[1]}:{age_group_key}:{division_key}"
-            else:
-                game_key = f"{provider_code}:{game_date_normalized}:{sorted_teams[0]}:{sorted_teams[1]}"
-            
-            # Check if we've seen this game before
-            if game_key in seen_games:
-                # Duplicate found - validate dates match
-                existing_game = seen_games[game_key]
-                existing_date = existing_game.get('game_date', '')
-                current_date = game_date_normalized
-                
-                if existing_date != current_date:
-                    logger.warning(
-                        f"Date mismatch for game {game_key}: "
-                        f"existing={existing_date}, current={current_date}"
-                    )
-                    date_mismatches += 1
-                
-                duplicates_skipped += 1
-                logger.debug(f"Skipping duplicate game: {game_key}")
-                continue
-            
-            # Transform from perspective-based to neutral format
-            transformed_game = self._transform_game_perspective(game)
-            
-            # Generate game_uid using normalized date format
-            from src.models.game_matcher import GameHistoryMatcher
-            game_uid = GameHistoryMatcher.generate_game_uid(
-                provider=provider_code,
-                game_date=game_date_normalized,  # Use normalized date
-                team1_id=sorted_teams[0],
-                team2_id=sorted_teams[1]
-            )
-            transformed_game['game_uid'] = game_uid
-            # Store normalized date in transformed game for consistency
-            transformed_game['game_date'] = game_date_normalized
-            
-            # First occurrence - store it
-            seen_games[game_key] = transformed_game
-            valid.append(transformed_game)
-        
-        # Update metrics
-        self.metrics.duplicates_skipped = duplicates_skipped
-        if date_mismatches > 0:
-            logger.warning(f"Found {date_mismatches} games with date mismatches between perspectives")
-            self.metrics.errors.append(f"{date_mismatches} games had date mismatches")
-        
-        # Update metrics
-        self.metrics.duplicates_skipped = duplicates_skipped
-        self.metrics.skipped_empty_scores = skipped_empty_scores
-        if skipped_empty_scores > 0:
-            logger.info(f"Skipped {skipped_empty_scores} games with no scores")
-        
-        logger.info(
-            f"Processing complete (validation skipped): {len(valid)} unique games, "
-            f"{duplicates_skipped} duplicates skipped, "
-            f"{skipped_empty_scores} games with no scores skipped"
-        )
-        
-        return valid, invalid
+
+        return valid, invalid, stats
     
     def _transform_game_perspective(self, game: Dict) -> Dict:
         """

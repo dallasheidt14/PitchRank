@@ -1071,23 +1071,27 @@ class GameHistoryMatcher:
     def _calculate_match_score(self, provider_team: Dict, candidate: Dict) -> float:
         """Calculate match score with component-aware weighted factors.
 
+        Reads weights from MATCHING_CONFIG so the config/settings.py values
+        are the single source of truth.  Defaults match the config in case
+        the keys are missing.
+
         Scoring layers:
-          1. Club name similarity (35% weight) — uses suffix-normalized
-             comparison ("Pride SC" == "Pride Soccer Club") via the shared
-             normalize_club_for_comparison(), falling back to club_normalizer
-             or rapidfuzz.
-          2. Normalized team name similarity (35% weight) — SequenceMatcher
-             on names after stripping league/age/gender noise.
-          3. Age group match (10% weight) — exact match on normalized age.
-          4. Location match (10% weight) — exact state_code match.
-          5. Club-match boost (+0.10) — if clubs are confidently the same,
-             reward heavily since the hard distinction rejection already
-             filtered out different squads within the same club.
+          1. Club name similarity  — uses suffix-normalized comparison
+          2. Normalized team name  — SequenceMatcher after noise removal
+          3. Age group match       — exact match on normalized age
+          4. Location match        — exact state_code match
+          5. Club-match boost      — reward when clubs are confidently same
         """
+        weights = MATCHING_CONFIG.get('weights', {})
+        w_team = weights.get('team', 0.35)
+        w_club = weights.get('club', 0.35)
+        w_age = weights.get('age', 0.10)
+        w_location = weights.get('location', 0.10)
+
         provider_name = provider_team.get('team_name', '')
         candidate_name = candidate.get('team_name', '')
 
-        # ── 1. Club name similarity (35%) ──
+        # ── 1. Club name similarity ──
         club_similarity = 0.0
         provider_club = provider_team.get('club_name')
         candidate_club = candidate.get('club_name')
@@ -1101,7 +1105,6 @@ class GameHistoryMatcher:
                 else:
                     club_similarity = club_similarity_score(provider_club, candidate_club)
             elif HAVE_TEAM_NAME_UTILS:
-                # Use suffix-normalized comparison from shared utils
                 prov_norm = normalize_club_for_comparison(provider_club)
                 cand_norm = normalize_club_for_comparison(candidate_club)
                 if prov_norm == cand_norm:
@@ -1115,29 +1118,29 @@ class GameHistoryMatcher:
                     None, provider_club.lower(), candidate_club.lower()
                 ).ratio()
 
-        club_score = club_similarity * 0.35
+        club_score = club_similarity * w_club
 
-        # ── 2. Normalized team name similarity (35%) ──
-        team_score = self._calculate_similarity(provider_name, candidate_name) * 0.35
+        # ── 2. Normalized team name similarity ──
+        team_score = self._calculate_similarity(provider_name, candidate_name) * w_team
 
-        # ── 3. Age group match (10%) ──
+        # ── 3. Age group match ──
         age_score = 0.0
         provider_age = str(provider_team.get('age_group', '')).lower()
         candidate_age = str(candidate.get('age_group', '')).lower()
         if provider_age and candidate_age and provider_age == candidate_age:
-            age_score = 0.10
+            age_score = w_age
 
-        # ── 4. Location match (10%) ──
+        # ── 4. Location match ──
         location_score = 0.0
         provider_state = provider_team.get('state_code') or provider_team.get('state', '')
         candidate_state = candidate.get('state_code') or candidate.get('state', '')
         if provider_state and candidate_state:
             if provider_state.upper() == candidate_state.upper():
-                location_score = 0.10
+                location_score = w_location
 
-        # ── 5. Club-match boost (+0.10) ──
+        # ── 5. Club-match boost ──
         club_boost = 0.0
-        if club_similarity >= 0.90:
+        if club_similarity >= MATCHING_CONFIG.get('club_min_similarity', 0.8):
             club_boost = MATCHING_CONFIG.get('club_boost_identical', 0.10)
 
         final_score = team_score + club_score + age_score + location_score + club_boost
