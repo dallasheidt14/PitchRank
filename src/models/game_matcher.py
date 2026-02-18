@@ -899,10 +899,36 @@ class GameHistoryMatcher:
                 ).limit(50).execute()
 
             # Fall back to broad query if club filter yielded nothing
+            # Use pagination to avoid Supabase's 1000-row default limit
+            # which silently drops candidates beyond 1000, causing team fragmentation
             if not result or not result.data:
-                result = self.db.table('teams').select(
-                    'team_id_master, team_name, club_name, age_group, gender, state_code'
-                ).eq('age_group', age_group_normalized).eq('gender', gender).execute()
+                all_candidates = []
+                page_size = 1000
+                page_offset = 0
+                max_candidates = 5000  # Safety cap to prevent runaway queries
+
+                while len(all_candidates) < max_candidates:
+                    page_result = self.db.table('teams').select(
+                        'team_id_master, team_name, club_name, age_group, gender, state_code'
+                    ).eq('age_group', age_group_normalized).eq('gender', gender).range(
+                        page_offset, page_offset + page_size - 1
+                    ).execute()
+
+                    if not page_result.data:
+                        break
+
+                    all_candidates.extend(page_result.data)
+
+                    if len(page_result.data) < page_size:
+                        break
+
+                    page_offset += page_size
+
+                # Create a result-like object for downstream compatibility
+                class _PaginatedResult:
+                    def __init__(self, data):
+                        self.data = data
+                result = _PaginatedResult(all_candidates)
 
             best_match = None
             best_score = 0.0
@@ -1185,7 +1211,19 @@ class GameHistoryMatcher:
             else:
                 # Create new
                 self.db.table('team_alias_map').insert(alias_data).execute()
-                
+
+            # Update the in-memory alias cache so subsequent games in the same
+            # import batch can find this alias without re-querying or re-fuzzy-matching.
+            # Without this, the same team gets fuzzy-matched repeatedly in one import,
+            # potentially creating duplicate master teams and fragmenting game history.
+            if self.alias_cache and provider_team_id:
+                self.alias_cache[provider_team_id] = {
+                    'team_id_master': team_id_master,
+                    'match_confidence': confidence,
+                    'match_method': match_method,
+                    'review_status': review_status,
+                }
+
         except Exception as e:
             logger.error(f"Error creating alias: {e}")
 
