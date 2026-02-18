@@ -290,93 +290,111 @@ async def fetch_games_for_rankings(
         })
     )
     
-    logger.info(f"🔄 Converting {len(games_df):,} games to v53e format (perspective-based)...")
-    
-    # Create team lookup dicts
+    logger.info(f"🔄 Converting {len(games_df):,} games to v53e format (vectorized)...")
+
+    # Create team lookup maps (also used for merge resolution below)
     team_age_map = dict(zip(teams_df['team_id_master'], teams_df['age']))
     team_gender_map = dict(zip(teams_df['team_id_master'], teams_df['gender']))
-    
-    # Convert to v53e format (perspective-based: each game appears twice)
-    # Track drop reasons for diagnostics
-    v53e_rows = []
-    processed_count = 0
-    drop_missing_ids = 0
-    drop_missing_metadata = 0
-    teams_missing_metadata = set()
 
-    for _, game in games_df.iterrows():
-        game_id = str(game.get('game_uid') or game.get('id', ''))
-        game_uuid = game.get('id')  # Keep original UUID for ML residual mapping
-        game_date = pd.to_datetime(game.get('game_date'))
-        home_team_id = game.get('home_team_master_id')
-        away_team_id = game.get('away_team_master_id')
-        home_score = game.get('home_score')
-        away_score = game.get('away_score')
+    # ── Step 1: drop rows missing required fields (team IDs or date) ──────
+    _n_input = len(games_df)
+    _valid_mask = (
+        games_df['home_team_master_id'].notna()
+        & games_df['away_team_master_id'].notna()
+        & games_df['game_date'].notna()
+    )
+    drop_missing_ids = int((~_valid_mask).sum())
+    gv = games_df[_valid_mask].copy()
 
-        # Skip if missing required data
-        if pd.isna(home_team_id) or pd.isna(away_team_id) or pd.isna(game_date):
-            drop_missing_ids += 1
-            continue
+    # ── Step 2: map team metadata via vectorised .map() ───────────────────
+    gv['_home_age'] = gv['home_team_master_id'].map(team_age_map).fillna('')
+    gv['_home_gender'] = gv['home_team_master_id'].map(team_gender_map).fillna('')
+    gv['_away_age'] = gv['away_team_master_id'].map(team_age_map).fillna('')
+    gv['_away_gender'] = gv['away_team_master_id'].map(team_gender_map).fillna('')
 
-        # Get team metadata
-        home_age = team_age_map.get(home_team_id, '')
-        home_gender = team_gender_map.get(home_team_id, '')
-        away_age = team_age_map.get(away_team_id, '')
-        away_gender = team_gender_map.get(away_team_id, '')
+    # ── Step 3: drop rows missing age/gender metadata ─────────────────────
+    _meta_ok = (
+        (gv['_home_age'] != '') & (gv['_home_gender'] != '')
+        & (gv['_away_age'] != '') & (gv['_away_gender'] != '')
+    )
+    drop_missing_metadata = int((~_meta_ok).sum())
 
-        # Skip if missing age/gender
-        if not home_age or not home_gender or not away_age or not away_gender:
-            drop_missing_metadata += 1
-            if not home_age or not home_gender:
-                teams_missing_metadata.add(str(home_team_id))
-            if not away_age or not away_gender:
-                teams_missing_metadata.add(str(away_team_id))
-            continue
+    # Identify teams missing metadata (for diagnostics)
+    teams_missing_metadata: set = set()
+    if drop_missing_metadata > 0:
+        _bad = gv[~_meta_ok]
+        _home_bad = (_bad['_home_age'] == '') | (_bad['_home_gender'] == '')
+        _away_bad = (_bad['_away_age'] == '') | (_bad['_away_gender'] == '')
+        teams_missing_metadata.update(_bad.loc[_home_bad, 'home_team_master_id'].astype(str).unique())
+        teams_missing_metadata.update(_bad.loc[_away_bad, 'away_team_master_id'].astype(str).unique())
 
-        # Home perspective
-        v53e_rows.append({
-            'game_id': game_id,
-            'id': game_uuid,  # Include UUID for ML residual mapping
-            'date': game_date,
-            'team_id': str(home_team_id),
-            'opp_id': str(away_team_id),
-            'home_team_master_id': str(home_team_id),  # Track which team is home
-            'age': home_age,
-            'gender': home_gender,
-            'opp_age': away_age,
-            'opp_gender': away_gender,
-            'gf': safe_int(home_score),
-            'ga': safe_int(away_score),
-        })
+    gv = gv[_meta_ok]
+    processed_count = len(gv)
 
-        # Away perspective
-        v53e_rows.append({
-            'game_id': game_id,
-            'id': game_uuid,  # Include UUID for ML residual mapping
-            'date': game_date,
-            'team_id': str(away_team_id),
-            'opp_id': str(home_team_id),
-            'home_team_master_id': str(home_team_id),  # Track which team is home
-            'age': away_age,
-            'gender': away_gender,
-            'opp_age': home_age,
-            'opp_gender': home_gender,
-            'gf': safe_int(away_score),
-            'ga': safe_int(home_score),
-        })
-        
-        processed_count += 1
-        # Progress indicator every 50k games
-        if processed_count % 50000 == 0:
-            logger.info(f"  ✓ Processed {processed_count:,} games ({len(v53e_rows):,} rows)...")
-    
-    # Log game drop diagnostics
-    total_input = len(games_df)
+    if processed_count == 0:
+        logger.warning("⚠️  No valid games after conversion")
+        # Log drops before returning
+        if drop_missing_ids > 0 or drop_missing_metadata > 0:
+            logger.warning(
+                f"⚠️  Game pipeline drop report: {drop_missing_ids + drop_missing_metadata:,}/{_n_input:,} games dropped"
+            )
+        return pd.DataFrame()
+
+    # ── Step 4: build game_id column (prefers game_uid, falls back to id) ─
+    if 'game_uid' in gv.columns:
+        _uid = gv['game_uid'].astype(str).replace({'nan': '', 'None': '', '<NA>': ''})
+    else:
+        _uid = pd.Series('', index=gv.index)
+    _fid = gv['id'].astype(str) if 'id' in gv.columns else pd.Series('', index=gv.index)
+    _game_id = _uid.where(_uid != '', _fid)
+
+    # ── Step 5: prepare shared columns ────────────────────────────────────
+    _date = pd.to_datetime(gv['game_date'])
+    _home_id = gv['home_team_master_id'].astype(str)
+    _away_id = gv['away_team_master_id'].astype(str)
+    _gf_home = pd.to_numeric(gv['home_score'], errors='coerce')
+    _ga_home = pd.to_numeric(gv['away_score'], errors='coerce')
+    _game_uuid = gv['id'] if 'id' in gv.columns else pd.Series(None, index=gv.index)
+
+    # ── Step 6: build home + away perspective DataFrames & concat ─────────
+    home_perspective = pd.DataFrame({
+        'game_id': _game_id.values,
+        'id': _game_uuid.values,
+        'date': _date.values,
+        'team_id': _home_id.values,
+        'opp_id': _away_id.values,
+        'home_team_master_id': _home_id.values,
+        'age': gv['_home_age'].values,
+        'gender': gv['_home_gender'].values,
+        'opp_age': gv['_away_age'].values,
+        'opp_gender': gv['_away_gender'].values,
+        'gf': _gf_home.values,
+        'ga': _ga_home.values,
+    })
+
+    away_perspective = pd.DataFrame({
+        'game_id': _game_id.values,
+        'id': _game_uuid.values,
+        'date': _date.values,
+        'team_id': _away_id.values,
+        'opp_id': _home_id.values,
+        'home_team_master_id': _home_id.values,
+        'age': gv['_away_age'].values,
+        'gender': gv['_away_gender'].values,
+        'opp_age': gv['_home_age'].values,
+        'opp_gender': gv['_home_gender'].values,
+        'gf': _ga_home.values,   # away team's GF = home team's GA
+        'ga': _gf_home.values,   # away team's GA = home team's GF
+    })
+
+    v53e_df = pd.concat([home_perspective, away_perspective], ignore_index=True)
+
+    # ── Diagnostic logging ────────────────────────────────────────────────
     total_dropped = drop_missing_ids + drop_missing_metadata
     if total_dropped > 0:
         logger.warning(
-            f"⚠️  Game pipeline drop report: {total_dropped:,}/{total_input:,} games dropped "
-            f"({total_dropped/total_input*100:.1f}%)"
+            f"⚠️  Game pipeline drop report: {total_dropped:,}/{_n_input:,} games dropped "
+            f"({total_dropped / _n_input * 100:.1f}%)"
         )
         if drop_missing_ids > 0:
             logger.warning(f"   → {drop_missing_ids:,} dropped: missing team ID or game date")
@@ -388,11 +406,6 @@ async def fetch_games_for_rankings(
             if len(teams_missing_metadata) <= 20:
                 logger.warning(f"   → Teams missing metadata: {teams_missing_metadata}")
 
-    if not v53e_rows:
-        logger.warning("⚠️  No valid games after conversion")
-        return pd.DataFrame()
-
-    v53e_df = pd.DataFrame(v53e_rows)
     logger.info(f"📋 Created {len(v53e_df):,} perspective rows from {processed_count:,} games")
 
     # Apply merge resolution if resolver provided
@@ -470,68 +483,71 @@ def supabase_to_v53e_format(
     team_age_map = dict(zip(teams_df['team_id_master'], teams_df['age']))
     team_gender_map = dict(zip(teams_df['team_id_master'], teams_df['gender']))
     
-    # Convert to v53e format (perspective-based)
-    v53e_rows = []
-    
-    for _, game in games_df.iterrows():
-        game_id = str(game.get('game_uid') or game.get('id', ''))
-        game_uuid = game.get('id')  # Keep original UUID for ML residual mapping
-        game_date = pd.to_datetime(game.get('game_date'))
-        home_team_id = game.get('home_team_master_id')
-        away_team_id = game.get('away_team_master_id')
-        home_score = game.get('home_score')
-        away_score = game.get('away_score')
+    # Convert to v53e format (perspective-based, vectorized)
+    # Step 1: drop rows missing required fields
+    _valid = (
+        games_df['home_team_master_id'].notna()
+        & games_df['away_team_master_id'].notna()
+        & games_df['game_date'].notna()
+    )
+    gv = games_df[_valid].copy()
 
-        if pd.isna(home_team_id) or pd.isna(away_team_id) or pd.isna(game_date):
-            continue
+    # Step 2: map team metadata
+    gv['_home_age'] = gv['home_team_master_id'].map(team_age_map).fillna('')
+    gv['_home_gender'] = gv['home_team_master_id'].map(team_gender_map).fillna('')
+    gv['_away_age'] = gv['away_team_master_id'].map(team_age_map).fillna('')
+    gv['_away_gender'] = gv['away_team_master_id'].map(team_gender_map).fillna('')
 
-        home_age = team_age_map.get(home_team_id, '')
-        home_gender = team_gender_map.get(home_team_id, '')
-        away_age = team_age_map.get(away_team_id, '')
-        away_gender = team_gender_map.get(away_team_id, '')
+    # Step 3: drop rows missing metadata
+    _meta_ok = (
+        (gv['_home_age'] != '') & (gv['_home_gender'] != '')
+        & (gv['_away_age'] != '') & (gv['_away_gender'] != '')
+    )
+    gv = gv[_meta_ok]
 
-        if not home_age or not home_gender or not away_age or not away_gender:
-            continue
-
-        # Home perspective
-        v53e_rows.append({
-            'game_id': game_id,
-            'id': game_uuid,  # Include UUID for ML residual mapping
-            'date': game_date,
-            'team_id': str(home_team_id),
-            'opp_id': str(away_team_id),
-            'home_team_master_id': str(home_team_id),  # Track which team is home
-            'age': home_age,
-            'gender': home_gender,
-            'opp_age': away_age,
-            'opp_gender': away_gender,
-            'gf': safe_int(home_score),
-            'ga': safe_int(away_score),
-        })
-
-        # Away perspective
-        v53e_rows.append({
-            'game_id': game_id,
-            'id': game_uuid,  # Include UUID for ML residual mapping
-            'date': game_date,
-            'team_id': str(away_team_id),
-            'opp_id': str(home_team_id),
-            'home_team_master_id': str(home_team_id),  # Track which team is home
-            'age': away_age,
-            'gender': away_gender,
-            'opp_age': home_age,
-            'opp_gender': home_gender,
-            'gf': safe_int(away_score),
-            'ga': safe_int(home_score),
-        })
-    
-    if not v53e_rows:
+    if gv.empty:
         return pd.DataFrame()
-    
-    v53e_df = pd.DataFrame(v53e_rows)
+
+    # Step 4: build game_id column
+    if 'game_uid' in gv.columns:
+        _uid = gv['game_uid'].astype(str).replace({'nan': '', 'None': '', '<NA>': ''})
+    else:
+        _uid = pd.Series('', index=gv.index)
+    _fid = gv['id'].astype(str) if 'id' in gv.columns else pd.Series('', index=gv.index)
+    _game_id = _uid.where(_uid != '', _fid)
+
+    # Step 5: prepare shared columns
+    _date = pd.to_datetime(gv['game_date'])
+    _home_id = gv['home_team_master_id'].astype(str)
+    _away_id = gv['away_team_master_id'].astype(str)
+    _gf_home = pd.to_numeric(gv['home_score'], errors='coerce')
+    _ga_home = pd.to_numeric(gv['away_score'], errors='coerce')
+    _game_uuid = gv['id'] if 'id' in gv.columns else pd.Series(None, index=gv.index)
+
+    # Step 6: build perspectives & concat
+    home_perspective = pd.DataFrame({
+        'game_id': _game_id.values, 'id': _game_uuid.values,
+        'date': _date.values,
+        'team_id': _home_id.values, 'opp_id': _away_id.values,
+        'home_team_master_id': _home_id.values,
+        'age': gv['_home_age'].values, 'gender': gv['_home_gender'].values,
+        'opp_age': gv['_away_age'].values, 'opp_gender': gv['_away_gender'].values,
+        'gf': _gf_home.values, 'ga': _ga_home.values,
+    })
+    away_perspective = pd.DataFrame({
+        'game_id': _game_id.values, 'id': _game_uuid.values,
+        'date': _date.values,
+        'team_id': _away_id.values, 'opp_id': _home_id.values,
+        'home_team_master_id': _home_id.values,
+        'age': gv['_away_age'].values, 'gender': gv['_away_gender'].values,
+        'opp_age': gv['_home_age'].values, 'opp_gender': gv['_home_gender'].values,
+        'gf': _ga_home.values, 'ga': _gf_home.values,
+    })
+
+    v53e_df = pd.concat([home_perspective, away_perspective], ignore_index=True)
     v53e_df = v53e_df.dropna(subset=['gf', 'ga'])
     v53e_df['date'] = pd.to_datetime(v53e_df['date'])
-    
+
     return v53e_df
 
 
