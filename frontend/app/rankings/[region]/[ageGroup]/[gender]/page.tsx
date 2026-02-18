@@ -63,7 +63,7 @@ export async function generateMetadata({ params }: RankingsPageProps): Promise<M
       : getStateName(region);
     
     const title = `${locationText} ${formattedAgeGroup} ${formattedGender} Soccer Rankings | PitchRank`;
-    const description = `View ${locationText} ${formattedAgeGroup} ${formattedGender.toLowerCase()} youth soccer rankings. Updated weekly with PowerScore ratings for top teams. Compare win percentages and team performance.`;
+    const description = `${locationText} ${formattedAgeGroup} ${formattedGender} rankings updated weekly. See where your team ranks among 500K+. PowerScore ratings & match results. Find your club now!`;
 
     return {
       title,
