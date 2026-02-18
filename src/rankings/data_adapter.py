@@ -122,10 +122,24 @@ async def fetch_games_for_rankings(
     cutoff_date_str = cutoff.strftime('%Y-%m-%d')
     
     # Fetch games with pagination (Supabase defaults to 1000 rows per query)
+    # Filter out games with NULL team IDs at the query level to avoid fetching
+    # partial-match games that would be discarded during v53e conversion anyway.
+    # These NULL-FK games corrupt SOS by creating phantom opponents.
+    today_date_str = today.strftime('%Y-%m-%d')
     base_query = supabase_client.table('games').select(
         'id, game_uid, game_date, home_team_master_id, away_team_master_id, '
         'home_score, away_score, provider_id'
-    ).gte('game_date', cutoff_date_str).order('game_date', desc=False)  # Order for consistent pagination
+    ).gte('game_date', cutoff_date_str).lte(
+        'game_date', today_date_str  # Exclude future-dated games (phantom 0-0 draws)
+    ).not_.is_(
+        'home_team_master_id', 'null'
+    ).not_.is_(
+        'away_team_master_id', 'null'
+    ).not_.is_(
+        'home_score', 'null'
+    ).not_.is_(
+        'away_score', 'null'
+    ).order('game_date', desc=False)  # Order for consistent pagination
     
     if provider_filter:
         # Get provider ID with retry logic

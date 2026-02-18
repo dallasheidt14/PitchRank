@@ -10,6 +10,13 @@ on:
     - cron: '45 16 * * 1'
   workflow_dispatch: # Allow manual trigger from GitHub Actions tab
 
+# Prevent concurrent ranking calculations — if a scrape-triggered ranking
+# is still running when the scheduled one fires, the scheduled one will queue.
+# This also prevents two manual triggers from corrupting each other's writes.
+concurrency:
+  group: ranking-calculation
+  cancel-in-progress: false  # Don't cancel in-progress runs; queue instead
+
 jobs:
   calculate-rankings:
     runs-on: ubuntu-latest
@@ -64,7 +71,24 @@ jobs:
           python -c "import supabase, pandas, numpy, sklearn, rich; print('✅ All critical imports successful')"
 
       # ---------------------------------------------------------------
-      # 6. RUN THE RANKINGS ENGINE (Iterative SOS + ML)
+      # 6. PRE-FLIGHT: Verify no scrape jobs are still running
+      # ---------------------------------------------------------------
+      - name: Check for active scrape workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "🔍 Checking for active Scrape Games workflows..."
+          ACTIVE_RUNS=$(gh run list --workflow=scrape-games.yml --status=in_progress --json databaseId --jq 'length' 2>/dev/null || echo "0")
+          if [ "$ACTIVE_RUNS" -gt 0 ]; then
+            echo "⚠️  WARNING: $ACTIVE_RUNS scrape workflow(s) still running!"
+            echo "Rankings will proceed but may be calculated on incomplete data."
+            echo "Consider re-running rankings after scraping completes."
+          else
+            echo "✅ No active scrape workflows — safe to calculate rankings"
+          fi
+
+      # ---------------------------------------------------------------
+      # 7. RUN THE RANKINGS ENGINE (Iterative SOS + ML)
       # ---------------------------------------------------------------
       - name: Calculate Rankings
         env:

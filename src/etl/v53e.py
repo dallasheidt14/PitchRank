@@ -25,6 +25,13 @@ class V53EConfig:
     OUTLIER_GUARD_ZSCORE: float = 2.5  # per-team, per-game GF/GA clip
 
     # Layer 3 (recency)
+    # Exponential decay: weight = exp(-RECENCY_DECAY_RATE * (rank - 1))
+    # 0.05 = gentle decay (game 30 keeps ~22% weight)
+    # 0.10 = steeper decay (game 30 keeps ~5% weight)
+    RECENCY_DECAY_RATE: float = 0.05
+    # Legacy parameters below are kept for backward compatibility but
+    # no longer drive behavior. Recency is now purely exponential decay
+    # controlled by RECENCY_DECAY_RATE above.
     RECENT_K: int = 15
     RECENT_SHARE: float = 0.65
     DAMPEN_TAIL_START: int = 26
@@ -209,26 +216,28 @@ def _clip_outliers_series(s: pd.Series, z: float) -> pd.Series:
 
 def _recency_weights(n: int, k: int, recent_share: float,
                      tail_start: int, tail_end: int,
-                     w_start: float, w_end: float) -> List[float]:
+                     w_start: float, w_end: float,
+                     decay_rate: float = 0.05) -> List[float]:
     """
     Compute recency weights using exponential decay.
 
     For games ranked 1..n in recency (1 = most recent), assigns weight exp(-decay_rate * (rank - 1)).
     Normalizes weights so they sum to 1.0.
 
-    Note: k, recent_share, tail_start, tail_end, w_start, w_end are kept in signature
-    for backward compatibility but are no longer used. Exponential decay provides
-    smoother, more intuitive weighting where each game's weight depends only on its
-    recency, not on how many other games exist.
+    Args:
+        n: Number of games
+        decay_rate: Controls how quickly weight drops off. Configurable via
+                    V53EConfig.RECENCY_DECAY_RATE. Examples:
+                    - 0.03 = very gentle (game 30 keeps ~41% weight)
+                    - 0.05 = gentle (game 30 keeps ~22% weight)  [default]
+                    - 0.10 = steep (game 30 keeps ~5% weight)
+        k, recent_share, tail_start, tail_end, w_start, w_end: Legacy parameters
+            kept for backward compatibility but no longer used.
     """
     if n <= 0:
         return []
 
     # Exponential decay: more recent games get higher weight
-    # decay_rate controls how quickly weight drops off (0.05 = gentle decay)
-    decay_rate = 0.05
-
-    # Compute raw exponential weights for each position (1 = most recent)
     weights = [np.exp(-decay_rate * i) for i in range(n)]
 
     # Normalize to sum to 1.0
@@ -583,7 +592,8 @@ def compute_rankings(
         w = _recency_weights(
             n, cfg.RECENT_K, cfg.RECENT_SHARE,
             cfg.DAMPEN_TAIL_START, cfg.DAMPEN_TAIL_END,
-            cfg.DAMPEN_TAIL_START_WEIGHT, cfg.DAMPEN_TAIL_END_WEIGHT
+            cfg.DAMPEN_TAIL_START_WEIGHT, cfg.DAMPEN_TAIL_END_WEIGHT,
+            decay_rate=cfg.RECENCY_DECAY_RATE,
         )
         out = df.copy()
         out["w_base"] = w
