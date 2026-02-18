@@ -122,11 +122,15 @@ async def fetch_games_for_rankings(
     cutoff_date_str = cutoff.strftime('%Y-%m-%d')
     
     # Fetch games with pagination (Supabase defaults to 1000 rows per query)
-    base_query = supabase_client.table('games').select(
+    # NOTE: We store the filter params to rebuild a fresh query each page,
+    # because .range() mutates the query builder in-place, accumulating
+    # duplicate offset/limit params that cause undefined PostgREST behavior.
+    select_cols = (
         'id, game_uid, game_date, home_team_master_id, away_team_master_id, '
         'home_score, away_score, provider_id'
-    ).gte('game_date', cutoff_date_str).order('game_date', desc=False)  # Order for consistent pagination
-    
+    )
+    provider_id_filter = None
+
     if provider_filter:
         # Get provider ID with retry logic
         try:
@@ -139,26 +143,36 @@ async def fetch_games_for_rankings(
                 description=f"Fetching provider filter '{provider_filter}'"
             )
             if getattr(provider_result, 'data', None):
-                base_query = base_query.eq('provider_id', provider_result.data['id'])
+                provider_id_filter = provider_result.data['id']
         except Exception as e:
             logger.warning(f"⚠️  Failed to fetch provider filter '{provider_filter}' after retries: {str(e)[:100]}")
             # Continue without provider filter
-    
+
+    def _build_page_query(page_offset: int, page_limit: int):
+        """Build a fresh query for each page to avoid .range() mutation bug."""
+        q = supabase_client.table('games').select(select_cols) \
+            .gte('game_date', cutoff_date_str) \
+            .order('game_date', desc=False)
+        if provider_id_filter is not None:
+            q = q.eq('provider_id', provider_id_filter)
+        q = q.range(page_offset, page_offset + page_limit - 1)
+        return q
+
     # Paginate to fetch all games (Supabase max is 1000 per query)
     games_data = []
     page_size = 1000
     offset = 0
     max_games = 1000000  # Safety limit
-    
+
     logger.info(f"📥 Fetching games from Supabase (cutoff: {cutoff_date_str})...")
 
     while len(games_data) < max_games:
-        query = base_query.range(offset, offset + page_size - 1)
-
         try:
+            # Build fresh query each page (avoids .range() mutation accumulation)
+            page_query = _build_page_query(offset, page_size)
             # Use retry wrapper for resilient fetching
             games_result = retry_supabase_query(
-                lambda q=query: q.execute(),
+                lambda q=page_query: q.execute(),
                 max_retries=4,
                 initial_delay=2.0,
                 description=f"Fetching games batch at offset {offset}"
@@ -283,9 +297,13 @@ async def fetch_games_for_rankings(
     team_gender_map = dict(zip(teams_df['team_id_master'], teams_df['gender']))
     
     # Convert to v53e format (perspective-based: each game appears twice)
+    # Track drop reasons for diagnostics
     v53e_rows = []
     processed_count = 0
-    
+    drop_missing_ids = 0
+    drop_missing_metadata = 0
+    teams_missing_metadata = set()
+
     for _, game in games_df.iterrows():
         game_id = str(game.get('game_uid') or game.get('id', ''))
         game_uuid = game.get('id')  # Keep original UUID for ML residual mapping
@@ -297,6 +315,7 @@ async def fetch_games_for_rankings(
 
         # Skip if missing required data
         if pd.isna(home_team_id) or pd.isna(away_team_id) or pd.isna(game_date):
+            drop_missing_ids += 1
             continue
 
         # Get team metadata
@@ -307,6 +326,11 @@ async def fetch_games_for_rankings(
 
         # Skip if missing age/gender
         if not home_age or not home_gender or not away_age or not away_gender:
+            drop_missing_metadata += 1
+            if not home_age or not home_gender:
+                teams_missing_metadata.add(str(home_team_id))
+            if not away_age or not away_gender:
+                teams_missing_metadata.add(str(away_team_id))
             continue
 
         # Home perspective
@@ -346,6 +370,24 @@ async def fetch_games_for_rankings(
         if processed_count % 50000 == 0:
             logger.info(f"  ✓ Processed {processed_count:,} games ({len(v53e_rows):,} rows)...")
     
+    # Log game drop diagnostics
+    total_input = len(games_df)
+    total_dropped = drop_missing_ids + drop_missing_metadata
+    if total_dropped > 0:
+        logger.warning(
+            f"⚠️  Game pipeline drop report: {total_dropped:,}/{total_input:,} games dropped "
+            f"({total_dropped/total_input*100:.1f}%)"
+        )
+        if drop_missing_ids > 0:
+            logger.warning(f"   → {drop_missing_ids:,} dropped: missing team ID or game date")
+        if drop_missing_metadata > 0:
+            logger.warning(
+                f"   → {drop_missing_metadata:,} dropped: missing age/gender metadata "
+                f"({len(teams_missing_metadata)} unique teams affected)"
+            )
+            if len(teams_missing_metadata) <= 20:
+                logger.warning(f"   → Teams missing metadata: {teams_missing_metadata}")
+
     if not v53e_rows:
         logger.warning("⚠️  No valid games after conversion")
         return pd.DataFrame()

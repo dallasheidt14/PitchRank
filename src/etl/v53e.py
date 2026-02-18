@@ -556,7 +556,15 @@ def compute_rankings(
     # Layer 1: window filter
     # -------------------------
     cutoff = today - pd.Timedelta(days=cfg.WINDOW_DAYS)
+    _n_before_window = len(g)
     g = g[g["date"] >= cutoff].copy()
+    _n_after_window = len(g)
+    if _n_before_window != _n_after_window:
+        logger.info(
+            f"📅 Layer 1 window filter ({cfg.WINDOW_DAYS}d): "
+            f"{_n_before_window:,} → {_n_after_window:,} rows "
+            f"({_n_before_window - _n_after_window:,} outside window)"
+        )
 
     # -------------------------
     # Layer 2: per-team GF/GA outlier guard + GD cap
@@ -573,7 +581,17 @@ def compute_rankings(
     # keep last N games per team (by date)
     g = g.sort_values(["team_id", "date"], ascending=[True, False])
     g["rank_recency"] = g.groupby("team_id")["date"].rank(ascending=False, method="first")
+    _n_before_recency = len(g)
     g = g[g["rank_recency"] <= cfg.MAX_GAMES_FOR_RANK].copy()
+    _n_after_recency = len(g)
+    if _n_before_recency != _n_after_recency:
+        _n_teams_capped = (g.groupby("team_id").size() == cfg.MAX_GAMES_FOR_RANK).sum()
+        logger.info(
+            f"🎯 Layer 2 recency cap ({cfg.MAX_GAMES_FOR_RANK} games): "
+            f"{_n_before_recency:,} → {_n_after_recency:,} rows "
+            f"({_n_before_recency - _n_after_recency:,} older games dropped, "
+            f"{_n_teams_capped} teams hit cap)"
+        )
 
     # -------------------------
     # Layer 3: Recency weights
@@ -842,7 +860,15 @@ def compute_rankings(
 
     g = g.sort_values(["team_id", "opp_id", "w_sos"], ascending=[True, True, False])
     g["repeat_rank"] = g.groupby(["team_id", "opp_id"])["w_sos"].rank(ascending=False, method="first")
+    _n_before_repeat = len(g)
     g_sos = g[g["repeat_rank"] <= cfg.SOS_REPEAT_CAP].copy()
+    _n_after_repeat = len(g_sos)
+    if _n_before_repeat != _n_after_repeat:
+        logger.info(
+            f"🔄 Layer 8 SOS repeat cap ({cfg.SOS_REPEAT_CAP}/opponent): "
+            f"{_n_before_repeat:,} → {_n_after_repeat:,} rows for SOS "
+            f"({_n_before_repeat - _n_after_repeat:,} repeat games excluded from SOS only)"
+        )
 
     # Helper function for weighted averages
     def _avg_weighted(df: pd.DataFrame, col: str, wcol: str) -> float:
