@@ -392,8 +392,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
         age_group: Optional[str],
         gender: Optional[str],
         club_name: Optional[str] = None,
-        division: Optional[str] = None,  # NEW: HD or AD
-        state: Optional[str] = None  # State code (e.g., 'AZ', 'CA') for SCF
+        division: Optional[str] = None  # NEW: HD or AD
     ) -> Dict:
         """
         Match a team using Modular11-specific ultra-conservative logic.
@@ -458,21 +457,12 @@ class Modular11GameMatcher(GameHistoryMatcher):
                     match_type = alias_match.get('match_method', 'provider_id')
                     team_id_master = alias_match['team_id_master']
                     try:
-                        team_result = self.db.table('teams').select('team_name, state_code').eq('team_id_master', team_id_master).single().execute()
+                        team_result = self.db.table('teams').select('team_name').eq('team_id_master', team_id_master).single().execute()
                         final_team_name = team_result.data.get('team_name', 'Unknown') if team_result.data else 'Unknown'
-                        # Backfill state_code if missing on existing team
-                        if state and team_result.data and not team_result.data.get('state_code'):
-                            try:
-                                self.db.table('teams').update(
-                                    {'state_code': state.strip().upper()}
-                                ).eq('team_id_master', team_id_master).execute()
-                                self._dlog(f"Backfilled state_code={state.strip().upper()} for {team_id_master}")
-                            except Exception:
-                                pass  # Non-critical, don't block matching
                     except:
                         final_team_name = 'Unknown'
                     self._dlog(f"FINAL DECISION: alias -> {final_team_name} ({team_id_master})")
-
+                    
                     # Track alias match in summary
                     self.summary["alias_matches"] += 1
                     if age_group:
@@ -542,10 +532,9 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 gender=gender,
                 provider_id=provider_id,
                 provider_team_id=provider_team_id,
-                division=division,
-                state=state
+                division=division
             )
-
+            
             # Get clean name for tracking (from _create_new_modular11_team logic)
             clean_name = team_name or 'Unknown'
             if team_name:
@@ -553,7 +542,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 clean_name = team_name.strip()
                 if clean_name.upper().endswith(' HD') or clean_name.upper().endswith(' AD'):
                     clean_name = clean_name[:-3].strip()
-
+            
             # Track new team creation (only if this is actually a new team, not a duplicate)
             # Check if we've already tracked this team_id to avoid double-counting
             if not any(detail.get("team_id") == new_team_id for detail in self.summary["new_team_details"]):
@@ -618,10 +607,9 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 gender=gender,
                 provider_id=provider_id,
                 provider_team_id=provider_team_id,
-                division=division,
-                state=state
+                division=division
             )
-
+            
             # Create alias with age_group for unique identification
             # NOTE: Pass base provider_team_id (raw club_id) - alias creation will build aliased format
             # Use 'direct_id' if provider_team_id was originally provided (real provider ID)
@@ -1183,8 +1171,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
         gender: str,
         provider_id: Optional[str],
         provider_team_id: Optional[str] = None,
-        division: Optional[str] = None,
-        state: Optional[str] = None
+        division: Optional[str] = None
     ) -> str:
         """
         Create a new team in the teams table for Modular11.
@@ -1253,9 +1240,6 @@ class Modular11GameMatcher(GameHistoryMatcher):
             if team_name.upper().endswith(' HD') or team_name.upper().endswith(' AD'):
                 clean_team_name = team_name[:-3].strip()
             
-            # Normalize state_code (uppercase, strip whitespace)
-            state_code = state.strip().upper() if state else None
-
             # Insert new team with ALIASED provider_team_id
             team_data = {
                 'team_id_master': team_id_master,
@@ -1267,8 +1251,6 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 'provider_team_id': aliased_provider_team_id,  # Use aliased format: {club_id}_{age}_{division}
                 'created_at': datetime.utcnow().isoformat() + 'Z'
             }
-            if state_code:
-                team_data['state_code'] = state_code
             
             self.db.table('teams').insert(team_data).execute()
             
@@ -1487,16 +1469,13 @@ class Modular11GameMatcher(GameHistoryMatcher):
         
         # Extract division from game_data (mls_division field from CSV)
         division = game_data.get('mls_division') or game_data.get('division')
-
+        
         # If division not in game_data, try to extract from team names
         if not division:
             team_name = game_data.get('team_name') or game_data.get('home_team_name')
             if team_name:
                 division = self._extract_division_from_name(team_name)
-
-        # Extract state from game_data (for SCF regional bubble detection)
-        state = game_data.get('state', '').strip() or None
-
+        
         # Store division in game_data so _match_team can access it
         # We'll extract it in _match_team override
         if division:
@@ -1537,10 +1516,9 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 age_group=game_data.get('age_group'),
                 gender=game_data.get('gender'),
                 club_name=game_data.get('home_club_name') or game_data.get('club_name'),
-                division=home_division,
-                state=state
+                division=home_division
             )
-
+            
             # Match away team
             away_match = self._match_team(
                 provider_id=provider_id,
@@ -1549,8 +1527,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 age_group=game_data.get('age_group'),
                 gender=game_data.get('gender'),
                 club_name=game_data.get('away_club_name') or game_data.get('opponent_club_name'),
-                division=away_division,
-                state=state
+                division=away_division
             )
             
             home_team_master_id = home_match.get('team_id')
@@ -1573,10 +1550,9 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 age_group=game_data.get('age_group'),
                 gender=game_data.get('gender'),
                 club_name=game_data.get('club_name') or game_data.get('team_club_name'),
-                division=team_division,
-                state=state
+                division=team_division
             )
-
+            
             # Match opponent
             opponent_match = self._match_team(
                 provider_id=provider_id,
@@ -1585,8 +1561,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 age_group=game_data.get('age_group'),
                 gender=game_data.get('gender'),
                 club_name=game_data.get('opponent_club_name'),
-                division=opponent_division,
-                state=state
+                division=opponent_division
             )
             
             # Determine home/away teams based on home_away flag
