@@ -47,8 +47,8 @@ export async function generateMetadata({ params }: StateOverviewPageProps): Prom
     : `${stateInfo.name} Youth Soccer Rankings | PitchRank`;
     
   const description = isNational
-    ? 'National youth soccer rankings for all age groups. 500K+ teams ranked by PowerScore. See where your team stands. Updated weekly.'
-    : `${stateInfo.name} youth soccer rankings - Find where your team ranks. 500K+ ranked teams by age & gender. PowerScore ratings updated weekly. Start now!`;
+    ? 'National youth soccer rankings for all age groups. 77K+ teams ranked across 700K+ games analyzed. See where your team stands. Updated weekly.'
+    : `${stateInfo.name} youth soccer rankings - Find where your team ranks among 77K+ teams. PowerScore ratings updated weekly from 700K+ analyzed games. Start now!`;
 
   return {
     title,
