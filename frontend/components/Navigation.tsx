@@ -44,7 +44,7 @@ export function Navigation() {
         >
           <Image
             src="/logos/logo-primary.svg"
-            alt="PitchRank"
+            alt="PitchRank - Youth Soccer Rankings"
             width={200}
             height={50}
             className="h-6 sm:h-8 w-auto"
