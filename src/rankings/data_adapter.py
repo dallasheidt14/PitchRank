@@ -276,82 +276,89 @@ async def fetch_games_for_rankings(
         })
     )
     
-    logger.info(f"🔄 Converting {len(games_df):,} games to v53e format (perspective-based)...")
-    
-    # Create team lookup dicts
+    logger.info(f"🔄 Converting {len(games_df):,} games to v53e format (vectorized)...")
+
+    # Create team lookup Series (indexed by team_id_master) for vectorized mapping
     team_age_map = dict(zip(teams_df['team_id_master'], teams_df['age']))
     team_gender_map = dict(zip(teams_df['team_id_master'], teams_df['gender']))
-    
-    # Convert to v53e format (perspective-based: each game appears twice)
-    v53e_rows = []
-    processed_count = 0
-    
-    for _, game in games_df.iterrows():
-        game_id = str(game.get('game_uid') or game.get('id', ''))
-        game_uuid = game.get('id')  # Keep original UUID for ML residual mapping
-        game_date = pd.to_datetime(game.get('game_date'))
-        home_team_id = game.get('home_team_master_id')
-        away_team_id = game.get('away_team_master_id')
-        home_score = game.get('home_score')
-        away_score = game.get('away_score')
+    team_age_series = pd.Series(team_age_map)
+    team_gender_series = pd.Series(team_gender_map)
 
-        # Skip if missing required data
-        if pd.isna(home_team_id) or pd.isna(away_team_id) or pd.isna(game_date):
-            continue
+    # Vectorized conversion: build game_id column
+    game_uid_col = games_df['game_uid'] if 'game_uid' in games_df.columns else pd.Series(dtype='object')
+    games_df = games_df.copy()
+    games_df['_game_id'] = game_uid_col.fillna(games_df['id']).astype(str)
+    games_df['_date'] = pd.to_datetime(games_df['game_date'])
 
-        # Get team metadata
-        home_age = team_age_map.get(home_team_id, '')
-        home_gender = team_gender_map.get(home_team_id, '')
-        away_age = team_age_map.get(away_team_id, '')
-        away_gender = team_gender_map.get(away_team_id, '')
+    # Filter out rows missing required fields
+    valid_mask = (
+        games_df['home_team_master_id'].notna() &
+        games_df['away_team_master_id'].notna() &
+        games_df['_date'].notna()
+    )
+    games_valid = games_df[valid_mask]
+    skipped_missing = len(games_df) - len(games_valid)
+    if skipped_missing > 0:
+        logger.info(f"  Skipped {skipped_missing:,} games with missing team IDs or dates")
 
-        # Skip if missing age/gender
-        if not home_age or not home_gender or not away_age or not away_gender:
-            continue
+    # Map team metadata vectorized
+    games_valid = games_valid.copy()
+    games_valid['_home_age'] = games_valid['home_team_master_id'].map(team_age_series)
+    games_valid['_home_gender'] = games_valid['home_team_master_id'].map(team_gender_series)
+    games_valid['_away_age'] = games_valid['away_team_master_id'].map(team_age_series)
+    games_valid['_away_gender'] = games_valid['away_team_master_id'].map(team_gender_series)
 
-        # Home perspective
-        v53e_rows.append({
-            'game_id': game_id,
-            'id': game_uuid,  # Include UUID for ML residual mapping
-            'date': game_date,
-            'team_id': str(home_team_id),
-            'opp_id': str(away_team_id),
-            'home_team_master_id': str(home_team_id),  # Track which team is home
-            'age': home_age,
-            'gender': home_gender,
-            'opp_age': away_age,
-            'opp_gender': away_gender,
-            'gf': safe_int(home_score),
-            'ga': safe_int(away_score),
-        })
+    # Filter out games where any team is missing age/gender metadata
+    meta_mask = (
+        games_valid['_home_age'].notna() & (games_valid['_home_age'] != '') &
+        games_valid['_home_gender'].notna() & (games_valid['_home_gender'] != '') &
+        games_valid['_away_age'].notna() & (games_valid['_away_age'] != '') &
+        games_valid['_away_gender'].notna() & (games_valid['_away_gender'] != '')
+    )
+    games_ready = games_valid[meta_mask]
+    skipped_meta = len(games_valid) - len(games_ready)
+    if skipped_meta > 0:
+        logger.info(f"  Skipped {skipped_meta:,} games with missing team age/gender metadata")
 
-        # Away perspective
-        v53e_rows.append({
-            'game_id': game_id,
-            'id': game_uuid,  # Include UUID for ML residual mapping
-            'date': game_date,
-            'team_id': str(away_team_id),
-            'opp_id': str(home_team_id),
-            'home_team_master_id': str(home_team_id),  # Track which team is home
-            'age': away_age,
-            'gender': away_gender,
-            'opp_age': home_age,
-            'opp_gender': home_gender,
-            'gf': safe_int(away_score),
-            'ga': safe_int(home_score),
-        })
-        
-        processed_count += 1
-        # Progress indicator every 50k games
-        if processed_count % 50000 == 0:
-            logger.info(f"  ✓ Processed {processed_count:,} games ({len(v53e_rows):,} rows)...")
-    
-    if not v53e_rows:
+    if games_ready.empty:
         logger.warning("⚠️  No valid games after conversion")
         return pd.DataFrame()
 
-    v53e_df = pd.DataFrame(v53e_rows)
-    logger.info(f"📋 Created {len(v53e_df):,} perspective rows from {processed_count:,} games")
+    # Build home perspective DataFrame
+    home_df = pd.DataFrame({
+        'game_id': games_ready['_game_id'].values,
+        'id': games_ready['id'].values,
+        'date': games_ready['_date'].values,
+        'team_id': games_ready['home_team_master_id'].astype(str).values,
+        'opp_id': games_ready['away_team_master_id'].astype(str).values,
+        'home_team_master_id': games_ready['home_team_master_id'].astype(str).values,
+        'age': games_ready['_home_age'].values,
+        'gender': games_ready['_home_gender'].values,
+        'opp_age': games_ready['_away_age'].values,
+        'opp_gender': games_ready['_away_gender'].values,
+        'gf': pd.to_numeric(games_ready['home_score'], errors='coerce').values,
+        'ga': pd.to_numeric(games_ready['away_score'], errors='coerce').values,
+    })
+
+    # Build away perspective DataFrame
+    away_df = pd.DataFrame({
+        'game_id': games_ready['_game_id'].values,
+        'id': games_ready['id'].values,
+        'date': games_ready['_date'].values,
+        'team_id': games_ready['away_team_master_id'].astype(str).values,
+        'opp_id': games_ready['home_team_master_id'].astype(str).values,
+        'home_team_master_id': games_ready['home_team_master_id'].astype(str).values,
+        'age': games_ready['_away_age'].values,
+        'gender': games_ready['_away_gender'].values,
+        'opp_age': games_ready['_home_age'].values,
+        'opp_gender': games_ready['_home_gender'].values,
+        'gf': pd.to_numeric(games_ready['away_score'], errors='coerce').values,
+        'ga': pd.to_numeric(games_ready['home_score'], errors='coerce').values,
+    })
+
+    # Concatenate both perspectives
+    v53e_df = pd.concat([home_df, away_df], ignore_index=True)
+    logger.info(f"📋 Created {len(v53e_df):,} perspective rows from {len(games_ready):,} games")
 
     # Apply merge resolution if resolver provided
     if merge_resolver is not None and merge_resolver.has_merges:
