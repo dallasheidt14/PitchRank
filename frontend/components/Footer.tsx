@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { Twitter, Instagram, Facebook, Linkedin } from 'lucide-react';
 
 /**
- * Footer component with social media links and site navigation
+ * Footer component with social media links, site navigation, and state overview links
+ * Includes comprehensive internal linking for SEO
  * Appears on all pages below main content
  */
 export function Footer() {
@@ -35,9 +36,28 @@ export function Footer() {
     },
   ];
 
+  // Priority states for rankings (highest search volume)
+  const priorityStates = [
+    { code: 'ca', name: 'California' },
+    { code: 'tx', name: 'Texas' },
+    { code: 'fl', name: 'Florida' },
+    { code: 'ny', name: 'New York' },
+    { code: 'nj', name: 'New Jersey' },
+    { code: 'az', name: 'Arizona' },
+    { code: 'ga', name: 'Georgia' },
+    { code: 'pa', name: 'Pennsylvania' },
+    { code: 'il', name: 'Illinois' },
+    { code: 'nc', name: 'North Carolina' },
+    { code: 'wa', name: 'Washington' },
+    { code: 'co', name: 'Colorado' },
+  ];
+
+  // Age groups for internal linking
+  const ageGroups = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18'];
+
   const footerLinks = {
     Rankings: [
-      { name: 'National Rankings', href: '/rankings/national/u12/male' },
+      { name: 'National Rankings', href: '/rankings/national' },
       { name: 'Compare Teams', href: '/compare' },
     ],
     Resources: [
@@ -113,6 +133,38 @@ export function Footer() {
                 </li>
               ))}
             </ul>
+          </div>
+        </div>
+
+        {/* State Rankings Grid - SEO Internal Linking */}
+        <div className="mb-8 pt-6 border-t border-border">
+          <h4 className="font-display font-semibold uppercase tracking-wide mb-4">Rankings by State</h4>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+            {priorityStates.map((state) => (
+              <Link
+                key={state.code}
+                href={`/rankings/${state.code}`}
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {state.name}
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        {/* Age Group Links - SEO Internal Linking */}
+        <div className="mb-8">
+          <h4 className="font-display font-semibold uppercase tracking-wide mb-4">Rankings by Age</h4>
+          <div className="flex flex-wrap gap-3">
+            {ageGroups.map((age) => (
+              <Link
+                key={age}
+                href={`/rankings/age/${age}`}
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {age.toUpperCase()}
+              </Link>
+            ))}
           </div>
         </div>
 

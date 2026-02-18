@@ -21,9 +21,24 @@ interface BreadcrumbsProps {
   showHomeIcon?: boolean;
 }
 
+// State code to full name mapping for breadcrumbs
+const STATE_NAMES: Record<string, string> = {
+  al: 'Alabama', ak: 'Alaska', az: 'Arizona', ar: 'Arkansas', ca: 'California',
+  co: 'Colorado', ct: 'Connecticut', de: 'Delaware', fl: 'Florida', ga: 'Georgia',
+  hi: 'Hawaii', id: 'Idaho', il: 'Illinois', in: 'Indiana', ia: 'Iowa',
+  ks: 'Kansas', ky: 'Kentucky', la: 'Louisiana', me: 'Maine', md: 'Maryland',
+  ma: 'Massachusetts', mi: 'Michigan', mn: 'Minnesota', ms: 'Mississippi', mo: 'Missouri',
+  mt: 'Montana', ne: 'Nebraska', nv: 'Nevada', nh: 'New Hampshire', nj: 'New Jersey',
+  nm: 'New Mexico', ny: 'New York', nc: 'North Carolina', nd: 'North Dakota', oh: 'Ohio',
+  ok: 'Oklahoma', or: 'Oregon', pa: 'Pennsylvania', ri: 'Rhode Island', sc: 'South Carolina',
+  sd: 'South Dakota', tn: 'Tennessee', tx: 'Texas', ut: 'Utah', vt: 'Vermont',
+  va: 'Virginia', wa: 'Washington', wv: 'West Virginia', wi: 'Wisconsin', wy: 'Wyoming',
+};
+
 /**
  * Breadcrumb navigation component with structured data
  * Automatically generates breadcrumbs from current path or accepts custom items
+ * Includes BreadcrumbList schema for SEO
  */
 export function Breadcrumbs({ items, showHomeIcon = true }: BreadcrumbsProps) {
   const pathname = usePathname();
@@ -41,6 +56,7 @@ export function Breadcrumbs({ items, showHomeIcon = true }: BreadcrumbsProps) {
 
       // Format label
       let label = path;
+      const lowerPath = path.toLowerCase();
 
       // Special formatting for common paths
       if (path === 'rankings') {
@@ -51,6 +67,8 @@ export function Breadcrumbs({ items, showHomeIcon = true }: BreadcrumbsProps) {
         label = 'Compare';
       } else if (path === 'methodology') {
         label = 'Methodology';
+      } else if (path === 'age') {
+        label = 'Age Groups';
       } else if (path === 'national') {
         label = 'National';
       } else if (path.match(/^u\d+$/i)) {
@@ -60,8 +78,11 @@ export function Breadcrumbs({ items, showHomeIcon = true }: BreadcrumbsProps) {
         label = 'Boys';
       } else if (path === 'female') {
         label = 'Girls';
+      } else if (path.length === 2 && STATE_NAMES[lowerPath]) {
+        // State codes - show full state name
+        label = STATE_NAMES[lowerPath];
       } else if (path.length === 2) {
-        // State codes
+        // Unknown 2-letter code, just uppercase
         label = path.toUpperCase();
       }
 
