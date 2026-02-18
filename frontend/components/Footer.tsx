@@ -74,7 +74,7 @@ export function Footer() {
           {/* Brand Column */}
           <div className="md:col-span-2">
             <Link href="/" className="inline-block mb-4">
-              <h3 className="font-display text-xl font-bold uppercase tracking-wide">PitchRank</h3>
+              <span className="font-display text-xl font-bold uppercase tracking-wide">PitchRank</span>
             </Link>
             <p className="text-sm text-muted-foreground mb-4 max-w-md">
               Data-powered youth soccer team rankings and performance analytics.

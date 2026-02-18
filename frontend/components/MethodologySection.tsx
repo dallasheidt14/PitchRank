@@ -30,10 +30,10 @@ export function MethodologySection() {
         {/* Introduction */}
         <Card variant="primary">
           <CardHeader>
-            <CardTitle className="flex items-center gap-3">
+            <h2 className="leading-none font-semibold flex items-center gap-3">
               <Star className="size-6 text-accent" />
               PitchRank Methodology
-            </CardTitle>
+            </h2>
             <CardDescription className="text-base">
               Creating the fairest, most accurate youth soccer rankings in the country
             </CardDescription>
@@ -50,10 +50,10 @@ export function MethodologySection() {
         {/* Part 1: Core Rating Engine */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-3">
+            <h2 className="leading-none font-semibold flex items-center gap-3">
               <Brain className="size-6 text-primary" />
               Part 1: The Core Rating Engine
-            </CardTitle>
+            </h2>
             <CardDescription>
               The foundation of every PitchRank score
             </CardDescription>
@@ -138,10 +138,10 @@ export function MethodologySection() {
         {/* Part 2: Machine Learning Layer */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-3">
+            <h2 className="leading-none font-semibold flex items-center gap-3">
               <Cpu className="size-6 text-primary" />
               Part 2: The Machine Learning Layer
-            </CardTitle>
+            </h2>
             <CardDescription>
               The &quot;smarts&quot; that identify rising teams
             </CardDescription>
@@ -182,10 +182,10 @@ export function MethodologySection() {
         {/* How It All Comes Together */}
         <Card variant="accent">
           <CardHeader>
-            <CardTitle className="flex items-center gap-3">
+            <h2 className="leading-none font-semibold flex items-center gap-3">
               <Link className="size-6 text-accent" />
               How It All Comes Together
-            </CardTitle>
+            </h2>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-muted-foreground leading-relaxed">
@@ -239,10 +239,10 @@ export function MethodologySection() {
         {/* Updated Every Monday */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-3">
+            <h2 className="leading-none font-semibold flex items-center gap-3">
               <Calendar className="size-6 text-primary" />
               Updated Every Monday
-            </CardTitle>
+            </h2>
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground leading-relaxed mb-4">
@@ -275,10 +275,10 @@ export function MethodologySection() {
         {/* Connected Across States */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-3">
+            <h2 className="leading-none font-semibold flex items-center gap-3">
               <Globe className="size-6 text-primary" />
               Connected Across States, Leagues & Events
-            </CardTitle>
+            </h2>
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground leading-relaxed">
@@ -295,10 +295,10 @@ export function MethodologySection() {
         {/* New Teams */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-3">
+            <h2 className="leading-none font-semibold flex items-center gap-3">
               <UserPlus className="size-6 text-primary" />
               How We Handle New or Light-Data Teams
-            </CardTitle>
+            </h2>
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground leading-relaxed">
@@ -312,10 +312,10 @@ export function MethodologySection() {
         {/* Transparent But Proprietary */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-3">
+            <h2 className="leading-none font-semibold flex items-center gap-3">
               <Eye className="size-6 text-primary" />
               Transparent. But Proprietary.
-            </CardTitle>
+            </h2>
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground leading-relaxed">
@@ -331,10 +331,10 @@ export function MethodologySection() {
         {/* FAQ */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-3">
+            <h2 className="leading-none font-semibold flex items-center gap-3">
               <HelpCircle className="size-6 text-primary" />
               Frequently Asked Questions
-            </CardTitle>
+            </h2>
           </CardHeader>
           <CardContent className="space-y-6">
             <div>
@@ -378,10 +378,10 @@ export function MethodologySection() {
         {/* The PitchRank Promise */}
         <Card variant="primary">
           <CardHeader>
-            <CardTitle className="flex items-center gap-3">
+            <h2 className="leading-none font-semibold flex items-center gap-3">
               <Target className="size-6 text-accent" />
               The PitchRank Promise
-            </CardTitle>
+            </h2>
           </CardHeader>
           <CardContent>
             <div className="text-center space-y-2 mb-4">
