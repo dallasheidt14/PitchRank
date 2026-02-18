@@ -1,6 +1,8 @@
 import { PageHeader } from '@/components/PageHeader';
 import { BlogContent } from '@/components/BlogContent';
 import { NewsletterSubscribe } from '@/components/NewsletterSubscribe';
+import { BlogPostSchema } from '@/components/BlogPostSchema';
+import { BreadcrumbSchema } from '@/components/BreadcrumbSchema';
 import { getBlogPost, getAllBlogSlugs } from '@/lib/blog';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
@@ -73,13 +75,28 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
 
   return (
     <div className="container mx-auto py-8 px-4">
+      <BlogPostSchema
+        title={post.title}
+        excerpt={post.excerpt}
+        slug={slug}
+        date={post.date}
+        author={post.author}
+        readingTime={post.readingTime}
+        tags={post.tags}
+      />
+      <BreadcrumbSchema
+        items={[
+          { name: 'Blog', href: '/blog' },
+          { name: post.title, href: `/blog/${slug}` },
+        ]}
+      />
       <PageHeader
         title={post.title}
         description={post.excerpt}
         showBackButton
         backHref="/blog"
       />
-      
+
       <div className="max-w-4xl mx-auto mt-8">
         <div className="mb-8 text-sm text-muted-foreground flex items-center gap-4">
           <span>{post.author}</span>
