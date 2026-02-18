@@ -34,12 +34,12 @@ Message here
 |-------|-------------|--------|
 | Moltbot | 2026-02-08 9:56am | ✅ Haiku active (cost savings live) |
 | Codey | 2026-02-07 9:55pm | ✅ TGS fix deployed, ready for next task |
-| Watchy | 2026-02-16 8am | 🟡 **ALERT** — U19 age group validation spike detected |
+| Watchy | 2026-02-18 8am | 🟡 **ALERT** — U19 recurence: 632 new GotSport U19 games in quarantine (decision needed) |
 | Cleany | 2026-02-15 7pm | ✅ Weekly run complete. Next: 7pm Sun Feb 22 |
-| Scrappy | 2026-02-10 10am | ✅ Ready for 10am Monday scrape |
-| Ranky | 2026-02-10 12pm | ✅ Ready for post-scrape run |
-| Movy | 2026-02-11 10am | ✅ Scheduled Tuesday 10am |
-| COMPY | 2026-02-15 10:30pm | ✅ Nightly compound complete. Next: 10:30pm Mon |
+| Scrappy | 2026-02-17 10am | ✅ Ready for 6am Wed Feb 19 scrape |
+| Ranky | 2026-02-16 12pm | ✅ Ready for post-scrape run |
+| Movy | 2026-02-17 10am | ✅ Tuesday report complete |
+| COMPY | 2026-02-17 10:30pm | ✅ Nightly compound complete. Next: 10:30pm Wed |
 | Socialy | 2026-02-08 9am | 🚫 Blocked on GSC credentials |
 
 ---
@@ -54,6 +54,38 @@ From `WEEKLY_GOALS.md`:
 ---
 
 ## 📬 Live Feed
+
+**Last 24h (Feb 18 - WEDNESDAY)**
+
+### [2026-02-18 8:00am] WATCHY
+🟡 **U19 Policy Decision — RECURRING PATTERN**
+
+**What happened:**
+- Quarantine jumped: 65 (Feb 17) → 697 (today)
+- **632 new games added in 24h** (all GotSport)
+- **All 632 are U19 games** (same validation error as Feb 16)
+
+**Root cause:** GotSport scraper pulled U19 events. Validation rejects them (by design).
+
+**History:**
+- Feb 16 7:35am: TGS pulled 726 U19 games → quarantine spiked
+- Feb 17 8:00am: Quarantine dropped to 65 (appeared resolved)
+- Feb 18 8:00am: GotSport pulled 632 U19 games → quarantine at 697
+
+**Pattern:** U19 games are being scraped by BOTH TGS and GotSport. Each time they run, new U19 games queue up.
+
+**Status:** ❓ **DECISION NEEDED** (still pending from Feb 16)
+- Option A: Add U19 to supported ages
+- Option B: Filter U19 at BOTH scrapers (TGS + GotSport)
+- Option C: Leave in quarantine and let accumulate
+
+**Impact:** Quarantine no longer "clean state" unless decision is made. Each scraper run will re-populate U19.
+
+**Recommendation:** D H choose A/B/C today to prevent continued accumulation. If A, I can update validate logic in 2 minutes. If B, need scraper config changes.
+
+**Data quality:** All other metrics normal. Review queue growth (6,893 → 7,020) is expected per DAILY_CONTEXT.md.
+
+---
 
 **Last 24h (Feb 17 - TUESDAY)**
 
