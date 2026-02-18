@@ -20,16 +20,16 @@ class TestSOSConfiguration:
         assert hasattr(cfg, 'SOS_REPEAT_CAP')
         assert hasattr(cfg, 'UNRANKED_SOS_BASE')
 
-    def test_sos_iterations(self):
-        """Verify 3-pass transitive SOS (Feb 11 revert: single-pass made rankings worse)"""
+    def test_sos_iterations_is_one(self):
+        """Verify single-pass SOS (no transitive propagation)"""
         cfg = V53EConfig()
-        assert cfg.SOS_ITERATIONS == 3, "SOS should use 3 iterations (80/20 direct/transitive blend)"
+        assert cfg.SOS_ITERATIONS == 1, "SOS should use 1 iteration (direct only, no transitive)"
 
-    def test_sos_transitivity_lambda(self):
-        """Verify balanced transitivity weight (80% direct, 20% transitive)"""
+    def test_sos_transitivity_lambda_is_zero(self):
+        """Verify SOS transitivity is disabled (prevents closed-league inflation)"""
         cfg = V53EConfig()
-        assert cfg.SOS_TRANSITIVITY_LAMBDA == 0.20, \
-            "SOS_TRANSITIVITY_LAMBDA should be 0.20 (balanced direct/transitive)"
+        assert cfg.SOS_TRANSITIVITY_LAMBDA == 0.0, \
+            "SOS_TRANSITIVITY_LAMBDA should be 0.0 (pure direct, no transitive)"
 
     def test_sos_repeat_cap_is_two(self):
         """Verify repeat cap limits to top 2 games per opponent (prevents regional rival dominance)"""
@@ -177,11 +177,11 @@ class TestSOSTransitivity:
         assert abs(direct_weight + transitive_weight - 1.0) < 0.0001, \
             "Direct + transitive weights should sum to 1.0"
 
-        # Verify expected values for lambda=0.20 (80% direct, 20% transitive)
-        assert abs(direct_weight - 0.80) < 0.0001, \
-            "Direct weight should be 80% when lambda=0.20"
-        assert abs(transitive_weight - 0.20) < 0.0001, \
-            "Transitive weight should be 20% when lambda=0.20"
+        # Verify expected values for lambda=0.0 (transitive disabled)
+        assert abs(direct_weight - 1.0) < 0.0001, \
+            "Direct weight should be 100% when lambda=0.0"
+        assert abs(transitive_weight - 0.0) < 0.0001, \
+            "Transitive weight should be 0% when lambda=0.0"
 
 
 class TestSOSDocumentation:
@@ -191,13 +191,13 @@ class TestSOSDocumentation:
         """Verify actual config matches SOS_FIELDS_EXPLANATION.md"""
         cfg = V53EConfig()
 
-        # SOS_ITERATIONS = 3 (transitive propagation, Feb 11 revert)
-        assert cfg.SOS_ITERATIONS == 3, \
-            "SOS_ITERATIONS should be 3 (direct + transitive)"
+        # SOS_ITERATIONS = 1 (single-pass, no transitive)
+        assert cfg.SOS_ITERATIONS == 1, \
+            "SOS_ITERATIONS should be 1 (direct only)"
 
-        # SOS_TRANSITIVITY_LAMBDA = 0.20 (80% direct, 20% transitive)
-        assert cfg.SOS_TRANSITIVITY_LAMBDA == 0.20, \
-            "SOS_TRANSITIVITY_LAMBDA should be 0.20"
+        # SOS_TRANSITIVITY_LAMBDA = 0.0 (disabled)
+        assert cfg.SOS_TRANSITIVITY_LAMBDA == 0.0, \
+            "SOS_TRANSITIVITY_LAMBDA should be 0.0 (disabled)"
 
         # From docs: SOS_REPEAT_CAP = 2 (reduced from 4 to prevent regional rival dominance)
         assert cfg.SOS_REPEAT_CAP == 2, \

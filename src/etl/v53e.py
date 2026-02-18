@@ -54,8 +54,8 @@ class V53EConfig:
     # Layer 8 (SOS)
     UNRANKED_SOS_BASE: float = 0.35
     SOS_REPEAT_CAP: int = 2  # Reduced from 4 to prevent regional rivals from dominating SOS
-    SOS_ITERATIONS: int = 3  # Transitive SOS propagation passes (Feb 11 revert: 1→3, rankings improved)
-    SOS_TRANSITIVITY_LAMBDA: float = 0.20  # Balanced transitivity weight (80% direct, 20% transitive)
+    SOS_ITERATIONS: int = 1  # Single-pass SOS (no transitive propagation)
+    SOS_TRANSITIVITY_LAMBDA: float = 0.0  # Transitivity disabled (pure direct SOS)
 
     # Power-SOS Co-Calculation: Use opponent's FULL power score (including their SOS) for SOS calculation
     # This ensures that playing teams with tough schedules properly boosts your SOS
@@ -98,7 +98,7 @@ class V53EConfig:
     ANCHOR_PERCENTILE: float = 0.98
 
     # Normalization mode
-    NORM_MODE: str = "zscore"  # zscore provides better spread; percentile caused bunching
+    NORM_MODE: str = "percentile"  # or "zscore"
 
     # =========================
     # Regional Bubble Detection (Layer 8b)
@@ -1284,18 +1284,6 @@ def compute_rankings(
             sos_map = dict(zip(sos_full["team_id"], sos_full["sos"]))
             new_sos = team["team_id"].map(sos_map).fillna(0.5)
             team["sos"] = cfg.SOS_POWER_DAMPING * new_sos + (1 - cfg.SOS_POWER_DAMPING) * prev_sos
-
-            # Step 4b: Re-apply SCF dampening (prevents Power-SOS from erasing bubble detection)
-            # Without this, SCF corrections are ~97% erased after 3 Power-SOS iterations
-            # because each iteration recalculates SOS from full power without SCF.
-            if cfg.SCF_ENABLED and 'scf' in team.columns:
-                neutral = cfg.SCF_NEUTRAL_SOS
-                team["sos"] = neutral + team["scf"] * (team["sos"] - neutral)
-                if cfg.ISOLATION_PENALTY_ENABLED:
-                    isolation_mask = team['bridge_games'] < cfg.MIN_BRIDGE_GAMES
-                    team.loc[isolation_mask, 'sos'] = team.loc[isolation_mask, 'sos'].clip(
-                        upper=cfg.ISOLATION_SOS_CAP
-                    )
 
             # Step 5: Re-normalize SOS within cohort
             team['sos_norm'] = team.groupby(['age', 'gender'])['sos'].transform(percentile_within_cohort)
