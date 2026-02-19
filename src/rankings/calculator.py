@@ -752,7 +752,18 @@ async def compute_all_cohorts(
 
     # ---- Final age-anchor scaling for PowerScore ----
     if not teams_combined.empty:
-        ANCHORS = v53_cfg.AGE_ANCHORS
+        ANCHORS = {
+            10: 0.400,
+            11: 0.475,
+            12: 0.550,
+            13: 0.625,
+            14: 0.700,
+            15: 0.775,
+            16: 0.850,
+            17: 0.925,
+            18: 1.000,
+            19: 1.000,
+        }
         
         if 'age_num' not in teams_combined.columns:
             logger.warning("⚠️ compute_all_cohorts: 'age_num' column missing; skipping anchor scaling")
@@ -894,29 +905,6 @@ async def compute_all_cohorts(
                 after_max = teams_combined[col].max()
                 if before_min < 0.0 or before_max > 1.0:
                     logger.info(f"  🔒 Clipped {col}: [{before_min:.4f}, {before_max:.4f}] → [{after_min:.4f}, {after_max:.4f}]")
-
-    # 🔢 Recompute ranks from power_score_final to ensure rank/score consistency
-    # (SOS-conditioned ML scaling can change relative ordering vs rank_in_cohort_ml)
-    if not teams_combined.empty and 'power_score_final' in teams_combined.columns:
-        logger.info("🔢 Recomputing ranks from power_score_final for consistency...")
-        active_mask = teams_combined['status'] == 'Active'
-        for (age, gender), cohort in teams_combined[active_mask].groupby(['age', 'gender']):
-            if cohort.empty:
-                continue
-            # Sort by power_score_final DESC, use SOS as tiebreaker
-            sos_col = 'sos' if 'sos' in cohort.columns else None
-            if sos_col:
-                sorted_cohort = cohort.sort_values(
-                    ['power_score_final', sos_col], ascending=[False, False]
-                )
-            else:
-                sorted_cohort = cohort.sort_values('power_score_final', ascending=False)
-            # Assign sequential ranks
-            new_ranks = range(1, len(sorted_cohort) + 1)
-            teams_combined.loc[sorted_cohort.index, 'rank_in_cohort'] = list(new_ranks)
-            if 'rank_in_cohort_ml' in teams_combined.columns:
-                teams_combined.loc[sorted_cohort.index, 'rank_in_cohort_ml'] = list(new_ranks)
-        logger.info("✅ Ranks recomputed from power_score_final")
 
     # Save one combined snapshot for all cohorts
     if not teams_combined.empty:

@@ -67,7 +67,7 @@ class V53EConfig:
     # Power-SOS Co-Calculation: Use opponent's FULL power score (including their SOS) for SOS calculation
     # This ensures that playing teams with tough schedules properly boosts your SOS
     # Set to 0 to disable (use old off/def-only approach), 2-3 iterations recommended
-    SOS_POWER_ITERATIONS: int = 5  # Number of power-SOS refinement cycles (0 = disabled)
+    SOS_POWER_ITERATIONS: int = 3  # Number of power-SOS refinement cycles (0 = disabled)
     SOS_POWER_DAMPING: float = 0.7  # Damping factor to prevent oscillation (0.5-0.9 recommended)
 
     # SOS sample size weighting
@@ -104,25 +104,6 @@ class V53EConfig:
     # Cross-age anchors (national unification)
     ANCHOR_PERCENTILE: float = 0.98
 
-    # Static age → anchor mapping for U10–U19
-    # Single source of truth — imported by calculator.py and data_adapter.py
-    AGE_ANCHORS: dict = None  # Set in __post_init__
-
-    def __post_init__(self):
-        if self.AGE_ANCHORS is None:
-            self.AGE_ANCHORS = {
-                10: 0.400,
-                11: 0.475,
-                12: 0.550,
-                13: 0.625,
-                14: 0.700,
-                15: 0.775,
-                16: 0.850,
-                17: 0.925,
-                18: 1.000,
-                19: 1.000,
-            }
-
     # Normalization mode
     NORM_MODE: str = "percentile"  # or "zscore"
 
@@ -152,7 +133,7 @@ class V53EConfig:
     # play in regional conferences but face elite competition — NOT a bubble.
     SCF_QUALITY_OVERRIDE_ENABLED: bool = True
     SCF_QUALITY_PERCENTILE: float = 0.65  # Opponents avg power above this percentile → boost SCF
-    SCF_QUALITY_BOOST_MIN: float = 1.0    # Quality-boosted teams get full SOS credit (no dampening)
+    SCF_QUALITY_BOOST_MIN: float = 0.85   # Minimum SCF after quality boost (overrides geographic calc)
 
     # Isolation Penalty via Bridge Games
     # Bridge games = games against teams from outside your state cluster
@@ -662,7 +643,7 @@ def compute_rankings(
         out["ga"] = _clip_outliers_series(out["ga"], cfg.OUTLIER_GUARD_ZSCORE)
         return out
 
-    g = pd.concat([clip_team_games(grp) for _, grp in g.groupby("team_id")]).reset_index(drop=True)
+    g = g.groupby("team_id").apply(clip_team_games).reset_index(drop=True)
     g["gd"] = (g["gf"] - g["ga"]).clip(-cfg.GOAL_DIFF_CAP, cfg.GOAL_DIFF_CAP)
 
     # keep last N games per team (by date)
@@ -685,7 +666,7 @@ def compute_rankings(
         out["w_base"] = w
         return out
 
-    g = pd.concat([apply_recency(grp) for _, grp in g.groupby("team_id")]).reset_index(drop=True)
+    g = g.groupby("team_id").apply(apply_recency).reset_index(drop=True)
 
     # -------------------------
     # Context multipliers (tournament/KO)
@@ -753,8 +734,7 @@ def compute_rankings(
     # -------------------------
     # Layer 7: shrink within cohort
     # -------------------------
-    # Shared helpers for shrinkage + clipping (used in initial pass and opponent-adjust pass)
-    def _shrink_cohort(df: pd.DataFrame) -> pd.DataFrame:
+    def shrink_grp(df: pd.DataFrame) -> pd.DataFrame:
         mu_off = df["off_raw"].mean()
         mu_sad = df["sad_raw"].mean()
         out = df.copy()
@@ -763,7 +743,12 @@ def compute_rankings(
         out["def_shrunk"] = 1.0 / (out["sad_shrunk"] + cfg.RIDGE_GA)
         return out
 
-    def _clip_cohort(df: pd.DataFrame) -> pd.DataFrame:
+    team = team.groupby(["age", "gender"]).apply(shrink_grp).reset_index(drop=True)
+
+    # -------------------------
+    # Layer 5: team-level outlier guard (OFF/DEF)
+    # -------------------------
+    def clip_team_level(df: pd.DataFrame) -> pd.DataFrame:
         out = df.copy()
         for col in ["off_shrunk", "def_shrunk"]:
             s = out[col]
@@ -773,12 +758,7 @@ def compute_rankings(
                                   mu + cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd)
         return out
 
-    team = pd.concat([_shrink_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
-
-    # -------------------------
-    # Layer 5: team-level outlier guard (OFF/DEF)
-    # -------------------------
-    team = pd.concat([_clip_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
+    team = team.groupby(["age", "gender"]).apply(clip_team_level).reset_index(drop=True)
 
     # -------------------------
     # Layer 9: normalize OFF/DEF
@@ -796,8 +776,21 @@ def compute_rankings(
         + 0.5 * team["def_norm"]
     )
 
-    # Use AGE_ANCHORS from config (single source of truth)
-    AGE_TO_ANCHOR = cfg.AGE_ANCHORS
+    # Static age → anchor mapping for U10–U18
+    # This ensures consistent scaling across ages regardless of cohort splitting
+    # Younger teams have lower max PowerScore, older teams can reach 1.0
+    AGE_TO_ANCHOR = {
+        10: 0.400,
+        11: 0.475,
+        12: 0.550,
+        13: 0.625,
+        14: 0.700,
+        15: 0.775,
+        16: 0.850,
+        17: 0.925,
+        18: 1.000,
+        19: 1.000,  # U19 same as U18
+    }
 
     def compute_anchor(age_val):
         """Map age to static anchor value"""
@@ -868,11 +861,30 @@ def compute_rankings(
         # Re-apply defense ridge
         team["def_raw"] = 1.0 / (team["sad_raw"] + cfg.RIDGE_GA)
 
-        # Re-apply Bayesian shrinkage (using shared helper)
-        team = pd.concat([_shrink_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
+        # Re-apply Bayesian shrinkage
+        def shrink_grp_adj(df: pd.DataFrame) -> pd.DataFrame:
+            mu_off = df["off_raw"].mean()
+            mu_sad = df["sad_raw"].mean()
+            out = df.copy()
+            out["off_shrunk"] = (out["off_raw"] * out["gp"] + mu_off * cfg.SHRINK_TAU) / (out["gp"] + cfg.SHRINK_TAU)
+            out["sad_shrunk"] = (out["sad_raw"] * out["gp"] + mu_sad * cfg.SHRINK_TAU) / (out["gp"] + cfg.SHRINK_TAU)
+            out["def_shrunk"] = 1.0 / (out["sad_shrunk"] + cfg.RIDGE_GA)
+            return out
 
-        # Re-apply outlier clipping (using shared helper)
-        team = pd.concat([_clip_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
+        team = team.groupby(["age", "gender"]).apply(shrink_grp_adj).reset_index(drop=True)
+
+        # Re-apply outlier clipping
+        def clip_team_level_adj(df: pd.DataFrame) -> pd.DataFrame:
+            out = df.copy()
+            for col in ["off_shrunk", "def_shrunk"]:
+                s = out[col]
+                if len(s) >= 3 and s.std(ddof=0) > 0:
+                    mu, sd = s.mean(), s.std(ddof=0)
+                    out[col] = s.clip(mu - cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd,
+                                      mu + cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd)
+            return out
+
+        team = team.groupby(["age", "gender"]).apply(clip_team_level_adj).reset_index(drop=True)
 
         # Re-normalize
         team = _normalize_by_cohort(team, "off_shrunk", "off_norm", cfg.NORM_MODE)
@@ -1353,22 +1365,6 @@ def compute_rankings(
             new_sos = team["team_id"].map(sos_map).fillna(0.5)
             team["sos"] = cfg.SOS_POWER_DAMPING * new_sos + (1 - cfg.SOS_POWER_DAMPING) * prev_sos
 
-            # Step 4b: Reapply SCF dampening for non-quality-boosted teams
-            # Without this, the Power-SOS loop erodes SCF from ~100% to ~3% after
-            # 3 iterations. Quality-boosted teams (SCF=1.0) are unaffected.
-            if cfg.SCF_ENABLED and 'scf' in team.columns:
-                neutral = cfg.SCF_NEUTRAL_SOS
-                team["sos"] = neutral + team["scf"] * (team["sos"] - neutral)
-                # Reapply isolation penalty cap (for non-quality-boosted only)
-                if cfg.ISOLATION_PENALTY_ENABLED and 'quality_boosted' in team.columns:
-                    isolation_mask = (
-                        (team.get('bridge_games', 0) < cfg.MIN_BRIDGE_GAMES) &
-                        (~team['quality_boosted'])
-                    )
-                    team.loc[isolation_mask, 'sos'] = team.loc[isolation_mask, 'sos'].clip(
-                        upper=cfg.ISOLATION_SOS_CAP
-                    )
-
             # Step 5: Re-normalize SOS within cohort
             team['sos_norm'] = team.groupby(['age', 'gender'])['sos'].transform(percentile_within_cohort)
             team['sos_norm'] = team['sos_norm'].fillna(0.5).clip(0.0, 1.0)
@@ -1376,7 +1372,7 @@ def compute_rankings(
             # Step 6: Apply low-sample shrinkage (vectorized) - QUADRATIC for aggressive dampening
             low_sample_mask = gps < cfg.MIN_GAMES_FOR_TOP_SOS
             shrink_factor = np.clip((gps / cfg.MIN_GAMES_FOR_TOP_SOS) ** 2, 0.0, 1.0)
-            sos_norm_values = team['sos_norm'].values.copy()
+            sos_norm_values = team['sos_norm'].values
             sos_norm_values[low_sample_mask] = (
                 0.5 + shrink_factor[low_sample_mask] * (sos_norm_values[low_sample_mask] - 0.5)
             )
