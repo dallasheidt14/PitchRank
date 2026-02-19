@@ -313,6 +313,10 @@ async def fetch_games_for_rankings(
         if pd.isna(home_team_id) or pd.isna(away_team_id) or pd.isna(game_date):
             continue
 
+        # Skip self-play games (data error: team playing itself)
+        if str(home_team_id) == str(away_team_id):
+            continue
+
         # Get team metadata
         home_age = team_age_map.get(home_team_id, '')
         home_gender = team_gender_map.get(home_team_id, '')
@@ -457,6 +461,10 @@ def supabase_to_v53e_format(
         if pd.isna(home_team_id) or pd.isna(away_team_id) or pd.isna(game_date):
             continue
 
+        # Skip self-play games (data error: team playing itself)
+        if str(home_team_id) == str(away_team_id):
+            continue
+
         home_age = team_age_map.get(home_team_id, '')
         home_gender = team_gender_map.get(home_team_id, '')
         away_age = team_age_map.get(away_team_id, '')
@@ -496,14 +504,14 @@ def supabase_to_v53e_format(
             'gf': safe_int(away_score),
             'ga': safe_int(home_score),
         })
-    
+
     if not v53e_rows:
         return pd.DataFrame()
-    
+
     v53e_df = pd.DataFrame(v53e_rows)
     v53e_df = v53e_df.dropna(subset=['gf', 'ga'])
     v53e_df['date'] = pd.to_datetime(v53e_df['date'])
-    
+
     return v53e_df
 
 
@@ -815,11 +823,9 @@ def v53e_to_rankings_full_format(
         rankings_df['global_power_score'] = None
     
     # Anchor values for age-based power score scaling
-    AGE_ANCHORS = {
-        10: 0.400, 11: 0.475, 12: 0.550, 13: 0.625,
-        14: 0.700, 15: 0.775, 16: 0.850, 17: 0.925,
-        18: 1.000, 19: 1.000,
-    }
+    # Import from V53EConfig (single source of truth)
+    from src.etl.v53e import V53EConfig as _V53ECfg
+    AGE_ANCHORS = _V53ECfg().AGE_ANCHORS
 
     # Calculate power_score_final with fallback
     # If power_score_final already exists and has non-null values (e.g., from anchor scaling in compute_all_cohorts),
