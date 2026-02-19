@@ -88,6 +88,9 @@ class V53EConfig:
     OPPONENT_ADJUST_BASELINE: float = 0.5  # Reference strength for adjustment
     OPPONENT_ADJUST_CLIP_MIN: float = 0.4  # Min multiplier (avoid extreme adjustments)
     OPPONENT_ADJUST_CLIP_MAX: float = 1.6  # Max multiplier (conservative bounds)
+    OPPONENT_ADJUST_EXPONENT: float = 1.15  # >1.0 amplifies strong/weak-opponent separation
+    OPPONENT_ADJUST_RENORM_MODE: str = "zscore"  # Preserve adjustment magnitude after re-aggregation
+    OPPONENT_ADJUST_USE_COMPONENT_STRENGTH: bool = True  # offense<-opp defense, defense<-opp offense
 
     # Layer 10 weights
     OFF_WEIGHT: float = 0.25
@@ -534,49 +537,85 @@ def _adjust_for_opponent_strength(
     games: pd.DataFrame,
     strength_map: Dict[str, float],
     cfg: V53EConfig,
-    baseline: Optional[float] = None
+    baseline: Optional[float] = None,
+    defense_strength_map: Optional[Dict[str, float]] = None,
+    defense_baseline: Optional[float] = None,
+    fallback_strength_map: Optional[Dict[str, float]] = None,
 ) -> pd.DataFrame:
     """
     Adjust goals for/against based on opponent strength to fix double-counting problem.
 
-    For offense: Scoring against STRONG opponents gets MORE credit (multiplier > 1)
-    For defense: Allowing goals to STRONG opponents gets LESS penalty (multiplier < 1)
+    For offense: Scoring against STRONG opponent defenses gets MORE credit (multiplier > 1)
+    For defense: Allowing goals to STRONG opponent offenses gets LESS penalty (multiplier < 1)
 
     Args:
         games: DataFrame with columns [gf, ga, opp_id, w_game]
-        strength_map: Dict mapping team_id to strength (0-1)
+        strength_map: Dict mapping team_id to opponent OFFENSE strength (0-1)
         cfg: Configuration
-        baseline: Reference strength for adjustment (defaults to cfg.OPPONENT_ADJUST_BASELINE)
+        baseline: Reference offense baseline for defensive adjustment
+        defense_strength_map: Optional map for opponent DEFENSE strength (if None, uses strength_map)
+        defense_baseline: Optional defense baseline for offensive adjustment
+        fallback_strength_map: Optional cross-cohort fallback map (e.g., pass-1 global strengths)
 
     Returns:
         DataFrame with additional columns [gf_adjusted, ga_adjusted]
     """
     g = games.copy()
 
-    # Use provided baseline or fall back to config
+    # Use provided baselines or fall back to config / mirrored values
     if baseline is None:
         baseline = cfg.OPPONENT_ADJUST_BASELINE
+    if defense_strength_map is None:
+        defense_strength_map = strength_map
+    if defense_baseline is None:
+        defense_baseline = baseline
 
-    # Get opponent strength for each game
-    g["opp_strength"] = g["opp_id"].map(
-        lambda o: strength_map.get(o, cfg.UNRANKED_SOS_BASE)
+    # Numerical safety for division/power operations
+    eps = 1e-6
+    baseline = max(float(baseline), eps)
+    defense_baseline = max(float(defense_baseline), eps)
+
+    def lookup_strength(opp_id, primary_map: Dict[str, float]) -> float:
+        # Local cohort map first
+        if opp_id in primary_map:
+            return float(primary_map[opp_id])
+        opp_id_str = str(opp_id)
+        if opp_id_str in primary_map:
+            return float(primary_map[opp_id_str])
+
+        # Cross-cohort fallback (pass-1/2 map)
+        if fallback_strength_map is not None:
+            if opp_id in fallback_strength_map:
+                return float(fallback_strength_map[opp_id])
+            if opp_id_str in fallback_strength_map:
+                return float(fallback_strength_map[opp_id_str])
+
+        return float(cfg.UNRANKED_SOS_BASE)
+
+    # Get opponent unit-specific strengths per game
+    g["opp_off_strength"] = g["opp_id"].map(
+        lambda o: lookup_strength(o, strength_map)
+    )
+    g["opp_def_strength"] = g["opp_id"].map(
+        lambda o: lookup_strength(o, defense_strength_map)
     )
 
     # Calculate adjustment multipliers
-    # Offense: score against strong opponent = more credit
-    # multiplier = opp_strength / baseline
-    # Example: opp_strength=0.8, baseline=0.7 → multiplier=1.14 (14% more credit)
-    #          opp_strength=0.6, baseline=0.7 → multiplier=0.86 (14% less credit)
-    g["off_multiplier"] = (g["opp_strength"] / baseline).clip(
+    # Offense: score against strong DEFENSE = more credit
+    off_multiplier = g["opp_def_strength"].clip(lower=eps) / defense_baseline
+    # Defense: allow goals to strong OFFENSE = less penalty
+    def_multiplier = baseline / g["opp_off_strength"].clip(lower=eps)
+
+    # Exponent > 1.0 increases sensitivity to opponent quality
+    exponent = max(float(cfg.OPPONENT_ADJUST_EXPONENT), eps)
+    off_multiplier = np.power(off_multiplier, exponent)
+    def_multiplier = np.power(def_multiplier, exponent)
+
+    g["off_multiplier"] = off_multiplier.clip(
         cfg.OPPONENT_ADJUST_CLIP_MIN,
         cfg.OPPONENT_ADJUST_CLIP_MAX
     )
-
-    # Defense: allow goals to strong opponent = less penalty
-    # multiplier = baseline / opp_strength
-    # Example: opp_strength=0.8, baseline=0.7 → multiplier=0.875 (12.5% less penalty)
-    #          opp_strength=0.6, baseline=0.7 → multiplier=1.17 (17% more penalty)
-    g["def_multiplier"] = (baseline / g["opp_strength"]).clip(
+    g["def_multiplier"] = def_multiplier.clip(
         cfg.OPPONENT_ADJUST_CLIP_MIN,
         cfg.OPPONENT_ADJUST_CLIP_MAX
     )
@@ -586,6 +625,23 @@ def _adjust_for_opponent_strength(
     g["ga_adjusted"] = g["ga"] * g["def_multiplier"]
 
     return g
+
+
+def _build_component_strength_maps(team: pd.DataFrame) -> Dict[str, Dict[str, float]]:
+    """
+    Build non-circular opponent-strength maps from pre-normalization OFF/DEF components.
+
+    Uses z-score normalization of off_shrunk/def_shrunk (within cohort) so magnitude
+    differences survive better than percentile ranks.
+    """
+    component = team[["team_id", "age", "gender", "off_shrunk", "def_shrunk"]].copy()
+    component = _normalize_by_cohort(component, "off_shrunk", "off_component_strength", "zscore")
+    component = _normalize_by_cohort(component, "def_shrunk", "def_component_strength", "zscore")
+
+    return {
+        "offense": dict(zip(component["team_id"], component["off_component_strength"])),
+        "defense": dict(zip(component["team_id"], component["def_component_strength"])),
+    }
 
 
 # =========================
@@ -815,17 +871,35 @@ def compute_rankings(
     if cfg.OPPONENT_ADJUST_ENABLED:
         logger.info("🔄 Applying opponent-adjusted offense/defense to fix double-counting...")
 
-        # Calculate the actual mean strength to use as baseline (instead of hardcoded 0.5)
-        strength_values = list(strength_map.values())
-        actual_mean_strength = np.mean(strength_values) if strength_values else 0.5
-        logger.info(f"📊 Strength distribution: mean={actual_mean_strength:.3f}, "
-                   f"min={min(strength_values):.3f}, max={max(strength_values):.3f}")
+        # Build non-circular component maps from pre-normalization shrunk OFF/DEF
+        # (zscore-based, not percentile rank based).
+        component_maps = _build_component_strength_maps(team)
+        off_component_map = component_maps["offense"]
+        def_component_map = component_maps["defense"]
 
-        # Use actual mean as baseline for opponent adjustment
-        baseline = actual_mean_strength
+        # Cohort-aware dynamic baselines for each unit
+        off_values = list(off_component_map.values())
+        def_values = list(def_component_map.values())
+        off_baseline = float(np.mean(off_values)) if off_values else float(cfg.OPPONENT_ADJUST_BASELINE)
+        def_baseline = float(np.mean(def_values)) if def_values else float(cfg.OPPONENT_ADJUST_BASELINE)
+
+        if off_values and def_values:
+            logger.info(
+                "📊 Opponent adjust baselines: "
+                f"opp_off_mean={off_baseline:.3f} [{min(off_values):.3f}, {max(off_values):.3f}], "
+                f"opp_def_mean={def_baseline:.3f} [{min(def_values):.3f}, {max(def_values):.3f}]"
+            )
 
         # Adjust games for opponent strength
-        g_adjusted = _adjust_for_opponent_strength(g, strength_map, cfg, baseline=baseline)
+        g_adjusted = _adjust_for_opponent_strength(
+            g,
+            strength_map=off_component_map,
+            defense_strength_map=def_component_map if cfg.OPPONENT_ADJUST_USE_COMPONENT_STRENGTH else None,
+            cfg=cfg,
+            baseline=off_baseline,
+            defense_baseline=def_baseline if cfg.OPPONENT_ADJUST_USE_COMPONENT_STRENGTH else None,
+            fallback_strength_map=global_strength_map,
+        )
 
         # Re-aggregate with adjusted values
         g_adjusted["gf_weighted_adj"] = g_adjusted["gf_adjusted"] * g_adjusted["w_game"]
@@ -886,9 +960,17 @@ def compute_rankings(
 
         team = team.groupby(["age", "gender"]).apply(clip_team_level_adj).reset_index(drop=True)
 
-        # Re-normalize
-        team = _normalize_by_cohort(team, "off_shrunk", "off_norm", cfg.NORM_MODE)
-        team = _normalize_by_cohort(team, "def_shrunk", "def_norm", cfg.NORM_MODE)
+        # Re-normalize using dedicated post-adjust mode to preserve adjustment magnitude
+        renorm_mode = cfg.OPPONENT_ADJUST_RENORM_MODE or cfg.NORM_MODE
+        if renorm_mode not in {"percentile", "zscore"}:
+            logger.warning(
+                f"⚠️ Unknown OPPONENT_ADJUST_RENORM_MODE='{renorm_mode}', "
+                f"falling back to NORM_MODE='{cfg.NORM_MODE}'"
+            )
+            renorm_mode = cfg.NORM_MODE
+
+        team = _normalize_by_cohort(team, "off_shrunk", "off_norm", renorm_mode)
+        team = _normalize_by_cohort(team, "def_shrunk", "def_norm", renorm_mode)
 
         # Recalculate power_presos with adjusted OFF/DEF (50% each, no SOS to avoid circularity)
         team["power_presos"] = (
@@ -901,7 +983,7 @@ def compute_rankings(
         strength_map = dict(zip(team["team_id"], team["abs_strength"]))
         power_map = dict(zip(team["team_id"], team["power_presos"]))
 
-        logger.info("✅ Opponent-adjusted offense/defense applied successfully")
+        logger.info(f"✅ Opponent-adjusted offense/defense applied successfully (renorm_mode={renorm_mode})")
 
     # -------------------------
     # Layer 5: Adaptive K per game (by abs strength gap)
