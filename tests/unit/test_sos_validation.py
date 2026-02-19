@@ -147,13 +147,15 @@ class TestSOSValueRanges:
             team = teams_df.iloc[0]
 
             # Calculate expected powerscore_core
-            # Formula: OFF_WEIGHT*off_norm + DEF_WEIGHT*def_norm + SOS_WEIGHT*sos_norm + PERF_BLEND_WEIGHT*perf_centered
+            # Formula: (OFF_WEIGHT*off_norm + DEF_WEIGHT*def_norm + SOS_WEIGHT*sos_norm
+            #           + PERF_BLEND_WEIGHT*perf_centered) / MAX_POWERSCORE_THEORETICAL
+            max_ps = 1.0 + 0.5 * cfg.PERF_BLEND_WEIGHT
             expected_ps = (
                 cfg.OFF_WEIGHT * team.get('off_norm', 0) +
                 cfg.DEF_WEIGHT * team.get('def_norm', 0) +
                 cfg.SOS_WEIGHT * team['sos_norm'] +  # Uses sos_norm!
                 team.get('perf_centered', 0) * cfg.PERF_BLEND_WEIGHT  # Performance adjustment
-            )
+            ) / max_ps
 
             actual_ps = team['powerscore_core']
 
