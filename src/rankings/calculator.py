@@ -383,6 +383,9 @@ async def compute_all_cohorts(
     Args:
         merge_resolver: Optional MergeResolver instance for resolving merged teams
     """
+    # Default config if not provided
+    v53_cfg = v53_cfg or V53EConfig()
+
     # Get merge version for cache invalidation
     merge_version = merge_resolver.version if merge_resolver else None
 
