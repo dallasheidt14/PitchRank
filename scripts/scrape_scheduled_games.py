@@ -324,6 +324,37 @@ def extract_future_games(matches: List[Dict], team_info: Dict) -> List[Dict]:
             continue
         
         try:
+            # Filter out U19 games (PitchRank only supports U10-U18)
+            # Check if either team is U19 based on age_group or birth_year
+            home_team = match.get('homeTeam', {})
+            away_team = match.get('awayTeam', {})
+            
+            is_u19_game = False
+            for team_obj in [home_team, away_team]:
+                if isinstance(team_obj, dict):
+                    age_group = team_obj.get('age_group', '').upper().strip()
+                    birth_year = team_obj.get('birth_year')
+                    
+                    # Skip if age_group indicates U19
+                    if age_group in ['U19', 'U-19', '19U', 'U20', 'U-20', '20U']:
+                        is_u19_game = True
+                        logger.debug(f"Skipping U19/U20 scheduled game (age_group={age_group})")
+                        break
+                    
+                    # Skip if birth_year is 2007 or earlier (U19+ for 2026)
+                    if birth_year and isinstance(birth_year, (int, str)):
+                        try:
+                            birth_year_int = int(birth_year)
+                            if birth_year_int <= 2007:
+                                is_u19_game = True
+                                logger.debug(f"Skipping U19+ scheduled game (birth_year={birth_year_int})")
+                                break
+                        except (ValueError, TypeError):
+                            pass
+            
+            if is_u19_game:
+                continue
+            
             # Parse ISO datetime
             match_time = datetime.fromisoformat(match_time_str.replace('Z', '+00:00'))
             match_date = match_time.replace(tzinfo=None)
