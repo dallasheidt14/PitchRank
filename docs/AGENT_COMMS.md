@@ -34,13 +34,13 @@ Message here
 |-------|-------------|--------|
 | Moltbot | 2026-02-08 9:56am | ✅ Haiku active (cost savings live) |
 | Codey | 2026-02-07 9:55pm | ✅ TGS fix deployed, ready for next task |
-| Watchy | 2026-02-18 8am | 🟡 **ALERT** — U19 recurence: 632 new GotSport U19 games in quarantine (decision needed) |
+| Watchy | 2026-02-19 8am | 🚨 **CRITICAL** — U19 escalating: 1,405 games in quarantine (4th spike in 4 days, DECISION REQUIRED) |
 | Cleany | 2026-02-15 7pm | ✅ Weekly run complete. Next: 7pm Sun Feb 22 |
-| Scrappy | 2026-02-17 10am | ✅ Ready for 6am Wed Feb 19 scrape |
+| Scrappy | 2026-02-19 6am | ✅ Wed future scrape complete. Next: Mon Feb 24 |
 | Ranky | 2026-02-16 12pm | ✅ Ready for post-scrape run |
-| Movy | 2026-02-17 10am | ✅ Tuesday report complete |
-| COMPY | 2026-02-17 10:30pm | ✅ Nightly compound complete. Next: 10:30pm Wed |
-| Socialy | 2026-02-08 9am | 🚫 Blocked on GSC credentials |
+| Movy | 2026-02-19 11am | ✅ Weekend preview complete |
+| COMPY | 2026-02-18 10:30pm | ✅ Nightly compound complete. Next: 10:30pm Thu Feb 19 |
+| Socialy | 2026-02-19 9am | 🚫 Blocked on GSC credentials |
 
 ---
 
@@ -55,7 +55,48 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
-**Last 24h (Feb 18 - WEDNESDAY)**
+**Last 24h (Feb 19 - THURSDAY)**
+
+### [2026-02-19 8:00am] WATCHY
+🚨 **CRITICAL: U19 ESCALATING — 4TH SPIKE IN 4 DAYS**
+
+**Quarantine Status:**
+- Feb 15: 39 games
+- Feb 16: 777 (TGS pulled 726 U19)
+- Feb 17: 65 (dropped)
+- Feb 18: 697 (GotSport pulled 632 U19)
+- **Feb 19: 1,405 (⚠️ 1,340 U19 games added ~6.2 hours ago)**
+
+**What happened:**
+- Another batch of ~700 U19 games imported ~1:45am MT (overnight)
+- All games have validation_failed due to unsupported age group
+- This is the 4th major scraper pull in 4 days
+
+**Root cause:** Multiple scrapers (TGS, GotSport, others?) are independently pulling U19 (high school) events. Until a policy decision is made, quarantine will continue to spike with each scraper cycle.
+
+**Critical Pattern (from DECISION_TREES.md):**
+This is NOT a bug — it's a business policy question. U19 events are being scraped from legitimate sources but rejected by validation. **Decision still pending from Feb 16 escalation.**
+
+**Options (CHOOSE TODAY or quarantine keeps growing):**
+- **A) Add U19 support** → Update validate logic (2 lines), update calculate_rankings.py
+- **B) Filter U19 at ALL scrapers** → TGS + GotSport config changes upstream  
+- **C) Accept quarantine accumulation** → Leave as-is, don't rank U19
+
+**Escalation:** LEVEL 4 ❓ Decision Needed → D H must choose A/B/C TODAY
+
+**Data Otherwise Healthy:**
+- Teams: 96,735 | Games: 701,353 ✅
+- Rankings: 16h old (normal)
+- No validation errors outside U19 rejections
+- Pending reviews: 7,080 (expected, D H actively working)
+
+**Data Quality:**
+- Missing state_code: 1,093 (unchanged)
+- Missing club_name: 3,463 (unchanged)
+
+---
+
+**Earlier (Feb 18 - WEDNESDAY)**
 
 ### [2026-02-18 22:30pm] COMPY
 🧠 **Nightly Knowledge Compound Complete (Day 12 post-crisis)**
