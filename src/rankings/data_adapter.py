@@ -128,7 +128,7 @@ async def fetch_games_for_rankings(
     today_date_str = today.strftime('%Y-%m-%d')
     base_query = supabase_client.table('games').select(
         'id, game_uid, game_date, home_team_master_id, away_team_master_id, '
-        'home_score, away_score, provider_id'
+        'home_score, away_score, provider_id, mls_division'
     ).gte('game_date', cutoff_date_str).lte(
         'game_date', today_date_str  # Exclude future-dated games (phantom 0-0 draws)
     ).not_.is_(
