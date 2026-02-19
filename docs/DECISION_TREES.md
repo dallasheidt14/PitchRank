@@ -68,6 +68,38 @@ IF: Provider-specific → Check provider's data format changed
 ESCALATE: If >1000 AND no clear pattern
 ```
 
+### U19 Recurring Quarantine Pattern (Feb 16-18 Discovery)
+```
+WHEN: Same age group (U19) re-appearing in quarantine across multiple scraper runs
+CHECK: Which scrapers are pulling U19 events?
+
+PATTERN DISCOVERED (Feb 16-18):
+- Feb 16 7:35am: TGS pulled 726 U19 games → quarantine spiked to 777
+- Feb 17 8:00am: Quarantine dropped to 65 (cleanup or auto-decision)
+- Feb 18 8:00am: GotSport pulled 632 U19 games → quarantine spiked to 697
+
+ROOT CAUSE: Both TGS and GotSport independently pulling U19 (high school) events from their data sources.
+This is NOT a bug — it's a business policy decision about age group support.
+
+DECISION OPTIONS (LEVEL 4 ESCALATION - AWAITING D H):
+A) Add U19 to supported ages → Update validate logic (2 lines), update calculate_rankings.py
+B) Filter U19 at BOTH scrapers (TGS + GotSport config) → Upstream prevention
+C) Leave in quarantine → Accept that these events queue up, don't rank them
+
+CURRENT STATUS (Feb 18):
+- Decision still pending (since Feb 16)
+- Quarantine will continue to oscillate as scrapers run
+- Each scraper cycle adds ~600-700 U19 games if both are pulling
+
+ALERT: D H must choose A/B/C TODAY — each delay means another scraper run will repopulate quarantine
+
+IF: A chosen → Make changes immediately (Codey can do in <5 min)
+IF: B chosen → Update TGS + GotSport scraper config to exclude U19
+IF: C chosen → Accept oscillating quarantine, no further action
+
+ESCALATE: LEVEL 4 (❓ Decision Needed) — This cannot wait. Escalate as "U19 policy decision needed ASAP"
+```
+
 ### Zero Games Imported
 ```
 WHEN: Import completes with 0 new games

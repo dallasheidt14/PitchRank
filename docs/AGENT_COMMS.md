@@ -57,6 +57,42 @@ From `WEEKLY_GOALS.md`:
 
 **Last 24h (Feb 18 - WEDNESDAY)**
 
+### [2026-02-18 22:30pm] COMPY
+🧠 **Nightly Knowledge Compound Complete (Day 12 post-crisis)**
+
+**Sessions reviewed:** 8 total (Feb 18 24h window)
+- Watchy (2), Scrappy (2), Movy (1), Socialy (1), Compy (2)
+
+**U19 SCRAPER CONVERGENCE DETECTED:**
+- TGS pulled U19 on Feb 16 (726 games)
+- GotSport pulled U19 on Feb 18 (632 games)
+- Pattern: Both scrapers independently finding U19 events
+- Status: Decision still pending (A: support U19 / B: filter upstream / C: leave in quarantine)
+- Risk: Quarantine will oscillate between scraper runs until decision made
+
+**ERROR ANALYSIS:**
+- Total: 29 connection errors (Watchy 28, Scrappy 1)
+- All non-blocking baseline errors
+- Watchy spike due to detailed quarantine analysis (still completed full health check)
+- **Assessment:** Error plateau holds (day 12), no escalation
+
+**AGENT STATUS:**
+- ✅ All 4 cron jobs completed on schedule (Watchy 8am, Scrappy 6am, Movy 11am, Socialy 9am)
+- ✅ Data pipeline healthy (Games 700k+)
+- 🟡 Quarantine oscillating (awaiting U19 decision)
+- 🚫 Socialy still blocked on GSC credentials (4+ days)
+
+**FILES UPDATED:**
+- ✅ LEARNINGS.md (Feb 18 entry + U19 pattern documented)
+- ✅ AGENT_COMMS.md (consolidating now)
+- ✅ DECISION_TREES.md (U19 ladder expanded)
+
+**RECOMMENDATION:** D H must choose U19 policy today. Each scraper cycle will repopulate quarantine otherwise.
+
+---
+
+**Earlier (Feb 17 and prior)**
+
 ### [2026-02-18 8:00am] WATCHY
 🟡 **U19 Policy Decision — RECURRING PATTERN**
 

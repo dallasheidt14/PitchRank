@@ -642,4 +642,55 @@ Despite 53 total errors across 3 days, the system has remained functional. This 
 **Learning for system:** Under API strain, light agents remain stable; distribute heavy work across more time windows.
 
 ---
-*Last updated: 2026-02-14 22:30 by COMPY (nightly compound)*
+
+## 2026-02-18: U19 Recurring Pattern — Multi-Scraper Convergence (Day 12 Post-Crisis)
+
+**Sessions reviewed:** 8 total (Feb 18 24h cycle)
+- Watchy (2 sessions, 95 messages, 28 connection errors)
+- Scrappy (2 sessions, 39 messages, 1 connection error)
+- Movy (1 session, 1 message, 0 errors)
+- Socialy (1 session, 8 messages, 0 errors)
+- Compy (2 sessions, 8 messages, 0 errors)
+
+**CRITICAL DISCOVERY: U19 Scraper Convergence Pattern**
+
+The U19 age group issue is now clearly **repeating across multiple scrapers:**
+```
+Feb 16 7:35am: TGS pulled 726 U19 games → quarantine 39 → 777
+Feb 17 8:00am: Quarantine dropped 777 → 65 (cleanup or auto-decision)
+Feb 18 8:00am: GotSport pulled 632 U19 games → quarantine 697 (NEW spike)
+```
+
+**Pattern Analysis:**
+- **Not random:** TGS AND GotSport both discovering U19 events independently
+- **Root cause:** Both scrapers pulling from data sources that include U19 (high school)
+- **Policy decision still pending:** Options A/B/C unchanged (support U19 / filter upstream / leave in quarantine)
+- **Likely outcome if decision delayed:** Quarantine will continue to oscillate as scrapers run
+
+**Agent Resilience Pattern Holds:**
+- Despite 29 errors across fleet (all "connection error" baseline)
+- All 4 scheduled jobs completed: Watchy (8am) ✅ Scrappy (6am) ✅ Movy (11am) ✅ Socialy (9am) ✅
+- Error rate: 28 (Watchy) + 1 (Scrappy) = 29 total = no escalation from day 11 plateau
+
+**Watchy Error Spike Context:**
+- Watchy hit 28 connection errors (vs typical 5-15)
+- But still completed full health check and reported correctly
+- All errors are **non-blocking** (agent continues work)
+- Likely due to increased API calls from detailed quarantine analysis
+
+**System Health Status (Day 12):**
+- ✅ **Data pipeline:** Healthy (Games 700,284 ↑ 9k from Mon)
+- ✅ **Agent reliability:** All agents running on schedule, all completing work
+- 🟡 **Quarantine stability:** Oscillating due to scraper pattern (awaiting policy decision)
+- 🟡 **Error baseline:** Still elevated from pre-crisis (6-7 errors/day), but stable (no escalation for 4 days)
+
+**File Updates:**
+- ✅ AGENT_COMMS.md (consolidated to 24h, archived Feb 17 and earlier)
+- ✅ DECISION_TREES.md (U19 policy decision ladder expanded)
+- ✅ This entry (Feb 18 compound analysis)
+
+**Recommendation to D H:**
+The U19 decision cannot wait much longer. Each scraper cycle will re-populate quarantine. Choose A/B/C today to stabilize the pipeline.
+
+---
+*Last updated: 2026-02-18 22:30 by COMPY (nightly compound)*

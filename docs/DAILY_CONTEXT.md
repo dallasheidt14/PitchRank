@@ -27,36 +27,54 @@ D H: "you can do whatever without my approval just don't mess with algo and star
 - Manually reviewing each age group for data cleanliness
 - Working through match review queue
 
-## 🔄 Today's Activity (Feb 17 - Tuesday)
+## 🔄 Today's Activity (Feb 18 - Wednesday)
+
+### Early Morning (6am)
+- 🕷️ **Scrappy Wed future games scrape:** ✅ Completed
+  - New games imported for Feb 19-22 weekend
+  - Rate-limited at 1.5-2.5s per request (normal)
+  - Status: 1 connection error (non-blocking)
+  - Output feeding into Movy preview
 
 ### Morning (8am)
 - 👁️ **Watchy 8am health check:** ✅ Completed
-  - Data snapshot: Teams 96,926 | Games 700,284 | Quarantine 65 (stable)
-  - **U19 Status Update:** Quarantine dropped 777 → 65 (improvement!)
-  - **Interpretation:** Scraper filter or auto-decision likely implemented
-  - Details: [See AGENT_COMMS.md Feb 17 8:00am WATCHY entry]
-  - All systems nominal, no new alerts
+  - Data snapshot: Teams 96,926 | Games 700,284 | Quarantine 697 (⚠️ UP from 65)
+  - **🚨 U19 RECURRING ALERT:** Quarantine spiked 65 → 697 (632 new GotSport U19 games)
+  - **Critical pattern discovered:** TGS pulled 726 U19s on Feb 16, dropped to 65 on Feb 17, now GotSport pulled 632 on Feb 18
+  - **Root cause:** Both scrapers independently pulling U19 events from source data
+  - **Impact:** Quarantine oscillating until U19 policy decision made
+  - Errors: 28 connection errors (elevated, but all non-blocking, agent completed health check)
+  - [Full analysis in AGENT_COMMS.md and LEARNINGS.md]
 
-### Mid-Morning (10am)
-- 📈 **Movy 10am Tue movers report:** ✅ Complete
-  - Weekly top movers identified (7-day window)
+### Mid-Morning (11am)
+- 📈 **Movy 11am Wed weekend preview:** ✅ Complete
+  - 31 games scheduled for this weekend (Feb 19-22)
+  - Saturday Feb 21: 19 games (prime game day)
+  - Sunday Feb 22: 11 games
+  - Top leagues: WFPL (6), Florida Academy (3), EDPL (3)
   - Content generated and ready for publication
   - Status: Ready for social + blog delivery
 
+### Mid-Morning (9am)
+- 📱 **Socialy 9am weekly SEO audit:** ✅ Completed
+  - Technical SEO check ran
+  - Still blocked on GSC credentials for full reporting (4+ days pending)
+  - Content ready but can't publish metrics
+
 ### Evening (10:30pm)
 - 🧠 **COMPY nightly compound:** ✅ Complete (THIS SESSION)
-  - Sessions reviewed: 6 (Watchy, Cleany, Movy, Compy)
-  - Error analysis: 35 connection errors (all baseline, non-blocking)
-  - New patterns: None (system stable)
-  - Learnings updated: Error plateau extended to day 11 post-crisis
-  - Files consolidated: AGENT_COMMS.md, DAILY_CONTEXT.md
+  - Sessions reviewed: 8 (Watchy, Scrappy, Movy, Socialy, Compy)
+  - Error analysis: 29 connection errors (Watchy 28, Scrappy 1) = baseline stable, no escalation
+  - **New pattern:** U19 scraper convergence (multi-source, not random) → escalating to D H as "decision needed ASAP"
+  - Files updated: LEARNINGS.md, AGENT_COMMS.md, DECISION_TREES.md
   - Status: Ready to commit and push
 
 ### Summary
-- 📈 **Quarantine improved** (777 → 65) — System self-correcting or decision auto-implemented
-- 🎯 **U19 policy decision status:** Still awaiting D H, but quarantine no longer critical
+- 🚨 **U19 policy decision:** NOW CRITICAL — each scraper run repopulates quarantine. Must choose A/B/C today.
+- 📈 **Quarantine oscillating** (39 → 777 → 65 → 697 over 4 days) — awaiting policy decision
 - 📱 **Socialy:** Still awaiting GSC credentials (4+ days pending)
-- ✅ **Data pipeline:** Healthy, error baseline stable, movers report generated
+- ✅ **Data pipeline:** Healthy (Games 700,284), error baseline stable (no escalation from day 11 plateau)
+- ✅ **All agents:** Running on schedule, all completing work despite errors
 
 ## ⚠️ Known Issues
 - **[❓ DECISION_PENDING]** U19 Age Group Coverage — Feb 16 discovery: 726 U19 games now entering quarantine. Is this supported age group? Decision needed: A) Add U19 support, B) Filter at scraper, or C) Leave in quarantine. Documented in DECISION_TREES.md.
