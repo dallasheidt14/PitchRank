@@ -110,3 +110,12 @@ Generated CSVs in `data/validation/`:
 ## Key takeaway from this real-data run
 
 The new opponent-adjust logic **does** raise offense credit in competitive/tight-game profiles, but in this real U14 male run it did **not consistently convert into better overall power/rank** once defense + SOS interactions are included; weak-schedule blowout profiles also still show cases of net rank gains.
+
+### Refresh status
+
+- Refreshed at (UTC): 2026-02-19T05:31:52Z
+- Window reference date: 2026-02-19
+- Rows fetched: 980,915
+- Teams fetched: 77,477
+- Data date range in fetch: 2025-02-19 to 2026-02-16
+
