@@ -179,12 +179,12 @@ MATCHING_CONFIG = {
     'review_threshold': 0.75,
     'max_age_diff': 2,
     'weights': {
-        'team': 0.65,
-        'club': 0.25,
-        'age': 0.05,
-        'location': 0.05
+        'team': 0.35,
+        'club': 0.35,
+        'age': 0.10,
+        'location': 0.10
     },
-    'club_boost_identical': 0.05,
+    'club_boost_identical': 0.10,
     'club_min_similarity': 0.8
 }
 

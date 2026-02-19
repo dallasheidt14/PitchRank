@@ -43,6 +43,14 @@ on:
         type: boolean
         default: false
 
+# Prevent overlapping scrape runs — the Monday 6:00 AM run must finish
+# before the 11:15 AM run starts. Without this, both runs write to the
+# same games/team_alias_map tables simultaneously, causing duplicate
+# inserts and stale alias cache reads.
+concurrency:
+  group: game-scraping
+  cancel-in-progress: false  # Queue the second run, don't cancel the first
+
 jobs:
   scrape-and-import:
     runs-on: ubuntu-latest
