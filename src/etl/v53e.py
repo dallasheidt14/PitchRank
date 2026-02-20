@@ -52,7 +52,7 @@ class V53EConfig:
     PERF_GAME_SCALE: float = 0.15  # Scales per-game performance residual
     PERF_BLEND_WEIGHT: float = 0.15  # Weight of perf_centered in final powerscore
     PERFORMANCE_DECAY_RATE: float = 0.08   # decay per recency index step
-    PERFORMANCE_THRESHOLD: float = 2.0     # goals
+    PERFORMANCE_THRESHOLD: float = 0.5     # goals – lowered from 2.0 to fix asymmetric filtering bias against defensive teams
     PERFORMANCE_GOAL_SCALE: float = 5.0    # goals per 1.0 power diff
 
     # Layer 7 (Bayesian shrink)
