@@ -721,6 +721,11 @@ def compute_rankings(
     cutoff = today - pd.Timedelta(days=cfg.WINDOW_DAYS)
     g = g[g["date"] >= cutoff].copy()
 
+    # Flag game outcomes before outlier clipping modifies gf/ga
+    g["is_win"] = (g["gf"] > g["ga"]).astype(int)
+    g["is_loss"] = (g["gf"] < g["ga"]).astype(int)
+    g["is_draw"] = (g["gf"] == g["ga"]).astype(int)
+
     # -------------------------
     # Layer 2: per-team GF/GA outlier guard + GD cap
     # -------------------------
@@ -731,6 +736,12 @@ def compute_rankings(
         return out
 
     g = pd.concat([clip_team_games(grp) for _, grp in g.groupby("team_id")]).reset_index(drop=True)
+    # Cap individual gf/ga per game (consistent with GOAL_DIFF_CAP).
+    # Without this, an 8-0 blowout contributes 8 goals of offensive output
+    # even though gd is capped at 6. This inflates offense for teams
+    # beating up on weak opponents.
+    g["gf"] = g["gf"].clip(upper=cfg.GOAL_DIFF_CAP)
+    g["ga"] = g["ga"].clip(upper=cfg.GOAL_DIFF_CAP)
     g["gd"] = (g["gf"] - g["ga"]).clip(-cfg.GOAL_DIFF_CAP, cfg.GOAL_DIFF_CAP)
 
     # Save ALL 365-day games before the 30-game filter.
@@ -807,6 +818,14 @@ def compute_rankings(
     # Add gp (game count) using vectorized count
     gp_counts = g.groupby(["team_id", "age", "gender"], as_index=False).size().rename(columns={"size": "gp"})
     team = team.merge(gp_counts, on=["team_id", "age", "gender"], how="left")
+
+    # Compute W/L/D counts per team (flags were set before outlier clipping)
+    wld_counts = g.groupby(["team_id", "age", "gender"], as_index=False).agg(
+        wins=("is_win", "sum"),
+        losses=("is_loss", "sum"),
+        draws=("is_draw", "sum"),
+    )
+    team = team.merge(wld_counts, on=["team_id", "age", "gender"], how="left")
 
     # Calculate games in last 180 days for activity filter
     inactive_cutoff = today - pd.Timedelta(days=cfg.INACTIVE_HIDE_DAYS)
@@ -1658,6 +1677,7 @@ def compute_rankings(
 
     keep_cols = [
         "team_id", "age", "gender", "gp", "gp_last_180", "last_game", "status", "rank_in_cohort",
+        "wins", "losses", "draws",
         "off_raw", "sad_raw", "off_shrunk", "sad_shrunk", "def_shrunk",
         "off_norm", "def_norm",
         "sos", "sos_norm", "sample_flag",
@@ -1725,13 +1745,17 @@ def compute_rankings(
 
     # Games played summary for the frontend
     teams["games_played"] = teams["gp"]
-    teams["wins"] = None
-    teams["losses"] = None
-    teams["draws"] = None
+    teams["wins"] = teams["wins"].fillna(0).astype(int)
+    teams["losses"] = teams["losses"].fillna(0).astype(int)
+    teams["draws"] = teams["draws"].fillna(0).astype(int)
     teams["total_games_played"] = teams["gp"]
-    teams["total_wins"] = None
-    teams["total_losses"] = None
-    teams["total_draws"] = None
-    teams["win_percentage"] = None
+    teams["total_wins"] = teams["wins"]
+    teams["total_losses"] = teams["losses"]
+    teams["total_draws"] = teams["draws"]
+    teams["win_percentage"] = np.where(
+        teams["gp"] > 0,
+        (teams["wins"] / teams["gp"] * 100).round(1),
+        0.0,
+    )
 
     return {"teams": teams, "games_used": games_used}
