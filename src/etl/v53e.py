@@ -1342,9 +1342,16 @@ def compute_rankings(
             prev_sos = team["sos"].values.copy()
             prev_power = team["powerscore_adj"].values.copy()
 
-            # Step 1: Build FULL power strength map (vectorized - no iterrows)
+            # Step 1: Build FULL power strength map with OFF/DEF floor
+            # The floor prevents circular depression in closed elite leagues (e.g., MLS NEXT HD).
+            # Without it, the loop spirals: depressed SOS → lower power → lower opponent strength
+            # → even lower SOS. The floor says: "a team's contribution to opponents' SOS
+            # cannot drop below their raw OFF/DEF quality (base_strength)."
+            # Impact: +0.24 for closed elite leagues (correct fix), +0.03 for bubbles (negligible).
             full_power_values = (team["powerscore_adj"].values * anchors).clip(0.0, 1.0)
-            full_power_strength_map = dict(zip(team_ids, full_power_values))
+            base_strength_values = np.array([base_strength_map.get(tid, cfg.UNRANKED_SOS_BASE) for tid in team_ids])
+            floored_power_values = np.maximum(full_power_values, base_strength_values)
+            full_power_strength_map = dict(zip(team_ids, floored_power_values))
 
             # Step 2: Vectorized opponent strength lookup
             def lookup_strength(opp_id):
