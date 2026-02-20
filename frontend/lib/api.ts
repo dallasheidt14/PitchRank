@@ -172,7 +172,8 @@ export const api = {
     const { data: gamesData, error: gamesDataError } = await supabase
       .from('games')
       .select('home_team_master_id, away_team_master_id, home_score, away_score')
-      .or(gameOrConditions);
+      .or(gameOrConditions)
+      .eq('is_excluded', false);
 
     // Calculate total games count and win/loss/draw record from games
     const totalGamesCount = gamesData?.length ?? 0;
@@ -423,6 +424,7 @@ export const api = {
       .from('games')
       .select('*')
       .or(`home_team_master_id.eq.${id},away_team_master_id.eq.${id}`)
+      .eq('is_excluded', false)
       .order('game_date', { ascending: true });
 
     if (gamesError) {
@@ -535,6 +537,7 @@ export const api = {
       .from('games')
       .select('*')
       .or(orConditions)
+      .eq('is_excluded', false)
       .order('game_date', { ascending: false })
       .limit(limit);
 
@@ -670,6 +673,7 @@ export const api = {
       .from('games')
       .select('*')
       .or(`home_team_master_id.eq.${team1Id},away_team_master_id.eq.${team1Id}`)
+      .eq('is_excluded', false)
       .order('game_date', { ascending: false });
 
     if (team1Error) {
@@ -682,6 +686,7 @@ export const api = {
       .from('games')
       .select('*')
       .or(`home_team_master_id.eq.${team2Id},away_team_master_id.eq.${team2Id}`)
+      .eq('is_excluded', false)
       .order('game_date', { ascending: false });
 
     if (team2Error) {
@@ -817,6 +822,7 @@ export const api = {
       .not('home_score', 'is', null)
       .not('away_score', 'is', null)
       .or(`home_team_master_id.in.(${teamAId},${teamBId}),away_team_master_id.in.(${teamAId},${teamBId})`)
+      .eq('is_excluded', false)
       .order('game_date', { ascending: false });
 
     if (gamesError) {
@@ -908,7 +914,8 @@ export const api = {
       .not('home_team_master_id', 'is', null)
       .not('away_team_master_id', 'is', null)
       .not('home_score', 'is', null)
-      .not('away_score', 'is', null);
+      .not('away_score', 'is', null)
+      .eq('is_excluded', false);
 
     if (gamesError) {
       console.error('Error fetching games count:', gamesError);

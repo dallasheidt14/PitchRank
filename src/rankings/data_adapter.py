@@ -139,6 +139,8 @@ async def fetch_games_for_rankings(
         'home_score', 'null'
     ).not_.is_(
         'away_score', 'null'
+    ).eq(
+        'is_excluded', False  # Exclude games flagged as non-ranking (e.g., futsal)
     ).order('game_date', desc=False)  # Order for consistent pagination
     
     if provider_filter:
