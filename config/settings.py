@@ -123,7 +123,7 @@ RANKING_CONFIG = {
     'perf_game_scale': float(os.getenv("PERF_GAME_SCALE", 0.15)),  # V53EConfig.PERF_GAME_SCALE - scales per-game residual
     'perf_blend_weight': float(os.getenv("PERF_BLEND_WEIGHT", 0.15)),  # V53EConfig.PERF_BLEND_WEIGHT - weight in powerscore
     'performance_decay_rate': float(os.getenv("PERFORMANCE_DECAY_RATE", 0.08)),  # V53EConfig.PERFORMANCE_DECAY_RATE
-    'performance_threshold': float(os.getenv("PERFORMANCE_THRESHOLD", 2.0)),  # V53EConfig.PERFORMANCE_THRESHOLD
+    'performance_threshold': float(os.getenv("PERFORMANCE_THRESHOLD", 0.5)),  # V53EConfig.PERFORMANCE_THRESHOLD – lowered from 2.0
     'performance_goal_scale': float(os.getenv("PERFORMANCE_GOAL_SCALE", 5.0)),  # V53EConfig.PERFORMANCE_GOAL_SCALE
     
     # Layer 7 (Bayesian shrink)
