@@ -99,8 +99,10 @@ class TestRealisticCohort:
 
     @pytest.fixture
     def realistic_cohort(self):
+        # Use 35 teams to exceed MIN_COMPONENT_SIZE_FOR_FULL_SOS (30)
+        # so component-size SOS shrinkage doesn't compress the range
         games_df, team_ids = _build_realistic_cohort(
-            num_teams=10, games_per_team=12
+            num_teams=35, games_per_team=12
         )
         cfg = V53EConfig()
         result = compute_rankings(
