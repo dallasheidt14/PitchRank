@@ -643,12 +643,17 @@ def compute_rankings(
         out["ga"] = _clip_outliers_series(out["ga"], cfg.OUTLIER_GUARD_ZSCORE)
         return out
 
-    g = g.groupby("team_id").apply(clip_team_games).reset_index(drop=True)
+    g = pd.concat([clip_team_games(grp) for _, grp in g.groupby("team_id")]).reset_index(drop=True)
     g["gd"] = (g["gf"] - g["ga"]).clip(-cfg.GOAL_DIFF_CAP, cfg.GOAL_DIFF_CAP)
 
-    # keep last N games per team (by date)
+    # Save ALL 365-day games before the 30-game filter.
+    # SOS uses the full window so that short scheduling clusters
+    # (e.g. 3-4 weak opponents in a row) don't dominate the sample.
     g = g.sort_values(["team_id", "date"], ascending=[True, False])
     g["rank_recency"] = g.groupby("team_id")["date"].rank(ascending=False, method="first")
+    g_365 = g.copy()  # Full 365-day set for SOS (before 30-game trim)
+
+    # keep last N games per team (by date) for OFF/DEF calculations
     g = g[g["rank_recency"] <= cfg.MAX_GAMES_FOR_RANK].copy()
 
     # -------------------------
@@ -666,7 +671,7 @@ def compute_rankings(
         out["w_base"] = w
         return out
 
-    g = g.groupby("team_id").apply(apply_recency).reset_index(drop=True)
+    g = pd.concat([apply_recency(grp) for _, grp in g.groupby("team_id")]).reset_index(drop=True)
 
     # -------------------------
     # Context multipliers (tournament/KO)
@@ -734,7 +739,8 @@ def compute_rankings(
     # -------------------------
     # Layer 7: shrink within cohort
     # -------------------------
-    def shrink_grp(df: pd.DataFrame) -> pd.DataFrame:
+    # Shared helpers for shrinkage + clipping (used in initial pass and opponent-adjust pass)
+    def _shrink_cohort(df: pd.DataFrame) -> pd.DataFrame:
         mu_off = df["off_raw"].mean()
         mu_sad = df["sad_raw"].mean()
         out = df.copy()
@@ -743,12 +749,7 @@ def compute_rankings(
         out["def_shrunk"] = 1.0 / (out["sad_shrunk"] + cfg.RIDGE_GA)
         return out
 
-    team = team.groupby(["age", "gender"]).apply(shrink_grp).reset_index(drop=True)
-
-    # -------------------------
-    # Layer 5: team-level outlier guard (OFF/DEF)
-    # -------------------------
-    def clip_team_level(df: pd.DataFrame) -> pd.DataFrame:
+    def _clip_cohort(df: pd.DataFrame) -> pd.DataFrame:
         out = df.copy()
         for col in ["off_shrunk", "def_shrunk"]:
             s = out[col]
@@ -758,7 +759,12 @@ def compute_rankings(
                                   mu + cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd)
         return out
 
-    team = team.groupby(["age", "gender"]).apply(clip_team_level).reset_index(drop=True)
+    team = pd.concat([_shrink_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
+
+    # -------------------------
+    # Layer 5: team-level outlier guard (OFF/DEF)
+    # -------------------------
+    team = pd.concat([_clip_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
 
     # -------------------------
     # Layer 9: normalize OFF/DEF
@@ -861,30 +867,11 @@ def compute_rankings(
         # Re-apply defense ridge
         team["def_raw"] = 1.0 / (team["sad_raw"] + cfg.RIDGE_GA)
 
-        # Re-apply Bayesian shrinkage
-        def shrink_grp_adj(df: pd.DataFrame) -> pd.DataFrame:
-            mu_off = df["off_raw"].mean()
-            mu_sad = df["sad_raw"].mean()
-            out = df.copy()
-            out["off_shrunk"] = (out["off_raw"] * out["gp"] + mu_off * cfg.SHRINK_TAU) / (out["gp"] + cfg.SHRINK_TAU)
-            out["sad_shrunk"] = (out["sad_raw"] * out["gp"] + mu_sad * cfg.SHRINK_TAU) / (out["gp"] + cfg.SHRINK_TAU)
-            out["def_shrunk"] = 1.0 / (out["sad_shrunk"] + cfg.RIDGE_GA)
-            return out
+        # Re-apply Bayesian shrinkage (using shared helper)
+        team = pd.concat([_shrink_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
 
-        team = team.groupby(["age", "gender"]).apply(shrink_grp_adj).reset_index(drop=True)
-
-        # Re-apply outlier clipping
-        def clip_team_level_adj(df: pd.DataFrame) -> pd.DataFrame:
-            out = df.copy()
-            for col in ["off_shrunk", "def_shrunk"]:
-                s = out[col]
-                if len(s) >= 3 and s.std(ddof=0) > 0:
-                    mu, sd = s.mean(), s.std(ddof=0)
-                    out[col] = s.clip(mu - cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd,
-                                      mu + cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd)
-            return out
-
-        team = team.groupby(["age", "gender"]).apply(clip_team_level_adj).reset_index(drop=True)
+        # Re-apply outlier clipping (using shared helper)
+        team = pd.concat([_clip_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
 
         # Re-normalize
         team = _normalize_by_cohort(team, "off_shrunk", "off_norm", cfg.NORM_MODE)
@@ -915,11 +902,32 @@ def compute_rankings(
     # -------------------------
     # Layer 8: SOS (weights + repeat-cap + iterations)
     # -------------------------
-    g["w_sos"] = g["w_game"] * g["k_adapt"]
+    # SOS uses the FULL 365-day game window (g_365) instead of the 30-game
+    # OFF/DEF window.  This ensures that a short run of weak opponents
+    # (e.g. 3-4 games) is diluted by the much larger 365-day sample rather
+    # than over-represented in a 30-game window.
+    #
+    # Pipeline for g_365:
+    #   recency weights → context multipliers → w_game → adaptive K → w_sos
+    g_365 = pd.concat(
+        [apply_recency(grp) for _, grp in g_365.groupby("team_id")]
+    ).reset_index(drop=True)
+    g_365["w_context"] = g_365.apply(context_mult, axis=1)
+    g_365["w_game"] = g_365["w_base"] * g_365["w_context"]
+    g_365["k_adapt"] = g_365.apply(adaptive_k, axis=1)
+    g_365["w_sos"] = g_365["w_game"] * g_365["k_adapt"]
 
-    g = g.sort_values(["team_id", "opp_id", "w_sos"], ascending=[True, True, False])
-    g["repeat_rank"] = g.groupby(["team_id", "opp_id"])["w_sos"].rank(ascending=False, method="first")
-    g_sos = g[g["repeat_rank"] <= cfg.SOS_REPEAT_CAP].copy()
+    logger.info(
+        f"📊 SOS 365-day window: {len(g_365)} game-rows "
+        f"(vs {len(g)} in 30-game OFF/DEF window)"
+    )
+
+    g_365 = g_365.sort_values(["team_id", "opp_id", "w_sos"], ascending=[True, True, False])
+    g_365["repeat_rank"] = g_365.groupby(["team_id", "opp_id"])["w_sos"].rank(ascending=False, method="first")
+    g_sos = g_365[g_365["repeat_rank"] <= cfg.SOS_REPEAT_CAP].copy()
+
+    # Also compute w_sos on the 30-game set (used by performance layer)
+    g["w_sos"] = g["w_game"] * g["k_adapt"]
 
     # Helper function for weighted averages
     def _avg_weighted(df: pd.DataFrame, col: str, wcol: str) -> float:
@@ -1334,9 +1342,16 @@ def compute_rankings(
             prev_sos = team["sos"].values.copy()
             prev_power = team["powerscore_adj"].values.copy()
 
-            # Step 1: Build FULL power strength map (vectorized - no iterrows)
+            # Step 1: Build FULL power strength map with OFF/DEF floor
+            # The floor prevents circular depression in closed elite leagues (e.g., MLS NEXT HD).
+            # Without it, the loop spirals: depressed SOS → lower power → lower opponent strength
+            # → even lower SOS. The floor says: "a team's contribution to opponents' SOS
+            # cannot drop below their raw OFF/DEF quality (base_strength)."
+            # Impact: +0.24 for closed elite leagues (correct fix), +0.03 for bubbles (negligible).
             full_power_values = (team["powerscore_adj"].values * anchors).clip(0.0, 1.0)
-            full_power_strength_map = dict(zip(team_ids, full_power_values))
+            base_strength_values = np.array([base_strength_map.get(tid, cfg.UNRANKED_SOS_BASE) for tid in team_ids])
+            floored_power_values = np.maximum(full_power_values, base_strength_values)
+            full_power_strength_map = dict(zip(team_ids, floored_power_values))
 
             # Step 2: Vectorized opponent strength lookup
             def lookup_strength(opp_id):
@@ -1372,7 +1387,7 @@ def compute_rankings(
             # Step 6: Apply low-sample shrinkage (vectorized) - QUADRATIC for aggressive dampening
             low_sample_mask = gps < cfg.MIN_GAMES_FOR_TOP_SOS
             shrink_factor = np.clip((gps / cfg.MIN_GAMES_FOR_TOP_SOS) ** 2, 0.0, 1.0)
-            sos_norm_values = team['sos_norm'].values
+            sos_norm_values = team['sos_norm'].values.copy()
             sos_norm_values[low_sample_mask] = (
                 0.5 + shrink_factor[low_sample_mask] * (sos_norm_values[low_sample_mask] - 0.5)
             )
@@ -1474,12 +1489,8 @@ def compute_rankings(
         "gf", "ga", "gd",
         "w_base", "w_context", "k_adapt", "w_game", "w_sos", "rank_recency"
     ]
-    # For transparency, return all used games (pre repeat-cap) or the capped set.
-    # Here we return the capped set that actually fed SOS.
-    games_used = (
-        g[g["repeat_rank"] <= cfg.SOS_REPEAT_CAP][games_used_cols].copy()
-        if "repeat_rank" in g.columns else g[games_used_cols].copy()
-    )
+    # Return the 365-day SOS games (after repeat-cap) that actually fed SOS.
+    games_used = g_sos[[c for c in games_used_cols if c in g_sos.columns]].copy()
 
     keep_cols = [
         "team_id", "age", "gender", "gp", "gp_last_180", "last_game", "status", "rank_in_cohort",
