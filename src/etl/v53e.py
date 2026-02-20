@@ -736,6 +736,12 @@ def compute_rankings(
         return out
 
     g = pd.concat([clip_team_games(grp) for _, grp in g.groupby("team_id")]).reset_index(drop=True)
+    # Cap individual gf/ga per game (consistent with GOAL_DIFF_CAP).
+    # Without this, an 8-0 blowout contributes 8 goals of offensive output
+    # even though gd is capped at 6. This inflates offense for teams
+    # beating up on weak opponents.
+    g["gf"] = g["gf"].clip(upper=cfg.GOAL_DIFF_CAP)
+    g["ga"] = g["ga"].clip(upper=cfg.GOAL_DIFF_CAP)
     g["gd"] = (g["gf"] - g["ga"]).clip(-cfg.GOAL_DIFF_CAP, cfg.GOAL_DIFF_CAP)
 
     # Save ALL 365-day games before the 30-game filter.
