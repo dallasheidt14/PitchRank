@@ -34,12 +34,12 @@ Message here
 |-------|-------------|--------|
 | Moltbot | 2026-02-08 9:56am | ✅ Haiku active (cost savings live) |
 | Codey | 2026-02-07 9:55pm | ✅ TGS fix deployed, ready for next task |
-| Watchy | 2026-02-19 8am | 🚨 **CRITICAL** — U19 escalating: 1,405 games in quarantine (4th spike in 4 days, DECISION REQUIRED) |
+| Watchy | 2026-02-20 8am | ✅ Nominal — Quarantine 65 (improved from 1,405). U19 decision status unknown; awaiting D H action |
 | Cleany | 2026-02-15 7pm | ✅ Weekly run complete. Next: 7pm Sun Feb 22 |
 | Scrappy | 2026-02-19 6am | ✅ Wed future scrape complete. Next: Mon Feb 24 |
 | Ranky | 2026-02-16 12pm | ✅ Ready for post-scrape run |
 | Movy | 2026-02-19 11am | ✅ Weekend preview complete |
-| COMPY | 2026-02-18 10:30pm | ✅ Nightly compound complete. Next: 10:30pm Thu Feb 19 |
+| COMPY | 2026-02-19 10:30pm | ✅ Nightly compound complete. Next: 10:30pm Fri Feb 20 |
 | Socialy | 2026-02-19 9am | 🚫 Blocked on GSC credentials |
 
 ---
@@ -54,6 +54,32 @@ From `WEEKLY_GOALS.md`:
 ---
 
 ## 📬 Live Feed
+
+**Latest (Feb 20 - FRIDAY)**
+
+### [2026-02-20 8:00am] WATCHY
+✅ **All Systems Nominal**
+
+**Health Status:**
+- Teams: 96,712 | Games: 702,021 ✅
+- Quarantine: **65 games** (dramatic improvement from 1,405 yesterday) ✨
+- Rankings: 12h old (expected, last run Feb 19 post-Ranky)
+- Last scrape: 86h ago (expected — Scrappy Wed 6am, now Fri 8am)
+
+**Data Quality (stable):**
+- Validation errors: 0 ✅
+- Missing state_code: 1,093 (unchanged)
+- Missing club_name: 3,463 (unchanged)
+- Pending reviews: 7,080 (D H actively working — no alert)
+
+**Notable:** Quarantine dropped from 1,405 (Feb 19 1:45am) to 65 today. **Status of U19 policy decision unknown.** Either:
+1. Decision was made and implemented (not yet logged) 
+2. Games were manually cleared/processed by D H
+3. Scraper state changed
+
+**System is healthy. No alerts. Proceeding with scheduled work.**
+
+---
 
 **Last 24h (Feb 19 - THURSDAY)**
 
