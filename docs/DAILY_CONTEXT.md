@@ -2,7 +2,7 @@
 
 > Updated throughout the day. All agents should read this on startup.
 
-**Date:** 2026-02-17 (Tuesday) — Updated by COMPY 10:30pm MT
+**Date:** 2026-02-19 (Thursday) — Updated by COMPY 10:30pm MT
 
 ## 🚫 PROTECTED (Never Touch Without Asking)
 - Rankings algorithm
@@ -77,7 +77,7 @@ D H: "you can do whatever without my approval just don't mess with algo and star
 - ✅ **All agents:** Running on schedule, all completing work despite errors
 
 ## ⚠️ Known Issues
-- **[❓ DECISION_PENDING]** U19 Age Group Coverage — Feb 16 discovery: 726 U19 games now entering quarantine. Is this supported age group? Decision needed: A) Add U19 support, B) Filter at scraper, or C) Leave in quarantine. Documented in DECISION_TREES.md.
+- **[🚨 CRITICAL — DECISION_REQUIRED_ASAP]** U19 Age Group Coverage — **Escalated Feb 19 morning.** Quarantine spiked to 1,405 games (was 39 on Feb 15). Pattern: TGS pulled U19 on Feb 16 (777 → 65 on Feb 17, then) GotSport pulled U19 on Feb 18 (697), then another batch added Feb 19 1:45am (1,405). **Multi-scraper convergence — NOT self-resolving.** Each scraper run adds ~600-700 U19 games. **D H must choose TODAY:** A) Add U19 to supported ages (2-line code), B) Filter U19 at BOTH scrapers (upstream), or C) Accept accumulation. Documented in DECISION_TREES.md.
 - **[🔴 CRITICAL]** API Credit Exhaustion — Originally Feb 7-12. Error plateau at 6/day since Feb 13 suggests healing (system adapting). Continue monitoring for escalation.
 - **[🔴 CRITICAL]** GSC credentials missing (`gsc_credentials.json`) — blocks Socialy SEO reporting. D H needs to restore or regenerate (3+ days pending).
 - **[⚠️ FIXED]** Auto Merge Queue GH Action — Missing Supabase secrets in Actions. Fixed by Cleany (Feb 15 7pm): added SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY, re-triggered workflow.

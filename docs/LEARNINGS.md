@@ -4,6 +4,30 @@
 
 ## Cross-Agent Insights
 
+### 2026-02-19: U19 ESCALATION — DECISION CRITICAL (Day 13 Post-Crisis)
+**Update:** U19 quarantine escalated to 1,405 games (doubled from 697). Pattern confirms multi-scraper convergence.
+
+**Timeline (4-day escalation):**
+- Feb 15 morning: 39 games (baseline)
+- Feb 16 7:35am: TGS pulled 726 U19 → quarantine 777
+- Feb 17 8:00am: Quarantine dropped to 65 (apparent resolution)
+- Feb 18 8:00am: GotSport pulled 632 U19 → quarantine 697
+- **Feb 19 ~1:45am: Another ~700 U19 batch added → quarantine 1,405**
+
+**Key Learning:** The quarantine drop on Feb 17 (777→65) was NOT a decision being made or a scraper filter being applied. It was likely cleanup/deletion or data state adjustment. When GotSport ran on Feb 18, it independently re-populated U19 games because the source data still contains them.
+
+**Pattern Identified:** This is NOT a bug or transient issue. **Both TGS and GotSport have legitimate U19 events in their source data.** They will continue to independently pull these games on their scheduled runs (likely multiple times per week). Quarantine will oscillate between scraper runs until a policy decision is made.
+
+**Critical Finding:** Since first detection on Feb 16 (3+ days ago), the U19 issue has not resolved itself. It escalated instead. Each scraper run adds ~600-700 U19 games. Without a decision, quarantine will grow to 2,000+ by Feb 23.
+
+**Decision Deadline:** This CANNOT wait. D H must choose A/B/C TODAY (Feb 19). Each day of delay = another ~700 games accumulating.
+
+**What Changed:** On Feb 17, the drop to 65 games gave false hope that the issue was resolved. Instead, it highlighted that quarantine is a "managed state" — it only stays low if we actively filter U19. The moment filtering stopped (or when next scraper with U19 data ran), quarantine re-filled.
+
+**For All Agents:** Don't assume quarantine fixes itself. Large age-group spikes are policy decisions, not transient issues. Escalate immediately if same age group appears in quarantine across multiple scraper runs.
+
+---
+
 ### 2026-02-17: Quarantine Self-Correction & U19 Status Update (Day 11 Post-Crisis)
 **Observation:** Watchy reported quarantine dropped 777 → 65 on Feb 17 morning (8am check).
 

@@ -57,6 +57,69 @@ From `WEEKLY_GOALS.md`:
 
 **Last 24h (Feb 19 - THURSDAY)**
 
+### [2026-02-19 22:30pm] COMPY (TONIGHT)
+🧠 **Nightly Knowledge Compound Complete (Day 13 post-crisis)**
+
+**Sessions reviewed:** 5 total
+- Watchy (2 sessions, 40 messages, 1 connection error)
+- Scrappy (1 session, 41 messages, 2 connection errors)
+- Compy (2 sessions, 7 messages)
+
+**CRITICAL DISCOVERY: U19 ESCALATING TO 1,405 (4TH SPIKE IN 4 DAYS)**
+
+**Quarantine Timeline:**
+- Feb 15: 39 games
+- Feb 16: 777 (TGS pulled 726 U19) 
+- Feb 17: 65 (mysterious drop)
+- Feb 18: 697 (GotSport pulled 632 U19)
+- **Feb 19 (~1:45am): 1,405 (⚠️ doubled overnight, ~700 new U19 batch)**
+
+**Pattern:** Multi-scraper convergence (TGS + GotSport + possibly others independently pulling U19 events). **Decision still pending since Feb 16.** Each scraper run adds ~600-700 U19 games; quarantine will continue oscillating until decision made.
+
+**ERROR ANALYSIS:**
+- Total: 3 connection errors (Watchy 1, Scrappy 2) — baseline normal, non-blocking
+- All agents completed assigned work successfully
+- Error trend: Still on plateau (day 13, ~6/day baseline)
+
+**ALL AGENTS RUNNING ON SCHEDULE:**
+- ✅ Watchy (8am) — Detected critical U19 escalation, escalated to D H
+- ✅ Scrappy (Wed 6am) — Future games scrape complete, rate-limited normally  
+- ✅ Movy (Wed 11am) — Weekend preview complete, 31 games identified
+- ✅ Socialy (Wed 9am) — Technical SEO check complete, still blocked on GSC credentials
+- ✅ Cleany (Feb 15 7pm) — Last run complete, next Feb 22 7pm
+- ✅ Ranky — Ready for post-scrape run
+
+**DATA PIPELINE HEALTH:**
+- Teams: 96,735+ | Games: 701,353+ ✅
+- Rankings: 16-18h old (normal between scrapes)
+- **No validation errors EXCEPT U19** ✅
+- Pending reviews: 7,080 (D H actively working — expected)
+
+**ESCALATION STATUS:**
+🚨 **LEVEL 4 (❓ Decision Needed) — URGENT**
+Watchy escalated U19 decision to D H at 8am via main session. **Decision pending since Feb 16 — NOW CRITICAL.**
+
+**OPTIONS (D H MUST CHOOSE TODAY):**
+- **A)** Add U19 to supported ages (2-line code change)
+- **B)** Filter U19 at BOTH scrapers (upstream)
+- **C)** Accept accumulation (do nothing)
+
+**FILES UPDATED:**
+- ✅ AGENT_COMMS.md (consolidating now, archiving Feb 13-18)
+- ✅ LEARNINGS.md (Feb 19 U19 escalation documented)
+- ✅ DECISION_TREES.md (U19 pattern already documented Feb 16)
+
+**NEXT STEPS:**
+1. Await D H decision (A/B/C)
+2. If A: Spawn Codey for 2-line code fix
+3. If B: Update scraper configs
+4. If C: Accept quarantine oscillation
+5. Once chosen, document and move forward
+
+**CRITICAL NOTE:** System remains fully operational. U19 decision is business logic, not system failure. Quarantine just accumulates U19 until decision is made.
+
+---
+
 ### [2026-02-19 8:00am] WATCHY
 🚨 **CRITICAL: U19 ESCALATING — 4TH SPIKE IN 4 DAYS**
 
