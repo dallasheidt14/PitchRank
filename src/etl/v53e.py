@@ -161,6 +161,22 @@ class V53EConfig:
     PAGERANK_ALPHA: float = 0.85  # Dampening factor (0.85 = 15% baseline anchor)
     PAGERANK_BASELINE: float = 0.5  # Baseline SOS to anchor toward (neutral)
 
+    # =========================
+    # Connected Component SOS Normalization (Layer 8d)
+    # =========================
+    # When the game graph has disconnected subgraphs (e.g., ECNL and MLS NEXT HD
+    # teams that never play each other), the Power-SOS iteration loop creates a
+    # feedback loop that inflates one ecosystem and deflates the other.
+    #
+    # Fix: Detect connected components in the game graph and normalize SOS within
+    # each component independently.  This ensures each ecosystem gets a fair
+    # [0, 1] SOS distribution.  Small components get shrunk toward 0.5.
+    COMPONENT_SOS_ENABLED: bool = True
+    # Minimum component size (within cohort) for full SOS percentile range.
+    # Components smaller than this get their sos_norm shrunk toward 0.5.
+    # Set to roughly the size of the smallest "real" league in a cohort.
+    MIN_COMPONENT_SIZE_FOR_FULL_SOS: int = 30
+
 
 # =========================
 # US State to Region mapping (for SCF calculation)
@@ -290,6 +306,77 @@ def _provisional_multiplier(gp: int, min_games: int) -> float:
     if gp < 15:
         return 0.95
     return 1.0
+
+
+def find_connected_components(
+    g_sos: pd.DataFrame,
+    team_ids: np.ndarray,
+) -> Dict[str, int]:
+    """
+    Find connected components in the game graph using Union-Find.
+
+    Two teams are in the same component if there is ANY path of games
+    connecting them (including through cross-age/cross-gender opponents
+    that act as bridge nodes).
+
+    Args:
+        g_sos: DataFrame with columns ['team_id', 'opp_id'] — the games
+               used for SOS calculation.
+        team_ids: Array of team IDs in the current cohort.
+
+    Returns:
+        Dict mapping each team_id (from team_ids) to a component_id (int).
+        Teams in the same component share the same component_id.
+    """
+    # Union-Find with path compression and union by rank
+    parent = {}
+    rank = {}
+
+    def _find(x):
+        if x not in parent:
+            parent[x] = x
+            rank[x] = 0
+        # Path compression: point directly to root
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def _union(a, b):
+        ra, rb = _find(a), _find(b)
+        if ra == rb:
+            return
+        # Union by rank
+        if rank[ra] < rank[rb]:
+            ra, rb = rb, ra
+        parent[rb] = ra
+        if rank[ra] == rank[rb]:
+            rank[ra] += 1
+
+    # Build edges from game data (each row is team_id -> opp_id)
+    # Extract unique edges to avoid redundant unions
+    edges = g_sos[["team_id", "opp_id"]].drop_duplicates()
+    for t, o in zip(edges["team_id"].values, edges["opp_id"].values):
+        _union(t, o)
+
+    # Ensure all cohort teams have entries (even those with no games in g_sos)
+    for tid in team_ids:
+        if tid not in parent:
+            parent[tid] = tid
+            rank[tid] = 0
+
+    # Map component roots to sequential integer IDs for clean groupby
+    root_to_id = {}
+    next_id = 0
+    result = {}
+    for tid in team_ids:
+        root = _find(tid)
+        if root not in root_to_id:
+            root_to_id[root] = next_id
+            next_id += 1
+        result[tid] = root_to_id[root]
+
+    return result
 
 
 def compute_schedule_connectivity(
@@ -929,6 +1016,44 @@ def compute_rankings(
     # Also compute w_sos on the 30-game set (used by performance layer)
     g["w_sos"] = g["w_game"] * g["k_adapt"]
 
+    # -------------------------
+    # Layer 8d: Connected Component Detection
+    # -------------------------
+    # Detect disconnected subgraphs in the game graph so that SOS
+    # percentile normalization is done WITHIN each component, not across
+    # the entire cohort.  This prevents the Power-SOS iteration loop from
+    # creating feedback-loop bias between ecosystems that never play each
+    # other (e.g., ECNL vs MLS NEXT HD).
+    if cfg.COMPONENT_SOS_ENABLED:
+        component_map = find_connected_components(
+            g_sos=g_sos,
+            team_ids=team["team_id"].values,
+        )
+        team["component_id"] = team["team_id"].map(component_map).fillna(-1).astype(int)
+
+        # Compute component size WITHIN this cohort (for shrinkage decisions)
+        team["component_size"] = team.groupby(
+            ["age", "gender", "component_id"]
+        )["team_id"].transform("count")
+
+        # Log component statistics
+        n_components = team["component_id"].nunique()
+        component_sizes = team.groupby("component_id")["team_id"].count()
+        if n_components > 1:
+            logger.info(
+                f"🔗 Connected components detected: {n_components} components. "
+                f"Sizes: {sorted(component_sizes.values, reverse=True)[:10]}"
+            )
+        else:
+            logger.info(
+                f"🔗 Game graph is fully connected (1 component, {len(team)} teams). "
+                f"Component-based SOS normalization is a no-op."
+            )
+    else:
+        # Disabled: all teams in one pseudo-component
+        team["component_id"] = 0
+        team["component_size"] = len(team)
+
     # Helper function for weighted averages
     def _avg_weighted(df: pd.DataFrame, col: str, wcol: str) -> float:
         w = df[wcol].values
@@ -1152,18 +1277,31 @@ def compute_rankings(
 
     # SOS Normalization: Per-cohort percentile ranking
     #
-    # IMPORTANT: We normalize SOS within each cohort (age + gender) to ensure
-    # SOS has the full [0, 1] range within each ranking group. This guarantees
-    # that SOS contributes its intended 50% weight to PowerScore differentiation.
+    # IMPORTANT: We normalize SOS within each connected component (within the
+    # cohort) to ensure SOS has the full [0, 1] range within each ranking group.
+    # This guarantees that SOS contributes its intended 50% weight to PowerScore
+    # differentiation WITHOUT creating feedback-loop bias between disconnected
+    # ecosystems (e.g., ECNL vs MLS NEXT HD).
+    #
+    # When COMPONENT_SOS_ENABLED=True, the groupby includes component_id so that
+    # each disconnected subgraph is normalized independently.  For fully connected
+    # graphs (single component), this is equivalent to the old cohort-level
+    # normalization.
     #
     # Previous approach (global scaling) caused SOS compression where some cohorts
     # had sos_norm ranges like [0.3, 0.5] instead of [0, 1], effectively reducing
     # SOS contribution to ~10% instead of 50%.
-    logger.info("🔄 Computing per-cohort SOS normalization (percentile within age+gender)")
 
-    # Percentile rank within each cohort - ensures full [0, 1] range per cohort
-    # Teams are ranked against peers in the same age group and gender
-    def percentile_within_cohort(x):
+    # Determine groupby columns based on whether component normalization is enabled
+    sos_group_cols = ['age', 'gender']
+    if cfg.COMPONENT_SOS_ENABLED:
+        sos_group_cols = ['age', 'gender', 'component_id']
+        logger.info("🔄 Computing SOS normalization (percentile within connected components)")
+    else:
+        logger.info("🔄 Computing per-cohort SOS normalization (percentile within age+gender)")
+
+    # Percentile rank within each group - ensures full [0, 1] range per group
+    def percentile_within_group(x):
         if len(x) <= 1:
             return pd.Series([0.5] * len(x), index=x.index)
         # Manual percentile: maps ranks to [0.0, 1.0] where worst=0, best=1.
@@ -1171,13 +1309,30 @@ def compute_rankings(
         ranks = x.rank(method='average')
         return (ranks - 1) / (len(x) - 1) if len(x) > 1 else pd.Series([0.5], index=x.index)
 
-    team['sos_norm'] = team.groupby(['age', 'gender'])['sos'].transform(percentile_within_cohort)
+    team['sos_norm'] = team.groupby(sos_group_cols)['sos'].transform(percentile_within_group)
 
-    # Handle edge cases (NaN from single-team cohorts)
+    # Handle edge cases (NaN from single-team cohorts/components)
     team['sos_norm'] = team['sos_norm'].fillna(0.5)
 
     # Ensure values are clipped to [0, 1]
     team['sos_norm'] = team['sos_norm'].clip(0.0, 1.0)
+
+    # Component-size shrinkage: small disconnected components get their sos_norm
+    # shrunk toward 0.5 because percentile normalization over a handful of teams
+    # is unreliable.  A 4-team component would have sos_norm spread across
+    # {0.0, 0.33, 0.67, 1.0} — too coarse.  Shrinkage dampens this.
+    if cfg.COMPONENT_SOS_ENABLED:
+        min_size = cfg.MIN_COMPONENT_SIZE_FOR_FULL_SOS
+        component_shrink = (team["component_size"] / min_size).clip(0.0, 1.0)
+        team["sos_norm"] = 0.5 + component_shrink * (team["sos_norm"] - 0.5)
+
+        # Log shrinkage impact
+        shrunk_components = team[team["component_size"] < min_size]["component_id"].nunique()
+        if shrunk_components > 0:
+            logger.info(
+                f"📉 Component-size shrinkage applied to {shrunk_components} "
+                f"small component(s) (< {min_size} teams)"
+            )
 
     # Log SOS norms by cohort to verify full range
     logger.info("📊 SOS norms by cohort (should show ~0.0-1.0 range in each):")
@@ -1380,9 +1535,18 @@ def compute_rankings(
             new_sos = team["team_id"].map(sos_map).fillna(0.5)
             team["sos"] = cfg.SOS_POWER_DAMPING * new_sos + (1 - cfg.SOS_POWER_DAMPING) * prev_sos
 
-            # Step 5: Re-normalize SOS within cohort
-            team['sos_norm'] = team.groupby(['age', 'gender'])['sos'].transform(percentile_within_cohort)
+            # Step 5: Re-normalize SOS within connected components (or cohort if disabled)
+            # Uses the same groupby columns as the initial normalization to ensure
+            # disconnected ecosystems are normalized independently.
+            team['sos_norm'] = team.groupby(sos_group_cols)['sos'].transform(percentile_within_group)
             team['sos_norm'] = team['sos_norm'].fillna(0.5).clip(0.0, 1.0)
+
+            # Step 5b: Apply component-size shrinkage (same as initial normalization)
+            if cfg.COMPONENT_SOS_ENABLED:
+                min_size = cfg.MIN_COMPONENT_SIZE_FOR_FULL_SOS
+                comp_shrink = (team["component_size"].values / min_size).clip(0.0, 1.0)
+                sos_norm_values = team['sos_norm'].values
+                team['sos_norm'] = 0.5 + comp_shrink * (sos_norm_values - 0.5)
 
             # Step 6: Apply low-sample shrinkage (vectorized) - QUADRATIC for aggressive dampening
             low_sample_mask = gps < cfg.MIN_GAMES_FOR_TOP_SOS
