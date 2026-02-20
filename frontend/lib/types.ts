@@ -39,6 +39,7 @@ export interface Game {
   scraped_at: string | null;
   created_at: string;
   ml_overperformance: number | null; // Layer 13 ML residual: actual - expected goal margin (home team perspective)
+  is_excluded: boolean; // True for games excluded from rankings (e.g., futsal)
 }
 
 /**
