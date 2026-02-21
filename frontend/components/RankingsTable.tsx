@@ -95,6 +95,36 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   // Use pre-calculated SOS ranks from database
   // sos_rank_national for national view, sos_rank_state for state view
 
+  // Compute position-based state ranks from the filtered data.
+  // The state_rankings_view computes rank_in_state_final using ROW_NUMBER() over
+  // ALL teams (including inactive), but this page only shows Active/Not Enough Ranked Games.
+  // This causes rank gaps (e.g., #1, #2, #5, #18 instead of #1, #2, #3, #4).
+  // Fix: compute sequential ranks from the filtered data sorted by power_score_final.
+  const computedStateRanks = useMemo(() => {
+    if (!region || !rankings) return null;
+    const map = new Map<string, number>();
+    const sorted = [...rankings].sort((a, b) => {
+      const diff = (b.power_score_final ?? 0) - (a.power_score_final ?? 0);
+      if (diff !== 0) return diff;
+      // Tie-break by SOS (higher = better)
+      const aSos = a.sos_norm_state ?? a.sos_norm ?? 0;
+      const bSos = b.sos_norm_state ?? b.sos_norm ?? 0;
+      return bSos - aSos;
+    });
+    sorted.forEach((team, index) => {
+      map.set(team.team_id_master, index + 1);
+    });
+    return map;
+  }, [region, rankings]);
+
+  // Helper to get the correct rank for display
+  const getDisplayRank = useCallback((team: RankingRow): number | null | undefined => {
+    if (region && computedStateRanks) {
+      return computedStateRanks.get(team.team_id_master) ?? null;
+    }
+    return team.rank_in_cohort_final;
+  }, [region, computedStateRanks]);
+
   // Sort rankings based on selected field with SOS tie-breaking
   const sortedRankings = useMemo(() => {
     if (!rankings) return [];
@@ -105,9 +135,13 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
 
       switch (sortField) {
         case 'rank':
-          // Use rank_in_state_final if region is set, otherwise rank_in_cohort_final
-          aValue = region ? (a.rank_in_state_final ?? Infinity) : (a.rank_in_cohort_final ?? Infinity);
-          bValue = region ? (b.rank_in_state_final ?? Infinity) : (b.rank_in_cohort_final ?? Infinity);
+          // Use computed position-based ranks for state view, national rank for national view
+          aValue = region
+            ? (computedStateRanks?.get(a.team_id_master) ?? Infinity)
+            : (a.rank_in_cohort_final ?? Infinity);
+          bValue = region
+            ? (computedStateRanks?.get(b.team_id_master) ?? Infinity)
+            : (b.rank_in_cohort_final ?? Infinity);
           break;
         case 'team':
           aValue = a.team_name.toLowerCase();
@@ -152,7 +186,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     });
 
     return sorted;
-  }, [rankings, sortField, sortDirection, region]);
+  }, [rankings, sortField, sortDirection, region, computedStateRanks]);
 
   // Virtualizer for rendering only visible rows
   const virtualizer = useVirtualizer({
@@ -368,7 +402,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                     )}
                     {virtualItems.map((virtualRow) => {
                       const team = sortedRankings[virtualRow.index];
-                      const displayRank = region ? team.rank_in_state_final : team.rank_in_cohort_final;
+                      const displayRank = getDisplayRank(team);
                       const borderClass = getRankBorderClass(displayRank ?? null);
 
                       return (
@@ -397,7 +431,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                         >
                           <div className="px-1.5 sm:px-4 py-2 sm:py-3 font-semibold flex items-center gap-1 text-xs sm:text-base min-w-0 overflow-hidden">
                             {(() => {
-                              const rank = region ? team.rank_in_state_final : team.rank_in_cohort_final;
+                              const rank = getDisplayRank(team);
                               const change = region
                                 ? (team.rank_change_state_7d ?? team.rank_change_7d)
                                 : team.rank_change_7d;
@@ -433,7 +467,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                                 age: team.age,
                                 gender: team.gender,
                                 rank_in_cohort_final: team.rank_in_cohort_final,
-                                rank_in_state_final: team.rank_in_state_final,
+                                rank_in_state_final: getDisplayRank(team) as number | undefined,
                               })}
                               className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block text-xs sm:text-sm truncate block w-full"
                               aria-label={`View ${team.team_name} team details`}

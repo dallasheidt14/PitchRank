@@ -285,25 +285,30 @@ export const api = {
     // but the rankings list only shows Active/Not Enough Ranked Games teams
     let rankInStateFinal: number | null = null;
     
-    if (rankingData && rankingData.state && rankingData.age && rankingData.gender && powerScoreFinal !== null) {
-      // Always recompute state rank with status filter to match rankings list
-      // This ensures inactive teams don't affect the displayed ranks
-      const { data: stateRankings, error: stateRankError } = await supabase
+    // Try to get state/age/gender from rankings_view first, fall back to state_rankings_view
+    const stateForRank = rankingData?.state ?? stateRankData?.state ?? null;
+    const ageForRank = rankingData?.age ?? stateRankData?.age ?? null;
+    const genderForRank = rankingData?.gender ?? stateRankData?.gender ?? null;
+
+    if (stateForRank && ageForRank != null && genderForRank && powerScoreFinal !== null) {
+      // Recompute state rank by counting active teams with higher power score.
+      // This ensures the rank matches what's shown on the rankings page (which filters by status).
+      // Note: After migration 20260221000000, state_rankings_view only includes active teams,
+      // so the .in('status', ...) filter becomes a no-op safety net.
+      const { data: stateRankings, error: stateRankComputeError } = await supabase
         .from('state_rankings_view')
         .select('team_id_master, power_score_final, status')
-        .eq('state', rankingData.state)
-        .eq('age', rankingData.age)
-        .eq('gender', rankingData.gender)
-        .in('status', ['Active', 'Not Enough Ranked Games']) // Match rankings list filter
+        .eq('state', stateForRank)
+        .eq('age', ageForRank)
+        .eq('gender', genderForRank)
+        .in('status', ['Active', 'Not Enough Ranked Games'])
         .gt('power_score_final', powerScoreFinal)
-        .limit(10000); // Reasonable limit
-      
-      if (!stateRankError && stateRankings) {
-        // Rank is 1 + number of teams with higher power score (only counting Active/Not Enough Ranked Games teams)
+        .limit(10000);
+
+      if (!stateRankComputeError && stateRankings) {
         rankInStateFinal = stateRankings.length + 1;
-      } else if (stateRankError) {
-        console.warn('[api.getTeam] Error computing filtered state rank, falling back to view rank:', stateRankError.message);
-        // Fallback to rank from view if computation fails
+      } else if (stateRankComputeError) {
+        console.warn('[api.getTeam] Error computing filtered state rank, falling back to view rank:', stateRankComputeError.message);
         rankInStateFinal = stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? null;
       }
     } else {
@@ -350,28 +355,25 @@ export const api = {
     let sosRankState: number | null = null;
     const sosNormState = stateRankData?.sos_norm_state ?? null;
     
-    if (rankingData && rankingData.state && rankingData.age && rankingData.gender && sosNormState !== null) {
+    if (stateForRank && ageForRank != null && genderForRank && sosNormState !== null) {
       // Recompute SOS rank with status filter to match rankings list
       const { data: sosRankings, error: sosRankError } = await supabase
         .from('state_rankings_view')
         .select('team_id_master, sos_norm_state, status')
-        .eq('state', rankingData.state)
-        .eq('age', rankingData.age)
-        .eq('gender', rankingData.gender)
-        .in('status', ['Active', 'Not Enough Ranked Games']) // Match rankings list filter
+        .eq('state', stateForRank)
+        .eq('age', ageForRank)
+        .eq('gender', genderForRank)
+        .in('status', ['Active', 'Not Enough Ranked Games'])
         .gt('sos_norm_state', sosNormState)
         .limit(10000);
-      
+
       if (!sosRankError && sosRankings) {
-        // Rank is 1 + number of teams with higher SOS (only counting Active/Not Enough Ranked Games teams)
         sosRankState = sosRankings.length + 1;
       } else if (sosRankError) {
         console.warn('[api.getTeam] Error computing filtered SOS rank, falling back to view rank:', sosRankError.message);
-        // Fallback to rank from view if computation fails
         sosRankState = stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? rankingData?.sos_rank_state ?? null;
       }
     } else {
-      // Fallback if we don't have enough data to compute
       sosRankState = stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? rankingData?.sos_rank_state ?? null;
     }
 
