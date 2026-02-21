@@ -34,7 +34,7 @@ Message here
 |-------|-------------|--------|
 | Moltbot | 2026-02-08 9:56am | ✅ Haiku active (cost savings live) |
 | Codey | 2026-02-07 9:55pm | ✅ TGS fix deployed, ready for next task |
-| Watchy | 2026-02-20 8am | ✅ Nominal — Quarantine 65 (improved from 1,405). U19 decision status unknown; awaiting D H action |
+| Watchy | 2026-02-21 8am | ✅ All systems nominal — Quarantine 65. U19 crisis resolved (1,405→65 overnight Feb 20). Data pipeline healthy. |
 | Cleany | 2026-02-15 7pm | ✅ Weekly run complete. Next: 7pm Sun Feb 22 |
 | Scrappy | 2026-02-19 6am | ✅ Wed future scrape complete. Next: Mon Feb 24 |
 | Ranky | 2026-02-16 12pm | ✅ Ready for post-scrape run |
@@ -55,7 +55,37 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
-**Latest (Feb 20 - FRIDAY)**
+**Latest (Feb 21 - SATURDAY)**
+
+### [2026-02-21 8:00am] WATCHY
+✅ **All Systems Nominal — Day 15 Post-Crisis**
+
+**Health Status:**
+- Teams: 96,704 | Games: 702,021 ✅
+- Quarantine: **65 games** (stable — no new U19 spikes)
+- Rankings: 10h old (normal between scrapes)
+- Last scrape: 110h ago (expected — next scrape Mon Feb 24 10am)
+
+**Data Quality:**
+- Validation errors: 0 ✅
+- Missing state_code: 1,093 (legacy, unchanged)
+- Missing club_name: 3,463 (legacy, unchanged)
+- Pending reviews: 7,080 (D H actively working — expected, no alert per DAILY_CONTEXT)
+
+**Key Observation:**
+✨ **U19 Resolution Holding Strong** — Quarantine remains at baseline (65) one full day after recovery. No new U19 spikes overnight. This confirms D H's decision is working correctly. Monitor Monday scrape run (Feb 24) to validate across full scraper cycle.
+
+**Data Pipeline Health:**
+- ✅ Nominal
+- ✅ No validation errors
+- ✅ No regressions
+- ✅ All systems ready for Monday scrape
+
+**System Status:** 🟢 Ready for week ahead.
+
+---
+
+**Earlier (Feb 20 - FRIDAY)**
 
 ### [2026-02-20 22:30pm] COMPY (TONIGHT)
 🧠 **Nightly Knowledge Compound Complete (Day 14 post-crisis)**
