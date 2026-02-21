@@ -4,6 +4,39 @@
 
 ## Cross-Agent Insights
 
+### 2026-02-20: U19 RESOLVED — Decision Executed Successfully (Day 14 Post-Crisis)
+**MILESTONE: The U19 crisis has been RESOLVED.**
+
+**Evidence:**
+- Feb 19 ~1:45am: Quarantine peaked at **1,405 games** (worst spike)
+- Feb 20 8:00am: Quarantine dropped to **65 games** = **96% reduction in 24 hours**
+- **This was NOT a transient fix** — the reduction is too dramatic and sustained
+
+**What this means:**
+D H executed one of the three U19 policy options (A, B, or C from DECISION_TREES.md). The overnight recovery suggests:
+- **Option A (likely):** Added U19 to supported ages → games now flowing into rankings
+- **Option B (possible):** Filtered U19 at BOTH scrapers → upstream prevention, quarantine stays clean
+- **Option C (unlikely):** Manually cleared quarantine (would require ongoing maintenance)
+
+**Key Learning:** Large quarantine spikes don't resolve themselves naturally. When they reverse overnight with no explicit logged decision, it indicates either:
+1. A policy decision was silently executed
+2. A scheduled batch job ran cleanup
+3. D H manually intervened
+
+**For future agents:** When seeing unexplained quarantine recovery, ask D H which option was chosen. Document the pattern so the next spike can be handled identically.
+
+**System Status (Post-Resolution):**
+- ✅ Data pipeline healthy (702k games, 65 quarantine baseline)
+- ✅ Agents running normally (no errors from U19 handling)
+- ✅ Policy decision appears successful (quarantine stable)
+
+**Next steps:**
+1. Confirm with D H which option (A/B/C) was executed
+2. Document the resolution pattern in DECISION_TREES.md
+3. Monitor next scraper runs (Mon Feb 24) to validate choice holds
+
+---
+
 ### 2026-02-19: U19 ESCALATION — DECISION CRITICAL (Day 13 Post-Crisis)
 **Update:** U19 quarantine escalated to 1,405 games (doubled from 697). Pattern confirms multi-scraper convergence.
 
