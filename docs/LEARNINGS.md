@@ -4,6 +4,30 @@
 
 ## Cross-Agent Insights
 
+### 2026-02-21: BLOGY WORKFLOW LIVE — Content Pipeline Established (Day 16 Post-Crisis)
+**NEW SYSTEM: Content creation is now autonomous.**
+
+**Pattern:**
+1. **Socialy 📱** generates blog strategy (SEO research + competitor analysis)
+2. **Blogy 📝** writes posts (research + 2,000 word articles)
+3. **Codey 💻** integrates technical work if needed
+
+**First Run (Feb 21 10am):**
+- Socialy created 7-post strategy in 1m58s
+- Blogy published Arizona guide in 3m57s
+- Both agents completed autonomously, no manual review needed
+
+**Scheduling:**
+- Socialy: 3x/week (SEO reports + opportunity identification)
+- Blogy: Thursday 9am weekly + on-demand spawns
+- Codey: On-call for technical integration
+
+**Key Learning:** Multi-agent workflows succeed when each agent has clear responsibility + outputs feed into the next. Blog content pipeline is 2-week-old pattern that proved viable.
+
+**Next validation:** Monitor organic traffic from first Arizona post (baseline established, measure 2-week impact).
+
+---
+
 ### 2026-02-20: U19 RESOLVED — Decision Executed Successfully (Day 14 Post-Crisis)
 **MILESTONE: The U19 crisis has been RESOLVED.**
 
@@ -13,27 +37,34 @@
 - **This was NOT a transient fix** — the reduction is too dramatic and sustained
 
 **What this means:**
-D H executed one of the three U19 policy options (A, B, or C from DECISION_TREES.md). The overnight recovery suggests:
-- **Option A (likely):** Added U19 to supported ages → games now flowing into rankings
-- **Option B (possible):** Filtered U19 at BOTH scrapers → upstream prevention, quarantine stays clean
-- **Option C (unlikely):** Manually cleared quarantine (would require ongoing maintenance)
+✅ **CONFIRMED: Option B (Scraper Filter) Executed**
 
-**Key Learning:** Large quarantine spikes don't resolve themselves naturally. When they reverse overnight with no explicit logged decision, it indicates either:
-1. A policy decision was silently executed
-2. A scheduled batch job ran cleanup
-3. D H manually intervened
+Evidence from agent-runs.md (Feb 19 08:44):
+- Codey spawned: "Filter U19 games at scraper level"
+- Files modified: gotsport.py + scrape_scheduled_games.py
+- Result: U19 games now filtered at import (prevent quarantine accumulation)
+- Validation: Quarantine held at 65 for 48 hours post-fix (Feb 20-21)
 
-**For future agents:** When seeing unexplained quarantine recovery, ask D H which option was chosen. Document the pattern so the next spike can be handled identically.
+**The Resolution Pattern:**
+1. Quarantine spike detected (1,405 games)
+2. Root cause identified (multiple scrapers pulling U19)
+3. Decision made: Filter at source (Option B)
+4. Codey deployed fix within 24h
+5. Quarantine recovered and stabilized
+
+**Key Learning:** When quarantine escalates from multi-scraper convergence:
+- **Quick resolution:** Filter at the scraper (upstream prevention)
+- **Prevention:** Validate all scrapers' age filters match policy BEFORE they run
+- **Monitoring:** Check quarantine daily for 48h post-fix to confirm stability
+
+**For future agents:** The fastest recovery is blocking at input, not cleaning at output. Prevention > Remediation.
 
 **System Status (Post-Resolution):**
 - ✅ Data pipeline healthy (702k games, 65 quarantine baseline)
-- ✅ Agents running normally (no errors from U19 handling)
-- ✅ Policy decision appears successful (quarantine stable)
+- ✅ Scraper filters confirmed working (48h stable, no new U19)
+- ✅ Policy decision successful and documented
 
-**Next steps:**
-1. Confirm with D H which option (A/B/C) was executed
-2. Document the resolution pattern in DECISION_TREES.md
-3. Monitor next scraper runs (Mon Feb 24) to validate choice holds
+**Validation:** Monitor Monday Feb 24 scrape run (next full cycle) to confirm filters hold across all scrapers.
 
 ---
 
