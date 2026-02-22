@@ -8,7 +8,12 @@ import {
   CheckCircle,
   Activity,
   Globe,
-  Zap
+  Zap,
+  MapPin,
+  Users,
+  HelpCircle,
+  GraduationCap,
+  AlertTriangle
 } from 'lucide-react';
 
 /**
@@ -286,6 +291,340 @@ export const blogPosts: BlogPost[] = [
           </p>
           <p className="text-foreground font-semibold">
             Smart rankings. Fair rankings. Real rankings.
+          </p>
+        </section>
+      </div>
+    ),
+  },
+  {
+    slug: 'arizona-youth-soccer-rankings-guide',
+    title: "Arizona Youth Soccer Rankings: The Complete Parent's Guide (2026)",
+    excerpt: "Confused about Arizona soccer rankings? Here's what every parent needs to know about youth soccer team rankings in AZ, from Phoenix to Tucson.",
+    author: 'PitchRank Team',
+    date: '2026-02-21',
+    readingTime: '8 min read',
+    tags: ['Arizona', 'Youth Soccer', 'Rankings', 'Parent Guide'],
+    content: (
+      <div className="space-y-8">
+        {/* Introduction */}
+        <section>
+          <p className="text-lg text-muted-foreground leading-relaxed mb-4">
+            Your kid's team just finished the fall season with a respectable record. But here's the question that keeps Arizona soccer parents up at night: <strong>How good is my child's team, really?</strong>
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Is that U13 squad in Scottsdale actually better than the Phoenix team you lost to? Should you be looking at RSL Arizona or sticking with your current club? And what do those rankings you see online actually <em>mean</em>?
+          </p>
+          <p className="text-muted-foreground leading-relaxed">
+            If you've searched "Arizona soccer rankings" and felt more confused than when you started, you're not alone. Here's everything Arizona parents need to know about youth soccer rankings in 2026 — no jargon, just straight answers.
+          </p>
+        </section>
+
+        {/* Why Rankings Matter */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Target className="size-6 text-primary" />
+            Why Arizona Soccer Rankings Matter
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Arizona's youth soccer scene has exploded over the past decade. We're tracking <strong>1,940 teams across the state</strong> — from U9 recreational squads to U19 elite players heading to college. That's Phoenix Rising FC's youth academy, CCV Stars, FBSL, Arizona Arsenal, and hundreds more clubs competing across 11 age groups.
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">Rankings give you three things traditional standings can't:</p>
+          <div className="grid gap-3 mb-4">
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border">
+              <CheckCircle className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Context beyond your league</strong> — Your team might dominate the East Valley league, but how do they stack up against Tucson's top clubs?</p>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border">
+              <CheckCircle className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Informed club decisions</strong> — When your child outgrows their current team, rankings help identify the right level of competition</p>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border">
+              <CheckCircle className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Realistic college planning</strong> — If college soccer is the goal, you need to know where your team truly ranks</p>
+            </div>
+          </div>
+        </section>
+
+        {/* Arizona Landscape */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <MapPin className="size-6 text-primary" />
+            The Arizona Youth Soccer Landscape
+          </h2>
+          
+          <h3 className="text-xl font-display font-semibold mb-3">Major Arizona Soccer Clubs</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">Based on our database, here are the largest youth soccer organizations in Arizona:</p>
+          
+          <div className="grid gap-2 mb-6">
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>Phoenix Rising FC</strong> (132 teams) — The state's professional club's youth academy</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>CCV Stars</strong> (111 teams) — One of the Valley's largest competitive programs</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>FBSL</strong> (109 teams) — Strong presence across age groups</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>Arizona Arsenal Soccer Club</strong> (93 teams) — Known for competitive development</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>RSL Arizona</strong> (189 teams combined) — Real Salt Lake's Arizona pipeline</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>FC Tucson Youth Soccer</strong> (60 teams) — Anchoring Southern Arizona</span>
+            </div>
+          </div>
+
+          <h3 className="text-xl font-display font-semibold mb-3">Geographic Soccer Regions</h3>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">Phoenix Metro</h4>
+              <p className="text-sm text-muted-foreground">Scottsdale, Tempe, Chandler, Mesa — Highest concentration of elite clubs and year-round play</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">Tucson</h4>
+              <p className="text-sm text-muted-foreground">Growing competitive scene with FC Tucson leading development</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">Flagstaff/Northern AZ</h4>
+              <p className="text-sm text-muted-foreground">Smaller but passionate programs with elevation training advantages</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">East Valley</h4>
+              <p className="text-sm text-muted-foreground">Rapidly growing soccer community with new clubs emerging</p>
+            </div>
+          </div>
+        </section>
+
+        {/* How Rankings Work */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Brain className="size-6 text-primary" />
+            How Arizona Soccer Rankings Actually Work
+          </h2>
+          
+          <h3 className="text-xl font-display font-semibold mb-3">What PitchRank Tracks for Arizona Teams</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Most ranking systems only count tournament games or require clubs to self-report results. That creates blind spots — and rankings that favor clubs with bigger marketing budgets.
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-6">PitchRank is different. We track:</p>
+          
+          <div className="grid gap-3 mb-6">
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
+              <Activity className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Every game we can find</strong> — League play, tournaments, friendlies, showcases</p>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
+              <Globe className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Game-by-game results</strong> across all 1,940 Arizona teams</p>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
+              <Calendar className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>11 age groups</strong> from U9 through U19</p>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
+              <Shield className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Opponent strength</strong> — Beating RSL Arizona's top U15 team means more than beating a developmental squad</p>
+            </div>
+          </div>
+
+          <h3 className="text-xl font-display font-semibold mb-3">The Algorithm Explained (Simply)</h3>
+          <div className="grid gap-3 mb-4">
+            <div className="flex items-start gap-3">
+              <span className="flex items-center justify-center size-6 rounded-full bg-primary text-primary-foreground text-sm font-bold shrink-0">1</span>
+              <p className="text-sm text-muted-foreground"><strong>Base score</strong> — Wins, losses, draws, and goal differential give us a starting point</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="flex items-center justify-center size-6 rounded-full bg-primary text-primary-foreground text-sm font-bold shrink-0">2</span>
+              <p className="text-sm text-muted-foreground"><strong>Strength of schedule</strong> — Beating strong teams boosts your ranking; losing to weak teams hurts</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="flex items-center justify-center size-6 rounded-full bg-primary text-primary-foreground text-sm font-bold shrink-0">3</span>
+              <p className="text-sm text-muted-foreground"><strong>Recency</strong> — Games from last month matter more than games from 10 months ago</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="flex items-center justify-center size-6 rounded-full bg-primary text-primary-foreground text-sm font-bold shrink-0">4</span>
+              <p className="text-sm text-muted-foreground"><strong>Consistency</strong> — Teams that perform steadily rank higher than teams with wild swings</p>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-lg bg-muted/50 border">
+            <h4 className="font-semibold mb-2">PowerScore Scale (0.0 to 1.0)</h4>
+            <div className="grid gap-1 text-sm">
+              <p><strong className="text-green-600">0.85+</strong> = Elite national-level team</p>
+              <p><strong className="text-blue-600">0.70-0.84</strong> = Top competitive tier</p>
+              <p><strong className="text-yellow-600">0.50-0.69</strong> = Solid competitive team</p>
+              <p><strong className="text-orange-600">0.30-0.49</strong> = Developing/mid-level</p>
+              <p><strong className="text-muted-foreground">Below 0.30</strong> = Recreational or limited data</p>
+            </div>
+          </div>
+        </section>
+
+        {/* What Rankings Mean */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <TrendingUp className="size-6 text-primary" />
+            What Your Arizona Team's Ranking Really Means
+          </h2>
+          
+          <h3 className="text-xl font-display font-semibold mb-3">State vs National Rankings</h3>
+          <div className="grid sm:grid-cols-2 gap-4 mb-6">
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">State Rank</h4>
+              <p className="text-sm text-muted-foreground">Where your team stands among Arizona's ~1,940 teams</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">National Rank</h4>
+              <p className="text-sm text-muted-foreground">Where you stand among all teams in your age group nationally</p>
+            </div>
+          </div>
+          
+          <div className="p-4 rounded-lg bg-primary/10 border border-primary/20 mb-6">
+            <p className="text-sm"><strong>Reality check:</strong> Being top 50 in Arizona is genuinely good. Being top 500 nationally is excellent. Being top 100 nationally? Your team is elite.</p>
+          </div>
+
+          <h3 className="text-xl font-display font-semibold mb-3">What Rankings DON'T Tell You</h3>
+          <div className="grid gap-3">
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+              <AlertTriangle className="size-5 text-yellow-600 shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Individual player development</strong> — A top-ranked team might not be the best fit for your child's growth</p>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+              <AlertTriangle className="size-5 text-yellow-600 shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Coaching quality</strong> — Some lower-ranked teams have better developmental coaches than higher-ranked "win-now" teams</p>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+              <AlertTriangle className="size-5 text-yellow-600 shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Team culture</strong> — Your kid's enjoyment and mental health matter more than ranking</p>
+            </div>
+          </div>
+        </section>
+
+        {/* Choosing a Team */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <HelpCircle className="size-6 text-primary" />
+            How to Use Rankings When Choosing a Team
+          </h2>
+          
+          <h3 className="text-xl font-display font-semibold mb-3">The Right Questions to Ask Club Directors</h3>
+          <div className="grid gap-3 mb-6">
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm text-muted-foreground"><strong>"How do you use rankings in player development?"</strong><br/>Good answer: "We track them to ensure competitive balance." Bad answer: "Rankings are all that matter."</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm text-muted-foreground"><strong>"What's the average ranking of teams you play?"</strong><br/>Reveals if they're scheduling appropriately challenging competition</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm text-muted-foreground"><strong>"How have your team's rankings trended?"</strong><br/>Upward trends suggest good development; flat or declining suggests stagnation</p>
+            </div>
+          </div>
+
+          <h3 className="text-xl font-display font-semibold mb-3">Finding the Right Competition Level</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">The best team for your child isn't always the highest-ranked team. It's the team that:</p>
+          <div className="grid gap-2 mb-4">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="size-4 text-primary" />
+              <span className="text-sm text-muted-foreground">Plays opponents 10-20 ranking positions above AND below them</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CheckCircle className="size-4 text-primary" />
+              <span className="text-sm text-muted-foreground">Gives your child meaningful playing time (30+ minutes per game)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CheckCircle className="size-4 text-primary" />
+              <span className="text-sm text-muted-foreground">Challenges them without crushing their confidence</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CheckCircle className="size-4 text-primary" />
+              <span className="text-sm text-muted-foreground">Aligns with your family's travel/financial capacity</span>
+            </div>
+          </div>
+        </section>
+
+        {/* College Recruiting */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <GraduationCap className="size-6 text-primary" />
+            Arizona Soccer Rankings and College Recruiting
+          </h2>
+          
+          <h3 className="text-xl font-display font-semibold mb-3">The Reality Check</h3>
+          <div className="grid gap-3 mb-6">
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>Division I recruiting</strong> — Coaches notice teams ranked in the <strong>top 5% nationally</strong> (very elite)</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>Division II recruiting</strong> — Top 15-20% nationally gets attention, but individual performance matters more</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>Division III recruiting</strong> — Rankings barely matter; coaches focus on academics, character, and fit</p>
+            </div>
+          </div>
+
+          <h3 className="text-xl font-display font-semibold mb-3">What Actually Matters More</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">College coaches told us they prioritize:</p>
+          <div className="grid gap-2">
+            <div className="flex items-start gap-3">
+              <span className="flex items-center justify-center size-6 rounded-full bg-primary text-primary-foreground text-sm font-bold shrink-0">1</span>
+              <p className="text-sm text-muted-foreground"><strong>Individual video</strong> — Highlight reels of YOUR child, not team stats</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="flex items-center justify-center size-6 rounded-full bg-primary text-primary-foreground text-sm font-bold shrink-0">2</span>
+              <p className="text-sm text-muted-foreground"><strong>Academic eligibility</strong> — GPA and test scores filter out players before rankings ever matter</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="flex items-center justify-center size-6 rounded-full bg-primary text-primary-foreground text-sm font-bold shrink-0">3</span>
+              <p className="text-sm text-muted-foreground"><strong>Showcase attendance</strong> — Surf Cup, Vegas Cup, ECNL playoffs (where scouts actually are)</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="flex items-center justify-center size-6 rounded-full bg-primary text-primary-foreground text-sm font-bold shrink-0">4</span>
+              <p className="text-sm text-muted-foreground"><strong>Direct contact</strong> — Emails to coaches with video links beat high rankings</p>
+            </div>
+          </div>
+        </section>
+
+        {/* FAQ */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <HelpCircle className="size-6 text-primary" />
+            Common Arizona Soccer Ranking Questions
+          </h2>
+          
+          <div className="grid gap-4">
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">"My team dominates our local league but has a mediocre ranking. Why?"</h4>
+              <p className="text-sm text-muted-foreground">You're likely playing weaker competition. Rankings adjust for opponent strength, so beating weaker teams by 5 goals doesn't boost your ranking as much as narrowly beating a strong team.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">"Should my U11 player be on the highest-ranked team possible?"</h4>
+              <p className="text-sm text-muted-foreground"><strong>No.</strong> At U11, development and playing time matter WAY more than rankings. Put them on a team where they'll get 50+ minutes per game, not a top-ranked team where they'll sit the bench.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">"Can my club game the rankings by only playing weak teams?"</h4>
+              <p className="text-sm text-muted-foreground">Short answer: No. Our algorithm detects this and penalizes teams that avoid strong competition. You can't fake strength of schedule.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* CTA */}
+        <section className="p-6 rounded-lg bg-primary/10 border border-primary/20">
+          <h2 className="text-2xl font-display font-bold mb-4">Check Your Arizona Team's Ranking</h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Ready to see where your team stands? Visit <strong>PitchRank.io</strong>, search for your club and age group, and track your team's progress throughout the season.
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Whether your child plays for Phoenix Rising FC, CCV Stars, Arizona Arsenal, or your local recreational club, rankings give you clarity on where they stand — and where they could go next.
+          </p>
+          <p className="text-foreground font-semibold">
+            Because at the end of the day, rankings aren't about bragging rights. They're about making informed decisions that help your child develop, compete at the right level, and — most importantly — enjoy the beautiful game.
           </p>
         </section>
       </div>
