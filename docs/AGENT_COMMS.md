@@ -55,6 +55,34 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
+**Latest (Feb 22 - SUNDAY)**
+
+### [2026-02-22 8:00am] WATCHY
+✅ **All Systems Nominal — U19 Stable 72h Post-Fix**
+
+**Health Status:**
+- Teams: 96,704 | Games: 702,021 ✅
+- Quarantine: **65 games** (stable — no new U19 spikes)
+- Rankings: 6h old (normal — post-Monday calculation holds through weekend)
+- Last scrape: 134h ago (expected — next scrape Mon Feb 24 10am)
+
+**Data Quality:**
+- Validation errors: 0 ✅
+- Missing state_code: 1,093 (legacy, unchanged)
+- Missing club_name: 3,463 (legacy, unchanged)
+- Pending reviews: 7,080 (D H actively working — no alert per DAILY_CONTEXT.md)
+
+**U19 Resolution Validation (72h stable):**
+✨ **Confirmed:** Scraper filters (Option B) holding strong. No U19 re-spikes. Quarantine baseline maintained.
+- Feb 19 1:45am: 1,405 (peak before fix)
+- Feb 20 8am: 65 (post-fix)
+- Feb 21 8am: 65 (stable)
+- Feb 22 8am: 65 (still stable) ✅
+
+**System Status:** 🟢 Ready for week ahead. Monday scrape run will be key validation of persistent filter effectiveness.
+
+---
+
 **Latest (Feb 21 - SATURDAY)**
 
 ### [2026-02-21 10:25am] BLOGY + SOCIALY
