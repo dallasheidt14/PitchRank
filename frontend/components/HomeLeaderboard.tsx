@@ -7,7 +7,7 @@ import { useRankings } from '@/lib/hooks';
 import Link from 'next/link';
 import { ArrowUp, ArrowDown } from 'lucide-react';
 import { usePrefetchTeam } from '@/lib/hooks';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import { getWatchedTeams } from '@/lib/watchlist';
 import { launchConfetti } from '@/components/ui/confetti';
 import { formatPowerScore } from '@/lib/utils';
@@ -22,6 +22,21 @@ export function HomeLeaderboard() {
   const { data: rankings, isLoading, isError, error, refetch } = useRankings(null, 'u12', 'M');
   const prefetchTeam = usePrefetchTeam();
   const confettiTriggeredRef = useRef<Set<string>>(new Set());
+
+  // Compute sequential national ranks from filtered data (avoids gaps from inactive teams)
+  const computedNationalRanks = useMemo(() => {
+    if (!rankings?.length) return new Map<string, number>();
+    const map = new Map<string, number>();
+    const sorted = [...rankings].sort((a, b) => {
+      const diff = (b.power_score_final ?? 0) - (a.power_score_final ?? 0);
+      if (diff !== 0) return diff;
+      return (b.sos_norm ?? 0) - (a.sos_norm ?? 0);
+    });
+    sorted.forEach((team, index) => {
+      map.set(team.team_id_master, index + 1);
+    });
+    return map;
+  }, [rankings]);
 
   // Get top 10 teams
   const topTeams = rankings?.slice(0, 10) || [];
@@ -108,7 +123,7 @@ export function HomeLeaderboard() {
                   >
                     <div className="flex items-center gap-4 sm:gap-6 flex-1 min-w-0">
                       <div className={`flex-shrink-0 w-10 sm:w-12 h-10 sm:h-12 rounded-full flex items-center justify-center font-bold text-lg sm:text-xl ${getBadgeClass(index)}`}>
-                        {team.rank_in_cohort_final || '—'}
+                        {computedNationalRanks.get(team.team_id_master) ?? '—'}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="font-semibold text-base sm:text-lg truncate group-hover:text-primary transition-colors">

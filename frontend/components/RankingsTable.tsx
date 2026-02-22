@@ -95,21 +95,37 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   // Use pre-calculated SOS ranks from database
   // sos_rank_national for national view, sos_rank_state for state view
 
-  // Compute position-based state ranks from the filtered data.
-  // The state_rankings_view computes rank_in_state_final using ROW_NUMBER() over
-  // ALL teams (including inactive), but this page only shows Active/Not Enough Ranked Games.
+  // Compute position-based ranks from the filtered data.
+  // The database views compute ranks using ROW_NUMBER() over ALL teams (including inactive),
+  // but this page only shows Active/Not Enough Ranked Games teams.
   // This causes rank gaps (e.g., #1, #2, #5, #18 instead of #1, #2, #3, #4).
   // Fix: compute sequential ranks from the filtered data sorted by power_score_final.
-  const computedStateRanks = useMemo(() => {
-    if (!region || !rankings) return null;
+  const computedRanks = useMemo(() => {
+    if (!rankings) return null;
     const map = new Map<string, number>();
     const sorted = [...rankings].sort((a, b) => {
       const diff = (b.power_score_final ?? 0) - (a.power_score_final ?? 0);
       if (diff !== 0) return diff;
       // Tie-break by SOS (higher = better)
-      const aSos = a.sos_norm_state ?? a.sos_norm ?? 0;
-      const bSos = b.sos_norm_state ?? b.sos_norm ?? 0;
+      const aSos = region ? (a.sos_norm_state ?? a.sos_norm ?? 0) : (a.sos_norm ?? 0);
+      const bSos = region ? (b.sos_norm_state ?? b.sos_norm ?? 0) : (b.sos_norm ?? 0);
       return bSos - aSos;
+    });
+    sorted.forEach((team, index) => {
+      map.set(team.team_id_master, index + 1);
+    });
+    return map;
+  }, [region, rankings]);
+
+  // Compute position-based SOS ranks from filtered data.
+  // Same issue: DB SOS ranks include inactive teams, causing inconsistency with the filtered count.
+  const computedSosRanks = useMemo(() => {
+    if (!rankings) return null;
+    const map = new Map<string, number>();
+    const sorted = [...rankings].sort((a, b) => {
+      const aSos = region ? (a.sos_norm_state ?? a.sos_norm ?? 0) : (a.sos_norm ?? 0);
+      const bSos = region ? (b.sos_norm_state ?? b.sos_norm ?? 0) : (b.sos_norm ?? 0);
+      return bSos - aSos; // Higher SOS = tougher schedule = lower rank number
     });
     sorted.forEach((team, index) => {
       map.set(team.team_id_master, index + 1);
@@ -119,11 +135,8 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
 
   // Helper to get the correct rank for display
   const getDisplayRank = useCallback((team: RankingRow): number | null | undefined => {
-    if (region && computedStateRanks) {
-      return computedStateRanks.get(team.team_id_master) ?? null;
-    }
-    return team.rank_in_cohort_final;
-  }, [region, computedStateRanks]);
+    return computedRanks?.get(team.team_id_master) ?? null;
+  }, [computedRanks]);
 
   // Sort rankings based on selected field with SOS tie-breaking
   const sortedRankings = useMemo(() => {
@@ -135,13 +148,9 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
 
       switch (sortField) {
         case 'rank':
-          // Use computed position-based ranks for state view, national rank for national view
-          aValue = region
-            ? (computedStateRanks?.get(a.team_id_master) ?? Infinity)
-            : (a.rank_in_cohort_final ?? Infinity);
-          bValue = region
-            ? (computedStateRanks?.get(b.team_id_master) ?? Infinity)
-            : (b.rank_in_cohort_final ?? Infinity);
+          // Use computed position-based ranks (sequential, gap-free)
+          aValue = computedRanks?.get(a.team_id_master) ?? Infinity;
+          bValue = computedRanks?.get(b.team_id_master) ?? Infinity;
           break;
         case 'team':
           aValue = a.team_name.toLowerCase();
@@ -153,13 +162,9 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
           bValue = b.power_score_final ?? 0;
           break;
         case 'sosRank':
-          // Use pre-calculated SOS rank from database
-          aValue = region
-            ? (a.sos_rank_state ?? Infinity)
-            : (a.sos_rank_national ?? Infinity);
-          bValue = region
-            ? (b.sos_rank_state ?? Infinity)
-            : (b.sos_rank_national ?? Infinity);
+          // Use computed SOS rank from filtered data
+          aValue = computedSosRanks?.get(a.team_id_master) ?? Infinity;
+          bValue = computedSosRanks?.get(b.team_id_master) ?? Infinity;
           break;
         default:
           return 0;
@@ -186,7 +191,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     });
 
     return sorted;
-  }, [rankings, sortField, sortDirection, region, computedStateRanks]);
+  }, [rankings, sortField, sortDirection, region, computedRanks, computedSosRanks]);
 
   // Virtualizer for rendering only visible rows
   const virtualizer = useVirtualizer({
@@ -303,12 +308,12 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
       : 0;
 
   // Prepare top teams for schema
-  const topTeamsForSchema = sortedRankings.slice(0, 10).map(team => ({
+  const topTeamsForSchema = sortedRankings.slice(0, 10).map((team, index) => ({
     teamName: team.team_name,
     clubName: team.club_name ?? undefined,
-    rank: team.national_rank ?? undefined,
-    powerScore: team.national_power_score ?? undefined,
-    state: team.state_code ?? undefined,
+    rank: computedRanks?.get(team.team_id_master) ?? (index + 1),
+    powerScore: team.power_score_final ?? undefined,
+    state: team.state ?? undefined,
   }));
 
   return (
@@ -485,7 +490,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                           </div>
                           <div className="px-1.5 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm min-w-0 overflow-hidden">
                             {(() => {
-                              const sosRank = region ? team.sos_rank_state : team.sos_rank_national;
+                              const sosRank = computedSosRanks?.get(team.team_id_master);
                               if (!sosRank) return <span className="truncate">—</span>;
                               const totalTeams = sortedRankings.length;
                               const pct = totalTeams > 0 ? Math.round((1 - (sosRank - 1) / totalTeams) * 100) : null;

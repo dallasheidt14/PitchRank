@@ -178,6 +178,7 @@ export async function GET(
         .select("power_score_final")
         .eq("age", ranking.age)
         .eq("gender", ranking.gender)
+        .in("status", ["Active", "Not Enough Ranked Games"])
         .order("power_score_final", { ascending: false });
 
       if (!cohortError && cohortData && cohortData.length > 0) {

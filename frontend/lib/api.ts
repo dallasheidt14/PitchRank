@@ -421,11 +421,28 @@ export const api = {
     id: string,
     periodDays: number = 30
   ): Promise<TeamTrajectory[]> {
-    // Get all games for the team
+    // Resolve merged team IDs so trajectory includes games from deprecated teams
+    const teamIdsToQuery = [id];
+    const { data: mergedTeams } = await supabase
+      .from('team_merge_map')
+      .select('deprecated_team_id')
+      .eq('canonical_team_id', id);
+    if (mergedTeams) {
+      mergedTeams.forEach((merge: { deprecated_team_id: string }) => {
+        if (merge.deprecated_team_id) teamIdsToQuery.push(merge.deprecated_team_id);
+      });
+    }
+
+    // Build OR conditions for all team IDs (canonical + merged)
+    const orConditions = teamIdsToQuery
+      .map((teamId) => `home_team_master_id.eq.${teamId},away_team_master_id.eq.${teamId}`)
+      .join(',');
+
+    // Get all games for the team (including merged teams)
     const { data: games, error: gamesError } = await supabase
       .from('games')
       .select('*')
-      .or(`home_team_master_id.eq.${id},away_team_master_id.eq.${id}`)
+      .or(orConditions)
       .eq('is_excluded', false)
       .order('game_date', { ascending: true });
 
@@ -437,6 +454,9 @@ export const api = {
     if (!games || games.length === 0) {
       return [];
     }
+
+    // Build a Set of all team IDs for this team (canonical + merged)
+    const teamIdSet = new Set(teamIdsToQuery);
 
     // Group games into time periods and calculate metrics
     const trajectory: TeamTrajectory[] = [];
@@ -454,7 +474,7 @@ export const api = {
 
       if (daysDiff >= periodDays && periodGames.length > 0) {
         // Calculate metrics for this period
-        const metrics = calculatePeriodMetrics(periodGames, id);
+        const metrics = calculatePeriodMetrics(periodGames, id, teamIdSet);
         trajectory.push({
           team_id: id,
           period_start: periodStart.toISOString(),
@@ -474,7 +494,7 @@ export const api = {
 
     // Add final period
     if (periodGames.length > 0) {
-      const metrics = calculatePeriodMetrics(periodGames, id);
+      const metrics = calculatePeriodMetrics(periodGames, id, teamIdSet);
       trajectory.push({
         team_id: id,
         period_start: periodStart.toISOString(),
@@ -670,67 +690,135 @@ export const api = {
     opponent_score_team2: number | null;
     game_date: string;
   }>> {
-    // Get all games for team1
-    const { data: team1Games, error: team1Error } = await supabase
-      .from('games')
-      .select('*')
-      .or(`home_team_master_id.eq.${team1Id},away_team_master_id.eq.${team1Id}`)
-      .eq('is_excluded', false)
-      .order('game_date', { ascending: false });
+    // Resolve merged team IDs so we find games from deprecated teams too
+    const resolveTeamIds = async (teamId: string): Promise<string[]> => {
+      const ids = [teamId];
+      const { data: mergedTeams } = await supabase
+        .from('team_merge_map')
+        .select('deprecated_team_id')
+        .eq('canonical_team_id', teamId);
+      if (mergedTeams) {
+        mergedTeams.forEach((merge: { deprecated_team_id: string }) => {
+          if (merge.deprecated_team_id) ids.push(merge.deprecated_team_id);
+        });
+      }
+      return ids;
+    };
 
-    if (team1Error) {
-      console.error('Error fetching team1 games:', team1Error);
-      throw team1Error;
+    const [team1Ids, team2Ids] = await Promise.all([
+      resolveTeamIds(team1Id),
+      resolveTeamIds(team2Id),
+    ]);
+
+    const team1IdSet = new Set(team1Ids);
+    const team2IdSet = new Set(team2Ids);
+
+    // Build OR conditions for all team IDs
+    const team1OrConditions = team1Ids
+      .map((id) => `home_team_master_id.eq.${id},away_team_master_id.eq.${id}`)
+      .join(',');
+    const team2OrConditions = team2Ids
+      .map((id) => `home_team_master_id.eq.${id},away_team_master_id.eq.${id}`)
+      .join(',');
+
+    // Get all games for team1 and team2 in parallel
+    const [team1Result, team2Result] = await Promise.all([
+      supabase
+        .from('games')
+        .select('*')
+        .or(team1OrConditions)
+        .eq('is_excluded', false)
+        .order('game_date', { ascending: false }),
+      supabase
+        .from('games')
+        .select('*')
+        .or(team2OrConditions)
+        .eq('is_excluded', false)
+        .order('game_date', { ascending: false }),
+    ]);
+
+    if (team1Result.error) {
+      console.error('Error fetching team1 games:', team1Result.error);
+      throw team1Result.error;
+    }
+    if (team2Result.error) {
+      console.error('Error fetching team2 games:', team2Result.error);
+      throw team2Result.error;
     }
 
-    // Get all games for team2
-    const { data: team2Games, error: team2Error } = await supabase
-      .from('games')
-      .select('*')
-      .or(`home_team_master_id.eq.${team2Id},away_team_master_id.eq.${team2Id}`)
-      .eq('is_excluded', false)
-      .order('game_date', { ascending: false });
-
-    if (team2Error) {
-      console.error('Error fetching team2 games:', team2Error);
-      throw team2Error;
-    }
-
-    // Find common opponents
-    const team1Opponents = new Map<string, Game>();
-    (team1Games as Game[]).forEach((game) => {
-      const opponentId = game.home_team_master_id === team1Id 
-        ? game.away_team_master_id 
-        : game.home_team_master_id;
-      if (opponentId && opponentId !== team2Id) {
-        if (!team1Opponents.has(opponentId)) {
-          team1Opponents.set(opponentId, game);
+    // Collect all opponent IDs from both teams' games for merge resolution
+    const allOpponentIds = new Set<string>();
+    const collectOpponents = (games: Game[], teamIdSet: Set<string>) => {
+      games.forEach((game) => {
+        if (game.home_team_master_id && !teamIdSet.has(game.home_team_master_id)) {
+          allOpponentIds.add(game.home_team_master_id);
         }
+        if (game.away_team_master_id && !teamIdSet.has(game.away_team_master_id)) {
+          allOpponentIds.add(game.away_team_master_id);
+        }
+      });
+    };
+    collectOpponents(team1Result.data as Game[], team1IdSet);
+    collectOpponents(team2Result.data as Game[], team2IdSet);
+
+    // Resolve opponent IDs through merge map (deprecated -> canonical)
+    const opponentIdsArray = Array.from(allOpponentIds);
+    const { data: opponentMerges } = opponentIdsArray.length > 0
+      ? await supabase
+          .from('team_merge_map')
+          .select('deprecated_team_id, canonical_team_id')
+          .in('deprecated_team_id', opponentIdsArray)
+      : { data: null };
+
+    const opponentMergeMap = new Map<string, string>();
+    if (opponentMerges) {
+      opponentMerges.forEach((merge: { deprecated_team_id: string; canonical_team_id: string }) => {
+        opponentMergeMap.set(merge.deprecated_team_id, merge.canonical_team_id);
+      });
+    }
+
+    // Helper to resolve an opponent ID to its canonical form
+    const resolveOpponentId = (id: string): string => opponentMergeMap.get(id) || id;
+
+    // Find common opponents using canonical IDs
+    const team1Opponents = new Map<string, Game>();
+    (team1Result.data as Game[]).forEach((game) => {
+      const isTeam1Home = game.home_team_master_id ? team1IdSet.has(game.home_team_master_id) : false;
+      const rawOpponentId = isTeam1Home ? game.away_team_master_id : game.home_team_master_id;
+      if (!rawOpponentId) return;
+      const canonicalOpponentId = resolveOpponentId(rawOpponentId);
+      // Exclude team2 as an opponent
+      if (team2IdSet.has(rawOpponentId) || canonicalOpponentId === team2Id) return;
+      if (!team1Opponents.has(canonicalOpponentId)) {
+        team1Opponents.set(canonicalOpponentId, game);
       }
     });
 
     const team2Opponents = new Map<string, Game>();
-    (team2Games as Game[]).forEach((game) => {
-      const opponentId = game.home_team_master_id === team2Id 
-        ? game.away_team_master_id 
-        : game.home_team_master_id;
-      if (opponentId && opponentId !== team1Id) {
-        if (!team2Opponents.has(opponentId)) {
-          team2Opponents.set(opponentId, game);
-        }
+    (team2Result.data as Game[]).forEach((game) => {
+      const isTeam2Home = game.home_team_master_id ? team2IdSet.has(game.home_team_master_id) : false;
+      const rawOpponentId = isTeam2Home ? game.away_team_master_id : game.home_team_master_id;
+      if (!rawOpponentId) return;
+      const canonicalOpponentId = resolveOpponentId(rawOpponentId);
+      // Exclude team1 as an opponent
+      if (team1IdSet.has(rawOpponentId) || canonicalOpponentId === team1Id) return;
+      if (!team2Opponents.has(canonicalOpponentId)) {
+        team2Opponents.set(canonicalOpponentId, game);
       }
     });
 
     // Find intersection
-    const commonOpponentIds = Array.from(team1Opponents.keys()).filter(id => 
+    const commonOpponentIds = Array.from(team1Opponents.keys()).filter(id =>
       team2Opponents.has(id)
     );
 
-    // Get team names
-    const { data: teams } = await supabase
-      .from('teams')
-      .select('team_id_master, team_name')
-      .in('team_id_master', commonOpponentIds);
+    // Get team names using canonical IDs
+    const { data: teams } = commonOpponentIds.length > 0
+      ? await supabase
+          .from('teams')
+          .select('team_id_master, team_name')
+          .in('team_id_master', commonOpponentIds)
+      : { data: null };
 
     const teamMap = new Map<string, string>();
     teams?.forEach((team: { team_id_master: string; team_name: string }) => {
@@ -741,10 +829,10 @@ export const api = {
     return commonOpponentIds.map(opponentId => {
       const team1Game = team1Opponents.get(opponentId)!;
       const team2Game = team2Opponents.get(opponentId)!;
-      
-      const team1IsHome = team1Game.home_team_master_id === team1Id;
-      const team2IsHome = team2Game.home_team_master_id === team2Id;
-      
+
+      const team1IsHome = team1Game.home_team_master_id ? team1IdSet.has(team1Game.home_team_master_id) : false;
+      const team2IsHome = team2Game.home_team_master_id ? team2IdSet.has(team2Game.home_team_master_id) : false;
+
       const team1Score = team1IsHome ? team1Game.home_score : team1Game.away_score;
       const team1OpponentScore = team1IsHome ? team1Game.away_score : team1Game.home_score;
       const team2Score = team2IsHome ? team2Game.home_score : team2Game.away_score;
@@ -811,9 +899,28 @@ export const api = {
     const teamA = await this.getTeam(teamAId);
     const teamB = await this.getTeam(teamBId);
 
-    // Fetch recent games for form calculation (last 60 days, only for Team A/B)
-    // This optimized query only fetches games involving the two teams being compared,
-    // eliminating the need for a hard limit and ensuring we get all relevant games
+    // Resolve merged team IDs so prediction includes games from deprecated teams
+    const resolveTeamIds = async (teamId: string): Promise<string[]> => {
+      const ids = [teamId];
+      const { data: mergedTeams } = await supabase
+        .from('team_merge_map')
+        .select('deprecated_team_id')
+        .eq('canonical_team_id', teamId);
+      if (mergedTeams) {
+        mergedTeams.forEach((merge: { deprecated_team_id: string }) => {
+          if (merge.deprecated_team_id) ids.push(merge.deprecated_team_id);
+        });
+      }
+      return ids;
+    };
+
+    const [teamAIds, teamBIds] = await Promise.all([
+      resolveTeamIds(teamAId),
+      resolveTeamIds(teamBId),
+    ]);
+    const allTeamIds = [...teamAIds, ...teamBIds];
+
+    // Fetch recent games for form calculation (last 60 days, only for Team A/B + merged IDs)
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - 60);
 
@@ -823,7 +930,7 @@ export const api = {
       .gte('game_date', cutoffDate.toISOString().split('T')[0])
       .not('home_score', 'is', null)
       .not('away_score', 'is', null)
-      .or(`home_team_master_id.in.(${teamAId},${teamBId}),away_team_master_id.in.(${teamAId},${teamBId})`)
+      .or(`home_team_master_id.in.(${allTeamIds.join(',')}),away_team_master_id.in.(${allTeamIds.join(',')})`)
       .eq('is_excluded', false)
       .order('game_date', { ascending: false });
 
@@ -924,9 +1031,9 @@ export const api = {
       throw gamesError;
     }
 
-    // Get total ranked teams count from rankings_full (faster than view)
+    // Get total ranked teams count from rankings_view (only active teams)
     const { count: teamsCount, error: teamsError } = await supabase
-      .from('rankings_full')
+      .from('rankings_view')
       .select('*', { count: 'exact', head: true })
       .not('power_score_final', 'is', null);
 
@@ -944,11 +1051,14 @@ export const api = {
 
 /**
  * Helper function to calculate metrics for a period of games
+ * @param teamIdSet - Set of all team IDs belonging to this team (canonical + merged)
  */
 function calculatePeriodMetrics(
   games: Game[],
-  teamId: string
+  teamId: string,
+  teamIdSet?: Set<string>
 ): Omit<TeamTrajectory, 'team_id' | 'period_start' | 'period_end'> {
+  const idSet = teamIdSet || new Set([teamId]);
   let wins = 0;
   let losses = 0;
   let draws = 0;
@@ -956,7 +1066,7 @@ function calculatePeriodMetrics(
   let goalsAgainst = 0;
 
   games.forEach((game) => {
-    const isHome = game.home_team_master_id === teamId;
+    const isHome = game.home_team_master_id ? idSet.has(game.home_team_master_id) : false;
     const teamScore = isHome ? game.home_score : game.away_score;
     const opponentScore = isHome ? game.away_score : game.home_score;
 
@@ -975,8 +1085,9 @@ function calculatePeriodMetrics(
   });
 
   const gamesPlayed = wins + losses + draws;
+  // Use same formula as main win percentage: (wins + draws * 0.5) / total * 100
   const winPercentage =
-    gamesPlayed > 0 ? (wins / gamesPlayed) * 100 : 0;
+    gamesPlayed > 0 ? ((wins + draws * 0.5) / gamesPlayed) * 100 : 0;
   const avgGoalsFor = gamesPlayed > 0 ? goalsFor / gamesPlayed : 0;
   const avgGoalsAgainst = gamesPlayed > 0 ? goalsAgainst / gamesPlayed : 0;
 
