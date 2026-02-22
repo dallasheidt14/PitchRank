@@ -57,6 +57,21 @@ export function RecentMovers({
     localStorage.setItem('recentMoversTimeWindow', timeWindow);
   }, [timeWindow]);
 
+  // Compute sequential national ranks from filtered data (avoids gaps from inactive teams)
+  const computedNationalRanks = useMemo(() => {
+    if (!rankings?.length) return new Map<string, number>();
+    const map = new Map<string, number>();
+    const sorted = [...rankings].sort((a, b) => {
+      const diff = (b.power_score_final ?? 0) - (a.power_score_final ?? 0);
+      if (diff !== 0) return diff;
+      return (b.sos_norm ?? 0) - (a.sos_norm ?? 0);
+    });
+    sorted.forEach((team, index) => {
+      map.set(team.team_id_master, index + 1);
+    });
+    return map;
+  }, [rankings]);
+
   // Calculate recent movers based on real historical rank change data
   const recentMovers = useMemo(() => {
     if (!rankings?.length) return [];
@@ -146,7 +161,7 @@ export function RecentMovers({
                           {team.team_name}
                         </div>
                         <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-                          <span className="font-mono">#{team.rank_in_cohort_final}</span>
+                          <span className="font-mono">#{computedNationalRanks.get(team.team_id_master) ?? team.rank_in_cohort_final}</span>
                           {team.state && (
                             <>
                               <span>•</span>

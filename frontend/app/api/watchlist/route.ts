@@ -369,10 +369,12 @@ export async function GET() {
     console.log("[Watchlist API] Teams found:", teamsData?.length ?? 0, "of", teamIds.length);
 
     // Fetch ranking data from rankings_view (may not have all teams)
+    // Filter by status to match rankings pages (only active teams)
     const { data: rankingsData, error: rankingsError } = await supabase
       .from("rankings_view")
       .select("*")
-      .in("team_id_master", teamIds);
+      .in("team_id_master", teamIds)
+      .in("status", ["Active", "Not Enough Ranked Games"]);
 
     if (rankingsError) {
       console.error("Error fetching rankings:", rankingsError);
@@ -384,11 +386,12 @@ export async function GET() {
       ((rankingsData || []) as RankingRow[]).map((r: RankingRow) => [r.team_id_master, r])
     );
 
-    // Fetch state rankings for state rank
+    // Fetch state rankings for state rank (with status filter)
     const { data: stateRankingsData, error: stateRankingsError } = await supabase
       .from("state_rankings_view")
       .select("team_id_master, rank_in_state_final")
-      .in("team_id_master", teamIds);
+      .in("team_id_master", teamIds)
+      .in("status", ["Active", "Not Enough Ranked Games"]);
 
     if (stateRankingsError) {
       console.error("Error fetching state rankings:", stateRankingsError);
