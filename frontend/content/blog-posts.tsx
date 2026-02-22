@@ -297,6 +297,428 @@ export const blogPosts: BlogPost[] = [
     ),
   },
   {
+    slug: 'california-youth-soccer-rankings-guide',
+    title: "California Youth Soccer Rankings: The Complete Parent's Guide (2026)",
+    excerpt: "From LA Galaxy to San Diego Surf, we're tracking 15,693 California teams. Here's everything parents need to know about youth soccer rankings in CA.",
+    author: 'PitchRank Team',
+    date: '2026-02-21',
+    readingTime: '9 min read',
+    tags: ['California', 'Youth Soccer', 'Rankings', 'Parent Guide'],
+    content: (
+      <div className="space-y-8">
+        {/* Introduction */}
+        <section>
+          <p className="text-lg text-muted-foreground leading-relaxed mb-4">
+            California isn't just the biggest state for youth soccer — it's the <strong>epicenter</strong>. With MLS Next academies, ECNL powerhouses, and hundreds of competitive clubs from San Diego to Sacramento, navigating the California youth soccer landscape can feel overwhelming.
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            We're tracking <strong>15,693 California teams</strong> — more than any other ranking system. That's every age group from U9 to U19, every region, every level of play. Whether you're in Orange County wondering if your club is competitive with LA's best, or in the Bay Area comparing San Jose to Peninsula clubs, this guide gives you the clarity you need.
+          </p>
+          <p className="text-muted-foreground leading-relaxed">
+            Here's everything California soccer parents need to know about youth soccer rankings in 2026 — backed by real data, not hype.
+          </p>
+        </section>
+
+        {/* Why Rankings Matter */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Target className="size-6 text-primary" />
+            Why California Soccer Rankings Matter More Than Anywhere Else
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            California produces more Division I college soccer players and professional prospects than any other state. The competition is fierce, and the opportunities are massive — if you know where to find them.
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">But here's the challenge: with <strong>15,693 teams</strong> competing across the state, how do you know where your child actually stands? Rankings solve three critical problems:</p>
+          <div className="grid gap-3 mb-4">
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border">
+              <CheckCircle className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Regional reality checks</strong> — Your SoCal team might be dominant locally, but how do they stack up against Bay Area clubs? NorCal powerhouses? San Diego's elite academies?</p>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border">
+              <CheckCircle className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>College recruiting context</strong> — California is crawling with college scouts. Rankings help you understand if your child is at the level that attracts Division I attention</p>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border">
+              <CheckCircle className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Club comparison</strong> — When choosing between Surf, Slammers, Pateadores, or a local club, rankings help you evaluate development quality</p>
+            </div>
+          </div>
+        </section>
+
+        {/* California Landscape */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <MapPin className="size-6 text-primary" />
+            The California Youth Soccer Landscape
+          </h2>
+          
+          <h3 className="text-xl font-display font-semibold mb-3">Major California Soccer Clubs</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">Based on our database of 15,693 teams, here are California's largest youth soccer organizations:</p>
+          
+          <div className="grid gap-2 mb-6">
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>United SoCal</strong> (254 teams) — One of Southern California's largest competitive programs</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>Pateadores Soccer Club</strong> (235 teams) — Orange County powerhouse with deep academy structure</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>Total Futbol Academy</strong> (197 teams) — Growing rapidly across Southern California</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>Rebels Soccer Club</strong> (194 teams) — Strong competitive presence</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>Sporting California USA</strong> (191 teams) — Part of the Sporting network</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>San Diego Surf Soccer Club</strong> (178 teams) — Nationally recognized ECNL program</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>CDA Slammers</strong> (165 teams) — Elite development pathway to professional</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>Beach Futbol Club</strong> (159 teams) — Strong SoCal competitive program</span>
+            </div>
+          </div>
+
+          <h3 className="text-xl font-display font-semibold mb-3">California's Soccer Regions</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">California's youth soccer scene divides into distinct regions, each with its own character:</p>
+          
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">Southern California (SoCal)</h4>
+              <p className="text-sm text-muted-foreground">LA, Orange County, Inland Empire — The densest concentration of elite clubs. LA Galaxy, LAFC, Pateadores, Strikers, and dozens more. Year-round training weather. Massive tournament scene.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">San Diego</h4>
+              <p className="text-sm text-muted-foreground">Home to San Diego Surf, Nomads, Albion, and emerging clubs. Strong ECNL representation. Border proximity creates unique cross-regional competition.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">Bay Area (NorCal)</h4>
+              <p className="text-sm text-muted-foreground">San Jose Earthquakes Academy, De Anza Force, Bay Oaks, Mustang SC. Tech-forward parent community. Growing MLS Next presence.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">Central Valley & Sacramento</h4>
+              <p className="text-sm text-muted-foreground">Sacramento Republic FC Academy leading the region. Emerging talent pool with lower cost than coastal regions.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* Age Group Breakdown */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Activity className="size-6 text-primary" />
+            California Teams by Age Group
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Our database tracks California teams across 12 age groups. Here's the breakdown:
+          </p>
+          
+          <div className="grid sm:grid-cols-3 gap-3 mb-6">
+            <div className="p-3 rounded-lg bg-muted/50 border text-center">
+              <p className="text-2xl font-bold text-primary">2,244</p>
+              <p className="text-sm text-muted-foreground">U13 teams</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border text-center">
+              <p className="text-2xl font-bold text-primary">2,226</p>
+              <p className="text-sm text-muted-foreground">U12 teams</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border text-center">
+              <p className="text-2xl font-bold text-primary">2,113</p>
+              <p className="text-sm text-muted-foreground">U11 teams</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border text-center">
+              <p className="text-2xl font-bold text-primary">1,975</p>
+              <p className="text-sm text-muted-foreground">U14 teams</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border text-center">
+              <p className="text-2xl font-bold text-primary">1,735</p>
+              <p className="text-sm text-muted-foreground">U15 teams</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border text-center">
+              <p className="text-2xl font-bold text-primary">1,648</p>
+              <p className="text-sm text-muted-foreground">U16 teams</p>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="text-sm"><strong>Key insight:</strong> U12-U14 is the most competitive age range with the most teams. This is when players often move from recreational to competitive soccer, creating intense competition for roster spots at top clubs.</p>
+          </div>
+        </section>
+
+        {/* How Rankings Work */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Brain className="size-6 text-primary" />
+            How California Soccer Rankings Actually Work
+          </h2>
+          
+          <h3 className="text-xl font-display font-semibold mb-3">What PitchRank Tracks for California Teams</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Most ranking systems only track ECNL and MLS Next — the elite tiers. That misses 90%+ of California's youth soccer players. PitchRank is different.
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-6">We track:</p>
+          
+          <div className="grid gap-3 mb-6">
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
+              <Activity className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Every level of play</strong> — MLS Next, ECNL, GA, DPL, NPL, Coast Soccer League, Presidio League, NorCal Premier, SCDSL, and more</p>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
+              <Globe className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>15,693 California teams</strong> — from elite to developmental</p>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
+              <Calendar className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>12 age groups</strong> from U8 through U19</p>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
+              <Shield className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Cross-regional games</strong> — When SoCal plays NorCal at Surf Cup, we capture it</p>
+            </div>
+          </div>
+
+          <h3 className="text-xl font-display font-semibold mb-3">The Algorithm Explained (Simply)</h3>
+          <div className="grid gap-3 mb-4">
+            <div className="flex items-start gap-3">
+              <span className="flex items-center justify-center size-6 rounded-full bg-primary text-primary-foreground text-sm font-bold shrink-0">1</span>
+              <p className="text-sm text-muted-foreground"><strong>Base score</strong> — Wins, losses, draws, and goal differential create the foundation</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="flex items-center justify-center size-6 rounded-full bg-primary text-primary-foreground text-sm font-bold shrink-0">2</span>
+              <p className="text-sm text-muted-foreground"><strong>Strength of schedule</strong> — Beating San Diego Surf boosts your ranking more than beating a developmental squad</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="flex items-center justify-center size-6 rounded-full bg-primary text-primary-foreground text-sm font-bold shrink-0">3</span>
+              <p className="text-sm text-muted-foreground"><strong>Recency</strong> — Last month's games matter more than January's games from a year ago</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="flex items-center justify-center size-6 rounded-full bg-primary text-primary-foreground text-sm font-bold shrink-0">4</span>
+              <p className="text-sm text-muted-foreground"><strong>Consistency</strong> — Teams that perform steadily rank higher than inconsistent rollercoasters</p>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-lg bg-muted/50 border">
+            <h4 className="font-semibold mb-2">PowerScore Scale (0.0 to 1.0)</h4>
+            <div className="grid gap-1 text-sm">
+              <p><strong className="text-green-600">0.85+</strong> = Elite national-level team (top ECNL/MLS Next)</p>
+              <p><strong className="text-blue-600">0.70-0.84</strong> = Top competitive tier (strong ECNL/GA)</p>
+              <p><strong className="text-yellow-600">0.50-0.69</strong> = Solid competitive team (DPL/NPL)</p>
+              <p><strong className="text-orange-600">0.30-0.49</strong> = Developing/mid-level (league play)</p>
+              <p><strong className="text-muted-foreground">Below 0.30</strong> = Recreational or limited data</p>
+            </div>
+          </div>
+        </section>
+
+        {/* SoCal vs NorCal */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <TrendingUp className="size-6 text-primary" />
+            SoCal vs NorCal: The Great California Soccer Divide
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            It's the debate that never ends: Is Southern California or Northern California better for youth soccer? Here's what the data tells us:
+          </p>
+
+          <div className="grid sm:grid-cols-2 gap-4 mb-6">
+            <div className="p-4 rounded-lg bg-orange-500/10 border border-orange-500/20">
+              <h4 className="font-semibold mb-2 text-orange-700 dark:text-orange-400">Southern California Advantages</h4>
+              <ul className="text-sm text-muted-foreground space-y-1">
+                <li>• Higher volume of elite clubs</li>
+                <li>• More MLS Next & ECNL teams</li>
+                <li>• Year-round outdoor training</li>
+                <li>• Major showcase tournaments (Surf Cup)</li>
+                <li>• Dense college scout presence</li>
+              </ul>
+            </div>
+            <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
+              <h4 className="font-semibold mb-2 text-blue-700 dark:text-blue-400">Northern California Advantages</h4>
+              <ul className="text-sm text-muted-foreground space-y-1">
+                <li>• Less roster-hopping culture</li>
+                <li>• Stronger player loyalty/development</li>
+                <li>• Less burnout-inducing competition</li>
+                <li>• Growing academy system</li>
+                <li>• Easier college commute for showcases</li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="text-sm"><strong>The truth:</strong> Both regions produce elite talent. The "best" region depends on your goals. If your child wants the most competitive environment with the most exposure, SoCal has more options. If you want strong development without the hyper-competitive pressure, NorCal clubs often provide better balance.</p>
+          </div>
+        </section>
+
+        {/* Elite Pathways */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Zap className="size-6 text-primary" />
+            California's Elite Player Pathways
+          </h2>
+          
+          <h3 className="text-xl font-display font-semibold mb-3">Understanding the Development Tiers</h3>
+          <div className="grid gap-3 mb-6">
+            <div className="p-4 rounded-lg border border-green-500/30 bg-green-500/5">
+              <h4 className="font-semibold text-green-700 dark:text-green-400 mb-2">Tier 1: Professional Academies</h4>
+              <p className="text-sm text-muted-foreground">LA Galaxy Academy, LAFC Academy, San Jose Earthquakes Academy, Sacramento Republic FC Academy. Free to play, highest level, direct pathway to professional.</p>
+            </div>
+            <div className="p-4 rounded-lg border border-blue-500/30 bg-blue-500/5">
+              <h4 className="font-semibold text-blue-700 dark:text-blue-400 mb-2">Tier 2: MLS Next & ECNL</h4>
+              <p className="text-sm text-muted-foreground">San Diego Surf, CDA Slammers, Pateadores, LA Surf, Real So Cal. Elite competition, national showcases, strong college exposure. Typical cost: $3,000-5,000/year.</p>
+            </div>
+            <div className="p-4 rounded-lg border border-yellow-500/30 bg-yellow-500/5">
+              <h4 className="font-semibold text-yellow-700 dark:text-yellow-400 mb-2">Tier 3: GA, DPL, NPL</h4>
+              <p className="text-sm text-muted-foreground">Girls Academy, Discovery Premier League, National Premier League. Strong competition, good development. Typical cost: $2,000-4,000/year.</p>
+            </div>
+            <div className="p-4 rounded-lg border border-gray-500/30 bg-gray-500/5">
+              <h4 className="font-semibold text-gray-700 dark:text-gray-400 mb-2">Tier 4: State & Regional Leagues</h4>
+              <p className="text-sm text-muted-foreground">Coast Soccer League, Presidio League, SCDSL, NorCal Premier. Competitive soccer without elite-level travel/cost. Great for development focus.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* College Recruiting */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <GraduationCap className="size-6 text-primary" />
+            California Soccer Rankings and College Recruiting
+          </h2>
+          
+          <h3 className="text-xl font-display font-semibold mb-3">California's College Soccer Advantage</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            California has more NCAA Division I soccer programs than any other state — UCLA, Stanford, Cal, USC, San Diego State, Santa Clara, Pepperdine, and many more. That means more local recruiting, more showcase attendance, and more opportunities.
+          </p>
+
+          <div className="grid gap-3 mb-6">
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>Division I recruiting</strong> — Coaches actively scout California's top 5% of teams. If you're ranked in the top 500 nationally, you're on their radar.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>Division II recruiting</strong> — Cal State schools, UC San Diego, and others recruit from the top 15-20% of California teams.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>Division III recruiting</strong> — Rankings matter less than academics, character, and video highlights.</p>
+            </div>
+          </div>
+
+          <h3 className="text-xl font-display font-semibold mb-3">The California Showcases That Matter</h3>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm font-semibold">Surf Cup (San Diego)</p>
+              <p className="text-xs text-muted-foreground">The biggest showcase in the country. College coaches flock here.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm font-semibold">Las Vegas Cup/Players Showcase</p>
+              <p className="text-xs text-muted-foreground">Major recruiting event for California teams.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm font-semibold">Blues Cup (San Diego)</p>
+              <p className="text-xs text-muted-foreground">Strong regional showcase with college scouts.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm font-semibold">Santa Barbara Kickoff</p>
+              <p className="text-xs text-muted-foreground">Season opener with NorCal/SoCal crossover.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* Choosing a Team */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <HelpCircle className="size-6 text-primary" />
+            How to Use Rankings When Choosing a California Club
+          </h2>
+          
+          <h3 className="text-xl font-display font-semibold mb-3">Questions to Ask Club Directors</h3>
+          <div className="grid gap-3 mb-6">
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm text-muted-foreground"><strong>"What's your player development philosophy?"</strong><br/>Listen for: Individual development over team results, age-appropriate training, playing time policies.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm text-muted-foreground"><strong>"How do you handle the competitive pressure of California soccer?"</strong><br/>Good clubs acknowledge burnout risks and have strategies to prevent it.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm text-muted-foreground"><strong>"Where have your players gone after club soccer?"</strong><br/>Track record of college placements, academy promotions, or simply happy, well-adjusted players.</p>
+            </div>
+          </div>
+
+          <h3 className="text-xl font-display font-semibold mb-3">The California Club Selection Checklist</h3>
+          <div className="grid gap-2 mb-4">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="size-4 text-primary" />
+              <span className="text-sm text-muted-foreground">Team ranking within 50-100 positions of appropriate level</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CheckCircle className="size-4 text-primary" />
+              <span className="text-sm text-muted-foreground">Commute time you can sustain 3-4x per week</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CheckCircle className="size-4 text-primary" />
+              <span className="text-sm text-muted-foreground">Budget alignment (elite CA clubs: $5,000-8,000/year all-in)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CheckCircle className="size-4 text-primary" />
+              <span className="text-sm text-muted-foreground">Playing time guarantee (ask directly)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CheckCircle className="size-4 text-primary" />
+              <span className="text-sm text-muted-foreground">Coach credentials and turnover history</span>
+            </div>
+          </div>
+        </section>
+
+        {/* FAQ */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <HelpCircle className="size-6 text-primary" />
+            Common California Soccer Ranking Questions
+          </h2>
+          
+          <div className="grid gap-4">
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">"We moved from another state. How do California teams compare?"</h4>
+              <p className="text-sm text-muted-foreground">California is consistently ranked as the most competitive state for youth soccer. A mid-level California team often matches elite teams from smaller states. Give your child time to adjust — the level is higher than almost anywhere.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">"Is it worth paying $8,000/year for an elite club?"</h4>
+              <p className="text-sm text-muted-foreground"><strong>It depends.</strong> If your child is getting meaningful minutes, high-quality coaching, and appropriate competition, yes. If they're sitting the bench to boost the club's ranking, absolutely not. Rankings help you evaluate — but playing time matters more than club prestige.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">"Should my 10-year-old play for the highest-ranked team possible?"</h4>
+              <p className="text-sm text-muted-foreground"><strong>No.</strong> At U10/U11, development and enjoyment matter infinitely more than rankings. Put them where they'll play 50+ minutes per game, develop skills, and love soccer. Rankings become more relevant at U14+ when college recruiting starts.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">"Why isn't my team ranked if we're winning everything?"</h4>
+              <p className="text-sm text-muted-foreground">Rankings require game data. If your league or tournament results aren't being reported to major platforms, we may not have visibility. You can report missing games through PitchRank to ensure your team gets credit.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* CTA */}
+        <section className="p-6 rounded-lg bg-primary/10 border border-primary/20">
+          <h2 className="text-2xl font-display font-bold mb-4">Find Your California Team's Ranking</h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Ready to see where your team stands among California's <strong>15,693 tracked teams</strong>? Visit <strong>PitchRank.io</strong>, search for your club and age group, and get the data-backed perspective you need.
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Whether your child plays for San Diego Surf, a Bay Area academy, an Orange County powerhouse, or your local recreational club — rankings give you clarity on where they stand and where they could go.
+          </p>
+          <p className="text-foreground font-semibold">
+            Because in California's crowded youth soccer market, knowledge is power. And knowing where your team truly ranks is the first step to making smarter decisions.
+          </p>
+        </section>
+      </div>
+    ),
+  },
+  {
     slug: 'arizona-youth-soccer-rankings-guide',
     title: "Arizona Youth Soccer Rankings: The Complete Parent's Guide (2026)",
     excerpt: "Confused about Arizona soccer rankings? Here's what every parent needs to know about youth soccer team rankings in AZ, from Phoenix to Tucson.",
