@@ -14,7 +14,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
-from src.utils.team_utils import calculate_age_group_from_birth_year
+from src.utils.team_utils import calculate_age_group_from_birth_year, CURRENT_YEAR
+
+# Dynamic birth year range based on current year
+# U19 (oldest tracked) to U8 (youngest tracked) gives a comfortable range
+MIN_BIRTH_YEAR = CURRENT_YEAR - 19  # e.g., 2026 - 19 = 2007
+MAX_BIRTH_YEAR = CURRENT_YEAR - 8   # e.g., 2026 - 8 = 2018
 
 BASE = "https://api.athleteone.com/api"
 OUTPUT_DIR = "data/raw/tgs"
@@ -94,14 +99,13 @@ def resolve_config():
 def extract_year(division_name: str) -> Optional[int]:
     """Extract birth year from division name (e.g., 'B2012' -> 2012).
 
-    Only returns years in the valid range for tracked age groups:
-    - U10-U18 corresponds to birth years 2008-2016 (for 2025 season)
+    Only returns years in the valid range for tracked age groups.
+    Range is computed dynamically from CURRENT_YEAR (U19 to U8).
     """
     match = re.search(r'(\d{4})', division_name)
     if match:
         year = int(match.group(1))
-        # Only accept birth years 2008-2016 (U18-U10 for 2025 season)
-        if 2008 <= year <= 2016:
+        if MIN_BIRTH_YEAR <= year <= MAX_BIRTH_YEAR:
             return year
     return None
 
@@ -198,98 +202,102 @@ def parse_team_name(full_name: str) -> tuple[str, str]:
 # API FUNCTIONS
 # -----------------------------
 
+API_HEADERS = {
+    "Origin": "https://public.totalglobalsports.com",
+    "Referer": "https://public.totalglobalsports.com/",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+}
+
+MAX_RETRIES = 3
+RETRY_BACKOFF = [1, 2, 4]  # seconds between retries
+
+
+def _api_get(url: str, label: str = "") -> Optional[requests.Response]:
+    """Make an API GET request with retry logic."""
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            r = requests.get(url, headers=API_HEADERS, timeout=20)
+            if r.status_code == 200:
+                return r
+            if r.status_code == 429:
+                # Rate limited — always retry
+                wait = RETRY_BACKOFF[min(attempt, len(RETRY_BACKOFF) - 1)]
+                print(f"⏳ Rate limited on {label}, retrying in {wait}s...")
+                time.sleep(wait)
+                continue
+            if r.status_code >= 500 and attempt < MAX_RETRIES:
+                wait = RETRY_BACKOFF[min(attempt, len(RETRY_BACKOFF) - 1)]
+                time.sleep(wait)
+                continue
+            # 4xx (not 429) — don't retry
+            return r
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            if attempt < MAX_RETRIES:
+                wait = RETRY_BACKOFF[min(attempt, len(RETRY_BACKOFF) - 1)]
+                print(f"⏳ {label} connection error, retrying in {wait}s: {e}")
+                time.sleep(wait)
+                continue
+            print(f"⚠️ {label} failed after {MAX_RETRIES} retries: {e}")
+        except Exception as e:
+            print(f"⚠️ {label} unexpected error: {e}")
+            break
+    return None
+
+
 def get_event_nav(event_id: int) -> Optional[Dict]:
     """Get event navigation settings to discover flights"""
     url = f"{BASE}/Event/get-public-event-nav-settings-by-eventID/{event_id}"
-    headers = {
-        "Origin": "https://public.totalglobalsports.com",
-        "Referer": "https://public.totalglobalsports.com/",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-    }
-    try:
-        r = requests.get(url, headers=headers, timeout=20)
-        if r.status_code == 200:
-            return r.json()
-        else:
-            print(f"⚠️ Event {event_id} nav returned status {r.status_code}")
-    except Exception as e:
-        print(f"⚠️ Error fetching nav for event {event_id}: {e}")
+    r = _api_get(url, f"Event {event_id} nav")
+    if r and r.status_code == 200:
+        return r.json()
+    if r:
+        print(f"⚠️ Event {event_id} nav returned status {r.status_code}")
     return None
 
 
 def get_event_details(event_id: int) -> Optional[Dict]:
     """Get event details to extract event name"""
     url = f"{BASE}/Event/get-event-details-by-eventID/{event_id}"
-    headers = {
-        "Origin": "https://public.totalglobalsports.com",
-        "Referer": "https://public.totalglobalsports.com/",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-    }
-    try:
-        r = requests.get(url, headers=headers, timeout=20)
-        if r.status_code == 200:
-            data = r.json()
-            return data.get("data", {}) if isinstance(data, dict) else data
-        else:
-            print(f"⚠️ Event {event_id} details returned status {r.status_code}")
-    except Exception as e:
-        print(f"⚠️ Error fetching event {event_id} details: {e}")
+    r = _api_get(url, f"Event {event_id} details")
+    if r and r.status_code == 200:
+        data = r.json()
+        return data.get("data", {}) if isinstance(data, dict) else data
+    if r:
+        print(f"⚠️ Event {event_id} details returned status {r.status_code}")
     return None
 
 
 def get_flight_division(flight_id: int) -> Optional[Dict]:
     """Get division info for a flight (age_year, gender)"""
     url = f"{BASE}/Event/get-flight-division-by-flightID/{flight_id}"
-    headers = {
-        "Origin": "https://public.totalglobalsports.com",
-        "Referer": "https://public.totalglobalsports.com/",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-    }
-    try:
-        r = requests.get(url, headers=headers, timeout=20)
-        if r.status_code == 200:
-            data = r.json()
-            return data.get("data", {}) if isinstance(data, dict) else data
-    except Exception as e:
-        pass
+    r = _api_get(url, f"Flight {flight_id} division")
+    if r and r.status_code == 200:
+        data = r.json()
+        return data.get("data", {}) if isinstance(data, dict) else data
     return None
 
 
 def get_games_for_flight(event_id: int, flight_id: int) -> List[Dict]:
     """Get all games for a flight - THE MONEY ENDPOINT"""
     url = f"{BASE}/Event/get-schedules-by-flight/{event_id}/{flight_id}/0"
-    headers = {
-        "Origin": "https://public.totalglobalsports.com",
-        "Referer": "https://public.totalglobalsports.com/",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-    }
-    try:
-        r = requests.get(url, headers=headers, timeout=20)
-        if r.status_code == 200:
-            data = r.json()
-            # Handle wrapped responses
-            if isinstance(data, dict):
-                if "data" in data:
-                    data = data["data"]
-                elif "result" in data and "data" in data:
-                    data = data["data"]
-            
-            if isinstance(data, list):
-                return data
-            elif isinstance(data, dict) and "schedules" in data:
-                return data["schedules"]
-            elif isinstance(data, dict) and "games" in data:
-                return data["games"]
-    except Exception as e:
-        pass
+    r = _api_get(url, f"Event {event_id} flight {flight_id} games")
+    if r and r.status_code == 200:
+        data = r.json()
+        # Handle wrapped responses
+        if isinstance(data, dict):
+            if "data" in data:
+                data = data["data"]
+            elif "result" in data and "data" in data:
+                data = data["data"]
+
+        if isinstance(data, list):
+            return data
+        elif isinstance(data, dict) and "schedules" in data:
+            return data["schedules"]
+        elif isinstance(data, dict) and "games" in data:
+            return data["games"]
     return []
 
 
@@ -572,21 +580,15 @@ def scrape_event(event_id: int, config: Dict, records: List[Dict]) -> None:
 
     # Extract flight list from schedule/standings endpoint
     schedule_url = f"{BASE}/Event/get-event-schedule-or-standings/{event_id}"
-    headers = {
-        "Origin": "https://public.totalglobalsports.com",
-        "Referer": "https://public.totalglobalsports.com/",
-        "Accept": "application/json, text/plain, */*",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    }
-
+    r = _api_get(schedule_url, f"Event {event_id} schedule")
+    if not r or r.status_code != 200:
+        status = r.status_code if r else "no response"
+        print(f"⚠️ Could not get schedule structure: {status}")
+        return
     try:
-        r = requests.get(schedule_url, headers=headers, timeout=20)
-        if r.status_code != 200:
-            print(f"⚠️ Could not get schedule structure: {r.status_code}")
-            return
         schedule_data = r.json()
     except Exception as e:
-        print(f"⚠️ Error getting schedule structure: {e}")
+        print(f"⚠️ Error parsing schedule JSON for event {event_id}: {e}")
         return
 
     # Extract divisions and flights
@@ -733,8 +735,8 @@ def main():
     scrape_duration = time.time() - scrape_start
 
     if not records:
-        print("❌ No games scraped")
-        return
+        print("❌ No games scraped across all events — exiting with error")
+        sys.exit(1)
 
     # Validate records
     validate_records(records)

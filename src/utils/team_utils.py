@@ -1,10 +1,11 @@
 """Team-related utility functions"""
 
 import re
+from datetime import datetime
 from typing import Optional, Tuple
 
-# Current year for age calculations (update annually)
-CURRENT_YEAR = 2025
+# Current year for age calculations (derived dynamically)
+CURRENT_YEAR = datetime.now().year
 
 
 def extract_birth_year_from_name(team_name: str) -> Optional[int]:
@@ -36,8 +37,10 @@ def extract_birth_year_from_name(team_name: str) -> Optional[int]:
     if match:
         year = int(match.group(1))
         # Validate it's a reasonable birth year for youth soccer
-        # 2005-2018 covers U7 to U20 for 2025 season
-        if 2005 <= year <= 2018:
+        # Dynamic range: U20 to U7 based on current year
+        min_year = CURRENT_YEAR - 20
+        max_year = CURRENT_YEAR - 7
+        if min_year <= year <= max_year:
             return year
     return None
 

@@ -29,6 +29,7 @@ import os
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.progress import track
+from src.utils.team_utils import calculate_age_group_from_birth_year
 
 # Set up logging
 logging.basicConfig(
@@ -44,15 +45,6 @@ if env_local.exists():
     load_dotenv(env_local)
 else:
     load_dotenv()
-
-
-def calculate_age_group_from_birth_year(birth_year: int, reference_year: int = 2026) -> str:
-    """
-    Calculate age group (U##) from birth year.
-    Example: 2014 → U12 (in 2026)
-    """
-    age = reference_year - birth_year
-    return f"u{age}"
 
 
 def normalize_gender(gender: str) -> str:
