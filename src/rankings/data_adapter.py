@@ -301,7 +301,11 @@ async def fetch_games_for_rankings(
     # Convert to v53e format (perspective-based: each game appears twice)
     v53e_rows = []
     processed_count = 0
-    
+    skipped_missing_data = 0
+    skipped_missing_metadata = 0
+    # Track per-team game drops for diagnostics
+    team_game_drops: Dict[str, int] = {}  # team_id -> count of games dropped due to opponent metadata
+
     for _, game in games_df.iterrows():
         game_id = str(game.get('game_uid') or game.get('id', ''))
         game_uuid = game.get('id')  # Keep original UUID for ML residual mapping
@@ -313,6 +317,7 @@ async def fetch_games_for_rankings(
 
         # Skip if missing required data
         if pd.isna(home_team_id) or pd.isna(away_team_id) or pd.isna(game_date):
+            skipped_missing_data += 1
             continue
 
         # Get team metadata
@@ -321,8 +326,14 @@ async def fetch_games_for_rankings(
         away_age = team_age_map.get(away_team_id, '')
         away_gender = team_gender_map.get(away_team_id, '')
 
-        # Skip if missing age/gender
+        # Skip if missing age/gender — track which teams lose games
         if not home_age or not home_gender or not away_age or not away_gender:
+            skipped_missing_metadata += 1
+            # Track drops for both teams so we can diagnose per-team game loss
+            if home_team_id:
+                team_game_drops[str(home_team_id)] = team_game_drops.get(str(home_team_id), 0) + 1
+            if away_team_id:
+                team_game_drops[str(away_team_id)] = team_game_drops.get(str(away_team_id), 0) + 1
             continue
 
         # Home perspective
@@ -368,6 +379,25 @@ async def fetch_games_for_rankings(
 
     v53e_df = pd.DataFrame(v53e_rows)
     logger.info(f"📋 Created {len(v53e_df):,} perspective rows from {processed_count:,} games")
+
+    # Log conversion drop summary
+    total_input = len(games_df)
+    total_dropped = total_input - processed_count
+    if total_dropped > 0:
+        logger.info(
+            f"⚠️  Dropped {total_dropped:,} of {total_input:,} games during v53e conversion: "
+            f"missing_data={skipped_missing_data:,}, missing_metadata={skipped_missing_metadata:,}"
+        )
+    if skipped_missing_metadata > 0:
+        logger.info(
+            f"   Missing metadata = opponent (or team) has no age_group or gender in teams table"
+        )
+        # Log the teams most affected by metadata drops (top 10)
+        if team_game_drops:
+            top_affected = sorted(team_game_drops.items(), key=lambda x: x[1], reverse=True)[:10]
+            logger.info(f"   Top teams affected by metadata drops:")
+            for tid, count in top_affected:
+                logger.info(f"     team={tid}: {count} game(s) dropped")
 
     # Apply merge resolution if resolver provided
     if merge_resolver is not None and merge_resolver.has_merges:
