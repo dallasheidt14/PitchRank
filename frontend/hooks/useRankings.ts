@@ -193,7 +193,7 @@ export function useRankings(
       console.log('[useRankings] queryFn returning', allResults.length, 'results');
       return allResults;
     },
-    staleTime: 0, // Force fresh data - rankings may have been updated
+    staleTime: 5 * 60 * 1000, // 5 minutes – matches global default, avoids refetch on every mount
     gcTime: 60 * 60 * 1000, // Keep in cache for 1 hour
   });
 

@@ -109,7 +109,9 @@ function calculateMomentum(
  * MomentumMeter component - displays team momentum based on recent performance
  */
 export function MomentumMeter({ teamId }: MomentumMeterProps) {
-  const { data: gamesData, isLoading: gamesLoading, isError: gamesError, error: gamesErrorObj, refetch } = useTeamGames(teamId, 12);
+  // Use same limit as GameHistoryTable (100) so React Query serves from shared cache
+  // instead of firing a separate Supabase request. MomentumMeter only reads the first 8 games.
+  const { data: gamesData, isLoading: gamesLoading, isError: gamesError, error: gamesErrorObj, refetch } = useTeamGames(teamId, 100);
 
   const [animatedScore, setAnimatedScore] = useState(50);
   const [momentumData, setMomentumData] = useState<MomentumResult | null>(null);

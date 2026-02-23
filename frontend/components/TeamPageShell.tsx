@@ -11,6 +11,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { Suspense, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
+import { SectionErrorBoundary } from '@/components/ui/SectionErrorBoundary';
 import { ArrowLeft } from 'lucide-react';
 
 // Lazy-load charts for better performance
@@ -126,18 +127,28 @@ export function TeamPageShell({ id }: TeamPageShellProps) {
         <BackToRankingsButton />
 
         <div className="space-y-6">
-          <TeamHeader teamId={id} />
+          <SectionErrorBoundary fallbackTitle="Failed to load team header.">
+            <TeamHeader teamId={id} />
+          </SectionErrorBoundary>
 
           <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2">
-            <GameHistoryTable teamId={id} />
+            <SectionErrorBoundary fallbackTitle="Failed to load game history.">
+              <GameHistoryTable teamId={id} />
+            </SectionErrorBoundary>
             {/* Right column: Momentum + Insights stacked */}
             <div className="flex flex-col gap-4">
-              <LazyMomentumMeter teamId={id} />
-              <LazyTeamInsightsCard teamId={id} />
+              <SectionErrorBoundary fallbackTitle="Failed to load momentum data.">
+                <LazyMomentumMeter teamId={id} />
+              </SectionErrorBoundary>
+              <SectionErrorBoundary fallbackTitle="Failed to load insights.">
+                <LazyTeamInsightsCard teamId={id} />
+              </SectionErrorBoundary>
             </div>
           </div>
 
-          <LazyTeamTrajectoryChart teamId={id} />
+          <SectionErrorBoundary fallbackTitle="Failed to load trajectory chart.">
+            <LazyTeamTrajectoryChart teamId={id} />
+          </SectionErrorBoundary>
         </div>
       </div>
     </>

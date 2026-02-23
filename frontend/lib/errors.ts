@@ -40,7 +40,9 @@ export function getErrorMessage(error: unknown): string {
 }
 
 /**
- * Check if error is a network/connection error
+ * Check if error is a network/connection/transient server error.
+ * Used by React Query to determine retry behavior and by ErrorDisplay
+ * to show "Connection Error" vs generic "Error" messaging.
  */
 export function isNetworkError(error: unknown): boolean {
   if (!error) return false;
@@ -56,14 +58,30 @@ export function isNetworkError(error: unknown): boolean {
     );
   }
 
-  // Check for Supabase network errors
+  // Check for aborted requests (e.g. timeout via AbortController)
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return true;
+  }
+
+  // Check for Supabase/PostgREST and HTTP errors
   if (error && typeof error === 'object') {
     const errorObj = error as Record<string, unknown>;
-    
-    // Check for network-related error codes
+
+    // Check HTTP status codes indicating server/transient issues
+    const status = Number(errorObj.status ?? errorObj.statusCode ?? 0);
+    if (status === 408 || status === 429 || status >= 500) {
+      return true;
+    }
+
+    // Check for network-related error codes (PostgREST, Supabase, Postgres)
     if ('code' in errorObj) {
       const code = String(errorObj.code).toLowerCase();
-      if (code.includes('network') || code.includes('connection') || code === 'fetch_error') {
+      if (
+        code.includes('network') ||
+        code.includes('connection') ||
+        code === 'fetch_error' ||
+        code === 'pgrst000' // PostgREST could not connect to database
+      ) {
         return true;
       }
     }
@@ -75,7 +93,11 @@ export function isNetworkError(error: unknown): boolean {
         message.includes('network') ||
         message.includes('connection') ||
         message.includes('fetch') ||
-        message.includes('timeout')
+        message.includes('timeout') ||
+        message.includes('abort') ||
+        message.includes('econnrefused') ||
+        message.includes('enotfound') ||
+        message.includes('socket hang up')
       );
     }
   }

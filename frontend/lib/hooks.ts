@@ -56,6 +56,7 @@ export function useTeamTrajectory(id: string, periodDays: number = 30) {
     enabled: !!id,
     staleTime: 15 * 60 * 1000, // 15 minutes (calculated from games, updates weekly)
     gcTime: 60 * 60 * 1000, // Keep in cache for 1 hour
+    retry: 1, // Retry once on failure (overrides global network-only retry)
   });
 }
 
@@ -75,6 +76,7 @@ export function useTeamGames(id: string, limit: number = 50) {
     enabled: !!id,
     staleTime: 2 * 60 * 1000, // 2 minutes - games update more frequently
     gcTime: 15 * 60 * 1000, // Keep in cache for 15 minutes
+    retry: 1, // Retry once on failure (overrides global network-only retry)
   });
 }
 

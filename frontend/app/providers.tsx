@@ -40,9 +40,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
             // Automatic request deduplication in React Query v5 based on query keys
 
-            // Only retry network errors, not other errors
+            // Retry all errors at least once to handle transient Supabase issues
+            // Network errors get more retries since they're typically recoverable
             retry: (failureCount, error) => {
-              return isNetworkError(error) ? failureCount < 3 : false;
+              if (isNetworkError(error)) return failureCount < 3;
+              return failureCount < 1;
             },
 
             // Exponential backoff for retries

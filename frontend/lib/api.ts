@@ -92,12 +92,18 @@ export const api = {
    * @returns TeamWithRanking object (Team + Ranking data from rankings_view)
    */
   async getTeam(id: string): Promise<TeamWithRanking> {
-    // Fetch team data
-    const { data: teamData, error: teamError } = await supabase
-      .from('teams')
-      .select('*')
-      .eq('team_id_master', id)
-      .maybeSingle();
+    // Phase 1: Fetch team data, ranking views, and merge map in parallel
+    // These are all independent lookups that don't depend on each other
+    const [teamResult, rankingResult, stateRankResult, mergeResult] = await Promise.all([
+      supabase.from('teams').select('*').eq('team_id_master', id).maybeSingle(),
+      supabase.from('rankings_view').select('*').eq('team_id_master', id).maybeSingle(),
+      supabase.from('state_rankings_view').select('*').eq('team_id_master', id).maybeSingle(),
+      supabase.from('team_merge_map').select('deprecated_team_id').eq('canonical_team_id', id),
+    ]);
+
+    const { data: teamData, error: teamError } = teamResult;
+    const { data: rankingData, error: rankingError } = rankingResult;
+    const { data: stateRankData, error: stateRankError } = stateRankResult;
 
     if (teamError) {
       console.error('[api.getTeam] Error:', teamError.message);
@@ -108,30 +114,14 @@ export const api = {
       throw new Error(`Team with id ${id} not found`);
     }
 
-    // Fetch ranking data from rankings_view with explicit field list
-    const { data: rankingData, error: rankingError } = await supabase
-      .from('rankings_view')
-      .select('*')
-      .eq('team_id_master', id)
-      .maybeSingle();
-
     if (rankingError) {
       console.warn('[api.getTeam] rankings_view error, continuing without ranking data:', rankingError.message);
     }
-
-    // Fetch state rank and SOS rank from state_rankings_view
-    const { data: stateRankData, error: stateRankError } = await supabase
-      .from('state_rankings_view')
-      .select('*')
-      .eq('team_id_master', id)
-      .maybeSingle();
-
     if (stateRankError) {
       console.warn('[api.getTeam] state_rankings_view error, continuing without state ranking data:', stateRankError.message);
     }
 
     // Fallback: If views returned no data, try querying rankings_full directly
-    // This handles cases where teams exist in rankings_full but are filtered out by view WHERE clauses
     // Skip this fallback for deprecated teams — they are intentionally excluded from views
     let rankingsFullData = null;
     if (!rankingData && !stateRankData && !teamData?.is_deprecated) {
@@ -143,33 +133,25 @@ export const api = {
 
       if (!rfError && rfData) {
         rankingsFullData = rfData;
-        console.log('[api.getTeam] Found team in rankings_full directly (not in views)');
       }
     }
 
     // Resolve merged team IDs so total games include games from deprecated teams
-    // (mirrors the merge resolution in getTeamGames)
     const teamIdsForGameCount = [id];
-    const { data: mergedTeams } = await supabase
-      .from('team_merge_map')
-      .select('deprecated_team_id')
-      .eq('canonical_team_id', id);
-
-    if (mergedTeams && mergedTeams.length > 0) {
-      mergedTeams.forEach((merge: { deprecated_team_id: string }) => {
+    if (mergeResult.data && mergeResult.data.length > 0) {
+      mergeResult.data.forEach((merge: { deprecated_team_id: string }) => {
         if (merge.deprecated_team_id) {
           teamIdsForGameCount.push(merge.deprecated_team_id);
         }
       });
     }
 
-    // Fetch all games to calculate total games and win/loss/draw record
-    // Query games for canonical + all deprecated (merged) team IDs
+    // Phase 2: Fetch games data (depends on merge map resolution)
     const gameOrConditions = teamIdsForGameCount
       .map((teamId) => `home_team_master_id.eq.${teamId},away_team_master_id.eq.${teamId}`)
       .join(',');
 
-    const { data: gamesData, error: gamesDataError } = await supabase
+    const { data: gamesData } = await supabase
       .from('games')
       .select('home_team_master_id, away_team_master_id, home_score, away_score')
       .or(gameOrConditions)
@@ -181,7 +163,6 @@ export const api = {
     let calculatedLosses = 0;
     let calculatedDraws = 0;
 
-    // Build a Set for fast lookup of all team IDs belonging to this team
     const teamIdSet = new Set(teamIdsForGameCount);
 
     if (gamesData && gamesData.length > 0) {
@@ -202,13 +183,10 @@ export const api = {
       });
     }
 
-    // Calculate win percentage
     const calculatedWinPercentage = totalGamesCount > 0
       ? ((calculatedWins + calculatedDraws * 0.5) / totalGamesCount) * 100
       : null;
 
-    // Use calculated values if ranking data is missing or 0
-    // Ensure all required Team fields exist
     const team: Team = {
       id: teamData.id,
       team_id_master: teamData.team_id_master,
@@ -227,18 +205,14 @@ export const api = {
     };
 
     // Merge ranking data if available (match TeamWithRanking contract)
-    // Ensure age is always set (from rankingData, rankingsFullData, or converted from team.age_group)
-    const age = rankingData?.age ?? 
+    const age = rankingData?.age ??
       (rankingsFullData?.age_group ? normalizeAgeGroup(rankingsFullData.age_group) : null) ??
       (team.age_group ? normalizeAgeGroup(team.age_group) : null);
-    
-    // Normalize gender from various sources
-    const genderFromRankings = rankingData?.gender ?? 
+
+    const genderFromRankings = rankingData?.gender ??
       (rankingsFullData?.gender ? (rankingsFullData.gender === 'Male' ? 'M' : rankingsFullData.gender === 'Female' ? 'F' : rankingsFullData.gender === 'Boys' ? 'M' : rankingsFullData.gender === 'Girls' ? 'F' : rankingsFullData.gender) : null);
     const gender = genderFromRankings ?? (team.gender === 'Male' ? 'M' : team.gender === 'Female' ? 'F' : 'M') as 'M' | 'F' | 'B' | 'G';
 
-    // Create TeamWithRanking with state rank, total games, and calculated record
-    // Use rankings_full as final fallback if views didn't return data
     const powerScoreFinal =
       rankingData?.power_score_final ??
       rankingData?.power_score ??
@@ -278,42 +252,65 @@ export const api = {
       rankingsFullData?.rank_in_cohort_final ??
       null;
 
-    // Compute rank_in_state_final with status filter to match rankings list display
-    // IMPORTANT: The rankings list filters by status, so we must compute ranks the same way
-    // to ensure consistency between list view and comparison view
-    // The state_rankings_view computes ranks for ALL teams (including inactive),
-    // but the rankings list only shows Active/Not Enough Ranked Games teams
-    let rankInStateFinal: number | null = null;
-    
-    // Try to get state/age/gender from rankings_view first, fall back to state_rankings_view
+    // Compute rank_in_state_final and sos_rank_state using COUNT queries (not fetching rows)
+    // This avoids transferring up to 10K rows per query which caused frequent timeouts
     const stateForRank = rankingData?.state ?? stateRankData?.state ?? null;
     const ageForRank = rankingData?.age ?? stateRankData?.age ?? null;
     const genderForRank = rankingData?.gender ?? stateRankData?.gender ?? null;
+    const sosNormState = stateRankData?.sos_norm_state ?? null;
 
-    if (stateForRank && ageForRank != null && genderForRank && powerScoreFinal !== null) {
-      // Recompute state rank by counting active teams with higher power score.
-      // This ensures the rank matches what's shown on the rankings page (which filters by status).
-      // Note: After migration 20260221000000, state_rankings_view only includes active teams,
-      // so the .in('status', ...) filter becomes a no-op safety net.
-      const { data: stateRankings, error: stateRankComputeError } = await supabase
-        .from('state_rankings_view')
-        .select('team_id_master, power_score_final, status')
-        .eq('state', stateForRank)
-        .eq('age', ageForRank)
-        .eq('gender', genderForRank)
-        .in('status', ['Active', 'Not Enough Ranked Games'])
-        .gt('power_score_final', powerScoreFinal)
-        .limit(10000);
+    // Phase 3: Compute state rank and SOS rank in parallel using COUNT queries
+    let rankInStateFinal: number | null = null;
+    let sosRankState: number | null = null;
 
-      if (!stateRankComputeError && stateRankings) {
-        rankInStateFinal = stateRankings.length + 1;
-      } else if (stateRankComputeError) {
-        console.warn('[api.getTeam] Error computing filtered state rank, falling back to view rank:', stateRankComputeError.message);
+    if (stateForRank && ageForRank != null && genderForRank) {
+      const stateRankPromise = powerScoreFinal !== null
+        ? supabase
+            .from('state_rankings_view')
+            .select('*', { count: 'exact', head: true })
+            .eq('state', stateForRank)
+            .eq('age', ageForRank)
+            .eq('gender', genderForRank)
+            .in('status', ['Active', 'Not Enough Ranked Games'])
+            .gt('power_score_final', powerScoreFinal)
+        : null;
+
+      const sosRankPromise = sosNormState !== null
+        ? supabase
+            .from('state_rankings_view')
+            .select('*', { count: 'exact', head: true })
+            .eq('state', stateForRank)
+            .eq('age', ageForRank)
+            .eq('gender', genderForRank)
+            .in('status', ['Active', 'Not Enough Ranked Games'])
+            .gt('sos_norm_state', sosNormState)
+        : null;
+
+      const [stateRankCount, sosRankCount] = await Promise.all([
+        stateRankPromise,
+        sosRankPromise,
+      ]);
+
+      if (stateRankCount && !stateRankCount.error && stateRankCount.count !== null) {
+        rankInStateFinal = stateRankCount.count + 1;
+      } else {
+        if (stateRankCount?.error) {
+          console.warn('[api.getTeam] Error computing filtered state rank, falling back:', stateRankCount.error);
+        }
         rankInStateFinal = stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? null;
       }
+
+      if (sosRankCount && !sosRankCount.error && sosRankCount.count !== null) {
+        sosRankState = sosRankCount.count + 1;
+      } else {
+        if (sosRankCount?.error) {
+          console.warn('[api.getTeam] Error computing filtered SOS rank, falling back:', sosRankCount.error);
+        }
+        sosRankState = stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? rankingData?.sos_rank_state ?? null;
+      }
     } else {
-      // Fallback if we don't have enough data to compute
       rankInStateFinal = stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? null;
+      sosRankState = stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? rankingData?.sos_rank_state ?? null;
     }
 
     const gamesPlayed =
@@ -349,34 +346,6 @@ export const api = {
       stateRankData?.win_pct ??
       calculatedWinPercentage;
 
-    // Compute sos_rank_state with status filter to match rankings list display
-    // Similar to state rank, SOS ranks are pre-calculated for ALL teams (including inactive)
-    // but the rankings list only shows Active/Not Enough Ranked Games teams
-    let sosRankState: number | null = null;
-    const sosNormState = stateRankData?.sos_norm_state ?? null;
-    
-    if (stateForRank && ageForRank != null && genderForRank && sosNormState !== null) {
-      // Recompute SOS rank with status filter to match rankings list
-      const { data: sosRankings, error: sosRankError } = await supabase
-        .from('state_rankings_view')
-        .select('team_id_master, sos_norm_state, status')
-        .eq('state', stateForRank)
-        .eq('age', ageForRank)
-        .eq('gender', genderForRank)
-        .in('status', ['Active', 'Not Enough Ranked Games'])
-        .gt('sos_norm_state', sosNormState)
-        .limit(10000);
-
-      if (!sosRankError && sosRankings) {
-        sosRankState = sosRankings.length + 1;
-      } else if (sosRankError) {
-        console.warn('[api.getTeam] Error computing filtered SOS rank, falling back to view rank:', sosRankError.message);
-        sosRankState = stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? rankingData?.sos_rank_state ?? null;
-      }
-    } else {
-      sosRankState = stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? rankingData?.sos_rank_state ?? null;
-    }
-
     const teamWithRanking: TeamWithRanking = {
       team_id_master: team.team_id_master,
       team_name: team.team_name,
@@ -384,7 +353,6 @@ export const api = {
       state: rankingData?.state ?? team.state_code,
       age: age,
       gender: gender,
-      // Ranking fields (default to null if no ranking data)
       power_score_final: powerScoreFinal,
       sos_norm: sosNorm,
       sos_norm_state: sosNormState,
@@ -394,13 +362,11 @@ export const api = {
       defense_norm: defenseNorm,
       rank_in_cohort_final: rankInCohortFinal,
       rank_in_state_final: rankInStateFinal,
-      // Record fields (use calculated values as fallback)
       games_played: gamesPlayed,
       wins: winsValue,
       losses: lossesValue,
       draws: drawsValue,
       win_percentage: winPctValue,
-      // Total games and record from games table
       total_games_played: totalGamesCount,
       total_wins: calculatedWins,
       total_losses: calculatedLosses,
