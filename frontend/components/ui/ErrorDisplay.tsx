@@ -22,9 +22,19 @@ export function ErrorDisplay({ error, retry, compact = false, fallback }: ErrorD
   const message = getErrorMessage(error);
   const isNetwork = isNetworkError(error);
 
-  // If fallback is provided and error is not critical, show fallback
+  // For non-network errors with a fallback, show the fallback content
+  // but still include a retry button so users can recover from transient errors
   if (fallback && !isNetwork) {
-    return <>{fallback}</>;
+    return (
+      <div className="flex flex-col items-center gap-3 py-4">
+        {fallback}
+        {retry && (
+          <Button variant="outline" size="sm" onClick={retry}>
+            Try Again
+          </Button>
+        )}
+      </div>
+    );
   }
 
   const Icon = isNetwork ? WifiOff : AlertCircle;
