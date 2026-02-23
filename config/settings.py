@@ -79,18 +79,16 @@ PROVIDERS = {
 # Age Groups with metadata
 # NOTE: anchor_score values are aligned with v53e.py AGE_TO_ANCHOR mapping
 # These provide linear progression from U10 (0.40) to U18 (1.00)
-# Birth years are computed dynamically: birth_year = current_year - age_group + 1
-_CURRENT_YEAR = datetime.now().year
 AGE_GROUPS = {
-    'u10': {'birth_year': _CURRENT_YEAR - 10 + 1, 'anchor_score': 0.400},
-    'u11': {'birth_year': _CURRENT_YEAR - 11 + 1, 'anchor_score': 0.475},
-    'u12': {'birth_year': _CURRENT_YEAR - 12 + 1, 'anchor_score': 0.550},
-    'u13': {'birth_year': _CURRENT_YEAR - 13 + 1, 'anchor_score': 0.625},
-    'u14': {'birth_year': _CURRENT_YEAR - 14 + 1, 'anchor_score': 0.700},
-    'u15': {'birth_year': _CURRENT_YEAR - 15 + 1, 'anchor_score': 0.775},
-    'u16': {'birth_year': _CURRENT_YEAR - 16 + 1, 'anchor_score': 0.850},
-    'u17': {'birth_year': _CURRENT_YEAR - 17 + 1, 'anchor_score': 0.925},
-    'u18': {'birth_year': _CURRENT_YEAR - 18 + 1, 'anchor_score': 1.000}
+    'u10': {'birth_year': 2016, 'anchor_score': 0.400},
+    'u11': {'birth_year': 2015, 'anchor_score': 0.475},
+    'u12': {'birth_year': 2014, 'anchor_score': 0.550},
+    'u13': {'birth_year': 2013, 'anchor_score': 0.625},
+    'u14': {'birth_year': 2012, 'anchor_score': 0.700},
+    'u15': {'birth_year': 2011, 'anchor_score': 0.775},
+    'u16': {'birth_year': 2010, 'anchor_score': 0.850},
+    'u17': {'birth_year': 2009, 'anchor_score': 0.925},
+    'u18': {'birth_year': 2008, 'anchor_score': 1.000}
 }
 
 # Ranking Configuration (aligned with v53e V53EConfig)

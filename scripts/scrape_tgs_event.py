@@ -14,12 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
-from src.utils.team_utils import calculate_age_group_from_birth_year, CURRENT_YEAR
-
-# Dynamic birth year range based on current year
-# U19 (oldest tracked) to U8 (youngest tracked) gives a comfortable range
-MIN_BIRTH_YEAR = CURRENT_YEAR - 19  # e.g., 2026 - 19 = 2007
-MAX_BIRTH_YEAR = CURRENT_YEAR - 8   # e.g., 2026 - 8 = 2018
+from src.utils.team_utils import calculate_age_group_from_birth_year
 
 BASE = "https://api.athleteone.com/api"
 OUTPUT_DIR = "data/raw/tgs"
@@ -99,13 +94,14 @@ def resolve_config():
 def extract_year(division_name: str) -> Optional[int]:
     """Extract birth year from division name (e.g., 'B2012' -> 2012).
 
-    Only returns years in the valid range for tracked age groups.
-    Range is computed dynamically from CURRENT_YEAR (U19 to U8).
+    Only returns years in the valid range for tracked age groups:
+    - U10-U18 corresponds to birth years 2008-2016 (for 2025 season)
     """
     match = re.search(r'(\d{4})', division_name)
     if match:
         year = int(match.group(1))
-        if MIN_BIRTH_YEAR <= year <= MAX_BIRTH_YEAR:
+        # Only accept birth years 2008-2016 (U18-U10 for 2025 season)
+        if 2008 <= year <= 2016:
             return year
     return None
 
