@@ -65,7 +65,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.ref }}
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -128,7 +128,7 @@ jobs:
             DRY_RUN_FLAG="--dry-run"
           fi
 
-          python scripts/normalize_team_names.py $DRY_RUN_FLAG 2>&1 | tee logs/step2_normalize_names.log
+          python scripts/normalize_team_names.py --all-teams $DRY_RUN_FLAG 2>&1 | tee logs/step2_normalize_names.log
 
           NORMALIZED=$(grep -oP '(Would update|Updated): \K\d+' logs/step2_normalize_names.log || echo "0")
           echo "teams_normalized=$NORMALIZED" >> $GITHUB_OUTPUT

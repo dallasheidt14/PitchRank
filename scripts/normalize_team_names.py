@@ -11,7 +11,8 @@ This script:
    - Gender words stripped EVERYWHERE (tracked in gender field)
    - Squad identifiers preserved (colors, divisions, coach names)
 
-Only processes teams where team_name_original IS NULL (never re-processes).
+By default, processes only teams where team_name_original IS NULL (never re-processes).
+Use --all-teams to scan the full table.
 
 UPDATED 2026-01-31: Fixed edge case where gender words after 4-digit years weren't stripped.
 Tested: 100k+ teams across all states - 100% clean
@@ -147,7 +148,9 @@ def run_with_psycopg2(args):
     print("Using direct Postgres connection")
     
     # Build query with filters
-    where_clauses = ["team_name_original IS NULL"]
+    where_clauses = []
+    if not args.all_teams:
+        where_clauses.append("team_name_original IS NULL")
     params = []
     
     if args.state:
@@ -160,7 +163,8 @@ def run_with_psycopg2(args):
         where_clauses.append("age_group = %s")
         params.append(args.age_group.lower())
     
-    where_sql = " AND ".join(where_clauses)
+    where_sql = " AND ".join(where_clauses) if where_clauses else "TRUE"
+    print(f"Scan scope: {'ALL teams' if args.all_teams else 'Only teams with team_name_original IS NULL'}")
     
     # Count teams
     cur.execute(f"SELECT COUNT(*) FROM teams WHERE {where_sql}", params)
@@ -174,7 +178,7 @@ def run_with_psycopg2(args):
     # Fetch all teams
     limit_sql = f" LIMIT {args.limit}" if args.limit else ""
     cur.execute(f"""
-        SELECT id, team_name, club_name 
+        SELECT id, team_name, club_name, team_name_original
         FROM teams 
         WHERE {where_sql}
         {limit_sql}
@@ -188,7 +192,7 @@ def run_with_psycopg2(args):
     skipped = 0
     samples = []
     
-    for team_id, team_name, club_name in teams:
+    for team_id, team_name, club_name, team_name_original in teams:
         normalized = normalize_team_name(team_name, club_name)
         
         if normalized != team_name:
@@ -198,7 +202,7 @@ def run_with_psycopg2(args):
             if not args.dry_run:
                 cur.execute("""
                     UPDATE teams 
-                    SET team_name_original = %s, team_name = %s 
+                    SET team_name_original = COALESCE(team_name_original, %s), team_name = %s
                     WHERE id = %s
                 """, (team_name, normalized, team_id))
             updated += 1
@@ -248,7 +252,9 @@ def run_with_supabase(args):
     if args.age_group:
         query = query.eq('age_group', args.age_group.lower())
     
-    query = query.is_('team_name_original', 'null')
+    if not args.all_teams:
+        query = query.is_('team_name_original', 'null')
+    print(f"Scan scope: {'ALL teams' if args.all_teams else 'Only teams with team_name_original IS NULL'}")
     
     # Paginated fetch
     all_teams = []
@@ -291,8 +297,10 @@ def run_with_supabase(args):
                 samples.append((team_name, normalized))
             
             if not args.dry_run:
+                # Preserve the first-seen original name if already present.
+                original_backup = team.get('team_name_original') or team_name
                 supabase.table('teams').update({
-                    'team_name_original': team_name,
+                    'team_name_original': original_backup,
                     'team_name': normalized
                 }).eq('id', team_id).execute()
             updated += 1
@@ -320,6 +328,7 @@ def main():
     
     parser = argparse.ArgumentParser(description='Normalize team names in database')
     parser.add_argument('--dry-run', action='store_true', help='Preview changes without updating')
+    parser.add_argument('--all-teams', action='store_true', help='Scan all teams instead of only team_name_original IS NULL')
     parser.add_argument('--state', type=str, help='Filter by state_code (e.g., AZ, CA)')
     parser.add_argument('--gender', type=str, choices=['Male', 'Female'], help='Filter by gender')
     parser.add_argument('--age-group', type=str, help='Filter by age_group (e.g., u14)')
