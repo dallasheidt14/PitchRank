@@ -1,0 +1,88 @@
+name: Modular11 Backfill Import
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: 'Data source to import'
+        required: false
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - league-only
+          - events-only
+      dry_run:
+        description: 'Dry run (preview without DB writes)'
+        type: boolean
+        required: false
+        default: false
+      limit:
+        description: 'Limit number of games (for testing, 0 = unlimited)'
+        required: false
+        default: '0'
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Backfill
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          PYTHONPATH: ${{ github.workspace }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+
+          SOURCE="${{ github.event.inputs.source || 'both' }}"
+          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+          LIMIT="${{ github.event.inputs.limit || '0' }}"
+
+          CMD="python scripts/backfill_modular11_games.py"
+
+          if [ "$SOURCE" = "league-only" ]; then
+            CMD="$CMD --league-only"
+          elif [ "$SOURCE" = "events-only" ]; then
+            CMD="$CMD --events-only"
+          fi
+
+          if [ "$DRY_RUN" = "true" ]; then
+            CMD="$CMD --dry-run"
+          fi
+
+          if [ "$LIMIT" != "0" ]; then
+            CMD="$CMD --limit $LIMIT"
+          fi
+
+          echo "Running: $CMD"
+          $CMD
+
+      - name: Report results
+        if: always()
+        run: |
+          echo "===================="
+          echo "Modular11 Backfill Import completed"
+          echo "===================="
+          echo "Source: ${{ github.event.inputs.source || 'both' }}"
+          echo "Dry run: ${{ github.event.inputs.dry_run || 'false' }}"
+          echo "Limit: ${{ github.event.inputs.limit || '0' }}"

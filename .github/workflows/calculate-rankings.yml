@@ -8,6 +8,14 @@ on:
     # Using 16:45 UTC means: MST = 9:45 AM, MDT = 10:45 AM
     # This runs after all scraping and data cleanup jobs are complete
     - cron: '45 16 * * 1'
+  workflow_run:
+    # Also trigger after Modular11 scrape+import workflows complete
+    # This ensures HD/MLS NEXT games are ingested before rankings run
+    workflows:
+      - "Modular11 Weekly Scrape"
+      - "Modular11 Events Weekly Scrape"
+    types:
+      - completed
   workflow_dispatch: # Allow manual trigger from GitHub Actions tab
 
 # Prevent concurrent ranking calculations — if a scrape-triggered ranking
@@ -20,6 +28,11 @@ concurrency:
 jobs:
   calculate-rankings:
     runs-on: ubuntu-latest
+    # Run on schedule/manual dispatch always, but only after successful workflow_run triggers
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
 
     steps:
       # ---------------------------------------------------------------
