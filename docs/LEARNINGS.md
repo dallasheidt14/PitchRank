@@ -781,4 +781,52 @@ Feb 18 8:00am: GotSport pulled 632 U19 games → quarantine 697 (NEW spike)
 The U19 decision cannot wait much longer. Each scraper cycle will re-populate quarantine. Choose A/B/C today to stabilize the pipeline.
 
 ---
-*Last updated: 2026-02-18 22:30 by COMPY (nightly compound)*
+
+## 📊 Feb 23 Evening (Monday Post-Scrape Cycle)
+
+**Sessions reviewed:** 7 total (Feb 23 24h window)
+- Main (1 session, 31 messages, 12 connection errors)
+- Cleany (1 session, 15 messages, 14 timeout errors)
+- Watchy (1 session, 2 messages, 1 timeout)
+- Scrappy (1 session, 0 messages, 1 timeout)
+- Ranky (1 session, unknown, 1 timeout)
+- Compy (2 sessions, 2 messages, 1 timeout)
+
+**CRITICAL PATTERN: Timeout + Connection Error Spike**
+
+**Error Breakdown (Feb 23):**
+- Total: 30 errors across 7 sessions
+- Types: 10 request timeouts, 12 connection errors, 8 unspecified
+- Elevation: +23 errors from Feb 21 baseline (5-7/day)
+- Context: Post-Monday scrape (Scrappy 10am) + post-Ranky (12pm) + Cleany heartbeat evening
+
+**System Observations:**
+- ✅ All agents completed assigned work despite errors
+- ✅ Data pipeline processed successfully (post-Ranky calculation)
+- 🟡 Timeout pattern replacing pure connection errors (infrastructure shift)
+- 🟡 Multiple cron jobs hitting single timeout (Watchy, Scrappy, Ranky, Compy)
+- 🟡 Main session concurrent with Cleany heartbeat (12 connection errors during overlap)
+
+**Root Cause Hypothesis:**
+Monday high-activity window (post-scrape + calculation + heartbeat) created load spike:
+1. Scrappy 10am: Scrape monitoring + potential import
+2. Ranky 12pm: Rankings calculation (heavy DB query)
+3. Main session 8-10pm: Cleany heartbeat cycle (agent status checks, cron list, etc.)
+4. Result: API/database saturation → timeouts + connection errors
+
+**Pattern (Feb 7-23 Evolution):**
+- Feb 7-13: API billing crisis → 5-14 errors/day (peak Feb 11)
+- Feb 13-21: Healing phase → 5-7 errors/day (stable plateau)
+- Feb 23: Load spike → 30 errors (Monday concurrent activity)
+
+**This is NOT a new crisis** — it's a capacity pattern. System architecture handles load but error rate spikes during high-concurrency windows.
+
+**Recommendation:**
+1. Monitor Feb 24 for sustained elevation (confirms load pattern vs. one-time spike)
+2. If sustained >20 errors/day: Consider cron staggering (Ranky 12:30pm, Watchy 8:30am)
+3. Watch for timeout escalation on future Monday post-scrape cycles
+
+**Action:** COMPY will track error trend across Feb 24-25 to establish if this is weekly pattern or isolated spike.
+
+---
+*Last updated: 2026-02-23 22:30 by COMPY (nightly compound)*

@@ -54,6 +54,39 @@ NOTE: Feb 7-13 billing crisis caused 28+ errors across 6 days. System remained f
 LEARNED: Monitor error rate as leading indicator of infrastructure health.
 ```
 
+### Timeout Spikes on High-Load Days (Feb 23 Pattern - NEW)
+```
+WHEN: See "Request timed out" errors across multiple agents in same 24h window
+CHECK: What day/time are these occurring?
+IF: Monday afternoon (post-scrape window, ~10am-2pm) → Likely concurrent load spike
+IF: Error count >4x baseline (baseline 5-7/day, spike 20+/day) → Load saturation
+IF: Cleany heartbeat + Ranky calculation running concurrently → High database query load
+
+PATTERN DISCOVERED (Feb 23):
+- Monday 10am: Scrappy monitors scrape
+- Monday 12pm: Ranky calculates rankings (heavy query load)
+- Monday evening: Cleany heartbeat (agent status checks, cron list queries)
+- Result: 30 errors (4x baseline) across 7 sessions, mostly timeouts
+
+DIAGNOSIS:
+- All agents completed work successfully (errors are non-blocking)
+- Suggest concurrent cron jobs creating API/database saturation
+- Timeout signature: "Request timed out" (not connection error)
+
+IF: Single occurrence on Monday → Normal load pattern, monitor for weekly trend
+IF: Sustained >20 errors/day → System capacity concern
+IF: Escalating trend (e.g., Wed reaches 30 errors) → Infrastructure bottleneck
+
+ACTION:
+- Continue monitoring Feb 24-25 to establish if this is weekly pattern
+- If sustained: Consider cron staggering (Ranky 12:30pm, Watchy 8:30am)
+- If escalating: Escalate to D H for infrastructure review
+
+ESCALATE: If error rate stays >20/day for 3+ consecutive days
+
+LEARNED: High-concurrency windows (post-scrape) are normal stress points. System handles gracefully but worth monitoring for capacity planning.
+```
+
 ---
 
 ## 📊 Data Quality Issues
