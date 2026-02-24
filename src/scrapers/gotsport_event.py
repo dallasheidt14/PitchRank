@@ -1400,6 +1400,22 @@ class GotSportEventScraper:
                                     logger.debug(f"Skipping {age_group} game: {home_team_name} vs {away_team_name}")
                                     continue
                         
+                        # FILTER: Skip U19/U20 games (PitchRank only supports U10-U18)
+                        # Check age_group for U19/U20 indicators
+                        if age_group:
+                            age_group_upper = age_group.upper().strip()
+                            if age_group_upper in ['U19', 'U-19', '19U', 'U20', 'U-20', '20U']:
+                                logger.debug(f"Skipping U19/U20 event game (age_group={age_group}): {home_team_name} vs {away_team_name}")
+                                continue
+                        
+                        # Also check if division/competition text contains U19/U20 indicators
+                        # Match patterns like "U19", "U19B", "U-19", "19U", etc.
+                        if division:
+                            division_upper = division.upper()
+                            if re.search(r'\b(U-?19|19U|U-?20|20U)([BG]|\b)', division_upper):
+                                logger.debug(f"Skipping U19/U20 event game (division={division}): {home_team_name} vs {away_team_name}")
+                                continue
+                        
                         # Determine result
                         result = None
                         if goals_for is not None and goals_against is not None:
