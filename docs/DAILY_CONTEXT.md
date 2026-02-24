@@ -48,7 +48,7 @@ D H: "you can do whatever without my approval just don't mess with algo and star
   - Status: Rankings updated
   - Errors: 1 timeout (non-blocking)
 
-### Evening (8:00pm-10:30pm)
+### Evening (8:00pm-10:30pm) — Monday Feb 23
 - 🧹 **Cleany Heartbeat Cycle:** ✅ Completed (with elevated errors)
   - Full system health checks, agent status queries
   - Status: All work completed successfully
@@ -61,6 +61,18 @@ D H: "you can do whatever without my approval just don't mess with algo and star
   - **Major patterns documented:** New timeout spike pattern (load saturation) + U19 stable through Feb 23
   - **Files updated:** LEARNINGS.md (Feb 23 timeout analysis), AGENT_COMMS.md (consolidated), DECISION_TREES.md (new timeout pattern)
   - **Commit ready:** chore: COMPY nightly compound 2026-02-23
+
+## 🔄 Tuesday Activity (Feb 24)
+
+### Morning (10:00am) — Movy Weekly Movers
+📈 **Movy 10am Weekly Movers Report:** ✅ Completed
+- **Top Climbers:** Charleston SC U14 AD (+1607 to #1103), Union PA U12 (+1412 to #543), Charlotte Independence U14 AD (+1289 to #1451)
+- **Biggest Fallers:** Real Atletico FC CA U13 (-1300 to #1791), Woodlands TX U12 (-1104 to #2263), Pacific CA U14 (-1085 to #1755)
+- **Key Finding:** Algorithm working correctly — wins/losses driving movement, margins matter, SOS factor active
+- **Geographic distribution:** CA, PA, NC, TX, NH — balanced across regions
+- **Data quality:** Clean. Teams earning ranks through actual results.
+- **Status:** Report drafted for D H review
+- **Errors:** None
 
 ### Summary (Feb 23)
 - 🟡 **Load spike detected** — 30 errors during Monday post-scrape cycle (4x baseline)
