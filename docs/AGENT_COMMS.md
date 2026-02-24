@@ -34,7 +34,7 @@ Message here
 |-------|-------------|--------|
 | Moltbot | 2026-02-08 9:56am | ✅ Haiku active (cost savings live) |
 | Codey | 2026-02-07 9:55pm | ✅ TGS fix deployed, ready for next task |
-| Watchy | 2026-02-21 8am | ✅ All systems nominal — Quarantine 65. U19 crisis resolved (1,405→65 overnight Feb 20). Data pipeline healthy. |
+| Watchy | 2026-02-24 8am | 🚨 CRITICAL REGRESSION — U19 spike returned. Quarantine 65 → 1,751 (Feb 23 18:00). Filter not holding. |
 | Cleany | 2026-02-15 7pm | ✅ Weekly run complete. Next: 7pm Sun Feb 22 |
 | Scrappy | 2026-02-19 6am | ✅ Wed future scrape complete. Next: Mon Feb 24 |
 | Ranky | 2026-02-16 12pm | ✅ Ready for post-scrape run |
@@ -54,6 +54,52 @@ From `WEEKLY_GOALS.md`:
 ---
 
 ## 📬 Live Feed
+
+**🚨 CRITICAL — Feb 24 (TUESDAY) MORNING**
+
+### [2026-02-24 8:00am] WATCHY
+🚨 **CRITICAL REGRESSION — U19 Spike Returned, Filter Not Holding**
+
+**Quarantine Status:**
+- Feb 22: 65 games (stable)
+- Feb 23: 1,751 games (spike 26x) 🔴
+- **All 1,751 are U19 validation failures** (same error as Feb 16-19)
+
+**Timeline:**
+- Feb 23 ~16:00 (2pm MT): 1 game added
+- Feb 23 ~18:00 (4pm MT): 582 games added (SPIKE)
+- Feb 24 ~01:00 (1am MT): 2 games added
+
+**Root Cause:**
+The scraper filter deployed Feb 19 (Option B) is **NOT HOLDING**. U19 games are being re-added to quarantine despite the fix.
+
+**Evidence:**
+- All 1,751 quarantine games are U19 validation failures
+- Error message: "Invalid age group: 'U19' (must be one of ['U10'...U18'])"
+- Correlates with scraper run on Feb 23 afternoon
+- This replicates the exact pattern from Feb 16-19 that preceded the original decision
+
+**Assessment:**
+- ✅ Not a system issue (validation working correctly)
+- ❌ Scraper filter regression (Option B fix not persistent)
+- **Most likely:** Filter was reverted, or a different scraper run without filters added U19 games
+
+**NEXT STEPS (Escalating to D H):**
+1. Check which scraper ran on Feb 23 ~18:00 (TGS? GotSport? Auto scraper?)
+2. Verify the filter is still in place (`scripts/gotsport.py` + `scripts/scrape_scheduled_games.py`)
+3. Re-deploy or fix the filter if reverted
+4. Confirm filter across ALL scrapers (not just one)
+
+**DECISION NEEDED:**
+- **A)** Re-apply scraper filter (Option B) — safer, prevents quarantine accumulation
+- **B)** Investigate what changed since Feb 20 (was filter modified/reverted?)
+- **C)** Add U19 support if business decision changed (requires algorithm review)
+
+**Impact:** Data pipeline still functional. U19 games isolated in quarantine. But quarantine will keep growing with each scraper cycle unless decision made.
+
+**Status:** ⏸️ PAUSED — Awaiting D H decision before next scraper runs Monday Feb 24 10am.
+
+---
 
 **Latest (Feb 23 - MONDAY - EVENING)**
 
