@@ -144,6 +144,17 @@ export default async function Page({ params }: TeamPageProps) {
         }
         // If no merge info found but team is deprecated, show 404
         notFound();
+      } else {
+        // Check if team has any games - prevent soft 404s for teams with no data
+        const { count: gameCount, error: gameError } = await supabase
+          .from('games')
+          .select('id', { count: 'exact', head: true })
+          .or(`home_team_master_id.eq.${resolvedParams.id},away_team_master_id.eq.${resolvedParams.id}`);
+
+        if (!gameError && gameCount === 0) {
+          // Team exists but has no games - return 404 to prevent soft 404
+          notFound();
+        }
       }
     } catch (error) {
       console.error('Error in team existence check:', error);

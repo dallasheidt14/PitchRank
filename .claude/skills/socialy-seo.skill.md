@@ -62,7 +62,7 @@ Proactive SEO monitoring and optimization for PitchRank.
 - Spawn Codey for technical fixes
 - Spawn Codey for new content pages
 - Update SEO_ACTION_PLAN.md with progress
-- Create content briefs for blog posts
+- **SPAWN BLOGY for strategic blog posts** (see below)
 - Track ranking improvements
 - Alert D H about opportunities
 
@@ -72,6 +72,48 @@ Proactive SEO monitoring and optimization for PitchRank.
 - Schema additions
 - Internal linking suggestions
 - Alt text additions
+
+## 🔥 SPAWN BLOGY FOR STRATEGIC OPPORTUNITIES
+
+When you find keyword opportunities during your weekly check, **spawn Blogy immediately**.
+
+### Trigger Conditions (Spawn Blogy If):
+1. **Ranking #4-20 for high-value keyword** — Blog post can push us higher
+2. **High impressions, no content** — We're showing up but have no dedicated page
+3. **Competitor content gap** — They rank, we don't, but we have better data
+4. **State with >1000 teams but no blog post** — Easy win
+
+### How to Spawn Blogy:
+```
+Use sessions_spawn with task like:
+
+"Write a blog post targeting '[keyword]'. 
+
+Research first:
+- Run: python3 scripts/blog_research.py --state [XX]
+- Search competitors: web_search '[keyword]'
+- Check what's ranking and find gaps
+
+Target keyword: [keyword]
+GSC position: [current position or 'not ranking']
+Our data advantage: [e.g., '15,693 CA teams tracked']
+
+Write the post, add to blog-posts.tsx, commit and push."
+```
+
+### Priority Keywords for Blog Posts:
+| Keyword | Priority | Why |
+|---------|----------|-----|
+| california youth soccer rankings | HIGH | 15K teams, huge market |
+| texas youth soccer rankings | HIGH | 9K teams |
+| florida youth soccer rankings | HIGH | 5K teams |
+| how youth soccer rankings work | MEDIUM | Explainer, builds trust |
+| youth soccer rankings explained | MEDIUM | Target position #52 |
+
+### After Spawning Blogy:
+1. Log the spawn in `docs/BLOG_CONTENT_PLAN.md`
+2. Update `docs/SEO_WEEKLY_REPORT.md` with action taken
+3. Note expected publish date
 
 ❓ **Ask D H first:**
 - Major site structure changes

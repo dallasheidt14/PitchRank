@@ -353,22 +353,65 @@
 
 ---
 
+## 🔥 PAIN POINT CONTENT (High Engagement)
+
+These address real frustrations parents search for and talk about online.
+
+### PAIN POINT 1: Is Club Soccer Worth $15K? How to Know If You're Overpaying
+**Target Keywords:** `is club soccer worth the money`, `club soccer cost`, `youth soccer expenses`
+**Pain Point:** Parents spending $5K-$20K/year wondering if it's worth it
+**PitchRank Angle:** See your team's actual ranking vs what you're paying — are you getting elite competition or overpaying for mediocrity?
+**Search Volume:** HIGH (Reddit threads, forums full of this question)
+
+### PAIN POINT 2: Is Your Kid's Soccer Team Actually Good? Here's How to Tell
+**Target Keywords:** `is my kid's soccer team good`, `how to tell if soccer team is competitive`
+**Pain Point:** Parents bragging about 10-0 records with no context on opponent quality
+**PitchRank Angle:** Power scores show REAL strength — not padded records against weak teams
+**Search Volume:** MEDIUM-HIGH
+
+### PAIN POINT 3: How to Pick a Youth Soccer Club (Without Getting Burned)
+**Target Keywords:** `how to choose youth soccer club`, `club soccer tryouts what to look for`
+**Pain Point:** No objective way to compare clubs before committing $$$
+**PitchRank Angle:** Compare club rankings across age groups BEFORE tryouts
+**Search Volume:** HIGH (seasonal spikes during tryout season)
+
+### PAIN POINT 4: Youth Soccer Politics: Why Rankings Beat Opinions
+**Target Keywords:** `youth soccer politics`, `club soccer favoritism`, `coach's kid playing time`
+**Pain Point:** Favoritism, politics, no transparency
+**PitchRank Angle:** Data doesn't lie — rankings are objective, not political
+**Search Volume:** MEDIUM (emotional topic, high engagement)
+
+### PAIN POINT 5: Club Soccer Travel: Is the Commitment Worth It?
+**Target Keywords:** `club soccer travel commitment`, `youth soccer time commitment`, `is travel soccer worth it`
+**Pain Point:** Families sacrifice everything — is it worth it for a non-competitive team?
+**PitchRank Angle:** Know if your team is actually elite before committing weekends
+**Search Volume:** MEDIUM-HIGH
+
+---
+
 ## Content Production Priorities
 
-### Immediate (Weeks 1-2)
+### Week 1 (Current)
 1. ✅ **Arizona Soccer Rankings** — COMPLETED 2026-02-21
-2. **Youth Soccer Rankings Explained** (support #52 position) — NEXT UP
+2. ✅ **California Youth Soccer Rankings** — COMPLETED 2026-02-21
 
-### Month 1 (Weeks 3-4)
-3. **How to Choose a Youth Soccer Club** (high-value evergreen)
-4. **California Youth Soccer Rankings** (biggest market)
+### Week 2 (Feb 24-Mar 2)
+3. 🔥 **Is Club Soccer Worth $15K?** (PAIN POINT - high search volume)
+
+### Week 3 (Mar 3-9)
+4. **Youth Soccer Rankings Explained** (support #52 position)
+
+### Week 4 (Mar 10-16)
+5. 🔥 **Is Your Kid's Team Actually Good?** (PAIN POINT)
 
 ### Month 2
-5. **What Does My Child's Ranking Mean?** (specific pain point)
 6. **Florida Youth Soccer Rankings** (priority state)
+7. 🔥 **How to Pick a Club Without Getting Burned** (PAIN POINT - tryout season!)
+8. **Texas Youth Soccer Rankings** (priority state)
 
 ### Month 3
-7. **College Recruiting and Rankings** (high-value evergreen)
+9. 🔥 **Youth Soccer Politics: Why Rankings Beat Opinions** (PAIN POINT)
+10. **College Recruiting and Rankings** (evergreen)
 
 ---
 
