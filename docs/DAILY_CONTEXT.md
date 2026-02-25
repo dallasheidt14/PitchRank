@@ -2,7 +2,8 @@
 
 > Updated throughout the day. All agents should read this on startup.
 
-**Date:** 2026-02-23 (Monday) — Updated by COMPY 10:30pm MT
+**Date:** 2026-02-24 (Tuesday) — Updated by COMPY 10:32pm MT
+**🚨 CRITICAL STATUS: U19 REGRESSION DETECTED (see CRITICAL ALERT below)**
 
 ## 🚫 PROTECTED (Never Touch Without Asking)
 - Rankings algorithm
@@ -80,6 +81,32 @@ D H: "you can do whatever without my approval just don't mess with algo and star
 - ✅ **U19 stable** — Quarantine holding at 65 (confirmed through Feb 23)
 - 📈 **Data pipeline healthy** — Games flowing normally, rankings calculated
 - ⚠️ **New pattern identified:** Monday afternoon load spikes warrant monitoring for weekly trend
+
+## ⚠️ CRITICAL ALERT (Feb 24-25)
+
+**🚨 U19 SCRAPER FILTER REGRESSION — QUARANTINE RE-SPIKED 65 → 1,751**
+
+**What happened:**
+- Feb 19: Deployed Option B (scraper filters) to prevent U19 games
+- Feb 20-22: Stable at 65 (appeared successful)
+- Feb 23 ~18:00: Unknown scraper run added ~1,700 U19 games
+- **Filter failed/reverted — not holding as expected**
+
+**Impact:**
+- ✅ Data still valid (validation working, U19 correctly rejected)
+- ⏸️ **BLOCKS Monday Feb 24 10am Scrappy run** (risk of another spike)
+- ⏸️ **BLOCKS Ranky calculation** (until U19 decision made)
+
+**Decision Needed (3 options):**
+- **Option A:** Re-apply scraper filter (original fix didn't persist)
+- **Option B:** Investigate what changed since Feb 20 (was code reverted?)
+- **Option C:** Add U19 support (algorithm change, requires your review)
+
+**Escalated by:** Watchy 8am Feb 24 (via sessions_send to main chat)
+**Awaiting:** D H decision before next scraper cycle
+**Status:** ⏸️ **PAUSED** (don't run Scrappy Monday 10am until decision made)
+
+---
 
 ## ⚠️ Known Issues
 - **[✅ FULLY RESOLVED]** U19 Age Group Coverage — Escalated Feb 19 → Fixed Feb 19 evening (Codey deployed scraper filters). Quarantine spiked 1,405 → dropped to 65 post-fix and remained stable through Feb 21. Option B (scraper filter) confirmed working. **Validation:** Will monitor Monday Feb 24 scrape run (next full cycle) to confirm filters persist across all scrapers.

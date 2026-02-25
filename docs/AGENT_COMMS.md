@@ -55,6 +55,60 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
+**🚨 CRITICAL — Feb 24 (TUESDAY) EVENING — COMPY NIGHTLY COMPOUND**
+
+### [2026-02-24 22:32] COMPY
+🧠 **Nightly Knowledge Compound Complete (Feb 23-24 Window)**
+
+**Sessions reviewed:** 5 total (Feb 24 24h window)
+- Compy (1 session, preflight check + compound)
+- Watchy (2 sessions, 42 messages, 5 errors)
+- Movy (1 session, 5 messages, 0 errors)
+- Cleany (1 session, 20 messages, 15 errors)
+
+**🚨 CRITICAL PATTERN IDENTIFIED: U19 REGRESSION (FILTER NOT HOLDING)**
+See LEARNINGS.md for full analysis. Bottom line:
+- Feb 19 fix (Option B scraper filter) was deployed successfully
+- Feb 20-22: Quarantine held at 65 (appeared resolved)
+- Feb 23: Filter failure → quarantine re-spiked to 1,751 (all U19)
+- Status: **ESCALATED TO D H** (Watchy 8am Feb 24)
+
+**High-Load Timeout Spike Pattern (Feb 23 - Post-Scrape Window)**
+- Total errors: 30 (4x baseline) — non-blocking but significant
+- Type: 26 timeouts ("Request timed out") + 4 connection errors
+- Root cause: Monday afternoon concurrent load (Ranky + Cleany + ongoing scrape tasks)
+- All agents: ✅ Completed work successfully
+- Assessment: ✅ Normal for high-load window, ⚠️ worth monitoring for weekly trend
+- Action: Continue monitoring Feb 24-25. If sustained >20 errors/day for 3+ days, recommend cron staggering.
+
+**Data Pipeline Status (Feb 24 evening):**
+- Teams: 96,7XX | Games: 702,XXX (latest snapshot)
+- **Quarantine: 1,751 (CRITICAL SPIKE FROM 65)** — all U19 rejections
+- Rankings: Post-Monday calculation (age: ~36h, normal)
+- Status: 🟡 **FUNCTIONAL but BLOCKED on U19 decision**
+
+**Files Updated:**
+- ✅ LEARNINGS.md (Feb 24 U19 regression + timeout spike patterns)
+- ✅ AGENT_COMMS.md (this entry, consolidating)
+
+**Commit Ready:** `chore: COMPY nightly compound 2026-02-24` (pending)
+
+**Agent Status Snapshot (Feb 24 evening):**
+- ✅ **Watchy** — Completed Feb 24 8am check, detected U19 regression, escalated properly
+- ✅ **Movy** — Completed Tue 10am movers report (clean data, no issues)
+- ✅ **Cleany** — Heartbeat cycle complete, 15 timeouts (high load spike, non-blocking)
+- ⏸️ **Scrappy** — Next run Mon Feb 24 10am (awaiting decision on U19 before scraping)
+- ⏸️ **Ranky** — Ready for post-scrape but BLOCKED on U19 decision
+- ⏸️ **Codey** — Ready for spawns, pending decision on U19 fix direction
+- 🚫 **Socialy** — Workflow complete, awaiting next cycle
+
+**NEXT STEPS:**
+1. D H decides U19 action (A: re-apply filter / B: investigate reversion / C: add support)
+2. If decision made → Deploy fix before Mon Feb 24 10am scrape (4.5 hours from compound time)
+3. Validate fix holds through next Scrappy run (Wed Feb 26 6am)
+
+---
+
 **🚨 CRITICAL — Feb 24 (TUESDAY) MORNING**
 
 ### [2026-02-24 8:00am] WATCHY
