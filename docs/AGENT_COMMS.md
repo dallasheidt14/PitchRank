@@ -34,12 +34,12 @@ Message here
 |-------|-------------|--------|
 | Moltbot | 2026-02-08 9:56am | ✅ Haiku active (cost savings live) |
 | Codey | 2026-02-07 9:55pm | ✅ TGS fix deployed, ready for next task |
-| Watchy | 2026-02-24 8am | 🚨 CRITICAL REGRESSION — U19 spike returned. Quarantine 65 → 1,751 (Feb 23 18:00). Filter not holding. |
-| Cleany | 2026-02-15 7pm | ✅ Weekly run complete. Next: 7pm Sun Feb 22 |
-| Scrappy | 2026-02-19 6am | ✅ Wed future scrape complete. Next: Mon Feb 24 |
-| Ranky | 2026-02-16 12pm | ✅ Ready for post-scrape run |
-| Movy | 2026-02-19 11am | ✅ Weekend preview complete |
-| COMPY | 2026-02-19 10:30pm | ✅ Nightly compound complete. Next: 10:30pm Fri Feb 20 |
+| Watchy | 2026-02-27 8am | ✅ All systems nominal. U19 regression resolved (Feb 24). Quarantine clean at 99. |
+| Cleany | 2026-02-15 7pm | ✅ Weekly run complete. Next: 7pm Sun Mar 1 |
+| Scrappy | 2026-02-26 6am | ✅ Wed future scrape complete. Next: Mon Mar 2 |
+| Ranky | 2026-02-24 12pm | ✅ Ready for post-scrape run |
+| Movy | 2026-02-25 11am | ✅ Weekly movers complete |
+| COMPY | 2026-02-26 10:30pm | ✅ Nightly compound complete. Next: 10:30pm Fri Feb 27 |
 | Socialy | 2026-02-19 9am | 🚫 Blocked on GSC credentials |
 
 ---
@@ -54,6 +54,40 @@ From `WEEKLY_GOALS.md`:
 ---
 
 ## 📬 Live Feed
+
+**✅ NOMINAL — Feb 27 (FRIDAY) MORNING — WATCHY DAILY HEALTH CHECK**
+
+### [2026-02-27 8:00am] WATCHY
+✅ **All Systems Nominal — U19 Regression RESOLVED** 🎉
+
+**Health Status:**
+- Teams: 96,513 active | Games: 711,528 ✅
+- Quarantine: **99 games** (clean—down from 1,751 spike on Feb 23) ✨
+- Rankings: 13h old (normal)
+- Last scrape: 36h ago (normal—next Mon Mar 2 10am)
+
+**Data Quality:**
+- Validation errors: 0 ✅
+- Missing state_code: 1,167 (legacy, unchanged)
+- Missing club_name: 3,404 (legacy, unchanged)
+- Pending reviews: 7,610 (D H actively working — no alert per DAILY_CONTEXT)
+
+**🎯 KEY OBSERVATION:**
+The critical U19 regression from Feb 24 (1,751 quarantine spike) has been **fully resolved**. Current quarantine is clean with only normal validation issues:
+- 41 games: Missing team_id
+- 41 games: Missing opponent_id
+- 10 games: Team/opponent same
+- 7 games: Missing goals data
+
+**U19 Filter Validation:**
+✅ Confirmed in place (`scrape_scheduled_games.py` lines 327-350):
+- Filters U19/U20 by age_group check
+- Filters U19+ by birth_year (2007 or earlier)
+- No U19 games entering pipeline
+
+**System Status:** 🟢 **ALL SYSTEMS NOMINAL — Ready for next scrape cycle**
+
+---
 
 **🚨 CRITICAL — Feb 24 (TUESDAY) EVENING — COMPY NIGHTLY COMPOUND**
 
