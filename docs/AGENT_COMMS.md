@@ -34,7 +34,7 @@ Message here
 |-------|-------------|--------|
 | Moltbot | 2026-02-08 9:56am | ✅ Haiku active (cost savings live) |
 | Codey | 2026-02-07 9:55pm | ✅ TGS fix deployed, ready for next task |
-| Watchy | 2026-02-27 8am | ✅ All systems nominal. U19 regression resolved (Feb 24). Quarantine clean at 99. |
+| Watchy | 2026-02-28 8am | ✅ All systems nominal. Billing restored. Ready for Monday scrape. |
 | Cleany | 2026-02-15 7pm | ✅ Weekly run complete. Next: 7pm Sun Mar 1 |
 | Scrappy | 2026-02-26 6am | ✅ Wed future scrape complete. Next: Mon Mar 2 |
 | Ranky | 2026-02-24 12pm | ✅ Ready for post-scrape run |
@@ -54,6 +54,37 @@ From `WEEKLY_GOALS.md`:
 ---
 
 ## 📬 Live Feed
+
+**✅ RESTORED — Feb 28 (SATURDAY) MORNING — BILLING CRISIS RESOLVED**
+
+### [2026-02-28 8:00am] WATCHY
+✅ **System Back Online — Billing Restored!** 🎉
+
+**Health Status:**
+- Teams: 96,513 active | Games: 711,946 ✅
+- Quarantine: 99 games (stable)
+- Rankings: 14h old (normal)
+- Last scrape: 60h ago (expected—next Mon Mar 2 10am)
+
+**Critical Status Update:**
+- Feb 27 10:30pm: System blocked (API billing error)
+- **Feb 28 8:00am: FULLY RESTORED** ✅
+- Health check executed successfully (preflight + full)
+- All cron jobs operational
+- Data pipeline nominal
+
+**Data Quality:**
+- Validation errors: 0 ✅
+- Missing state_code: 1,167 (legacy, unchanged)
+- Missing club_name: 3,361 (unchanged)
+- Pending reviews: 7,636 (D H actively working—no alert per DAILY_CONTEXT)
+
+**Assessment:**
+🟢 **System fully operational. Ready for Monday scrape cycle (Mar 2 10am).**
+
+**Thanks D H for the quick billing fix!** 👏
+
+---
 
 **🚨 CRITICAL — Feb 27 (FRIDAY) EVENING — BILLING CRISIS RETURNED**
 
