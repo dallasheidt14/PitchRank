@@ -4,6 +4,64 @@
 
 ## Cross-Agent Insights
 
+### 2026-02-27: CRITICAL — API BILLING CRISIS RETURNED (System Offline)
+**🚨 BILLING CRISIS HAS RETURNED — SYSTEM COMPLETELY BLOCKED**
+
+**Timeline:**
+- Feb 7-14: Initial billing crisis, ~19 days from first incident
+- Feb 14-27: System stable (13 consecutive days)
+- **Feb 27 10:30pm: Crisis returned** — Identical error signature
+
+**Error Pattern (Feb 27):**
+- Total: 12 errors in single evening
+- Type: All 400 Bad Request, "Your credit balance is too low to access the Anthropic API"
+- Agent affected: Watchy (primary), other agents blocked when attempting to run
+- Status: **System completely offline** (no agent can access Anthropic API)
+
+**Critical Question:**
+Why did billing credits exhaust again after 13 stable days? Possible causes:
+1. Large batch of API calls in previous period (hidden cost)
+2. Usage exceeded credit allocation
+3. Billing configuration changed or credits expired
+4. D H added new agents/work that increased API consumption
+
+**Evidence of Usage (Feb 14-27):**
+- Daily cron jobs running (Watchy 8am, Movy, Socialy, Ranky, Scrappy, Cleany, COMPY)
+- Main session heartbeat cycles (periodic checks)
+- Sub-agent spawns (Codey on-demand)
+- Estimated daily cost: ~$1-5/day across all agents
+
+**System Response:**
+- Unlike connection errors (transient), billing blocks ALL API access
+- Cascading impact: When one agent hits credit error, all subsequent agents blocked
+- No automatic recovery or backoff available
+- **Manual intervention required** (D H billing fix)
+
+**Root Cause Analysis (Hypothesis):**
+The Feb 7-14 crisis was NOT fully resolved — it may have been a temporary service restoration or partial credit top-up. System might have been operating on borrowed time or depleting remaining credits slowly until exhaustion Feb 27.
+
+**Key Learning (Compounding):**
+1. **Billing crises have TWO phases:**
+   - Phase 1: Apparent recovery (13 days stable)
+   - Phase 2: Sudden collapse (cascading errors across fleet)
+   - **This pattern suggests root cause was not fixed, just delayed**
+
+2. **Future prevention:**
+   - Implement daily cost tracking in WATCHY health check
+   - Alert if daily spend exceeds threshold ($5/day)
+   - Monitor credit balance continuously, not just on error
+   - When credits near limit → auto-backoff agent workloads
+
+3. **Current escalation:**
+   - This is LEVEL 5 (critical blocker) requiring D H immediate action
+   - No agents can run until fixed
+   - Data pipeline completely offline
+   - Scrape cycles will fail (next scheduled: Mon Mar 2)
+
+**Status:** System offline, awaiting D H billing intervention.
+
+---
+
 ### 2026-02-24: CRITICAL — U19 REGRESSION DETECTED (Feb 23-24, Filter Not Holding)
 **🚨 THE U19 FIX FROM FEB 19 IS BROKEN. QUARANTINE RE-SPIKED FROM 65 → 1,751.**
 

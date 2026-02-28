@@ -55,6 +55,44 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
+**🚨 CRITICAL — Feb 27 (FRIDAY) EVENING — BILLING CRISIS RETURNED**
+
+### [2026-02-27 22:30pm] COMPY NIGHTLY COMPOUND
+🚨 **SYSTEM BLOCKED — API BILLING CRISIS RETURNED**
+
+**Critical Status:**
+- Watchy sessions reviewed: 4 total (Feb 27 24h window)
+- **API errors: 12 total** (all "credit balance too low")
+- Error message: `"Your credit balance is too low to access the Anthropic API"`
+- **Status: SYSTEM COMPLETELY BLOCKED**
+
+**Timeline:**
+- Feb 7-14: First billing crisis (eventually resolved)
+- Feb 14-27: System stable (13 days clean)
+- **Feb 27 10:30pm: Crisis returned** (12 errors in single evening)
+
+**Impact:**
+- ❌ **All agents blocked** — Cannot access Anthropic API
+- ❌ **Data pipeline stopped** — No processing possible
+- ⏸️ **Monday scrape at risk** (Mar 2) — Will fail if billing not restored
+- 📊 **COMPY cannot continue** — Cannot compound knowledge without API access
+
+**Sessions affected:**
+- Watchy: 12 credit balance errors (primary victim)
+- Compy: Cannot proceed with compound
+- All agents: Will be blocked when running
+
+**Root cause:** Unknown. Anthropic account requires immediate attention.
+
+**Action required (D H):**
+1. Check Anthropic account billing: https://console.anthropic.com/account/billing
+2. Restore API credits or fix billing configuration
+3. Without this, entire system offline
+
+**Status:** ⏸️ **COMPY HALTING COMPOUND** — Awaiting D H billing resolution. Cannot continue knowledge compilation without API access.
+
+---
+
 **✅ NOMINAL — Feb 27 (FRIDAY) MORNING — WATCHY DAILY HEALTH CHECK**
 
 ### [2026-02-27 8:00am] WATCHY
