@@ -70,6 +70,22 @@ def execute_with_retry(query_func, max_retries=3, base_delay=1.0):
             else:
                 raise last_exception
 
+def fetch_all_rows(query_builder, page_size=1000):
+    """
+    Paginate through a Supabase query to fetch all rows, bypassing the
+    default 1000-row API limit.  Returns the combined list of row dicts.
+    """
+    all_rows = []
+    offset = 0
+    while True:
+        page = query_builder.range(offset, offset + page_size - 1).execute()
+        rows = page.data or []
+        all_rows.extend(rows)
+        if len(rows) < page_size:
+            break
+        offset += page_size
+    return all_rows
+
 # Sidebar navigation
 st.sidebar.title("Navigation")
 section = st.sidebar.radio(
@@ -804,49 +820,107 @@ elif section == "📈 Database Import Stats":
         try:
             seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
 
+            # Fetch providers for per-provider breakdown
+            providers_result = db.table('providers').select('id, name, code').execute()
+            providers_list = providers_result.data or []
+
+            # Build provider filter options: "All Providers" + each provider
+            provider_filter_options = ["All Providers"] + [p['name'] for p in providers_list]
+            selected_provider = st.selectbox(
+                "Filter by Provider",
+                options=provider_filter_options,
+                key="scrape_status_provider"
+            )
+
+            # Helper to build a filtered query
+            def _scrape_status_query(base_query):
+                if selected_provider != "All Providers":
+                    pid = next((p['id'] for p in providers_list if p['name'] == selected_provider), None)
+                    if pid:
+                        base_query = base_query.eq('provider_id', pid)
+                return base_query
+
             # Teams scraped within last 7 days
-            recent_scraped = db.table('teams').select('id', count='exact').gte('last_scraped_at', seven_days_ago).execute()
+            recent_scraped = _scrape_status_query(
+                db.table('teams').select('id', count='exact').gte('last_scraped_at', seven_days_ago)
+            ).execute()
             recent_count = recent_scraped.count or 0
 
             # Teams scraped more than 7 days ago
-            stale_scraped = db.table('teams').select('id', count='exact').lt('last_scraped_at', seven_days_ago).not_.is_('last_scraped_at', 'null').execute()
+            stale_scraped = _scrape_status_query(
+                db.table('teams').select('id', count='exact').lt('last_scraped_at', seven_days_ago).not_.is_('last_scraped_at', 'null')
+            ).execute()
             stale_count = stale_scraped.count or 0
 
             # Teams never scraped
-            never_scraped = db.table('teams').select('id', count='exact').is_('last_scraped_at', 'null').execute()
+            never_scraped = _scrape_status_query(
+                db.table('teams').select('id', count='exact').is_('last_scraped_at', 'null')
+            ).execute()
             never_count = never_scraped.count or 0
 
             # Total teams for percentage calculation
             total_teams = recent_count + stale_count + never_count
+
+            provider_label = selected_provider if selected_provider != "All Providers" else "all providers"
 
             col1, col2, col3, col4 = st.columns(4)
 
             with col1:
                 pct = (recent_count / total_teams * 100) if total_teams > 0 else 0
                 st.metric("Recently Scraped (<7d)", f"{recent_count:,}",
-                         help=f"{pct:.1f}% of all teams")
+                         help=f"{pct:.1f}% of {provider_label} teams")
             with col2:
                 pct = (stale_count / total_teams * 100) if total_teams > 0 else 0
                 st.metric("Stale (>7d)", f"{stale_count:,}",
-                         help=f"{pct:.1f}% of all teams - need re-scraping")
+                         help=f"{pct:.1f}% of {provider_label} teams - need re-scraping")
             with col3:
                 pct = (never_count / total_teams * 100) if total_teams > 0 else 0
                 st.metric("Never Scraped", f"{never_count:,}",
-                         help=f"{pct:.1f}% of all teams")
+                         help=f"{pct:.1f}% of {provider_label} teams")
             with col4:
                 up_to_date_pct = (recent_count / total_teams * 100) if total_teams > 0 else 0
                 st.metric("Coverage", f"{up_to_date_pct:.1f}%",
-                         help="Percentage of teams scraped within 7 days")
+                         help=f"Percentage of {provider_label} teams scraped within 7 days")
+
+            # Per-provider summary table (always shown below the metrics)
+            if selected_provider == "All Providers" and len(providers_list) > 1:
+                with st.expander("Per-Provider Breakdown", expanded=True):
+                    provider_rows = []
+                    for prov in providers_list:
+                        pid = prov['id']
+                        p_recent = db.table('teams').select('id', count='exact').eq('provider_id', pid).gte('last_scraped_at', seven_days_ago).execute()
+                        p_stale = db.table('teams').select('id', count='exact').eq('provider_id', pid).lt('last_scraped_at', seven_days_ago).not_.is_('last_scraped_at', 'null').execute()
+                        p_never = db.table('teams').select('id', count='exact').eq('provider_id', pid).is_('last_scraped_at', 'null').execute()
+                        p_recent_ct = p_recent.count or 0
+                        p_stale_ct = p_stale.count or 0
+                        p_never_ct = p_never.count or 0
+                        p_total = p_recent_ct + p_stale_ct + p_never_ct
+                        p_coverage = (p_recent_ct / p_total * 100) if p_total > 0 else 0
+                        provider_rows.append({
+                            'Provider': prov['name'],
+                            'Recent (<7d)': p_recent_ct,
+                            'Stale (>7d)': p_stale_ct,
+                            'Never Scraped': p_never_ct,
+                            'Total': p_total,
+                            'Coverage': f"{p_coverage:.1f}%",
+                        })
+                    if provider_rows:
+                        st.dataframe(pd.DataFrame(provider_rows), use_container_width=True, hide_index=True)
 
             # Show list of stale teams in expander
             if stale_count > 0 or never_count > 0:
                 with st.expander(f"View Teams Needing Scraping ({stale_count + never_count:,} teams)"):
                     # Get stale teams sorted by last_scraped_at
-                    stale_teams = db.table('teams').select(
+                    stale_query = db.table('teams').select(
                         'team_name, age_group, gender, state_code, last_scraped_at'
                     ).or_(
                         f'last_scraped_at.lt.{seven_days_ago},last_scraped_at.is.null'
-                    ).order('last_scraped_at', desc=False, nullsfirst=True).limit(100).execute()
+                    )
+                    if selected_provider != "All Providers":
+                        pid = next((p['id'] for p in providers_list if p['name'] == selected_provider), None)
+                        if pid:
+                            stale_query = stale_query.eq('provider_id', pid)
+                    stale_teams = stale_query.order('last_scraped_at', desc=False, nullsfirst=True).limit(100).execute()
 
                     if stale_teams.data:
                         df = pd.DataFrame(stale_teams.data)
@@ -2781,10 +2855,7 @@ elif section == "🔀 Team Merge Manager":
                     if manual_state_filter:
                         query = query.eq('state_code', manual_state_filter)
 
-                    teams_result = execute_with_retry(
-                        lambda q=query: q.order('team_name').limit(2000)
-                    )
-                    all_teams = teams_result.data or []
+                    all_teams = fetch_all_rows(query.order('team_name'))
 
                     filter_desc = f"{manual_age_filter} {manual_gender_filter}"
                     if manual_state_filter:
@@ -3071,10 +3142,7 @@ elif section == "🔀 Team Merge Manager":
                             if state_filter:
                                 query = query.eq('state_code', state_filter)
 
-                            teams_result = execute_with_retry(
-                                lambda q=query: q.limit(2000)
-                            )
-                            teams = teams_result.data or []
+                            teams = fetch_all_rows(query)
 
                             # Build filter description for messages
                             filter_desc = f"{age_filter} {gender_filter}"
