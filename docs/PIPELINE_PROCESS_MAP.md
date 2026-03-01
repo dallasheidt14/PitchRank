@@ -17,6 +17,7 @@
 9. [Weekly Data Hygiene Pipeline](#9-weekly-data-hygiene-pipeline)
 10. [Affinity WA Matcher (Optimization Pattern)](#10-affinity-wa-matcher-optimization-pattern)
 11. [Improvement Opportunities (Fuzzy & Game Matcher)](#11-improvement-opportunities-fuzzy--game-matcher)
+12. [Deep Analysis: Hygiene Script Patterns for Real-Time Matcher Improvement](#12-deep-analysis-hygiene-script-patterns-for-real-time-matcher-improvement)
 
 ---
 
@@ -879,6 +880,256 @@ The Affinity WA matcher (`src/models/affinity_wa_matcher.py`) introduced several
 3. **Pre-index team names with trigrams** in Supabase — eliminates the 5000-candidate paginated fallback
 4. **Add a periodic re-match job** for partial games — clears the backlog as new aliases get approved
 5. **Expand the canonical club registry** — every new club added eliminates fuzzy matching for all its variations
+
+---
+
+## 12. Deep Analysis: Hygiene Script Patterns for Real-Time Matcher Improvement
+
+The weekly data hygiene scripts contain battle-tested patterns that evolved from months of production debugging. Many of these patterns are **more mature** than their counterparts in the real-time matchers. This section catalogs specific code and ideas worth porting.
+
+### 12.1 Pattern: Parse Age From Name, Not Metadata
+
+**Source:** `find_queue_matches.py:299-334` — `extract_age_group()`
+
+The hygiene script learned the hard way that metadata `age_group` fields from providers are **unreliable**. The script always parses age from the team name first:
+
+```python
+# Priority chain:
+# 1. U-age format from name:  "U13" → u13
+# 2. Gender+year from name:   "B14" → 2014 → u12,  "G2013" → u13
+# 3. Standalone birth year:   "2014" → u12
+# 4. FALLBACK ONLY: metadata  details['age_group']
+```
+
+**Where to port:** `GameHistoryMatcher._match_team()` currently trusts the `age_group` parameter passed by the pipeline. It should validate by parsing the team name and flagging mismatches. This would catch cases where a provider labels "FC Dallas B14 Blue" as `u14` (wrong — B14 = birth year 2014 = U12).
+
+### 12.2 Pattern: Enhanced Coach Name Detection
+
+**Source:** `find_queue_matches.py:153-297` — `extract_team_variant()`
+
+The hygiene script has the most sophisticated variant extraction in the codebase, including **coach name detection** that the real-time matchers completely lack:
+
+```
+Detection algorithm:
+1. Find age/year position in name
+2. Extract text AFTER the age token
+3. Remove region markers in parentheses: "(CTX)" → ""
+4. For each remaining word after age:
+   - Skip if in common_words set (300+ words: ecnl, boys, soccer, etc.)
+   - Skip if in region_codes set (100+ codes: ctx, phx, az, etc.)
+   - Skip if in program_names set (30+ words: aspire, dynasty, etc.)
+   - Skip if it's a number or age pattern
+   - OTHERWISE: it's a coach name → return it
+5. Fallback: check for coach in parens "(Holohan)" (not region codes)
+6. Fallback: ALL CAPS words after year "2014 RIEDELL"
+7. Fallback: capitalized last word that isn't a known token
+```
+
+**Why this matters:** Teams like "Atletico Dallas 15G Riedell" and "Atletico Dallas 15G Davis" are **different teams** (different coaches). Without coach name detection, the real-time matcher would merge them. The hygiene script catches this; the real-time import pipeline does not.
+
+**Where to port:** `team_name_utils.extract_distinctions()` should add a `coach_name` distinction field. The exclusion sets (common_words, region_codes, program_names) from `find_queue_matches.py:189-210` should be shared constants.
+
+### 12.3 Pattern: Multi-Strategy Club Extraction
+
+**Source:** `find_queue_matches.py:62-144` — `extract_club_from_name()`
+
+The hygiene script's club extraction handles edge cases the real-time matcher doesn't:
+
+```
+Strategy 1: Split on earliest age pattern
+  "FC Tampa Rangers FCTS 2015 Falcons" → "FC Tampa Rangers FCTS"
+
+Strategy 2: Strip suffix ladder (12 patterns)
+  ECNL-RL, ECNL, RL, PRE-ECNL, COMP, GA, MLS NEXT,
+  ACADEMY, SELECT, PREMIER, ELITE, PRE
+
+Strategy 3: Deduplicate repeated words
+  "Kingman SC Kingman SC U14" → "Kingman SC"
+  (some providers concatenate club name twice)
+
+Strategy 4: Min length guard
+  Don't return club names < 3 chars (avoids "FC" as club)
+```
+
+**Where to port:** `team_name_utils.extract_club_from_team_name()` (line 336) has a simpler version. The word deduplication (Strategy 3) would catch real production bugs where providers send `"Club Name Club Name"`.
+
+### 12.4 Pattern: Structured Distinction Extraction (The Origin Story)
+
+**Source:** `find_fuzzy_duplicate_teams.py:107-237` — `extract_distinctions()`
+
+This is the **original** implementation that was later ported to `team_name_utils.py`. The hygiene version has nuances the ported version preserved but also some the real-time matcher doesn't fully exploit:
+
+```
+4-Pass Classification:
+  Pass 1: Known tokens → colors, directions, programs, location_codes,
+           noise_words, US_states, roman_numerals, team_numbers
+  Pass 2: Age patterns → age_tokens, secondary_nums (numbers AFTER first age)
+  Pass 3: Age+gender combos → classify as age (15m, b06, u16b)
+  Pass 4: Remaining → squad_words (≥4 chars) or location_codes (2-3 chars)
+```
+
+**Key detail worth porting:** The `secondary_nums` extraction (numbers appearing AFTER the first age token) catches cases like "Union 2010 FC 2009" vs "Union 2010 FC 2008" where the second number is a differentiator. The real-time matcher's `team_name_utils.py` has this but the base `game_matcher.py` doesn't fully use it in candidate filtering.
+
+### 12.5 Pattern: Conservative Club Name Canonicalization
+
+**Source:** `full_club_analysis.py:58-85` — `normalize_for_grouping()`
+
+The hygiene script deliberately avoids aggressive suffix stripping because it causes false matches:
+
+```python
+# CONSERVATIVE: Normalize suffix TO canonical form, don't strip
+# "Pride Soccer Club" → "pride sc"    (suffix normalized)
+# "FC Dallas"         → "fc dallas"   (prefix preserved)
+
+# THIS PREVENTS:
+# "FC Arkansas" ≠ "Arkansas Soccer Club"  (prefix FC ≠ suffix SC)
+# "FC United Soccer Club" ≠ "United SC"   (different clubs)
+```
+
+**Where to port:** `club_normalizer.py` strips suffixes more aggressively. The hygiene script's approach of **normalizing suffixes to canonical abbreviations** without stripping them is safer. The real-time matcher should adopt this for cases where the canonical registry doesn't have a match.
+
+### 12.6 Pattern: Acronym-Aware Proper Casing
+
+**Source:** `full_club_analysis.py:28-56` — `ACRONYMS` set + `proper_case()`
+
+The hygiene script maintains a 70+ entry acronym set covering:
+- Soccer acronyms: FC, SC, SA, AC, CF, CD, YSA
+- Leagues: ECNL, GA, MLS
+- Cities: LA, NY, NJ, OC, DC, KC, STL, ATL, PHX
+- All 50 US state codes
+- Club-specific: AFC, CFC, SFC, VFC, PFC, LAFC, NYCFC, NCFC
+
+**Where to port:** The real-time matcher's normalization (`normalize_name_for_matching()`) lowercases everything. When creating new team records, the hygiene script's `proper_case()` produces cleaner names. This should be used when the pipeline creates new master teams.
+
+### 12.7 Pattern: `parse_age_gender()` — The Most Robust Age Parser
+
+**Source:** `team_name_normalizer.py:67-170`
+
+This function handles **12+ age format combinations** that no other part of the codebase matches:
+
+```
+Format           → (age, gender)
+'14B'            → ('2012', 'Male')    # 2-digit year + gender suffix
+'B14'            → ('2012', 'Male')    # gender prefix + 2-digit year
+'2014B'          → ('2014', 'Male')    # 4-digit year + gender suffix
+'B2014'          → ('2014', 'Male')    # gender prefix + 4-digit year
+'U14B'           → ('U14', 'Male')     # U-age + gender suffix
+'U-14'           → ('U14', None)       # U-age with hyphen
+'BU14'           → ('U14', 'Male')     # gender prefix + U-age
+'2014'           → ('2014', None)      # bare 4-digit year
+'U14'            → ('U14', None)       # bare U-age
+'15M'            → ('2015', 'Male')    # M = Male variant
+'2014 Boys'      → ('2014', 'Male')    # word gender
+'12'             → ('2012', None)      # bare 2-digit (6-18 range → birth year)
+```
+
+**Where to port:** The base matcher's `normalize_name_for_matching()` handles only a subset of these. The affinity matcher added its own `_normalize_for_affinity_wa()` which covers some WA-specific abbreviations. `parse_age_gender()` should be the **single source of truth** for age parsing across all matchers.
+
+### 12.8 Pattern: Multi-Word Token Joining
+
+**Source:** `team_name_normalizer.py:173-222` — `extract_squad_identifier()`
+
+The squad identifier extractor joins tokens that form compound terms BEFORE classifying them:
+
+```
+"ECNL" + "RL"   → "ECNL RL"    (not two separate programs)
+"MLS" + "NEXT"   → "MLS NEXT"   (not "MLS" program + "NEXT" word)
+"Pre" + "ECNL"   → "Pre-ECNL"   (not "Pre" word + "ECNL" program)
+```
+
+Also normalizes division aliases:
+```
+"ecnl-rl" → "ECNL RL"
+"ecrl"    → "ECNL RL"
+"rl"      → "ECNL RL"   (standalone RL = ECNL Regional League)
+"mls-next" → "MLS NEXT"
+```
+
+**Where to port:** The base matcher treats each token independently. "ECNL RL" gets split into "ecnl" and "rl" which may be matched separately against candidates, leading to false partial matches. Token joining should happen in `normalize_name_for_matching()`.
+
+### 12.9 Pattern: Idempotent Processing with Backup
+
+**Source:** `normalize_team_names.py:14-15, 195-207`
+
+The normalization script:
+1. Only processes teams where `team_name_original IS NULL` (never re-processes)
+2. Backs up the original name with `COALESCE(team_name_original, original)` (preserves first backup)
+3. Uses `--all-teams` flag to override and re-scan everything
+
+**Where to port:** The real-time matcher should adopt this pattern when creating aliases or updating team names. Currently, re-running an import can create duplicate aliases without tracking which ones were auto-generated vs human-approved.
+
+### 12.10 Pattern: Candidate Narrowing Hierarchy
+
+**Source:** `find_fuzzy_duplicate_teams.py:398-436` — 3-level candidate filtering
+
+The hygiene fuzzy matcher narrows candidates through 3 levels before scoring:
+
+```
+Level 1: Group by state (only compare within state)
+  → Eliminates cross-state false matches entirely
+  → O(n) per state instead of O(n²) overall
+
+Level 2: Require same club_name (exact match)
+  → "2010 White" from Club A never merges with "2010 White" from Club B
+  → Prevents the #1 most dangerous merge error
+
+Level 3: Structural distinction filter (_should_skip_pair)
+  → Colors, directions, programs, team numbers, location codes,
+    squad words, age tokens, secondary nums must ALL match
+  → After this filter, only true formatting variants remain
+```
+
+**Where to port:** The base `_fuzzy_match_team()` does Level 3 (distinction filter) but inside the scoring loop. Levels 1 and 2 are partially implemented (club-filtered query first, fallback to broad query). The improvement is to make the cascade explicit and mandatory: never fall back to the broad 5000-candidate query if club filtering returns results.
+
+### 12.11 Pattern: Confidence Score Ceiling
+
+**Source:** `find_queue_matches.py:658-659`
+
+```python
+# Cap score at 0.99 for alias table
+db_score = min(0.99, r['score'])
+```
+
+The hygiene script NEVER writes 1.0 confidence for fuzzy matches. Only direct provider ID matches should be 1.0.
+
+**Where to port:** The base matcher caps at different levels per method but doesn't enforce a hard ceiling. Adding `min(0.99, score)` in `_create_alias()` would make it clear which aliases were fuzzy-matched vs direct-matched when debugging.
+
+### 12.12 Pattern: Connection Resilience
+
+**Source:** `find_queue_matches.py:525-544`
+
+```python
+# Refresh Supabase client every 1000 entries (HTTP/2 timeout)
+if i > 0 and i % 1000 == 0:
+    supabase = get_supabase()
+
+# Retry logic with fresh connection on transient errors
+for attempt in range(max_retries):
+    try:
+        match, score, method = find_best_match(entry, supabase, None)
+        break
+    except Exception:
+        supabase = get_supabase()  # Fresh connection
+        time.sleep(2)
+```
+
+**Where to port:** The ETL pipeline's `import_games()` processes batches of 2000 games with a single Supabase client. Long-running imports (10k+ games) hit the same HTTP/2 timeout. The hygiene script's periodic client refresh pattern should be added to `enhanced_pipeline.py`.
+
+### 12.13 Summary: Hygiene → Real-Time Matcher Porting Roadmap
+
+| Priority | Pattern | Source Script | Target | Impact |
+|----------|---------|--------------|--------|--------|
+| **P0** | `parse_age_gender()` as single age parser | `team_name_normalizer.py:67` | All matchers | Eliminates age format mismatches |
+| **P0** | Coach name detection in variant extraction | `find_queue_matches.py:183` | `team_name_utils.py` | Prevents merging different coach teams |
+| **P0** | Multi-word token joining (ECNL+RL) | `team_name_normalizer.py:173` | `normalize_name_for_matching()` | Fixes compound term splitting |
+| **P1** | Club extraction with dedup + min length | `find_queue_matches.py:62` | `team_name_utils.py:336` | Catches provider data bugs |
+| **P1** | Conservative club suffix canonicalization | `full_club_analysis.py:58` | `club_normalizer.py` | Prevents prefix/suffix confusion |
+| **P1** | Confidence ceiling (0.99 max for fuzzy) | `find_queue_matches.py:659` | `game_matcher.py:_create_alias` | Clean audit trail |
+| **P2** | Age from name, not metadata | `find_queue_matches.py:299` | `game_matcher.py:_match_team` | Catches provider mislabeling |
+| **P2** | Connection refresh every 1000 entries | `find_queue_matches.py:525` | `enhanced_pipeline.py` | Production reliability |
+| **P2** | Idempotent processing with backup | `normalize_team_names.py:195` | Alias creation flow | Safe re-runs |
+| **P3** | Proper case with acronym awareness | `full_club_analysis.py:28` | Team creation flow | Cleaner team names |
+| **P3** | Mandatory candidate narrowing hierarchy | `find_fuzzy_duplicate_teams.py:398` | `_fuzzy_match_team()` | Faster matching, fewer false positives |
 
 ---
 
