@@ -12,6 +12,13 @@ from dataclasses import dataclass
 from supabase import Client
 from config.settings import MATCHING_CONFIG
 
+# Import rapidfuzz for better similarity scoring (handles word reordering)
+try:
+    from rapidfuzz import fuzz as rapidfuzz_fuzz
+    HAVE_RAPIDFUZZ = True
+except ImportError:
+    HAVE_RAPIDFUZZ = False
+
 # Import club normalizer for enhanced club name matching
 try:
     from src.utils.club_normalizer import (
@@ -32,6 +39,7 @@ try:
         normalize_name_for_matching,
         normalize_club_for_comparison,
         extract_club_from_team_name as extract_club_structured,
+        extract_team_variant as extract_variant_shared,
         has_ecnl_rl,
         has_ecnl_only,
     )
@@ -877,19 +885,21 @@ class GameHistoryMatcher:
     ) -> Optional[Dict]:
         """Fuzzy match team name against master teams.
 
-        Uses structured distinction extraction for hard rejection and
-        component-aware scoring for candidates that pass.
+        Uses a gated candidate funnel with structured distinction
+        extraction for hard rejection and component-aware scoring.
 
         Flow:
           1. Extract club from provider name if not supplied
-          2. Extract structural distinctions from provider name
-          3. Retrieve candidates (club-first, then paginated fallback)
-          4. For each candidate:
-             a. Hard-reject if any distinction differs (color, direction,
-                program, team number, location code, squad word)
-             b. Score via component-aware weighted formula
-             c. Apply league boost/penalty
-          5. Return best match above threshold
+          2. Extract structural distinctions + variant from provider name
+          3. Retrieve candidates (club-first gate; broad fallback only
+             when club extraction itself fails)
+          4. Gate 1 — distinction filter: reject if any structural
+             distinction differs (color, direction, program, team number,
+             location code, squad word, coach name)
+          5. Score via component-aware weighted formula
+          6. Apply league boost/penalty + club+variant boost
+          7. Deterministic tie-breaking on (variant_match, club_strength)
+          8. Return best match above threshold
         """
         try:
             age_group_normalized = age_group.lower() if age_group else age_group
@@ -906,27 +916,33 @@ class GameHistoryMatcher:
             # --- Structural distinctions for hard rejection ---
             if HAVE_TEAM_NAME_UTILS:
                 provider_distinctions = extract_distinctions(team_name)
+                provider_variant = provider_distinctions.get("coach_name")
                 provider_has_rl = has_ecnl_rl(team_name)
                 provider_has_ecnl = has_ecnl_only(team_name)
             else:
-                # Fallback to legacy variant extraction
                 provider_distinctions = None
+                provider_variant = extract_team_variant(team_name)
                 name_lower = team_name.lower() if team_name else ''
                 provider_has_rl = (' rl' in name_lower or '-rl' in name_lower
                                    or 'ecnl rl' in name_lower or 'ecnl-rl' in name_lower)
                 provider_has_ecnl = 'ecnl' in name_lower and not provider_has_rl
 
-            # --- Candidate retrieval ---
+            # --- Candidate retrieval (gated funnel) ---
+            # Gate: club-filtered query first. Only fall back to broad
+            # query when club extraction FAILED (club_name is None).
+            club_filtered = False
             result = None
             if club_name:
                 result = self.db.table('teams').select(
                     'team_id_master, team_name, club_name, age_group, gender, state_code'
                 ).eq('age_group', age_group_normalized).eq('gender', gender).ilike(
                     'club_name', club_name
-                ).limit(50).execute()
+                ).limit(100).execute()
+                if result and result.data:
+                    club_filtered = True
 
-            # Fall back to paginated broad query
-            if not result or not result.data:
+            # Broad fallback ONLY when club extraction failed
+            if not club_filtered:
                 all_candidates = []
                 page_size = 1000
                 page_offset = 0
@@ -953,6 +969,7 @@ class GameHistoryMatcher:
 
             best_match = None
             best_score = 0.0
+            best_tiebreak = (False, 0.0)  # (variant_match, club_sim)
 
             provider_team = {
                 'team_name': team_name,
@@ -961,10 +978,12 @@ class GameHistoryMatcher:
                 'state_code': None
             }
 
+            club_variant_boost = MATCHING_CONFIG.get('club_variant_match_boost', 0.15)
+
             for team in result.data:
                 cand_name = team.get('team_name', '')
 
-                # --- Hard rejection via structured distinctions ---
+                # --- Gate 1: Hard rejection via structured distinctions ---
                 if HAVE_TEAM_NAME_UTILS and provider_distinctions is not None:
                     cand_distinctions = extract_distinctions(cand_name)
                     # Colors must match (Red ≠ Blue)
@@ -985,11 +1004,17 @@ class GameHistoryMatcher:
                     # Squad words must match (Bolts ≠ Clash, Gazelle ≠ Samba)
                     if provider_distinctions["squad_words"] != cand_distinctions["squad_words"]:
                         continue
+                    # Coach names must match (Riedell ≠ Davis)
+                    cand_coach = cand_distinctions.get("coach_name")
+                    if (provider_distinctions.get("coach_name")
+                            and cand_coach
+                            and provider_distinctions["coach_name"] != cand_coach):
+                        continue
+                    cand_variant = cand_coach
                 else:
                     # Legacy fallback: simple variant check
-                    provider_variant = extract_team_variant(team_name)
-                    candidate_variant = extract_team_variant(cand_name)
-                    if provider_variant != candidate_variant:
+                    cand_variant = extract_team_variant(cand_name)
+                    if provider_variant != cand_variant:
                         continue
 
                 candidate = {
@@ -1018,13 +1043,33 @@ class GameHistoryMatcher:
                 elif provider_has_rl != cand_has_rl:
                     score = max(0.0, score - 0.08)
 
-                if score > best_score and score >= self.fuzzy_threshold:
-                    best_score = score
-                    best_match = {
-                        'team_id': team['team_id_master'],
-                        'team_name': team['team_name'],
-                        'confidence': round(score, 3)
-                    }
+                # --- Club+variant boost ---
+                variant_match = (provider_variant is not None
+                                 and cand_variant is not None
+                                 and provider_variant == cand_variant)
+                cand_club = team.get('club_name', '')
+                club_sim = 0.0
+                if club_name and cand_club and HAVE_CLUB_NORMALIZER:
+                    club_sim = club_similarity_score(club_name, cand_club)
+                elif club_name and cand_club:
+                    club_sim = self._calculate_similarity(club_name, cand_club)
+                if club_sim >= 0.8 and variant_match:
+                    score = min(1.0, score + club_variant_boost)
+
+                # --- Deterministic tie-breaking ---
+                tiebreak = (variant_match, club_sim)
+
+                if score >= self.fuzzy_threshold:
+                    # Prefer higher score; break ties with tiebreak tuple
+                    if (score > best_score + 0.001
+                            or (abs(score - best_score) <= 0.001 and tiebreak > best_tiebreak)):
+                        best_score = score
+                        best_tiebreak = tiebreak
+                        best_match = {
+                            'team_id': team['team_id_master'],
+                            'team_name': team['team_name'],
+                            'confidence': round(score, 3)
+                        }
 
             return best_match
 
@@ -1033,16 +1078,25 @@ class GameHistoryMatcher:
             return None
 
     def _calculate_similarity(self, str1: str, str2: str) -> float:
-        """Calculate string similarity using SequenceMatcher with normalization"""
+        """Calculate string similarity with normalization.
+
+        Uses rapidfuzz token_sort_ratio when available — this handles word
+        reordering ("Solar SC" vs "Dallas Solar") much better than
+        SequenceMatcher.  Falls back to SequenceMatcher if rapidfuzz is
+        not installed.
+        """
         # Always normalize both inputs before comparison
         str1 = self._normalize_team_name(str1)
         str2 = self._normalize_team_name(str2)
-        
+
         # Direct match
         if str1 == str2:
             return 1.0
-        
-        # Use SequenceMatcher for similarity
+
+        if HAVE_RAPIDFUZZ:
+            return rapidfuzz_fuzz.token_sort_ratio(str1, str2) / 100.0
+
+        # Fallback to SequenceMatcher
         return SequenceMatcher(None, str1, str2).ratio()
     
     def _normalize_team_name(self, name: str) -> str:
@@ -1111,12 +1165,19 @@ class GameHistoryMatcher:
                     club_similarity = 1.0
                 elif prov_norm in cand_norm or cand_norm in prov_norm:
                     club_similarity = 0.92
+                elif HAVE_RAPIDFUZZ:
+                    club_similarity = rapidfuzz_fuzz.token_sort_ratio(prov_norm, cand_norm) / 100.0
                 else:
                     club_similarity = SequenceMatcher(None, prov_norm, cand_norm).ratio()
             else:
-                club_similarity = SequenceMatcher(
-                    None, provider_club.lower(), candidate_club.lower()
-                ).ratio()
+                if HAVE_RAPIDFUZZ:
+                    club_similarity = rapidfuzz_fuzz.token_sort_ratio(
+                        provider_club.lower(), candidate_club.lower()
+                    ) / 100.0
+                else:
+                    club_similarity = SequenceMatcher(
+                        None, provider_club.lower(), candidate_club.lower()
+                    ).ratio()
 
         club_score = club_similarity * w_club
 
@@ -1160,6 +1221,12 @@ class GameHistoryMatcher:
     ):
         """Create or update team alias map entry"""
         try:
+            # Confidence ceiling: fuzzy matches should never be stored at 1.0
+            # Only direct_id / import methods get 1.0 confidence.
+            ceiling = MATCHING_CONFIG.get('fuzzy_confidence_ceiling', 0.99)
+            if match_method not in ('direct_id', 'import'):
+                confidence = min(ceiling, confidence)
+
             # Check if alias already exists (by provider_id + provider_team_id)
             existing = None
             if provider_team_id:

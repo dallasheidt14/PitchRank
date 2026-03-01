@@ -11,7 +11,37 @@ from typing import Dict, Optional, Set
 from datetime import datetime
 from supabase import Client
 
-from src.models.game_matcher import GameHistoryMatcher
+from src.models.game_matcher import GameHistoryMatcher, MATCHING_CONFIG
+
+# Import rapidfuzz for similarity scoring
+try:
+    from rapidfuzz import fuzz as rapidfuzz_fuzz
+    HAVE_RAPIDFUZZ = True
+except ImportError:
+    HAVE_RAPIDFUZZ = False
+
+# Import shared team-name utilities
+try:
+    from src.utils.team_name_utils import (
+        extract_distinctions,
+        extract_team_variant as extract_variant_shared,
+        extract_club_from_team_name as extract_club_structured,
+        has_ecnl_rl,
+        has_ecnl_only,
+    )
+    HAVE_TEAM_NAME_UTILS = True
+except ImportError:
+    HAVE_TEAM_NAME_UTILS = False
+
+# Import club normalizer for canonical club comparison
+try:
+    from src.utils.club_normalizer import (
+        normalize_to_club,
+        similarity_score as club_similarity_score,
+    )
+    HAVE_CLUB_NORMALIZER = True
+except ImportError:
+    HAVE_CLUB_NORMALIZER = False
 
 logger = logging.getLogger(__name__)
 
@@ -130,348 +160,101 @@ class TGSGameMatcher(GameHistoryMatcher):
     def _normalize_team_name(self, name: str, club_name: Optional[str] = None) -> str:
         """
         Enhanced normalization for TGS team names.
-        
-        Handles TGS-specific patterns:
-        - ECNL suffixes (e.g., "Team Name ECNL G12" -> "Team Name")
-        - RL suffixes (e.g., "Team Name RL Southwest" -> "Team Name")
-        - Age group suffixes (e.g., "Team Name G12" -> "Team Name")
-        - Embedded club names (e.g., "Folsom Lake Surf- FLS 13B Premier I" -> "FLS 13B Premier I")
-        - Common TGS naming patterns
-        
-        Args:
-            name: Team name to normalize
-            club_name: Optional club name to strip from the beginning of team name
+
+        TGS-specific pre-processing (dash stripping) runs first, then
+        delegates to the shared ``normalize_name_for_matching()`` via the
+        base class.
         """
         if not name:
             return ''
-        
-        # CRITICAL: Strip everything before the first dash BEFORE base normalization
-        # Base normalization removes punctuation, so we must strip first
-        # TGS format: "Folsom Lake Surf- FLS 13B Premier I" -> "FLS 13B Premier I"
-        # SAFEST APPROACH: Strip everything before the first dash (any dash type)
+
+        # CRITICAL: Strip everything before the first dash BEFORE base
+        # normalization.  TGS format:
+        #   "Folsom Lake Surf- FLS 13B Premier I" → "FLS 13B Premier I"
         dash_chars = ['-', '–', '—']
         for dash in dash_chars:
             if dash in name:
-                # Split on first dash and take everything after it
                 parts = name.split(dash, 1)
-                if len(parts) > 1:
+                if len(parts) > 1 and parts[1].strip():
                     name = parts[1].strip()
                     break
-        
-        # Now do base normalization (which removes punctuation, expands abbreviations, etc.)
-        normalized = super()._normalize_team_name(name)
-        
-        # Remove TGS-specific suffixes (case-insensitive)
-        tgs_suffixes = [
-            ' ecnl', ' ecnl g12', ' ecnl g13', ' ecnl g14', ' ecnl g15', ' ecnl g16',
-            ' ecnl b12', ' ecnl b13', ' ecnl b14', ' ecnl b15', ' ecnl b16',
-            ' rl', ' rl southwest', ' rl west', ' rl east', ' rl central',
-            ' g12', ' g13', ' g14', ' g15', ' g16', ' g17', ' g18',
-            ' b12', ' b13', ' b14', ' b15', ' b16', ' b17', ' b18',
-            ' u12', ' u13', ' u14', ' u15', ' u16', ' u17', ' u18',
-            ' academy', ' acad', ' ac',
-            ' - orozco', ' - smith',  # Coach names
-        ]
-        
-        # Sort by length (longest first) to match longer suffixes first
-        tgs_suffixes.sort(key=len, reverse=True)
-        for suffix in tgs_suffixes:
-            if normalized.endswith(suffix):
-                normalized = normalized[:-len(suffix)].strip()
-                break
-        
-        # Remove common prefixes that might interfere
-        prefixes = ['ecnl ', 'rl ', 'g12 ', 'g13 ', 'b12 ', 'b13 ']
-        for prefix in prefixes:
-            if normalized.startswith(prefix):
-                normalized = normalized[len(prefix):].strip()
-        
-        # Compress whitespace
-        normalized = ' '.join(normalized.split())
-        
-        return normalized
+
+        # Delegate to base (which uses shared normalize_name_for_matching)
+        return super()._normalize_team_name(name)
     
     def _calculate_match_score(self, provider_team: Dict, candidate: Dict) -> float:
         """
-        Enhanced match scoring for TGS with special handling for club name matches.
-        
-        Key improvements:
-        1. Significant boost when club names match perfectly
-        2. Age token extraction and matching (e.g., "14b" in both names)
-        3. Better handling of embedded club names in team names
-        4. Strips club name from team name before comparison
+        Enhanced match scoring for TGS with club name matching via canonical
+        registry and age token overlap boost.
         """
         # Normalize team names by stripping club name prefix
         provider_name_raw = provider_team.get('team_name', '')
         candidate_name_raw = candidate.get('team_name', '')
         provider_club = provider_team.get('club_name', '').strip() if provider_team.get('club_name') else None
         candidate_club = candidate.get('club_name', '').strip() if candidate.get('club_name') else None
-        
+
         # Strip club name from provider team name (TGS often includes it)
         provider_name_normalized = self._normalize_team_name(provider_name_raw, provider_club)
-        
-        # CRITICAL: Strip club name from candidate team name BEFORE normalization
-        # This prevents "ALBION SC Santa Monica" from becoming "albion soccer club santa monica"
-        # which then can't be matched against the normalized club name
-        candidate_name_for_stripping = candidate_name_raw
+
+        # Strip club from candidate name before normalization
+        candidate_name_for_norm = candidate_name_raw
         if candidate_club:
-            # Try to strip club name from raw team name (before normalization)
-            candidate_club_lower = candidate_club.lower().strip()
-            candidate_name_lower_raw = candidate_name_raw.lower()
-            
-            # Remove standalone SC/FC/SA from club name for matching
-            club_words_for_stripping = candidate_club_lower.split()
-            club_words_for_stripping = [w for w in club_words_for_stripping if w not in ['sc', 'fc', 'sa']]
-            club_norm_for_stripping = ' '.join(club_words_for_stripping)
-            
-            # Try to remove club name from team name (handle various formats)
-            if candidate_name_lower_raw.startswith(club_norm_for_stripping):
-                # Remove from start
-                remaining = candidate_name_raw[len(club_norm_for_stripping):].strip()
-                if remaining.startswith('-') or remaining.startswith('–') or remaining.startswith('—'):
-                    remaining = remaining[1:].strip()
+            club_core = re.sub(r'\b(sc|fc|sa)\b', '', candidate_club.lower()).strip()
+            cand_lower = candidate_name_raw.lower()
+            if club_core and cand_lower.startswith(club_core):
+                remaining = candidate_name_raw[len(club_core):].strip().lstrip('-–—').strip()
                 if remaining:
-                    candidate_name_for_stripping = remaining
-            elif club_norm_for_stripping in candidate_name_lower_raw:
-                # Remove from anywhere
-                candidate_name_for_stripping = candidate_name_lower_raw.replace(club_norm_for_stripping, '', 1).strip()
-                if candidate_name_for_stripping.startswith('-') or candidate_name_for_stripping.startswith('–') or candidate_name_for_stripping.startswith('—'):
-                    candidate_name_for_stripping = candidate_name_for_stripping[1:].strip()
-                # Also handle "SC" or "FC" that might be left
-                candidate_name_for_stripping = ' '.join([w for w in candidate_name_for_stripping.split() if w not in ['sc', 'fc', 'sa']])
-        
-        # Now normalize the candidate name (after club stripping)
-        candidate_name_normalized = self._normalize_team_name(candidate_name_for_stripping)
-        
-        # Additional stripping after normalization (fallback)
-        if candidate_club:
-            candidate_club_lower = candidate_club.lower().strip()
-            candidate_name_lower = candidate_name_normalized.lower()
-            
-            # Normalize club name for matching (remove suffixes and standalone SC/FC/SA)
-            club_norm = candidate_club_lower
-            # Remove standalone SC/FC/SA words
-            club_words = club_norm.split()
-            club_words = [w for w in club_words if w not in ['sc', 'fc', 'sa']]
-            club_norm = ' '.join(club_words)
-            # Remove common suffix patterns
-            for suffix in [' sc', ' fc', ' sa', ' soccer club', ' football club', ' academy']:
-                if club_norm.endswith(suffix):
-                    club_norm = club_norm[:-len(suffix)].strip()
-            
-            # First, try direct match at start
-            if candidate_name_lower.startswith(club_norm):
-                # Remove club name prefix
-                remaining = candidate_name_normalized[len(club_norm):].strip()
-                # Also remove any leading dash or space
-                if remaining.startswith('-') or remaining.startswith('–') or remaining.startswith('—'):
-                    remaining = remaining[1:].strip()
-                if remaining:
-                    candidate_name_normalized = remaining
-            elif club_norm in candidate_name_lower:
-                # Club name appears somewhere in team name - remove it
-                # Replace with space and clean up
-                candidate_name_normalized = candidate_name_lower.replace(club_norm, '').strip()
-                # Clean up extra spaces and dashes
-                candidate_name_normalized = ' '.join(candidate_name_normalized.split())
-                if candidate_name_normalized.startswith('-') or candidate_name_normalized.startswith('–') or candidate_name_normalized.startswith('—'):
-                    candidate_name_normalized = candidate_name_normalized[1:].strip()
-            else:
-                # Try with abbreviation expansion (e.g., "SD" -> "San Diego")
-                # Expand common abbreviations in team name for comparison
-                state_abbreviations = {
-                    'sd': 'san diego', 'az': 'arizona', 'ca': 'california', 'tx': 'texas',
-                    'fl': 'florida', 'ny': 'new york', 'nj': 'new jersey', 'pa': 'pennsylvania',
-                    'il': 'illinois', 'oh': 'ohio', 'nc': 'north carolina', 'ga': 'georgia',
-                    'va': 'virginia', 'wa': 'washington', 'or': 'oregon', 'co': 'colorado',
-                    'ut': 'utah', 'nv': 'nevada', 'md': 'maryland', 'ma': 'massachusetts',
-                    'mi': 'michigan', 'tn': 'tennessee', 'in': 'indiana', 'mo': 'missouri',
-                    'wi': 'wisconsin', 'mn': 'minnesota', 'sc': 'south carolina', 'al': 'alabama',
-                    'la': 'louisiana', 'ky': 'kentucky', 'ok': 'oklahoma', 'ct': 'connecticut',
-                    'ia': 'iowa', 'ar': 'arkansas', 'ms': 'mississippi', 'ks': 'kansas',
-                    'nm': 'new mexico', 'ne': 'nebraska', 'wv': 'west virginia', 'id': 'idaho',
-                    'hi': 'hawaii', 'nh': 'new hampshire', 'me': 'maine', 'mt': 'montana',
-                    'ri': 'rhode island', 'de': 'delaware', 'nd': 'north dakota', 'ak': 'alaska',
-                    'dc': 'district of columbia', 'vt': 'vermont', 'wy': 'wyoming'
-                }
-                
-                # Expand abbreviations in team name
-                team_words = candidate_name_normalized.lower().split()
-                expanded_team_words = []
-                for word in team_words:
-                    if word in state_abbreviations:
-                        expanded_team_words.append(state_abbreviations[word])
-                    else:
-                        expanded_team_words.append(word)
-                expanded_team_name = ' '.join(expanded_team_words)
-                
-                # Now check if expanded team name starts with club name
-                if expanded_team_name.startswith(candidate_club_lower):
-                    # Find where club name ends in original team name
-                    # We need to be smart about this - find the position after expansion
-                    club_len_in_expanded = len(candidate_club_lower)
-                    # Count characters up to that point in expanded version
-                    # This is approximate, but should work for most cases
-                    remaining = candidate_name_normalized
-                    # Try to remove club name by matching word boundaries
-                    club_words = candidate_club_lower.split()
-                    team_words_list = candidate_name_normalized.lower().split()
-                    if len(team_words_list) >= len(club_words):
-                        # Check if first N words match club name (after expansion)
-                        first_words = ' '.join(team_words_list[:len(club_words)])
-                        first_words_expanded = ' '.join([
-                            state_abbreviations.get(w, w) for w in team_words_list[:len(club_words)]
-                        ])
-                        if first_words_expanded == candidate_club_lower:
-                            # Remove first N words
-                            remaining = ' '.join(team_words_list[len(club_words):]).strip()
-                            if remaining:
-                                candidate_name_normalized = remaining
-        
-        # Create normalized provider team dict for base scoring
+                    candidate_name_for_norm = remaining
+
+        candidate_name_normalized = self._normalize_team_name(candidate_name_for_norm)
+
+        # Create normalized dicts for base scoring
         provider_team_normalized = provider_team.copy()
         provider_team_normalized['team_name'] = provider_name_normalized
         candidate_normalized = candidate.copy()
         candidate_normalized['team_name'] = candidate_name_normalized
-        
-        # Start with base scoring using normalized names
+
+        # Start with base scoring (includes club similarity, team sim, age, location)
         base_score = super()._calculate_match_score(provider_team_normalized, candidate_normalized)
-        
-        # Extract age tokens from normalized team names
-        provider_tokens = self._extract_age_tokens(provider_name_normalized)
-        candidate_tokens = self._extract_age_tokens(candidate_name_normalized)
-        
-        # Check club name match
-        provider_club = provider_team.get('club_name', '').strip().lower() if provider_team.get('club_name') else ''
-        candidate_club = candidate.get('club_name', '').strip().lower() if candidate.get('club_name') else ''
-        
+
+        # --- Club match via canonical registry ---
         club_match = False
+        club_sim = 0.0
         if provider_club and candidate_club:
-            # Normalize club names for comparison (remove common suffixes, expand abbreviations)
-            def normalize_club_for_match_internal(name):
-                name = name.lower().strip()
-                
-                # CRITICAL: Remove common suffixes FIRST (before abbreviation expansion)
-                # This prevents "SC" from being expanded to "South Carolina" when it's "Soccer Club"
-                # Handle both " Club SC" and "SC" as standalone word (anywhere in the name)
-                words = name.split()
-                
-                # Remove standalone "SC", "FC", "SA" anywhere in the name (these are club suffixes, not state abbreviations)
-                # Check both at the end and in the middle
-                words = [w for w in words if w not in ['sc', 'fc', 'sa']]
-                
-                # Also remove common suffix patterns
-                name = ' '.join(words)
-                for suffix in [' sc', ' fc', ' sa', ' soccer club', ' football club', ' academy']:
-                    if name.endswith(suffix):
-                        name = name[:-len(suffix)].strip()
-                
-                # Expand common state abbreviations (AFTER removing suffixes)
-                # Note: "SC", "FC", "SA" are NOT in this list to avoid conflicts
-                state_abbreviations = {
-                    'az': 'arizona',
-                    'ca': 'california',
-                    'tx': 'texas',
-                    'fl': 'florida',
-                    'ny': 'new york',
-                    'nj': 'new jersey',
-                    'pa': 'pennsylvania',
-                    'il': 'illinois',
-                    'oh': 'ohio',
-                    'nc': 'north carolina',
-                    'ga': 'georgia',
-                    'va': 'virginia',
-                    'wa': 'washington',
-                    'or': 'oregon',
-                    'co': 'colorado',
-                    'ut': 'utah',
-                    'nv': 'nevada',
-                    'md': 'maryland',
-                    'ma': 'massachusetts',
-                    'mi': 'michigan',
-                    'tn': 'tennessee',
-                    'in': 'indiana',
-                    'mo': 'missouri',
-                    'wi': 'wisconsin',
-                    'mn': 'minnesota',
-                    # 'sc': 'south carolina',  # REMOVED - treat as club suffix, not state
-                    'al': 'alabama',
-                    'la': 'louisiana',
-                    'ky': 'kentucky',
-                    'ok': 'oklahoma',
-                    'ct': 'connecticut',
-                    'ia': 'iowa',
-                    'ar': 'arkansas',
-                    'ms': 'mississippi',
-                    'ks': 'kansas',
-                    'nm': 'new mexico',
-                    'ne': 'nebraska',
-                    'wv': 'west virginia',
-                    'id': 'idaho',
-                    'hi': 'hawaii',
-                    'nh': 'new hampshire',
-                    'me': 'maine',
-                    'mt': 'montana',
-                    'ri': 'rhode island',
-                    'de': 'delaware',
-                    'sd': 'san diego',  # Changed from 'south dakota' - SD is more commonly San Diego in soccer context
-                    'nd': 'north dakota',
-                    'ak': 'alaska',
-                    'dc': 'district of columbia',
-                    'vt': 'vermont',
-                    'wy': 'wyoming'
-                }
-                
-                # Expand abbreviations at word boundaries
-                words = name.split()
-                expanded_words = []
-                for word in words:
-                    # Check if word is a state abbreviation
-                    if word in state_abbreviations:
-                        expanded_words.append(state_abbreviations[word])
-                    else:
-                        expanded_words.append(word)
-                name = ' '.join(expanded_words)
-                
-                return name
-            
-            provider_club_norm = normalize_club_for_match_internal(provider_club)
-            candidate_club_norm = normalize_club_for_match_internal(candidate_club)
-            club_match = provider_club_norm == candidate_club_norm
-            
-            # Debug logging
-            if club_match:
-                logger.debug(
-                    f"TGS club match detected: '{provider_club}' -> '{provider_club_norm}' "
-                    f"matches '{candidate_club}' -> '{candidate_club_norm}'"
-                )
-        
-        # Boost scoring when club names match
-        if club_match:
-            # Age token overlap boost
-            age_token_overlap = len(provider_tokens & candidate_tokens) > 0
-            
-            if age_token_overlap:
-                # Perfect scenario: club matches + age tokens match
-                # Boost by 0.25 (enough to push borderline matches over threshold)
-                # This handles cases like "RSL-AZ 14b North" vs "14b GSA"
-                boost = 0.25
-                logger.debug(
-                    f"TGS club+age boost: '{provider_name_normalized}' vs '{candidate_name_normalized}' "
-                    f"(club match + age tokens: {provider_tokens & candidate_tokens}, boost: {boost})"
-                )
+            if HAVE_CLUB_NORMALIZER:
+                prov_result = normalize_to_club(provider_club)
+                cand_result = normalize_to_club(candidate_club)
+                if prov_result.matched_canonical and cand_result.matched_canonical:
+                    club_match = prov_result.club_id == cand_result.club_id
+                    club_sim = 1.0 if club_match else 0.0
+                else:
+                    club_sim = club_similarity_score(provider_club, candidate_club)
+                    club_match = club_sim >= 0.85
             else:
-                # Club matches but no age token overlap - still boost but less
-                # This handles cases where team names are very different but clubs match
+                # Lightweight fallback
+                club_sim = self._calculate_similarity(provider_club, candidate_club)
+                club_match = club_sim >= 0.85
+
+        # --- Age token overlap boost ---
+        if club_match:
+            provider_tokens = self._extract_age_tokens(provider_name_normalized)
+            candidate_tokens = self._extract_age_tokens(candidate_name_normalized)
+            age_token_overlap = len(provider_tokens & candidate_tokens) > 0
+
+            if age_token_overlap:
+                boost = 0.25
+            else:
                 boost = 0.18
-                logger.debug(
-                    f"TGS club boost: '{provider_name_normalized}' vs '{candidate_name_normalized}' "
-                    f"(club match, no age token overlap, boost: {boost})"
-                )
-            
-            # Apply boost (cap at 1.0)
             base_score = min(1.0, base_score + boost)
-        
+
+        # --- Club+variant boost (from config) ---
+        if club_sim >= 0.8:
+            prov_variant = extract_variant_shared(provider_name_raw) if HAVE_TEAM_NAME_UTILS else None
+            cand_variant = extract_variant_shared(candidate_name_raw) if HAVE_TEAM_NAME_UTILS else None
+            if prov_variant and cand_variant and prov_variant == cand_variant:
+                cv_boost = MATCHING_CONFIG.get('club_variant_match_boost', 0.15)
+                base_score = min(1.0, base_score + cv_boost)
+
         return base_score
     
     def _fuzzy_match_team(
@@ -482,62 +265,128 @@ class TGSGameMatcher(GameHistoryMatcher):
         club_name: Optional[str] = None
     ) -> Optional[Dict]:
         """
-        Enhanced fuzzy matching for TGS teams with lower threshold.
-        
-        Uses the same logic as base matcher but with:
+        Enhanced fuzzy matching for TGS teams with gated candidate funnel.
+
+        Uses:
+        - Club-filtered query first (new — TGS previously queried ALL teams)
+        - Distinction-based hard rejection before scoring
         - Lower threshold (0.75) for more matches
-        - Enhanced normalization for TGS naming patterns
-        - Special scoring boost for club name matches
+        - Deterministic tie-breaking on (variant_match, club_sim)
         """
         try:
-            # Normalize age_group to lowercase (DB uses 'u13', source may have 'U13')
             age_group_normalized = age_group.lower() if age_group else age_group
-            
-            # Get candidate teams including club_name
-            result = self.db.table('teams').select(
-                'team_id_master, team_name, club_name, age_group, gender, state_code'
-            ).eq('age_group', age_group_normalized).eq('gender', gender).execute()
-            
+
+            # --- Club extraction ---
+            if not club_name and HAVE_TEAM_NAME_UTILS:
+                club_name = extract_club_structured(team_name)
+
+            # --- Provider distinctions for hard rejection ---
+            provider_distinctions = None
+            provider_variant = None
+            if HAVE_TEAM_NAME_UTILS:
+                provider_distinctions = extract_distinctions(team_name)
+                provider_variant = provider_distinctions.get("coach_name")
+
+            # --- Gated candidate retrieval ---
+            club_filtered = False
+            result = None
+            if club_name:
+                result = self.db.table('teams').select(
+                    'team_id_master, team_name, club_name, age_group, gender, state_code'
+                ).eq('age_group', age_group_normalized).eq('gender', gender).ilike(
+                    'club_name', club_name
+                ).limit(100).execute()
+                if result and result.data:
+                    club_filtered = True
+
+            # Broad fallback only when club extraction failed
+            if not club_filtered:
+                result = self.db.table('teams').select(
+                    'team_id_master, team_name, club_name, age_group, gender, state_code'
+                ).eq('age_group', age_group_normalized).eq('gender', gender).limit(2000).execute()
+
             best_match = None
             best_score = 0.0
-            
-            # Prepare provider team dict for scoring (with TGS normalization)
+            best_tiebreak = (False, 0.0)
+
             provider_team = {
                 'team_name': team_name,
                 'club_name': club_name,
                 'age_group': age_group,
-                'state_code': None  # Will be extracted from game data if available
+                'state_code': None
             }
-            
-            for team in result.data:
-                # Use weighted scoring which includes club name
+
+            club_variant_boost = MATCHING_CONFIG.get('club_variant_match_boost', 0.15)
+
+            for team in (result.data if result else []):
+                cand_name = team.get('team_name', '')
+
+                # --- Gate: distinction-based hard rejection ---
+                if HAVE_TEAM_NAME_UTILS and provider_distinctions is not None:
+                    cand_distinctions = extract_distinctions(cand_name)
+                    if provider_distinctions["colors"] != cand_distinctions["colors"]:
+                        continue
+                    if provider_distinctions["directions"] != cand_distinctions["directions"]:
+                        continue
+                    if provider_distinctions["programs"] != cand_distinctions["programs"]:
+                        continue
+                    if provider_distinctions["team_number"] != cand_distinctions["team_number"]:
+                        continue
+                    if provider_distinctions["location_codes"] != cand_distinctions["location_codes"]:
+                        continue
+                    if provider_distinctions["squad_words"] != cand_distinctions["squad_words"]:
+                        continue
+                    cand_coach = cand_distinctions.get("coach_name")
+                    if (provider_distinctions.get("coach_name")
+                            and cand_coach
+                            and provider_distinctions["coach_name"] != cand_coach):
+                        continue
+                    cand_variant = cand_coach
+                else:
+                    cand_variant = None
+
                 candidate = {
-                    'team_name': team.get('team_name', ''),
+                    'team_name': cand_name,
                     'club_name': team.get('club_name'),
                     'age_group': team.get('age_group', ''),
                     'state_code': team.get('state_code')
                 }
-                
-                # Use enhanced TGS scoring (with club name boost)
+
                 score = self._calculate_match_score(provider_team, candidate)
-                
-                # Lower threshold for TGS (0.75 vs 0.85)
-                if score > best_score and score >= self.fuzzy_threshold:
-                    best_score = score
-                    best_match = {
-                        'team_id': team['team_id_master'],
-                        'team_name': team['team_name'],
-                        'confidence': round(score, 3)
-                    }
-            
+
+                # --- Deterministic tie-breaking ---
+                variant_match = (provider_variant is not None
+                                 and cand_variant is not None
+                                 and provider_variant == cand_variant)
+                cand_club = team.get('club_name', '')
+                club_sim = 0.0
+                if club_name and cand_club:
+                    if HAVE_CLUB_NORMALIZER:
+                        club_sim = club_similarity_score(club_name, cand_club)
+                    else:
+                        club_sim = self._calculate_similarity(club_name, cand_club)
+
+                tiebreak = (variant_match, club_sim)
+
+                if score >= self.fuzzy_threshold:
+                    if (score > best_score + 0.001
+                            or (abs(score - best_score) <= 0.001 and tiebreak > best_tiebreak)):
+                        best_score = score
+                        best_tiebreak = tiebreak
+                        best_match = {
+                            'team_id': team['team_id_master'],
+                            'team_name': team['team_name'],
+                            'confidence': round(score, 3)
+                        }
+
             if best_match:
                 logger.debug(
                     f"TGS fuzzy match: '{team_name}' -> '{best_match['team_name']}' "
                     f"(score: {best_match['confidence']}, club: {club_name})"
                 )
-            
+
             return best_match
-            
+
         except Exception as e:
             logger.error(f"TGS fuzzy match error: {e}")
             return None
