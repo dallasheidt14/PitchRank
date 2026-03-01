@@ -300,6 +300,45 @@ async def scrape_games(
 
         console.print(f"[cyan]Found {len(teams)} total teams (all teams mode)[/cyan]")
         console.print(f"[dim]Each team will use its cached last_scraped_at for incremental updates[/dim]")
+    elif limit_teams:
+        # User specified a team limit — fetch ALL teams sorted by priority:
+        #   1. Never scraped (NULL last_scraped_at) first
+        #   2. Then oldest last_scraped_at ascending
+        # This ensures the limit slices off the most-recently-scraped teams,
+        # giving priority to teams that need it most.
+        console.print(f"[cyan]Fetching ALL teams (sorted by scrape priority for limit={limit_teams})...[/cyan]")
+        teams = []
+        page_size = 1000
+        offset = 0
+
+        while True:
+            teams_result = supabase.table('teams').select('*').eq(
+                'provider_id', provider_id
+            ).range(offset, offset + page_size - 1).execute()
+
+            if not teams_result.data:
+                break
+
+            teams.extend(teams_result.data)
+
+            if len(teams_result.data) < page_size:
+                break
+
+            offset += page_size
+            console.print(f"  Fetched {len(teams)} teams so far...")
+
+        # Sort: NULL last_scraped_at first (never scraped), then oldest first
+        teams.sort(key=lambda t: (
+            0 if t.get('last_scraped_at') is None else 1,
+            t.get('last_scraped_at') or '',
+        ))
+
+        null_count = sum(1 for t in teams if t.get('last_scraped_at') is None)
+        console.print(
+            f"[cyan]Found {len(teams)} total teams "
+            f"({null_count} never scraped, sorted by priority)[/cyan]"
+        )
+        console.print(f"[dim]Will scrape up to {limit_teams} teams, prioritizing never-scraped and oldest[/dim]")
     else:
         # Steady-state incremental mode: scrape teams not scraped in last 7 days
         teams = scraper._get_teams_to_scrape()
