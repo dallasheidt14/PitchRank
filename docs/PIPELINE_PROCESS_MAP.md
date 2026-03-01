@@ -1,0 +1,653 @@
+# PitchRank Pipeline Process Map
+
+> Comprehensive plain-English map of the scraping, ETL pipeline, team matching, fuzzy matching, and game matching systems.
+
+---
+
+## Table of Contents
+
+1. [High-Level Overview](#1-high-level-overview)
+2. [Layer 1: Data Sources & Scraping](#2-layer-1-data-sources--scraping)
+3. [Layer 2: Pipeline Orchestration (ETL)](#3-layer-2-pipeline-orchestration-etl)
+4. [Layer 3: Team Matching (The Heart of the System)](#4-layer-3-team-matching-the-heart-of-the-system)
+5. [Layer 4: Fuzzy Matcher Deep-Dive](#5-layer-4-fuzzy-matcher-deep-dive)
+6. [Layer 5: Game Matching & Deduplication](#6-layer-5-game-matching--deduplication)
+7. [Layer 6: Rankings & Predictions](#7-layer-6-rankings--predictions)
+8. [Supporting Systems](#8-supporting-systems)
+9. [Improvement Opportunities (Fuzzy & Game Matcher)](#9-improvement-opportunities-fuzzy--game-matcher)
+
+---
+
+## 1. High-Level Overview
+
+```
+ DATA SOURCES              ETL PIPELINE                    DATABASE              OUTPUT
+ ────────────             ──────────────                  ──────────            ────────
+ GotSport API  ──┐
+ Modular11 Web ──┤     ┌──────────────────┐           ┌────────────┐
+ TGS/AthleteOne─┤────▶│  Enhanced ETL     │──────────▶│  Supabase  │────▶ Rankings
+ SincSports   ──┤     │  Pipeline         │           │  (Postgres)│────▶ Predictions
+ SurfSports   ──┘     │                   │           │            │────▶ Frontend
+                       │  1. Validate      │           │  Tables:   │
+                       │  2. Match Teams   │           │  - games   │
+                       │  3. Match Games   │           │  - teams   │
+                       │  4. Deduplicate   │           │  - aliases │
+                       │  5. Insert        │           │  - reviews │
+                       └──────────────────┘           └────────────┘
+```
+
+**The one-sentence summary:** We scrape soccer game results from multiple websites, normalize the messy team names into canonical team identities using a multi-tier matching system, deduplicate games, store them in a database, and then calculate power rankings.
+
+---
+
+## 2. Layer 1: Data Sources & Scraping
+
+### 2.1 Data Providers
+
+| Provider | Code | How We Get Data | What We Get |
+|----------|------|-----------------|-------------|
+| **GotSport** | `gotsport` | REST API (`system.gotsport.com/api/v1`) | Team schedules, scores, club IDs, event data |
+| **Modular11** | `modular11` | Scrapy web scraper | Event schedules, division-based game results |
+| **TGS/AthleteOne** | `tgs` | AthleteOne API client | Team schedules with club names embedded in team names |
+| **SincSports** | `sincsports` | Web scraper | Tournament brackets, scores |
+| **SurfSports** | `surfsports` | Web scraper | Tournament results |
+
+### 2.2 Scraper Architecture
+
+**File locations:**
+- `src/scrapers/base.py` — Base scraper class all providers inherit from
+- `src/scrapers/gotsport.py` — GotSport API scraper (primary source)
+- `src/scrapers/gotsport_event.py` — Event-specific GotSport scraper
+- `src/scrapers/athleteone_scraper.py` + `athleteone_html_parser.py` — TGS data via AthleteOne
+- `src/scrapers/sincsports.py` — SincSports scraper
+- `src/scrapers/surfsports.py` — SurfSports scraper
+- `scrapers/modular11_scraper/` — Full Scrapy project for Modular11
+
+**What each scraper produces:**
+Every scraper outputs a list of game dictionaries with fields like:
+```python
+{
+    'team_id': '544491',           # Provider's team ID
+    'team_name': 'FC Dallas 2014 Blue ECNL',
+    'club_name': 'FC Dallas',      # Sometimes provided, sometimes not
+    'opponent_id': '387241',
+    'opponent_name': 'Solar SC 2014 Gold',
+    'goals_for': 3,
+    'goals_against': 1,
+    'home_away': 'H',
+    'game_date': '2025-03-15',
+    'age_group': 'u14',
+    'gender': 'Male',
+    'competition': 'ECNL Boys',
+    'event_name': 'Regular Season',
+    'provider': 'gotsport'
+}
+```
+
+**Key scraping details:**
+- GotSport uses HTTP session pooling (100 concurrent connections) with SSL via certifi
+- Optional ZenRows proxy for anti-bot bypass
+- Rate limiting: 1.5-2.5 second random delays between requests
+- Retry logic: 3 attempts with exponential backoff on 500/502/503/504 errors
+
+### 2.3 Data Formats by Provider
+
+| Format Aspect | GotSport | Modular11 | TGS |
+|---------------|----------|-----------|-----|
+| Team identifier | Numeric team ID | Club ID (shared across age groups!) | Unique team ID |
+| Club name | Separate field | Embedded in team name | Embedded with dash separator |
+| Age format | `u14` | `u14` or `U14` | Birth year `2012` |
+| Game perspective | Single (team vs opponent) | Single (team vs opponent) | Home/away already split |
+
+---
+
+## 3. Layer 2: Pipeline Orchestration (ETL)
+
+### 3.1 Entry Points
+
+**Weekly automation** (`scripts/weekly/update.py`):
+```
+Step 1: Scrape games → Step 2: Import games → Step 3: Calculate rankings
+```
+
+**Direct import** (`scripts/import_games_enhanced.py`):
+- Reads CSV/JSONL files
+- Streams data in batches (default 2000 games per batch)
+- Supports concurrency (4 parallel batch processors)
+- Checkpoint/resume capability
+
+### 3.2 Enhanced ETL Pipeline (`src/etl/enhanced_pipeline.py`)
+
+This is the main workhorse. On initialization it:
+
+1. **Looks up provider UUID** from the `providers` table (with retry logic)
+2. **Pre-flight health check** — verifies Supabase can read AND write before processing
+3. **Preloads the entire alias cache** — paginates through ALL approved aliases (1000 rows per page) to build an in-memory lookup dictionary
+4. **Selects the correct matcher** based on provider:
+   - `modular11` → `Modular11GameMatcher` (ultra-conservative)
+   - `tgs` → `TGSGameMatcher` (aggressive fuzzy)
+   - Everything else → `GameHistoryMatcher` (balanced)
+
+### 3.3 The `import_games()` Flow (per batch)
+
+```
+  ┌───────────────────────────────────────────────────────────┐
+  │                    import_games(games)                     │
+  │                                                           │
+  │  Step 1: VALIDATE                                         │
+  │    ├─ Check for valid dates (YYYY-MM-DD format)           │
+  │    ├─ Check for valid scores (both must be numeric)       │
+  │    ├─ Generate game_uid (deterministic from provider +    │
+  │    │   date + sorted team IDs — NO scores in UID)         │
+  │    ├─ Skip games with empty provider IDs                  │
+  │    ├─ Normalize gender ("Boys"→"Male", "Girls"→"Female")  │
+  │    └─ Convert birth year to age_group if needed           │
+  │                                                           │
+  │  Step 2: CHECK DUPLICATES                                 │
+  │    ├─ Check game_uid against existing games in DB         │
+  │    └─ (Don't filter yet — game_uid doesn't include scores)│
+  │                                                           │
+  │  Step 3: MATCH TEAMS (for each game)                      │
+  │    ├─ Match home team → _match_team()                     │
+  │    ├─ Match away team → _match_team()                     │
+  │    ├─ Classify: 'matched' / 'partial' / 'failed'         │
+  │    └─ Build game_record for DB insertion                  │
+  │                                                           │
+  │  Step 4: DEDUPLICATE                                      │
+  │    ├─ Build composite key (provider + teams + date +      │
+  │    │   scores) matching DB unique constraint              │
+  │    └─ Filter out games already in DB                      │
+  │                                                           │
+  │  Step 5: BULK INSERT                                      │
+  │    ├─ Insert matched games to `games` table               │
+  │    ├─ Handle duplicate key violations gracefully          │
+  │    └─ Log metrics and build summary                       │
+  └───────────────────────────────────────────────────────────┘
+```
+
+### 3.4 Metrics Tracked
+
+The pipeline tracks these metrics per import batch (in `ImportMetrics`):
+- `games_processed` / `games_accepted` / `games_quarantined`
+- `duplicates_found` / `duplicates_skipped`
+- `teams_matched` / `teams_created`
+- `fuzzy_matches_auto` / `fuzzy_matches_manual` / `fuzzy_matches_rejected`
+- `matched_games_count` / `partial_games_count` / `failed_games_count`
+- `duplicate_key_violations`
+
+---
+
+## 4. Layer 3: Team Matching (The Heart of the System)
+
+### 4.1 The Matching Cascade
+
+When a game arrives and we need to identify which master team it belongs to, we follow this cascade:
+
+```
+  INCOMING GAME: team_name="FC Dallas 2014 Blue ECNL", provider_team_id="544491"
+         │
+         ▼
+  ┌─────────────────────────────────────────────────────┐
+  │  Strategy 1: DIRECT PROVIDER ID (highest priority)   │
+  │                                                       │
+  │  Check alias cache → Check DB team_alias_map          │
+  │  for exact match on (provider_id, provider_team_id)   │
+  │                                                       │
+  │  Also checks semicolon-separated IDs for merged teams │
+  │  e.g., "123456;789012" contains "123456"              │
+  │                                                       │
+  │  For Modular11: MUST validate age_group because same  │
+  │  club ID is used for U13, U14, U16 etc.               │
+  │  For TGS: Skip age validation (IDs are unique/team)   │
+  │                                                       │
+  │  If found → return {matched: true, confidence: 1.0}   │
+  └──────────────────────────┬──────────────────────────┘
+                             │ Not found
+                             ▼
+  ┌─────────────────────────────────────────────────────┐
+  │  Strategy 2: ALIAS MAP LOOKUP                        │
+  │                                                       │
+  │  Check team_alias_map by provider_team_id OR          │
+  │  by team_name (case-insensitive ILIKE)                │
+  │                                                       │
+  │  Validates age_group and gender match                 │
+  │                                                       │
+  │  If found with confidence ≥ 0.90 → return matched    │
+  └──────────────────────────┬──────────────────────────┘
+                             │ Not found
+                             ▼
+  ┌─────────────────────────────────────────────────────┐
+  │  Strategy 3: FUZZY MATCHING                          │
+  │  (requires team_name + age_group + gender)           │
+  │                                                       │
+  │  See "Fuzzy Matcher Deep-Dive" section below          │
+  │                                                       │
+  │  Outcomes:                                            │
+  │  ├─ Score ≥ 0.90 → AUTO-APPROVE                      │
+  │  │   Create alias, return matched                     │
+  │  ├─ Score 0.75–0.90 → REVIEW QUEUE                   │
+  │  │   Insert to team_match_review_queue, NOT matched   │
+  │  ├─ Score < 0.75 → LOW CONFIDENCE REVIEW              │
+  │  │   Still queue for review with suggestion            │
+  │  └─ No match at all → REVIEW QUEUE (no suggestion)    │
+  └──────────────────────────┬──────────────────────────┘
+                             │
+                             ▼
+  ┌─────────────────────────────────────────────────────┐
+  │  Modular11 & TGS ONLY: CREATE NEW TEAM               │
+  │                                                       │
+  │  If no match found and we have team_name + age_group  │
+  │  + gender, create a new team in the `teams` table     │
+  │  and auto-create an alias. Return {matched: true}.    │
+  └─────────────────────────────────────────────────────┘
+```
+
+### 4.2 Provider-Specific Matchers
+
+#### Base Matcher (`GameHistoryMatcher` in `src/models/game_matcher.py`)
+- Used for: GotSport and default providers
+- Thresholds: fuzzy=0.75, auto_approve=0.90, review=0.75
+- Uses structured distinction-based hard rejection + weighted scoring
+- Does NOT create new teams (puts unmatched into review queue)
+
+#### Modular11 Matcher (`Modular11GameMatcher` in `src/models/modular11_matcher.py`)
+- Used for: Modular11 data
+- **Ultra-conservative** — designed to avoid false matches
+- Thresholds: minimum confidence=0.93, minimum gap=0.07 between best and 2nd-best
+- Age-strict: validates birth year matches age_group (U14 → 2012)
+- Division-aware: HD vs AD matching bonus/penalty
+- Token overlap requirement: must share at least one meaningful token
+- Creates new teams when no confident match found
+
+#### TGS Matcher (`TGSGameMatcher` in `src/models/tgs_matcher.py`)
+- Used for: TGS/AthleteOne data
+- **More aggressive** — designed to match more teams
+- Thresholds: fuzzy=0.75, auto_approve=0.91, review=0.70
+- Special handling: strips club name prefix before dash (e.g., "Folsom Lake Surf- FLS 13B" → "FLS 13B")
+- Club match boost: +0.25 if club matches AND age tokens overlap, +0.18 if club only
+- Skips age_group validation on provider ID matches (TGS IDs are unique per team)
+- Creates new teams when no match found
+
+### 4.3 The Alias System
+
+**Database table: `team_alias_map`**
+
+| Column | Purpose |
+|--------|---------|
+| `provider_id` | Which provider (UUID) |
+| `provider_team_id` | Provider's team identifier |
+| `team_id_master` | Our canonical team UUID |
+| `match_method` | How it was matched: `direct_id`, `fuzzy_auto`, `import`, etc. |
+| `match_confidence` | Score 0.0–1.0 |
+| `review_status` | `approved`, `pending`, `rejected` |
+
+**Critical design choice:** The alias cache is preloaded into memory at pipeline startup and updated after every successful match. Without this, the same team would be fuzzy-matched repeatedly within a single import batch, potentially creating duplicate master teams and fragmenting game history.
+
+**Semicolon-separated IDs:** Merged teams store multiple provider IDs as "123456;789012". The cache expands these so both "123456" and "789012" can find the same master team.
+
+---
+
+## 5. Layer 4: Fuzzy Matcher Deep-Dive
+
+### 5.1 Algorithm Stack
+
+The fuzzy matcher uses a **layered scoring approach**, not a single algorithm:
+
+```
+  INCOMING: "FC Dallas 2014 Blue ECNL" (age_group=u14, gender=Male)
+         │
+         ▼
+  ┌──────────────────────────────────────────────────┐
+  │  STEP 1: EXTRACT CLUB NAME                       │
+  │                                                    │
+  │  If no club_name provided, extract from team_name  │
+  │  by splitting on age/year pattern:                 │
+  │    "FC Dallas 2014 Blue ECNL" → "FC Dallas"       │
+  │                                                    │
+  │  Uses: extract_club_from_team_name()               │
+  │  File: src/utils/team_name_utils.py:336            │
+  └──────────────────────┬─────────────────────────────┘
+                         ▼
+  ┌──────────────────────────────────────────────────┐
+  │  STEP 2: EXTRACT STRUCTURAL DISTINCTIONS          │
+  │                                                    │
+  │  Decompose team name into 9 features:              │
+  │    colors:      {"blue"}                           │
+  │    directions:  {}                                 │
+  │    programs:    {"ecnl"}                            │
+  │    team_number: None                               │
+  │    location_codes: {}                              │
+  │    state_codes: {}                                 │
+  │    squad_words: {}                                 │
+  │    age_tokens:  ("14", "2014")                     │
+  │    secondary_nums: ()                              │
+  │                                                    │
+  │  Uses: extract_distinctions()                      │
+  │  File: src/utils/team_name_utils.py:110            │
+  └──────────────────────┬─────────────────────────────┘
+                         ▼
+  ┌──────────────────────────────────────────────────┐
+  │  STEP 3: RETRIEVE CANDIDATES FROM DATABASE        │
+  │                                                    │
+  │  First try: club-filtered query                    │
+  │    SELECT * FROM teams                             │
+  │    WHERE age_group='u14' AND gender='Male'         │
+  │    AND club_name ILIKE 'FC Dallas'                 │
+  │    LIMIT 50                                        │
+  │                                                    │
+  │  If no results: paginated broad query              │
+  │    Fetch ALL teams for this age_group + gender     │
+  │    (1000 per page, up to 5000 candidates)          │
+  └──────────────────────┬─────────────────────────────┘
+                         ▼
+  ┌──────────────────────────────────────────────────┐
+  │  STEP 4: FOR EACH CANDIDATE — HARD REJECTION      │
+  │                                                    │
+  │  Compare structural distinctions:                  │
+  │  ✗ Colors differ? (Red ≠ Blue) → SKIP             │
+  │  ✗ Directions differ? (North ≠ South) → SKIP      │
+  │  ✗ Programs differ? (Academy ≠ ECNL) → SKIP       │
+  │  ✗ Team numbers differ? (I ≠ II) → SKIP           │
+  │  ✗ Location codes differ? (SM ≠ HB) → SKIP        │
+  │  ✗ Squad words differ? (Bolts ≠ Clash) → SKIP     │
+  │                                                    │
+  │  This prevents EVER matching two teams from the    │
+  │  same club that are actually different squads.     │
+  │                                                    │
+  │  Uses: should_skip_pair() / distinction comparison │
+  │  File: src/utils/team_name_utils.py:222            │
+  └──────────────────────┬─────────────────────────────┘
+                         ▼
+  ┌──────────────────────────────────────────────────┐
+  │  STEP 5: WEIGHTED COMPONENT SCORING               │
+  │                                                    │
+  │  Score = (team_sim × 0.35)                         │
+  │        + (club_sim × 0.35)                         │
+  │        + (age_match × 0.10)                        │
+  │        + (location_match × 0.10)                   │
+  │        + club_boost (0.10 if club_sim ≥ 0.8)      │
+  │                                                    │
+  │  team_sim: SequenceMatcher on normalized names     │
+  │  club_sim: Canonical registry lookup OR            │
+  │            suffix-normalized comparison OR          │
+  │            token_set_ratio (rapidfuzz/difflib)     │
+  │  age_match: 0.10 if exact match, else 0.0         │
+  │  location: 0.10 if state codes match, else 0.0    │
+  │                                                    │
+  │  Config: config/settings.py:176-189                │
+  └──────────────────────┬─────────────────────────────┘
+                         ▼
+  ┌──────────────────────────────────────────────────┐
+  │  STEP 6: LEAGUE BOOST / PENALTY                   │
+  │                                                    │
+  │  Both have ECNL RL?  → +0.05 boost                │
+  │  Both have ECNL only? → +0.05 boost               │
+  │  One RL, other not?  → -0.08 penalty              │
+  │                                                    │
+  │  File: src/models/game_matcher.py:1004-1019        │
+  └──────────────────────┬─────────────────────────────┘
+                         ▼
+  ┌──────────────────────────────────────────────────┐
+  │  STEP 7: SELECT BEST MATCH                        │
+  │                                                    │
+  │  Return highest-scoring candidate ≥ threshold      │
+  │  (0.75 for base, 0.93 for Modular11)              │
+  └──────────────────────────────────────────────────┘
+```
+
+### 5.2 Name Normalization Pipeline
+
+Before comparing two team names, both go through normalization (`_normalize_team_name()` → `normalize_name_for_matching()`):
+
+1. Lowercase and strip whitespace
+2. Strip league/tier markers: `ECNL-RL`, `ECNL`, `MLS NEXT`, `GA`, `RL`, `NPL`, `DPL`, etc.
+3. Replace dashes with spaces
+4. Normalize age formats: `B14` → `14`, `G2014` → `2014`, `U-14` → `u14`
+5. Remove punctuation (except apostrophes in names like O'Brien)
+6. Remove standalone gender words: `boys`, `girls`, `male`, `female`
+7. Compress whitespace
+
+**Example:**
+```
+"FC Dallas - ECNL B2014 Blue Boys"
+  → "fc dallas 2014 blue"
+```
+
+### 5.3 Club Name Normalization (`src/utils/club_normalizer.py`)
+
+Separate from team name normalization, club names go through:
+
+1. Basic cleaning (lowercase, strip, remove artifacts like `...`)
+2. Remove age group suffixes (U13, 2012 Boys, etc.)
+3. Remove punctuation
+4. Expand city abbreviations: `PHX` → `Phoenix`, `SD` → `San Diego`
+5. (Optional) Strip suffixes: `FC`, `SC`, `Soccer Club`
+
+**Canonical Club Registry:** 100+ clubs with known variations:
+```python
+'PHOENIX RISING': ['phoenix rising', 'phx rising', 'prfc', 'pr fc', ...]
+'FC DALLAS': ['fc dallas', 'dallas fc', 'fcd', 'fcdallas', ...]
+'ALBION SC': ['albion sc', 'albion', 'albion soccer club']
+```
+
+**Matching cascade:**
+1. Normalize input → try exact lookup against all variations
+2. If no exact match → fuzzy match using `token_set_ratio` (threshold 0.85)
+3. If still no match → use normalized form with 0.8 confidence
+
+### 5.4 The Scoring Algorithms
+
+**Primary: `SequenceMatcher` (Python difflib)**
+- Used for: team name similarity, club name similarity (when no canonical match)
+- Algorithm: Longest common subsequence ratio
+- File: `src/models/game_matcher.py:1046`
+
+**Secondary: `rapidfuzz` (with difflib fallback)**
+- Used for: club canonical registry matching
+- Algorithms available: `ratio`, `partial_ratio`, `token_set_ratio`
+- `token_set_ratio` handles word reordering (best for club names)
+- File: `src/utils/club_normalizer.py:23-89`
+
+**Tertiary: Structural distinction comparison**
+- Not a scoring algorithm — used for hard rejection only
+- Binary: if any distinction differs → reject, period
+- File: `src/utils/team_name_utils.py:110-250`
+
+### 5.5 Thresholds Summary
+
+| Context | Threshold | What Happens |
+|---------|-----------|-------------|
+| Base auto-approve | ≥ 0.90 | Auto-link + create alias |
+| Base review queue | 0.75 – 0.90 | Queue for human review |
+| Base minimum | < 0.75 | Low-confidence review or no match |
+| Modular11 minimum | ≥ 0.93 | Accept match |
+| Modular11 gap | ≥ 0.07 | Between best and 2nd best candidate |
+| TGS auto-approve | ≥ 0.91 | Auto-link |
+| TGS minimum fuzzy | ≥ 0.75 | Accept match |
+| TGS review | ≥ 0.70 | Queue for review |
+| Club boost trigger | ≥ 0.80 club sim | +0.10 bonus |
+| ECNL/RL match | both same | +0.05 bonus |
+| ECNL/RL mismatch | one has, other doesn't | -0.08 penalty |
+
+---
+
+## 6. Layer 5: Game Matching & Deduplication
+
+### 6.1 Game UID Generation
+
+Every game gets a deterministic UID that does NOT include scores:
+
+```python
+game_uid = f"{provider}:{game_date}:{sorted_team1_id}:{sorted_team2_id}"
+# Example: "gotsport:2025-03-15:3841:4719"
+```
+
+**Why no scores?** The same game reported from two different perspectives (team A vs team B, and team B vs team A) should have the same UID. Scores are the same regardless of perspective.
+
+**Why sorted team IDs?** So `teamA:teamB` and `teamB:teamA` produce the same UID.
+
+### 6.2 Composite Key (for true deduplication)
+
+The database has a unique constraint matching:
+```
+(provider_id, home_provider_id, away_provider_id, game_date,
+ COALESCE(home_score, -1), COALESCE(away_score, -1))
+```
+
+This means the same game with different scores (e.g., a correction) would be treated as a different record.
+
+### 6.3 Perspective-Based Deduplication
+
+Many providers report games from BOTH teams' perspectives. The pipeline:
+1. Generates game_uid (perspective-independent thanks to sorted IDs)
+2. Checks if this game_uid already exists in DB
+3. If it does but scores differ → proceeds to team matching (composite key will catch true duplicates)
+4. If it does and scores match → skips as duplicate
+
+### 6.4 The `match_game_history()` Flow
+
+```python
+# Two formats supported:
+
+# Format A: Source format (team perspective)
+# Has: team_id, opponent_id, goals_for, goals_against, home_away
+# → Determines home/away based on home_away flag
+# → Matches both team and opponent
+
+# Format B: Transformed format (already home/away)
+# Has: home_team_id, away_team_id, home_score, away_score
+# → Matches home team and away team directly
+```
+
+**Output match statuses:**
+- `matched` — both home and away teams identified
+- `partial` — only one team identified (the other goes to review queue)
+- `failed` — neither team identified
+
+---
+
+## 7. Layer 6: Rankings & Predictions
+
+After games are imported and teams are matched:
+
+### 7.1 Rankings Engine (`src/etl/v53e.py` + `src/rankings/calculator.py`)
+
+A 13-layer ranking system:
+1. Window filter (365 days)
+2. Game cap + goal diff cap + outlier guard
+3. Recency weighting (recent 15 games weighted 65%)
+4. Defense ridge
+5. Adaptive K-factor
+6. Performance adjustment
+7. Bayesian shrinkage
+8. Strength of Schedule (SOS)
+9. Opponent-adjusted offense/defense
+10. Final powerscore blend (Off 25% + Def 25% + SOS 50%)
+11. Cross-age anchoring
+12. Normalization (percentile-based)
+13. ML predictive adjustment (XGBoost + Random Forest)
+
+### 7.2 Match Predictor (`src/predictions/ml_match_predictor.py`)
+
+Uses rankings to predict game outcomes (win/loss/draw probabilities).
+
+---
+
+## 8. Supporting Systems
+
+### 8.1 Review Queue (`team_match_review_queue` table)
+
+When fuzzy matching can't confidently identify a team, it enters the review queue:
+- `provider_id` — which provider
+- `provider_team_id` — their team ID
+- `provider_team_name` — the raw team name
+- `suggested_master_team_id` — fuzzy matcher's best guess (can be null)
+- `confidence_score` — how confident the fuzzy matcher was
+- `status` — `pending`, `approved`, `rejected`
+
+### 8.2 Club Normalizer Skill (`agent_skills/pitchrank-club-normalizer/`)
+
+An agent skill that normalizes raw club+team names into canonical identifiers, producing CSV output with: `club_id`, `club_norm`, `birth_year`, `gender`, `tier`, `branch`.
+
+### 8.3 Merge System (`src/utils/merge_resolver.py` + `merge_suggester.py`)
+
+Handles merging duplicate teams that were created before proper alias matching was in place.
+
+### 8.4 Database Schema (Supabase/Postgres)
+
+Key tables:
+- `providers` — Provider registry (gotsport, modular11, tgs, etc.)
+- `teams` — Master team records (team_id_master, team_name, club_name, age_group, gender)
+- `games` — Game records (game_uid, home/away teams, scores, dates)
+- `team_alias_map` — Maps provider team IDs to master team IDs
+- `team_match_review_queue` — Unmatched teams awaiting human review
+- `build_logs` — Pipeline run tracking and metrics
+
+---
+
+## 9. Improvement Opportunities (Fuzzy & Game Matcher)
+
+### 9.1 Current Pain Points in the Fuzzy Matcher
+
+**A. `SequenceMatcher` is the weakest link**
+- It uses longest common subsequence which is sensitive to character position
+- "Solar SC" vs "Dallas Solar" scores poorly because characters are in different positions
+- `token_set_ratio` (from rapidfuzz) is only used in club_normalizer, NOT in the main team name comparison
+- **Opportunity:** Replace `SequenceMatcher` in `_calculate_similarity()` with `rapidfuzz.fuzz.token_sort_ratio` or a combination scorer
+
+**B. Normalization is inconsistent across matchers**
+- Base matcher uses `normalize_name_for_matching()` from team_name_utils
+- TGS matcher overrides `_normalize_team_name()` with its own logic (strip before dash)
+- Modular11 has its own normalization with club synonyms
+- **Opportunity:** Unify normalization into a single pipeline that all matchers share, with provider-specific hooks
+
+**C. Club name matching is duplicated**
+- `club_normalizer.py` has a full canonical registry with fuzzy matching
+- `game_matcher.py:_calculate_match_score()` has its own club comparison logic
+- `tgs_matcher.py:_calculate_match_score()` has yet another club comparison with state abbreviation expansion
+- **Opportunity:** All club comparisons should go through `club_normalizer.normalize_to_club()` as the single source of truth
+
+**D. Hard rejection may be too aggressive**
+- If a team name has a word classified as a "squad_word" that the other doesn't, it's hard-rejected
+- Short words (2-3 chars) that aren't in any known set get classified as "location_codes"
+- This can incorrectly reject valid matches when one source includes extra metadata
+- **Opportunity:** Make hard rejection configurable per provider, or use soft penalties instead of hard rejects for certain distinction types
+
+**E. Candidate retrieval is a bottleneck**
+- When club-filtered query returns nothing, falls back to loading up to 5000 teams
+- Every candidate gets distinctions extracted and scored — O(n) per match attempt
+- **Opportunity:** Pre-compute normalized names and distinctions in the DB, use trigram indexes for faster fuzzy lookups
+
+### 9.2 Current Pain Points in the Game Matcher
+
+**A. Game UID doesn't handle rescheduled games**
+- If a game is rescheduled to a different date, it generates a new UID
+- The old result stays in the DB alongside the new one
+- **Opportunity:** Add a "supersedes" relationship or use provider-specific game IDs when available
+
+**B. Composite key is fragile for score corrections**
+- If a provider corrects a score (e.g., 3-1 → 3-2), the composite key changes
+- Both the old and corrected game would exist in the DB
+- **Opportunity:** Use provider game IDs as the primary dedup key when available, fall back to composite only when not
+
+**C. Partial matches leave games incomplete**
+- When only one team matches, the game has a NULL for the other team
+- These partial games may never get completed if the review queue isn't processed
+- **Opportunity:** Add a "re-match" pipeline that periodically retries partial games after new aliases are approved
+
+**D. Score normalization is scattered**
+- Float-to-int conversion for provider IDs happens in multiple places
+- Score validation logic (`_has_valid_scores`) is separate from normalization
+- **Opportunity:** Create a single `normalize_game_record()` function that handles all data cleaning
+
+### 9.3 Quick Wins
+
+1. **Swap `SequenceMatcher` for `rapidfuzz.token_sort_ratio`** in `_calculate_similarity()` — likely the single biggest improvement for fuzzy match quality
+2. **Route all club comparisons through `normalize_to_club()`** — eliminates duplicate logic and leverages the canonical registry everywhere
+3. **Pre-index team names with trigrams** in Supabase — eliminates the 5000-candidate paginated fallback
+4. **Add a periodic re-match job** for partial games — clears the backlog as new aliases get approved
+5. **Expand the canonical club registry** — every new club added eliminates fuzzy matching for all its variations
+
+---
+
+*Generated: 2026-03-01 | Source: Comprehensive codebase analysis of PitchRank pipeline*
