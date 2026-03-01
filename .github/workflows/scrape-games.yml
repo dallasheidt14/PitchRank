@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       limit_teams:
-        description: 'Number of teams to scrape (leave empty for all eligible teams)'
+        description: 'Number of teams to scrape (prioritizes never-scraped, then oldest). Leave empty for incremental mode (7-day stale only).'
         required: false
         type: string
         default: ''
