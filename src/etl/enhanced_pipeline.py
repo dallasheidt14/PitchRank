@@ -203,6 +203,11 @@ class EnhancedETLPipeline:
             from src.models.tgs_matcher import TGSGameMatcher
             logger.info("Using TGSGameMatcher (with enhanced fuzzy matching)")
             self.matcher = TGSGameMatcher(supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
+        elif provider_code.lower() == 'sincsports':
+            # SincSports-specific matcher with enhanced fuzzy matching
+            from src.models.sincsports_matcher import SincSportsGameMatcher
+            logger.info("Using SincSportsGameMatcher (with enhanced fuzzy matching)")
+            self.matcher = SincSportsGameMatcher(supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
         else:
             logger.info(f"Using standard GameHistoryMatcher for provider: {provider_code}")
             self.matcher = GameHistoryMatcher(supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)

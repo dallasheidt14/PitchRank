@@ -22,7 +22,7 @@ from rich import box
 
 from src.scrapers.sincsports import SincSportsScraper
 from src.utils.enhanced_validators import EnhancedDataValidator
-from src.models.game_matcher import GameHistoryMatcher
+from src.models.sincsports_matcher import SincSportsGameMatcher
 
 load_dotenv()
 
@@ -133,7 +133,7 @@ async def import_teams(team_ids: list, dry_run: bool = False):
     # Initialize scraper and matcher
     scraper = SincSportsScraper(supabase, 'sincsports')
     validator = EnhancedDataValidator()
-    matcher = GameHistoryMatcher(supabase, provider_id=provider_id)
+    matcher = SincSportsGameMatcher(supabase, provider_id=provider_id)
     
     console.print(f"\n[bold]Scraping {len(team_ids)} teams...[/bold]")
     
