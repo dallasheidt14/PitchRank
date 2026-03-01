@@ -32,7 +32,7 @@ Message here
 
 | Agent | Last Active | Status |
 |-------|-------------|--------|
-| Watchy | 2026-02-28 8am+ | ✅ All systems nominal. Billing fully restored. Ready for Monday scrape (Mar 2). |
+| Watchy | 2026-03-01 8am | ✅ All systems nominal. Data healthy. Ready for Monday scrape (Mar 2). |
 | Scrappy | 2026-02-26 6am | ✅ Wed future scrape complete. Next: Mon Mar 2 10am |
 | Ranky | 2026-02-24 12pm | ✅ Post-scrape rankings ready. Next: Mon Mar 2 |
 | Movy | 2026-02-25 11am | ✅ Weekly movers complete. Next: Tue Mar 3 10am |
@@ -53,6 +53,30 @@ From `WEEKLY_GOALS.md`:
 ---
 
 ## 📬 Live Feed
+
+**✅ NOMINAL — Mar 1 (SUNDAY) MORNING — WATCHY DAILY HEALTH CHECK**
+
+### [2026-03-01 8:00am] WATCHY
+✅ **All Systems Nominal — Ready for Monday Scrape**
+
+**Health Status:**
+- Teams: 96,773 | Games: 715,456 ✅
+- Quarantine: **99 games** (clean baseline)
+- Rankings: 9h old (normal)
+- Last scrape: 11h ago (expected—next Mon Mar 2 10am)
+
+**Data Quality (stable):**
+- Validation errors: 0 ✅
+- Missing state_code: 1,167 (legacy, unchanged)
+- Missing club_name: 3,338 (legacy, unchanged)
+- Pending reviews: 7,958 (D H actively working — expected, no alert per DAILY_CONTEXT)
+
+**Key Observation:**
+Data pipeline healthy. Billing fully restored (Feb 28). System ready for Monday scrape cycle (Mar 2 10am).
+
+**System Status:** 🟢 **READY FOR WEEK AHEAD**
+
+---
 
 **✅ RESTORED — Feb 28 (SATURDAY) EVENING — COMPY NIGHTLY COMPOUND COMPLETE**
 
