@@ -14,7 +14,9 @@
 6. [Layer 5: Game Matching & Deduplication](#6-layer-5-game-matching--deduplication)
 7. [Layer 6: Rankings & Predictions](#7-layer-6-rankings--predictions)
 8. [Supporting Systems](#8-supporting-systems)
-9. [Improvement Opportunities (Fuzzy & Game Matcher)](#9-improvement-opportunities-fuzzy--game-matcher)
+9. [Weekly Data Hygiene Pipeline](#9-weekly-data-hygiene-pipeline)
+10. [Affinity WA Matcher (Optimization Pattern)](#10-affinity-wa-matcher-optimization-pattern)
+11. [Improvement Opportunities (Fuzzy & Game Matcher)](#11-improvement-opportunities-fuzzy--game-matcher)
 
 ---
 
@@ -585,9 +587,225 @@ Key tables:
 
 ---
 
-## 9. Improvement Opportunities (Fuzzy & Game Matcher)
+## 9. Weekly Data Hygiene Pipeline
 
-### 9.1 Current Pain Points in the Fuzzy Matcher
+### 9.1 Overview
+
+**Workflow:** `.github/workflows/data-hygiene-weekly.yml`
+**Schedule:** Every Tuesday 10:00 AM MST (17:00 UTC)
+**Total timeout:** 180 minutes
+
+The hygiene pipeline is a 4-step post-import cleanup that runs AFTER games are imported. It normalizes the DB state so that the real-time import matchers have cleaner candidates to match against. The steps have strict ordering dependencies.
+
+### 9.2 The Four Steps (in order)
+
+```
+ ┌────────────────────────────────────────────────────────────┐
+ │  Step 1: CLUB NAME STANDARDIZATION                         │
+ │  Script: scripts/full_club_analysis.py                     │
+ │                                                            │
+ │  Fixes two types of problems in the teams.club_name col:   │
+ │  • CAPS issues: "solar sc" vs "Solar SC" → picks majority │
+ │  • Suffix variations: "Solar Soccer Club" → "Solar SC"     │
+ │                                                            │
+ │  Normalization: "Soccer Club"→"SC", "Football Club"→"FC"   │
+ │  Preserves leading prefixes: "FC Dallas" ≠ "Dallas SC"     │
+ │                                                            │
+ │  WHY FIRST: Club names must be clean before team names     │
+ │  are normalized, or team matching in Step 3 fails.         │
+ └──────────────────────────┬─────────────────────────────────┘
+                            ▼
+ ┌────────────────────────────────────────────────────────────┐
+ │  Step 2: NORMALIZE TEAM NAMES                              │
+ │  Script: scripts/normalize_team_names.py                   │
+ │                                                            │
+ │  Normalizes team_name column across DB:                    │
+ │  • Birth year formats: '12B' → '2012', '14B' → '2014'     │
+ │  • Age group formats: 'U14B' → 'U14'                      │
+ │  • Strips gender words: "2014 Boys Black" → "2014 Black"   │
+ │  • Preserves squad identifiers (colors, coach names, etc.) │
+ │  • Backs up original as team_name_original                 │
+ │  • Only processes teams where team_name_original IS NULL   │
+ │    (never re-processes)                                    │
+ │                                                            │
+ │  Uses direct Postgres (psycopg2) for speed, Supabase REST  │
+ │  as fallback.                                              │
+ │                                                            │
+ │  WHY SECOND: Normalized names needed for fuzzy matching.   │
+ └──────────────────────────┬─────────────────────────────────┘
+                            ▼
+ ┌────────────────────────────────────────────────────────────┐
+ │  Step 3: FUZZY DUPLICATE MERGE                             │
+ │  Script: scripts/find_fuzzy_duplicate_teams.py             │
+ │                                                            │
+ │  Finds and merges duplicate teams within the same club.    │
+ │  Runs for ALL age groups (u10-u19) × selected genders.     │
+ │                                                            │
+ │  Algorithm:                                                │
+ │  • Groups teams by state (only compare within state)       │
+ │  • O(n²) pairwise comparison within each state group       │
+ │  • Requirements for merge:                                 │
+ │    1. Same club_name (exact match)                         │
+ │    2. All distinctions match (extract_distinctions())       │
+ │       - colors, directions, programs, team_number,         │
+ │         location_codes, squad_words, age_tokens,           │
+ │         secondary_nums, state_codes                        │
+ │    3. No protected division (AD, HD, MLS NEXT, EA)         │
+ │    4. Variant match (coach name, color, direction)         │
+ │    5. Fuzzy score ≥ 0.85 (SequenceMatcher + boosts)       │
+ │                                                            │
+ │  Scoring: SequenceMatcher(normalized_a, normalized_b)      │
+ │    + 0.15 if club_name matches exactly                     │
+ │    + 0.05 if both ECNL-RL or both ECNL-only               │
+ │    - 0.08 if ECNL/RL mismatch                             │
+ │                                                            │
+ │  Canonical selection: keeps team with club_name in         │
+ │  team_name, mixed case, and longest name.                  │
+ │                                                            │
+ │  WHY THIRD: Fewer duplicates = fewer orphan queue entries. │
+ └──────────────────────────┬─────────────────────────────────┘
+                            ▼
+ ┌────────────────────────────────────────────────────────────┐
+ │  Step 4: MATCH REVIEW QUEUE                                │
+ │  Script: scripts/find_queue_matches.py                     │
+ │                                                            │
+ │  Processes team_match_review_queue entries that failed      │
+ │  real-time matching during import.                         │
+ │                                                            │
+ │  For each pending entry:                                   │
+ │  1. Extract club from provider_team_name                   │
+ │  2. Parse age_group from name (not metadata — unreliable!) │
+ │  3. Extract variant (color/direction/coach/roman numeral)  │
+ │  4. Query candidates by gender + age + club + state        │
+ │  5. Score via SequenceMatcher + club/league boosts         │
+ │  6. CRITICAL: variant must match EXACTLY                   │
+ │                                                            │
+ │  Categorization:                                           │
+ │  • EXACT (≥95%): Auto-approvable → creates alias          │
+ │  • HIGH (90-94%): Likely safe (--include-high to approve)  │
+ │  • MEDIUM (80-89%): Review recommended                     │
+ │  • LOW (70-79%): Manual review needed                      │
+ │  • NO MATCH (<70%): Needs new team creation                │
+ │                                                            │
+ │  Auto-merge: caps confidence at 0.99 in alias table,       │
+ │  upserts on (provider_id, provider_team_id) conflict.      │
+ └────────────────────────────────────────────────────────────┘
+```
+
+### 9.3 Shared Code Pattern
+
+All hygiene scripts share these imports from `find_queue_matches.py`:
+- `normalize_team_name()` — strips league markers, normalizes age, removes gender
+- `extract_team_variant()` — color/direction/coach/roman numeral extraction
+- `has_protected_division()` — AD, HD, MLS NEXT, EA detection
+- `extract_club_from_name()` — splits team name on age pattern, strips suffixes
+
+The core distinction extraction logic in `find_fuzzy_duplicate_teams.py` was later ported INTO the real-time matchers as `team_name_utils.extract_distinctions()` — the hygiene scripts are the original source of this optimization.
+
+### 9.4 Key Design Insight: Hygiene Improves Real-Time Matching
+
+The hygiene pipeline creates a feedback loop:
+1. Import runs → some teams fail to match → go to review queue
+2. Hygiene runs → normalizes names, merges duplicates, resolves queue
+3. Next import → newly-created aliases + cleaner candidates = better match rate
+
+---
+
+## 10. Affinity WA Matcher (Optimization Pattern)
+
+**File:** `src/models/affinity_wa_matcher.py` (branch: `affinity-wa-matcher-hardening`)
+**Config:** `config/settings.py` → `MATCHING_CONFIG` affinity-specific keys
+
+### 10.1 What It Is
+
+The `AffinityWAGameMatcher` is the newest provider-specific matcher for **Washington Youth Soccer** data from `sctour.sportsaffinity.com`. It follows the pattern established by Modular11 and TGS matchers but introduces several optimizations worth porting to other matchers.
+
+### 10.2 Key Optimizations Introduced
+
+**A. Hygiene-style normalization at match time (not just offline)**
+
+The biggest insight: the hygiene pipeline normalizes DB names (B14→2014, etc.) but incoming provider names still use the raw format. The affinity matcher applies the SAME normalization to incoming names BEFORE comparing:
+
+```python
+# _normalize_for_affinity_wa():
+# B14 → 2014, G15 → 2015  (birth year expansion)
+# XF → Crossfire            (club abbreviation expansion)
+# WHT → White, BLK → Black  (color abbreviation expansion)
+# Remove U-age labels        (formatting noise)
+```
+
+This means provider names and DB names are comparing apples-to-apples instead of "B14 Red" vs "2014 Red".
+
+**B. Gated candidate selection (3-stage funnel)**
+
+Instead of scoring all candidates and filtering after, the affinity matcher ELIMINATES bad candidates early through gates:
+
+```
+All WA teams for age+gender
+      │
+      ▼ Stage 1: Club gate
+      │  are_same_club(provider_club, candidate_club, threshold=0.9)
+      │  → Eliminates candidates from wrong clubs BEFORE scoring
+      │
+      ▼ Stage 2: Variant gate
+      │  extract_team_variant(provider) == extract_team_variant(candidate)
+      │  → Color/direction/coach mismatch = immediate reject
+      │
+      ▼ Stage 2b: RCL lane gate (domain-specific)
+      │  _extract_rcl_number(provider) == _extract_rcl_number(candidate)
+      │  → RCL 3 must NOT match RCL 2 (different competitive tiers)
+      │
+      ▼ Only surviving candidates get scored
+```
+
+**C. Post-match RCL rejection**
+
+Even after the base matcher returns a fuzzy match, the affinity matcher double-checks: if the matched team has a different RCL number, it REJECTS the match and creates a new team instead. This prevents the most dangerous failure mode (merging teams from different competitive levels).
+
+**D. Club+variant boost (+0.35)**
+
+When the club AND variant both match, applies a strong +0.35 boost (configurable as `club_variant_match_boost`). This means "B14 Red" correctly matches "Eastside FC 2014 Red" even though the team names look very different, because the club is the same and the variant (Red) is the same.
+
+**E. Deterministic tie-breaking**
+
+When two candidates score equally, uses a 3-tuple tiebreaker:
+1. Variant match (exact color/direction/coach)
+2. Birth year token match
+3. Strong club match (threshold=0.95)
+
+**F. State-scoped query**
+
+All candidates are filtered to `state_code='WA'` since all Affinity data is Washington-only. This eliminates cross-state club noise entirely.
+
+### 10.3 Configuration Keys
+
+```python
+MATCHING_CONFIG = {
+    ...
+    'club_variant_match_boost': 0.35,           # When club same + variant same
+    'affinity_variant_gate_required': True,      # Require variant match before scoring
+    'affinity_rcl_strict': True,                 # RCL number must match exactly
+    'affinity_club_similarity_threshold': 0.9,   # Club gate threshold
+    'affinity_debug_match_reasons': False,        # Log rejection stats
+}
+```
+
+### 10.4 Patterns Worth Porting to Other Matchers
+
+| Pattern | What It Does | Where to Port |
+|---------|-------------|--------------|
+| Hygiene-style normalization at match time | Aligns incoming names with DB-normalized names | All matchers — `_normalize_team_name()` should call hygiene normalization |
+| Gated candidate funnel | Eliminates bad candidates before expensive scoring | Base `_fuzzy_match_team()` — move distinction checks BEFORE score calc |
+| Post-match domain validation | Double-checks match against domain rules | Modular11 (division), TGS (conference) |
+| Club+variant boost | Strong signal when club AND variant match | Base `_calculate_match_score()` |
+| Deterministic tie-breaking | Prevents random selection between equal scores | All matchers — currently no tie-breaking exists |
+| State-scoped queries | Narrow candidates by known geography | Any provider with known state |
+
+---
+
+## 11. Improvement Opportunities (Fuzzy & Game Matcher)
+
+### 11.1 Current Pain Points in the Fuzzy Matcher
 
 **A. `SequenceMatcher` is the weakest link**
 - It uses longest common subsequence which is sensitive to character position
@@ -618,7 +836,7 @@ Key tables:
 - Every candidate gets distinctions extracted and scored — O(n) per match attempt
 - **Opportunity:** Pre-compute normalized names and distinctions in the DB, use trigram indexes for faster fuzzy lookups
 
-### 9.2 Current Pain Points in the Game Matcher
+### 11.2 Current Pain Points in the Game Matcher
 
 **A. Game UID doesn't handle rescheduled games**
 - If a game is rescheduled to a different date, it generates a new UID
@@ -640,7 +858,21 @@ Key tables:
 - Score validation logic (`_has_valid_scores`) is separate from normalization
 - **Opportunity:** Create a single `normalize_game_record()` function that handles all data cleaning
 
-### 9.3 Quick Wins
+### 11.3 Lessons from the Affinity WA Matcher to Apply Everywhere
+
+The Affinity WA matcher (`src/models/affinity_wa_matcher.py`) introduced several patterns that should be ported to all matchers:
+
+1. **Apply hygiene normalization at match time** — Currently the hygiene pipeline normalizes DB names but incoming provider names still use raw formats. The affinity matcher's `_normalize_for_affinity_wa()` bridges this gap. All matchers should normalize incoming names using the same transforms the hygiene pipeline uses.
+
+2. **Gate candidates before scoring** — The affinity matcher's 3-stage funnel (club gate → variant gate → domain gate → score) is more efficient than the current approach of scoring all candidates and filtering after. The base `_fuzzy_match_team()` already does distinction-based hard rejection but it happens INSIDE the scoring loop. Moving it to a pre-filter stage would be cleaner.
+
+3. **Club+variant boost** — The +0.35 boost when club AND variant match is a strong signal. The base matcher gives +0.10 for club alone but doesn't consider variant alignment as a boost.
+
+4. **Deterministic tie-breaking** — The base matcher just picks the highest score. When two candidates tie, the result is arbitrary. The affinity matcher's 3-tuple tiebreaker (variant, year, club) ensures consistent results.
+
+5. **Post-match domain validation** — Even after fuzzy matching succeeds, the affinity matcher re-checks domain rules (RCL number). This "trust but verify" pattern should be applied to Modular11 (division check post-match) and TGS (conference check).
+
+### 11.4 Quick Wins
 
 1. **Swap `SequenceMatcher` for `rapidfuzz.token_sort_ratio`** in `_calculate_similarity()` — likely the single biggest improvement for fuzzy match quality
 2. **Route all club comparisons through `normalize_to_club()`** — eliminates duplicate logic and leverages the canonical registry everywhere
