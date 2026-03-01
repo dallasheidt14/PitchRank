@@ -185,7 +185,13 @@ MATCHING_CONFIG = {
         'location': 0.05
     },
     'club_boost_identical': 0.05,
-    'club_min_similarity': 0.8
+    'club_min_similarity': 0.8,
+    'club_variant_match_boost': 0.35,  # When club same + variant same, boost to match (e.g. "B14 Red" vs "Eastside FC 2014 Red")
+    # Affinity WA-specific matcher knobs (do not affect other providers)
+    'affinity_variant_gate_required': True,
+    'affinity_rcl_strict': True,
+    'affinity_club_similarity_threshold': 0.9,
+    'affinity_debug_match_reasons': False,
 }
 
 # ETL Configuration
