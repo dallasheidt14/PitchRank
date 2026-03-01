@@ -14,10 +14,17 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from supabase import Client
-from config.settings import MATCHING_CONFIG, BUILD_ID
+from supabase import Client, create_client
+from config.settings import MATCHING_CONFIG, BUILD_ID, SUPABASE_URL, SUPABASE_KEY
 from src.models.game_matcher import GameHistoryMatcher
 from src.utils.enhanced_validators import EnhancedDataValidator, parse_game_date
+
+# Import club normalizer for pre-match normalization
+try:
+    from src.utils.club_normalizer import normalize_to_club as _normalize_to_club
+    _HAVE_CLUB_NORMALIZER = True
+except ImportError:
+    _HAVE_CLUB_NORMALIZER = False
 
 logger = logging.getLogger(__name__)
 
@@ -337,8 +344,27 @@ class EnhancedETLPipeline:
             partial_count = 0
             failed_count = 0
             
+            # Connection refresh interval (number of games between client refreshes)
+            refresh_interval = MATCHING_CONFIG.get('connection_refresh_interval', 1000)
+            games_since_refresh = 0
+
             for game in new_games:
                 game_uid = game.get('game_uid', 'N/A')
+
+                # --- Periodic Supabase client refresh for long imports ---
+                games_since_refresh += 1
+                if refresh_interval and games_since_refresh >= refresh_interval:
+                    try:
+                        if SUPABASE_URL and SUPABASE_KEY:
+                            self.supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+                            self.matcher.db = self.supabase
+                            games_since_refresh = 0
+                            logger.info(
+                                f"[Pipeline] Refreshed Supabase client after {refresh_interval} games"
+                            )
+                    except Exception as refresh_err:
+                        logger.warning(f"[Pipeline] Client refresh failed (non-fatal): {refresh_err}")
+
                 try:
                     # Convert age_year to age_group if needed (for TGS and other providers using birth year)
                     if 'age_year' in game and not game.get('age_group'):
@@ -352,7 +378,7 @@ class EnhancedETLPipeline:
                                     game['age_group'] = age_group.lower()  # Normalize to lowercase
                             except (ValueError, TypeError):
                                 pass  # Keep age_group as None if conversion fails
-                    
+
                     # Normalize gender: "Boys" -> "Male", "Girls" -> "Female" (for database compatibility)
                     gender = game.get('gender', '')
                     if gender:
@@ -362,7 +388,18 @@ class EnhancedETLPipeline:
                         elif gender_normalized.lower() == 'girls':
                             game['gender'] = 'Female'
                         # Keep other values as-is (Male, Female, Coed, etc.)
-                    
+
+                    # Pre-match club normalization: pass canonical club name
+                    # to the matcher so it sees consistent club names.
+                    if _HAVE_CLUB_NORMALIZER:
+                        for club_field in ('club_name', 'team_club_name', 'home_club_name',
+                                           'away_club_name', 'opponent_club_name'):
+                            raw_club = game.get(club_field)
+                            if raw_club and raw_club.strip():
+                                result = _normalize_to_club(raw_club.strip())
+                                if result.matched_canonical:
+                                    game[club_field] = result.club_norm
+
                     # Log game details before matching (including mls_division for Modular11)
                     if self.provider_code and self.provider_code.lower() == 'modular11':
                         logger.info(

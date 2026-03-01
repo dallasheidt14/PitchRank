@@ -19,7 +19,7 @@ Key concepts:
 from __future__ import annotations
 
 import re
-from typing import Dict, FrozenSet, List, Optional, Tuple
+from typing import Dict, FrozenSet, List, Optional, Set, Tuple
 
 # ═══════════════════════════════════════════════════════════════
 # Constants
@@ -72,6 +72,50 @@ US_STATES = frozenset({
     "sd", "tn", "tx", "ut", "vt", "va", "wa", "wv", "wi", "wy", "dc",
 })
 
+# ── Coach name detection exclusion sets ──
+# Words that appear AFTER the age token but are NOT coach names.
+# Ported from find_queue_matches.py and game_matcher.py.
+
+NON_COACH_WORDS = frozenset({
+    "ecnl", "boys", "girls", "academy", "united", "elite", "club", "futbol",
+    "soccer", "youth", "rush", "surf", "select", "premier", "gold", "blue",
+    "white", "black", "grey", "gray", "green", "maroon", "navy", "lafc",
+    "futeca", "selection", "fire", "storm", "fusion", "athletico", "atletico",
+    "fc", "sc", "real", "inter", "sporting", "copa", "classic", "challenge",
+    "showcase", "competitive", "development", "recreational", "reserve",
+    "division", "national", "regional", "league", "cup", "premier",
+})
+
+REGION_CODES_COACH = frozenset({
+    "ctx", "phx", "atx", "dal", "hou", "san", "sdg", "sfv", "oc", "ie",
+    "la", "bay", "nyc", "nj", "dmv", "pnw", "sea", "pdx", "slc", "den",
+    "chi", "stl", "kc", "min", "det", "cle", "pit", "atl", "mia", "orl",
+    "tam", "ral", "cha", "dc", "md", "va", "pa", "ma", "ct", "ri", "vt",
+    "nh", "me", "az", "ca", "tx", "fl", "ny", "ga", "nc", "sc",
+    "co", "ut", "nv", "wa", "or", "id", "mt", "wy", "nm", "ok", "ks",
+    "ne", "sd", "nd", "mn", "wi", "mi", "il", "in", "oh", "ky", "tn",
+    "al", "ms", "ar", "mo", "ia", "ecnl", "rl", "ea", "npl",
+    "usys", "ayso", "scdsl", "dpl", "mls", "ussda", "pre",
+    # Small 2-letter codes that match US states
+    *US_STATES,
+})
+
+VARIANT_PROGRAM_NAMES = frozenset({
+    "aspire", "rise", "revolution", "evolution", "dynasty", "legacy",
+    "impact", "force", "thunder", "lightning", "blaze", "inferno",
+    "phoenix", "predators", "raptors", "lions", "tigers", "bears",
+    "eagles", "hawks", "falcons", "united", "strikers", "raiders",
+    "warriors", "knights", "spartans", "titans", "trojans",
+})
+
+# Age/year patterns used for club extraction and variant detection
+_VARIANT_AGE_PATTERNS = [
+    r'\bU-?\d{1,2}\b',
+    r'\b[BG]?\d{4}[BG]?\b',
+    r'\b[BG]\d{2}(?!\d)\b',
+    r'\b\d{2}[BG](?!\d)\b',
+]
+
 # Age/year regex applied to the raw name string
 AGE_PATTERN = re.compile(
     r"\b(20\d{2})\b|'(\d{2})(?:/(\d{2}))?|\b[Uu]-?(\d{1,2})\b"
@@ -89,6 +133,108 @@ _CLUB_SUFFIX_RE = [
     (re.compile(r'\s+soccer\s+association\s*$', re.I), ''),
     (re.compile(r'\s+soccer\s*$', re.I), ''),
 ]
+
+
+# ═══════════════════════════════════════════════════════════════
+# Team variant extraction  (color / direction / coach / numeral)
+# ═══════════════════════════════════════════════════════════════
+
+def extract_team_variant(name: str) -> Optional[str]:
+    """Extract the variant that distinguishes squads within the same club.
+
+    Returns a lowercase string identifying the variant, or None.
+    Recognised variant types (checked in priority order):
+      1. Color      — "blue", "gold", "navy"
+      2. Direction   — "north", "south"
+      3. Roman/digit — "ii", "3"
+      4. Coach name  — "riedell", "davis" (last-name after age token)
+    """
+    if not name:
+        return None
+
+    name_lower = name.lower()
+    words = name_lower.split()
+
+    # 1. Color anywhere in name
+    for w in words:
+        w_clean = w.strip("-()[]")
+        if w_clean in TEAM_COLORS:
+            return w_clean
+
+    # 2. Direction
+    for w in words:
+        w_clean = w.strip("-()[]")
+        if w_clean in DIRECTION_CANONICAL:
+            return DIRECTION_CANONICAL[w_clean]
+
+    # 3. Roman numerals or single digits (I, II, III, IV, V, 1-10)
+    roman_match = re.search(r'\b(i{1,3}|iv|v|vi{0,3})\b', name_lower)
+    if roman_match:
+        return roman_match.group(1)
+
+    # 4. Coach name detection — look for names AFTER the first age/year token
+    age_end_pos = -1
+    for pattern in _VARIANT_AGE_PATTERNS:
+        match = re.search(pattern, name, re.IGNORECASE)
+        if match:
+            age_end_pos = match.end()
+            break
+
+    if age_end_pos > 0:
+        after_age = name[age_end_pos:].strip()
+        # Strip trailing region markers in parens: "(CTX)" → ""
+        after_age_clean = re.sub(r'\s*\([^)]+\)\s*$', '', after_age).strip()
+        for word in after_age_clean.split():
+            wc = word.strip("-()[].,").lower()
+            if not wc or len(wc) < 3:
+                continue
+            if wc in NON_COACH_WORDS:
+                continue
+            if wc in REGION_CODES_COACH:
+                continue
+            if wc in VARIANT_PROGRAM_NAMES:
+                continue
+            if wc in TEAM_COLORS:
+                continue
+            if wc in DIRECTION_CANONICAL:
+                continue
+            if wc.isdigit() or re.match(r'^[bug]?\d+', wc):
+                continue
+            # Looks like a coach name
+            return wc
+
+    # 5. Coach name in parentheses: "2014 (Holohan)" (not region codes)
+    coach_match = re.search(r'\(([a-z]+)\)\s*$', name_lower)
+    if coach_match:
+        w = coach_match.group(1)
+        if w not in REGION_CODES_COACH and len(w) >= 3:
+            return w
+
+    # 6. ALL-CAPS word after year: "2014 THOMPSON"
+    caps_match = re.search(r'20\d{2}\s+([A-Z]{4,})\b', name)
+    if caps_match:
+        w = caps_match.group(1).lower()
+        if (w not in NON_COACH_WORDS
+                and w not in REGION_CODES_COACH
+                and w not in VARIANT_PROGRAM_NAMES):
+            return w
+
+    # 7. Capitalized last word after age portion
+    name_parts = name.split()
+    if len(name_parts) >= 2:
+        last = name_parts[-1]
+        lc = last.strip("()[]").lower()
+        if (last[0].isupper()
+                and lc not in TEAM_COLORS
+                and lc not in NON_COACH_WORDS
+                and lc not in REGION_CODES_COACH
+                and lc not in VARIANT_PROGRAM_NAMES
+                and lc not in DIRECTION_CANONICAL
+                and len(lc) >= 3
+                and not re.match(r'^[BG]?\d+', last)):
+            return lc
+
+    return None
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -123,7 +269,7 @@ def extract_distinctions(name: str) -> Dict:
         "programs": frozenset(), "team_number": None,
         "location_codes": frozenset(), "state_codes": frozenset(),
         "squad_words": frozenset(), "age_tokens": (),
-        "secondary_nums": (),
+        "secondary_nums": (), "coach_name": None,
     }
     if not name:
         return empty
@@ -206,6 +352,17 @@ def extract_distinctions(name: str) -> Dict:
     if "rl" in programs:
         programs.add("ecnl")
 
+    # Extract coach name via the variant detector
+    coach = extract_team_variant(name)
+    # Only keep if the variant is a coach name (not a color/direction/numeral
+    # already captured above)
+    if coach and (
+        coach in colors
+        or coach in {DIRECTION_CANONICAL.get(coach, '')}
+        or re.fullmatch(r"(i{1,3}|iv|v|vi{0,3}|\d{1,2})", coach)
+    ):
+        coach = None
+
     return {
         "colors": frozenset(colors),
         "directions": frozenset(directions),
@@ -216,6 +373,7 @@ def extract_distinctions(name: str) -> Dict:
         "squad_words": frozenset(squad_words),
         "age_tokens": tuple(sorted(set(age_tokens))),
         "secondary_nums": tuple(secondary_nums),
+        "coach_name": coach,
     }
 
 
@@ -245,6 +403,9 @@ def should_skip_pair(name_a: str, name_b: str) -> bool:
         return True
     # State codes: skip only if BOTH names contain them and they differ
     if da["state_codes"] and db["state_codes"] and da["state_codes"] != db["state_codes"]:
+        return True
+    # Coach names: if both present and different → different squads
+    if da["coach_name"] and db["coach_name"] and da["coach_name"] != db["coach_name"]:
         return True
 
     return False
@@ -278,17 +439,23 @@ def normalize_club_for_comparison(club: str) -> str:
 def normalize_name_for_matching(name: str) -> str:
     """
     Strip league markers, gender chars, and normalize age formats for
-    SequenceMatcher comparison.  Produces a lowercase string with noise
-    removed but club identity preserved.
+    fuzzy comparison.  Produces a lowercase string with noise removed but
+    club identity preserved.
     """
     if not name:
         return ""
     n = name.lower().strip()
 
-    # Strip league/tier markers
+    # Join multi-word compound tokens BEFORE stripping league markers
+    # so that "ECNL RL" is recognised as a single unit.
+    n = re.sub(r'\becnl[\s-]+rl\b', 'ecnl-rl', n)
+    n = re.sub(r'\bmls[\s-]+next\b', 'mls-next', n)
+    n = re.sub(r'\bpre[\s-]+ecnl\b', 'pre-ecnl', n)
+
+    # Strip league/tier markers (now includes the joined forms)
     n = re.sub(
-        r'\b(ecnl-rl|ecnl rl|ecrl|ecnl|pre-ecnl|pre ecnl|mls next|'
-        r'mls-next|mlsnext|ga|rl|npl|dpl|dplo|scdsl|copa|nal)\b',
+        r'\b(ecnl-rl|ecnl rl|ecrl|ecnl|pre-ecnl|pre ecnl|mls-next|mls next|'
+        r'mlsnext|ga|rl|npl|dpl|dplo|scdsl|copa|nal)\b',
         ' ', n
     )
     # Replace dashes with spaces
