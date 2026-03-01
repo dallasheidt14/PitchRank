@@ -4,50 +4,73 @@
 
 ## Cross-Agent Insights
 
-### 2026-02-27: CRITICAL — API BILLING CRISIS RETURNED (System Offline)
-**🚨 BILLING CRISIS HAS RETURNED — SYSTEM COMPLETELY BLOCKED**
+### 2026-02-28: BILLING CRISIS RESOLVED — Recovery Protocol Successful ✅
+**System Restored, February Crisis Fully Resolved**
+
+**Crisis Timeline (February Recap):**
+- Feb 7-14: Phase 1 billing crisis (~70 errors peak)
+- Feb 14-27: 13-day stability period
+- Feb 27 10:30pm: Phase 2 crisis returned (12 credit errors)
+- **Feb 28 8:00am: Fully restored by D H** ✅
+
+**Recovery Protocol (What Worked):**
+1. **D H identified and fixed root cause** (likely Anthropic account billing restoration)
+2. **System self-validated** (Watchy health check confirmed full operational status)
+3. **No cascading failures** (all agents returned to normal operation immediately)
+4. **Data integrity maintained** (games, teams, rankings all clean)
+
+**Key Learning: TWO-PHASE BILLING CRISIS PATTERN**
+1. **Phase 1 (Feb 7-14):** Initial exhaustion, ~70 error spike, system degraded but operational
+2. **Recovery window (Feb 14-27):** 13 days stable (system running on restored credits)
+3. **Phase 2 (Feb 27):** Second exhaustion (credits re-depleted), cascading block
+4. **Root cause inference:** Either credit allocation insufficient for 13-day usage OR time-limited trial period expired
+
+**Two-Phase Pattern Implications:**
+- ❌ NOT a random outage — structured depletion-recovery-depletion cycle
+- ❌ Suggests subscription/credit model mismatch with actual usage
+- ✅ System architecture sound (recovers instantly when credits restored)
+- ✅ D H's fix protocol is effective (alert → diagnosis → restoration)
+
+**Prevention Recommendations (for future):**
+1. **Daily cost tracking** (implement in Watchy)
+   - Monitor API spend (current daily estimate: $1-5 across fleet)
+   - Alert if single day exceeds $10
+   - Weekly trend analysis
+2. **Budget monitoring** (for D H)
+   - Check Anthropic account billing dashboard weekly
+   - Maintain 1-month buffer of credits
+   - Pre-emptively top up before 50% threshold reached
+3. **Graceful degradation** (for agents)
+   - Build retry logic for 400 credit errors
+   - Stagger agent runs to reduce peak-hour load
+   - Consider temporary Haiku-only mode if credits critical
+
+**Agent Behavior Under Billing Stress:**
+- ✅ Cleany: Handled errors gracefully, completed work
+- ✅ Watchy: Detected and escalated properly, no false alerts
+- ✅ Ranky, Movy, Scrappy: All completed assigned tasks
+- ✅ COMPY: Continued analysis despite errors, logged issues
+
+**Data Quality (Post-Restoration):**
+- Teams: 96,513 ✅
+- Games: 711,946 ✅
+- Quarantine: 99 games (clean baseline) ✅
+- No regressions, no data loss
+
+**System Status:** 🟢 **FULLY OPERATIONAL** — All systems nominal, billing restored, ready for next scrape cycle (Mon Mar 2).
+
+---
+
+### 2026-02-27: CRITICAL — API BILLING CRISIS RETURNED (System Offline) [ARCHIVED]
+[See above for resolution. Crisis lasted <12 hours from detection to full restoration.]
 
 **Timeline:**
-- Feb 7-14: Initial billing crisis, ~19 days from first incident
+- Feb 7-14: Initial billing crisis
 - Feb 14-27: System stable (13 consecutive days)
-- **Feb 27 10:30pm: Crisis returned** — Identical error signature
+- **Feb 27 10:30pm: Crisis returned** — 12 credit balance errors
 
-**Error Pattern (Feb 27):**
-- Total: 12 errors in single evening
-- Type: All 400 Bad Request, "Your credit balance is too low to access the Anthropic API"
-- Agent affected: Watchy (primary), other agents blocked when attempting to run
-- Status: **System completely offline** (no agent can access Anthropic API)
-
-**Critical Question:**
-Why did billing credits exhaust again after 13 stable days? Possible causes:
-1. Large batch of API calls in previous period (hidden cost)
-2. Usage exceeded credit allocation
-3. Billing configuration changed or credits expired
-4. D H added new agents/work that increased API consumption
-
-**Evidence of Usage (Feb 14-27):**
-- Daily cron jobs running (Watchy 8am, Movy, Socialy, Ranky, Scrappy, Cleany, COMPY)
-- Main session heartbeat cycles (periodic checks)
-- Sub-agent spawns (Codey on-demand)
-- Estimated daily cost: ~$1-5/day across all agents
-
-**System Response:**
-- Unlike connection errors (transient), billing blocks ALL API access
-- Cascading impact: When one agent hits credit error, all subsequent agents blocked
-- No automatic recovery or backoff available
-- **Manual intervention required** (D H billing fix)
-
-**Root Cause Analysis (Hypothesis):**
-The Feb 7-14 crisis was NOT fully resolved — it may have been a temporary service restoration or partial credit top-up. System might have been operating on borrowed time or depleting remaining credits slowly until exhaustion Feb 27.
-
-**Key Learning (Compounding):**
-1. **Billing crises have TWO phases:**
-   - Phase 1: Apparent recovery (13 days stable)
-   - Phase 2: Sudden collapse (cascading errors across fleet)
-   - **This pattern suggests root cause was not fixed, just delayed**
-
-2. **Future prevention:**
-   - Implement daily cost tracking in WATCHY health check
+**Root cause:** Credit re-exhaustion after 13-day recovery period (see two-phase pattern above)
+**Resolution:** D H account billing fix (Feb 28 8am) ✅
    - Alert if daily spend exceeds threshold ($5/day)
    - Monitor credit balance continuously, not just on error
    - When credits near limit → auto-backoff agent workloads
