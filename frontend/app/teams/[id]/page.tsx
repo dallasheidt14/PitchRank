@@ -145,14 +145,37 @@ export default async function Page({ params }: TeamPageProps) {
         // If no merge info found but team is deprecated, show 404
         notFound();
       } else {
-        // Check if team has any games - prevent soft 404s for teams with no data
+        // Check if team has any non-excluded games - prevent soft 404s for teams with no data
+        // Must also check games from merged/deprecated teams (redirect merge architecture:
+        // game records keep deprecated team IDs, resolved at query time via team_merge_map)
+        const teamIdsToCheck = [resolvedParams.id];
+
+        const { data: mergedTeams } = await supabase
+          .from('team_merge_map')
+          .select('deprecated_team_id')
+          .eq('canonical_team_id', resolvedParams.id);
+
+        if (mergedTeams && mergedTeams.length > 0) {
+          mergedTeams.forEach((merge: { deprecated_team_id: string }) => {
+            if (merge.deprecated_team_id) {
+              teamIdsToCheck.push(merge.deprecated_team_id);
+            }
+          });
+        }
+
+        // Build OR conditions for all team IDs (canonical + merged)
+        const orConditions = teamIdsToCheck
+          .map((tid) => `home_team_master_id.eq.${tid},away_team_master_id.eq.${tid}`)
+          .join(',');
+
         const { count: gameCount, error: gameError } = await supabase
           .from('games')
           .select('id', { count: 'exact', head: true })
-          .or(`home_team_master_id.eq.${resolvedParams.id},away_team_master_id.eq.${resolvedParams.id}`);
+          .or(orConditions)
+          .eq('is_excluded', false);
 
         if (!gameError && gameCount === 0) {
-          // Team exists but has no games - return 404 to prevent soft 404
+          // Team exists but has no non-excluded games - return 404 to prevent soft 404
           notFound();
         }
       }
