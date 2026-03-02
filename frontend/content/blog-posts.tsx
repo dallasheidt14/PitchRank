@@ -24,6 +24,428 @@ import {
  */
 export const blogPosts: BlogPost[] = [
   {
+    slug: 'youth-soccer-rankings-complete-guide',
+    title: 'Youth Soccer Rankings: The Complete Guide for Parents',
+    excerpt: 'Everything parents need to know about youth soccer rankings—what they are, how they work, and why they matter for your child\'s development and club selection.',
+    author: 'PitchRank Team',
+    date: '2026-03-02',
+    readingTime: '9 min read',
+    tags: ['Rankings', 'Parents', 'Club Selection'],
+    content: (
+      <div className="space-y-8">
+        {/* Introduction */}
+        <section>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            If your child plays competitive youth soccer, you've probably heard terms like "rankings," "power ratings," 
+            or "strength of schedule" thrown around by coaches and other parents. But what do these numbers actually mean? 
+            And should you care?
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            As a parent navigating the complex world of club soccer, understanding youth soccer rankings can help you 
+            make better decisions about your child's development—from choosing the right club to selecting appropriate 
+            tournaments and evaluating team quality.
+          </p>
+          <p className="text-muted-foreground leading-relaxed">
+            This guide breaks down everything you need to know about youth soccer rankings, with real data from 
+            <strong> over 101,000 teams</strong> tracked across the United States.
+          </p>
+        </section>
+
+        {/* What Are Youth Soccer Rankings */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <HelpCircle className="size-6 text-primary" />
+            What Are Youth Soccer Rankings?
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Youth soccer rankings are systems that attempt to objectively measure and compare the competitive strength 
+            of teams across different clubs, leagues, and regions. Unlike standings in a single league (which only show 
+            results within that league), rankings try to answer a bigger question: <strong>How good is this team compared 
+            to ALL teams in their age group?</strong>
+          </p>
+          
+          <div className="p-5 rounded-lg bg-muted/50 border mb-6">
+            <h3 className="font-semibold mb-3 flex items-center gap-2">
+              <CheckCircle className="size-5 text-primary" />
+              Key Difference: Rankings vs. Standings
+            </h3>
+            <div className="space-y-3 text-sm text-muted-foreground">
+              <div>
+                <strong className="text-foreground">League Standings:</strong> Only show results within a single league 
+                or division. The #1 team in a recreational league might not be competitive in an elite league.
+              </div>
+              <div>
+                <strong className="text-foreground">Rankings:</strong> Use algorithmic models to compare teams across 
+                different leagues, tournaments, and geographic regions. They account for opponent quality and strength 
+                of schedule.
+              </div>
+            </div>
+          </div>
+
+          <p className="text-muted-foreground leading-relaxed">
+            Currently, platforms like GotSport, USARank, and PitchRank track results from thousands of games and 
+            tournaments nationwide. PitchRank alone processes data from <strong>726,730+ games</strong> to generate 
+            accurate rankings.
+          </p>
+        </section>
+
+        {/* Why Rankings Matter */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Target className="size-6 text-primary" />
+            Why Do Youth Soccer Rankings Matter?
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-6">
+            You might be thinking: "My kid just wants to play soccer and have fun. Why should I care about rankings?"
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-6">
+            Fair question. Rankings aren't everything, and they certainly shouldn't define your child's worth or enjoyment 
+            of the game. But they <em>do</em> serve several practical purposes:
+          </p>
+
+          <div className="grid gap-4 mb-6">
+            <div className="flex items-start gap-3 p-4 rounded-lg bg-muted/50 border">
+              <Users className="size-5 text-primary mt-0.5 shrink-0" />
+              <div>
+                <h4 className="font-semibold mb-2">1. Tournament Placement & Flighting</h4>
+                <p className="text-sm text-muted-foreground">
+                  Tournament directors use rankings to create fair and competitive brackets. If your team is ranked in the 
+                  top 100 nationally, you'll get matched with similarly competitive teams—ensuring challenging, high-quality 
+                  games rather than blowouts.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3 p-4 rounded-lg bg-muted/50 border">
+              <MapPin className="size-5 text-primary mt-0.5 shrink-0" />
+              <div>
+                <h4 className="font-semibold mb-2">2. Evaluating Club Quality</h4>
+                <p className="text-sm text-muted-foreground">
+                  When you're choosing between clubs, rankings help you see which clubs consistently field competitive teams. 
+                  In California, for example, LAFC Youth (187 teams) and San Diego Surf (156 teams) are large clubs, but 
+                  rankings show you how their teams actually perform.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3 p-4 rounded-lg bg-muted/50 border">
+              <TrendingUp className="size-5 text-primary mt-0.5 shrink-0" />
+              <div>
+                <h4 className="font-semibold mb-2">3. Tracking Development Over Time</h4>
+                <p className="text-sm text-muted-foreground">
+                  Rankings give you objective feedback on your child's team progression. A team that moves from #500 to #200 
+                  over a season is clearly improving, even if their win-loss record doesn't look perfect.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3 p-4 rounded-lg bg-muted/50 border">
+              <GraduationCap className="size-5 text-primary mt-0.5 shrink-0" />
+              <div>
+                <h4 className="font-semibold mb-2">4. College Recruiting Context</h4>
+                <p className="text-sm text-muted-foreground">
+                  For older age groups (U16-U19), college coaches use rankings as a quick filter to identify talent. 
+                  A player on a top-100 team gets more visibility than someone on an unranked team, simply because coaches 
+                  know the level of competition.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* How Rankings Work */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Brain className="size-6 text-primary" />
+            How Do Youth Soccer Rankings Actually Work?
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Here's where it gets interesting. Not all ranking systems are created equal.
+          </p>
+
+          <h3 className="text-xl font-display font-semibold mb-3">Traditional Point-Based Systems</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Most ranking platforms (like GotSport) use a point-based system where teams earn points for wins and 
+            participating in sanctioned events. The more you win, the more points you accumulate.
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-6">
+            <strong>The problem?</strong> These systems often don't account for <em>who</em> you beat. A team that goes 
+            10-0 against weak opponents can rank higher than a team that goes 7-3 against elite competition.
+          </p>
+
+          <h3 className="text-xl font-display font-semibold mb-3">Modern Algorithmic Rankings</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Advanced systems (like PitchRank) use <strong>power ratings</strong> or <strong>Elo-style algorithms</strong> 
+            that adjust for opponent strength. Here's what they consider:
+          </p>
+
+          <div className="grid gap-4 mb-6">
+            <div className="flex items-start gap-3 p-4 rounded-lg bg-primary/10 border border-primary/20">
+              <Shield className="size-5 text-primary mt-0.5 shrink-0" />
+              <div>
+                <h4 className="font-semibold mb-2">Opponent Quality (Strength of Schedule)</h4>
+                <p className="text-sm text-muted-foreground">
+                  Every result is weighted by the quality of your opponent. Beating the #5 team nationally is worth far more 
+                  than beating an unranked team. This is calculated recursively—looking at who your opponents played, who 
+                  <em>they</em> played, and so on.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3 p-4 rounded-lg bg-primary/10 border border-primary/20">
+              <Activity className="size-5 text-primary mt-0.5 shrink-0" />
+              <div>
+                <h4 className="font-semibold mb-2">Margin of Victory (Contextualized)</h4>
+                <p className="text-sm text-muted-foreground">
+                  Score matters, but only when put in context. A 2-1 win over a top-10 team is more impressive than a 10-0 
+                  win over a bottom-tier team. Good systems cap blowouts to prevent teams from running up the score.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3 p-4 rounded-lg bg-primary/10 border border-primary/20">
+              <Calendar className="size-5 text-primary mt-0.5 shrink-0" />
+              <div>
+                <h4 className="font-semibold mb-2">Recent Performance</h4>
+                <p className="text-sm text-muted-foreground">
+                  Recent games matter more than old ones. A team's current form is more predictive of future performance than 
+                  results from three months ago. Modern algorithms weight recent games more heavily.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3 p-4 rounded-lg bg-primary/10 border border-primary/20">
+              <Globe className="size-5 text-primary mt-0.5 shrink-0" />
+              <div>
+                <h4 className="font-semibold mb-2">National Connectivity</h4>
+                <p className="text-sm text-muted-foreground">
+                  The best systems connect teams across regions through common opponents. If a California team beats a team 
+                  that beat a Texas team, the algorithm can infer relative strength even if those teams never play each other.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-5 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900">
+            <p className="text-sm text-amber-900 dark:text-amber-100">
+              <strong>💡 Parent Tip:</strong> Ask your club what ranking system they use and how it works. Understanding 
+              the methodology helps you interpret the numbers correctly.
+            </p>
+          </div>
+        </section>
+
+        {/* What to Look For */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <CheckCircle className="size-6 text-primary" />
+            What Parents Should Look For in a Ranking System
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-6">
+            Not all ranking systems are equally reliable. Here's what separates a good system from a flawed one:
+          </p>
+
+          <div className="space-y-4 mb-6">
+            <div className="p-4 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900">
+              <h4 className="font-semibold mb-2 text-green-900 dark:text-green-100">✅ Large Data Sample</h4>
+              <p className="text-sm text-green-800 dark:text-green-200">
+                The more games tracked, the more accurate the rankings. PitchRank tracks <strong>101,354 teams</strong> and 
+                <strong>726,730+ games</strong>—providing comprehensive national coverage.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900">
+              <h4 className="font-semibold mb-2 text-green-900 dark:text-green-100">✅ Strength of Schedule Adjustments</h4>
+              <p className="text-sm text-green-800 dark:text-green-200">
+                A good system accounts for opponent quality. Your team's ranking should reflect who you played, not just 
+                whether you won.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900">
+              <h4 className="font-semibold mb-2 text-green-900 dark:text-green-100">✅ Transparent Methodology</h4>
+              <p className="text-sm text-green-800 dark:text-green-200">
+                Can you understand how rankings are calculated? Systems that hide their methodology make it hard to trust 
+                the numbers.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900">
+              <h4 className="font-semibold mb-2 text-green-900 dark:text-green-100">✅ Regular Updates</h4>
+              <p className="text-sm text-green-800 dark:text-green-200">
+                Rankings should update frequently (daily or weekly) to reflect current form. Outdated rankings aren't useful 
+                for tournament placement.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-5 rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900">
+            <h4 className="font-semibold mb-2 text-red-900 dark:text-red-100 flex items-center gap-2">
+              <AlertTriangle className="size-5" />
+              Red Flags to Watch For
+            </h4>
+            <ul className="text-sm text-red-800 dark:text-red-200 space-y-2 list-disc list-inside">
+              <li>Systems that only track one platform's tournaments (limited data)</li>
+              <li>Rankings that don't change after major wins/losses (stale algorithm)</li>
+              <li>Point systems that reward quantity of games over quality of opponents</li>
+              <li>Regional bias (East Coast teams always ranked higher than West Coast, or vice versa)</li>
+            </ul>
+          </div>
+        </section>
+
+        {/* The PitchRank Difference */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Zap className="size-6 text-primary" />
+            How PitchRank's Approach Is Different
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            PitchRank was built by soccer parents who were frustrated with existing ranking systems. We wanted something 
+            data-driven, transparent, and actually useful for making decisions.
+          </p>
+
+          <h3 className="text-xl font-display font-semibold mb-3">Our Key Differentiators:</h3>
+
+          <div className="grid gap-4 mb-6">
+            <div className="flex items-start gap-3 p-4 rounded-lg bg-primary/5 border">
+              <Globe className="size-5 text-primary mt-0.5 shrink-0" />
+              <div>
+                <h4 className="font-semibold mb-2">Massive Dataset: 101,000+ Teams</h4>
+                <p className="text-sm text-muted-foreground">
+                  We track teams across all 50 states, with the deepest coverage in competitive soccer hotbeds: California 
+                  (15,706 teams), Texas (9,452 teams), Florida (5,333 teams), New York (4,933 teams), and New Jersey 
+                  (4,655 teams).
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3 p-4 rounded-lg bg-primary/5 border">
+              <Brain className="size-5 text-primary mt-0.5 shrink-0" />
+              <div>
+                <h4 className="font-semibold mb-2">Machine Learning-Enhanced Algorithm</h4>
+                <p className="text-sm text-muted-foreground">
+                  Our system uses a two-layer approach: a core rating engine that calculates power scores, plus a machine 
+                  learning layer that identifies trending teams and adjusts for hot/cold streaks.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3 p-4 rounded-lg bg-primary/5 border">
+              <Shield className="size-5 text-primary mt-0.5 shrink-0" />
+              <div>
+                <h4 className="font-semibold mb-2">True Strength of Schedule</h4>
+                <p className="text-sm text-muted-foreground">
+                  We calculate SOS recursively, looking several layers deep into opponent networks. This means even teams 
+                  in smaller regions get accurate rankings if they play quality opponents.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3 p-4 rounded-lg bg-primary/5 border">
+              <CheckCircle className="size-5 text-primary mt-0.5 shrink-0" />
+              <div>
+                <h4 className="font-semibold mb-2">100% Transparent Methodology</h4>
+                <p className="text-sm text-muted-foreground">
+                  We openly explain how our algorithm works—no black boxes. You can read our full methodology and understand 
+                  exactly why a team is ranked where they are.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <p className="text-muted-foreground leading-relaxed">
+            Most importantly, we built PitchRank for <strong>parents and coaches</strong>—not for tournament directors or 
+            league administrators. Our goal is to give you the information you need to make smart decisions about your 
+            child's soccer journey.
+          </p>
+        </section>
+
+        {/* Practical Advice */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Users className="size-6 text-primary" />
+            How to Use Rankings Wisely
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-6">
+            Rankings are a tool, not a scorecard for your child's worth. Here's how to use them constructively:
+          </p>
+
+          <div className="space-y-4">
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">✅ DO: Use rankings to evaluate club competitiveness</h4>
+              <p className="text-sm text-muted-foreground">
+                When choosing between clubs, look at how their teams perform across age groups. A club with consistently 
+                ranked teams likely has good coaching and development pathways.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">✅ DO: Track your team's progress over time</h4>
+              <p className="text-sm text-muted-foreground">
+                Rankings give you objective feedback. If your team is improving from #300 to #150, that's real development—
+                even if you're not winning every game.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">✅ DO: Consider strength of schedule</h4>
+              <p className="text-sm text-muted-foreground">
+                A team with a 5-5 record against top-50 opponents is probably better than a team with a 10-0 record against 
+                unranked teams. Look beyond win-loss.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900">
+              <h4 className="font-semibold mb-2 text-red-900 dark:text-red-100">❌ DON'T: Let rankings define your child's experience</h4>
+              <p className="text-sm text-red-800 dark:text-red-200">
+                Soccer is about development, teamwork, and joy. A lower-ranked team with great coaching and a positive 
+                culture beats a high-ranked team with a toxic environment every time.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900">
+              <h4 className="font-semibold mb-2 text-red-900 dark:text-red-100">❌ DON'T: Obsess over small ranking changes</h4>
+              <p className="text-sm text-red-800 dark:text-red-200">
+                The difference between #150 and #170 is negligible. Focus on long-term trends, not week-to-week fluctuations.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900">
+              <h4 className="font-semibold mb-2 text-red-900 dark:text-red-100">❌ DON'T: Ignore the human element</h4>
+              <p className="text-sm text-red-800 dark:text-red-200">
+                Rankings can't measure coach quality, team chemistry, player development focus, or whether your child 
+                actually enjoys playing. Those factors matter more than any number.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* Conclusion */}
+        <section className="p-6 rounded-lg bg-primary/10 border border-primary/20">
+          <h2 className="text-2xl font-display font-bold mb-4">The Bottom Line for Parents</h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Youth soccer rankings, when used correctly, are a valuable tool for understanding team quality, evaluating 
+            clubs, and making informed decisions. They help answer the question: <strong>"How competitive is this team 
+            compared to others nationwide?"</strong>
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            But they're not the whole story. Your child's happiness, development, and love for the game matter infinitely 
+            more than any ranking. Use rankings as one data point among many—not as the defining measure of success.
+          </p>
+          <p className="text-foreground font-semibold mb-4">
+            At PitchRank, we track <strong>101,354 teams</strong> and <strong>726,730+ games</strong> to give you the most 
+            accurate rankings available. But we also know that behind every number is a kid who just wants to play the 
+            beautiful game.
+          </p>
+          <p className="text-muted-foreground leading-relaxed">
+            Ready to see where your team ranks? Visit <strong>PitchRank.io</strong>, search for your state and age group, 
+            and explore the data. Whether you're evaluating clubs, tracking progress, or just curious about the competitive 
+            landscape, we're here to provide clarity.
+          </p>
+        </section>
+      </div>
+    ),
+  },
+  {
     slug: 'how-pitchrank-rankings-work',
     title: 'How PitchRank Rankings Work',
     excerpt: 'Discover the algorithm methodology behind PitchRank\'s youth soccer rankings and why our power scores are more accurate than traditional ranking systems.',
