@@ -122,26 +122,24 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
     return (
       <Card>
         <CardHeader>
-          <div className="flex items-start justify-between">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <CardTitle>Game History</CardTitle>
               <CardDescription>
                 {limit ? `Latest ${limit} match results` : 'All match results'}
               </CardDescription>
             </div>
-            <div className="flex flex-col items-end gap-2">
-              <div className="flex gap-2">
-                <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
-                {teamId && (
-                  <MergeTeamsDialogWrapper
-                    currentTeamId={teamId}
-                    currentTeamName={displayTeamName}
-                    currentTeamAgeGroup={team?.age_group}
-                    currentTeamGender={team?.gender}
-                    currentTeamStateCode={team?.state_code}
-                  />
-                )}
-              </div>
+            <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
+              <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
+              {teamId && (
+                <MergeTeamsDialogWrapper
+                  currentTeamId={teamId}
+                  currentTeamName={displayTeamName}
+                  currentTeamAgeGroup={team?.age_group}
+                  currentTeamGender={team?.gender}
+                  currentTeamStateCode={team?.state_code}
+                />
+              )}
             </div>
           </div>
         </CardHeader>
@@ -156,26 +154,24 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
     return (
       <Card>
         <CardHeader>
-          <div className="flex items-start justify-between">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <CardTitle>Game History</CardTitle>
               <CardDescription>
                 {limit ? `Latest ${limit} match results` : 'All match results'}
               </CardDescription>
             </div>
-            <div className="flex flex-col items-end gap-2">
-              <div className="flex gap-2">
-                <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
-                {teamId && (
-                  <MergeTeamsDialogWrapper
-                    currentTeamId={teamId}
-                    currentTeamName={displayTeamName}
-                    currentTeamAgeGroup={team?.age_group}
-                    currentTeamGender={team?.gender}
-                    currentTeamStateCode={team?.state_code}
-                  />
-                )}
-              </div>
+            <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
+              <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
+              {teamId && (
+                <MergeTeamsDialogWrapper
+                  currentTeamId={teamId}
+                  currentTeamName={displayTeamName}
+                  currentTeamAgeGroup={team?.age_group}
+                  currentTeamGender={team?.gender}
+                  currentTeamStateCode={team?.state_code}
+                />
+              )}
             </div>
           </div>
         </CardHeader>
@@ -194,26 +190,24 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
     return (
       <Card>
         <CardHeader>
-          <div className="flex items-start justify-between">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <CardTitle>Game History</CardTitle>
               <CardDescription>
                 {limit ? `Latest ${limit} match results` : 'All match results'}
               </CardDescription>
             </div>
-            <div className="flex flex-col items-end gap-2">
-              <div className="flex gap-2">
-                <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
-                {teamId && (
-                  <MergeTeamsDialogWrapper
-                    currentTeamId={teamId}
-                    currentTeamName={displayTeamName}
-                    currentTeamAgeGroup={team?.age_group}
-                    currentTeamGender={team?.gender}
-                    currentTeamStateCode={team?.state_code}
-                  />
-                )}
-              </div>
+            <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
+              <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
+              {teamId && (
+                <MergeTeamsDialogWrapper
+                  currentTeamId={teamId}
+                  currentTeamName={displayTeamName}
+                  currentTeamAgeGroup={team?.age_group}
+                  currentTeamGender={team?.gender}
+                  currentTeamStateCode={team?.state_code}
+                />
+              )}
             </div>
           </div>
         </CardHeader>
@@ -229,20 +223,20 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
   return (
     <Card className="border-l-4 border-l-accent">
       <CardHeader>
-        <div className="flex items-start justify-between">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <CardTitle className="font-display uppercase tracking-wide">Game History</CardTitle>
             <CardDescription>
               {limit ? `Latest ${limit} match results` : 'All match results'}
             </CardDescription>
           </div>
-          <div className="flex flex-col items-end gap-2">
+          <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
             <LastUpdated date={lastScrapedAt} label="Data updated" />
             <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="-mx-4 sm:mx-0">
         <Table>
           <TableHeader>
             <TableRow>
@@ -250,7 +244,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
               <TableHead>Opponent</TableHead>
               <TableHead className="text-center">Result</TableHead>
               <TableHead className="text-right">Score</TableHead>
-              <TableHead>Competition</TableHead>
+              <TableHead className="hidden sm:table-cell">Competition</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -264,10 +258,10 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
 
               return (
                 <TableRow key={game.id}>
-                  <TableCell className="text-sm">
-                    {formatGameDate(game.game_date)}
+                  <TableCell className="text-xs sm:text-sm whitespace-nowrap">
+                    {formatGameDate(game.game_date, { month: 'short', day: 'numeric', year: '2-digit' })}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="max-w-[120px] sm:max-w-none">
                     {opponentId ? (
                       // Team is linked - show link or fallback text
                       <div className="flex flex-col">
@@ -275,8 +269,9 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                           <Link
                             href={`/teams/${opponentId}`}
                             onMouseEnter={() => prefetchTeam(opponentId)}
-                            className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block"
+                            className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block truncate sm:whitespace-normal sm:overflow-visible"
                             aria-label={`View ${opponent} team details`}
+                            title={opponent}
                           >
                             {opponent}
                           </Link>
@@ -292,7 +287,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                           </Link>
                         )}
                         {opponentClub && (
-                          <span className="text-xs text-muted-foreground mt-0.5">
+                          <span className="text-xs text-muted-foreground mt-0.5 truncate sm:whitespace-normal">
                             {opponentClub}
                           </span>
                         )}
@@ -309,7 +304,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                       />
                     ) : (
                       // No team ID and no provider ID - truly unknown
-                      <span className="text-muted-foreground">{opponent || 'Unknown'}</span>
+                      <span className="text-muted-foreground truncate sm:whitespace-normal">{opponent || 'Unknown'}</span>
                     )}
                   </TableCell>
                   <TableCell className="text-center">
@@ -318,13 +313,13 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                   <TableCell className="text-right font-mono">
                     {score.team !== null && score.opponent !== null ? (
                       <span className={scoreColor(getTeamPerspectiveOverperformance(game, teamId))}>
-                        {score.team} - {score.opponent}
+                        {score.team}-{score.opponent}
                       </span>
                     ) : (
                       '—'
                     )}
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
+                  <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
                     {game.competition || game.division_name || '—'}
                   </TableCell>
                 </TableRow>
