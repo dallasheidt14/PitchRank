@@ -10,7 +10,6 @@ from config.settings import (
     RANKING_CONFIG,
     ML_CONFIG,
     MATCHING_CONFIG,
-    ETL_CONFIG,
     AGE_GROUPS,
     VERSION,
     PROJECT_NAME,
@@ -93,7 +92,7 @@ section = st.sidebar.radio(
     [
         "🎯 Ranking Engine & ML",
         "🔍 Matching Configuration",
-        "⚙️ ETL & Data Processing",
+        "📋 Review Queue",
         "👥 Age Groups",
         "📈 Database Import Stats",
         "🗺️ State Coverage",
@@ -509,33 +508,49 @@ elif section == "🔍 Matching Configuration":
     st.header("Team Name Fuzzy Matching")
     st.markdown("Configuration for team name matching and deduplication")
 
-    # Threshold visualization
+    # ------------------------------------------------------------------
+    # Confidence-range visual
+    # ------------------------------------------------------------------
+    auto_thresh = MATCHING_CONFIG['auto_approve_threshold']
+    review_thresh = MATCHING_CONFIG['review_threshold']
+
+    st.markdown(
+        f"| Range | Action |\n"
+        f"|---|---|\n"
+        f"| **≥ {auto_thresh}** | Auto-approve |\n"
+        f"| **{review_thresh} – {auto_thresh}** | Sent to **Review Queue** for manual review |\n"
+        f"| **< {review_thresh}** | Rejected |"
+    )
+
+    # Threshold metrics
     col1, col2, col3 = st.columns(3)
 
     with col1:
         st.metric(
             "Auto-Approve Threshold",
-            MATCHING_CONFIG['auto_approve_threshold'],
+            auto_thresh,
         )
-        st.caption("≥ 0.9: Automatic match")
+        st.caption(f"≥ {auto_thresh}: Automatic match")
 
     with col2:
         st.metric(
             "Review Threshold",
-            MATCHING_CONFIG['review_threshold'],
+            review_thresh,
         )
-        st.caption("0.75-0.9: Manual review")
+        st.caption(f"{review_thresh}–{auto_thresh}: Manual review")
 
     with col3:
         st.metric(
             "Fuzzy Threshold",
             MATCHING_CONFIG['fuzzy_threshold'],
         )
-        st.caption("< 0.75: Reject")
+        st.caption(f"< {review_thresh}: Reject")
 
     st.divider()
 
+    # ------------------------------------------------------------------
     # Component weights
+    # ------------------------------------------------------------------
     st.subheader("Component Weights")
     weights = MATCHING_CONFIG['weights']
 
@@ -550,21 +565,17 @@ elif section == "🔍 Matching Configuration":
     with col2:
         total_weight = sum(weights.values())
         if abs(total_weight - 1.0) < 0.001:
-            st.success(f"✓ Total: {total_weight:.3f}")
+            st.success(f"Total: {total_weight:.3f}")
         else:
-            st.error(f"⚠️ Total: {total_weight:.3f}")
+            st.error(f"Total: {total_weight:.3f}")
 
     st.divider()
 
-    # Additional settings
-    st.subheader("Additional Settings")
+    # ------------------------------------------------------------------
+    # Boost & guard-rail settings
+    # ------------------------------------------------------------------
+    st.subheader("Boost & Guard-Rail Settings")
 
-    param_info(
-        "MAX_AGE_DIFF",
-        MATCHING_CONFIG['max_age_diff'],
-        "Maximum age group difference for matching",
-        "years"
-    )
     param_info(
         "CLUB_BOOST_IDENTICAL",
         MATCHING_CONFIG['club_boost_identical'],
@@ -575,86 +586,243 @@ elif section == "🔍 Matching Configuration":
         MATCHING_CONFIG['club_min_similarity'],
         "Minimum club name similarity to apply boost"
     )
-
-# ============================================================================
-# ETL & DATA PROCESSING SECTION
-# ============================================================================
-elif section == "⚙️ ETL & Data Processing":
-    st.header("ETL & Data Processing")
-    st.markdown("Batch processing, caching, and data pipeline settings")
-
-    # ETL Configuration
-    st.subheader("ETL Configuration")
-
     param_info(
-        "BATCH_SIZE",
-        ETL_CONFIG['batch_size'],
-        "Number of records processed per batch",
-        "records"
+        "CLUB_VARIANT_MATCH_BOOST",
+        MATCHING_CONFIG.get('club_variant_match_boost', 'N/A'),
+        "Boost when both club AND variant (color/coach/direction) match"
     )
     param_info(
-        "MAX_RETRIES",
-        ETL_CONFIG['max_retries'],
-        "Maximum retry attempts for failed operations",
-        "retries"
-    )
-    param_info(
-        "RETRY_DELAY",
-        ETL_CONFIG['retry_delay'],
-        "Delay between retry attempts",
-        "seconds"
-    )
-    param_info(
-        "INCREMENTAL_DAYS",
-        ETL_CONFIG['incremental_days'],
-        "Days to look back for incremental updates",
-        "days"
-    )
-    param_info(
-        "VALIDATION_ENABLED",
-        ETL_CONFIG['validation_enabled'],
-        "Enable data validation during ETL"
+        "FUZZY_CONFIDENCE_CEILING",
+        MATCHING_CONFIG.get('fuzzy_confidence_ceiling', 'N/A'),
+        "Max stored confidence for fuzzy matches (prevents 1.0 for non-direct)"
     )
 
     st.divider()
 
-    # Import config from settings
-    from config.settings import CACHE_CONFIG, USE_CACHE, PARALLEL_PROCESSING, DEBUG_MODE
-
-    st.subheader("Cache Configuration")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        if USE_CACHE:
-            st.success("✓ Cache Enabled")
-        else:
-            st.warning("⚠️ Cache Disabled")
-    with col2:
-        st.metric("TTL", f"{CACHE_CONFIG['ttl_seconds']} sec")
+    # ------------------------------------------------------------------
+    # Additional settings
+    # ------------------------------------------------------------------
+    st.subheader("Additional Settings")
 
     param_info(
-        "MAX_CACHE_SIZE",
-        CACHE_CONFIG['max_size_mb'],
-        "Maximum cache size",
-        "MB"
+        "MAX_AGE_DIFF",
+        MATCHING_CONFIG['max_age_diff'],
+        "Maximum age group difference for matching",
+        "years"
+    )
+    param_info(
+        "CONNECTION_REFRESH_INTERVAL",
+        MATCHING_CONFIG.get('connection_refresh_interval', 'N/A'),
+        "Refresh Supabase client every N games during long imports",
+        "games"
     )
 
-    st.divider()
+# ============================================================================
+# REVIEW QUEUE SECTION
+# ============================================================================
+elif section == "📋 Review Queue":
+    st.header("Match Review Queue")
+    st.markdown("Teams matched with **0.75 – 0.90 confidence** that need manual review before being linked.")
 
-    # Performance Flags
-    st.subheader("Performance Flags")
+    db = get_database()
 
-    col1, col2 = st.columns(2)
-    with col1:
-        if PARALLEL_PROCESSING:
-            st.success("✓ Parallel Processing Enabled")
-        else:
-            st.info("○ Parallel Processing Disabled")
-    with col2:
-        if DEBUG_MODE:
-            st.warning("⚠️ Debug Mode Enabled")
-        else:
-            st.success("✓ Debug Mode Disabled")
+    if not db:
+        st.error("Database connection required for Review Queue")
+    else:
+        # ------------------------------------------------------------------
+        # Stats row
+        # ------------------------------------------------------------------
+        try:
+            stats_result = execute_with_retry(
+                lambda: db.rpc('get_match_review_stats', {})
+            )
+            stats_data = stats_result.data or []
+
+            stat_map = {s['status']: s for s in stats_data}
+            pending_stats = stat_map.get('pending', {})
+            approved_stats = stat_map.get('approved', {})
+            rejected_stats = stat_map.get('rejected', {})
+
+            s1, s2, s3, s4 = st.columns(4)
+            with s1:
+                st.metric("Pending", f"{pending_stats.get('count', 0):,}")
+            with s2:
+                st.metric("Approved", f"{approved_stats.get('count', 0):,}")
+            with s3:
+                st.metric("Rejected", f"{rejected_stats.get('count', 0):,}")
+            with s4:
+                avg_conf = pending_stats.get('avg_confidence')
+                st.metric("Avg Confidence (pending)", f"{float(avg_conf):.2f}" if avg_conf else "N/A")
+        except Exception as e:
+            st.warning(f"Could not load stats: {e}")
+
+        st.divider()
+
+        # ------------------------------------------------------------------
+        # Filters
+        # ------------------------------------------------------------------
+        filter_col1, filter_col2, filter_col3 = st.columns(3)
+
+        with filter_col1:
+            rq_status_filter = st.selectbox(
+                "Status",
+                options=["pending", "approved", "rejected", "all"],
+                key="rq_status"
+            )
+        with filter_col2:
+            # Provider filter
+            try:
+                prov_result = execute_with_retry(
+                    lambda: db.table('providers').select('id, name, code')
+                )
+                rq_providers = prov_result.data or []
+            except Exception:
+                rq_providers = []
+            rq_provider_options = ["All Providers"] + [p['name'] for p in rq_providers]
+            rq_provider_filter = st.selectbox("Provider", options=rq_provider_options, key="rq_provider")
+        with filter_col3:
+            rq_sort = st.selectbox(
+                "Sort By",
+                options=["Confidence (high first)", "Confidence (low first)", "Newest first", "Oldest first"],
+                key="rq_sort"
+            )
+
+        # Reviewer email (needed for approve/reject)
+        rq_reviewer_email = st.text_input("Your Email (required for approve / reject)", key="rq_reviewer_email")
+
+        # ------------------------------------------------------------------
+        # Build & execute query
+        # ------------------------------------------------------------------
+        try:
+            rq_query = db.table('team_match_review_queue').select('*')
+
+            if rq_status_filter != "all":
+                rq_query = rq_query.eq('status', rq_status_filter)
+
+            if rq_provider_filter != "All Providers":
+                # provider_id in the queue is stored as the provider CODE string
+                rq_prov_code = next((p['code'] for p in rq_providers if p['name'] == rq_provider_filter), None)
+                if rq_prov_code:
+                    rq_query = rq_query.eq('provider_id', rq_prov_code)
+
+            # Sort
+            if rq_sort == "Confidence (high first)":
+                rq_query = rq_query.order('confidence_score', desc=True)
+            elif rq_sort == "Confidence (low first)":
+                rq_query = rq_query.order('confidence_score', desc=False)
+            elif rq_sort == "Newest first":
+                rq_query = rq_query.order('created_at', desc=True)
+            else:
+                rq_query = rq_query.order('created_at', desc=False)
+
+            rq_items = fetch_all_rows(rq_query)
+
+            # Batch-fetch suggested master team details
+            rq_master_ids = list({
+                item['suggested_master_team_id']
+                for item in rq_items
+                if item.get('suggested_master_team_id')
+            })
+            rq_teams_map = {}
+            if rq_master_ids:
+                for i in range(0, len(rq_master_ids), 50):
+                    batch = rq_master_ids[i:i+50]
+                    t_result = execute_with_retry(
+                        lambda b=batch: db.table('teams')
+                            .select('team_id_master, team_name, club_name, age_group, gender, state_code')
+                            .in_('team_id_master', b)
+                    )
+                    for t in (t_result.data or []):
+                        rq_teams_map[t['team_id_master']] = t
+
+            # Attach suggested team info to each item
+            for item in rq_items:
+                item['suggested_team'] = rq_teams_map.get(item.get('suggested_master_team_id'), {})
+
+            st.info(f"Showing **{len(rq_items)}** review queue entries")
+
+            # ------------------------------------------------------------------
+            # Render entries
+            # ------------------------------------------------------------------
+            if not rq_items:
+                st.success("No entries match your filters.")
+            else:
+                for idx, item in enumerate(rq_items):
+                    conf = float(item.get('confidence_score', 0))
+                    status = item.get('status', 'pending')
+                    suggested = item.get('suggested_team') or {}
+
+                    # Status icon
+                    status_icon = {"pending": "🟡", "approved": "🟢", "rejected": "🔴"}.get(status, "⚪")
+
+                    label = (
+                        f"{status_icon} {item.get('provider_team_name', '?')}  "
+                        f"→  {suggested.get('team_name', 'Unknown master')}  "
+                        f"({conf:.0%})"
+                    )
+
+                    with st.expander(label, expanded=False):
+                        detail_col1, detail_col2 = st.columns(2)
+
+                        with detail_col1:
+                            st.markdown("**Provider Team**")
+                            st.text(f"Name:     {item.get('provider_team_name', '?')}")
+                            st.text(f"Provider: {item.get('provider_id', '?')}")
+                            st.text(f"Prov ID:  {item.get('provider_team_id', '?')}")
+
+                        with detail_col2:
+                            st.markdown("**Suggested Master Team**")
+                            st.text(f"Name:   {suggested.get('team_name', '?')}")
+                            st.text(f"Club:   {suggested.get('club_name', 'N/A')}")
+                            st.text(f"Age:    {suggested.get('age_group', '?')}  |  Gender: {suggested.get('gender', '?')}")
+                            st.text(f"State:  {suggested.get('state_code', '?')}")
+                            st.caption(f"Master ID: `{item.get('suggested_master_team_id', '?')}`")
+
+                        st.text(f"Confidence: {conf:.2f}  |  Status: {status}  |  Created: {item.get('created_at', '?')}")
+
+                        # Show match_details JSON if present
+                        if item.get('match_details'):
+                            with st.popover("Match Details JSON"):
+                                st.json(item['match_details'])
+
+                        # Action buttons (only for pending)
+                        if status == 'pending':
+                            btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 3])
+                            with btn_col1:
+                                if st.button("Approve", key=f"rq_approve_{item['id']}_{idx}",
+                                             type="primary", disabled=not rq_reviewer_email):
+                                    try:
+                                        execute_with_retry(
+                                            lambda rid=item['id']: db.rpc('approve_team_match', {
+                                                'review_id': rid,
+                                                'approver': rq_reviewer_email
+                                            })
+                                        )
+                                        st.success(f"Approved #{item['id']}")
+                                        st.rerun()
+                                    except Exception as exc:
+                                        st.error(f"Approve failed: {exc}")
+                            with btn_col2:
+                                if st.button("Reject", key=f"rq_reject_{item['id']}_{idx}",
+                                             disabled=not rq_reviewer_email):
+                                    try:
+                                        execute_with_retry(
+                                            lambda rid=item['id']: db.rpc('reject_team_match', {
+                                                'review_id': rid,
+                                                'reviewer': rq_reviewer_email
+                                            })
+                                        )
+                                        st.warning(f"Rejected #{item['id']}")
+                                        st.rerun()
+                                    except Exception as exc:
+                                        st.error(f"Reject failed: {exc}")
+                        elif status in ('approved', 'rejected'):
+                            st.caption(f"Reviewed by **{item.get('reviewed_by', '?')}** at {item.get('reviewed_at', '?')}")
+
+        except Exception as e:
+            st.error(f"Error loading review queue: {e}")
+            import traceback
+            st.code(traceback.format_exc())
 
 # ============================================================================
 # AGE GROUPS SECTION
