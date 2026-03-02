@@ -1055,23 +1055,39 @@ elif section == "📈 Database Import Stats":
                 with st.expander("Per-Provider Breakdown", expanded=True):
                     provider_rows = []
                     for prov in providers_list:
-                        pid = prov['id']
-                        p_recent = db.table('teams').select('id', count='exact').eq('provider_id', pid).gte('last_scraped_at', seven_days_ago).execute()
-                        p_stale = db.table('teams').select('id', count='exact').eq('provider_id', pid).lt('last_scraped_at', seven_days_ago).not_.is_('last_scraped_at', 'null').execute()
-                        p_never = db.table('teams').select('id', count='exact').eq('provider_id', pid).is_('last_scraped_at', 'null').execute()
-                        p_recent_ct = p_recent.count or 0
-                        p_stale_ct = p_stale.count or 0
-                        p_never_ct = p_never.count or 0
-                        p_total = p_recent_ct + p_stale_ct + p_never_ct
-                        p_coverage = (p_recent_ct / p_total * 100) if p_total > 0 else 0
-                        provider_rows.append({
-                            'Provider': prov['name'],
-                            'Recent (<7d)': p_recent_ct,
-                            'Stale (>7d)': p_stale_ct,
-                            'Never Scraped': p_never_ct,
-                            'Total': p_total,
-                            'Coverage': f"{p_coverage:.1f}%",
-                        })
+                        try:
+                            pid = prov['id']
+                            p_recent = execute_with_retry(
+                                lambda p=pid: db.table('teams').select('id', count='exact').eq('provider_id', p).gte('last_scraped_at', seven_days_ago)
+                            )
+                            p_stale = execute_with_retry(
+                                lambda p=pid: db.table('teams').select('id', count='exact').eq('provider_id', p).lt('last_scraped_at', seven_days_ago).neq('last_scraped_at', 'null')
+                            )
+                            p_never = execute_with_retry(
+                                lambda p=pid: db.table('teams').select('id', count='exact').eq('provider_id', p).is_('last_scraped_at', 'null')
+                            )
+                            p_recent_ct = p_recent.count or 0
+                            p_stale_ct = p_stale.count or 0
+                            p_never_ct = p_never.count or 0
+                            p_total = p_recent_ct + p_stale_ct + p_never_ct
+                            p_coverage = (p_recent_ct / p_total * 100) if p_total > 0 else 0
+                            provider_rows.append({
+                                'Provider': prov['name'],
+                                'Recent (<7d)': p_recent_ct,
+                                'Stale (>7d)': p_stale_ct,
+                                'Never Scraped': p_never_ct,
+                                'Total': p_total,
+                                'Coverage': f"{p_coverage:.1f}%",
+                            })
+                        except Exception as prov_err:
+                            provider_rows.append({
+                                'Provider': prov['name'],
+                                'Recent (<7d)': '?',
+                                'Stale (>7d)': '?',
+                                'Never Scraped': '?',
+                                'Total': '?',
+                                'Coverage': f"Error: {prov_err}",
+                            })
                     if provider_rows:
                         st.dataframe(pd.DataFrame(provider_rows), use_container_width=True, hide_index=True)
 
