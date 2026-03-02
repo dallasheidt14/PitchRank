@@ -312,7 +312,7 @@ export const blogPosts: BlogPost[] = [
             California isn't just the biggest state for youth soccer — it's the <strong>epicenter</strong>. With MLS Next academies, ECNL powerhouses, and hundreds of competitive clubs from San Diego to Sacramento, navigating the California youth soccer landscape can feel overwhelming.
           </p>
           <p className="text-muted-foreground leading-relaxed mb-4">
-            We're tracking <strong>15,693 California teams</strong> — more than any other ranking system. That's every age group from U9 to U19, every region, every level of play. Whether you're in Orange County wondering if your club is competitive with LA's best, or in the Bay Area comparing San Jose to Peninsula clubs, this guide gives you the clarity you need.
+            We're tracking <strong>15,693 California teams</strong> — more than any other ranking system. That's every age group from U10 to U18, every region, every level of play. Whether you're in Orange County wondering if your club is competitive with LA's best, or in the Bay Area comparing San Jose to Peninsula clubs, this guide gives you the clarity you need.
           </p>
           <p className="text-muted-foreground leading-relaxed">
             Here's everything California soccer parents need to know about youth soccer rankings in 2026 — backed by real data, not hype.
@@ -479,7 +479,7 @@ export const blogPosts: BlogPost[] = [
             </div>
             <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
               <Calendar className="size-5 text-primary shrink-0 mt-0.5" />
-              <p className="text-sm text-muted-foreground"><strong>12 age groups</strong> from U8 through U19</p>
+              <p className="text-sm text-muted-foreground"><strong>9 age groups</strong> from U10 through U18</p>
             </div>
             <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
               <Shield className="size-5 text-primary shrink-0 mt-0.5" />
@@ -748,7 +748,7 @@ export const blogPosts: BlogPost[] = [
             Why Arizona Soccer Rankings Matter
           </h2>
           <p className="text-muted-foreground leading-relaxed mb-4">
-            Arizona's youth soccer scene has exploded over the past decade. We're tracking <strong>1,940 teams across the state</strong> — from U9 recreational squads to U19 elite players heading to college. That's Phoenix Rising FC's youth academy, CCV Stars, FBSL, Arizona Arsenal, and hundreds more clubs competing across 11 age groups.
+            Arizona's youth soccer scene has exploded over the past decade. We're tracking <strong>1,940 teams across the state</strong> — from U10 developmental squads to U18 elite players heading to college. That's Phoenix Rising FC's youth academy, CCV Stars, FBSL, Arizona Arsenal, and hundreds more clubs competing across 11 age groups.
           </p>
           <p className="text-muted-foreground leading-relaxed mb-4">Rankings give you three things traditional standings can't:</p>
           <div className="grid gap-3 mb-4">
@@ -849,7 +849,7 @@ export const blogPosts: BlogPost[] = [
             </div>
             <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
               <Calendar className="size-5 text-primary shrink-0 mt-0.5" />
-              <p className="text-sm text-muted-foreground"><strong>11 age groups</strong> from U9 through U19</p>
+              <p className="text-sm text-muted-foreground"><strong>9 age groups</strong> from U10 through U18</p>
             </div>
             <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
               <Shield className="size-5 text-primary shrink-0 mt-0.5" />
