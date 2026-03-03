@@ -28,59 +28,43 @@ D H: "you can do whatever without my approval just don't mess with algo and star
 - Manually reviewing each age group for data cleanliness
 - Working through match review queue
 
-## 🔄 Today's Activity (Feb 23 - Monday)
+## 🔄 Current Status (March 3, 2026 — Tuesday 10:00am)
 
-### Morning (8:00am)
-- 👁️ **Watchy 8am health check:** ✅ Completed
-  - Data snapshot: Teams 96,7XX | Games 702,XXX ✅ | Quarantine **65 games** (stable)
-  - Status: All systems nominal heading into Monday scrape
-  - Errors: 1 timeout (non-blocking)
-  - [Full analysis in AGENT_COMMS.md]
+### Latest Activity
 
-### Mid-Morning (10:00am)
-- 🕷️ **Scrappy Monday Monitor:** ✅ Completed
-  - Monitored scrape batch, triggered new scrape
-  - Status: On schedule
-  - Errors: 1 timeout (non-blocking)
-
-### Afternoon (12:00pm)
-- 📊 **Ranky Monday Rankings Calculation:** ✅ Completed
-  - Calculated rankings post-scrape
-  - Status: Rankings updated
-  - Errors: 1 timeout (non-blocking)
-
-### Evening (8:00pm-10:30pm) — Monday Feb 23
-- 🧹 **Cleany Heartbeat Cycle:** ✅ Completed (with elevated errors)
-  - Full system health checks, agent status queries
-  - Status: All work completed successfully
-  - Errors: 14 timeouts + 15 total messages (error spike during heartbeat)
-  
-- 🧠 **COMPY nightly compound:** ✅ Complete (THIS SESSION)
-  - Sessions reviewed: 7 total (Main 1, Cleany 1, Watchy/Scrappy/Ranky/Compy 4)
-  - **CRITICAL PATTERN:** 30 total errors (26 timeouts, 12 connection errors) — 4x baseline
-  - Error analysis: Non-blocking load spike (Monday post-scrape high-concurrency window)
-  - **Major patterns documented:** New timeout spike pattern (load saturation) + U19 stable through Feb 23
-  - **Files updated:** LEARNINGS.md (Feb 23 timeout analysis), AGENT_COMMS.md (consolidated), DECISION_TREES.md (new timeout pattern)
-  - **Commit ready:** chore: COMPY nightly compound 2026-02-23
-
-## 🔄 Tuesday Activity (Feb 24)
-
-### Morning (10:00am) — Movy Weekly Movers
-📈 **Movy 10am Weekly Movers Report:** ✅ Completed
-- **Top Climbers:** Charleston SC U14 AD (+1607 to #1103), Union PA U12 (+1412 to #543), Charlotte Independence U14 AD (+1289 to #1451)
-- **Biggest Fallers:** Real Atletico FC CA U13 (-1300 to #1791), Woodlands TX U12 (-1104 to #2263), Pacific CA U14 (-1085 to #1755)
-- **Key Finding:** Algorithm working correctly — wins/losses driving movement, margins matter, SOS factor active
-- **Geographic distribution:** CA, PA, NC, TX, NH — balanced across regions
-- **Data quality:** Clean. Teams earning ranks through actual results.
-- **Status:** Report drafted for D H review
+**📈 Movy Weekly Movers Report:** ✅ COMPLETED (THIS SESSION)
+- Data snapshot: **March 2, 2026** (latest)
+- **Top Climber:** PRE-ACADEMY II 2014 (Barcelona United, U12 OH) — #2352 → #923 (+1,429)
+- **Biggest Faller:** CFU U12 Comp (CFU Soccer, U12 FL) — #946 → #1745 (-799)
+- **Algorithm Status:** ✅ WORKING — Movement correlates 1:1 to actual game results
+- **Data Quality:** HIGH — Quarantine stable at 117, games flowing (443 in 24h)
+- **Key Pattern:** TX academy divisions thriving, OH PRE divisions breaking through
+- **Status:** Report sent to D H
 - **Errors:** None
 
-### Summary (Feb 23)
-- 🟡 **Load spike detected** — 30 errors during Monday post-scrape cycle (4x baseline)
-- ✅ **All work completed** — Despite error elevation, all cron jobs and heartbeat finished successfully
-- ✅ **U19 stable** — Quarantine holding at 65 (confirmed through Feb 23)
-- 📈 **Data pipeline healthy** — Games flowing normally, rankings calculated
-- ⚠️ **New pattern identified:** Monday afternoon load spikes warrant monitoring for weekly trend
+### Recent History (Feb 23 - Mar 2)
+
+**U19 Scraper Filter Issue (Feb 24-25):** ✅ RESOLVED
+- Regression caused quarantine spike 65 → 1,751
+- Filter issue identified and corrected
+- Current quarantine: **117** (stable, manageable)
+- Data pipeline resumed normal operations by Feb 26
+
+**All Scheduled Agents (Feb 23 - Mar 3):**
+- 👁️ **Watchy:** Running ✅
+- 🕷️ **Scrappy (Mon/Wed):** Running ✅
+- 📊 **Ranky (Mon):** Running ✅ — Latest calc March 2
+- 📈 **Movy (Tue/Wed):** Running ✅ — This session
+- 📱 **Socialy (Wed):** Ready
+- 🧹 **Cleany (Sun):** Ready  
+- 🧠 **COMPY (nightly):** Running ✅
+- 💻 **Codey:** On-demand (available)
+
+### Summary (Recent Week)
+- ✅ **Pipeline recovered** from U19 regression
+- ✅ **All work completed successfully** — cron schedule maintained
+- ✅ **Algorithm validated** — large movements driven by actual results
+- 📈 **Data quality HIGH** — Ready for public consumption
 
 ## ⚠️ CRITICAL ALERT (Feb 24-25)
 
