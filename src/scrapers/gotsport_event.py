@@ -53,7 +53,7 @@ class GotSportEventScraper:
     BASE_URL = "https://system.gotsport.com"
     EVENT_BASE = "https://system.gotsport.com/org_event/events"
 
-    def __init__(self, supabase_client, provider_code: str = 'gotsport', skip_team_id_resolution: bool = True):
+    def __init__(self, supabase_client, provider_code: str = 'gotsport', skip_team_id_resolution: bool = False):
         """
         Initialize the event scraper
 
@@ -61,7 +61,7 @@ class GotSportEventScraper:
             supabase_client: Supabase client instance
             provider_code: Provider code (default: 'gotsport')
             skip_team_id_resolution: If True, skip expensive API team ID resolution
-                                    and use registration IDs directly (default: True)
+                                    and use registration IDs directly (default: False)
         """
         self.supabase_client = supabase_client
         self.provider_code = provider_code

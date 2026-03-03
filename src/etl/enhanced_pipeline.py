@@ -439,6 +439,24 @@ class EnhancedETLPipeline:
                     )
                     
                     if match_status == 'matched':
+                        # Regenerate game_uid using master IDs so the same physical game
+                        # always gets the same UID regardless of which scraper found it.
+                        # This prevents cross-scraper duplicates at the game_uid level.
+                        if home_team_id and away_team_id:
+                            master_game_uid = GameHistoryMatcher.generate_game_uid(
+                                provider=self.provider_code or 'gotsport',
+                                game_date=matched_game.get('game_date', ''),
+                                team1_id=home_team_id,
+                                team2_id=away_team_id,
+                            )
+                            old_uid = matched_game.get('game_uid', '')
+                            if master_game_uid != old_uid:
+                                logger.debug(
+                                    f"[Pipeline] Regenerated game_uid from provider IDs to master IDs: "
+                                    f"{old_uid} -> {master_game_uid}"
+                                )
+                            matched_game['game_uid'] = master_game_uid
+
                         game_records.append(matched_game)
                         matched_count += 1
                         batch_metrics.teams_matched += 2  # Home and away
@@ -558,6 +576,25 @@ class EnhancedETLPipeline:
                 for g in game_records:
                     g['_skip_composite_dedup'] = True
             else:
+                # Game UIDs were regenerated using master IDs after team matching.
+                # Re-check against the DB to catch cross-scraper duplicates where
+                # the same game was already imported with master-ID-based UIDs.
+                regen_existing_uids, regen_uid_master_ids = await self._check_duplicates(game_records)
+                if regen_existing_uids:
+                    pre_count = len(game_records)
+                    game_records = [g for g in game_records if g.get('game_uid') not in regen_existing_uids]
+                    regen_dupes = pre_count - len(game_records)
+                    if regen_dupes > 0:
+                        batch_metrics.duplicates_found = getattr(batch_metrics, 'duplicates_found', 0) + regen_dupes
+                        self.metrics.duplicates_found += regen_dupes
+                        logger.info(
+                            f"[Pipeline] Regenerated game_uid dedup: {regen_dupes} duplicates caught "
+                            f"(master-ID UIDs matched existing records)"
+                        )
+                    # Merge for downstream use
+                    existing_uids.update(regen_existing_uids)
+                    game_uid_to_master_ids.update(regen_uid_master_ids)
+
                 # For other providers, composite key is authoritative
                 existing_composite_keys = await self._check_duplicates_by_composite_key(game_records)
                 if existing_composite_keys:
