@@ -208,7 +208,7 @@ export async function GET(
         team_name: team.team_name,
         state: team.state_code,
         age: ranking?.age || null,
-        gender: (ranking?.gender || team.gender === "Male" ? "M" : "F") as
+        gender: (ranking?.gender || (team.gender === "Male" ? "M" : "F")) as
           | "M"
           | "F"
           | "B"
