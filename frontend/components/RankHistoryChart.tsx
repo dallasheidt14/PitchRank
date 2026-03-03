@@ -172,7 +172,7 @@ export function RankHistoryChart({ teamId }: RankHistoryChartProps) {
                 width={42}
               />
               <RechartsTooltip
-                content={({ active, payload }: { active?: boolean; payload?: Array<{ payload: (typeof chartData)[0] }> }) => {
+                content={({ active, payload }: { active?: boolean; payload?: ReadonlyArray<{ payload: (typeof chartData)[0] }> }) => {
                   if (!active || !payload?.[0]) return null;
                   const d = payload[0].payload;
                   return (
