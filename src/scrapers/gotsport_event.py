@@ -53,7 +53,7 @@ class GotSportEventScraper:
     BASE_URL = "https://system.gotsport.com"
     EVENT_BASE = "https://system.gotsport.com/org_event/events"
 
-    def __init__(self, supabase_client, provider_code: str = 'gotsport', skip_team_id_resolution: bool = True):
+    def __init__(self, supabase_client, provider_code: str = 'gotsport', skip_team_id_resolution: bool = False):
         """
         Initialize the event scraper
 
@@ -61,7 +61,7 @@ class GotSportEventScraper:
             supabase_client: Supabase client instance
             provider_code: Provider code (default: 'gotsport')
             skip_team_id_resolution: If True, skip expensive API team ID resolution
-                                    and use registration IDs directly (default: True)
+                                    and use registration IDs directly (default: False)
         """
         self.supabase_client = supabase_client
         self.provider_code = provider_code
@@ -1362,12 +1362,15 @@ class GotSportEventScraper:
                             venue = location_cell.get_text(strip=True)
                         
                         # Extract division/competition
+                        # The schedule page's "division" column contains the bracket name
+                        # (e.g., "2014 Chapman Auto Group"). Use the event name as the
+                        # competition (tournament) and preserve division separately.
                         division = None
                         competition = None
                         if division_col is not None and division_col < len(cells):
                             division_cell = cells[division_col]
                             division = division_cell.get_text(strip=True)
-                            competition = division
+                        competition = event_name or division
                         
                         # Extract age_group and gender from division/competition name
                         # Format examples: "SUPER PRO - U12B", "U14G", "U12 Boys", etc.
@@ -1432,6 +1435,7 @@ class GotSportEventScraper:
                                 'source_url': schedule_url,
                                 'scraped_at': datetime.now().isoformat(),
                                 'event_name': event_name or f"Event {event_id}",
+                                'division_name': division,
                                 'match_id': f"{event_id}_{home_team_id}_{away_team_id}_{game_date_str}" if home_team_id and away_team_id else None,
                                 'age_group': age_group,
                                 'gender': gender

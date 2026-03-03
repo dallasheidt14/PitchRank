@@ -439,6 +439,24 @@ class EnhancedETLPipeline:
                     )
                     
                     if match_status == 'matched':
+                        # Regenerate game_uid using master IDs so the same physical game
+                        # always gets the same UID regardless of which scraper found it.
+                        # This prevents cross-scraper duplicates at the game_uid level.
+                        if home_team_id and away_team_id:
+                            master_game_uid = GameHistoryMatcher.generate_game_uid(
+                                provider=self.provider_code or 'gotsport',
+                                game_date=matched_game.get('game_date', ''),
+                                team1_id=home_team_id,
+                                team2_id=away_team_id,
+                            )
+                            old_uid = matched_game.get('game_uid', '')
+                            if master_game_uid != old_uid:
+                                logger.debug(
+                                    f"[Pipeline] Regenerated game_uid from provider IDs to master IDs: "
+                                    f"{old_uid} -> {master_game_uid}"
+                                )
+                            matched_game['game_uid'] = master_game_uid
+
                         game_records.append(matched_game)
                         matched_count += 1
                         batch_metrics.teams_matched += 2  # Home and away
@@ -558,6 +576,25 @@ class EnhancedETLPipeline:
                 for g in game_records:
                     g['_skip_composite_dedup'] = True
             else:
+                # Game UIDs were regenerated using master IDs after team matching.
+                # Re-check against the DB to catch cross-scraper duplicates where
+                # the same game was already imported with master-ID-based UIDs.
+                regen_existing_uids, regen_uid_master_ids = await self._check_duplicates(game_records)
+                if regen_existing_uids:
+                    pre_count = len(game_records)
+                    game_records = [g for g in game_records if g.get('game_uid') not in regen_existing_uids]
+                    regen_dupes = pre_count - len(game_records)
+                    if regen_dupes > 0:
+                        batch_metrics.duplicates_found = getattr(batch_metrics, 'duplicates_found', 0) + regen_dupes
+                        self.metrics.duplicates_found += regen_dupes
+                        logger.info(
+                            f"[Pipeline] Regenerated game_uid dedup: {regen_dupes} duplicates caught "
+                            f"(master-ID UIDs matched existing records)"
+                        )
+                    # Merge for downstream use
+                    existing_uids.update(regen_existing_uids)
+                    game_uid_to_master_ids.update(regen_uid_master_ids)
+
                 # For other providers, composite key is authoritative
                 existing_composite_keys = await self._check_duplicates_by_composite_key(game_records)
                 if existing_composite_keys:
@@ -568,6 +605,23 @@ class EnhancedETLPipeline:
                     self.metrics.duplicates_found += len(existing_composite_keys)
                     logger.info(f"[Pipeline] Filtered to {len(game_records)} new games after composite key duplicate check")
             
+            # Step 3b2: Master-level dedup — catch cross-scraper duplicates
+            # The event scraper and team scraper may use different provider_team_ids
+            # (registration IDs vs API team IDs) for the same physical team. Since
+            # game_uid and composite key both use provider_team_ids, they miss these.
+            # After team matching resolves master IDs, check for existing games with
+            # the same (game_date, master team pair, scores) regardless of provider IDs.
+            master_dedup_removed = await self._check_duplicates_by_master_ids(game_records)
+            if master_dedup_removed > 0:
+                pre_count = len(game_records)
+                game_records = [g for g in game_records if not g.get('_master_dedup_skip')]
+                batch_metrics.duplicates_found = getattr(batch_metrics, 'duplicates_found', 0) + master_dedup_removed
+                self.metrics.duplicates_found += master_dedup_removed
+                logger.info(
+                    f"[Pipeline] Master-level dedup: removed {master_dedup_removed} cross-scraper "
+                    f"duplicates ({pre_count} -> {len(game_records)} games)"
+                )
+
             # Step 3c: Handle games where game_uid exists but scores differ
             # Check if master team IDs match - if not, it's a different game (e.g., U13 vs U14)
             # and we should allow insertion (it will fail due to unique constraint, but we'll handle that)
@@ -1128,7 +1182,129 @@ class EnhancedETLPipeline:
                 # Continue processing even if duplicate check fails
         
         return existing_composite_keys
-    
+
+    async def _check_duplicates_by_master_ids(self, game_records: List[Dict]) -> int:
+        """
+        Catch cross-scraper duplicates using master team IDs instead of provider IDs.
+
+        The event scraper and team scraper may use different provider_team_ids
+        (registration IDs vs API team IDs) for the same physical team. Since
+        game_uid and composite key both rely on provider_team_ids, they miss
+        these cross-scraper duplicates.
+
+        After team matching has resolved master IDs, this method checks for
+        existing games with matching (game_date, master team pair, scores)
+        regardless of which provider_team_ids were used.
+
+        Marks duplicates with '_master_dedup_skip' = True for filtering by caller.
+
+        Returns:
+            Number of duplicates found
+        """
+        if not game_records:
+            return 0
+
+        duplicates_found = 0
+
+        def _safe_int(val):
+            """Normalize score to int for consistent comparison."""
+            if val is None:
+                return None
+            try:
+                return int(float(val))
+            except (ValueError, TypeError):
+                return None
+
+        # Group incoming games by date for efficient querying
+        games_by_date: Dict[str, List[Dict]] = {}
+        for game in game_records:
+            game_date = game.get('game_date', '')
+            home_master = game.get('home_team_master_id')
+            away_master = game.get('away_team_master_id')
+
+            # Only check games where BOTH master IDs are resolved
+            if not game_date or not home_master or not away_master:
+                continue
+
+            if game_date not in games_by_date:
+                games_by_date[game_date] = []
+            games_by_date[game_date].append(game)
+
+        if not games_by_date:
+            return 0
+
+        # Query DB for existing games on each date
+        for game_date, incoming_games in games_by_date.items():
+            try:
+                # Collect all master IDs involved in incoming games for this date
+                master_ids = set()
+                for g in incoming_games:
+                    master_ids.add(g['home_team_master_id'])
+                    master_ids.add(g['away_team_master_id'])
+
+                # Query existing games on this date involving any of these master teams
+                master_id_list = list(master_ids)
+                or_filter = ','.join(
+                    f'home_team_master_id.eq.{mid},away_team_master_id.eq.{mid}'
+                    for mid in master_id_list
+                )
+
+                result = self.supabase.table('games').select(
+                    'home_team_master_id, away_team_master_id, home_score, away_score'
+                ).eq('game_date', game_date).or_(or_filter).execute()
+
+                if not result.data:
+                    continue
+
+                # Build a set of existing master-level keys from DB
+                # Key: (sorted_master_id_1, sorted_master_id_2, score_for_id_1, score_for_id_2)
+                existing_master_keys = set()
+                for row in result.data:
+                    h_master = row.get('home_team_master_id')
+                    a_master = row.get('away_team_master_id')
+                    h_score = _safe_int(row.get('home_score'))
+                    a_score = _safe_int(row.get('away_score'))
+
+                    if h_master and a_master:
+                        sorted_ids = tuple(sorted([h_master, a_master]))
+                        if sorted_ids[0] == h_master:
+                            key = (sorted_ids[0], sorted_ids[1], h_score, a_score)
+                        else:
+                            key = (sorted_ids[0], sorted_ids[1], a_score, h_score)
+                        existing_master_keys.add(key)
+
+                # Check incoming games against existing master-level keys
+                for game in incoming_games:
+                    if game.get('_master_dedup_skip'):
+                        continue  # Already marked
+
+                    h_master = game.get('home_team_master_id')
+                    a_master = game.get('away_team_master_id')
+                    h_score = _safe_int(game.get('home_score'))
+                    a_score = _safe_int(game.get('away_score'))
+
+                    sorted_ids = tuple(sorted([h_master, a_master]))
+                    if sorted_ids[0] == h_master:
+                        key = (sorted_ids[0], sorted_ids[1], h_score, a_score)
+                    else:
+                        key = (sorted_ids[0], sorted_ids[1], a_score, h_score)
+
+                    if key in existing_master_keys:
+                        game['_master_dedup_skip'] = True
+                        duplicates_found += 1
+                        logger.info(
+                            f"[Pipeline] Master-level duplicate: game on {game_date} "
+                            f"({h_master[:8]}.. vs {a_master[:8]}..) score {h_score}-{a_score} "
+                            f"already exists with different provider IDs. "
+                            f"game_uid={game.get('game_uid')}"
+                        )
+
+            except Exception as e:
+                logger.warning(f"Error in master-level dedup check for date {game_date}: {e}")
+                # Non-fatal: continue without this check rather than block the import
+
+        return duplicates_found
+
     async def _update_games_with_scores(self, game_records: List[Dict]) -> int:
         """
         Update existing games with new scores from CSV.

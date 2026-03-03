@@ -1015,6 +1015,8 @@ def scrape_new_events(
                 'goals_against': game.goals_against,
                 'result': game.result or 'U',
                 'competition': game.competition or '',
+                'division_name': game.meta.get('division_name', '') if game.meta else '',
+                'event_name': game.meta.get('event_name', '') if game.meta else '',
                 'venue': game.venue or '',
                 'source_url': game.meta.get('source_url', '') if game.meta else '',
                 'scraped_at': game.meta.get('scraped_at', datetime.now().isoformat()) if game.meta else datetime.now().isoformat(),
