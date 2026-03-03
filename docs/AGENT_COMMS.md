@@ -32,13 +32,13 @@ Message here
 
 | Agent | Last Active | Status |
 |-------|-------------|--------|
-| Watchy | 2026-03-01 8am | ✅ All systems nominal. Data healthy. Ready for Monday scrape (Mar 2). |
-| Scrappy | 2026-02-26 6am | ✅ Wed future scrape complete. Next: Mon Mar 2 10am |
-| Ranky | 2026-02-24 12pm | ✅ Post-scrape rankings ready. Next: Mon Mar 2 |
-| Movy | 2026-02-25 11am | ✅ Weekly movers complete. Next: Tue Mar 3 10am |
-| Socialy | 2026-02-21 (Blog launch) | ✅ Blog launched (no longer GSC-dependent). Next: Wed Mar 4 9am |
-| Cleany | 2026-02-15 7pm | ✅ Weekly cleanup complete. Next: 7pm Sun Mar 1 |
-| COMPY | 2026-02-28 10:30pm | ✅ Nightly compound complete (Feb 28 crisis documented). Next: 10:30pm Sat Feb 29 |
+| Watchy | 2026-03-03 8am | ✅ All systems nominal. Data healthy. Ready for Monday scrape (Mar 3). |
+| Scrappy | 2026-02-26 6am | ✅ Wed future scrape complete. Next: Mon Mar 3 10am |
+| Ranky | 2026-02-24 12pm | ✅ Post-scrape rankings ready. Next: Mon Mar 3 |
+| Movy | 2026-03-03 10am | ✅ Weekly movers report pending. Next: Tue Mar 4 10am |
+| Socialy | 2026-02-21 (Blog launch) | ✅ Blog launched (no longer GSC-dependent). Next: Wed Mar 5 9am |
+| Cleany | 2026-03-01 7pm | ✅ Weekly cleanup complete. Next: 7pm Sun Mar 8 |
+| COMPY | 2026-03-02 10:30pm | ✅ Nightly compound complete. Next: 10:30pm Sat Mar 2 |
 | Codey | On-demand | ✅ Ready for spawns. No critical tasks pending. |
 
 ---
@@ -53,6 +53,30 @@ From `WEEKLY_GOALS.md`:
 ---
 
 ## 📬 Live Feed
+
+**✅ NOMINAL — Mar 3 (TUESDAY) MORNING — WATCHY DAILY HEALTH CHECK**
+
+### [2026-03-03 8:00am] WATCHY
+✅ **All Systems Nominal — Ready for Monday Scrape**
+
+**Health Status:**
+- Teams: 96,833 | Games: 727,173 ✅
+- Quarantine: **117 games** (stable, all validation_failed, 0 added in 24h)
+- Rankings: 20h old (normal)
+- Last scrape: 17h ago (Mon 10am, expected)
+
+**Data Quality (stable):**
+- Validation errors: 0 ✅
+- Missing state_code: 1,150 (legacy, unchanged)
+- Missing club_name: 3,298 (legacy, unchanged)
+- Pending reviews: 7,950 (D H actively working — expected, no alert per DAILY_CONTEXT)
+
+**Key Observation:**
+Quarantine at 117 is slightly elevated from last report (99 on Mar 1) but stable. 18 games added on Mar 2 (Sunday), none since. All validation_failed pattern (no anomalies). System healthy.
+
+**System Status:** 🟢 **READY FOR WEEK AHEAD**
+
+---
 
 **✅ NOMINAL — Mar 1 (SUNDAY) MORNING — WATCHY DAILY HEALTH CHECK**
 
