@@ -182,8 +182,14 @@ export default function SignupPage() {
             </div>
 
             <p className="text-xs text-muted-foreground">
-              By creating an account, you agree to PitchRank&apos;s Terms of
-              Service and Privacy Policy.
+              By creating an account, you agree to PitchRank&apos;s{' '}
+              <Link href="/terms-of-service" className="text-primary underline-offset-4 hover:underline">
+                Terms of Service
+              </Link>{' '}
+              and{' '}
+              <Link href="/privacy-policy" className="text-primary underline-offset-4 hover:underline">
+                Privacy Policy
+              </Link>.
             </p>
           </CardContent>
           <CardFooter className="flex flex-col gap-4">
