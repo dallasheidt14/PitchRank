@@ -22,6 +22,9 @@ import {
   Flame,
   Snowflake,
   Activity,
+  Shield,
+  Zap,
+  Trophy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type {
@@ -136,6 +139,48 @@ export function InsightModal({
                   {seasonTruth.text}
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
+                  {/* Play Style Badge */}
+                  {seasonTruth.details.playStyle && (
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium",
+                        seasonTruth.details.playStyle === "Two-Way Powerhouse"
+                          ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-400"
+                          : seasonTruth.details.playStyle === "High-Octane Attack"
+                            ? "bg-red-500/20 text-red-700 dark:text-red-400"
+                            : seasonTruth.details.playStyle === "Defensive Wall"
+                              ? "bg-sky-500/20 text-sky-700 dark:text-sky-400"
+                              : seasonTruth.details.playStyle === "Rebuilding"
+                                ? "bg-gray-500/20 text-gray-700 dark:text-gray-400"
+                                : "bg-indigo-500/20 text-indigo-700 dark:text-indigo-400"
+                      )}
+                    >
+                      {seasonTruth.details.playStyle === "Two-Way Powerhouse" && <Trophy className="h-3 w-3" />}
+                      {seasonTruth.details.playStyle === "High-Octane Attack" && <Zap className="h-3 w-3" />}
+                      {seasonTruth.details.playStyle === "Defensive Wall" && <Shield className="h-3 w-3" />}
+                      {(seasonTruth.details.playStyle === "Balanced Squad" || seasonTruth.details.playStyle === "Rebuilding") && <Target className="h-3 w-3" />}
+                      {seasonTruth.details.playStyle}
+                    </span>
+                  )}
+                  {/* Current Streak Badge */}
+                  {seasonTruth.details.currentStreak && (
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium",
+                        seasonTruth.details.currentStreak.startsWith("W")
+                          ? "bg-green-500/20 text-green-700 dark:text-green-400"
+                          : seasonTruth.details.currentStreak.startsWith("L")
+                            ? "bg-red-500/20 text-red-700 dark:text-red-400"
+                            : "bg-muted text-muted-foreground"
+                      )}
+                    >
+                      {seasonTruth.details.currentStreak.startsWith("W")
+                        ? `Won ${seasonTruth.details.currentStreak.slice(1)} straight`
+                        : seasonTruth.details.currentStreak.startsWith("L")
+                          ? `Lost ${seasonTruth.details.currentStreak.slice(1)} straight`
+                          : `Drew ${seasonTruth.details.currentStreak.slice(1)} straight`}
+                    </span>
+                  )}
                   {/* Rank Trajectory Badge - based on perf_centered */}
                   <span
                     className={cn(
@@ -155,6 +200,12 @@ export function InsightModal({
                         ? "Rank Falling"
                         : "Rank Stable"}
                   </span>
+                  {/* Rank Velocity Badge */}
+                  {seasonTruth.details.rankVelocity && (
+                    <span className="text-xs px-2.5 py-1 rounded-full bg-muted text-muted-foreground font-medium">
+                      {seasonTruth.details.rankVelocity}
+                    </span>
+                  )}
                   {/* SOS Badge - informational context only */}
                   <span className="text-xs px-2.5 py-1 rounded-full bg-muted text-muted-foreground font-medium">
                     SOS: {seasonTruth.details.sosPercentile}th percentile
@@ -313,6 +364,13 @@ export function InsightModal({
                 <p className="text-foreground/90 leading-relaxed">
                   {persona.explanation}
                 </p>
+
+                {/* Signature Result */}
+                {persona.details.signatureResult && (
+                  <p className="mt-2 text-sm italic text-muted-foreground border-l-2 border-primary/30 pl-3">
+                    Highlight: {persona.details.signatureResult}
+                  </p>
+                )}
 
                 <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                   <div className="bg-background/50 rounded-lg p-3">

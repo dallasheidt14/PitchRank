@@ -13,6 +13,9 @@ import {
   Snowflake,
   Lock,
   Info,
+  Shield,
+  Zap,
+  Trophy,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUser, hasPremiumAccess } from '@/hooks/useUser';
@@ -194,46 +197,81 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
         <CardDescription>AI-powered scouting analysis</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Persona Badge - Most visual, show first */}
-        {persona && (
-          <div className="flex items-center gap-2">
+        {/* Top row: Persona + Play Style badges side by side */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Persona Badge */}
+          {persona && (
+            <>
+              <div
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold text-sm',
+                  persona.label === 'Giant Killer'
+                    ? 'bg-purple-500/20 text-purple-700 dark:text-purple-300'
+                    : persona.label === 'Flat Track Bully'
+                      ? 'bg-orange-500/20 text-orange-700 dark:text-orange-300'
+                      : persona.label === 'Gatekeeper'
+                        ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300'
+                        : 'bg-gray-500/20 text-gray-700 dark:text-gray-300'
+                )}
+              >
+                <Swords className="h-4 w-4" />
+                {persona.label === 'Giant Killer' && '🗡️'}
+                {persona.label === 'Flat Track Bully' && '💪'}
+                {persona.label === 'Gatekeeper' && '🛡️'}
+                {persona.label === 'Wildcard' && '🃏'}
+                {persona.label}
+              </div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-[280px]">
+                  <p className="font-semibold mb-1">Team Persona</p>
+                  <p className="text-xs">
+                    {persona.label === 'Giant Killer'
+                      ? 'This team punches above their weight - they consistently beat higher-ranked opponents.'
+                      : persona.label === 'Flat Track Bully'
+                        ? 'This team dominates weaker opponents but struggles against top competition.'
+                        : persona.label === 'Gatekeeper'
+                          ? 'A solid, reliable team that wins the games they should and keeps things competitive against stronger teams.'
+                          : 'Unpredictable results - this team can beat anyone or lose to anyone on any given day.'}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </>
+          )}
+
+          {/* Play Style Badge */}
+          {seasonTruth?.details.playStyle && (
             <div
               className={cn(
                 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold text-sm',
-                persona.label === 'Giant Killer'
-                  ? 'bg-purple-500/20 text-purple-700 dark:text-purple-300'
-                  : persona.label === 'Flat Track Bully'
-                    ? 'bg-orange-500/20 text-orange-700 dark:text-orange-300'
-                    : persona.label === 'Gatekeeper'
-                      ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300'
-                      : 'bg-gray-500/20 text-gray-700 dark:text-gray-300'
+                seasonTruth.details.playStyle === 'Two-Way Powerhouse'
+                  ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
+                  : seasonTruth.details.playStyle === 'High-Octane Attack'
+                    ? 'bg-red-500/20 text-red-700 dark:text-red-300'
+                    : seasonTruth.details.playStyle === 'Defensive Wall'
+                      ? 'bg-sky-500/20 text-sky-700 dark:text-sky-300'
+                      : seasonTruth.details.playStyle === 'Rebuilding'
+                        ? 'bg-gray-500/20 text-gray-700 dark:text-gray-300'
+                        : 'bg-indigo-500/20 text-indigo-700 dark:text-indigo-300'
               )}
             >
-              <Swords className="h-4 w-4" />
-              {persona.label === 'Giant Killer' && '🗡️'}
-              {persona.label === 'Flat Track Bully' && '💪'}
-              {persona.label === 'Gatekeeper' && '🛡️'}
-              {persona.label === 'Wildcard' && '🃏'}
-              {persona.label}
+              {seasonTruth.details.playStyle === 'Two-Way Powerhouse' && <Trophy className="h-4 w-4" />}
+              {seasonTruth.details.playStyle === 'High-Octane Attack' && <Zap className="h-4 w-4" />}
+              {seasonTruth.details.playStyle === 'Defensive Wall' && <Shield className="h-4 w-4" />}
+              {seasonTruth.details.playStyle === 'Balanced Squad' && <Target className="h-4 w-4" />}
+              {seasonTruth.details.playStyle === 'Rebuilding' && <Target className="h-4 w-4" />}
+              {seasonTruth.details.playStyle}
             </div>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Info className="h-4 w-4 text-muted-foreground cursor-help" />
-              </TooltipTrigger>
-              <TooltipContent side="right" className="max-w-[280px]">
-                <p className="font-semibold mb-1">Team Persona</p>
-                <p className="text-xs">
-                  {persona.label === 'Giant Killer'
-                    ? 'This team punches above their weight - they consistently beat higher-ranked opponents.'
-                    : persona.label === 'Flat Track Bully'
-                      ? 'This team dominates weaker opponents but struggles against top competition.'
-                      : persona.label === 'Gatekeeper'
-                        ? 'A solid, reliable team that wins the games they should and keeps things competitive against stronger teams.'
-                        : 'Unpredictable results - this team can beat anyone or lose to anyone on any given day.'}
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          </div>
+          )}
+        </div>
+
+        {/* Signature Result - if available */}
+        {persona?.details.signatureResult && (
+          <p className="text-xs text-muted-foreground italic border-l-2 border-primary/30 pl-2">
+            {persona.details.signatureResult}
+          </p>
         )}
 
         {/* Consistency Score */}
@@ -296,6 +334,29 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
         {/* Season Truth - Structured list with labels */}
         {seasonTruth && (
           <div className="space-y-2 text-sm">
+            {/* Current Streak - concrete, team-specific */}
+            {seasonTruth.details.currentStreak && (
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Streak</span>
+                <span
+                  className={cn(
+                    'inline-flex items-center gap-1 px-2 py-0.5 rounded font-medium',
+                    seasonTruth.details.currentStreak.startsWith('W')
+                      ? 'bg-green-500/20 text-green-700 dark:text-green-400'
+                      : seasonTruth.details.currentStreak.startsWith('L')
+                        ? 'bg-red-500/20 text-red-700 dark:text-red-400'
+                        : 'bg-muted text-muted-foreground'
+                  )}
+                >
+                  {seasonTruth.details.currentStreak.startsWith('W')
+                    ? `Won ${seasonTruth.details.currentStreak.slice(1)} straight`
+                    : seasonTruth.details.currentStreak.startsWith('L')
+                      ? `Lost ${seasonTruth.details.currentStreak.slice(1)} straight`
+                      : `Drew ${seasonTruth.details.currentStreak.slice(1)} straight`}
+                </span>
+              </div>
+            )}
+
             {/* Rank Trajectory - Based on recent form (perf_centered) */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
@@ -333,6 +394,16 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
                     : 'Stable'}
               </span>
             </div>
+
+            {/* Rank Velocity - specific movement context */}
+            {seasonTruth.details.rankVelocity && (
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Movement</span>
+                <span className="text-xs font-medium text-foreground/80">
+                  {seasonTruth.details.rankVelocity}
+                </span>
+              </div>
+            )}
 
             {/* Schedule Strength - Informational context */}
             <div className="flex items-center justify-between">

@@ -174,12 +174,49 @@ function getConsistencyLabel(
 }
 
 /**
+ * Count games with valid scores for a team
+ */
+function countScoredGames(
+  games: InsightInputData["games"],
+  teamId: string
+): number {
+  let count = 0;
+  for (const game of games) {
+    const isHome = game.home_team_master_id === teamId;
+    const teamScore = isHome ? game.home_score : game.away_score;
+    const oppScore = isHome ? game.away_score : game.home_score;
+    if (teamScore !== null && oppScore !== null) count++;
+  }
+  return count;
+}
+
+/** Minimum scored games required for a meaningful consistency score */
+const MIN_GAMES_FOR_CONSISTENCY = 3;
+
+/**
  * Generate the Consistency Score insight
  */
 export function generateConsistencyScore(
   data: InsightInputData
 ): ConsistencyInsight {
   const { team, games, rankingHistory } = data;
+
+  const scoredGames = countScoredGames(games, team.team_id_master);
+
+  // With fewer than 3 scored games, default to a neutral "unpredictable"
+  // instead of inflating the score from near-zero variance
+  if (scoredGames < MIN_GAMES_FOR_CONSISTENCY) {
+    return {
+      type: "consistency_score",
+      score: 50,
+      label: "unpredictable",
+      details: {
+        goalDifferentialStdDev: 0,
+        streakFragmentation: 0,
+        powerScoreVolatility: 0,
+      },
+    };
+  }
 
   const goalDifferentialStdDev = calculateGoalDiffStdDev(games, team.team_id_master);
   const streakFragmentation = calculateStreakFragmentation(games, team.team_id_master);
