@@ -39,11 +39,11 @@ export async function GET(request: Request) {
     }
   );
 
-  // Handle magic link (token_hash flow)
+  // Handle magic link / email confirmation (token_hash flow)
   if (token_hash && type) {
     const { error: verifyError } = await supabase.auth.verifyOtp({
       token_hash,
-      type: type as "magiclink" | "signup" | "recovery" | "invite" | "email_change",
+      type: type as "magiclink" | "signup" | "recovery" | "invite" | "email_change" | "email",
     });
 
     if (verifyError) {
@@ -60,6 +60,21 @@ export async function GET(request: Request) {
 
     if (exchangeError) {
       console.error("[Auth Callback] Code exchange error:", exchangeError.message);
+
+      // When PKCE code exchange fails (e.g., user opened the email confirmation
+      // link in a different browser/tab where the code_verifier cookie is missing),
+      // the email is still confirmed by Supabase — only the session creation failed.
+      // Redirect to login with a success message so the user can sign in manually.
+      const isCodeVerifierError = exchangeError.message.toLowerCase().includes("code verifier")
+        || exchangeError.message.toLowerCase().includes("code_verifier")
+        || exchangeError.message.toLowerCase().includes("pkce");
+
+      if (isCodeVerifierError) {
+        return NextResponse.redirect(
+          `${origin}/login?message=${encodeURIComponent("Email confirmed! Please sign in with your password.")}`
+        );
+      }
+
       return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(exchangeError.message)}`);
     }
 

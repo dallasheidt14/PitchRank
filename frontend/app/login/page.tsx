@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClientSupabase } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -15,15 +15,19 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Loader2, Mail, Lock } from "lucide-react";
+import { Loader2, Mail, Lock, CheckCircle2 } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = useMemo(() => createClientSupabase(), []);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(searchParams.get("error"));
+
+  // Success message from auth callback (e.g., email confirmed)
+  const successMessage = searchParams.get("message");
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,6 +72,12 @@ export default function LoginPage() {
         </CardHeader>
         <form onSubmit={handleEmailLogin}>
           <CardContent className="space-y-4">
+            {successMessage && (
+              <div data-testid="login-success" className="flex items-center gap-2 rounded-md bg-green-500/10 p-3 text-sm text-green-700 dark:text-green-400">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                {successMessage}
+              </div>
+            )}
             {error && (
               <div data-testid="login-error" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
                 {error}
