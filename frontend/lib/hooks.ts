@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
-import type { Team, RankingWithTeam, TeamTrajectory, GameWithTeams, TeamWithRanking } from './types';
+import type { Team, RankingWithTeam, TeamTrajectory, GameWithTeams, TeamWithRanking, RankHistoryPoint } from './types';
 import type { TeamPredictive } from '@/types/TeamPredictive';
 
 /**
@@ -77,6 +77,22 @@ export function useTeamGames(id: string, limit: number = 50) {
     staleTime: 2 * 60 * 1000, // 2 minutes - games update more frequently
     gcTime: 15 * 60 * 1000, // Keep in cache for 15 minutes
     retry: 1, // Retry once on failure (overrides global network-only retry)
+  });
+}
+
+/**
+ * Get ranking history for a team (weekly Monday snapshots, up to 12 months)
+ * @param id - team_id_master UUID
+ * @returns React Query hook result with RankHistoryPoint[]
+ */
+export function useRankHistory(id: string) {
+  return useQuery<RankHistoryPoint[]>({
+    queryKey: ['rank-history', id],
+    queryFn: () => api.getRankHistory(id),
+    enabled: !!id,
+    staleTime: 30 * 60 * 1000, // 30 minutes (rankings update weekly on Mondays)
+    gcTime: 60 * 60 * 1000, // 1 hour cache
+    retry: 1,
   });
 }
 
