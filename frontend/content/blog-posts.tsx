@@ -1481,6 +1481,10 @@ export const blogPosts: BlogPost[] = [
               <p className="text-sm text-muted-foreground"><strong>Direct contact</strong> — Emails to coaches with video links beat high rankings</p>
             </div>
           </div>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings/az/u16/male" className="text-primary hover:underline">View AZ U16 boys rankings</a> • <a href="/rankings/az/u17/female" className="text-primary hover:underline">AZ U17 girls rankings</a></p>
+          </div>
         </section>
 
         {/* FAQ */}
