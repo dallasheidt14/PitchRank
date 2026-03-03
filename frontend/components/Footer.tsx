@@ -64,6 +64,10 @@ export function Footer() {
       { name: 'Methodology', href: '/methodology' },
       { name: 'Blog', href: '/blog' },
     ],
+    Legal: [
+      { name: 'Terms of Service', href: '/terms-of-service' },
+      { name: 'Privacy Policy', href: '/privacy-policy' },
+    ],
   };
 
   return (
@@ -133,6 +137,20 @@ export function Footer() {
                 </li>
               ))}
             </ul>
+
+            <h4 className="font-display font-semibold uppercase tracking-wide mb-4 mt-6">Legal</h4>
+            <ul className="space-y-2">
+              {footerLinks.Legal.map((link) => (
+                <li key={link.name}>
+                  <Link
+                    href={link.href}
+                    className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {link.name}
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
 
@@ -175,6 +193,18 @@ export function Footer() {
               © {currentYear} PitchRank. All rights reserved.
             </p>
             <div className="flex gap-6">
+              <Link
+                href="/terms-of-service"
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Terms
+              </Link>
+              <Link
+                href="/privacy-policy"
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Privacy
+              </Link>
               <Link
                 href="/methodology"
                 className="text-sm text-muted-foreground hover:text-foreground transition-colors"
