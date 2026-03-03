@@ -13,8 +13,13 @@ const AUTH_ROUTES = ["/login", "/signup"];
 export async function middleware(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl;
 
-  // NOTE: Canonical URL redirect removed - Vercel handles this via project settings
-  // Configure in Vercel Dashboard > Settings > Domains to pick www or non-www
+  // Redirect non-www to www for canonical URL (SEO)
+  const hostname = request.headers.get('host') || '';
+  if (hostname === 'pitchrank.io') {
+    const wwwUrl = new URL(request.url);
+    wwwUrl.host = 'www.pitchrank.io';
+    return NextResponse.redirect(wwwUrl, 301);
+  }
 
   // Redirect auth codes to /auth/callback
   const code = searchParams.get("code");

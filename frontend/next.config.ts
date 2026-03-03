@@ -31,6 +31,23 @@ const nextConfig: NextConfig = {
     ],
   },
 
+  // 301 redirects from non-www to www for SEO canonical URL
+  async redirects() {
+    return [
+      {
+        source: '/:path*',
+        has: [
+          {
+            type: 'host',
+            value: 'pitchrank.io',
+          },
+        ],
+        destination: 'https://www.pitchrank.io/:path*',
+        permanent: true,
+      },
+    ];
+  },
+
   // Security headers
   async headers() {
     return [

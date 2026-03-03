@@ -34,7 +34,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://pitchrank.io"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://www.pitchrank.io"),
   title: {
     default: "PitchRank — Youth Soccer Rankings",
     template: "%s | PitchRank",
@@ -67,7 +67,7 @@ export const metadata: Metadata = {
     apple: "/logos/pitchrank-symbol.svg",
   },
   alternates: {
-    canonical: process.env.NEXT_PUBLIC_SITE_URL || "https://pitchrank.io",
+    canonical: process.env.NEXT_PUBLIC_SITE_URL || "https://www.pitchrank.io",
   },
   openGraph: {
     type: "website",
