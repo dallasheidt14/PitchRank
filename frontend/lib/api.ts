@@ -7,6 +7,7 @@ import type {
   TeamTrajectory,
   GameWithTeams,
   TeamWithRanking,
+  RankHistoryPoint,
 } from './types';
 import type { TeamPredictive } from '@/types/TeamPredictive';
 
@@ -1012,6 +1013,60 @@ export const api = {
       totalGames: gamesCount || 0,
       totalTeams: teamsCount || 0,
     };
+  },
+
+  /**
+   * Get ranking history snapshots for a team (weekly Monday snapshots, up to 12 months)
+   * Returns data points aligned to Mondays for the rank history chart
+   * @param id - team_id_master UUID
+   * @returns Array of RankHistoryPoint sorted oldest-to-newest
+   */
+  async getRankHistory(id: string): Promise<RankHistoryPoint[]> {
+    // Go back 12 months
+    const cutoff = new Date();
+    cutoff.setFullYear(cutoff.getFullYear() - 1);
+    const cutoffStr = cutoff.toISOString().split('T')[0];
+
+    const { data, error } = await supabase
+      .from('ranking_history')
+      .select('snapshot_date, rank_in_cohort, rank_in_cohort_ml')
+      .eq('team_id', id)
+      .gte('snapshot_date', cutoffStr)
+      .order('snapshot_date', { ascending: true });
+
+    if (error) {
+      console.error('[api.getRankHistory] Error:', error.message);
+      throw error;
+    }
+
+    if (!data || data.length === 0) return [];
+
+    // Filter to only Monday snapshots (day 1) and dedupe by week
+    const seen = new Set<string>();
+    const points: RankHistoryPoint[] = [];
+
+    for (const row of data as Array<{
+      snapshot_date: string;
+      rank_in_cohort: number;
+      rank_in_cohort_ml: number | null;
+    }>) {
+      // Find the Monday of this snapshot's week
+      const d = new Date(row.snapshot_date + 'T00:00:00');
+      const day = d.getUTCDay(); // 0=Sun, 1=Mon, ...
+      const diff = day === 0 ? -6 : 1 - day; // shift to Monday
+      d.setUTCDate(d.getUTCDate() + diff);
+      const mondayKey = d.toISOString().split('T')[0];
+
+      if (seen.has(mondayKey)) continue;
+      seen.add(mondayKey);
+
+      points.push({
+        snapshot_date: mondayKey,
+        rank: row.rank_in_cohort_ml ?? row.rank_in_cohort,
+      });
+    }
+
+    return points;
   },
 };
 

@@ -30,6 +30,11 @@ const LazyTeamInsightsCard = dynamic(
   { ssr: true, loading: () => <div className="h-40 animate-pulse bg-muted rounded-lg" /> }
 );
 
+const LazyRankHistoryChart = dynamic(
+  () => import('@/components/RankHistoryChart').then(mod => ({ default: mod.RankHistoryChart })),
+  { ssr: true, loading: () => <div className="h-[240px] animate-pulse bg-muted rounded-lg" /> }
+);
+
 interface TeamPageShellProps {
   id: string;
 }
@@ -103,6 +108,7 @@ export function TeamPageShell({ id }: TeamPageShellProps) {
       queryClient.invalidateQueries({ queryKey: ['team', id] });
       queryClient.invalidateQueries({ queryKey: ['team-games', id] });
       queryClient.invalidateQueries({ queryKey: ['team-trajectory', id] });
+      queryClient.invalidateQueries({ queryKey: ['rank-history', id] });
     }
     previousIdRef.current = id;
   }, [id, queryClient]);
@@ -135,8 +141,11 @@ export function TeamPageShell({ id }: TeamPageShellProps) {
             <SectionErrorBoundary fallbackTitle="Failed to load game history.">
               <GameHistoryTable teamId={id} />
             </SectionErrorBoundary>
-            {/* Right column: Momentum + Insights stacked */}
+            {/* Right column: Rank History + Momentum + Insights stacked */}
             <div className="flex flex-col gap-4">
+              <SectionErrorBoundary fallbackTitle="Failed to load ranking history.">
+                <LazyRankHistoryChart teamId={id} />
+              </SectionErrorBoundary>
               <SectionErrorBoundary fallbackTitle="Failed to load momentum data.">
                 <LazyMomentumMeter teamId={id} />
               </SectionErrorBoundary>

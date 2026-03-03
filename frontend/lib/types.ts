@@ -170,6 +170,14 @@ export interface TeamTrajectory {
 }
 
 /**
+ * Ranking history snapshot - weekly rank position for charting
+ */
+export interface RankHistoryPoint {
+  snapshot_date: string; // ISO date string (Monday)
+  rank: number;
+}
+
+/**
  * Game with team names (for display purposes)
  * Extends Game interface which already includes ml_overperformance
  */

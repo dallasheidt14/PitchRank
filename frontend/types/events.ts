@@ -74,7 +74,7 @@ export interface PredictionEventPayload {
  * Payload for chart view events
  */
 export interface ChartViewEventPayload {
-  chart_type: 'momentum' | 'trajectory';
+  chart_type: 'momentum' | 'trajectory' | 'rank_history';
   team_id_master: string;
   team_name?: string | null;
 }
