@@ -49,6 +49,10 @@ export const blogPosts: BlogPost[] = [
             This guide breaks down everything you need to know about youth soccer rankings, with real data from 
             <strong> over 101,000 teams</strong> tracked across the United States.
           </p>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings" className="text-primary hover:underline">Explore team rankings across all states and age groups</a></p>
+          </div>
         </section>
 
         {/* What Are Youth Soccer Rankings */}
@@ -87,6 +91,10 @@ export const blogPosts: BlogPost[] = [
             tournaments nationwide. PitchRank alone processes data from <strong>726,730+ games</strong> to generate 
             accurate rankings.
           </p>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings/ca" className="text-primary hover:underline">View California youth soccer rankings</a> • <a href="/rankings/tx" className="text-primary hover:underline">Texas rankings</a> • <a href="/rankings/fl" className="text-primary hover:underline">Florida rankings</a></p>
+          </div>
         </section>
 
         {/* Why Rankings Matter */}
@@ -232,6 +240,10 @@ export const blogPosts: BlogPost[] = [
               the methodology helps you interpret the numbers correctly.
             </p>
           </div>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/methodology" className="text-primary hover:underline">Read our complete ranking methodology explained</a></p>
+          </div>
         </section>
 
         {/* What to Look For */}
@@ -357,6 +369,10 @@ export const blogPosts: BlogPost[] = [
             league administrators. Our goal is to give you the information you need to make smart decisions about your 
             child's soccer journey.
           </p>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings" className="text-primary hover:underline">Find your team's ranking now</a></p>
+          </div>
         </section>
 
         {/* Practical Advice */}
@@ -739,6 +755,10 @@ export const blogPosts: BlogPost[] = [
           <p className="text-muted-foreground leading-relaxed">
             Here's everything California soccer parents need to know about youth soccer rankings in 2026 — backed by real data, not hype.
           </p>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings/ca" className="text-primary hover:underline">View all California youth soccer rankings</a></p>
+          </div>
         </section>
 
         {/* Why Rankings Matter */}
@@ -875,6 +895,10 @@ export const blogPosts: BlogPost[] = [
           <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
             <p className="text-sm"><strong>Key insight:</strong> U12-U14 is the most competitive age range with the most teams. This is when players often move from recreational to competitive soccer, creating intense competition for roster spots at top clubs.</p>
           </div>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings/ca/u13/male" className="text-primary hover:underline">View CA U13 boys rankings</a> • <a href="/rankings/ca/u13/female" className="text-primary hover:underline">CA U13 girls</a> • <a href="/rankings/ca/u14/male" className="text-primary hover:underline">CA U14 boys</a></p>
+          </div>
         </section>
 
         {/* How Rankings Work */}
@@ -938,6 +962,10 @@ export const blogPosts: BlogPost[] = [
               <p><strong className="text-orange-600">0.30-0.49</strong> = Developing/mid-level (league play)</p>
               <p><strong className="text-muted-foreground">Below 0.30</strong> = Recreational or limited data</p>
             </div>
+          </div>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/methodology" className="text-primary hover:underline">Learn how our ranking algorithm works</a></p>
           </div>
         </section>
 
@@ -1004,6 +1032,10 @@ export const blogPosts: BlogPost[] = [
               <h4 className="font-semibold text-gray-700 dark:text-gray-400 mb-2">Tier 4: State & Regional Leagues</h4>
               <p className="text-sm text-muted-foreground">Coast Soccer League, Presidio League, SCDSL, NorCal Premier. Competitive soccer without elite-level travel/cost. Great for development focus.</p>
             </div>
+          </div>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings/ca/u15/male" className="text-primary hover:underline">See CA U15 boys rankings</a> • <a href="/rankings/ca/u16/female" className="text-primary hover:underline">CA U16 girls rankings</a></p>
           </div>
         </section>
 
@@ -1161,6 +1193,10 @@ export const blogPosts: BlogPost[] = [
           <p className="text-muted-foreground leading-relaxed">
             If you've searched "Arizona soccer rankings" and felt more confused than when you started, you're not alone. Here's everything Arizona parents need to know about youth soccer rankings in 2026 — no jargon, just straight answers.
           </p>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings/az" className="text-primary hover:underline">View all Arizona youth soccer rankings</a></p>
+          </div>
         </section>
 
         {/* Why Rankings Matter */}
@@ -1245,6 +1281,10 @@ export const blogPosts: BlogPost[] = [
               <p className="text-sm text-muted-foreground">Rapidly growing soccer community with new clubs emerging</p>
             </div>
           </div>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings/az/u14/male" className="text-primary hover:underline">View AZ U14 boys rankings</a> • <a href="/rankings/az/u13/female" className="text-primary hover:underline">AZ U13 girls</a></p>
+          </div>
         </section>
 
         {/* How Rankings Work */}
@@ -1309,6 +1349,10 @@ export const blogPosts: BlogPost[] = [
               <p><strong className="text-muted-foreground">Below 0.30</strong> = Recreational or limited data</p>
             </div>
           </div>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/methodology" className="text-primary hover:underline">Understand our ranking methodology</a></p>
+          </div>
         </section>
 
         {/* What Rankings Mean */}
@@ -1348,6 +1392,10 @@ export const blogPosts: BlogPost[] = [
               <AlertTriangle className="size-5 text-yellow-600 shrink-0 mt-0.5" />
               <p className="text-sm text-muted-foreground"><strong>Team culture</strong> — Your kid's enjoyment and mental health matter more than ranking</p>
             </div>
+          </div>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings/az" className="text-primary hover:underline">Check your Arizona team's current ranking</a></p>
           </div>
         </section>
 
