@@ -26,6 +26,16 @@ export type FormSignal =
 export type RankTrajectory = "rising" | "falling" | "stable";
 
 /**
+ * Play style derived from offense_norm vs defense_norm
+ */
+export type PlayStyle =
+  | "Two-Way Powerhouse"
+  | "High-Octane Attack"
+  | "Defensive Wall"
+  | "Balanced Squad"
+  | "Rebuilding";
+
+/**
  * Season Truth Summary - narrative evaluation of team's season
  * Uses v53e perf_centered to predict rank trajectory
  */
@@ -45,6 +55,14 @@ export interface SeasonTruthInsight {
     offenseNorm: number | null;
     /** Defensive strength percentile (0-1) from v53e */
     defenseNorm: number | null;
+    /** Play style derived from offense/defense balance */
+    playStyle: PlayStyle | null;
+    /** Current W/L/D streak, e.g. "W5" or "L2" */
+    currentStreak: string | null;
+    /** Rank velocity narrative, e.g. "Climbed 42 spots in 8 weeks" */
+    rankVelocity: string | null;
+    /** Cohort context, e.g. "12th of 347 Boys U14 teams (top 3%)" */
+    cohortContext: string | null;
   };
 }
 
@@ -76,6 +94,8 @@ export interface PersonaInsight {
     totalVsLowerRanked: number;
     winRateVsTop: number;
     winRateVsBottom: number;
+    /** Best win description, e.g. "Beat #3 opponent 4-1" */
+    signatureResult: string | null;
   };
 }
 

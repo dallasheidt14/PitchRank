@@ -195,6 +195,41 @@ function determinePersona(stats: ReturnType<typeof analyzePerformanceByTier>): {
 }
 
 /**
+ * Finds the most impressive win: highest-ranked opponent beaten by the largest margin.
+ * Returns a string like "Beat #3 opponent 4-1" or null if no notable wins.
+ */
+function findSignatureResult(
+  games: InsightInputData["games"],
+  teamId: string
+): string | null {
+  let bestScore = -Infinity;
+  let bestResult: string | null = null;
+
+  for (const game of games) {
+    const isHome = game.home_team_master_id === teamId;
+    const teamScore = isHome ? game.home_score : game.away_score;
+    const oppScore = isHome ? game.away_score : game.home_score;
+    const oppRank = game.opponent_rank;
+
+    if (teamScore === null || oppScore === null) continue;
+    if (teamScore <= oppScore) continue; // Only wins
+    if (oppRank === null) continue;
+
+    // Score: prioritize beating high-ranked opponents, tie-break by margin
+    // Lower opponent rank = more impressive, so invert it
+    const margin = teamScore - oppScore;
+    const impressiveness = (1 / oppRank) * 1000 + margin;
+
+    if (impressiveness > bestScore) {
+      bestScore = impressiveness;
+      bestResult = `Beat #${oppRank} opponent ${teamScore}-${oppScore}`;
+    }
+  }
+
+  return bestResult;
+}
+
+/**
  * Generate the Persona insight
  */
 export function generatePersonaInsight(data: InsightInputData): PersonaInsight {
@@ -208,6 +243,7 @@ export function generatePersonaInsight(data: InsightInputData): PersonaInsight {
   );
 
   const { label, explanation } = determinePersona(stats);
+  const signatureResult = findSignatureResult(games, team.team_id_master);
 
   const winRateVsTop =
     stats.totalVsHigherRanked > 0
@@ -229,6 +265,7 @@ export function generatePersonaInsight(data: InsightInputData): PersonaInsight {
       totalVsLowerRanked: stats.totalVsLowerRanked,
       winRateVsTop,
       winRateVsBottom,
+      signatureResult,
     },
   };
 }
