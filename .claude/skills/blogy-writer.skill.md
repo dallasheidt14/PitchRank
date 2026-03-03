@@ -145,6 +145,49 @@ python3 scripts/blog_research.py --state AZ --json
 3. **Honest:** Acknowledge when rankings aren't everything
 4. **Actionable:** Give parents something to DO with the information
 5. **Local flavor:** State-specific posts should feel local with real club names
+6. **Multiple CTAs:** Drive users to rankings throughout the post (see below)
+
+### CTAs and Internal Linking (CRITICAL for SEO + Conversions)
+
+**Every blog post needs 3-5 CTAs minimum**, not just one at the end.
+
+#### CTA Placement Strategy:
+1. **After the intro** (paragraph 2-3): "See where your team ranks →"
+2. **Mid-article** (after a key insight): Contextual link to relevant ranking page
+3. **After data sections**: "Explore [State] rankings by age group"
+4. **Before conclusion**: Specific CTA related to the section topic
+5. **End CTA**: Broader call to explore rankings
+
+#### CTA Examples by Context:
+
+**State guides:**
+- "→ Check your Arizona team's current ranking"
+- "→ Browse all U13 Boys rankings in Arizona"
+- "→ See how [Top Club Name] teams are ranked"
+
+**Methodology/educational posts:**
+- "→ See the algorithm in action: explore California rankings"
+- "→ Find your team and check their PowerScore"
+
+**Pain point posts:**
+- "→ Is your team actually competitive? Check their ranking"
+- "→ Compare clubs before tryouts: see club rankings"
+
+#### Internal Link Targets:
+- `/rankings` — General rankings page
+- `/rankings/[state]` — State overview (when available)
+- `/rankings/[state]/[age]/[gender]` — Specific ranking pages
+- `/methodology` — How rankings work
+- `/blog/[related-post]` — Related blog posts
+
+#### CTA Styling in JSX:
+```jsx
+<div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+  <p className="font-semibold">→ <a href="/rankings/az/u13/male" className="text-primary hover:underline">Check Arizona U13 Boys Rankings</a></p>
+</div>
+```
+
+**Rule: If a parent reads a section and wonders "where does MY team stand?" — there should be a CTA right there.**
 
 ### Citing Our Data (Examples)
 
@@ -188,6 +231,8 @@ Before finishing any post:
 - [ ] Would a busy parent read past the first paragraph?
 - [ ] Is every claim backed by data or clearly labeled as opinion?
 - [ ] Are there clear takeaways/action items?
+- [ ] **Does it have 3-5 CTAs linking to ranking pages?** (not just one at end!)
+- [ ] **Are CTAs contextual?** (linking to specific state/age/gender pages, not just /rankings)
 - [ ] Does it naturally link to relevant PitchRank pages?
 - [ ] Is the meta description compelling?
 - [ ] Is the post added to blog-posts.tsx (not as MDX)?
