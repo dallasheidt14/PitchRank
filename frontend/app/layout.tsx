@@ -62,9 +62,14 @@ export const metadata: Metadata = {
     telephone: false,
   },
   icons: {
-    icon: "/logos/favicon.ico",
+    icon: [
+      { url: "/logos/favicon.ico", sizes: "48x48" },
+      { url: "/logos/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+      { url: "/logos/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+      { url: "/logos/logo-icon.svg", type: "image/svg+xml" },
+    ],
     shortcut: "/logos/favicon.ico",
-    apple: "/logos/pitchrank-symbol.svg",
+    apple: "/logos/apple-touch-icon.png",
   },
   alternates: {
     canonical: process.env.NEXT_PUBLIC_SITE_URL || "https://www.pitchrank.io",
