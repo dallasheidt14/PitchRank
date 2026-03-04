@@ -186,7 +186,7 @@ export function RankHistoryChart({ teamId }: RankHistoryChartProps) {
               <Line
                 type="monotone"
                 dataKey="rank"
-                stroke="hsl(var(--primary))"
+                stroke="var(--primary)"
                 strokeWidth={2}
                 dot={chartData.length <= 16}
                 activeDot={{ r: 4, strokeWidth: 2 }}

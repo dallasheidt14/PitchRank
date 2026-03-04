@@ -260,7 +260,7 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
             {/* Reference line at 0 */}
             <ReferenceLine
               y={0}
-              stroke="hsl(var(--muted-foreground))"
+              stroke="var(--muted-foreground)"
               strokeDasharray="3 3"
               strokeWidth={1}
             />
@@ -282,7 +282,7 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
             <Line
               type="monotone"
               dataKey="goalDifferential"
-              stroke="hsl(var(--primary))"
+              stroke="var(--primary)"
               strokeWidth={2}
               strokeOpacity={0.5}
               dot={(props: any) => {
@@ -307,7 +307,7 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
             <Line
               type="monotone"
               dataKey="movingAverage"
-              stroke="hsl(var(--accent))"
+              stroke="var(--accent)"
               strokeWidth={3}
               dot={false}
               connectNulls={false}
