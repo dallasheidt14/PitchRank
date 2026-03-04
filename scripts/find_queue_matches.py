@@ -222,6 +222,9 @@ def extract_team_variant(name):
 
     def _extract_candidate(text):
         """Find the first unknown word in *text* that looks like a coach/squad name."""
+        # Normalize hyphens to spaces so "PRE-ECNL" → "PRE ECNL"
+        # (each part checked individually against _skip_words)
+        text = text.replace('-', ' ')
         for word in text.split():
             w = word.strip('-()[].,').lower()
             if not w or len(w) < 3:
