@@ -210,7 +210,7 @@ def extract_team_variant(name):
                     'strikers', 'raiders', 'warriors', 'knights', 'spartans', 'titans', 'trojans',
                     # League/program abbreviations (synced from find_fuzzy_duplicate_teams.PROGRAM_WORDS)
                     'stxcl', 'scdsl', 'dpl', 'dplo', 'npl', 'tal', 'fdl', 'copa', 'nal',
-                    'comp', 'recreational', 'reserve', 'classic', 'division', 'ecrl',
+                    'comp', 'recreational', 'reserve', 'classic', 'division', 'ecrl', 'regional',
                     'showcase', 'challenge', 'development', 'competitive',
                     # Common squad/mascot names that appear in team names
                     'royal', 'cosmos', 'celtic', 'rovers', 'arsenal', 'mustangs', 'wolves',
