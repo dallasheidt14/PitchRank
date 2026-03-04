@@ -30,7 +30,11 @@ export class SectionErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('[SectionErrorBoundary]', error, errorInfo);
+    console.error('[SectionErrorBoundary]', this.props.fallbackTitle || 'unknown section', {
+      error: error?.message || error,
+      stack: error?.stack,
+      componentStack: errorInfo?.componentStack,
+    });
   }
 
   render() {

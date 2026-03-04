@@ -26,6 +26,12 @@
  * parseLocalDate("2025-11-02T00:00:00.000Z") // Local midnight, Nov 2
  */
 export function parseLocalDate(dateString: string): Date {
+  // Guard against null/undefined at runtime (database may return null despite TS types)
+  if (!dateString) {
+    console.warn('parseLocalDate called with falsy value:', dateString);
+    return new Date(NaN);
+  }
+
   // Handle both YYYY-MM-DD and full ISO timestamps
   // Extract just the date portion (first 10 characters)
   const datePart = dateString.substring(0, 10);
@@ -62,6 +68,9 @@ export function formatGameDate(
   }
 ): string {
   const date = parseLocalDate(dateString);
+  if (isNaN(date.getTime())) {
+    return '—';
+  }
   return date.toLocaleDateString('en-US', options);
 }
 

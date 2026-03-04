@@ -249,81 +249,86 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
           </TableHeader>
           <TableBody>
             {games.map((game) => {
-              const result = getResult(game, teamId);
-              const opponent = getOpponent(game, teamId);
-              const opponentClub = getOpponentClub(game, teamId);
-              const opponentId = getOpponentId(game, teamId);
-              const opponentProviderId = getOpponentProviderId(game, teamId);
-              const score = getScore(game, teamId);
+              try {
+                const result = getResult(game, teamId);
+                const opponent = getOpponent(game, teamId);
+                const opponentClub = getOpponentClub(game, teamId);
+                const opponentId = getOpponentId(game, teamId);
+                const opponentProviderId = getOpponentProviderId(game, teamId);
+                const score = getScore(game, teamId);
 
-              return (
-                <TableRow key={game.id}>
-                  <TableCell className="text-xs sm:text-sm whitespace-nowrap">
-                    {formatGameDate(game.game_date, { month: 'short', day: 'numeric', year: '2-digit' })}
-                  </TableCell>
-                  <TableCell className="max-w-[140px] sm:max-w-none whitespace-normal sm:whitespace-nowrap">
-                    {opponentId ? (
-                      // Team is linked - show link or fallback text
-                      <div className="flex flex-col">
-                        {opponent ? (
-                          <Link
-                            href={`/teams/${opponentId}`}
-                            onMouseEnter={() => prefetchTeam(opponentId)}
-                            className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block truncate sm:whitespace-normal sm:overflow-visible"
-                            aria-label={`View ${opponent} team details`}
-                            title={opponent}
-                          >
-                            {opponent}
-                          </Link>
-                        ) : (
-                          // Team is linked but name lookup failed - still show link
-                          <Link
-                            href={`/teams/${opponentId}`}
-                            onMouseEnter={() => prefetchTeam(opponentId)}
-                            className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block text-muted-foreground"
-                            aria-label="View team details"
-                          >
-                            (Team linked)
-                          </Link>
-                        )}
-                        {opponentClub && (
-                          <span className="text-xs text-muted-foreground mt-0.5 truncate sm:whitespace-normal">
-                            {opponentClub}
-                          </span>
-                        )}
-                      </div>
-                    ) : opponentProviderId ? (
-                      // Team is NOT linked but has provider ID - show linking option
-                      <UnknownOpponentLink
-                        game={game}
-                        currentTeamId={teamId}
-                        opponentProviderId={opponentProviderId}
-                        onLinked={() => refetch()}
-                        defaultAge={team?.age}
-                        defaultGender={team?.gender}
-                      />
-                    ) : (
-                      // No team ID and no provider ID - truly unknown
-                      <span className="text-muted-foreground truncate sm:whitespace-normal">{opponent || 'Unknown'}</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-center">
-                    {result.text}
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {score.team !== null && score.opponent !== null ? (
-                      <span className={scoreColor(getTeamPerspectiveOverperformance(game, teamId))}>
-                        {score.team}-{score.opponent}
-                      </span>
-                    ) : (
-                      '—'
-                    )}
-                  </TableCell>
-                  <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
-                    {game.competition || game.division_name || '—'}
-                  </TableCell>
-                </TableRow>
-              );
+                return (
+                  <TableRow key={game.id}>
+                    <TableCell className="text-xs sm:text-sm whitespace-nowrap">
+                      {formatGameDate(game.game_date, { month: 'short', day: 'numeric', year: '2-digit' })}
+                    </TableCell>
+                    <TableCell className="max-w-[140px] sm:max-w-none whitespace-normal sm:whitespace-nowrap">
+                      {opponentId ? (
+                        // Team is linked - show link or fallback text
+                        <div className="flex flex-col">
+                          {opponent ? (
+                            <Link
+                              href={`/teams/${opponentId}`}
+                              onMouseEnter={() => prefetchTeam(opponentId)}
+                              className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block truncate sm:whitespace-normal sm:overflow-visible"
+                              aria-label={`View ${opponent} team details`}
+                              title={opponent}
+                            >
+                              {opponent}
+                            </Link>
+                          ) : (
+                            // Team is linked but name lookup failed - still show link
+                            <Link
+                              href={`/teams/${opponentId}`}
+                              onMouseEnter={() => prefetchTeam(opponentId)}
+                              className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block text-muted-foreground"
+                              aria-label="View team details"
+                            >
+                              (Team linked)
+                            </Link>
+                          )}
+                          {opponentClub && (
+                            <span className="text-xs text-muted-foreground mt-0.5 truncate sm:whitespace-normal">
+                              {opponentClub}
+                            </span>
+                          )}
+                        </div>
+                      ) : opponentProviderId ? (
+                        // Team is NOT linked but has provider ID - show linking option
+                        <UnknownOpponentLink
+                          game={game}
+                          currentTeamId={teamId}
+                          opponentProviderId={opponentProviderId}
+                          onLinked={() => refetch()}
+                          defaultAge={team?.age}
+                          defaultGender={team?.gender}
+                        />
+                      ) : (
+                        // No team ID and no provider ID - truly unknown
+                        <span className="text-muted-foreground truncate sm:whitespace-normal">{opponent || 'Unknown'}</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {result.text}
+                    </TableCell>
+                    <TableCell className="text-right font-mono">
+                      {score.team !== null && score.opponent !== null ? (
+                        <span className={scoreColor(getTeamPerspectiveOverperformance(game, teamId))}>
+                          {score.team}-{score.opponent}
+                        </span>
+                      ) : (
+                        '—'
+                      )}
+                    </TableCell>
+                    <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
+                      {game.competition || game.division_name || '—'}
+                    </TableCell>
+                  </TableRow>
+                );
+              } catch (rowError) {
+                console.error('[GameHistoryTable] Error rendering row:', game?.id, rowError);
+                return null;
+              }
             })}
           </TableBody>
         </Table>
