@@ -51,6 +51,11 @@ export async function GET(request: Request) {
       return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(verifyError.message)}`);
     }
 
+    // For password recovery, redirect to the reset password page
+    if (type === "recovery") {
+      return NextResponse.redirect(`${origin}/reset-password`);
+    }
+
     return NextResponse.redirect(`${origin}${next}`);
   }
 
