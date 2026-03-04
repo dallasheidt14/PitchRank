@@ -61,14 +61,9 @@ export async function GET(request: Request) {
 
   // Handle OAuth/PKCE (code exchange flow)
   if (code) {
-    // For password recovery, pass the code to the client so the session is
-    // established directly in the browser. Server-side code exchange sets
-    // cookies that the browser Supabase client can't always read, causing
-    // updateUser() to hang.
     const isRecovery = type === "recovery" || cookieStore.get("password_reset_pending")?.value === "true";
     if (isRecovery) {
       cookieStore.set("password_reset_pending", "", { path: "/", maxAge: 0 });
-      return NextResponse.redirect(`${origin}/reset-password?code=${encodeURIComponent(code)}`);
     }
 
     const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
@@ -91,6 +86,11 @@ export async function GET(request: Request) {
       }
 
       return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(exchangeError.message)}`);
+    }
+
+    // For recovery, redirect to reset-password page
+    if (isRecovery) {
+      return NextResponse.redirect(`${origin}/reset-password`);
     }
 
     return NextResponse.redirect(`${origin}${next}`);
