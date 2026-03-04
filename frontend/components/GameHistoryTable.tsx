@@ -221,7 +221,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
   }
 
   return (
-    <Card className="border-l-4 border-l-accent">
+    <Card className="border-l-4 border-l-accent overflow-hidden">
       <CardHeader>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -236,8 +236,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
           </div>
         </div>
       </CardHeader>
-      <CardContent className="-mx-4 sm:mx-0">
-        <div className="overflow-x-auto touch-pan-x">
+      <CardContent className="px-0 sm:px-6">
         <Table>
           <TableHeader>
             <TableRow>
@@ -262,7 +261,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                   <TableCell className="text-xs sm:text-sm whitespace-nowrap">
                     {formatGameDate(game.game_date, { month: 'short', day: 'numeric', year: '2-digit' })}
                   </TableCell>
-                  <TableCell className="max-w-[120px] sm:max-w-none">
+                  <TableCell className="max-w-[140px] sm:max-w-none whitespace-normal sm:whitespace-nowrap">
                     {opponentId ? (
                       // Team is linked - show link or fallback text
                       <div className="flex flex-col">
@@ -328,7 +327,6 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
             })}
           </TableBody>
         </Table>
-        </div>
       </CardContent>
     </Card>
   );
