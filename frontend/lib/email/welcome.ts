@@ -54,7 +54,7 @@ export async function sendWelcomeEmail(email: string): Promise<boolean> {
 
   try {
     const { error } = await resend.emails.send({
-      from: 'PitchRank <newsletter@pitchrank.io>',
+      from: 'PitchRank <newsletter@mail.pitchrank.io>',
       to: email,
       subject: 'Welcome to PitchRank!',
       html: WELCOME_EMAIL_HTML,
