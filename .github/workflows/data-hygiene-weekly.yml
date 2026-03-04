@@ -94,7 +94,7 @@ jobs:
       # ── Step 1: Club Name Standardization ─────────────────
       - name: 'Step 1: Club Name Standardization'
         id: step1
-        if: ${{ !contains(github.event.inputs.skip_steps || '', '1') }}
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',1,') }}
         run: |
           echo "═══════════════════════════════════════════════════"
           echo "STEP 1: CLUB NAME STANDARDIZATION"
@@ -117,7 +117,7 @@ jobs:
       # ── Step 2: Normalize Team Names ──────────────────────
       - name: 'Step 2: Normalize Team Names'
         id: step2
-        if: ${{ !contains(github.event.inputs.skip_steps || '', '2') }}
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',2,') }}
         run: |
           echo "═══════════════════════════════════════════════════"
           echo "STEP 2: NORMALIZE TEAM NAMES"
@@ -136,7 +136,7 @@ jobs:
       # ── Step 3: Fuzzy Duplicate Merge ─────────────────────
       - name: 'Step 3: Fuzzy Duplicate Merge'
         id: step3
-        if: ${{ !contains(github.event.inputs.skip_steps || '', '3') }}
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',3,') }}
         run: |
           echo "═══════════════════════════════════════════════════"
           echo "STEP 3: FUZZY DUPLICATE MERGE"
@@ -182,7 +182,7 @@ jobs:
       # ── Step 4: Match Review Queue ────────────────────────
       - name: 'Step 4: Match Review Queue'
         id: step4
-        if: ${{ !contains(github.event.inputs.skip_steps || '', '4') }}
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',4,') }}
         run: |
           echo "═══════════════════════════════════════════════════"
           echo "STEP 4: MATCH REVIEW QUEUE"

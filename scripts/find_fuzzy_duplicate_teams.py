@@ -59,6 +59,7 @@ PROGRAM_WORDS = frozenset({
     "academy", "premier", "select", "elite", "ecnl", "ecrl", "npl",
     "ga", "rl", "comp", "recreational", "tal", "stxcl", "dpl", "scdsl",
     "next", "copa", "nal", "reserve", "classic", "division", "fdl",
+    "pre",  # qualifier in PRE-ECNL
 })
 
 # ── Location / region codes (sub-club branches) ────────────────────
@@ -80,6 +81,7 @@ NOISE_WORDS = frozenset({
     "soccer", "club", "futbol", "football", "youth",
     "boys", "girls", "the", "of", "and",
     "b", "g", "m", "f",
+    "united", "city", "real", "inter", "sporting", "athletic",  # common club suffixes
 })
 
 # US state codes — not differentiating (just the team's state)
@@ -104,7 +106,7 @@ def _tokenize(name: str) -> list[str]:
     return [w.strip("()[]'*") for w in normalized.split() if w.strip("()[]'*")]
 
 
-def extract_distinctions(name: str) -> dict:
+def extract_distinctions(name: str, club_name: str = "") -> dict:
     """
     Extract every distinguishing feature from a team name.
 
@@ -127,6 +129,12 @@ def extract_distinctions(name: str) -> dict:
         return empty
 
     tokens = _tokenize(name)
+
+    # Strip club name words so they don't become phantom squad_words
+    # e.g. "Fever United 2014 Mee" with club "Fever United" → drop "fever"
+    if club_name:
+        club_tokens = set(_tokenize(club_name)) - NOISE_WORDS
+        tokens = [t for t in tokens if t not in club_tokens]
 
     colors = set()
     directions = set()
@@ -237,13 +245,13 @@ def extract_distinctions(name: str) -> dict:
     }
 
 
-def _should_skip_pair(name_a: str, name_b: str) -> bool:
+def _should_skip_pair(name_a: str, name_b: str, club_name: str = "") -> bool:
     """
     Compare extracted distinctions. Skip (return True) if ANY feature
     differs — these are different teams within the same club.
     """
-    da = extract_distinctions(name_a)
-    db = extract_distinctions(name_b)
+    da = extract_distinctions(name_a, club_name=club_name)
+    db = extract_distinctions(name_b, club_name=club_name)
 
     # Colors must match (Red vs Blue = different team)
     if da["colors"] != db["colors"]:
@@ -253,8 +261,10 @@ def _should_skip_pair(name_a: str, name_b: str) -> bool:
     if da["directions"] != db["directions"]:
         return True
 
-    # Programs/leagues must match (Academy vs Premier, ECNL vs ECRL, NPL vs none)
-    if da["programs"] != db["programs"]:
+    # Programs/leagues: only block when BOTH have programs that conflict.
+    # If only one side has a league tag (e.g. PRE-ECNL vs none), it's a
+    # naming difference from different providers, not a different team.
+    if da["programs"] and db["programs"] and da["programs"] != db["programs"]:
         return True
 
     # Team numbers must match (1 vs 2, I vs II)
@@ -311,6 +321,16 @@ def score_team_pair(team_a: dict, team_b: dict) -> float | None:
     club_b = (team_b.get("club_name") or "").strip().lower()
     if club_a and club_b and club_a == club_b:
         score = min(1.0, score + 0.15)
+        # When clubs match, also score with club words stripped —
+        # handles "FC PRE-ECNL 2014 Mee" vs "Fever United 2014 Mee"
+        # where the club name appears differently in each team name
+        club_words = set(club_a.split()) | NOISE_WORDS
+        stripped_a = ' '.join(w for w in norm_a.split() if w not in club_words)
+        stripped_b = ' '.join(w for w in norm_b.split() if w not in club_words)
+        if stripped_a and stripped_b:
+            stripped_score = SequenceMatcher(None, stripped_a, stripped_b).ratio()
+            # Use the better of the two scores (with club boost already applied)
+            score = max(score, min(1.0, stripped_score + 0.15))
 
     name_a_lower = name_a.lower()
     name_b_lower = name_b.lower()
@@ -418,7 +438,7 @@ def run_fuzzy_duplicates(
                 if club_a != club_b:
                     continue
                 # Red 1 vs Red 2, Academy vs Premier, or one generic name without age — skip
-                if _should_skip_pair(ta["team_name"], tb["team_name"]):
+                if _should_skip_pair(ta["team_name"], tb["team_name"], club_name=club_a):
                     continue
                 id_a, id_b = ta["team_id_master"], tb["team_id_master"]
                 key = (min(id_a, id_b), max(id_a, id_b))
