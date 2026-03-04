@@ -125,6 +125,14 @@ function LoginForm() {
                 />
               </div>
             </div>
+            <div className="flex justify-end">
+              <Link
+                href="/forgot-password"
+                className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+              >
+                Forgot password?
+              </Link>
+            </div>
           </CardContent>
           <CardFooter className="flex flex-col gap-4">
             <Button data-testid="login-submit" type="submit" className="w-full" disabled={isLoading}>

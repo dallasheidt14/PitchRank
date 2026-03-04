@@ -79,7 +79,7 @@ export async function sendWeeklyDigest(data: DigestData) {
   `;
 
   await resend.emails.send({
-    from: 'PitchRank <digest@pitchrank.io>',
+    from: 'PitchRank <digest@mail.pitchrank.io>',
     to: email,
     subject: `📊 PitchRank Weekly: ${climbers.length > 0 ? `${climbers[0].team_name} moved up ${climbers[0].rank_change_7d} spots!` : 'Your Watchlist Update'}`,
     html,
