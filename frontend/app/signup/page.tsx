@@ -15,7 +15,22 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Loader2, Mail, Lock, CheckCircle2 } from "lucide-react";
+import { Loader2, Mail, Lock, CheckCircle2, AlertTriangle, RefreshCw } from "lucide-react";
+
+/**
+ * Detect if a Supabase auth error is specifically about email delivery failure.
+ * When email sending fails, the user account is still created in Supabase —
+ * only the confirmation email failed to deliver.
+ */
+function isEmailSendingError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    (lower.includes("sending") && (lower.includes("email") || lower.includes("mail"))) ||
+    (lower.includes("email") && lower.includes("rate limit")) ||
+    lower.includes("confirmation mail") ||
+    (lower.includes("smtp") && lower.includes("error"))
+  );
+}
 
 export default function SignupPage() {
   const router = useRouter();
@@ -26,6 +41,9 @@ export default function SignupPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [emailSendFailed, setEmailSendFailed] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,6 +75,14 @@ export default function SignupPage() {
       });
 
       if (signUpError) {
+        // When Supabase fails to send the confirmation email, the user account
+        // is still created. Show the success screen with a note about the email
+        // issue and a resend button instead of a confusing raw error.
+        if (isEmailSendingError(signUpError.message)) {
+          setEmailSendFailed(true);
+          setIsSuccess(true);
+          return;
+        }
         throw signUpError;
       }
 
@@ -76,27 +102,99 @@ export default function SignupPage() {
     }
   };
 
+  const handleResendConfirmation = async () => {
+    setIsResending(true);
+    setResendMessage(null);
+
+    try {
+      const { error: resendError } = await supabase.auth.resend({
+        type: "signup",
+        email: email.trim().toLowerCase(),
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=/rankings`,
+        },
+      });
+
+      if (resendError) {
+        setResendMessage("Unable to resend email. Please try again in a few minutes.");
+      } else {
+        setResendMessage("Confirmation email sent! Check your inbox.");
+        setEmailSendFailed(false);
+      }
+    } catch {
+      setResendMessage("Unable to resend email. Please try again in a few minutes.");
+    } finally {
+      setIsResending(false);
+    }
+  };
+
   if (isSuccess) {
     return (
       <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center px-4 py-12">
         <Card data-testid="signup-success-card" className="w-full max-w-md" variant="elevated">
           <CardHeader className="space-y-1 text-center">
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-500/10">
-              <CheckCircle2 className="h-6 w-6 text-green-600" />
+            <div className={`mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full ${emailSendFailed ? "bg-yellow-500/10" : "bg-green-500/10"}`}>
+              {emailSendFailed ? (
+                <AlertTriangle className="h-6 w-6 text-yellow-600" />
+              ) : (
+                <CheckCircle2 className="h-6 w-6 text-green-600" />
+              )}
             </div>
             <CardTitle className="text-2xl font-bold tracking-tight">
-              Check your email
+              {emailSendFailed ? "Account created" : "Check your email"}
             </CardTitle>
             <CardDescription className="text-base">
-              We&apos;ve sent you a confirmation link to{" "}
-              <span className="font-medium text-foreground">{email}</span>
+              {emailSendFailed ? (
+                <>
+                  Your account has been created, but we had trouble sending the
+                  confirmation email to{" "}
+                  <span className="font-medium text-foreground">{email}</span>
+                </>
+              ) : (
+                <>
+                  We&apos;ve sent you a confirmation link to{" "}
+                  <span className="font-medium text-foreground">{email}</span>
+                </>
+              )}
             </CardDescription>
           </CardHeader>
-          <CardContent className="text-center">
-            <p className="text-sm text-muted-foreground">
-              Click the link in the email to activate your account and start
-              tracking your favorite teams.
-            </p>
+          <CardContent className="text-center space-y-3">
+            {emailSendFailed ? (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Click below to resend the confirmation email, or try again in
+                  a few minutes.
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={handleResendConfirmation}
+                  disabled={isResending}
+                  className="mt-2"
+                >
+                  {isResending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Resend confirmation email
+                    </>
+                  )}
+                </Button>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Click the link in the email to activate your account and start
+                tracking your favorite teams.
+              </p>
+            )}
+            {resendMessage && (
+              <p className={`text-sm ${resendMessage.includes("sent!") ? "text-green-600" : "text-muted-foreground"}`}>
+                {resendMessage}
+              </p>
+            )}
           </CardContent>
           <CardFooter className="flex justify-center">
             <Link href="/login">
