@@ -60,6 +60,7 @@ PROGRAM_WORDS = frozenset({
     "ga", "rl", "comp", "recreational", "tal", "stxcl", "dpl", "scdsl",
     "next", "copa", "nal", "reserve", "classic", "division", "fdl",
     "pre",  # qualifier in PRE-ECNL
+    "regional",  # alternate name for RL (ECNL Regional League)
 })
 
 # ── Location / region codes (sub-club branches) ────────────────────
@@ -81,7 +82,6 @@ NOISE_WORDS = frozenset({
     "soccer", "club", "futbol", "football", "youth",
     "boys", "girls", "the", "of", "and",
     "b", "g", "m", "f",
-    "united", "city", "real", "inter", "sporting", "athletic",  # common club suffixes
 })
 
 # US state codes — not differentiating (just the team's state)
@@ -264,7 +264,16 @@ def _should_skip_pair(name_a: str, name_b: str, club_name: str = "") -> bool:
     # Programs/leagues: only block when BOTH have programs that conflict.
     # If only one side has a league tag (e.g. PRE-ECNL vs none), it's a
     # naming difference from different providers, not a different team.
-    if da["programs"] and db["programs"] and da["programs"] != db["programs"]:
+    prog_a, prog_b = da["programs"], db["programs"]
+    if prog_a and prog_b and prog_a != prog_b:
+        return True
+
+    # RL (ECNL Regional League) is a different competitive tier from main
+    # ECNL — always block RL vs non-RL even when one side has no programs.
+    # RL can appear as "rl", "ecnl-rl", "ecnl rl", or "regional".
+    has_rl_a = "rl" in prog_a
+    has_rl_b = "rl" in prog_b
+    if has_rl_a != has_rl_b:
         return True
 
     # Team numbers must match (1 vs 2, I vs II)
