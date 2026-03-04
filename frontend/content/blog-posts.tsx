@@ -736,8 +736,8 @@ export const blogPosts: BlogPost[] = [
   },
   {
     slug: 'california-youth-soccer-rankings-guide',
-    title: "California Youth Soccer Rankings: The Complete Parent's Guide (2026)",
-    excerpt: "From LA Galaxy to San Diego Surf, we're tracking 15,693 California teams. Here's everything parents need to know about youth soccer rankings in CA.",
+    title: "California Youth Soccer Rankings 2026: See Where Your Team Stands",
+    excerpt: "Compare your team against 15,693 California clubs. Real rankings from LA Galaxy to San Diego Surf — updated weekly with actual game results.",
     author: 'PitchRank Team',
     date: '2026-02-21',
     readingTime: '9 min read',
