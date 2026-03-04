@@ -332,30 +332,21 @@ def extract_gender(name, details):
     
     return None
 
-def _extract_protected_division(name):
-    """Return the protected-division marker found in *name*, or None.
-
-    Protected divisions (AD, HD, EA, MLS NEXT) must not be auto-merged
-    across different tiers, but two teams in the SAME protected division
-    can still be merged.
-    """
-    if not name:
-        return None
-    name_upper = name.upper()
-    if ' AD' in name_upper or '_AD' in name_upper or '-AD' in name_upper:
-        return 'AD'
-    if ' HD' in name_upper or '_HD' in name_upper or '-HD' in name_upper:
-        return 'HD'
-    if 'MLS NEXT' in name_upper or 'MLSNEXT' in name_upper:
-        return 'MLS NEXT'
-    if ' EA' in name_upper or '_EA' in name_upper:  # Elite Academy
-        return 'EA'
-    return None
-
-
 def has_protected_division(name):
-    """Check if team name contains AD, HD, EA, or MLS NEXT."""
-    return _extract_protected_division(name) is not None
+    """Check if team name contains AD, HD, or MLS NEXT - needs manual review."""
+    if not name:
+        return False
+    name_upper = name.upper()
+    # Check for division markers
+    if ' AD' in name_upper or '_AD' in name_upper or '-AD' in name_upper:
+        return True
+    if ' HD' in name_upper or '_HD' in name_upper or '-HD' in name_upper:
+        return True
+    if 'MLS NEXT' in name_upper or 'MLSNEXT' in name_upper:
+        return True
+    if ' EA' in name_upper or '_EA' in name_upper:  # Elite Academy
+        return True
+    return False
 
 def find_best_match(queue_entry, supabase, teams_cache):
     """Find the best matching team for a queue entry using Supabase client."""
@@ -363,8 +354,10 @@ def find_best_match(queue_entry, supabase, teams_cache):
     details = queue_entry['match_details'] or {}
     club_name = details.get('club_name', '')
     
-    queue_division = _extract_protected_division(name)
-
+    # Skip protected divisions - need manual review
+    if has_protected_division(name):
+        return None, 0.0, "protected_division"
+    
     # If club_name is empty, try to extract it from provider_team_name
     if not club_name:
         extracted_club = extract_club_from_name(name)
@@ -420,14 +413,9 @@ def find_best_match(queue_entry, supabase, teams_cache):
         team_norm = normalize_team_name(team['team_name'])
         team_lower = team['team_name'].lower()
         team_variant = extract_team_variant(team['team_name'])
-
+        
         # CRITICAL: Variants must match EXACTLY
         if queue_variant != team_variant:
-            continue
-
-        # Protected divisions must match (AD vs HD vs MLS NEXT vs EA vs None)
-        team_division = _extract_protected_division(team['team_name'])
-        if queue_division != team_division:
             continue
         
         # Calculate similarity
