@@ -110,6 +110,7 @@ export function useTeamSearch() {
     },
     staleTime: 10 * 60 * 1000, // 10 minutes - team list doesn't change often
     gcTime: 60 * 60 * 1000, // Keep in cache for 1 hour
+    throwOnError: false, // Never throw to error boundaries (React 19 compat)
   });
 }
 

@@ -40,6 +40,7 @@ export function useTeam(id: string) {
     staleTime: 15 * 60 * 1000, // 15 minutes (team data changes infrequently)
     gcTime: 60 * 60 * 1000, // Keep in cache for 1 hour
     retry: 1, // Retry once on failure
+    throwOnError: false, // Never throw to error boundaries (React 19 compat)
   });
 }
 
@@ -77,6 +78,7 @@ export function useTeamGames(id: string, limit: number = 50) {
     staleTime: 2 * 60 * 1000, // 2 minutes - games update more frequently
     gcTime: 15 * 60 * 1000, // Keep in cache for 15 minutes
     retry: 1, // Retry once on failure (overrides global network-only retry)
+    throwOnError: false, // Never throw to error boundaries (React 19 compat)
   });
 }
 
