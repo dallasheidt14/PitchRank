@@ -533,16 +533,16 @@ export function ComparePanel() {
                           left: 20,
                         }}
                       >
-                        <PolarGrid stroke="hsl(var(--muted))" strokeOpacity={0.3} />
+                        <PolarGrid stroke="var(--muted)" strokeOpacity={0.3} />
                         <PolarAngleAxis
                           dataKey="metric"
-                          tick={{ fill: 'hsl(var(--foreground))', fontSize: 12, fontWeight: 500 }}
+                          tick={{ fill: 'var(--foreground)', fontSize: 12, fontWeight: 500 }}
                           className="text-xs"
                         />
                         <PolarRadiusAxis
                           angle={90}
                           domain={[0, 100]}
-                          tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
+                          tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }}
                           tickCount={6}
                         />
                         <RechartsTooltip
@@ -552,18 +552,18 @@ export function ComparePanel() {
                             return (
                               <div
                                 style={{
-                                  backgroundColor: 'hsl(var(--card))',
-                                  border: '1px solid hsl(var(--border))',
+                                  backgroundColor: 'var(--card)',
+                                  border: '1px solid var(--border)',
                                   borderRadius: '0.5rem',
                                   padding: '12px',
                                   fontSize: '12px',
                                 }}
                               >
-                                <p style={{ fontWeight: 600, marginBottom: '8px', color: 'hsl(var(--foreground))' }}>
+                                <p style={{ fontWeight: 600, marginBottom: '8px', color: 'var(--foreground)' }}>
                                   {label}
                                 </p>
                                 {data?.description && (
-                                  <p style={{ marginBottom: '8px', color: 'hsl(var(--muted-foreground))', fontSize: '11px' }}>
+                                  <p style={{ marginBottom: '8px', color: 'var(--muted-foreground)', fontSize: '11px' }}>
                                     {data.description}
                                   </p>
                                 )}
@@ -578,7 +578,7 @@ export function ComparePanel() {
                                           borderRadius: '2px',
                                         }}
                                       />
-                                      <span style={{ color: 'hsl(var(--foreground))' }}>
+                                      <span style={{ color: 'var(--foreground)' }}>
                                         {entry.name}: <strong>{entry.value?.toFixed(1)}</strong>
                                       </span>
                                     </div>
@@ -607,7 +607,7 @@ export function ComparePanel() {
                         <Legend
                           wrapperStyle={{ fontSize: '12px', paddingTop: '16px' }}
                           iconSize={12}
-                          formatter={(value) => <span style={{ color: 'hsl(var(--foreground))' }}>{value}</span>}
+                          formatter={(value) => <span style={{ color: 'var(--foreground)' }}>{value}</span>}
                         />
                       </RadarChart>
                     </ResponsiveContainer>

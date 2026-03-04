@@ -237,6 +237,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
         </div>
       </CardHeader>
       <CardContent className="-mx-4 sm:mx-0">
+        <div className="overflow-x-auto touch-pan-x">
         <Table>
           <TableHeader>
             <TableRow>
@@ -327,6 +328,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
             })}
           </TableBody>
         </Table>
+        </div>
       </CardContent>
     </Card>
   );
