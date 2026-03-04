@@ -25,7 +25,7 @@ export async function middleware(request: NextRequest) {
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
 
-  if ((code || tokenHash) && pathname !== "/auth/callback" && pathname !== "/reset-password") {
+  if ((code || tokenHash) && pathname !== "/auth/callback") {
     const callbackUrl = new URL("/auth/callback", request.url);
     searchParams.forEach((value, key) => {
       callbackUrl.searchParams.set(key, value);

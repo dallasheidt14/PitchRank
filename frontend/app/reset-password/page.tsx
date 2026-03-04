@@ -1,9 +1,8 @@
 "use client";
 
-import { Suspense, useState, useEffect, useMemo } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { createClientSupabase } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,36 +15,15 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Loader2, Lock, CheckCircle2 } from "lucide-react";
+import { updatePassword } from "./actions";
 
-function ResetPasswordForm() {
+export default function ResetPasswordPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const supabase = useMemo(() => createClientSupabase(), []);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
-
-  // Exchange the PKCE code client-side to establish the session in the browser
-  useEffect(() => {
-    const code = searchParams.get("code");
-    if (!code) {
-      setIsInitializing(false);
-      return;
-    }
-
-    supabase.auth.exchangeCodeForSession(code).then(({ error: exchangeError }) => {
-      if (exchangeError) {
-        console.error("[ResetPassword] Code exchange error:", exchangeError.message);
-        setError("Your reset link has expired or is invalid. Please request a new one.");
-      }
-      // Clean the code from the URL without triggering a navigation
-      window.history.replaceState({}, "", "/reset-password");
-      setIsInitializing(false);
-    });
-  }, [searchParams, supabase]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,17 +42,16 @@ function ResetPasswordForm() {
     setIsLoading(true);
 
     try {
-      const { error: updateError } = await supabase.auth.updateUser({
-        password,
-      });
+      const result = await updatePassword(password);
 
-      if (updateError) {
-        throw updateError;
+      if (result.error) {
+        setError(result.error);
+        return;
       }
 
       setIsSuccess(true);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to reset password. Please try again.");
+    } catch {
+      setError("Failed to reset password. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -101,14 +78,6 @@ function ResetPasswordForm() {
             </Button>
           </CardFooter>
         </Card>
-      </div>
-    );
-  }
-
-  if (isInitializing) {
-    return (
-      <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center px-4 py-12">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -192,19 +161,5 @@ function ResetPasswordForm() {
         </form>
       </Card>
     </div>
-  );
-}
-
-export default function ResetPasswordPage() {
-  return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center px-4 py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      }
-    >
-      <ResetPasswordForm />
-    </Suspense>
   );
 }
