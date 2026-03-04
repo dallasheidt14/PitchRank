@@ -23,6 +23,7 @@ from find_queue_matches import (
     normalize_team_name,
     extract_team_variant,
     has_protected_division,
+    _extract_protected_division,
 )
 from difflib import SequenceMatcher
 
@@ -59,6 +60,8 @@ PROGRAM_WORDS = frozenset({
     "academy", "premier", "select", "elite", "ecnl", "ecrl", "npl",
     "ga", "rl", "comp", "recreational", "tal", "stxcl", "dpl", "scdsl",
     "next", "copa", "nal", "reserve", "classic", "division", "fdl",
+    # Collapsed compound names (from _normalize_compound_programs)
+    "mlsnext", "premlsnext", "ecnlrl", "preecnl",
 })
 
 # ── Location / region codes (sub-club branches) ────────────────────
@@ -104,6 +107,24 @@ def _tokenize(name: str) -> list[str]:
     return [w.strip("()[]'*") for w in normalized.split() if w.strip("()[]'*")]
 
 
+def _normalize_compound_programs(name: str) -> str:
+    """Collapse compound division names so they don't get split into separate program words.
+
+    "Pre-MLS Next Academy" and "Pre-MLS Next" are the same division — "Academy"
+    is part of the compound name, not a separate program marker.
+    """
+    n = name
+    # Order matters: longest patterns first.
+    # Use underscores (not hyphens) since _tokenize splits on hyphens.
+    n = re.sub(r"(?i)\bpre[- ]?mls[- ]?next[- ]?academy\b", "premlsnext", n)
+    n = re.sub(r"(?i)\bpre[- ]?mls[- ]?next\b", "premlsnext", n)
+    n = re.sub(r"(?i)\bmls[- ]?next[- ]?academy\b", "mlsnext", n)
+    n = re.sub(r"(?i)\bmls[- ]?next\b", "mlsnext", n)
+    n = re.sub(r"(?i)\becnl[- ]?rl\b", "ecnlrl", n)
+    n = re.sub(r"(?i)\bpre[- ]?ecnl\b", "preecnl", n)
+    return n
+
+
 def extract_distinctions(name: str) -> dict:
     """
     Extract every distinguishing feature from a team name.
@@ -126,7 +147,8 @@ def extract_distinctions(name: str) -> dict:
     if not name:
         return empty
 
-    tokens = _tokenize(name)
+    # Collapse compound division names before tokenizing
+    tokens = _tokenize(_normalize_compound_programs(name))
 
     colors = set()
     directions = set()
@@ -295,7 +317,11 @@ def score_team_pair(team_a: dict, team_b: dict) -> float | None:
     name_b = (team_b.get("team_name") or "").strip()
     if not name_a or not name_b:
         return None
-    if has_protected_division(name_a) or has_protected_division(name_b):
+    # Only block if the two teams are in DIFFERENT protected divisions,
+    # or one has a protected division and the other doesn't.
+    div_a = _extract_protected_division(name_a)
+    div_b = _extract_protected_division(name_b)
+    if div_a != div_b:
         return None
 
     norm_a = normalize_team_name(name_a)
