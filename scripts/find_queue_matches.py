@@ -184,87 +184,83 @@ def extract_team_variant(name):
     # Coach names typically appear AFTER age/year but BEFORE regions/programs
     # Pattern: "Club [Age] [CoachName] (Region)" or "Club [Age] [CoachName] Region"
     # Examples: "15G Riedell (CTX)", "2015 Davis CTX", "2014 Thompson", "U14 Blanton"
-    
+
     # Known non-coach words to filter out
-    common_words = {'ecnl', 'boys', 'girls', 'academy', 'united', 'elite', 'club', 'futbol', 
+    common_words = {'ecnl', 'boys', 'girls', 'academy', 'united', 'elite', 'club', 'futbol',
                     'soccer', 'youth', 'rush', 'surf', 'select', 'premier', 'gold', 'blue',
                     'white', 'black', 'grey', 'gray', 'green', 'maroon', 'navy', 'lafc', 'futeca',
                     'selection', 'fire', 'storm', 'fusion', 'athletico', 'atletico', 'fc', 'sc',
                     'real', 'inter', 'sporting', 'united'}
-    
+
     # Known region codes (3-letter abbreviations, typically in parens or at end)
-    region_codes = {'ctx', 'phx', 'atx', 'dal', 'hou', 'san', 'sdg', 'sfv', 'oc', 'ie', 
+    region_codes = {'ctx', 'phx', 'atx', 'dal', 'hou', 'san', 'sdg', 'sfv', 'oc', 'ie',
                    'la', 'bay', 'nyc', 'nj', 'dmv', 'pnw', 'sea', 'pdx', 'slc', 'den',
                    'chi', 'stl', 'kc', 'min', 'det', 'cle', 'pit', 'atl', 'mia', 'orl',
                    'tam', 'ral', 'cha', 'dc', 'md', 'va', 'pa', 'ma', 'ct', 'ri', 'vt',
-                   'nh', 'me', 'az', 'ca', 'tx', 'fl', 'ny', 'nj', 'ga', 'nc', 'sc', 
+                   'nh', 'me', 'az', 'ca', 'tx', 'fl', 'ny', 'nj', 'ga', 'nc', 'sc',
                    'co', 'ut', 'nv', 'wa', 'or', 'id', 'mt', 'wy', 'nm', 'ok', 'ks',
                    'ne', 'sd', 'nd', 'mn', 'wi', 'mi', 'il', 'in', 'oh', 'ky', 'tn',
                    'al', 'ms', 'la', 'ar', 'mo', 'ia', 'ecnl', 'rl', 'ga', 'ea', 'npl',
                    'usys', 'ayso', 'scdsl', 'dpl', 'mls', 'ussda', 'pre'}
-    
+
     # Program/league names that aren't coach names
     program_names = {'aspire', 'rise', 'revolution', 'evolution', 'dynasty', 'legacy', 'impact',
                     'force', 'thunder', 'lightning', 'blaze', 'inferno', 'phoenix', 'predators',
                     'raptors', 'lions', 'tigers', 'bears', 'eagles', 'hawks', 'falcons', 'united',
                     'strikers', 'raiders', 'warriors', 'knights', 'spartans', 'titans', 'trojans'}
-    
-    # Find age/year position in the team name
+
+    # All non-variant words (union of all exclusion sets)
+    _skip_words = common_words | region_codes | program_names | TEAM_COLORS | TEAM_DIRECTIONS
+
+    def _extract_candidate(text):
+        """Find the first unknown word in *text* that looks like a coach/squad name."""
+        for word in text.split():
+            w = word.strip('-()[].,').lower()
+            if not w or len(w) < 3:
+                continue
+            if w in _skip_words:
+                continue
+            if w.isdigit() or re.match(r'^[bug]?\d+', w):
+                continue
+            return w
+        return None
+
+    # Find age/year position in the team name — search ALL occurrences and
+    # look for a candidate word on EITHER side so word-order doesn't matter.
     age_patterns = [
         r'\bU-?\d{1,2}\b',           # U14, U-14
         r'\b[BG]?\d{4}[BG]?\b',      # 2014, B2014, 2014B, G2015, 2015G
         r'\b[BG]\d{2}(?!\d)\b',      # B14, G15
         r'\b\d{2}[BG](?!\d)\b',      # 14B, 15G
     ]
-    
+
     age_match = None
-    age_end_pos = -1
     for pattern in age_patterns:
         match = re.search(pattern, name, re.IGNORECASE)
         if match:
             age_match = match
-            age_end_pos = match.end()
             break
-    
-    if age_match and age_end_pos > 0:
-        # Extract the part AFTER the age
-        after_age = name[age_end_pos:].strip()
-        
-        # Remove region markers in parentheses first: "(CTX)" -> ""
+
+    if age_match:
+        # Look AFTER the age token first (most common position for coach/squad)
+        after_age = name[age_match.end():].strip()
         after_age_clean = re.sub(r'\s*\([^)]+\)\s*$', '', after_age).strip()
-        
-        # Split into words
-        after_words = after_age_clean.split()
-        
-        # Look for coach name: first word after age that's not a region/program/common word
-        for word in after_words:
-            word_clean = word.strip('-()[].,').lower()
-            
-            # Skip if empty or too short
-            if not word_clean or len(word_clean) < 3:
-                continue
-            
-            # Skip if it's a known non-coach word
-            if word_clean in common_words:
-                continue
-            if word_clean in region_codes:
-                continue
-            if word_clean in program_names:
-                continue
-            if word_clean in TEAM_COLORS:
-                continue
-            if word_clean in TEAM_DIRECTIONS:
-                continue
-            
-            # Skip if it's clearly a number or age
-            if word_clean.isdigit():
-                continue
-            if re.match(r'^[bug]?\d+', word_clean):
-                continue
-            
-            # This looks like a coach name!
-            return word_clean
-    
+        candidate = _extract_candidate(after_age_clean)
+        if candidate:
+            return candidate
+
+        # Look BEFORE the age token (handles "Arsenal 2014" word order)
+        before_age = name[:age_match.start()].strip()
+        # Strip known club-name words that appear before the age
+        # Only consider the last 1-2 words before the age (coach/squad names
+        # sit adjacent to the age, not at the start of the name)
+        before_words = before_age.split()
+        if before_words:
+            tail = ' '.join(before_words[-2:])  # last 2 words before age
+            candidate = _extract_candidate(tail)
+            if candidate:
+                return candidate
+
     # Check for coach names in parentheses: "2014 (Holohan)" but NOT regions like "(CTX)"
     coach_match = re.search(r'\(([a-z]+)\)\s*$', name_lower)
     if coach_match:
@@ -272,28 +268,7 @@ def extract_team_variant(name):
         # Only return if it's not a region code
         if word not in region_codes:
             return word
-    
-    # Fallback: Check for ALL CAPS words after year (legacy logic)
-    coach_after_year = re.search(r'20\d{2}\s+([A-Z]{4,})\b', name)
-    if coach_after_year:
-        word = coach_after_year.group(1).lower()
-        if word not in common_words and word not in region_codes and word not in program_names:
-            return word
-    
-    # Fallback: Check for mixed case names at end after age
-    name_parts = name.split()
-    if len(name_parts) >= 2:
-        last_part = name_parts[-1]
-        last_clean = last_part.strip('()[]').lower()
-        # If last word is a proper name (capitalized, not a color/common/region word)
-        if (last_part[0].isupper() and 
-            last_clean not in TEAM_COLORS and 
-            last_clean not in common_words and
-            last_clean not in region_codes and
-            last_clean not in program_names and
-            not re.match(r'^[BG]?\d+', last_part)):  # Not an age
-            return last_clean
-    
+
     return None
 
 def _current_season_year():
