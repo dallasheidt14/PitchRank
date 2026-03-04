@@ -207,7 +207,15 @@ def extract_team_variant(name):
     program_names = {'aspire', 'rise', 'revolution', 'evolution', 'dynasty', 'legacy', 'impact',
                     'force', 'thunder', 'lightning', 'blaze', 'inferno', 'phoenix', 'predators',
                     'raptors', 'lions', 'tigers', 'bears', 'eagles', 'hawks', 'falcons', 'united',
-                    'strikers', 'raiders', 'warriors', 'knights', 'spartans', 'titans', 'trojans'}
+                    'strikers', 'raiders', 'warriors', 'knights', 'spartans', 'titans', 'trojans',
+                    # League/program abbreviations (synced from find_fuzzy_duplicate_teams.PROGRAM_WORDS)
+                    'stxcl', 'scdsl', 'dpl', 'dplo', 'npl', 'tal', 'fdl', 'copa', 'nal',
+                    'comp', 'recreational', 'reserve', 'classic', 'division', 'ecrl',
+                    'showcase', 'challenge', 'development', 'competitive',
+                    # Common squad/mascot names that appear in team names
+                    'royal', 'cosmos', 'celtic', 'rovers', 'arsenal', 'mustangs', 'wolves',
+                    'coyotes', 'cobras', 'vipers', 'hurricanes', 'cyclones', 'rebels',
+                    'chargers', 'bulldogs', 'wildcats', 'jaguars', 'panthers', 'mustang'}
 
     # All non-variant words (union of all exclusion sets)
     _skip_words = common_words | region_codes | program_names | TEAM_COLORS | TEAM_DIRECTIONS
