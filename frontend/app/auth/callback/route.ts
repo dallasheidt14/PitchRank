@@ -83,8 +83,13 @@ export async function GET(request: Request) {
       return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(exchangeError.message)}`);
     }
 
-    // If the recovery type param survived the redirect chain, go to reset-password
-    if (type === "recovery") {
+    // Check if this is a password recovery flow:
+    // 1. The type=recovery param may survive the redirect chain
+    // 2. A cookie set by the forgot-password page signals recovery intent
+    const isRecovery = type === "recovery" || cookieStore.get("password_reset_pending")?.value === "true";
+    if (isRecovery) {
+      // Clear the cookie
+      cookieStore.set("password_reset_pending", "", { path: "/", maxAge: 0 });
       return NextResponse.redirect(`${origin}/reset-password`);
     }
 
