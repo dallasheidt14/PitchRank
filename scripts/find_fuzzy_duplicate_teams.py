@@ -132,8 +132,11 @@ def extract_distinctions(name: str, club_name: str = "") -> dict:
 
     # Strip club name words so they don't become phantom squad_words
     # e.g. "Fever United 2014 Mee" with club "Fever United" → drop "fever"
+    # But NEVER strip PROGRAM_WORDS — they carry tier/league meaning even
+    # when they overlap with the club name (e.g. "academy" in
+    # "Charlotte Soccer Academy" is also the ECNL Academy tier).
     if club_name:
-        club_tokens = set(_tokenize(club_name)) - NOISE_WORDS
+        club_tokens = set(_tokenize(club_name)) - NOISE_WORDS - PROGRAM_WORDS
         tokens = [t for t in tokens if t not in club_tokens]
 
     colors = set()
