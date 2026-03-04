@@ -29,6 +29,11 @@ export default function ForgotPasswordPage() {
     setIsLoading(true);
 
     try {
+      // Set a cookie so the auth callback knows this is a password reset flow.
+      // With PKCE, query params on redirectTo can get lost during Supabase's
+      // server-side redirect, so we use a cookie as a reliable signal.
+      document.cookie = "password_reset_pending=true; path=/; max-age=3600; SameSite=Lax";
+
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(
         email.trim().toLowerCase(),
         {
