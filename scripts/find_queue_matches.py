@@ -296,41 +296,52 @@ def extract_team_variant(name):
     
     return None
 
+def _current_season_year():
+    """Return the current season year for birth-year-to-age conversion.
+
+    Youth soccer seasons typically start in August/September, so we use the
+    calendar year directly (players born in 2014 are U12 in 2026).
+    """
+    from datetime import date
+    return date.today().year
+
+
 def extract_age_group(name, details):
     """Extract age group from name - ALWAYS parse from name first, metadata is unreliable."""
     name_lower = name.lower() if name else ""
-    
+    season_year = _current_season_year()
+
     # Priority 1: U-age format (U13, U14, etc)
     match = re.search(r'\bu(\d+)\b', name_lower)
     if match:
         return f"u{match.group(1)}"
-    
+
     # Priority 2: Birth year with gender prefix (G13, B2014, 2013G, etc)
     # G13/B13 = 2013 birth year, G2014/B2014 = 2014 birth year
     match = re.search(r'[bg](\d{2})(?!\d)', name_lower)  # G13, B14 (2-digit)
     if match:
         short_year = int(match.group(1))
         year = 2000 + short_year if short_year < 50 else 1900 + short_year
-        age = 2026 - year
+        age = season_year - year
         return f"u{age}"
-    
+
     match = re.search(r'[bg](20\d{2})', name_lower)  # G2013, B2014 (4-digit)
     if match:
         year = int(match.group(1))
-        age = 2026 - year
+        age = season_year - year
         return f"u{age}"
-    
+
     # Priority 3: Standalone 4-digit birth year
     match = re.search(r'\b(20\d{2})\b', name)
     if match:
         year = int(match.group(1))
-        age = 2026 - year
+        age = season_year - year
         return f"u{age}"
-    
+
     # Fallback: use metadata only if nothing found in name
     if details and details.get('age_group'):
         return details['age_group'].lower()
-    
+
     return None
 
 def extract_gender(name, details):
@@ -564,12 +575,14 @@ def analyze_queue(limit=100, min_confidence=0.90, force=False):
     # Mark ALL analyzed entries with timestamp so we skip them next run
     analyzed_ids = [e['id'] for e in entries]
     if analyzed_ids:
+        from datetime import datetime, timezone
+        now_iso = datetime.now(timezone.utc).isoformat()
         # Update in batches (Supabase has limits on IN clauses)
         batch_size = 100
         for i in range(0, len(analyzed_ids), batch_size):
             batch = analyzed_ids[i:i + batch_size]
             supabase.table('team_match_review_queue').update(
-                {'last_analyzed_at': 'now()'}
+                {'last_analyzed_at': now_iso}
             ).in_('id', batch).eq('status', 'pending').execute()
         print(f"  Marked {len(analyzed_ids)} entries as analyzed")
     
@@ -669,11 +682,12 @@ def execute_merges(results, dry_run=True, min_confidence=0.95):
                 }, on_conflict='provider_id,provider_team_id', ignore_duplicates=True).execute()
                 
                 # Update queue - suggested_master_team_id uses teams.id
+                from datetime import datetime, timezone
                 supabase.table('team_match_review_queue').update({
                     'status': 'approved',
                     'suggested_master_team_id': m['id'],
                     'reviewed_by': 'auto-merge-script',
-                    'reviewed_at': 'now()'
+                    'reviewed_at': datetime.now(timezone.utc).isoformat()
                 }).eq('id', q['id']).execute()
             
             approved += 1

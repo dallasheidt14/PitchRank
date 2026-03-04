@@ -6,6 +6,7 @@ Generates SQL for all states (Male only), excluding CA and AZ.
 
 import os
 import re
+import sys
 from collections import defaultdict
 from pathlib import Path
 from dotenv import load_dotenv
@@ -20,7 +21,7 @@ else:
 from supabase import create_client
 
 SUPABASE_URL = os.getenv('SUPABASE_URL')
-SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('SUPABASE_SERVICE_KEY') or os.getenv('SUPABASE_KEY')
 
 SKIP_STATES = set()  # Scan all states (CA/AZ were previously skipped)
 
@@ -243,8 +244,12 @@ def main():
     parser.add_argument('--dry-run', action='store_true', help='Show what would be fixed without applying')
     args = parser.parse_args()
     
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        print("ERROR: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_KEY) must be set")
+        sys.exit(1)
+
     client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    
+
     # Get all states (paginate to ensure we capture every state_code)
     print("Fetching states...")
     all_states = set()

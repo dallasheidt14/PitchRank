@@ -18,13 +18,6 @@ Key rules:
 import re
 from typing import Optional, Dict, Tuple
 
-# Birth year to U-age mapping (as of 2026 season)
-BIRTH_YEAR_TO_AGE = {
-    2016: 'U10', 2015: 'U11', 2014: 'U12', 2013: 'U13',
-    2012: 'U14', 2011: 'U15', 2010: 'U16', 2009: 'U17', 2008: 'U18',
-    2017: 'U9', 2018: 'U8', 2007: 'U19', 2006: 'U20'
-}
-
 # Known squad identifiers (things that distinguish teams within same club/age)
 COLORS = {'black', 'blue', 'red', 'white', 'navy', 'gold', 'orange', 'green', 
           'silver', 'gray', 'grey', 'purple', 'yellow', 'pink', 'maroon', 'teal'}
