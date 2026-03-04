@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { createClientSupabase } from "@/lib/supabase/client";
 import type { User, Session, AuthChangeEvent } from "@supabase/supabase-js";
 
@@ -48,6 +49,7 @@ export interface UseUserReturn {
 }
 
 export function useUser(): UseUserReturn {
+  const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -172,6 +174,15 @@ export function useUser(): UseUserReturn {
     // Listen for auth changes - but only process updates after initial load completes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event: AuthChangeEvent, currentSession: Session | null) => {
+        // When a recovery token is exchanged via PKCE, Supabase fires PASSWORD_RECOVERY.
+        // The server-side callback may have lost the ?next=/reset-password param during
+        // the redirect chain, so we catch it here and redirect to the reset page.
+        // This must run before the isInitialized check so it's never skipped.
+        if (event === "PASSWORD_RECOVERY" && isMounted) {
+          router.push("/reset-password");
+          return;
+        }
+
         // Skip processing auth changes until initial load is complete to avoid race conditions
         if (!isInitialized) {
           console.log("[useUser] Skipping auth state change - initial load not complete:", event);
@@ -201,7 +212,7 @@ export function useUser(): UseUserReturn {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, [supabase, fetchProfile]);
+  }, [supabase, fetchProfile, router]);
 
   return {
     user,

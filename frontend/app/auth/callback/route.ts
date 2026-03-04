@@ -83,6 +83,11 @@ export async function GET(request: Request) {
       return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(exchangeError.message)}`);
     }
 
+    // If the recovery type param survived the redirect chain, go to reset-password
+    if (type === "recovery") {
+      return NextResponse.redirect(`${origin}/reset-password`);
+    }
+
     return NextResponse.redirect(`${origin}${next}`);
   }
 
