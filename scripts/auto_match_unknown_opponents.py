@@ -22,6 +22,8 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -327,26 +329,33 @@ def execute_auto_link(
 
     # Backfill missing side only.
     if missing_side == "home":
-        update = (
+        updated_rows = (
             supabase.table("games")
-            .update({"home_team_master_id": match_team_id})
+            .select("id", count="exact", head=True)
             .eq("provider_id", provider_id)
             .eq("home_provider_id", unknown_provider_team_id)
             .is_("home_team_master_id", "null")
-            .select("id")
             .execute()
+            .count
+            or 0
         )
+        supabase.table("games").update({"home_team_master_id": match_team_id}).eq(
+            "provider_id", provider_id
+        ).eq("home_provider_id", unknown_provider_team_id).is_("home_team_master_id", "null").execute()
     else:
-        update = (
+        updated_rows = (
             supabase.table("games")
-            .update({"away_team_master_id": match_team_id})
+            .select("id", count="exact", head=True)
             .eq("provider_id", provider_id)
             .eq("away_provider_id", unknown_provider_team_id)
             .is_("away_team_master_id", "null")
-            .select("id")
             .execute()
+            .count
+            or 0
         )
-    updated_rows = len(update.data or [])
+        supabase.table("games").update({"away_team_master_id": match_team_id}).eq(
+            "provider_id", provider_id
+        ).eq("away_provider_id", unknown_provider_team_id).is_("away_team_master_id", "null").execute()
     return "linked", updated_rows
 
 
@@ -360,6 +369,12 @@ def main() -> None:
     parser.add_argument("--strict-club", action="store_true", help="Require exact club filtering when club is known")
     parser.add_argument("--max-candidates", type=int, default=120, help="Max team candidates per unknown row")
     parser.add_argument("--resolve-gotsport-details", action="store_true", help="Fetch missing unknown team details from GotSport API")
+    parser.add_argument(
+        "--resolver-workers",
+        type=int,
+        default=20,
+        help="Number of concurrent workers for GotSport detail prefetch",
+    )
     parser.add_argument("--execute", action="store_true", help="Apply auto_link rows (alias + backfill)")
     parser.add_argument(
         "--output",
@@ -394,6 +409,40 @@ def main() -> None:
     resolver = GotSportResolver() if args.resolve_gotsport_details else None
     candidate_cache: Dict[Tuple, List[Dict]] = {}
 
+    # Optional prefetch pass to hydrate resolver cache concurrently.
+    # This dramatically speeds up large runs where most rows need API enrichment.
+    if resolver:
+        missing_ids = []
+        seen = set()
+        for row in rows:
+            provider_code = (row.get("provider_code") or "").strip().lower()
+            if provider_code != "gotsport":
+                continue
+            has_full_name = bool((row.get("unknown_team_full_name") or "").strip())
+            if has_full_name:
+                continue
+            pid = (row.get("unknown_provider_team_id") or "").strip()
+            if pid and pid not in seen:
+                seen.add(pid)
+                missing_ids.append(pid)
+
+        if missing_ids:
+            workers = max(1, int(args.resolver_workers or 1))
+            print(
+                f"Prefetching GotSport team details for {len(missing_ids):,} unknown IDs "
+                f"with {workers} workers..."
+            )
+            completed = 0
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [pool.submit(resolver.resolve, pid) for pid in missing_ids]
+                for fut in as_completed(futures):
+                    # resolve() already handles errors and caches {}
+                    _ = fut.result()
+                    completed += 1
+                    if completed % 500 == 0:
+                        print(f"Prefetch progress: {completed:,}/{len(missing_ids):,}")
+            print("GotSport prefetch complete.")
+
     report_rows: List[Dict[str, object]] = []
     stats = {
         "total": 0,
@@ -412,16 +461,41 @@ def main() -> None:
         unknown_pid = (row.get("unknown_provider_team_id") or "").strip()
         missing_side = (row.get("missing_side") or "").strip().lower()
 
-        result = match_row(
-            row=row,
-            supabase=supabase,
-            resolver=resolver,
-            strict_club=args.strict_club,
-            max_candidates=args.max_candidates,
-            auto_threshold=args.auto_threshold,
-            review_threshold=args.review_threshold,
-            candidate_cache=candidate_cache,
-        )
+        result = None
+        last_exc: Optional[Exception] = None
+        for attempt in range(3):
+            try:
+                result = match_row(
+                    row=row,
+                    supabase=supabase,
+                    resolver=resolver,
+                    strict_club=args.strict_club,
+                    max_candidates=args.max_candidates,
+                    auto_threshold=args.auto_threshold,
+                    review_threshold=args.review_threshold,
+                    candidate_cache=candidate_cache,
+                )
+                break
+            except Exception as exc:
+                last_exc = exc
+                # Exponential backoff on transient network/db failures.
+                if attempt < 2:
+                    time.sleep(0.5 * (2 ** attempt))
+                else:
+                    print(
+                        f"WARN row {idx}: match_row failed after retries for "
+                        f"unknown_provider_team_id={(row.get('unknown_provider_team_id') or '').strip()} | {exc}"
+                    )
+
+        if result is None:
+            profile = build_unknown_profile(row, resolver)
+            result = {
+                "action": "no_match",
+                "best_score": 0.0,
+                "best_match": None,
+                "profile": profile,
+                "candidate_count": 0,
+            }
 
         action = result["action"]
         best_score = float(result["best_score"])
