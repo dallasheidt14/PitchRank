@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 import time
+from pathlib import Path
 from supabase import create_client
 from config.settings import (
     RANKING_CONFIG,
@@ -95,6 +96,7 @@ section = st.sidebar.radio(
         "📋 Review Queue",
         "👥 Age Groups",
         "📈 Database Import Stats",
+        "🧩 Unknown Opponent Review",
         "🗺️ State Coverage",
         "📍 Missing State Codes",
         "🔀 Team Merge Manager",
@@ -823,6 +825,137 @@ elif section == "📋 Review Queue":
             st.error(f"Error loading review queue: {e}")
             import traceback
             st.code(traceback.format_exc())
+
+# ============================================================================
+# UNKNOWN OPPONENT REVIEW SECTION
+# ============================================================================
+elif section == "🧩 Unknown Opponent Review":
+    st.header("Unknown Opponent Review")
+    st.markdown(
+        "Shows the latest unknown-opponent matching exports. "
+        "Focus on rows that still require manual review."
+    )
+
+    exports_dir = Path("data/exports")
+    exports_dir.mkdir(parents=True, exist_ok=True)
+
+    def latest_csv(pattern: str):
+        files = list(exports_dir.glob(pattern))
+        if not files:
+            return None
+        return max(files, key=lambda p: p.stat().st_mtime)
+
+    latest_due = latest_csv("unknown_opponent_due_diligence_*_all.csv")
+    latest_match = latest_csv("unknown_opponent_match_report_*.csv")
+
+    source = st.radio(
+        "Source",
+        ["Due Diligence (latest)", "Match Report (latest)"],
+        horizontal=True,
+    )
+    selected = latest_due if source.startswith("Due Diligence") else latest_match
+
+    if not selected:
+        st.warning(
+            "No export file found yet in `data/exports`.\n\n"
+            "Run:\n"
+            "- export_unknown_opponents.py\n"
+            "- auto_match_unknown_opponents.py\n"
+            "- due_diligence_unknown_opponents.py"
+        )
+    else:
+        st.caption(f"Using file: `{selected}`")
+        try:
+            df = pd.read_csv(selected)
+        except Exception as exc:
+            st.error(f"Failed to read {selected.name}: {exc}")
+            df = pd.DataFrame()
+
+        if df.empty:
+            st.info("Selected file has no rows.")
+        else:
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                provider_options = ["All"]
+                if "provider_code" in df.columns:
+                    provider_options += sorted(df["provider_code"].dropna().astype(str).unique().tolist())
+                provider_filter = st.selectbox("Provider", provider_options)
+            with c2:
+                min_games = st.number_input("Min games impacted", min_value=0, value=0, step=1)
+            with c3:
+                pid_query = st.text_input("Unknown provider team ID contains")
+
+            filtered = df.copy()
+            if provider_filter != "All" and "provider_code" in filtered.columns:
+                filtered = filtered[filtered["provider_code"].astype(str) == provider_filter]
+
+            game_col = "total_games_impacted" if "total_games_impacted" in filtered.columns else "games_count" if "games_count" in filtered.columns else None
+            if game_col:
+                filtered[game_col] = pd.to_numeric(filtered[game_col], errors="coerce").fillna(0).astype(int)
+                filtered = filtered[filtered[game_col] >= int(min_games)]
+
+            if pid_query and "unknown_provider_team_id" in filtered.columns:
+                filtered = filtered[
+                    filtered["unknown_provider_team_id"].astype(str).str.contains(pid_query, case=False, na=False)
+                ]
+
+            if "verdict" in filtered.columns:
+                approved_count = int((filtered["verdict"] == "approved").sum())
+                review_count = int((filtered["verdict"] != "approved").sum())
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Rows", f"{len(filtered):,}")
+                m2.metric("Approved", f"{approved_count:,}")
+                m3.metric("Needs Review", f"{review_count:,}")
+
+                needs_review = filtered[filtered["verdict"] != "approved"].copy()
+                st.subheader("Needs Manual Review")
+                if needs_review.empty:
+                    st.success("No rows currently require manual review.")
+                else:
+                    cols = [
+                        col
+                        for col in [
+                            "provider_code",
+                            "unknown_provider_team_id",
+                            "matched_team_name",
+                            "best_score",
+                            "total_games_impacted",
+                            "club_check",
+                            "age_check",
+                            "gender_check",
+                            "state_check",
+                            "cohort_age_check",
+                            "cohort_gender_check",
+                            "alias_conflict",
+                            "verdict",
+                        ]
+                        if col in needs_review.columns
+                    ]
+                    sort_cols = [c for c in ["best_score", "total_games_impacted"] if c in needs_review.columns]
+                    if sort_cols:
+                        needs_review = needs_review.sort_values(by=sort_cols, ascending=False)
+                    st.dataframe(needs_review[cols], use_container_width=True, hide_index=True)
+            else:
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Rows", f"{len(filtered):,}")
+                if "action" in filtered.columns:
+                    counts = filtered["action"].value_counts().to_dict()
+                    m2.metric("Auto-link", f"{counts.get('auto_link', 0):,}")
+                    m3.metric("Review", f"{counts.get('review', 0):,}")
+                    m4.metric(
+                        "No Match / Skipped",
+                        f"{counts.get('no_match', 0) + counts.get('skip_protected_division', 0):,}",
+                    )
+                    manual = filtered[filtered["action"].isin(["review", "no_match", "skip_protected_division"])].copy()
+                    st.subheader("Needs Manual Review")
+                    st.dataframe(manual, use_container_width=True, hide_index=True)
+                else:
+                    m2.metric("Auto-link", "N/A")
+                    m3.metric("Review", "N/A")
+                    m4.metric("No Match / Skipped", "N/A")
+
+            with st.expander("Show filtered source data"):
+                st.dataframe(filtered, use_container_width=True, hide_index=True)
 
 # ============================================================================
 # AGE GROUPS SECTION

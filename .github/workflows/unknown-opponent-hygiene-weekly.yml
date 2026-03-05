@@ -1,0 +1,190 @@
+name: Unknown Opponent Hygiene Weekly
+
+on:
+  schedule:
+    # Weekly on Tuesday at 18:00 UTC
+    - cron: '0 18 * * 2'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run only (never execute writes)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      provider:
+        description: "Provider code to process"
+        required: false
+        default: "gotsport"
+        type: string
+      max_rows:
+        description: "Optional cap for partial games export (blank = all)"
+        required: false
+        default: ""
+        type: string
+      limit:
+        description: "Optional cap for match rows processed (blank = all)"
+        required: false
+        default: ""
+        type: string
+
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  unknown-opponent-hygiene:
+    name: Unknown Opponent Hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install supabase python-dotenv requests
+
+      - name: Validate secrets
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::error::Missing SUPABASE_URL or SUPABASE_SERVICE_KEY secret."
+            exit 1
+          fi
+
+      - name: Export unknown opponents
+        id: export
+        run: |
+          mkdir -p data/exports logs
+          TS="$(date +%Y%m%d_%H%M%S)"
+          PREFIX="data/exports/unknown_opponents_weekly_${TS}"
+          MAX_ROWS_FLAG=""
+          if [ -n "${{ github.event.inputs.max_rows }}" ]; then
+            MAX_ROWS_FLAG="--max-rows ${{ github.event.inputs.max_rows }}"
+          fi
+
+          python3 scripts/export_unknown_opponents.py \
+            --provider "${{ github.event.inputs.provider || 'gotsport' }}" \
+            --output-prefix "$PREFIX" \
+            $MAX_ROWS_FLAG | tee logs/unknown_export.log
+
+          echo "timestamp=$TS" >> "$GITHUB_OUTPUT"
+          echo "export_prefix=$PREFIX" >> "$GITHUB_OUTPUT"
+          echo "aggregate_csv=${PREFIX}_aggregate.csv" >> "$GITHUB_OUTPUT"
+          echo "detail_csv=${PREFIX}_details.csv" >> "$GITHUB_OUTPUT"
+
+      - name: Auto-match unknown opponents (dry run)
+        id: match
+        run: |
+          MATCH_CSV="data/exports/unknown_opponent_match_report_weekly_${{ steps.export.outputs.timestamp }}.csv"
+          LIMIT_FLAG=""
+          if [ -n "${{ github.event.inputs.limit }}" ]; then
+            LIMIT_FLAG="--limit ${{ github.event.inputs.limit }}"
+          fi
+
+          python3 scripts/auto_match_unknown_opponents.py \
+            --input "${{ steps.export.outputs.aggregate_csv }}" \
+            --provider "${{ github.event.inputs.provider || 'gotsport' }}" \
+            --auto-threshold 0.95 \
+            --review-threshold 0.90 \
+            --max-candidates 160 \
+            --output "$MATCH_CSV" \
+            $LIMIT_FLAG | tee logs/unknown_match.log
+
+          echo "match_csv=$MATCH_CSV" >> "$GITHUB_OUTPUT"
+
+      - name: Due diligence gate
+        id: due
+        run: |
+          DD_PREFIX="data/exports/unknown_opponent_due_diligence_weekly_${{ steps.export.outputs.timestamp }}"
+          python3 scripts/due_diligence_unknown_opponents.py \
+            --match-report "${{ steps.match.outputs.match_csv }}" \
+            --output-prefix "$DD_PREFIX" | tee logs/unknown_due_diligence.log
+
+          python3 - <<'PY'
+          import os
+          import pathlib
+
+          log = pathlib.Path("logs/unknown_due_diligence.log").read_text(encoding="utf-8").splitlines()
+          values = {}
+          for line in log:
+              if "=" in line and line.startswith("DUE_DILIGENCE_"):
+                  k, v = line.split("=", 1)
+                  values[k] = v
+
+          mapping = {
+              "all_pass": values.get("DUE_DILIGENCE_ALL_PASS", "false"),
+              "auto_link_count": values.get("DUE_DILIGENCE_AUTO_LINK_COUNT", "0"),
+              "approved_count": values.get("DUE_DILIGENCE_APPROVED_COUNT", "0"),
+              "review_count": values.get("DUE_DILIGENCE_REVIEW_COUNT", "0"),
+              "all_csv": values.get("DUE_DILIGENCE_ALL_CSV", ""),
+              "approved_csv": values.get("DUE_DILIGENCE_APPROVED_CSV", ""),
+              "review_csv": values.get("DUE_DILIGENCE_REVIEW_CSV", ""),
+          }
+          github_output = os.environ["GITHUB_OUTPUT"]
+          with open(github_output, "a", encoding="utf-8") as f:
+              for key, val in mapping.items():
+                  f.write(f"{key}={val}\n")
+          PY
+
+      - name: Execute approved matches
+        if: ${{ steps.due.outputs.all_pass == 'true' && steps.due.outputs.approved_count != '0' && github.event.inputs.dry_run != 'true' }}
+        run: |
+          python3 scripts/apply_unknown_opponent_matches.py \
+            --approved-csv "${{ steps.due.outputs.approved_csv }}" \
+            --require-approved-rows | tee logs/unknown_apply.log
+
+      - name: Skip execution note
+        if: ${{ !(steps.due.outputs.all_pass == 'true' && steps.due.outputs.approved_count != '0' && github.event.inputs.dry_run != 'true') }}
+        run: |
+          echo "Execution skipped."
+          echo "all_pass=${{ steps.due.outputs.all_pass }}"
+          echo "approved_count=${{ steps.due.outputs.approved_count }}"
+          echo "dry_run=${{ github.event.inputs.dry_run || 'false' }}"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unknown-opponent-weekly-${{ github.run_number }}
+          path: |
+            logs/unknown_*.log
+            ${{ steps.export.outputs.aggregate_csv }}
+            ${{ steps.export.outputs.detail_csv }}
+            ${{ steps.match.outputs.match_csv }}
+            ${{ steps.due.outputs.all_csv }}
+            ${{ steps.due.outputs.approved_csv }}
+            ${{ steps.due.outputs.review_csv }}
+          retention-days: 30
+
+      - name: Workflow summary
+        if: always()
+        run: |
+          MODE="AUTO-EXECUTE"
+          if [ "${{ github.event.inputs.dry_run || 'false' }}" = "true" ]; then
+            MODE="DRY-RUN"
+          fi
+
+          echo "## Unknown Opponent Hygiene Weekly" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Mode: **$MODE**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Provider: **${{ github.event.inputs.provider || 'gotsport' }}**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Auto-link candidates: **${{ steps.due.outputs.auto_link_count || '0' }}**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Due diligence approved: **${{ steps.due.outputs.approved_count || '0' }}**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Due diligence needs review: **${{ steps.due.outputs.review_count || '0' }}**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- All pass gate: **${{ steps.due.outputs.all_pass || 'false' }}**" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Execution happens only when all due diligence rows are approved." >> "$GITHUB_STEP_SUMMARY"
