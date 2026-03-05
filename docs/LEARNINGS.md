@@ -4,6 +4,46 @@
 
 ## Cross-Agent Insights
 
+### 2026-03-04: POST-SCRAPE LOAD SPIKE PATTERN — Recurring, Non-Blocking ✅
+
+**Pattern Timeline:**
+- **Feb 23:** 30 timeout errors (post-Monday scrape)
+- **Mar 4:** 41 timeout errors (post-Wednesday scrape)
+- **Pattern:** Timeout elevation 3-4h after scrape starts, peaks during concurrent agent runs
+
+**Technical Details:**
+- **Timeouts only** (no connection errors or API failures)
+- **Distributed load:** Scrappy (24), Watchy (14), Movy (1), Socialy (1), Compy (1)
+- **Root cause hypothesis:** API request saturation when 3-4 agents run simultaneously during scrape window
+- **Non-blocking:** All agents complete work despite timeout exposure
+
+**Agent Resilience (Confirmed):**
+- Scrappy: 24 errors → still completed scrape cycle ✅
+- Watchy: 14 errors → still completed 2x health checks ✅
+- Movy, Socialy: 1 error each → still completed reports ✅
+
+**Pattern Recognition:**
+- Predictable (post-scrape window only)
+- Expected (high-load scenario)
+- Manageable (agents designed to handle transient failures)
+- **Not escalating** (same error count range as Feb 23)
+
+**Recommendation:**
+Monitor 2-3 more post-scrape cycles. If timeout count continues stable (30-50 range) with 100% task completion, this is acceptable baseline for weekly load pattern. Only escalate if:
+1. Timeout count exceeds 100 in single cycle
+2. Tasks start failing due to timeout retry exhaustion
+3. User-facing API (web requests) affected (currently isolated to internal agents)
+
+**Prevention Opportunity:**
+If pattern persists, consider:
+- Staggering Watchy/Movy 30-60min after Scrappy starts
+- Reducing concurrent health checks during scrape window
+- Implementing exponential backoff + retry in agent configs
+
+**Current Status:** 🟢 ACCEPTABLE — monitoring for trend, non-blocking
+
+---
+
 ### 2026-02-28: BILLING CRISIS RESOLVED — Recovery Protocol Successful ✅
 **System Restored, February Crisis Fully Resolved**
 
