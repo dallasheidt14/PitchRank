@@ -180,7 +180,7 @@ export const blogPosts: BlogPost[] = [
               <p className="text-sm text-muted-foreground mb-2">
                 <strong>REALITY:</strong> The best team for your child is the one where they develop AND play meaningful minutes. A U12 on the #5 ranked team who sits the bench learns nothing. A U12 on the #50 ranked team getting 50 minutes per game learns everything.
               </p>
-              <p className="text-sm text-muted-foreground"><strong>What matters:</strong> Playing time > rank for players under U15.</p>
+              <p className="text-sm text-muted-foreground"><strong>What matters:</strong> Playing time &gt; rank for players under U15.</p>
             </div>
 
             <div className="p-4 rounded-lg bg-muted/50 border">
