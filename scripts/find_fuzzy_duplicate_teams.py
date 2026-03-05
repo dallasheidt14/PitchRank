@@ -81,7 +81,9 @@ NOISE_WORDS = frozenset({
     "fc", "sc", "sa", "ac", "cf", "fcs", "ysa",
     "soccer", "club", "futbol", "football", "youth",
     "boys", "girls", "the", "of", "and",
-    "b", "g", "m", "f",
+    # NOTE: standalone "b"/"g"/"m"/"f" removed — they are team letters
+    # (e.g. "Team A" vs "Team B"), not gender markers.  Age+gender combos
+    # like "B2014" or "G15" are handled by AGE_PATTERN.
 })
 
 # US state codes — not differentiating (just the team's state)
