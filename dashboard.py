@@ -1175,9 +1175,354 @@ elif section == "🧩 Unknown Opponent Review":
                         "No Match / Skipped",
                         f"{counts.get('no_match', 0) + counts.get('skip_protected_division', 0):,}",
                     )
-                    manual = filtered[filtered["action"].isin(["review", "no_match", "skip_protected_division"])].copy()
-                    st.subheader("Needs Manual Review")
-                    st.dataframe(manual, use_container_width=True, hide_index=True)
+
+                    # ---------------------------------------------------------
+                    # Review Bucket (.90 – .94) – interactive link / create
+                    # ---------------------------------------------------------
+                    review_bucket = filtered[filtered["action"] == "review"].copy()
+                    if "best_score" in review_bucket.columns:
+                        review_bucket["best_score"] = pd.to_numeric(review_bucket["best_score"], errors="coerce")
+                        review_bucket = review_bucket.sort_values("best_score", ascending=False)
+
+                    st.subheader("Review Bucket (.90 – .94)")
+                    st.markdown(
+                        "Teams matched with **0.90 – 0.94 confidence**. "
+                        "Click an entry to search for an existing team in the DB, link it, or create a new team."
+                    )
+
+                    if review_bucket.empty:
+                        st.success("No review-bucket rows in the current file.")
+                    else:
+                        # Initialize session state for review bucket
+                        if "rb_search_results" not in st.session_state:
+                            st.session_state.rb_search_results = {}
+                        if "rb_linked" not in st.session_state:
+                            st.session_state.rb_linked = set()
+
+                        for rb_idx, rb_row in review_bucket.iterrows():
+                            unknown_pid = str(rb_row.get("unknown_provider_team_id", ""))
+                            provider_code = str(rb_row.get("provider_code", ""))
+                            provider_id = str(rb_row.get("provider_id", ""))
+                            unknown_name = str(rb_row.get("unknown_team_name_used", ""))
+                            unknown_club = str(rb_row.get("unknown_club_name_used", ""))
+                            unknown_age = str(rb_row.get("unknown_age_group_used", ""))
+                            unknown_gender = str(rb_row.get("unknown_gender_used", ""))
+                            matched_name = str(rb_row.get("matched_team_name", ""))
+                            matched_id = str(rb_row.get("matched_team_id_master", ""))
+                            best_score = rb_row.get("best_score", 0)
+                            missing_side = str(rb_row.get("missing_side", ""))
+                            games_count = rb_row.get("games_count", "")
+                            rb_key = f"{provider_code}_{unknown_pid}"
+
+                            # Mark as linked if already processed
+                            if rb_key in st.session_state.rb_linked:
+                                status_prefix = "LINKED"
+                            else:
+                                status_prefix = f"{float(best_score):.2f}"
+
+                            label = (
+                                f"[{status_prefix}] {unknown_name or unknown_pid}"
+                                f"  ->  {matched_name or 'no match'}"
+                                f"  ({provider_code} | {games_count} games)"
+                            )
+
+                            with st.expander(label, expanded=False):
+                                if rb_key in st.session_state.rb_linked:
+                                    st.success("This unknown opponent has been linked.")
+                                    continue
+
+                                # Details
+                                detail_c1, detail_c2 = st.columns(2)
+                                with detail_c1:
+                                    st.markdown("**Unknown Opponent**")
+                                    st.text(f"Name:     {unknown_name}")
+                                    st.text(f"Club:     {unknown_club}")
+                                    st.text(f"Age:      {unknown_age}")
+                                    st.text(f"Gender:   {unknown_gender}")
+                                    st.text(f"Provider: {provider_code}")
+                                    st.text(f"Prov ID:  {unknown_pid}")
+                                    st.text(f"Side:     {missing_side}")
+                                with detail_c2:
+                                    st.markdown("**Best Auto-Match Suggestion**")
+                                    st.text(f"Name:     {matched_name}")
+                                    st.text(f"Score:    {best_score}")
+                                    st.text(f"Master:   {matched_id[:12]}..." if matched_id else "N/A")
+                                    st.text(f"Club:     {rb_row.get('matched_team_club', '')}")
+                                    st.text(f"Age:      {rb_row.get('matched_team_age_group', '')}")
+                                    st.text(f"Gender:   {rb_row.get('matched_team_gender', '')}")
+                                    st.text(f"State:    {rb_row.get('matched_team_state', '')}")
+
+                                st.divider()
+
+                                # --- Option A: Accept the suggested match ---
+                                if matched_id:
+                                    st.markdown("#### Option A: Accept Suggested Match")
+                                    if st.button(
+                                        f"Link to {matched_name}",
+                                        key=f"rb_accept_{rb_key}",
+                                        type="primary",
+                                    ):
+                                        try:
+                                            # Upsert alias
+                                            db.table("team_alias_map").upsert(
+                                                {
+                                                    "provider_id": provider_id,
+                                                    "provider_team_id": unknown_pid,
+                                                    "team_id_master": matched_id,
+                                                    "match_method": "manual_review_bucket",
+                                                    "match_confidence": float(f"{best_score:.4f}"),
+                                                    "review_status": "approved",
+                                                },
+                                                on_conflict="provider_id,provider_team_id",
+                                            ).execute()
+                                            # Backfill games
+                                            if missing_side == "home":
+                                                db.table("games").update(
+                                                    {"home_team_master_id": matched_id}
+                                                ).eq("provider_id", provider_id).eq(
+                                                    "home_provider_id", unknown_pid
+                                                ).is_("home_team_master_id", "null").execute()
+                                            elif missing_side == "away":
+                                                db.table("games").update(
+                                                    {"away_team_master_id": matched_id}
+                                                ).eq("provider_id", provider_id).eq(
+                                                    "away_provider_id", unknown_pid
+                                                ).is_("away_team_master_id", "null").execute()
+                                            st.session_state.rb_linked.add(rb_key)
+                                            st.success(f"Linked {unknown_name} -> {matched_name}")
+                                            st.rerun()
+                                        except Exception as exc:
+                                            st.error(f"Link failed: {exc}")
+
+                                st.divider()
+
+                                # --- Option B: Search DB for a different team ---
+                                st.markdown("#### Option B: Search for a Different Team")
+                                search_c1, search_c2, search_c3 = st.columns([3, 1, 1])
+                                with search_c1:
+                                    rb_search_term = st.text_input(
+                                        "Search by team name or club",
+                                        value=unknown_name or unknown_club,
+                                        key=f"rb_search_{rb_key}",
+                                    )
+                                with search_c2:
+                                    rb_search_age = st.selectbox(
+                                        "Age",
+                                        options=[""] + list(AGE_GROUPS.keys()),
+                                        index=(list(AGE_GROUPS.keys()).index(unknown_age.lower()) + 1) if unknown_age.lower() in AGE_GROUPS else 0,
+                                        key=f"rb_age_{rb_key}",
+                                    )
+                                with search_c3:
+                                    rb_search_gender = st.selectbox(
+                                        "Gender",
+                                        options=["", "Male", "Female"],
+                                        index=(["", "Male", "Female"].index(unknown_gender.title()) if unknown_gender.title() in ["Male", "Female"] else 0),
+                                        key=f"rb_gender_{rb_key}",
+                                    )
+
+                                if st.button("Search Teams", key=f"rb_search_btn_{rb_key}"):
+                                    with st.spinner("Searching..."):
+                                        try:
+                                            rb_found = []
+                                            sel = (
+                                                "team_id_master, provider_team_id, team_name, club_name, "
+                                                "age_group, gender, state_code, is_deprecated"
+                                            )
+                                            if rb_search_term.strip():
+                                                q = db.table("teams").select(sel).ilike("team_name", f"%{rb_search_term.strip()}%")
+                                                if rb_search_age:
+                                                    q = q.eq("age_group", rb_search_age)
+                                                if rb_search_gender:
+                                                    q = q.eq("gender", rb_search_gender)
+                                                name_res = execute_with_retry(lambda: q.eq("is_deprecated", False).order("team_name").limit(50))
+                                                if name_res.data:
+                                                    rb_found.extend(name_res.data)
+
+                                                # Also search by club name
+                                                cq = db.table("teams").select(sel).ilike("club_name", f"%{rb_search_term.strip()}%")
+                                                if rb_search_age:
+                                                    cq = cq.eq("age_group", rb_search_age)
+                                                if rb_search_gender:
+                                                    cq = cq.eq("gender", rb_search_gender)
+                                                club_res = execute_with_retry(lambda: cq.eq("is_deprecated", False).order("team_name").limit(50))
+                                                if club_res.data:
+                                                    existing = {t["team_id_master"] for t in rb_found}
+                                                    for t in club_res.data:
+                                                        if t["team_id_master"] not in existing:
+                                                            rb_found.append(t)
+
+                                            # Sort by similarity
+                                            for t in rb_found:
+                                                t["_sim"] = max(
+                                                    calculate_similarity(rb_search_term.lower(), (t["team_name"] or "").lower()),
+                                                    calculate_similarity(rb_search_term.lower(), (t.get("club_name") or "").lower()),
+                                                )
+                                            rb_found.sort(key=lambda x: x.get("_sim", 0), reverse=True)
+                                            st.session_state.rb_search_results[rb_key] = rb_found[:50]
+                                        except Exception as exc:
+                                            st.error(f"Search failed: {exc}")
+                                            st.session_state.rb_search_results[rb_key] = []
+
+                                # Display search results
+                                if rb_key in st.session_state.rb_search_results:
+                                    rb_results = st.session_state.rb_search_results[rb_key]
+                                    if not rb_results:
+                                        st.warning("No teams found.")
+                                    else:
+                                        st.success(f"Found {len(rb_results)} teams")
+                                        res_df = pd.DataFrame([
+                                            {
+                                                "Team Name": t["team_name"],
+                                                "Club": t.get("club_name", ""),
+                                                "Age": t.get("age_group", ""),
+                                                "Gender": t.get("gender", ""),
+                                                "State": t.get("state_code", ""),
+                                                "ID": t["team_id_master"][:12] + "...",
+                                            }
+                                            for t in rb_results
+                                        ])
+                                        st.dataframe(res_df, use_container_width=True, hide_index=True)
+
+                                        team_opts = {
+                                            f"{t['team_name']} ({t.get('age_group', '?')} {t.get('gender', '?')}) - {t.get('club_name', 'N/A')}": t["team_id_master"]
+                                            for t in rb_results
+                                        }
+                                        sel_c, btn_c = st.columns([4, 1])
+                                        with sel_c:
+                                            rb_selected_label = st.selectbox(
+                                                "Select team to link:",
+                                                options=[""] + list(team_opts.keys()),
+                                                key=f"rb_select_{rb_key}",
+                                            )
+                                        with btn_c:
+                                            st.write("")
+                                            if st.button("Link Selected", key=f"rb_link_{rb_key}", type="primary"):
+                                                if rb_selected_label and rb_selected_label in team_opts:
+                                                    link_id = team_opts[rb_selected_label]
+                                                    try:
+                                                        db.table("team_alias_map").upsert(
+                                                            {
+                                                                "provider_id": provider_id,
+                                                                "provider_team_id": unknown_pid,
+                                                                "team_id_master": link_id,
+                                                                "match_method": "manual_review_bucket",
+                                                                "match_confidence": 1.0,
+                                                                "review_status": "approved",
+                                                            },
+                                                            on_conflict="provider_id,provider_team_id",
+                                                        ).execute()
+                                                        if missing_side == "home":
+                                                            db.table("games").update(
+                                                                {"home_team_master_id": link_id}
+                                                            ).eq("provider_id", provider_id).eq(
+                                                                "home_provider_id", unknown_pid
+                                                            ).is_("home_team_master_id", "null").execute()
+                                                        elif missing_side == "away":
+                                                            db.table("games").update(
+                                                                {"away_team_master_id": link_id}
+                                                            ).eq("provider_id", provider_id).eq(
+                                                                "away_provider_id", unknown_pid
+                                                            ).is_("away_team_master_id", "null").execute()
+                                                        st.session_state.rb_linked.add(rb_key)
+                                                        st.success(f"Linked {unknown_name} -> {rb_selected_label}")
+                                                        st.rerun()
+                                                    except Exception as exc:
+                                                        st.error(f"Link failed: {exc}")
+                                                else:
+                                                    st.warning("Select a team first.")
+
+                                st.divider()
+
+                                # --- Option C: Create a New Team ---
+                                st.markdown("#### Option C: Create New Team")
+                                with st.form(key=f"rb_create_form_{rb_key}"):
+                                    cr_c1, cr_c2 = st.columns(2)
+                                    with cr_c1:
+                                        new_name = st.text_input("Team Name", value=unknown_name, key=f"rb_newname_{rb_key}")
+                                        new_club = st.text_input("Club Name", value=unknown_club, key=f"rb_newclub_{rb_key}")
+                                    with cr_c2:
+                                        new_age = st.selectbox(
+                                            "Age Group",
+                                            options=list(AGE_GROUPS.keys()),
+                                            index=list(AGE_GROUPS.keys()).index(unknown_age.lower()) if unknown_age.lower() in AGE_GROUPS else 0,
+                                            key=f"rb_newage_{rb_key}",
+                                        )
+                                        new_gender = st.selectbox(
+                                            "Gender",
+                                            options=["Male", "Female"],
+                                            index=["Male", "Female"].index(unknown_gender.title()) if unknown_gender.title() in ["Male", "Female"] else 0,
+                                            key=f"rb_newgender_{rb_key}",
+                                        )
+                                    state_codes_list = [
+                                        "", "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+                                        "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+                                        "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+                                        "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+                                        "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC",
+                                    ]
+                                    new_state = st.selectbox("State Code", options=state_codes_list, key=f"rb_newstate_{rb_key}")
+
+                                    create_submitted = st.form_submit_button("Create Team & Link", type="primary")
+                                    if create_submitted:
+                                        if not new_name.strip():
+                                            st.error("Team name is required.")
+                                        else:
+                                            try:
+                                                import uuid
+                                                new_team_id = str(uuid.uuid4())
+                                                birth_year = AGE_GROUPS.get(new_age, {}).get("birth_year")
+                                                team_data = {
+                                                    "team_id_master": new_team_id,
+                                                    "team_name": new_name.strip(),
+                                                    "club_name": new_club.strip() if new_club.strip() else None,
+                                                    "age_group": new_age,
+                                                    "gender": new_gender,
+                                                    "birth_year": birth_year,
+                                                    "state_code": new_state if new_state else None,
+                                                    "provider_id": provider_id,
+                                                    "provider_team_id": unknown_pid,
+                                                    "is_deprecated": False,
+                                                }
+                                                db.table("teams").insert(team_data).execute()
+
+                                                # Create alias mapping
+                                                db.table("team_alias_map").upsert(
+                                                    {
+                                                        "provider_id": provider_id,
+                                                        "provider_team_id": unknown_pid,
+                                                        "team_id_master": new_team_id,
+                                                        "match_method": "manual_create_review_bucket",
+                                                        "match_confidence": 1.0,
+                                                        "review_status": "approved",
+                                                    },
+                                                    on_conflict="provider_id,provider_team_id",
+                                                ).execute()
+
+                                                # Backfill games
+                                                if missing_side == "home":
+                                                    db.table("games").update(
+                                                        {"home_team_master_id": new_team_id}
+                                                    ).eq("provider_id", provider_id).eq(
+                                                        "home_provider_id", unknown_pid
+                                                    ).is_("home_team_master_id", "null").execute()
+                                                elif missing_side == "away":
+                                                    db.table("games").update(
+                                                        {"away_team_master_id": new_team_id}
+                                                    ).eq("provider_id", provider_id).eq(
+                                                        "away_provider_id", unknown_pid
+                                                    ).is_("away_team_master_id", "null").execute()
+
+                                                st.session_state.rb_linked.add(rb_key)
+                                                st.success(f"Created team '{new_name.strip()}' and linked {unknown_pid}")
+                                                st.rerun()
+                                            except Exception as exc:
+                                                st.error(f"Create failed: {exc}")
+
+                    # Show remaining manual rows (no_match, skip_protected_division)
+                    other_manual = filtered[filtered["action"].isin(["no_match", "skip_protected_division"])].copy()
+                    if not other_manual.empty:
+                        st.subheader("No Match / Skipped")
+                        st.dataframe(other_manual, use_container_width=True, hide_index=True)
                 else:
                     m2.metric("Auto-link", "N/A")
                     m3.metric("Review", "N/A")
