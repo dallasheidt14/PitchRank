@@ -975,6 +975,13 @@ elif section == "🧩 Unknown Opponent Review":
     )
     selected = latest_due if source.startswith("Due Diligence") else latest_match
 
+    # Apply controls always use a due-diligence _all.csv snapshot.
+    active_due_file = None
+    if selected and selected.name.startswith("unknown_opponent_due_diligence_") and selected.name.endswith("_all.csv"):
+        active_due_file = selected
+    elif latest_due and latest_due.name.endswith("_all.csv"):
+        active_due_file = latest_due
+
     if not selected:
         st.warning(
             "No export file found yet in `data/exports`.\n\n"
@@ -990,6 +997,108 @@ elif section == "🧩 Unknown Opponent Review":
         except Exception as exc:
             st.error(f"Failed to read {selected.name}: {exc}")
             df = pd.DataFrame()
+
+        # ------------------------------------------------------------------
+        # Apply Approved controls
+        # ------------------------------------------------------------------
+        st.subheader("Apply Approved Matches")
+        if not active_due_file:
+            st.info("No due-diligence `_all.csv` file found yet, so apply controls are unavailable.")
+        else:
+            due_approved_file = Path(str(active_due_file).replace("_all.csv", "_approved.csv"))
+            due_review_file = Path(str(active_due_file).replace("_all.csv", "_needs_review.csv"))
+            st.caption(f"Using due-diligence file: `{active_due_file}`")
+
+            try:
+                due_df = pd.read_csv(active_due_file)
+            except Exception as exc:
+                st.error(f"Could not read due-diligence file: {exc}")
+                due_df = pd.DataFrame()
+
+            if due_df.empty or "verdict" not in due_df.columns:
+                st.warning("Due-diligence file is empty or missing `verdict` column.")
+            else:
+                due_approved_count = int((due_df["verdict"] == "approved").sum())
+                due_review_count = int((due_df["verdict"] != "approved").sum())
+                due_approved_games = 0
+                if "total_games_impacted" in due_df.columns:
+                    due_approved_games = int(
+                        pd.to_numeric(
+                            due_df[due_df["verdict"] == "approved"]["total_games_impacted"],
+                            errors="coerce",
+                        ).fillna(0).sum()
+                    )
+
+                a1, a2, a3 = st.columns(3)
+                a1.metric("Approved Rows", f"{due_approved_count:,}")
+                a2.metric("Needs Review Rows", f"{due_review_count:,}")
+                a3.metric("Approved Games Impacted", f"{due_approved_games:,}")
+
+                if due_review_count > 0:
+                    st.warning(
+                        "Real apply is blocked because some rows still need manual review. "
+                        "Use Dry-Run Apply to preview."
+                    )
+                elif due_approved_count == 0:
+                    st.info("No approved rows available to apply.")
+                else:
+                    st.success("All due-diligence rows are approved. Real apply is enabled.")
+
+                dry_col, apply_col = st.columns(2)
+                dry_clicked = dry_col.button(
+                    "🧪 Dry-Run Apply Approved",
+                    use_container_width=True,
+                    disabled=(due_approved_count == 0 or not due_approved_file.exists()),
+                    key="uo_apply_dry_run",
+                )
+                apply_clicked = apply_col.button(
+                    "✅ Apply Approved Now",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=(
+                        due_approved_count == 0
+                        or due_review_count != 0
+                        or not due_approved_file.exists()
+                    ),
+                    key="uo_apply_execute",
+                )
+
+                if dry_clicked or apply_clicked:
+                    cmd_apply = [
+                        sys.executable,
+                        str(repo_root / "scripts" / "apply_unknown_opponent_matches.py"),
+                        "--approved-csv",
+                        str(due_approved_file),
+                        "--require-approved-rows",
+                    ]
+                    if dry_clicked:
+                        cmd_apply.append("--dry-run")
+
+                    with st.spinner("Running apply step..."):
+                        result = subprocess.run(
+                            cmd_apply,
+                            cwd=str(repo_root),
+                            capture_output=True,
+                            text=True,
+                        )
+
+                    mode_label = "dry-run" if dry_clicked else "execute"
+                    if result.returncode == 0:
+                        st.success(f"Apply ({mode_label}) completed successfully.")
+                    else:
+                        st.error(f"Apply ({mode_label}) failed with exit code {result.returncode}.")
+
+                    with st.expander("Apply logs", expanded=True):
+                        st.code(
+                            f"$ {' '.join(cmd_apply)}\n"
+                            f"[exit={result.returncode}]\n"
+                            f"{result.stdout}\n"
+                            f"{result.stderr}"
+                        )
+
+                    if result.returncode == 0 and apply_clicked:
+                        # Re-render after successful write to pick up freshest files/metrics.
+                        st.rerun()
 
         if df.empty:
             st.info("Selected file has no rows.")
