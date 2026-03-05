@@ -994,6 +994,9 @@ elif section == "🧩 Unknown Opponent Review":
         st.caption(f"Using file: `{selected}`")
         try:
             df = pd.read_csv(selected)
+        except pd.errors.EmptyDataError:
+            st.warning(f"{selected.name} is empty (no rows yet).")
+            df = pd.DataFrame()
         except Exception as exc:
             st.error(f"Failed to read {selected.name}: {exc}")
             df = pd.DataFrame()
@@ -1011,6 +1014,9 @@ elif section == "🧩 Unknown Opponent Review":
 
             try:
                 due_df = pd.read_csv(active_due_file)
+            except pd.errors.EmptyDataError:
+                st.warning("Due-diligence file is empty (no auto-link candidates found yet).")
+                due_df = pd.DataFrame()
             except Exception as exc:
                 st.error(f"Could not read due-diligence file: {exc}")
                 due_df = pd.DataFrame()

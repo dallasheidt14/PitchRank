@@ -148,16 +148,21 @@ class GotSportResolver:
         return resolved
 
 
-def _write_csv(path: Path, rows: List[Dict]) -> None:
+def _write_csv(path: Path, rows: List[Dict], fieldnames: Optional[List[str]] = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    if not rows:
-        with path.open("w", newline="", encoding="utf-8") as f:
-            f.write("")
-        return
+    resolved_fieldnames: List[str] = list(fieldnames or [])
+    if rows and not resolved_fieldnames:
+        resolved_fieldnames = list(rows[0].keys())
+
     with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        if not resolved_fieldnames:
+            # Nothing to write and no known schema available.
+            f.write("")
+            return
+        writer = csv.DictWriter(f, fieldnames=resolved_fieldnames)
         writer.writeheader()
-        writer.writerows(rows)
+        if rows:
+            writer.writerows(rows)
 
 
 def main() -> None:
@@ -369,9 +374,39 @@ def main() -> None:
     approved_path = Path(f"{prefix}_approved.csv")
     review_path = Path(f"{prefix}_needs_review.csv")
 
-    _write_csv(all_path, verdict_rows)
-    _write_csv(approved_path, approved_rows)
-    _write_csv(review_path, review_rows)
+    due_diligence_columns = [
+        "provider_code",
+        "provider_id",
+        "unknown_provider_team_id",
+        "matched_team_id_master",
+        "matched_team_name",
+        "matched_team_club",
+        "matched_team_age_group",
+        "matched_team_gender",
+        "matched_team_state",
+        "rows_collapsed",
+        "sides",
+        "total_games_impacted",
+        "best_score",
+        "alias_conflict",
+        "name_literal_check",
+        "club_check",
+        "age_check",
+        "gender_check",
+        "state_check",
+        "cohort_age_check",
+        "cohort_gender_check",
+        "unknown_api_full_name",
+        "unknown_api_club_name",
+        "unknown_api_age_group",
+        "unknown_api_gender",
+        "unknown_api_state",
+        "verdict",
+    ]
+
+    _write_csv(all_path, verdict_rows, fieldnames=due_diligence_columns)
+    _write_csv(approved_path, approved_rows, fieldnames=due_diligence_columns)
+    _write_csv(review_path, review_rows, fieldnames=due_diligence_columns)
 
     auto_link_count = len(grouped)
     approved_count = len(approved_rows)
