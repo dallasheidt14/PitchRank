@@ -53,7 +53,8 @@ class ImportMetrics:
     skipped_empty_game_date: int = 0  # Games skipped due to empty game_date
     skipped_empty_scores: int = 0  # Games skipped due to missing both scores
     duplicate_key_violations: int = 0  # Games rejected due to unique constraint (already in DB)
-    
+    duplicate_links_backfilled: int = 0  # Duplicate games where missing master IDs were healed
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert metrics to dictionary for JSONB storage"""
         return {
@@ -76,7 +77,8 @@ class ImportMetrics:
             'skipped_empty_provider_ids': self.skipped_empty_provider_ids,
             'skipped_empty_game_date': self.skipped_empty_game_date,
             'skipped_empty_scores': self.skipped_empty_scores,
-            'duplicate_key_violations': self.duplicate_key_violations
+            'duplicate_key_violations': self.duplicate_key_violations,
+            'duplicate_links_backfilled': self.duplicate_links_backfilled
         }
 
 
@@ -559,11 +561,17 @@ class EnhancedETLPipeline:
                     existing_composite_keys = await self._check_duplicates_by_composite_key(games_with_existing_uid)
                     if existing_composite_keys:
                         logger.info(f"[Pipeline] Found {len(existing_composite_keys)} duplicate games by composite key (already in DB)")
+                        # Capture duplicates before filtering for backfill
+                        m11_composite_dupes = [g for g in games_with_existing_uid if self._make_composite_key(g) in existing_composite_keys]
                         # Filter out games with existing composite keys
                         games_with_existing_uid = [g for g in games_with_existing_uid if self._make_composite_key(g) not in existing_composite_keys]
                         batch_metrics.duplicates_found = len(existing_composite_keys)
                         self.metrics.duplicates_found += len(existing_composite_keys)
                         logger.info(f"[Pipeline] Filtered to {len(games_with_existing_uid)} games after composite key duplicate check")
+                        # Backfill missing master IDs on Modular11 composite-key duplicates
+                        bf = await self._backfill_duplicate_team_links(m11_composite_dupes)
+                        batch_metrics.duplicate_links_backfilled += bf
+                        self.metrics.duplicate_links_backfilled += bf
                 
                 # Combine: games with new game_uid (trust them) + games with existing game_uid that passed composite key check
                 game_records = games_with_new_uid + games_with_existing_uid
@@ -582,6 +590,7 @@ class EnhancedETLPipeline:
                 regen_existing_uids, regen_uid_master_ids = await self._check_duplicates(game_records)
                 if regen_existing_uids:
                     pre_count = len(game_records)
+                    regen_dupes_list = [g for g in game_records if g.get('game_uid') in regen_existing_uids]
                     game_records = [g for g in game_records if g.get('game_uid') not in regen_existing_uids]
                     regen_dupes = pre_count - len(game_records)
                     if regen_dupes > 0:
@@ -591,6 +600,10 @@ class EnhancedETLPipeline:
                             f"[Pipeline] Regenerated game_uid dedup: {regen_dupes} duplicates caught "
                             f"(master-ID UIDs matched existing records)"
                         )
+                        # Backfill missing master IDs on the duplicates we just filtered out
+                        bf = await self._backfill_duplicate_team_links(regen_dupes_list)
+                        batch_metrics.duplicate_links_backfilled += bf
+                        self.metrics.duplicate_links_backfilled += bf
                     # Merge for downstream use
                     existing_uids.update(regen_existing_uids)
                     game_uid_to_master_ids.update(regen_uid_master_ids)
@@ -599,12 +612,18 @@ class EnhancedETLPipeline:
                 existing_composite_keys = await self._check_duplicates_by_composite_key(game_records)
                 if existing_composite_keys:
                     logger.info(f"[Pipeline] Found {len(existing_composite_keys)} duplicate games by composite key (already in DB)")
+                    # Capture duplicates before filtering for backfill
+                    composite_dupes_list = [g for g in game_records if self._make_composite_key(g) in existing_composite_keys]
                     # Filter out games with existing composite keys
                     game_records = [g for g in game_records if self._make_composite_key(g) not in existing_composite_keys]
                     batch_metrics.duplicates_found = len(existing_composite_keys)  # Set (not +=) because this is the authoritative count
                     self.metrics.duplicates_found += len(existing_composite_keys)
                     logger.info(f"[Pipeline] Filtered to {len(game_records)} new games after composite key duplicate check")
-            
+                    # Backfill missing master IDs on composite-key duplicates
+                    bf = await self._backfill_duplicate_team_links(composite_dupes_list)
+                    batch_metrics.duplicate_links_backfilled += bf
+                    self.metrics.duplicate_links_backfilled += bf
+
             # Step 3b2: Master-level dedup — catch cross-scraper duplicates
             # The event scraper and team scraper may use different provider_team_ids
             # (registration IDs vs API team IDs) for the same physical team. Since
@@ -614,6 +633,7 @@ class EnhancedETLPipeline:
             master_dedup_removed = await self._check_duplicates_by_master_ids(game_records)
             if master_dedup_removed > 0:
                 pre_count = len(game_records)
+                master_dupes_list = [g for g in game_records if g.get('_master_dedup_skip')]
                 game_records = [g for g in game_records if not g.get('_master_dedup_skip')]
                 batch_metrics.duplicates_found = getattr(batch_metrics, 'duplicates_found', 0) + master_dedup_removed
                 self.metrics.duplicates_found += master_dedup_removed
@@ -621,6 +641,10 @@ class EnhancedETLPipeline:
                     f"[Pipeline] Master-level dedup: removed {master_dedup_removed} cross-scraper "
                     f"duplicates ({pre_count} -> {len(game_records)} games)"
                 )
+                # Backfill missing master IDs on master-level duplicates
+                bf = await self._backfill_duplicate_team_links(master_dupes_list)
+                batch_metrics.duplicate_links_backfilled += bf
+                self.metrics.duplicate_links_backfilled += bf
 
             # Step 3c: Handle games where game_uid exists but scores differ
             # Check if master team IDs match - if not, it's a different game (e.g., U13 vs U14)
@@ -826,6 +850,7 @@ class EnhancedETLPipeline:
                     f"  Accepted:        {self.metrics.games_accepted:,} games\n"
                     f"  Quarantined:     {self.metrics.games_quarantined:,} games\n"
                     f"  Duplicates:      {self.metrics.duplicates_found:,} games (already in DB)\n"
+                    f"  Links backfilled:{self.metrics.duplicate_links_backfilled:,} healed\n"
                     f"  Perspective dup: {self.metrics.duplicates_skipped:,} skipped\n"
                     f"  Processing rate: {games_per_sec:.1f} games/sec\n"
                     f"  Elapsed time:    {elapsed_time/60:.1f} minutes\n"
@@ -1304,6 +1329,102 @@ class EnhancedETLPipeline:
                 # Non-fatal: continue without this check rather than block the import
 
         return duplicates_found
+
+    async def _backfill_duplicate_team_links(self, duplicate_games: List[Dict]) -> int:
+        """
+        Backfill missing home_team_master_id / away_team_master_id on existing
+        DB rows that were identified as duplicates.
+
+        When a duplicate game is skipped, the existing row may have NULL master
+        IDs (partial match from an earlier import).  If the incoming candidate
+        has resolved master IDs, we UPDATE only the NULL columns — never
+        overwriting an existing non-null value.
+
+        Args:
+            duplicate_games: candidate game dicts that were filtered out as
+                duplicates.  Each must have at least ``game_uid`` or enough
+                composite-key fields to locate the DB row.
+
+        Returns:
+            Number of rows where at least one master ID was backfilled.
+        """
+        if not duplicate_games or self.dry_run:
+            return 0
+
+        backfilled = 0
+
+        for game in duplicate_games:
+            candidate_home = game.get('home_team_master_id')
+            candidate_away = game.get('away_team_master_id')
+
+            # Nothing to backfill if the candidate itself has no master IDs
+            if not candidate_home and not candidate_away:
+                continue
+
+            game_uid = game.get('game_uid')
+            existing_row = None
+
+            # --- locate existing row ---
+            # Try game_uid first (fast, indexed)
+            if game_uid:
+                try:
+                    result = self.supabase.table('games').select(
+                        'id, game_uid, home_team_master_id, away_team_master_id'
+                    ).eq('game_uid', game_uid).limit(1).execute()
+                    if result.data:
+                        existing_row = result.data[0]
+                except Exception as e:
+                    logger.warning(f"[Backfill] Error looking up game_uid {game_uid}: {e}")
+
+            # Fallback: composite key lookup
+            if not existing_row:
+                try:
+                    provider_id = game.get('provider_id') or self.provider_id
+                    game_date = game.get('game_date')
+                    home_pid = game.get('home_provider_id')
+                    away_pid = game.get('away_provider_id')
+                    if provider_id and game_date and home_pid and away_pid:
+                        result = self.supabase.table('games').select(
+                            'id, game_uid, home_team_master_id, away_team_master_id'
+                        ).eq('provider_id', provider_id).eq(
+                            'game_date', game_date
+                        ).eq('home_provider_id', home_pid).eq(
+                            'away_provider_id', away_pid
+                        ).limit(1).execute()
+                        if result.data:
+                            existing_row = result.data[0]
+                except Exception as e:
+                    logger.warning(f"[Backfill] Error in composite-key lookup: {e}")
+
+            if not existing_row:
+                continue
+
+            # --- determine which fields need backfill ---
+            updates = {}
+            if not existing_row.get('home_team_master_id') and candidate_home:
+                updates['home_team_master_id'] = candidate_home
+            if not existing_row.get('away_team_master_id') and candidate_away:
+                updates['away_team_master_id'] = candidate_away
+
+            if not updates:
+                continue
+
+            # --- apply update ---
+            row_id = existing_row.get('id')
+            row_uid = existing_row.get('game_uid') or game_uid or 'unknown'
+            try:
+                self.supabase.table('games').update(updates).eq('id', row_id).execute()
+                backfilled += 1
+                logger.info(
+                    f"[Backfill] Healed game {row_uid}: set {updates}"
+                )
+            except Exception as e:
+                logger.warning(f"[Backfill] Failed to update game {row_uid}: {e}")
+
+        if backfilled > 0:
+            logger.info(f"[Backfill] Backfilled missing master IDs on {backfilled} duplicate games")
+
+        return backfilled
 
     async def _update_games_with_scores(self, game_records: List[Dict]) -> int:
         """
@@ -1927,9 +2048,10 @@ class EnhancedETLPipeline:
         print(f"  Unique Games: {unique_games:,}")
         print(f"  Imported: {metrics.games_accepted:,}")
         print(f"  Already in Database: {metrics.duplicates_found:,}")
+        print(f"  Links Backfilled: {metrics.duplicate_links_backfilled:,}")
         print(f"  Duplicates Skipped: {metrics.duplicates_skipped:,}")
         print(f"  Quarantined: {metrics.games_quarantined:,}")
-        
+
         # Team Matching Statistics
         print("\nTEAM MATCHING:")
         print(f"  Total Teams Seen: {summary['processed']:,}")
