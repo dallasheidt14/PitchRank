@@ -81,7 +81,9 @@ NOISE_WORDS = frozenset({
     "fc", "sc", "sa", "ac", "cf", "fcs", "ysa",
     "soccer", "club", "futbol", "football", "youth",
     "boys", "girls", "the", "of", "and",
-    "b", "g", "m", "f",
+    # NOTE: standalone "b"/"g"/"m"/"f" removed — they are team letters
+    # (e.g. "Team A" vs "Team B"), not gender markers.  Age+gender combos
+    # like "B2014" or "G15" are handled by AGE_PATTERN.
 })
 
 # US state codes — not differentiating (just the team's state)
@@ -132,8 +134,11 @@ def extract_distinctions(name: str, club_name: str = "") -> dict:
 
     # Strip club name words so they don't become phantom squad_words
     # e.g. "Fever United 2014 Mee" with club "Fever United" → drop "fever"
+    # But NEVER strip PROGRAM_WORDS — they carry tier/league meaning even
+    # when they overlap with the club name (e.g. "academy" in
+    # "Charlotte Soccer Academy" is also the ECNL Academy tier).
     if club_name:
-        club_tokens = set(_tokenize(club_name)) - NOISE_WORDS
+        club_tokens = set(_tokenize(club_name)) - NOISE_WORDS - PROGRAM_WORDS
         tokens = [t for t in tokens if t not in club_tokens]
 
     colors = set()
@@ -261,19 +266,14 @@ def _should_skip_pair(name_a: str, name_b: str, club_name: str = "") -> bool:
     if da["directions"] != db["directions"]:
         return True
 
-    # Programs/leagues: only block when BOTH have programs that conflict.
-    # If only one side has a league tag (e.g. PRE-ECNL vs none), it's a
-    # naming difference from different providers, not a different team.
-    prog_a, prog_b = da["programs"], db["programs"]
-    if prog_a and prog_b and prog_a != prog_b:
-        return True
-
-    # RL (ECNL Regional League) is a different competitive tier from main
-    # ECNL — always block RL vs non-RL even when one side has no programs.
-    # RL can appear as "rl", "ecnl-rl", "ecnl rl", or "regional".
-    has_rl_a = "rl" in prog_a
-    has_rl_b = "rl" in prog_b
-    if has_rl_a != has_rl_b:
+    # Programs/leagues must match exactly.  _should_skip_pair is only
+    # called for same-club pairs (line 450), so a program word present on
+    # one side but not the other always indicates a real tier difference
+    # (e.g. "LFA Blue Star Premier 2015" vs "LFA Blue Star 2015",
+    #        "Charlotte SA Academy ECNL 2012" vs "Charlotte SA ECNL 2012").
+    # Cross-provider naming differences (where one provider omits the
+    # league tag) involve different club names and never reach this check.
+    if da["programs"] != db["programs"]:
         return True
 
     # Team numbers must match (1 vs 2, I vs II)
