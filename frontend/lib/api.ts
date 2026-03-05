@@ -364,6 +364,7 @@ export const api = {
       rank_in_cohort_final: rankInCohortFinal,
       rank_in_state_final: rankInStateFinal,
       games_played: gamesPlayed,
+      last_scraped_at: team.last_scraped_at ?? null,
       wins: winsValue,
       losses: lossesValue,
       draws: drawsValue,
