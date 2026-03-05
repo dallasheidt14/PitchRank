@@ -160,11 +160,11 @@ jobs:
 
               if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
                 python scripts/find_fuzzy_duplicate_teams.py \
-                  --age-group "$AGE" --gender "$GENDER" --dry-run --min-score 0.85 \
+                  --age-group "$AGE" --gender "$GENDER" --dry-run --min-score 0.90 \
                   2>&1 | tee -a logs/step3_fuzzy_merge.log
               else
                 python scripts/find_fuzzy_duplicate_teams.py \
-                  --age-group "$AGE" --gender "$GENDER" --auto-merge --min-score 0.85 \
+                  --age-group "$AGE" --gender "$GENDER" --auto-merge --min-score 0.90 \
                   2>&1 | tee -a logs/step3_fuzzy_merge.log
               fi
 

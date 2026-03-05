@@ -98,14 +98,6 @@ US_STATES = frozenset({
 # Age/year patterns
 AGE_PATTERN = re.compile(r"\b(20\d{2})\b|'(\d{2})(?:/(\d{2}))?|\b[Uu]-?(\d{1,2})\b")
 
-# ── Blocked merge pairs ──────────────────────────────────────────────
-# Team ID pairs (as frozenset) that must NEVER be merged, even if they
-# share a club_name and score highly.  Confirmed by manual review.
-BLOCKED_MERGE_PAIRS: set[frozenset[str]] = {
-    # "LA 2014 FC" vs "Legends FC 2014" — different clubs despite shared club_name
-    frozenset({"9a4d94a0-1295-4f68-b729-3de69060c081", "a8807529-0228-4d50-9273-82b727f58ca5"}),
-}
-
 
 def _tokenize(name: str) -> list[str]:
     """Split name into lowercase tokens, splitting on spaces, hyphens, underscores, and dots."""
@@ -458,9 +450,6 @@ def run_fuzzy_duplicates(
                 if _should_skip_pair(ta["team_name"], tb["team_name"], club_name=club_a):
                     continue
                 id_a, id_b = ta["team_id_master"], tb["team_id_master"]
-                # Check blocklist
-                if frozenset({id_a, id_b}) in BLOCKED_MERGE_PAIRS:
-                    continue
                 key = (min(id_a, id_b), max(id_a, id_b))
                 if key in seen_pairs:
                     continue
