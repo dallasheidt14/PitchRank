@@ -2,6 +2,8 @@
 import streamlit as st
 import pandas as pd
 import os
+import sys
+import subprocess
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 import time
@@ -838,6 +840,124 @@ elif section == "🧩 Unknown Opponent Review":
 
     exports_dir = Path("data/exports")
     exports_dir.mkdir(parents=True, exist_ok=True)
+    repo_root = Path(__file__).resolve().parent
+
+    st.subheader("Generate Fresh Unknown-Opponent Files")
+    gen_c1, gen_c2, gen_c3, gen_c4 = st.columns(4)
+    with gen_c1:
+        gen_provider = st.selectbox(
+            "Provider",
+            options=["gotsport", "tgs", "sincsports", "modular11"],
+            index=0,
+            key="uo_gen_provider",
+        )
+    with gen_c2:
+        gen_max_rows = st.number_input(
+            "Max partial game rows (0 = all)",
+            min_value=0,
+            value=0,
+            step=100,
+            key="uo_gen_max_rows",
+        )
+    with gen_c3:
+        gen_limit = st.number_input(
+            "Max unknown rows to match (0 = all)",
+            min_value=0,
+            value=0,
+            step=100,
+            key="uo_gen_limit",
+        )
+    with gen_c4:
+        auto_threshold = st.number_input(
+            "Auto threshold",
+            min_value=0.50,
+            max_value=1.00,
+            value=0.95,
+            step=0.01,
+            key="uo_gen_auto_threshold",
+        )
+
+    generate_clicked = st.button(
+        "🚀 Generate Fresh Files",
+        type="primary",
+        use_container_width=True,
+        key="uo_generate_btn",
+    )
+
+    if generate_clicked:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        export_prefix = exports_dir / f"unknown_opponents_ui_{ts}"
+        match_csv = exports_dir / f"unknown_opponent_match_report_ui_{ts}.csv"
+        due_prefix = exports_dir / f"unknown_opponent_due_diligence_ui_{ts}"
+
+        max_rows_args = ["--max-rows", str(int(gen_max_rows))] if int(gen_max_rows) > 0 else []
+        limit_args = ["--limit", str(int(gen_limit))] if int(gen_limit) > 0 else []
+
+        cmd_export = [
+            sys.executable,
+            str(repo_root / "scripts" / "export_unknown_opponents.py"),
+            "--provider",
+            gen_provider,
+            "--output-prefix",
+            str(export_prefix),
+            *max_rows_args,
+        ]
+        cmd_match = [
+            sys.executable,
+            str(repo_root / "scripts" / "auto_match_unknown_opponents.py"),
+            "--input",
+            f"{export_prefix}_aggregate.csv",
+            "--provider",
+            gen_provider,
+            "--auto-threshold",
+            f"{float(auto_threshold):.2f}",
+            "--review-threshold",
+            "0.90",
+            "--output",
+            str(match_csv),
+            *limit_args,
+        ]
+        cmd_due = [
+            sys.executable,
+            str(repo_root / "scripts" / "due_diligence_unknown_opponents.py"),
+            "--match-report",
+            str(match_csv),
+            "--output-prefix",
+            str(due_prefix),
+        ]
+
+        logs = []
+        with st.spinner("Generating export -> match report -> due diligence..."):
+            for label, cmd in [
+                ("Export unknown opponents", cmd_export),
+                ("Auto-match unknown opponents", cmd_match),
+                ("Due diligence", cmd_due),
+            ]:
+                result = subprocess.run(
+                    cmd,
+                    cwd=str(repo_root),
+                    capture_output=True,
+                    text=True,
+                )
+                logs.append(
+                    f"$ {' '.join(cmd)}\n"
+                    f"[exit={result.returncode}]\n"
+                    f"{result.stdout}\n"
+                    f"{result.stderr}"
+                )
+                if result.returncode != 0:
+                    st.error(f"{label} failed (exit code {result.returncode}). See logs below.")
+                    with st.expander("Generation logs", expanded=True):
+                        st.code("\n\n".join(logs))
+                    st.stop()
+
+        st.success(
+            "Fresh files generated successfully. "
+            f"Latest due diligence: `{due_prefix}_all.csv`"
+        )
+        with st.expander("Generation logs"):
+            st.code("\n\n".join(logs))
+        st.rerun()
 
     def latest_csv(pattern: str):
         files = list(exports_dir.glob(pattern))
