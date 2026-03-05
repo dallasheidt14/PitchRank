@@ -405,6 +405,23 @@ class TestBackfillDuplicateTeamLinks:
         mock_supabase.table.return_value.update.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_backfill_skipped_for_modular11(self, mock_supabase):
+        """Modular11 must never run duplicate-link backfill writes."""
+        pipeline = self._build_pipeline(mock_supabase, dry_run=False)
+        pipeline.provider_code = 'modular11'
+
+        candidates = [{
+            'game_uid': 'modular11:2026-02-20:74:249:U14:HD',
+            'home_team_master_id': 'home-master',
+            'away_team_master_id': 'away-master',
+        }]
+
+        count = await pipeline._backfill_duplicate_team_links(candidates)
+
+        assert count == 0
+        mock_supabase.table.return_value.update.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_backfill_no_insert_occurs(self, mock_supabase):
         """Backfill must never insert new rows — only update existing ones."""
         pipeline = self._build_pipeline(mock_supabase, dry_run=False)

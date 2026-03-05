@@ -2,9 +2,12 @@
 import streamlit as st
 import pandas as pd
 import os
+import sys
+import subprocess
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 import time
+from pathlib import Path
 from supabase import create_client
 from config.settings import (
     RANKING_CONFIG,
@@ -95,6 +98,7 @@ section = st.sidebar.radio(
         "📋 Review Queue",
         "👥 Age Groups",
         "📈 Database Import Stats",
+        "🧩 Unknown Opponent Review",
         "🗺️ State Coverage",
         "📍 Missing State Codes",
         "🔀 Team Merge Manager",
@@ -823,6 +827,364 @@ elif section == "📋 Review Queue":
             st.error(f"Error loading review queue: {e}")
             import traceback
             st.code(traceback.format_exc())
+
+# ============================================================================
+# UNKNOWN OPPONENT REVIEW SECTION
+# ============================================================================
+elif section == "🧩 Unknown Opponent Review":
+    st.header("Unknown Opponent Review")
+    st.markdown(
+        "Shows the latest unknown-opponent matching exports. "
+        "Focus on rows that still require manual review."
+    )
+
+    exports_dir = Path("data/exports")
+    exports_dir.mkdir(parents=True, exist_ok=True)
+    repo_root = Path(__file__).resolve().parent
+
+    st.subheader("Generate Fresh Unknown-Opponent Files")
+    gen_c1, gen_c2, gen_c3, gen_c4 = st.columns(4)
+    with gen_c1:
+        gen_provider = st.selectbox(
+            "Provider",
+            options=["gotsport", "tgs", "sincsports", "modular11"],
+            index=0,
+            key="uo_gen_provider",
+        )
+    with gen_c2:
+        gen_max_rows = st.number_input(
+            "Max partial game rows (0 = all)",
+            min_value=0,
+            value=0,
+            step=100,
+            key="uo_gen_max_rows",
+        )
+    with gen_c3:
+        gen_limit = st.number_input(
+            "Max unknown rows to match (0 = all)",
+            min_value=0,
+            value=0,
+            step=100,
+            key="uo_gen_limit",
+        )
+    with gen_c4:
+        auto_threshold = st.number_input(
+            "Auto threshold",
+            min_value=0.50,
+            max_value=1.00,
+            value=0.95,
+            step=0.01,
+            key="uo_gen_auto_threshold",
+        )
+
+    generate_clicked = st.button(
+        "🚀 Generate Fresh Files",
+        type="primary",
+        use_container_width=True,
+        key="uo_generate_btn",
+    )
+
+    if generate_clicked:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        export_prefix = exports_dir / f"unknown_opponents_ui_{ts}"
+        match_csv = exports_dir / f"unknown_opponent_match_report_ui_{ts}.csv"
+        due_prefix = exports_dir / f"unknown_opponent_due_diligence_ui_{ts}"
+
+        max_rows_args = ["--max-rows", str(int(gen_max_rows))] if int(gen_max_rows) > 0 else []
+        limit_args = ["--limit", str(int(gen_limit))] if int(gen_limit) > 0 else []
+
+        cmd_export = [
+            sys.executable,
+            str(repo_root / "scripts" / "export_unknown_opponents.py"),
+            "--provider",
+            gen_provider,
+            "--output-prefix",
+            str(export_prefix),
+            *max_rows_args,
+        ]
+        cmd_match = [
+            sys.executable,
+            str(repo_root / "scripts" / "auto_match_unknown_opponents.py"),
+            "--input",
+            f"{export_prefix}_aggregate.csv",
+            "--provider",
+            gen_provider,
+            "--auto-threshold",
+            f"{float(auto_threshold):.2f}",
+            "--review-threshold",
+            "0.90",
+            "--output",
+            str(match_csv),
+            *limit_args,
+        ]
+        cmd_due = [
+            sys.executable,
+            str(repo_root / "scripts" / "due_diligence_unknown_opponents.py"),
+            "--match-report",
+            str(match_csv),
+            "--output-prefix",
+            str(due_prefix),
+        ]
+
+        logs = []
+        with st.spinner("Generating export -> match report -> due diligence..."):
+            for label, cmd in [
+                ("Export unknown opponents", cmd_export),
+                ("Auto-match unknown opponents", cmd_match),
+                ("Due diligence", cmd_due),
+            ]:
+                result = subprocess.run(
+                    cmd,
+                    cwd=str(repo_root),
+                    capture_output=True,
+                    text=True,
+                )
+                logs.append(
+                    f"$ {' '.join(cmd)}\n"
+                    f"[exit={result.returncode}]\n"
+                    f"{result.stdout}\n"
+                    f"{result.stderr}"
+                )
+                if result.returncode != 0:
+                    st.error(f"{label} failed (exit code {result.returncode}). See logs below.")
+                    with st.expander("Generation logs", expanded=True):
+                        st.code("\n\n".join(logs))
+                    st.stop()
+
+        st.success(
+            "Fresh files generated successfully. "
+            f"Latest due diligence: `{due_prefix}_all.csv`"
+        )
+        with st.expander("Generation logs"):
+            st.code("\n\n".join(logs))
+        st.rerun()
+
+    def latest_csv(pattern: str):
+        files = list(exports_dir.glob(pattern))
+        if not files:
+            return None
+        return max(files, key=lambda p: p.stat().st_mtime)
+
+    latest_due = latest_csv("unknown_opponent_due_diligence_*_all.csv")
+    latest_match = latest_csv("unknown_opponent_match_report_*.csv")
+
+    source = st.radio(
+        "Source",
+        ["Due Diligence (latest)", "Match Report (latest)"],
+        horizontal=True,
+    )
+    selected = latest_due if source.startswith("Due Diligence") else latest_match
+
+    # Apply controls always use a due-diligence _all.csv snapshot.
+    active_due_file = None
+    if selected and selected.name.startswith("unknown_opponent_due_diligence_") and selected.name.endswith("_all.csv"):
+        active_due_file = selected
+    elif latest_due and latest_due.name.endswith("_all.csv"):
+        active_due_file = latest_due
+
+    if not selected:
+        st.warning(
+            "No export file found yet in `data/exports`.\n\n"
+            "Run:\n"
+            "- export_unknown_opponents.py\n"
+            "- auto_match_unknown_opponents.py\n"
+            "- due_diligence_unknown_opponents.py"
+        )
+    else:
+        st.caption(f"Using file: `{selected}`")
+        try:
+            df = pd.read_csv(selected)
+        except Exception as exc:
+            st.error(f"Failed to read {selected.name}: {exc}")
+            df = pd.DataFrame()
+
+        # ------------------------------------------------------------------
+        # Apply Approved controls
+        # ------------------------------------------------------------------
+        st.subheader("Apply Approved Matches")
+        if not active_due_file:
+            st.info("No due-diligence `_all.csv` file found yet, so apply controls are unavailable.")
+        else:
+            due_approved_file = Path(str(active_due_file).replace("_all.csv", "_approved.csv"))
+            due_review_file = Path(str(active_due_file).replace("_all.csv", "_needs_review.csv"))
+            st.caption(f"Using due-diligence file: `{active_due_file}`")
+
+            try:
+                due_df = pd.read_csv(active_due_file)
+            except Exception as exc:
+                st.error(f"Could not read due-diligence file: {exc}")
+                due_df = pd.DataFrame()
+
+            if due_df.empty or "verdict" not in due_df.columns:
+                st.warning("Due-diligence file is empty or missing `verdict` column.")
+            else:
+                due_approved_count = int((due_df["verdict"] == "approved").sum())
+                due_review_count = int((due_df["verdict"] != "approved").sum())
+                due_approved_games = 0
+                if "total_games_impacted" in due_df.columns:
+                    due_approved_games = int(
+                        pd.to_numeric(
+                            due_df[due_df["verdict"] == "approved"]["total_games_impacted"],
+                            errors="coerce",
+                        ).fillna(0).sum()
+                    )
+
+                a1, a2, a3 = st.columns(3)
+                a1.metric("Approved Rows", f"{due_approved_count:,}")
+                a2.metric("Needs Review Rows", f"{due_review_count:,}")
+                a3.metric("Approved Games Impacted", f"{due_approved_games:,}")
+
+                if due_review_count > 0:
+                    st.warning(
+                        "Real apply is blocked because some rows still need manual review. "
+                        "Use Dry-Run Apply to preview."
+                    )
+                elif due_approved_count == 0:
+                    st.info("No approved rows available to apply.")
+                else:
+                    st.success("All due-diligence rows are approved. Real apply is enabled.")
+
+                dry_col, apply_col = st.columns(2)
+                dry_clicked = dry_col.button(
+                    "🧪 Dry-Run Apply Approved",
+                    use_container_width=True,
+                    disabled=(due_approved_count == 0 or not due_approved_file.exists()),
+                    key="uo_apply_dry_run",
+                )
+                apply_clicked = apply_col.button(
+                    "✅ Apply Approved Now",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=(
+                        due_approved_count == 0
+                        or due_review_count != 0
+                        or not due_approved_file.exists()
+                    ),
+                    key="uo_apply_execute",
+                )
+
+                if dry_clicked or apply_clicked:
+                    cmd_apply = [
+                        sys.executable,
+                        str(repo_root / "scripts" / "apply_unknown_opponent_matches.py"),
+                        "--approved-csv",
+                        str(due_approved_file),
+                        "--require-approved-rows",
+                    ]
+                    if dry_clicked:
+                        cmd_apply.append("--dry-run")
+
+                    with st.spinner("Running apply step..."):
+                        result = subprocess.run(
+                            cmd_apply,
+                            cwd=str(repo_root),
+                            capture_output=True,
+                            text=True,
+                        )
+
+                    mode_label = "dry-run" if dry_clicked else "execute"
+                    if result.returncode == 0:
+                        st.success(f"Apply ({mode_label}) completed successfully.")
+                    else:
+                        st.error(f"Apply ({mode_label}) failed with exit code {result.returncode}.")
+
+                    with st.expander("Apply logs", expanded=True):
+                        st.code(
+                            f"$ {' '.join(cmd_apply)}\n"
+                            f"[exit={result.returncode}]\n"
+                            f"{result.stdout}\n"
+                            f"{result.stderr}"
+                        )
+
+                    if result.returncode == 0 and apply_clicked:
+                        # Re-render after successful write to pick up freshest files/metrics.
+                        st.rerun()
+
+        if df.empty:
+            st.info("Selected file has no rows.")
+        else:
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                provider_options = ["All"]
+                if "provider_code" in df.columns:
+                    provider_options += sorted(df["provider_code"].dropna().astype(str).unique().tolist())
+                provider_filter = st.selectbox("Provider", provider_options)
+            with c2:
+                min_games = st.number_input("Min games impacted", min_value=0, value=0, step=1)
+            with c3:
+                pid_query = st.text_input("Unknown provider team ID contains")
+
+            filtered = df.copy()
+            if provider_filter != "All" and "provider_code" in filtered.columns:
+                filtered = filtered[filtered["provider_code"].astype(str) == provider_filter]
+
+            game_col = "total_games_impacted" if "total_games_impacted" in filtered.columns else "games_count" if "games_count" in filtered.columns else None
+            if game_col:
+                filtered[game_col] = pd.to_numeric(filtered[game_col], errors="coerce").fillna(0).astype(int)
+                filtered = filtered[filtered[game_col] >= int(min_games)]
+
+            if pid_query and "unknown_provider_team_id" in filtered.columns:
+                filtered = filtered[
+                    filtered["unknown_provider_team_id"].astype(str).str.contains(pid_query, case=False, na=False)
+                ]
+
+            if "verdict" in filtered.columns:
+                approved_count = int((filtered["verdict"] == "approved").sum())
+                review_count = int((filtered["verdict"] != "approved").sum())
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Rows", f"{len(filtered):,}")
+                m2.metric("Approved", f"{approved_count:,}")
+                m3.metric("Needs Review", f"{review_count:,}")
+
+                needs_review = filtered[filtered["verdict"] != "approved"].copy()
+                st.subheader("Needs Manual Review")
+                if needs_review.empty:
+                    st.success("No rows currently require manual review.")
+                else:
+                    cols = [
+                        col
+                        for col in [
+                            "provider_code",
+                            "unknown_provider_team_id",
+                            "matched_team_name",
+                            "best_score",
+                            "total_games_impacted",
+                            "club_check",
+                            "age_check",
+                            "gender_check",
+                            "state_check",
+                            "cohort_age_check",
+                            "cohort_gender_check",
+                            "alias_conflict",
+                            "verdict",
+                        ]
+                        if col in needs_review.columns
+                    ]
+                    sort_cols = [c for c in ["best_score", "total_games_impacted"] if c in needs_review.columns]
+                    if sort_cols:
+                        needs_review = needs_review.sort_values(by=sort_cols, ascending=False)
+                    st.dataframe(needs_review[cols], use_container_width=True, hide_index=True)
+            else:
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Rows", f"{len(filtered):,}")
+                if "action" in filtered.columns:
+                    counts = filtered["action"].value_counts().to_dict()
+                    m2.metric("Auto-link", f"{counts.get('auto_link', 0):,}")
+                    m3.metric("Review", f"{counts.get('review', 0):,}")
+                    m4.metric(
+                        "No Match / Skipped",
+                        f"{counts.get('no_match', 0) + counts.get('skip_protected_division', 0):,}",
+                    )
+                    manual = filtered[filtered["action"].isin(["review", "no_match", "skip_protected_division"])].copy()
+                    st.subheader("Needs Manual Review")
+                    st.dataframe(manual, use_container_width=True, hide_index=True)
+                else:
+                    m2.metric("Auto-link", "N/A")
+                    m3.metric("Review", "N/A")
+                    m4.metric("No Match / Skipped", "N/A")
+
+            with st.expander("Show filtered source data"):
+                st.dataframe(filtered, use_container_width=True, hide_index=True)
 
 # ============================================================================
 # AGE GROUPS SECTION
