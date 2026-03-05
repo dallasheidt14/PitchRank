@@ -233,7 +233,7 @@ jobs:
           echo "1. Club names standardized → 2. Team names normalized → 3. Fuzzy duplicates merged → 4. Queue matched" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Safety Notes" >> $GITHUB_STEP_SUMMARY
-          echo "- Fuzzy merge only merges teams with same club_name and 85%+ similarity" >> $GITHUB_STEP_SUMMARY
+          echo "- Fuzzy merge only merges teams with same club_name and 90%+ similarity" >> $GITHUB_STEP_SUMMARY
           echo "- Distinction-aware: colors, programs, numbers, regions all must match" >> $GITHUB_STEP_SUMMARY
           echo "- Queue only auto-merges 95%+ confidence matches" >> $GITHUB_STEP_SUMMARY
           echo "- All scripts use \`team_name_normalizer.py\` core parsing logic" >> $GITHUB_STEP_SUMMARY
