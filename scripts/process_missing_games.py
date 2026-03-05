@@ -118,7 +118,7 @@ class MissingGamesProcessor:
                 elif status in ['completed', 'failed']:
                     safe_data['completed_at'] = datetime.now().isoformat()
                 # Only include fields we know exist
-                for safe_key in ('games_found', 'error_message'):
+                for safe_key in ('games_found', 'games_imported', 'error_message'):
                     if safe_key in kwargs:
                         safe_data[safe_key] = kwargs[safe_key]
                 self.supabase.table('scrape_requests')\

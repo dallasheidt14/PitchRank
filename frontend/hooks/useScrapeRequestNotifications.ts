@@ -63,14 +63,26 @@ export function useScrapeRequestNotifications() {
                   markAsProcessed(requestId);
 
                   const gamesFound = requestData.games_found ?? 0;
+                  const gamesImported = requestData.games_imported ?? 0;
                   const teamName = requestData.team_name || 'the team';
                   const gameDate = requestData.game_date;
 
-                  if (gamesFound > 0) {
+                  if (gamesImported > 0) {
                     toast({
                       title: 'Game Data Added!',
-                      description: `Found ${gamesFound} game${gamesFound > 1 ? 's' : ''} for ${teamName} on ${gameDate}. Check the game history!`,
+                      description: `Imported ${gamesImported} game${gamesImported > 1 ? 's' : ''} for ${teamName} on ${gameDate}. Check the game history!`,
                       variant: 'success',
+                      duration: 8000,
+                    });
+                  } else if (gamesFound > 0) {
+                    // Games were found by scraper but none were new (all duplicates)
+                    const errorMsg = requestData.error_message;
+                    toast({
+                      title: 'No New Games',
+                      description: errorMsg
+                        ? `Found ${gamesFound} game${gamesFound > 1 ? 's' : ''} for ${teamName}, but ${errorMsg}.`
+                        : `Found ${gamesFound} game${gamesFound > 1 ? 's' : ''} for ${teamName} on ${gameDate}, but all were already in the database.`,
+                      variant: 'warning',
                       duration: 8000,
                     });
                   } else {
