@@ -266,5 +266,187 @@ class TestEnhancedValidator:
         assert result['summary']['validation_rate'] == 0.5
 
 
+class TestBackfillDuplicateTeamLinks:
+    """Tests for _backfill_duplicate_team_links healing NULL master IDs."""
+
+    @pytest.fixture
+    def mock_supabase(self):
+        """Mock Supabase client sufficient for pipeline construction."""
+        supabase = Mock()
+
+        # Provider lookup
+        provider_result = Mock()
+        provider_result.data = {'id': 'test-provider-uuid'}
+        supabase.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value = provider_result
+
+        # General table mocks
+        supabase.table.return_value.insert.return_value.execute.return_value.data = []
+        supabase.table.return_value.select.return_value.execute.return_value.data = []
+        supabase.table.return_value.select.return_value.in_.return_value.execute.return_value.data = []
+        # Health check
+        supabase.table.return_value.select.return_value.limit.return_value.execute.return_value.data = []
+        # Range for alias cache pagination
+        supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.range.return_value.execute.return_value.data = []
+
+        return supabase
+
+    def _build_pipeline(self, supabase, dry_run=False):
+        return EnhancedETLPipeline(supabase, 'gotsport', dry_run=dry_run)
+
+    @pytest.mark.asyncio
+    async def test_backfill_heals_null_home_master_id(self, mock_supabase):
+        """Existing row has NULL home_team_master_id; candidate has it resolved."""
+        pipeline = self._build_pipeline(mock_supabase, dry_run=False)
+
+        existing_row = {
+            'id': 'row-1',
+            'game_uid': 'gs:2026-02-20:499398:123',
+            'home_team_master_id': None,
+            'away_team_master_id': 'away-master-1',
+        }
+
+        # Mock: lookup by game_uid returns the existing row
+        select_mock = Mock()
+        select_mock.data = [existing_row]
+        mock_supabase.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value = select_mock
+
+        update_mock = Mock()
+        update_mock.data = [{'id': 'row-1'}]
+        mock_supabase.table.return_value.update.return_value.eq.return_value.execute.return_value = update_mock
+
+        candidates = [{
+            'game_uid': 'gs:2026-02-20:499398:123',
+            'home_team_master_id': '9017bed1-af58-4303-abe9-f10d2551693f',
+            'away_team_master_id': 'away-master-1',
+        }]
+
+        count = await pipeline._backfill_duplicate_team_links(candidates)
+
+        assert count == 1
+        # Verify update was called with only the missing field
+        mock_supabase.table.return_value.update.assert_called_once_with(
+            {'home_team_master_id': '9017bed1-af58-4303-abe9-f10d2551693f'}
+        )
+
+    @pytest.mark.asyncio
+    async def test_backfill_heals_both_null_master_ids(self, mock_supabase):
+        """Existing row has both master IDs NULL; candidate has both resolved."""
+        pipeline = self._build_pipeline(mock_supabase, dry_run=False)
+
+        existing_row = {
+            'id': 'row-2',
+            'game_uid': 'gs:2026-02-21:499398:456',
+            'home_team_master_id': None,
+            'away_team_master_id': None,
+        }
+
+        select_mock = Mock()
+        select_mock.data = [existing_row]
+        mock_supabase.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value = select_mock
+
+        update_mock = Mock()
+        update_mock.data = [{'id': 'row-2'}]
+        mock_supabase.table.return_value.update.return_value.eq.return_value.execute.return_value = update_mock
+
+        candidates = [{
+            'game_uid': 'gs:2026-02-21:499398:456',
+            'home_team_master_id': 'home-master-2',
+            'away_team_master_id': 'away-master-2',
+        }]
+
+        count = await pipeline._backfill_duplicate_team_links(candidates)
+
+        assert count == 1
+        mock_supabase.table.return_value.update.assert_called_once_with(
+            {'home_team_master_id': 'home-master-2', 'away_team_master_id': 'away-master-2'}
+        )
+
+    @pytest.mark.asyncio
+    async def test_backfill_does_not_overwrite_existing_ids(self, mock_supabase):
+        """Existing row already has both master IDs — no update should occur."""
+        pipeline = self._build_pipeline(mock_supabase, dry_run=False)
+
+        existing_row = {
+            'id': 'row-3',
+            'game_uid': 'gs:2026-02-20:111:222',
+            'home_team_master_id': 'existing-home',
+            'away_team_master_id': 'existing-away',
+        }
+
+        select_mock = Mock()
+        select_mock.data = [existing_row]
+        mock_supabase.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value = select_mock
+
+        candidates = [{
+            'game_uid': 'gs:2026-02-20:111:222',
+            'home_team_master_id': 'different-home',
+            'away_team_master_id': 'different-away',
+        }]
+
+        count = await pipeline._backfill_duplicate_team_links(candidates)
+
+        assert count == 0
+        mock_supabase.table.return_value.update.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_backfill_skipped_in_dry_run(self, mock_supabase):
+        """Dry-run mode must not write anything."""
+        pipeline = self._build_pipeline(mock_supabase, dry_run=True)
+
+        candidates = [{
+            'game_uid': 'gs:2026-02-20:499398:123',
+            'home_team_master_id': 'some-master',
+            'away_team_master_id': None,
+        }]
+
+        count = await pipeline._backfill_duplicate_team_links(candidates)
+
+        assert count == 0
+        mock_supabase.table.return_value.update.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_backfill_no_insert_occurs(self, mock_supabase):
+        """Backfill must never insert new rows — only update existing ones."""
+        pipeline = self._build_pipeline(mock_supabase, dry_run=False)
+
+        existing_row = {
+            'id': 'row-4',
+            'game_uid': 'gs:2026-02-20:777:888',
+            'home_team_master_id': None,
+            'away_team_master_id': 'existing-away',
+        }
+
+        select_mock = Mock()
+        select_mock.data = [existing_row]
+        mock_supabase.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value = select_mock
+
+        update_mock = Mock()
+        update_mock.data = [{'id': 'row-4'}]
+        mock_supabase.table.return_value.update.return_value.eq.return_value.execute.return_value = update_mock
+
+        candidates = [{
+            'game_uid': 'gs:2026-02-20:777:888',
+            'home_team_master_id': 'new-home-master',
+            'away_team_master_id': 'different-away',  # should NOT overwrite existing
+        }]
+
+        count = await pipeline._backfill_duplicate_team_links(candidates)
+
+        assert count == 1
+        # Only home_team_master_id should be updated (away already exists)
+        mock_supabase.table.return_value.update.assert_called_once_with(
+            {'home_team_master_id': 'new-home-master'}
+        )
+        # Verify no insert was called
+        mock_supabase.table.return_value.insert.assert_not_called()
+
+    def test_metrics_includes_backfill_field(self):
+        """ImportMetrics.to_dict() must include duplicate_links_backfilled."""
+        metrics = ImportMetrics()
+        metrics.duplicate_links_backfilled = 5
+        result = metrics.to_dict()
+        assert result['duplicate_links_backfilled'] == 5
+
+
 # Run with: pytest tests/test_enhanced_pipeline.py -v
 
