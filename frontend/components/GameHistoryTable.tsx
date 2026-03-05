@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { TableSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
@@ -21,6 +21,126 @@ import type { GameWithTeams } from '@/lib/types';
 import { MissingGamesForm } from '@/components/MissingGamesForm';
 import { UnknownOpponentLink } from '@/components/UnknownOpponentLink';
 import { MergeTeamsDialogWrapper } from '@/components/MergeTeamsDialogWrapper';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+
+function UnlinkOpponentButton({
+  game,
+  currentTeamId,
+  opponentName,
+  onUnlinked,
+}: {
+  game: GameWithTeams;
+  currentTeamId: string;
+  opponentName: string | undefined;
+  onUnlinked: () => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isUnlinking, setIsUnlinking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const isHome = game.home_team_master_id === currentTeamId;
+  const opponentId = isHome ? game.away_team_master_id : game.home_team_master_id;
+  const opponentProviderId = isHome ? game.away_provider_id : game.home_provider_id;
+
+  const handleUnlink = async () => {
+    setIsUnlinking(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/unlink-opponent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gameId: game.id,
+          opponentProviderId,
+          teamIdMaster: opponentId,
+          unlinkAllGames: true,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to unlink team');
+      }
+
+      await queryClient.refetchQueries({
+        queryKey: ['team-games', currentTeamId],
+        type: 'active',
+      });
+
+      setIsOpen(false);
+      onUnlinked();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setIsUnlinking(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        onClick={() => setIsOpen(true)}
+        className="text-muted-foreground hover:text-destructive transition-colors text-xs ml-1 opacity-0 group-hover:opacity-100 focus:opacity-100"
+        title="Unlink this opponent"
+        aria-label={`Unlink ${opponentName || 'opponent'}`}
+      >
+        &times;
+      </button>
+      <Dialog open={isOpen} onOpenChange={setIsOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Unlink Opponent</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to unlink <strong>{opponentName || 'this opponent'}</strong> from this game?
+              This will also unlink all other games with the same provider ID and remove the alias mapping.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="bg-muted/50 rounded-lg p-3 text-sm">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <span className="text-muted-foreground">Date:</span>{' '}
+                <span className="font-medium">{formatGameDate(game.game_date)}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Score:</span>{' '}
+                <span className="font-medium">
+                  {game.home_score !== null && game.away_score !== null
+                    ? `${game.home_score} - ${game.away_score}`
+                    : 'No score'}
+                </span>
+              </div>
+            </div>
+          </div>
+          {error && (
+            <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg p-3">
+              <p className="text-red-800 dark:text-red-200 text-sm">{error}</p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsOpen(false)} disabled={isUnlinking}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleUnlink} disabled={isUnlinking}>
+              {isUnlinking ? 'Unlinking...' : 'Unlink'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
 
 interface GameHistoryTableProps {
   teamId: string;
@@ -260,7 +380,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                 const score = getScore(game, teamId);
 
                 return (
-                  <TableRow key={game.id}>
+                  <TableRow key={game.id} className="group">
                     <TableCell className="text-xs sm:text-sm whitespace-nowrap">
                       {formatGameDate(game.game_date, { month: 'short', day: 'numeric', year: '2-digit' })}
                     </TableCell>
@@ -268,27 +388,35 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                       {opponentId ? (
                         // Team is linked - show link or fallback text
                         <div className="flex flex-col">
-                          {opponent ? (
-                            <Link
-                              href={`/teams/${opponentId}`}
-                              onMouseEnter={() => prefetchTeam(opponentId)}
-                              className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block truncate sm:whitespace-normal sm:overflow-visible"
-                              aria-label={`View ${opponent} team details`}
-                              title={opponent}
-                            >
-                              {opponent}
-                            </Link>
-                          ) : (
-                            // Team is linked but name lookup failed - still show link
-                            <Link
-                              href={`/teams/${opponentId}`}
-                              onMouseEnter={() => prefetchTeam(opponentId)}
-                              className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block text-muted-foreground"
-                              aria-label="View team details"
-                            >
-                              (Team linked)
-                            </Link>
-                          )}
+                          <div className="flex items-center">
+                            {opponent ? (
+                              <Link
+                                href={`/teams/${opponentId}`}
+                                onMouseEnter={() => prefetchTeam(opponentId)}
+                                className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block truncate sm:whitespace-normal sm:overflow-visible"
+                                aria-label={`View ${opponent} team details`}
+                                title={opponent}
+                              >
+                                {opponent}
+                              </Link>
+                            ) : (
+                              // Team is linked but name lookup failed - still show link
+                              <Link
+                                href={`/teams/${opponentId}`}
+                                onMouseEnter={() => prefetchTeam(opponentId)}
+                                className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block text-muted-foreground"
+                                aria-label="View team details"
+                              >
+                                (Team linked)
+                              </Link>
+                            )}
+                            <UnlinkOpponentButton
+                              game={game}
+                              currentTeamId={teamId}
+                              opponentName={opponent}
+                              onUnlinked={() => refetch()}
+                            />
+                          </div>
                           {opponentClub && (
                             <span className="text-xs text-muted-foreground mt-0.5 truncate sm:whitespace-normal">
                               {opponentClub}
