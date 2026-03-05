@@ -24,6 +24,272 @@ import {
  */
 export const blogPosts: BlogPost[] = [
   {
+    slug: 'youth-soccer-rankings-explained',
+    title: 'Youth Soccer Rankings Explained: A Parent\'s Guide to Understanding Your Team\'s Position',
+    excerpt: 'Confused by youth soccer rankings? This guide breaks down how different ranking systems work, what your team\'s ranking actually means, and which systems parents should trust.',
+    author: 'PitchRank Team',
+    date: '2026-03-05',
+    readingTime: '8 min read',
+    tags: ['Rankings', 'Educational', 'Parents', 'Decision Making'],
+    content: (
+      <div className="space-y-8">
+        {/* Introduction */}
+        <section>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Your child's soccer coach just told you their team is "ranked #47." Another parent in the group chat says their kid's team is "top 5 in the state." A third parent swears their team's ranking proves they're the best in their region.
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            So which one is actually good? And what does any of it mean?
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            If you've ever opened GotSport, scrolled through TourneyCentral, or tried comparing your child's team to others across your state, you've probably felt lost. Different websites show different rankings. Nobody explains what the numbers actually mean. And it's not always clear whether to trust them.
+          </p>
+          <p className="text-muted-foreground leading-relaxed">
+            This guide cuts through the confusion. We'll explain how youth soccer rankings actually work, what your team's ranking tells you (and what it doesn't), and how to use rankings to make smarter decisions about your child's development.
+          </p>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings" className="text-primary hover:underline">See where your team ranks nationally</a></p>
+          </div>
+        </section>
+
+        {/* Why Rankings Are Confusing */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <AlertTriangle className="size-6 text-primary" />
+            Why Are Youth Soccer Rankings So Confusing?
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            The problem isn't that there's too little information. It's that there are <strong>too many different ranking systems</strong>, each using different criteria and data sources.
+          </p>
+          
+          <div className="grid gap-3 mb-6">
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>GotSport rankings</strong> — Based primarily on tournament results in GotSport-hosted events</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>TourneyCentral rankings</strong> — Based on results from tournaments in their network</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>Youth Soccer Rankings USA</strong> — Uses algorithmic models on game data (though exact methodology is unclear)</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>PitchRank rankings</strong> — Every game counts, not just tournaments. Analyzes <strong>726,730+ games</strong> across all states.</p>
+            </div>
+          </div>
+
+          <p className="text-muted-foreground leading-relaxed">
+            Because each system uses different data, your team might be ranked #25 on one platform and #85 on another. No wonder parents are confused.
+          </p>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/methodology" className="text-primary hover:underline">Learn exactly how PitchRank calculates rankings</a></p>
+          </div>
+        </section>
+
+        {/* What Makes a Good Ranking System */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Target className="size-6 text-primary" />
+            What Makes a Good Ranking System?
+          </h2>
+          
+          <h3 className="text-xl font-display font-semibold mb-3">A trustworthy ranking system should have these qualities:</h3>
+          <div className="grid gap-3 mb-6">
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>📊 Inclusive data</strong> — Counts every game, not just tournaments (which are selective and expensive)</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>🎯 Opponent-adjusted</strong> — Beating a #10 team is worth more than beating a #200 team</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>📈 Consistent methodology</strong> — You know exactly how rankings are calculated (no black box)</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>⚡ Real-time updates</strong> — Rankings update after games, not monthly</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>📍 Geographically comprehensive</strong> — Covers all states, not just tournament hotspots</p>
+            </div>
+          </div>
+
+          <p className="text-muted-foreground leading-relaxed">
+            PitchRank was built to satisfy all of these. We track <strong>101,354 teams</strong> across the entire United States and analyze every game to give parents the clearest possible picture.
+          </p>
+        </section>
+
+        {/* How to Read Your Ranking */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Brain className="size-6 text-primary" />
+            How to Actually Read Your Team's Ranking
+          </h2>
+          
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Here's the confusion parents face: "My team is ranked #52. Is that good?"
+          </p>
+          
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Answer: <strong>It depends on context.</strong>
+          </p>
+
+          <div className="grid gap-4 mb-6">
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2 text-sm">Out of how many teams?</h4>
+              <p className="text-sm text-muted-foreground">#52 out of 100 teams is better than #52 out of 500 teams. Always check the denominator.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2 text-sm">Which region?</h4>
+              <p className="text-sm text-muted-foreground">#52 in your state might be very different from #52 nationally. California teams, on average, rank higher nationally than Arkansas teams (just because of regional strength distribution).</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2 text-sm">What age group?</h4>
+              <p className="text-sm text-muted-foreground">U13 rankings look different from U16 rankings. Elite youth soccer gets more competitive in older age groups.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2 text-sm">What's the trend?</h4>
+              <p className="text-sm text-muted-foreground">Is your team ranked #52 this week and #47 last week (improving)? Or was it #25 last month (declining)? <strong>Trends matter more than single rankings.</strong></p>
+            </div>
+          </div>
+
+          <h3 className="text-xl font-display font-semibold mb-3">A Concrete Example</h3>
+          <div className="p-4 rounded-lg bg-primary/5 border border-primary/20 mb-6">
+            <p className="text-sm text-muted-foreground mb-2">
+              <strong>Scenario:</strong> Your U14 boys team is ranked #52 nationally out of 8,500 teams in their age group. That puts you in the <strong>top 0.6%.</strong>
+            </p>
+            <p className="text-sm text-muted-foreground">
+              <strong>What this means:</strong> Your team is genuinely elite. There are only ~51 teams better than you in the entire country at your age group.
+            </p>
+          </div>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings" className="text-primary hover:underline">Find your team's national percentile rank</a></p>
+          </div>
+        </section>
+
+        {/* Common Myths */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <CheckCircle className="size-6 text-primary" />
+            5 Myths About Youth Soccer Rankings (Busted)
+          </h2>
+          
+          <div className="grid gap-4">
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">🚫 MYTH #1: "Higher rank = better for my child"</h4>
+              <p className="text-sm text-muted-foreground mb-2">
+                <strong>REALITY:</strong> The best team for your child is the one where they develop AND play meaningful minutes. A U12 on the #5 ranked team who sits the bench learns nothing. A U12 on the #50 ranked team getting 50 minutes per game learns everything.
+              </p>
+              <p className="text-sm text-muted-foreground"><strong>What matters:</strong> Playing time > rank for players under U15.</p>
+            </div>
+
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">🚫 MYTH #2: "We should only play teams ranked lower than us"</h4>
+              <p className="text-sm text-muted-foreground mb-2">
+                <strong>REALITY:</strong> A team that only plays weaker opponents won't improve. The best development happens when teams play opponents slightly better than them (what coaches call "playing up").
+              </p>
+              <p className="text-sm text-muted-foreground"><strong>What matters:</strong> A healthy mix of opponents 10-20 ranking positions above AND below you.</p>
+            </div>
+
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">🚫 MYTH #3: "Rankings predict individual player ability"</h4>
+              <p className="text-muted-foreground mb-2 text-sm">
+                <strong>REALITY:</strong> Team rankings measure team strength, not individual players. A player on a #15 ranked team might actually be weaker than a player on a #75 ranked team (who just happens to be in a stronger league).
+              </p>
+              <p className="text-sm text-muted-foreground"><strong>What matters:</strong> For individual evaluation, college coaches care about your child's game film, not their team's ranking.</p>
+            </div>
+
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">🚫 MYTH #4: "A club with more ranked teams is better"</h4>
+              <p className="text-muted-foreground mb-2 text-sm">
+                <strong>REALITY:</strong> Club quality varies widely by age group and coaching staff. Just because a club has 5 ranked teams doesn't mean all their teams are good. Judge each team individually.
+              </p>
+              <p className="text-sm text-muted-foreground"><strong>What matters:</strong> Evaluate the specific team and coach, not the club brand.</p>
+            </div>
+
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">🚫 MYTH #5: "Ranking games are the only ones that matter"</h4>
+              <p className="text-muted-foreground mb-2 text-sm">
+                <strong>REALITY:</strong> Every game counts for rankings (on PitchRank). Regular season matches, tournaments, showcase games—they all factor in. A win is a win. A loss is a loss. Strength of opponent matters, not the event format.
+              </p>
+              <p className="text-sm text-muted-foreground"><strong>What matters:</strong> Consistent performance over a full season, not tournament results alone.</p>
+            </div>
+          </div>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings/ca/u14/male" className="text-primary hover:underline">See real examples: California U14 Boys rankings</a></p>
+          </div>
+        </section>
+
+        {/* When Rankings Matter Most */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <TrendingUp className="size-6 text-primary" />
+            When Rankings Actually Matter (And When They Don't)
+          </h2>
+          
+          <h3 className="text-xl font-display font-semibold mb-3">Rankings are USEFUL for:</h3>
+          <div className="grid gap-2 mb-6">
+            <div className="flex items-start gap-3">
+              <CheckCircle className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Understanding competitive level</strong> — Is your team playing at an appropriate development level?</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <CheckCircle className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Comparing clubs before joining</strong> — How do different club's teams actually rank? (Not just marketing claims)</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <CheckCircle className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Evaluating coaching quality</strong> — Is the team improving over time, or stagnant?</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <CheckCircle className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Tournament selection</strong> — Choose tournaments appropriate to your team's skill level</p>
+            </div>
+          </div>
+
+          <h3 className="text-xl font-display font-semibold mb-3">Rankings are NOT the main factor for:</h3>
+          <div className="grid gap-2">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Individual player development (U12 and under)</strong> — Playing time and coaching matter way more</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>College recruiting (under U16)</strong> — Scouts aren't evaluating 12-year-olds yet, ranking or not</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Determining individual player quality</strong> — Only watch game film to evaluate individual players</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Team culture or coaching style</strong> — Rankings don't measure fun, safety, or inclusive coaching</p>
+            </div>
+          </div>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings/ny/u13/female" className="text-primary hover:underline">Explore New York U13 Girls rankings</a> • <a href="/rankings/tx/u15/male" className="text-primary hover:underline">Texas U15 Boys rankings</a></p>
+          </div>
+        </section>
+
+        {/* Final CTA */}
+        <section className="p-6 rounded-lg bg-primary/10 border border-primary/20">
+          <h2 className="text-2xl font-display font-bold mb-4">Stop Guessing. Check Your Team's Real Ranking.</h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Youth soccer rankings don't have to be confusing. With <strong>real data from 101,354 teams</strong> and <strong>726,730+ games</strong>, PitchRank gives you clarity.
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Search for your child's team, see where they rank nationally, understand their percentile, and watch how their ranking trends over the season. Make better decisions about club selection, tournament participation, and development goals.
+          </p>
+          <p className="text-foreground font-semibold">
+            Because your child's soccer development deserves decisions based on data, not guesswork.
+          </p>
+        </section>
+      </div>
+    ),
+  },
+  {
     slug: 'youth-soccer-rankings-complete-guide',
     title: 'Youth Soccer Rankings: The Complete Guide for Parents',
     excerpt: 'Everything parents need to know about youth soccer rankings—what they are, how they work, and why they matter for your child\'s development and club selection.',
