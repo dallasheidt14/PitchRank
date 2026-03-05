@@ -45,7 +45,9 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
   type TeamGamesData = { games: GameWithTeams[]; lastScrapedAt: string | null };
   const gamesData = data as TeamGamesData | undefined;
   const games: GameWithTeams[] | undefined = gamesData?.games;
-  const lastScrapedAt: string | null = gamesData?.lastScrapedAt ?? null;
+  // Prefer team.last_scraped_at (updated every scrape run, even when no new games found)
+  // over game-derived lastScrapedAt (only reflects when the most recent game was scraped)
+  const lastScrapedAt: string | null = team?.last_scraped_at ?? gamesData?.lastScrapedAt ?? null;
 
   /**
    * Get the ML overperformance value from the team's perspective

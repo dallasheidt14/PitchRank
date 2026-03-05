@@ -74,8 +74,8 @@ class SincSportsScraper(BaseScraper):
                     if game_dict:
                         all_games.append(game_dict)
                 
-                # Log scrape (but don't update last_scraped_at - that's for GotSport only)
-                logger.info(f"Scraped {len(games)} games for team {team['provider_team_id']}")
+                # Log scrape and update last_scraped_at
+                self._log_team_scrape(team['team_id_master'], len(games))
                 
             except Exception as e:
                 logger.error(f"Error scraping team {team['provider_team_id']}: {e}")
