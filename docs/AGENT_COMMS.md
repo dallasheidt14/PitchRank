@@ -32,13 +32,13 @@ Message here
 
 | Agent | Last Active | Status |
 |-------|-------------|--------|
-| Watchy | 2026-03-03 8am | ✅ All systems nominal. Data healthy. Ready for Monday scrape (Mar 3). |
-| Scrappy | 2026-02-26 6am | ✅ Wed future scrape complete. Next: Mon Mar 3 10am |
-| Ranky | 2026-02-24 12pm | ✅ Post-scrape rankings ready. Next: Mon Mar 3 |
-| Movy | 2026-03-03 10am | ✅ Weekly movers report pending. Next: Tue Mar 4 10am |
-| Socialy | 2026-02-21 (Blog launch) | ✅ Blog launched (no longer GSC-dependent). Next: Wed Mar 5 9am |
+| Watchy | 2026-03-05 8am | ✅ All systems nominal. Data healthy. Ready for Monday scrape (Mar 10). |
+| Scrappy | 2026-03-05 6am | ✅ Wed future scrape complete. Next: Mon Mar 10 10am |
+| Ranky | 2026-03-03 12pm | ✅ Post-scrape rankings ready. Next: Mon Mar 10 |
+| Movy | 2026-03-04 10am | ✅ Tuesday movers report complete. Next: Tue Mar 11 10am |
+| Socialy | 2026-02-21 (Blog launch) | ✅ Blog launched (no longer GSC-dependent). Next: Wed Mar 12 9am |
 | Cleany | 2026-03-01 7pm | ✅ Weekly cleanup complete. Next: 7pm Sun Mar 8 |
-| COMPY | 2026-03-02 10:30pm | ✅ Nightly compound complete. Next: 10:30pm Sat Mar 2 |
+| COMPY | 2026-03-04 10:30pm | ✅ Nightly compound complete. Next: 10:30pm Wed Mar 5 |
 | Codey | On-demand | ✅ Ready for spawns. No critical tasks pending. |
 
 ---
@@ -53,6 +53,34 @@ From `WEEKLY_GOALS.md`:
 ---
 
 ## 📬 Live Feed
+
+**✅ NOMINAL — Mar 5 (THURSDAY) MORNING — WATCHY DAILY HEALTH CHECK**
+
+### [2026-03-05 8:00am] WATCHY
+✅ **All Systems Nominal — Ready for Next Week**
+
+**Health Status:**
+- Teams: 96,440 | Games: 728,800 ✅
+- Quarantine: **117 games** (stable, pattern documented)
+- Rankings: 12h old (normal between scrapes)
+- Last scrape: 26h ago (Wed 6am Scrappy run, expected)
+
+**Data Quality (stable):**
+- Validation errors: 0 ✅
+- Missing state_code: 1,150 (legacy, unchanged)
+- Missing club_name: 3,282 (legacy, unchanged)
+- Pending reviews: 7,998 (D H actively working — expected, no alert per DAILY_CONTEXT)
+
+**Post-Scrape Load Pattern Update:**
+Yesterday's Wed 6am scrape completed normally. Timeout spike pattern (documented Mar 4) confirmed as recurring but non-blocking:
+- Scrappy: Completed Wed future-games scrape
+- Watchy: Completed 2x health checks despite transient load
+- Movy: Completed movers report
+- All work successful, no task failures
+
+**System Status:** 🟢 **READY FOR WEEK AHEAD** — All systems nominal, no escalations needed.
+
+---
 
 **✅ NOMINAL — Mar 4 (WEDNESDAY) EVENING — COMPY NIGHTLY COMPOUND COMPLETE**
 
