@@ -12,31 +12,31 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # Install core dependencies
-          pip install supabase python-dotenv pandas requests rich certifi numpy
-      
+          # Install core dependencies (rapidfuzz improves team matching accuracy)
+          pip install supabase python-dotenv pandas requests rich certifi numpy rapidfuzz
+
       - name: Process missing games
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         run: |
           # Set Python path to include project root
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
           # Run with explicit error output
           python scripts/process_missing_games.py --limit 10 || exit 1
-      
+
       - name: Report results
         if: always()
         run: |
           echo "Processing completed. Check logs above for details."
-

@@ -89,27 +89,45 @@ class MissingGamesProcessor:
         if self.dry_run:
             logger.info(f"[DRY RUN] Would update request {request_id} to status: {status}")
             return
-        
+
         try:
             update_data = {'status': status}
-            
+
             # Add timestamps based on status
             if status == 'processing':
                 update_data['processed_at'] = datetime.now().isoformat()
             elif status in ['completed', 'failed']:
                 update_data['completed_at'] = datetime.now().isoformat()
-            
+
             # Add any additional fields
             update_data.update(kwargs)
-            
+
             self.supabase.table('scrape_requests')\
                 .update(update_data)\
                 .eq('id', request_id)\
                 .execute()
-                
+
             logger.info(f"Updated request {request_id} to status: {status}")
         except Exception as e:
-            logger.error(f"Error updating request {request_id}: {e}")
+            # If update fails (e.g., column doesn't exist), retry with only known-safe fields
+            logger.warning(f"Error updating request {request_id} with full data: {e}")
+            try:
+                safe_data = {'status': status}
+                if status == 'processing':
+                    safe_data['processed_at'] = datetime.now().isoformat()
+                elif status in ['completed', 'failed']:
+                    safe_data['completed_at'] = datetime.now().isoformat()
+                # Only include fields we know exist
+                for safe_key in ('games_found', 'error_message'):
+                    if safe_key in kwargs:
+                        safe_data[safe_key] = kwargs[safe_key]
+                self.supabase.table('scrape_requests')\
+                    .update(safe_data)\
+                    .eq('id', request_id)\
+                    .execute()
+                logger.info(f"Updated request {request_id} to status: {status} (with safe fields only)")
+            except Exception as e2:
+                logger.error(f"Error updating request {request_id} even with safe fields: {e2}")
     
     def get_provider_code(self, provider_id: str) -> Optional[str]:
         """Get provider code from provider ID"""
@@ -217,6 +235,9 @@ class MissingGamesProcessor:
                             logger.warning(f"Unexpected game_date format: {original_game_date}, type: {type(original_game_date)}")
                         
                         # Convert GameData to dict format for import
+                        # Include club_name and opponent_club_name from meta
+                        # (matches what _game_data_to_dict does in regular scrape)
+                        meta = game.meta or {}
                         game_dict = {
                             'provider': provider_code,
                             'team_id': str(game.team_id),
@@ -232,7 +253,9 @@ class MissingGamesProcessor:
                             'result': game.result or 'U',
                             'competition': game.competition or '',
                             'venue': game.venue or '',
-                            'source_url': game.meta.get('source_url', '') if game.meta else '',
+                            'club_name': meta.get('club_name', ''),
+                            'opponent_club_name': meta.get('opponent_club_name', ''),
+                            'source_url': meta.get('source_url', ''),
                             'scraped_at': datetime.now().isoformat()
                         }
                         filtered_games.append(game_dict)
@@ -296,26 +319,37 @@ class MissingGamesProcessor:
                 pass
             raise
     
-    def import_games(self, games: List[Dict], provider_code: str) -> int:
-        """Import games using import_games_enhanced.py script"""
+    def import_games(self, games: List[Dict], provider_code: str) -> Dict:
+        """Import games using import_games_enhanced.py script.
+
+        Returns:
+            Dict with import metrics: games_accepted, duplicates_found,
+            games_quarantined, games_processed, duplicates_skipped
+        """
+        empty_result = {
+            'games_accepted': 0, 'duplicates_found': 0,
+            'games_quarantined': 0, 'games_processed': 0,
+            'duplicates_skipped': 0
+        }
+
         if not games:
-            return 0
-        
+            return empty_result
+
         if self.dry_run:
             logger.info(f"[DRY RUN] Would import {len(games)} games")
-            return len(games)
-        
+            return {**empty_result, 'games_accepted': len(games), 'games_processed': len(games)}
+
         # Save games to temporary file
         temp_file = None
         try:
             temp_file = self.save_games_to_temp_file(games)
             if not temp_file:
-                return 0
-            
+                return empty_result
+
             # Get the script path
             script_dir = Path(__file__).parent
             import_script = script_dir / 'import_games_enhanced.py'
-            
+
             # Build command
             cmd = [
                 sys.executable,
@@ -323,26 +357,26 @@ class MissingGamesProcessor:
                 temp_file,
                 provider_code,
             ]
-            
+
             if self.dry_run:
                 cmd.append('--dry-run')
-            
+
             logger.info(f"Running import script: {' '.join(cmd)}")
-            
+
             # Prepare environment variables for subprocess
             # The import script expects SUPABASE_SERVICE_ROLE_KEY, but we might have SUPABASE_SERVICE_KEY
             env = os.environ.copy()
-            
+
             # Map SUPABASE_SERVICE_KEY to SUPABASE_SERVICE_ROLE_KEY if needed
             if 'SUPABASE_SERVICE_KEY' in env and 'SUPABASE_SERVICE_ROLE_KEY' not in env:
                 env['SUPABASE_SERVICE_ROLE_KEY'] = env['SUPABASE_SERVICE_KEY']
-            
+
             # Ensure SUPABASE_URL is available
             if 'SUPABASE_URL' not in env:
                 # Try NEXT_PUBLIC_SUPABASE_URL as fallback
                 if 'NEXT_PUBLIC_SUPABASE_URL' in env:
                     env['SUPABASE_URL'] = env['NEXT_PUBLIC_SUPABASE_URL']
-            
+
             # Run the import script with environment variables
             result = subprocess.run(
                 cmd,
@@ -351,38 +385,60 @@ class MissingGamesProcessor:
                 cwd=Path(__file__).parent.parent,  # Run from project root
                 env=env  # Pass environment variables explicitly
             )
-            
+
             if result.returncode != 0:
                 logger.error(f"Import script failed with return code {result.returncode}")
                 logger.error(f"STDOUT: {result.stdout}")
                 logger.error(f"STDERR: {result.stderr}")
                 raise RuntimeError(f"Import failed: {result.stderr or 'Unknown error'}")
-            
+
             # Parse machine-readable IMPORT_RESULT line from stdout
-            games_accepted = len(games)  # fallback if parsing fails
-            parsed_result = False
+            import_metrics = None
             for line in result.stdout.splitlines():
                 if line.startswith("IMPORT_RESULT:"):
                     try:
-                        import_data = json.loads(line[len("IMPORT_RESULT:"):])
-                        games_accepted = import_data.get('games_accepted', len(games))
-                        logger.info(
-                            f"Import completed: {import_data.get('games_processed', '?')} processed, "
-                            f"{games_accepted} accepted, "
-                            f"{import_data.get('duplicates_skipped', 0)} perspective dupes skipped, "
-                            f"{import_data.get('duplicates_found', 0)} already in DB, "
-                            f"{import_data.get('games_quarantined', 0)} quarantined"
-                        )
-                        parsed_result = True
+                        import_metrics = json.loads(line[len("IMPORT_RESULT:"):])
                         break
                     except (json.JSONDecodeError, KeyError) as e:
                         logger.warning(f"Failed to parse import result: {e}")
 
-            if not parsed_result:
-                logger.info(f"Import completed successfully (could not parse detailed metrics)")
-                logger.debug(f"STDOUT: {result.stdout}")
+            if import_metrics:
+                games_accepted = import_metrics.get('games_accepted', 0)
+                duplicates_found = import_metrics.get('duplicates_found', 0)
+                duplicates_skipped = import_metrics.get('duplicates_skipped', 0)
+                games_quarantined = import_metrics.get('games_quarantined', 0)
+                games_processed = import_metrics.get('games_processed', 0)
 
-            return games_accepted
+                logger.info(
+                    f"Import completed: {games_processed} processed, "
+                    f"{games_accepted} accepted, "
+                    f"{duplicates_skipped} perspective dupes skipped, "
+                    f"{duplicates_found} already in DB, "
+                    f"{games_quarantined} quarantined"
+                )
+
+                # Log diagnostic details when no games were accepted
+                if games_accepted == 0 and len(games) > 0:
+                    logger.warning(
+                        f"⚠️  0 games imported out of {len(games)} found! Breakdown: "
+                        f"duplicates_found={duplicates_found}, "
+                        f"duplicates_skipped={duplicates_skipped}, "
+                        f"quarantined={games_quarantined}"
+                    )
+                    # Log the full subprocess output for debugging
+                    logger.info(f"Import subprocess STDOUT:\n{result.stdout}")
+                    if result.stderr:
+                        logger.info(f"Import subprocess STDERR:\n{result.stderr}")
+
+                return import_metrics
+            else:
+                # Could not parse IMPORT_RESULT - log full output for diagnosis
+                logger.warning(f"Could not parse IMPORT_RESULT from import subprocess")
+                logger.info(f"Import subprocess STDOUT:\n{result.stdout}")
+                if result.stderr:
+                    logger.info(f"Import subprocess STDERR:\n{result.stderr}")
+                # Return 0 instead of len(games) to avoid masking failures
+                return empty_result
             
         except Exception as e:
             logger.error(f"Error importing games: {e}")
@@ -452,21 +508,43 @@ class MissingGamesProcessor:
             )
             
             # Import games if found
-            games_imported = 0
+            import_result = {'games_accepted': 0, 'duplicates_found': 0, 'games_quarantined': 0}
             if games:
-                games_imported = self.import_games(games, scrape_provider_code)
+                import_result = self.import_games(games, scrape_provider_code)
                 self.stats['games_found'] += len(games)
-                self.stats['games_imported'] += games_imported
-            
+                self.stats['games_imported'] += import_result.get('games_accepted', 0)
+
+            games_imported = import_result.get('games_accepted', 0)
+            duplicates_found = import_result.get('duplicates_found', 0)
+
+            # Build status update with import metrics for visibility
+            status_update = {
+                'games_found': len(games),
+                'games_imported': games_imported,
+            }
+            # Include diagnostic info when games were found but not imported
+            if len(games) > 0 and games_imported == 0:
+                reason_parts = []
+                if duplicates_found > 0:
+                    reason_parts.append(f"{duplicates_found} already in DB")
+                if import_result.get('duplicates_skipped', 0) > 0:
+                    reason_parts.append(f"{import_result['duplicates_skipped']} perspective dupes")
+                if import_result.get('games_quarantined', 0) > 0:
+                    reason_parts.append(f"{import_result['games_quarantined']} quarantined")
+                if not reason_parts:
+                    reason_parts.append("check logs for details")
+                status_update['error_message'] = f"0 imported: {', '.join(reason_parts)}"
+
             # Update request as completed
             self.update_request_status(
                 request_id,
                 'completed',
-                games_found=len(games)
+                **status_update
             )
-            
+
             logger.info(f"Successfully processed request {request_id}: "
-                       f"{len(games)} games found in 61-day window, {games_imported} imported")
+                       f"{len(games)} games found in 61-day window, {games_imported} imported, "
+                       f"{duplicates_found} already in DB")
             
             self.stats['successful'] += 1
             return True
