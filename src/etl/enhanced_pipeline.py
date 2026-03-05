@@ -1353,7 +1353,6 @@ class EnhancedETLPipeline:
         # on deduped Modular11 rows.
         if self.provider_code and self.provider_code.lower() == 'modular11':
             return 0
-
         if not duplicate_games or self.dry_run:
             return 0
 
