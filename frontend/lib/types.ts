@@ -120,6 +120,7 @@ export interface TeamWithRanking {
   losses: number;
   draws: number;
   games_played: number; // Games used for rankings calculation (last 30)
+  last_scraped_at: string | null; // When team data was last scraped from provider
   total_games_played?: number; // Total games in history (all games)
   total_wins?: number; // Total wins from all games
   total_losses?: number; // Total losses from all games
