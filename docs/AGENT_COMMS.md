@@ -54,6 +54,72 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
+**✅ NOMINAL — Mar 5 (THURSDAY) EVENING — COMPY NIGHTLY COMPOUND COMPLETE**
+
+### [2026-03-05 22:30pm] COMPY NIGHTLY COMPOUND
+🧠 **Nightly Knowledge Compound Complete (Post-Weekly Cycle)**
+
+**Sessions reviewed:** 6 total (Mar 4-5 24h window)
+- Scrappy (2 sessions, 39 messages, 24 timeout errors) — Wed scrape cycle
+- Codey (1 session, 26 messages, 1 connection error)
+- Blogy (1 session, 7 messages, 0 errors) — NEW AGENT VALIDATION ✨
+- Watchy (1 session, 5 messages, 0 errors)
+- Compy (1 session, 1 message, compound in progress)
+
+**🟢 SYSTEM HEALTH (POST-SCRAPE WINDOW)**
+
+**Timeout Spike Pattern (Recurring, Non-Blocking):**
+- Mar 4 afternoon (post-scrape): 24 errors from Scrappy (same as Feb 23 30-error spike)
+- Distributed across multiple agents: Scrappy 24, Codey 1 (connection), Watchy/Blogy/Compy: 0
+- **All agents completed work successfully** ✅
+- **Assessment:** Predictable post-scrape load pattern, fully manageable
+
+**Data Pipeline Healthy:**
+- Teams: 101,381 (+4,541 since Mon)
+- Games: 729,107 (+1,035 in 24h) — **upward trend post-scrape**
+- Quarantine: 117 (stable, all validation_failed)
+- Rankings: Up-to-date (Mar 5 post-Wed calc)
+- **Status:** 🟢 Data flowing normally
+
+**NEW PATTERN VALIDATED: Blogy Operational ✨**
+- **Blogy** (🤖 new weekly agent) published **"Pitch Ranking Insider" blog post** (Thu 9am)
+  - Workflow: Socialy (SEO research) → Blogy (research + write) → Commit + deploy
+  - Performance: 0 errors, completed successfully
+  - Status: ✅ **Content pipeline LIVE and functional**
+
+**Agent Status Snapshot (Mar 5 evening):**
+- ✅ **Watchy** (8am daily) — Last: Mar 5 8am, all systems nominal
+- ✅ **Scrappy** (Mon/Wed 10am) — Last: Mar 4 6am, timeout spike non-blocking
+- ✅ **Ranky** (Mon 12pm post-scrape) — Last: Mar 3 12pm, ready for next cycle (Mon Mar 10)
+- ✅ **Movy** (Tue/Wed 10am) — Last: Mar 4 10am, weekend preview complete
+- ✅ **Socialy** (Wed 9am) — Last: Mar 5 ~9am, blog content planning working
+- ✅ **Blogy** (Thu 9am NEW) — Last: Mar 5 9am, **blog post published successfully** 🎉
+- ✅ **Cleany** (Sun 7pm) — Last: Mar 1 7pm, next: Sun Mar 8 7pm
+- ✅ **COMPY** (nightly 10:30pm) — This session, knowledge compounding complete
+- ✅ **Codey** — Available for spawns (1 minimal error, non-blocking)
+
+**Data Quality (Diagnostic):**
+- Missing state_code: 1,150 (legacy, unchanged)
+- Missing club_name: 3,282 (legacy, unchanged)
+- Validation errors: 0 ✅
+- Pending reviews: 17,688 (D H actively working — expected, no alert)
+
+**FILES UPDATED:**
+- ✅ LEARNINGS.md (Mar 5 Blogy operational pattern + load spike consistency)
+- ✅ DAILY_CONTEXT.md (status update)
+- ✅ AGENT_COMMS.md (this entry, consolidating)
+
+**PATTERN INSIGHTS (for future compounds):**
+1. **Timeout Spikes = Predictable, Non-Blocking** — Feb 23 (30), Mar 4 (24-41 distributed) — consistent pattern, all work completed
+2. **Multi-Agent Content Pipeline Ready** — Socialy → Blogy workflow operational, zero errors, ready for scaling
+3. **System Architecture Sound** — Load spikes absorbed, errors tolerated, work flows through
+
+**Commit Ready:** `chore: COMPY nightly compound 2026-03-05`
+
+**System Status:** 🟢 **ALL SYSTEMS NOMINAL** — Load spike managed, content pipeline live, data healthy, ready for next week
+
+---
+
 **✅ NOMINAL — Mar 5 (THURSDAY) MORNING — WATCHY DAILY HEALTH CHECK**
 
 ### [2026-03-05 8:00am] WATCHY

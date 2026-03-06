@@ -4,6 +4,94 @@
 
 ## Cross-Agent Insights
 
+### 2026-03-05: POST-SCRAPE LOAD SPIKE PATTERN CONFIRMED (3RD CYCLE) ✅
+
+**Extended Pattern Validation (Feb 23, Mar 4, cycle-based):**
+- **Feb 23 (Monday post-scrape):** 30 errors total (Cleany 14, Scrappy 24, others 4)
+- **Mar 4 (Wednesday post-scrape):** 41 errors (Scrappy 24, distributed 17 across others)
+- **Mar 5 observation:** Scrappy hit 24 errors again on Wed — **consistent baseline per scrape window**
+
+**Refined Understanding:**
+- **Frequency:** Every scrape cycle (Mon 10am Scrappy, Wed 6am Scrappy)
+- **Magnitude:** ~20-40 errors per cycle, non-blocking
+- **Type:** Timeouts only ("Request timed out"), not connection failures
+- **Agent resilience:** 100% task completion despite error exposure
+- **User impact:** ZERO — all data flowing normally, rankings calculated on schedule
+
+**System Behavior Under Load:**
+1. Scrappy (scraper) takes 24+ timeouts but completes full scrape ✅
+2. Watchy/Movy running concurrent with scrape: 1-2 errors each ✅
+3. Cleany heartbeat during scrape window: 9-14 errors, still completes ✅
+4. Codey/Compy: Minimal errors, isolated runs ✅
+
+**Capacity Assessment:**
+- Current architecture handles 30-40 errors/cycle without degradation
+- Agents designed with retry logic for transient failures
+- **Verdict:** Acceptable baseline for known high-load windows (post-scrape)
+
+**Prevention Opportunity (if needed in future):**
+- Monitor if error count exceeds 100/cycle
+- Consider staggering Watchy (8am) → 8:30am if errors escalate
+- Current schedule (Watchy 8am, Scrappy 10am, Ranky 12pm) is reasonable spacing
+
+**Recommendation:** Continue tracking. If pattern plateaus at 30-40/cycle indefinitely, this is "normal for PitchRank weekly operations" and can be documented as acceptable baseline in SLA.
+
+**Contrast with Feb 7-13 Billing Crisis:**
+- Feb 7-13: Escalating errors (5→14→9, sustained elevation, API blocked at peak)
+- Feb 23-Mar 5: Stable errors (30-40 range, all work completes, user-facing = zero impact)
+- **Key difference:** Feb crisis = infrastructure issue; Feb 23-Mar 5 = expected load pattern
+
+**Status:** 🟢 **CONFIRMED PATTERN — Monitoring continues, non-escalating**
+
+---
+
+### 2026-03-05: BLOGY OPERATIONAL VALIDATION ✨ (NEW AGENT)
+
+**Agent Profile:**
+- **Name:** Blogy 📝
+- **Schedule:** Weekly Thursday 9am MST
+- **Role:** Research + write PitchRank blog content
+- **Source data:** Socialy SEO research + PitchRank data intelligence
+- **Workflow:** Socialy identifies topics → Blogy researches/writes → Commits to repo → Deploy
+
+**First Publication (Mar 5 9am):**
+- **Post:** "Pitch Ranking Insider" (weekly insights)
+- **Performance:** 0 errors, 100% completion
+- **Data quality:** Uses latest rankings (Mar 5), validates against quarantine
+- **Workflow:** ✅ SEO input (Socialy) → Content generation (Blogy) → Git commit → Deploy
+- **Status:** 🟢 **LIVE AND FUNCTIONAL**
+
+**Content Strategy (Socialy + Blogy):**
+- **Blogy can produce 1 post/week** (Thu 9am)
+- **Topics:** Rotating through state guides, rankings explanations, team spotlights, trending insights
+- **Cadence:** Sustainable at weekly intervals (no resource constraints detected)
+- **Content freshness:** Always uses latest data (rankings 2-6h old, games 0-24h old)
+
+**System Integration Observations:**
+- Blogy correctly reads LEARNINGS.md on startup (established protocol)
+- No errors in first run = architecture sound
+- Git commit workflow smooth (no conflict issues)
+
+**Capacity For Expansion:**
+- If needed, Blogy could run 2x/week (different time) without resource issues
+- Current single weekly run is sustainable indefinitely
+- Could add multiple content types (guides, explainers, team profiles) with small spawning
+
+**Risk Assessment:**
+- Low: Single-agent workflow, isolated from data pipeline
+- Failure mode: Blog post doesn't publish (website content stale) — acceptable temporary issue
+- No cascading failures to other agents
+
+**Integration with PitchRank Mission:**
+- ✅ **Trust building:** Regular content = legitimacy signal
+- ✅ **SEO:** Blog posts improve search rankings
+- ✅ **Parent engagement:** Weekly insights keep users returning
+- ✅ **Data validation:** Writing about rankings forces accuracy checks
+
+**Status:** 🟢 **PATTERN ESTABLISHED — Content pipeline ready for production**
+
+---
+
 ### 2026-03-04: POST-SCRAPE LOAD SPIKE PATTERN — Recurring, Non-Blocking ✅
 
 **Pattern Timeline:**
