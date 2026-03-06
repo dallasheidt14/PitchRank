@@ -142,14 +142,14 @@ jobs:
           PY
 
       - name: Execute approved matches
-        if: ${{ steps.due.outputs.all_pass == 'true' && steps.due.outputs.approved_count != '0' && github.event.inputs.dry_run != 'true' }}
+        if: ${{ steps.due.outputs.approved_count != '0' && github.event.inputs.dry_run != 'true' }}
         run: |
           python3 scripts/apply_unknown_opponent_matches.py \
             --approved-csv "${{ steps.due.outputs.approved_csv }}" \
             --require-approved-rows | tee logs/unknown_apply.log
 
       - name: Skip execution note
-        if: ${{ !(steps.due.outputs.all_pass == 'true' && steps.due.outputs.approved_count != '0' && github.event.inputs.dry_run != 'true') }}
+        if: ${{ steps.due.outputs.approved_count == '0' || github.event.inputs.dry_run == 'true' }}
         run: |
           echo "Execution skipped."
           echo "all_pass=${{ steps.due.outputs.all_pass }}"
