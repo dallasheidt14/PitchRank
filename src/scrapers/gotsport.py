@@ -24,6 +24,14 @@ from src.base import GameData
 logger = logging.getLogger(__name__)
 
 
+class TeamNotFoundError(Exception):
+    """Raised when a team ID returns 404 from the provider API"""
+    def __init__(self, team_id, provider='gotsport'):
+        self.team_id = team_id
+        self.provider = provider
+        super().__init__(f"Team {team_id} not found on {provider} (404)")
+
+
 class GotSportScraper(BaseScraper):
     """Scraper for GotSport using their API endpoint"""
     
@@ -214,10 +222,10 @@ class GotSportScraper(BaseScraper):
                     break
                     
             except requests.exceptions.HTTPError as e:
-                # Handle 404 gracefully
+                # Raise TeamNotFoundError on 404 so callers can handle it
                 if e.response is not None and e.response.status_code == 404:
-                    logger.warning(f"Team {normalized_team_id} not found (404) - skipping")
-                    return []
+                    logger.warning(f"Team {normalized_team_id} not found (404)")
+                    raise TeamNotFoundError(normalized_team_id)
                 
                 # Retry for other HTTP errors
                 if attempt < self.max_retries - 1:

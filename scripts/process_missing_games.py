@@ -28,7 +28,7 @@ from supabase import create_client, Client
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.scrapers.gotsport import GotSportScraper
+from src.scrapers.gotsport import GotSportScraper, TeamNotFoundError
 
 # Load environment variables
 load_dotenv()
@@ -125,12 +125,16 @@ class MissingGamesProcessor:
             logger.warning(f"Error fetching provider code for {provider_id}: {e}")
             return 'gotsport'  # Default to gotsport
 
-    def get_gotsport_alias(self, team_id_master: str) -> Optional[Dict]:
+    def get_gotsport_alias(self, team_id_master: str, exclude_team_ids: Optional[List[str]] = None) -> Optional[Dict]:
         """
         Find a GotSport alias for a team via team_alias_map.
 
         This is used when the canonical provider isn't scrapable (e.g., Modular11)
         but the team has a GotSport alias that can be scraped.
+
+        Args:
+            team_id_master: The master team ID to look up aliases for
+            exclude_team_ids: List of provider_team_ids to exclude (e.g., ones that already 404'd)
 
         Returns:
             Dict with 'provider_id' and 'provider_team_id' if found, None otherwise
@@ -155,16 +159,19 @@ class MissingGamesProcessor:
                 .eq('team_id_master', team_id_master)\
                 .eq('provider_id', gotsport_provider_id)\
                 .eq('review_status', 'approved')\
-                .limit(1)\
                 .execute()
 
             if alias_result.data:
-                alias = alias_result.data[0]
-                logger.info(f"Found GotSport alias for team {team_id_master}: {alias['provider_team_id']}")
-                return {
-                    'provider_id': alias['provider_id'],
-                    'provider_team_id': alias['provider_team_id']
-                }
+                for alias in alias_result.data:
+                    # Skip team IDs we already know are invalid
+                    if exclude_team_ids and str(alias['provider_team_id']) in exclude_team_ids:
+                        logger.debug(f"Skipping excluded alias {alias['provider_team_id']}")
+                        continue
+                    logger.info(f"Found GotSport alias for team {team_id_master}: {alias['provider_team_id']}")
+                    return {
+                        'provider_id': alias['provider_id'],
+                        'provider_team_id': alias['provider_team_id']
+                    }
 
             return None
         except Exception as e:
@@ -445,11 +452,35 @@ class MissingGamesProcessor:
                     raise ValueError(f"No scraper available for provider: {provider_code}")
 
             # Scrape games for the date (±30 days window)
-            games = self.scrape_games_for_date(
-                scrape_provider_code,
-                scrape_team_id,
-                game_date
-            )
+            # If team ID returns 404, try alternative IDs from team_alias_map
+            tried_team_ids = []
+            games = None
+            team_id_master = request.get('team_id_master')
+
+            while games is None:
+                try:
+                    games = self.scrape_games_for_date(
+                        scrape_provider_code,
+                        scrape_team_id,
+                        game_date
+                    )
+                except TeamNotFoundError:
+                    tried_team_ids.append(str(scrape_team_id))
+                    logger.warning(f"Team {scrape_team_id} not found on {scrape_provider_code}, "
+                                   f"checking for alternative team IDs...")
+
+                    # Try to find an alternative team ID from team_alias_map
+                    if team_id_master and scrape_provider_code == 'gotsport':
+                        alt_alias = self.get_gotsport_alias(team_id_master, exclude_team_ids=tried_team_ids)
+                        if alt_alias:
+                            scrape_team_id = alt_alias['provider_team_id']
+                            logger.info(f"Retrying with alternative GotSport team ID: {scrape_team_id}")
+                            continue
+
+                    raise TeamNotFoundError(
+                        tried_team_ids[0] if len(tried_team_ids) == 1 else tried_team_ids,
+                        scrape_provider_code
+                    )
             
             # Import games if found
             games_imported = 0
