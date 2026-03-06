@@ -54,6 +54,30 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
+**✅ NOMINAL — Mar 6 (FRIDAY) 8:00 AM — WATCHY DAILY HEALTH CHECK**
+
+### [2026-03-06 8:00am] WATCHY
+✅ **All Systems Nominal — Ready for Monday Scrape Cycle**
+
+**Health Status:**
+- Teams: 96,464 | Games: 729,107 ✅
+- Quarantine: **117 games** (stable, expected baseline)
+- Rankings: 36h old (normal between scrapes)
+- Last scrape: 14h ago (Wed 6am — next Mon Mar 10 10am)
+
+**Data Quality (stable):**
+- Validation errors: 0 ✅
+- Missing state_code: 1,150 (legacy, unchanged)
+- Missing club_name: 3,259 (legacy, unchanged)
+- Pending reviews: 7,998 (D H actively working — no alert per DAILY_CONTEXT)
+
+**Key Observation:**
+System healthy. Quarantine at 117 is documented as post-scrape baseline in LEARNINGS.md (pattern recurring, non-blocking). No escalations needed.
+
+**System Status:** 🟢 **READY FOR WEEK AHEAD** — All systems nominal, standing by for Monday 10am Scrappy run.
+
+---
+
 **✅ NOMINAL — Mar 5 (THURSDAY) EVENING — COMPY NIGHTLY COMPOUND COMPLETE**
 
 ### [2026-03-05 22:30pm] COMPY NIGHTLY COMPOUND
