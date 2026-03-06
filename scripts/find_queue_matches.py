@@ -343,6 +343,78 @@ def extract_gender(name, details):
     
     return None
 
+# League / program / tier tokens that distinguish teams within the same club.
+# Order matters: longer tokens must come first so "pre-ecnl" is matched before "ecnl".
+PROGRAM_TIERS = [
+    'ecnl-rl', 'ecnl rl', 'ecrl',
+    'pre-ecnl', 'pre ecnl',
+    'ecnl',
+    'mls next', 'mlsnext',
+    'ga',
+    'pre-dplo', 'dplo',
+    'dpl',
+    'npl',
+    'rl',
+    'elite',
+    'premier',
+    'select',
+    'academy',
+    'classic',
+    'comp',
+    'recreational',
+    'reserve',
+    'showcase',
+    'challenge',
+    'competitive',
+    'development',
+]
+
+# Short tokens (2 chars) that appear after age group and distinguish teams
+# e.g. "Chelsea SC - B2014 OG" vs "Chelsea SC DC 2014"
+SHORT_BRANCH_TOKENS = {'og', 'dc', 'ac', 'sc', 'fc', 'sa', 'sb'}
+
+
+def extract_program_tier(name):
+    """Extract league/program/tier from a team name.
+
+    Returns the first matching program token found in the name, or None.
+    This is used to prevent merging teams from the same club but different
+    programs (e.g. GA vs PRE-ECNL, Elite vs Pre-DPLO).
+    """
+    if not name:
+        return None
+    name_lower = name.lower()
+
+    for token in PROGRAM_TIERS:
+        # Use word-boundary matching to avoid partial matches
+        pattern = r'\b' + re.escape(token).replace(r'\ ', r'[\s-]') + r'\b'
+        if re.search(pattern, name_lower):
+            return token
+
+    # Check for short branch tokens that appear AFTER an age/year pattern
+    age_patterns = [
+        r'\bU-?\d{1,2}\b',
+        r'\b[BG]?\d{4}[BG]?\b',
+        r'\b[BG]\d{2}(?!\d)\b',
+        r'\b\d{2}[BG](?!\d)\b',
+    ]
+    age_end = 0
+    for pattern in age_patterns:
+        match = re.search(pattern, name, re.IGNORECASE)
+        if match and match.end() > age_end:
+            age_end = match.end()
+
+    if age_end > 0:
+        after_age = name[age_end:].strip(' -')
+        after_words = after_age.lower().split()
+        if after_words:
+            first_word = after_words[0].strip('-()[].,')
+            if first_word in SHORT_BRANCH_TOKENS:
+                return first_word
+
+    return None
+
+
 def has_protected_division(name):
     """Check if team name contains AD, HD, or MLS NEXT - needs manual review."""
     if not name:
@@ -379,6 +451,7 @@ def find_best_match(queue_entry, supabase, teams_cache):
     age_group = extract_age_group(name, details)
     gender = extract_gender(name, details)
     queue_variant = extract_team_variant(name)
+    queue_program = extract_program_tier(name)
     
     # Build Supabase query for candidates
     # NOTE: team_alias_map FK references team_id_master, NOT id
@@ -424,9 +497,15 @@ def find_best_match(queue_entry, supabase, teams_cache):
         team_norm = normalize_team_name(team['team_name'])
         team_lower = team['team_name'].lower()
         team_variant = extract_team_variant(team['team_name'])
-        
+        team_program = extract_program_tier(team['team_name'])
+
         # CRITICAL: Variants must match EXACTLY
         if queue_variant != team_variant:
+            continue
+
+        # CRITICAL: Program/tier must match if either side has one
+        # e.g. "GA" != "PRE-ECNL", "Elite" != "Pre-DPLO"
+        if queue_program != team_program:
             continue
         
         # Calculate similarity
