@@ -85,49 +85,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check team_alias_map for a GotSport alias that may be more up-to-date
-    // than the teams table (e.g., when a team was linked via game history)
-    let providerId = team.provider_id;
-    let providerTeamId = team.provider_team_id;
-
-    // Look up the GotSport provider ID
-    const { data: gotsportProvider } = await supabase
-      .from('providers')
-      .select('id')
-      .eq('code', 'gotsport')
-      .single();
-
-    if (gotsportProvider) {
-      // Check for a manually-approved GotSport alias (from link-opponent)
-      const { data: aliases } = await supabase
-        .from('team_alias_map')
-        .select('provider_id, provider_team_id')
-        .eq('team_id_master', teamId)
-        .eq('provider_id', gotsportProvider.id)
-        .eq('review_status', 'approved')
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      if (aliases && aliases.length > 0) {
-        const alias = aliases[0];
-        // Use the alias if it differs from the teams table
-        // (alias is likely more up-to-date, especially for manually linked teams)
-        if (alias.provider_team_id !== team.provider_team_id) {
-          console.log(`[scrape-missing-game] Using GotSport alias ${alias.provider_team_id} instead of teams table ${team.provider_team_id}`);
-          providerId = alias.provider_id;
-          providerTeamId = alias.provider_team_id;
-        }
-      }
-    }
-
-    // Insert scrape request
+    // Insert scrape request with the canonical provider_team_id from the teams table.
+    // If this ID returns 404, the backend processor will automatically check
+    // team_alias_map for alternative IDs (e.g., from link-opponent).
     const { data: insertData, error: insertError } = await supabase
       .from('scrape_requests')
       .insert({
         team_id_master: teamId,
         team_name: teamName,
-        provider_id: providerId,
-        provider_team_id: providerTeamId,
+        provider_id: team.provider_id,
+        provider_team_id: team.provider_team_id,
         game_date: gameDate,
         status: 'pending',
         request_type: 'missing_game',
