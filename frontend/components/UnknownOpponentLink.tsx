@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useRef, useEffect, useDeferredValue, useCallback } from 'react';
+import { useState, useMemo, useRef, useEffect, useDeferredValue } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -49,19 +49,6 @@ interface CreateTeamForm {
   stateCode: string;
 }
 
-interface PreviewData {
-  totalGamesAffected: number;
-  asHomeTeam: number;
-  asAwayTeam: number;
-  providerName?: string;
-  previewGames: Array<{
-    id: string;
-    gameDate: string;
-    score: string;
-    competition: string;
-    otherTeam: string;
-  }>;
-}
 
 /**
  * Escape special regex characters in a string
@@ -142,8 +129,6 @@ export function UnknownOpponentLink({
   const [isLinking, setIsLinking] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [linkSuccess, setLinkSuccess] = useState(false);
-  const [previewData, setPreviewData] = useState<PreviewData | null>(null);
-  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
   // Create team mode state
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -190,35 +175,6 @@ export function UnknownOpponentLink({
     ? `${teamScore} - ${opponentScore}`
     : 'No score';
 
-  // Fetch preview when modal opens
-  const fetchPreview = useCallback(async () => {
-    if (!isOpen || previewData) return;
-
-    setIsLoadingPreview(true);
-    try {
-      const response = await fetch('/api/link-opponent/preview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          gameId: game.id,
-          opponentProviderId,
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setPreviewData(data);
-      }
-    } catch (err) {
-      console.error('Failed to fetch preview:', err);
-    } finally {
-      setIsLoadingPreview(false);
-    }
-  }, [isOpen, game.id, opponentProviderId, previewData]);
-
-  useEffect(() => {
-    fetchPreview();
-  }, [fetchPreview]);
 
   // Search teams using word-based matching
   const filteredTeams = useMemo(() => {
@@ -429,7 +385,6 @@ export function UnknownOpponentLink({
       setIsSearchOpen(false);
       setLinkError(null);
       setLinkSuccess(false);
-      setPreviewData(null);
       setShowCreateForm(false);
       setIsCreating(false);
       // Reset create form with defaults
@@ -486,32 +441,9 @@ export function UnknownOpponentLink({
               <div className="col-span-2">
                 <span className="text-muted-foreground">Provider ID:</span>{' '}
                 <code className="text-xs bg-muted px-1 py-0.5 rounded">{opponentProviderId}</code>
-                {previewData?.providerName && (
-                  <span className="text-xs text-muted-foreground ml-1">({previewData.providerName})</span>
-                )}
               </div>
             </div>
           </div>
-
-          {/* Preview of affected games */}
-          {isLoadingPreview && (
-            <InlineLoader text="Checking affected games..." />
-          )}
-          {previewData && previewData.totalGamesAffected > 1 && (
-            <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-sm">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="font-medium text-blue-800 dark:text-blue-200">
-                    This will update {previewData.totalGamesAffected} games
-                  </p>
-                  <p className="text-blue-600 dark:text-blue-300 text-xs mt-1">
-                    All games with the same provider ID will be linked to the selected team.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Team Search - shown when not in create mode */}
           {!showCreateForm && (
@@ -710,14 +642,6 @@ export function UnknownOpponentLink({
                 </div>
               </div>
 
-              {/* Preview info */}
-              {previewData && previewData.totalGamesAffected > 0 && (
-                <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-sm">
-                  <p className="text-blue-800 dark:text-blue-200">
-                    Creating this team will also link {previewData.totalGamesAffected} game{previewData.totalGamesAffected > 1 ? 's' : ''} to it.
-                  </p>
-                </div>
-              )}
             </div>
           )}
 

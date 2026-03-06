@@ -635,8 +635,22 @@ export const api = {
       };
     }) as GameWithTeams[];
 
+    // Deduplicate games that represent the same physical match
+    // (e.g., scraped from both teams' schedules). Same date + same two teams + same scores.
+    const seen = new Set<string>();
+    const deduplicatedGames = enrichedGames.filter((game) => {
+      const teams = [game.home_team_master_id, game.away_team_master_id].sort();
+      const scores = game.home_team_master_id && teams[0] === game.home_team_master_id
+        ? [game.home_score, game.away_score]
+        : [game.away_score, game.home_score];
+      const key = `${game.game_date}|${teams[0]}|${teams[1]}|${scores[0]}|${scores[1]}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
     return {
-      games: enrichedGames,
+      games: deduplicatedGames,
       lastScrapedAt: mostRecentScrapedAt,
     };
   },
