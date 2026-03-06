@@ -78,6 +78,7 @@ jobs:
 
           python3 scripts/export_unknown_opponents.py \
             --provider "${{ github.event.inputs.provider || 'gotsport' }}" \
+            --resolve-gotsport-details \
             --output-prefix "$PREFIX" \
             $MAX_ROWS_FLAG | tee logs/unknown_export.log
 

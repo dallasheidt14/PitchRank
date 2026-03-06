@@ -27,9 +27,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import sys
+from pathlib import Path
+
 import requests
 from dotenv import load_dotenv
 from supabase import create_client
+
+# Ensure sibling scripts are importable when invoked from repo root.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 # Reuse existing queue/step-3 matching logic
 from find_fuzzy_duplicate_teams import score_team_pair
