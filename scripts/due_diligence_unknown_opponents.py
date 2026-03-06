@@ -25,6 +25,7 @@ import argparse
 import csv
 import os
 import re
+import time
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
@@ -34,6 +35,29 @@ from typing import Dict, List, Optional, Tuple
 import requests
 from dotenv import load_dotenv
 from supabase import create_client
+
+
+def _execute_with_retry(query_func, max_retries: int = 3, base_delay: float = 1.0):
+    """Execute a Supabase query with exponential backoff on transient HTTP errors."""
+    last_exception = None
+    for attempt in range(max_retries + 1):
+        try:
+            return query_func()
+        except Exception as e:
+            last_exception = e
+            err_msg = str(e).lower()
+            is_transient = (
+                "remoteprotocolerror" in type(e).__name__.lower()
+                or "connectionterminated" in err_msg
+                or "remoteprotocolerror" in err_msg
+                or ("connection" in err_msg and "closed" in err_msg)
+            )
+            if not is_transient or attempt >= max_retries:
+                raise
+            delay = base_delay * (2 ** attempt)
+            print(f"  [retry {attempt + 1}/{max_retries}] Transient HTTP error, retrying in {delay:.1f}s: {e}")
+            time.sleep(delay)
+    raise last_exception  # unreachable, but satisfies type checkers
 
 
 def load_env() -> None:
@@ -212,27 +236,23 @@ def main() -> None:
         matched_team_id = (best.get("matched_team_id_master") or "").strip()
 
         # Fetch matched team from DB.
-        team_data = (
-            supabase.table("teams")
+        team_data = _execute_with_retry(
+            lambda mid=matched_team_id: supabase.table("teams")
             .select("team_id_master,team_name,club_name,age_group,gender,state_code")
-            .eq("team_id_master", matched_team_id)
+            .eq("team_id_master", mid)
             .limit(1)
             .execute()
-            .data
-            or []
-        )
+        ).data or []
         team = team_data[0] if team_data else {}
 
         # Alias conflict check.
-        alias_rows = (
-            supabase.table("team_alias_map")
+        alias_rows = _execute_with_retry(
+            lambda pid=provider_id, upid=unknown_pid: supabase.table("team_alias_map")
             .select("team_id_master")
-            .eq("provider_id", provider_id)
-            .eq("provider_team_id", unknown_pid)
+            .eq("provider_id", pid)
+            .eq("provider_team_id", upid)
             .execute()
-            .data
-            or []
-        )
+        ).data or []
         alias_conflict = bool(alias_rows and alias_rows[0].get("team_id_master") != matched_team_id)
 
         # Provider metadata check (currently strong coverage for gotsport).
@@ -264,15 +284,13 @@ def main() -> None:
         name_literal_check = bool(norm_full and norm_team and (norm_team in norm_full or norm_full in norm_team))
 
         # Cohort check from already linked opponents in those unresolved games.
-        games = (
-            supabase.table("games")
+        games = _execute_with_retry(
+            lambda pid=provider_id, upid=unknown_pid: supabase.table("games")
             .select("home_provider_id,away_provider_id,home_team_master_id,away_team_master_id")
-            .eq("provider_id", provider_id)
-            .or_(f"home_provider_id.eq.{unknown_pid},away_provider_id.eq.{unknown_pid}")
+            .eq("provider_id", pid)
+            .or_(f"home_provider_id.eq.{upid},away_provider_id.eq.{upid}")
             .execute()
-            .data
-            or []
-        )
+        ).data or []
         known_team_ids = []
         for g in games:
             if str(g.get("home_provider_id")) == unknown_pid and g.get("away_team_master_id"):
@@ -287,14 +305,12 @@ def main() -> None:
             cohort_rows = []
             for i in range(0, len(unique_ids), 500):
                 cohort_rows.extend(
-                    (
-                        supabase.table("teams")
+                    _execute_with_retry(
+                        lambda batch=unique_ids[i : i + 500]: supabase.table("teams")
                         .select("team_id_master,age_group,gender")
-                        .in_("team_id_master", unique_ids[i : i + 500])
+                        .in_("team_id_master", batch)
                         .execute()
-                        .data
-                        or []
-                    )
+                    ).data or []
                 )
             age_counter = Counter(_normalize_age_group(r.get("age_group")) for r in cohort_rows if r.get("age_group"))
             gen_counter = Counter(_normalize_gender(r.get("gender")) for r in cohort_rows if r.get("gender"))
