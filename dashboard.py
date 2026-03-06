@@ -838,6 +838,7 @@ elif section == "🧩 Unknown Opponent Review":
         "These are games where one side has a master team ID but the other does not."
     )
 
+    db = get_database()
     if not db:
         st.error("Database connection required.")
         st.stop()
