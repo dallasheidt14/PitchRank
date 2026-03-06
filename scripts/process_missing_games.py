@@ -502,18 +502,33 @@ class MissingGamesProcessor:
             self.stats['successful'] += 1
             return True
             
+        except TeamNotFoundError as e:
+            team_id_master = request.get('team_id_master', 'unknown')
+            error_msg = (f"{e} — the provider_team_id in the teams table may be outdated. "
+                         f"team_id_master={team_id_master}")
+            logger.error(f"Failed to process request {request_id}: {error_msg}")
+
+            self.update_request_status(
+                request_id,
+                'failed',
+                error_message=error_msg[:500]
+            )
+
+            self.stats['failed'] += 1
+            return False
+
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Failed to process request {request_id}: {error_msg}")
             logger.debug(traceback.format_exc())
-            
+
             # Update request as failed
             self.update_request_status(
                 request_id,
                 'failed',
                 error_message=error_msg[:500]  # Truncate error message
             )
-            
+
             self.stats['failed'] += 1
             return False
     
