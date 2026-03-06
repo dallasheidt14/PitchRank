@@ -1128,6 +1128,69 @@ elif section == "🧩 Unknown Opponent Review":
                     filtered["unknown_provider_team_id"].astype(str).str.contains(pid_query, case=False, na=False)
                 ]
 
+            # ------------------------------------------------------------------
+            # Breakdown by Age Group, Gender, State
+            # ------------------------------------------------------------------
+            # Detect column names (match report vs due diligence vs export)
+            _age_col = next(
+                (c for c in ["unknown_age_group_used", "unknown_age_group", "unknown_api_age_group"] if c in filtered.columns),
+                None,
+            )
+            _gender_col = next(
+                (c for c in ["unknown_gender_used", "unknown_gender", "unknown_api_gender"] if c in filtered.columns),
+                None,
+            )
+            _state_col = next(
+                (c for c in ["unknown_state_used", "unknown_state", "unknown_api_state"] if c in filtered.columns),
+                None,
+            )
+
+            if _age_col or _gender_col or _state_col:
+                with st.expander("Breakdown by Age Group / Gender / State", expanded=False):
+                    bd_c1, bd_c2, bd_c3 = st.columns(3)
+                    with bd_c1:
+                        if _age_col:
+                            age_counts = (
+                                filtered[_age_col]
+                                .fillna("Unknown")
+                                .replace("", "Unknown")
+                                .value_counts()
+                                .reset_index()
+                            )
+                            age_counts.columns = ["Age Group", "Count"]
+                            st.markdown("**By Age Group**")
+                            st.dataframe(age_counts, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("No age group column in this file.")
+                    with bd_c2:
+                        if _gender_col:
+                            gender_counts = (
+                                filtered[_gender_col]
+                                .fillna("Unknown")
+                                .replace("", "Unknown")
+                                .value_counts()
+                                .reset_index()
+                            )
+                            gender_counts.columns = ["Gender", "Count"]
+                            st.markdown("**By Gender**")
+                            st.dataframe(gender_counts, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("No gender column in this file.")
+                    with bd_c3:
+                        if _state_col:
+                            state_counts = (
+                                filtered[_state_col]
+                                .fillna("Unknown")
+                                .replace("", "Unknown")
+                                .value_counts()
+                                .reset_index()
+                            )
+                            state_counts.columns = ["State", "Count"]
+                            st.markdown("**By State**")
+                            st.dataframe(state_counts, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("No state column in this file.")
+
             if "verdict" in filtered.columns:
                 approved_count = int((filtered["verdict"] == "approved").sum())
                 review_count = int((filtered["verdict"] != "approved").sum())
