@@ -4,44 +4,46 @@
 
 ## Cross-Agent Insights
 
-### 2026-03-05: POST-SCRAPE LOAD SPIKE PATTERN CONFIRMED (3RD CYCLE) ✅
+### 2026-03-06: POST-SCRAPE LOAD SPIKE PATTERN — VARIANCE DETECTED ⚠️
 
-**Extended Pattern Validation (Feb 23, Mar 4, cycle-based):**
-- **Feb 23 (Monday post-scrape):** 30 errors total (Cleany 14, Scrappy 24, others 4)
-- **Mar 4 (Wednesday post-scrape):** 41 errors (Scrappy 24, distributed 17 across others)
-- **Mar 5 observation:** Scrappy hit 24 errors again on Wed — **consistent baseline per scrape window**
+**Extended Pattern Analysis (Feb 23, Mar 4, Mar 5-6, cycle-based):**
+- **Feb 23 (Monday 12pm post-scrape):** 30 errors total
+- **Mar 4 (Wednesday 6am post-scrape):** 41 errors total
+- **Mar 5-6 (post-Wednesday scrape):** 1 error only (Codey connection)
 
-**Refined Understanding:**
-- **Frequency:** Every scrape cycle (Mon 10am Scrappy, Wed 6am Scrappy)
-- **Magnitude:** ~20-40 errors per cycle, non-blocking
-- **Type:** Timeouts only ("Request timed out"), not connection failures
-- **Agent resilience:** 100% task completion despite error exposure
-- **User impact:** ZERO — all data flowing normally, rankings calculated on schedule
+**Updated Understanding (3-Cycle Sample):**
+- **Frequency:** Post-scrape windows show errors, but NOT consistently
+- **Magnitude:** VARIABLE (30 → 41 → 1) — unpredictable
+- **Type:** Primarily timeouts (Feb 23, Mar 4) OR minimal (Mar 5-6)
+- **Agent resilience:** 100% task completion regardless of error count ✅
+- **User impact:** ZERO — all data flowing normally
 
-**System Behavior Under Load:**
-1. Scrappy (scraper) takes 24+ timeouts but completes full scrape ✅
-2. Watchy/Movy running concurrent with scrape: 1-2 errors each ✅
-3. Cleany heartbeat during scrape window: 9-14 errors, still completes ✅
-4. Codey/Compy: Minimal errors, isolated runs ✅
+**Pattern Variance Hypothesis:**
+- **Not deterministic:** Post-scrape does NOT guarantee error spike (Mar 5-6 disproves "every cycle" claim)
+- **Likely factors:** Specific agent timing collision, concurrent workloads, API load balancer state
+- **Unpredictability:** Without more data, cannot predict which post-scrape windows will spike
+
+**System Behavior Under Load (Confirmed):**
+1. ✅ Scrappy handles 24+ timeouts + completes full scrape
+2. ✅ Watchy/Codey/Compy complete work despite errors
+3. ✅ All agents resilient to transient failures
+4. ✅ Data pipeline flows normally regardless of error count
 
 **Capacity Assessment:**
-- Current architecture handles 30-40 errors/cycle without degradation
-- Agents designed with retry logic for transient failures
-- **Verdict:** Acceptable baseline for known high-load windows (post-scrape)
+- Current architecture handles 0-41 errors/cycle without degradation
+- Agents designed with retry logic → errors tolerated
+- **Verdict:** Even under high error conditions (41), system completes work
 
-**Prevention Opportunity (if needed in future):**
-- Monitor if error count exceeds 100/cycle
-- Consider staggering Watchy (8am) → 8:30am if errors escalate
-- Current schedule (Watchy 8am, Scrappy 10am, Ranky 12pm) is reasonable spacing
+**Revised Monitoring Strategy:**
+- Continue tracking error counts per post-scrape window
+- If pattern emerges in next 3-4 cycles, document specific timing correlation
+- Current recommendation: MONITOR, don't prevent (spike pattern too variable for preemptive optimization)
+- **Only escalate if:** Error count exceeds 100/cycle OR tasks start failing due to retry exhaustion
 
-**Recommendation:** Continue tracking. If pattern plateaus at 30-40/cycle indefinitely, this is "normal for PitchRank weekly operations" and can be documented as acceptable baseline in SLA.
+**Key Learning (Compounding):**
+Predictable patterns are easy to plan for. Unpredictable patterns with zero user impact are safe to tolerate. The Mar 5-6 low-error observation shows system is NOT consistently under post-scrape stress—variance is the actual pattern.
 
-**Contrast with Feb 7-13 Billing Crisis:**
-- Feb 7-13: Escalating errors (5→14→9, sustained elevation, API blocked at peak)
-- Feb 23-Mar 5: Stable errors (30-40 range, all work completes, user-facing = zero impact)
-- **Key difference:** Feb crisis = infrastructure issue; Feb 23-Mar 5 = expected load pattern
-
-**Status:** 🟢 **CONFIRMED PATTERN — Monitoring continues, non-escalating**
+**Status:** 🟡 **PATTERN VARIANCE NOTED — Continue observation, non-blocking, system resilient**
 
 ---
 

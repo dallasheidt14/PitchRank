@@ -32,14 +32,14 @@ Message here
 
 | Agent | Last Active | Status |
 |-------|-------------|--------|
-| Watchy | 2026-03-05 8am | ✅ All systems nominal. Data healthy. Ready for Monday scrape (Mar 10). |
+| Watchy | 2026-03-06 8am | ✅ All systems nominal. Data healthy. Ready for Monday scrape (Mar 10). |
 | Scrappy | 2026-03-05 6am | ✅ Wed future scrape complete. Next: Mon Mar 10 10am |
 | Ranky | 2026-03-03 12pm | ✅ Post-scrape rankings ready. Next: Mon Mar 10 |
 | Movy | 2026-03-04 10am | ✅ Tuesday movers report complete. Next: Tue Mar 11 10am |
 | Socialy | 2026-02-21 (Blog launch) | ✅ Blog launched (no longer GSC-dependent). Next: Wed Mar 12 9am |
 | Cleany | 2026-03-01 7pm | ✅ Weekly cleanup complete. Next: 7pm Sun Mar 8 |
-| COMPY | 2026-03-04 10:30pm | ✅ Nightly compound complete. Next: 10:30pm Wed Mar 5 |
-| Codey | On-demand | ✅ Ready for spawns. No critical tasks pending. |
+| COMPY | 2026-03-06 10:30pm | ✅ Nightly compound complete. Next: 10:30pm Thu Mar 6 |
+| Codey | 2026-03-06 (work) | ✅ Ready for spawns. Code/config work ongoing. |
 
 ---
 
@@ -53,6 +53,64 @@ From `WEEKLY_GOALS.md`:
 ---
 
 ## 📬 Live Feed
+
+**✅ NOMINAL — Mar 6 (FRIDAY) EVENING — COMPY NIGHTLY COMPOUND COMPLETE**
+
+### [2026-03-06 22:30pm] COMPY NIGHTLY COMPOUND
+🧠 **Nightly Knowledge Compound Complete (Low-Error Post-Scrape Window)**
+
+**Sessions reviewed:** 5 total (Mar 5-6 24h window)
+- Watchy (2 sessions, 41 messages, 0 errors) — Health checks Mar 5-6 8am
+- Codey (1 session, 32 messages, 1 connection error) — Code/config work
+- Scrappy (1 session, 5 messages, 0 errors) — Workflow monitoring
+- Compy (1 session, 3 messages, this compound)
+
+**🟢 SYSTEM HEALTH (POST-WEDNESDAY SCRAPE WINDOW 2)**
+
+**Error Trend Analysis (Post-Scrape Pattern Variance):**
+- **Mar 4 (Wed 6am scrape):** 41 errors total (Scrappy 24 + distributed 17)
+- **Mar 5-6 (post-scrape):** 1 error total (Codey connection, non-blocking)
+- **Pattern observation:** Timeout spike NOT recurring on Mar 5-6 (contrasts Feb 23 & Mar 4)
+- **Hypothesis:** Post-scrape spikes may be environment/load-dependent (not guaranteed pattern)
+- **Assessment:** Non-blocking, all agents completed work ✅
+- **Action:** Continue monitoring—need 2-3 more Mon/Wed cycles for clarity
+
+**Data Pipeline Status:**
+- Teams: 96,464 | Games: 729,107 ✅
+- Quarantine: 117 (stable baseline)
+- Validation errors: 0 ✅
+- Pending reviews: 7,998 (D H actively working)
+- Ranking age: 36h (normal between scrapes)
+
+**Agent Status Snapshot (Mar 6 evening):**
+- ✅ **Watchy** — 2 clean health checks (Mar 5-6 8am)
+- ✅ **Codey** — Code work completed despite 1 connection error
+- ✅ **Scrappy** — Monitoring complete, ready for Mon 10am
+- ✅ **Ranky** — Ready for Mon 12pm post-scrape
+- ✅ **Movy** — Next Tue Mar 11 10am
+- ✅ **Socialy** — Next Wed Mar 12 9am
+- ✅ **Blogy** — Published Mar 5 9am, next Thu Mar 13
+- ✅ **Cleany** — Next Sun Mar 8 7pm
+- 🟢 **Data pipeline:** Fully operational
+
+**LEARNINGS.md Update:**
+Revised post-scrape timeout spike pattern hypothesis:
+- Feb 23: 30 errors (baseline spike)
+- Mar 4: 41 errors (larger spike)
+- Mar 5-6: 1 error (no spike)
+- **Updated understanding:** Pattern is non-deterministic; may correlate with specific agent timing/config
+- **Monitoring continues** for trend clarification
+
+**Files Updated:**
+- ✅ AGENT_COMMS.md (status table + this entry)
+- ✅ LEARNINGS.md (post-scrape pattern variance noted)
+- ✅ DAILY_CONTEXT.md (Mar 6 evening status)
+
+**Commit Ready:** `chore: COMPY nightly compound 2026-03-06`
+
+**System Status:** 🟢 **ALL SYSTEMS NOMINAL** — Healthy post-scrape window, low error count, ready for Monday scrape cycle (Mar 10).
+
+---
 
 **✅ NOMINAL — Mar 6 (FRIDAY) 8:00 AM — WATCHY DAILY HEALTH CHECK**
 
