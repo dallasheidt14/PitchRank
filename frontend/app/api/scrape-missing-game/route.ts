@@ -85,7 +85,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Insert scrape request
+    // Insert scrape request with the canonical provider_team_id from the teams table.
+    // If this ID returns 404, the backend processor will automatically check
+    // team_alias_map for alternative IDs (e.g., from link-opponent).
     const { data: insertData, error: insertError } = await supabase
       .from('scrape_requests')
       .insert({

@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
       gameId,
       opponentProviderId,
       teamIdMaster,
-      applyToAllGames = true // Default to applying to all games
+      applyToAllGames = true,
     } = requestBody;
 
     if (!gameId || !opponentProviderId || !teamIdMaster) {
@@ -347,117 +347,72 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 5. Optionally backfill OTHER games with this provider_id
+    // 5. Backfill OTHER games with this provider_team_id (only the unknown side)
     if (applyToAllGames) {
-      console.log('[link-opponent] Provider ID match check:', {
-        providerTeamIdStr,
-        game_home_provider_id: game.home_provider_id,
-        game_away_provider_id: game.away_provider_id,
-        isOpponentHome,
-        isOpponentAway,
-        home_already_linked: game.home_team_master_id !== null,
-        away_already_linked: game.away_team_master_id !== null,
-      });
+      // Only update the side that matches the unknown opponent's provider_team_id.
+      // If isOpponentHome for the clicked game, the opponent's provider_team_id is home_provider_id.
+      // But in OTHER games, the same provider_team_id could appear on either side.
+      // We update both sides where null, BUT we must not fill in both sides of the
+      // same physical game (which can exist as two records scraped from each team).
 
-      // Build queries with proper provider_id handling
-      // Note: .eq('col', null) doesn't work in SQL (NULL = NULL is false)
-      // So we need to use .is() for null values
       const providerIdIsNull = game.provider_id === null;
 
-      // Count and update games where opponent is HOME team
-      const homeCountQuery = providerIdIsNull
-        ? supabase.from('games').select('id', { count: 'exact', head: true })
-            .eq('home_provider_id', providerTeamIdStr)
-            .is('home_team_master_id', null)
-            .is('provider_id', null)
-        : supabase.from('games').select('id', { count: 'exact', head: true })
-            .eq('home_provider_id', providerTeamIdStr)
-            .is('home_team_master_id', null)
-            .eq('provider_id', game.provider_id);
-      const { count: homeCount, error: homeCountError } = await homeCountQuery;
-      console.log('[link-opponent] Home count query result:', { homeCount, homeCountError });
-
-      // Update games where opponent is HOME team
-      const homeUpdateQuery = providerIdIsNull
-        ? supabase.from('games').update({ home_team_master_id: teamIdMaster })
-            .eq('home_provider_id', providerTeamIdStr)
-            .is('home_team_master_id', null)
-            .is('provider_id', null)
-            .select('id')
-        : supabase.from('games').update({ home_team_master_id: teamIdMaster })
-            .eq('home_provider_id', providerTeamIdStr)
-            .is('home_team_master_id', null)
-            .eq('provider_id', game.provider_id)
-            .select('id');
-      const { error: homeUpdateError, data: homeUpdateData } = await homeUpdateQuery;
-      console.log('[link-opponent] Home update result:', { homeUpdateError, updatedCount: homeUpdateData?.length });
+      // Update games where opponent is HOME team and home_team_master_id is NULL
+      let homeQuery = supabase
+        .from('games')
+        .update({ home_team_master_id: teamIdMaster })
+        .eq('home_provider_id', providerTeamIdStr)
+        .is('home_team_master_id', null)
+        .neq('id', gameId);
+      homeQuery = providerIdIsNull
+        ? homeQuery.is('provider_id', null)
+        : homeQuery.eq('provider_id', game.provider_id);
+      const { error: homeUpdateError, data: homeUpdateData } = await homeQuery.select('id');
 
       if (homeUpdateError) {
         console.error('[link-opponent] Failed to update home games:', homeUpdateError);
-        // Don't fail - alias was created, just log the error
       } else {
-        // Add to homeUpdated (don't overwrite - we may have already updated the specific game)
         homeUpdated += homeUpdateData?.length || 0;
       }
 
-      // Count games where opponent is AWAY team
-      const awayCountQuery = providerIdIsNull
-        ? supabase.from('games').select('id', { count: 'exact', head: true })
-            .eq('away_provider_id', providerTeamIdStr)
-            .is('away_team_master_id', null)
-            .is('provider_id', null)
-        : supabase.from('games').select('id', { count: 'exact', head: true })
-            .eq('away_provider_id', providerTeamIdStr)
-            .is('away_team_master_id', null)
-            .eq('provider_id', game.provider_id);
-      const { count: awayCount, error: awayCountError } = await awayCountQuery;
-      console.log('[link-opponent] Away count query result:', { awayCount, awayCountError });
-
-      // Update games where opponent is AWAY team
-      const awayUpdateQuery = providerIdIsNull
-        ? supabase.from('games').update({ away_team_master_id: teamIdMaster })
-            .eq('away_provider_id', providerTeamIdStr)
-            .is('away_team_master_id', null)
-            .is('provider_id', null)
-            .select('id')
-        : supabase.from('games').update({ away_team_master_id: teamIdMaster })
-            .eq('away_provider_id', providerTeamIdStr)
-            .is('away_team_master_id', null)
-            .eq('provider_id', game.provider_id)
-            .select('id');
-      const { error: awayUpdateError, data: awayUpdateData } = await awayUpdateQuery;
-      console.log('[link-opponent] Away update result:', { awayUpdateError, updatedCount: awayUpdateData?.length });
+      // Update games where opponent is AWAY team and away_team_master_id is NULL
+      let awayQuery = supabase
+        .from('games')
+        .update({ away_team_master_id: teamIdMaster })
+        .eq('away_provider_id', providerTeamIdStr)
+        .is('away_team_master_id', null)
+        .neq('id', gameId);
+      awayQuery = providerIdIsNull
+        ? awayQuery.is('provider_id', null)
+        : awayQuery.eq('provider_id', game.provider_id);
+      const { error: awayUpdateError, data: awayUpdateData } = await awayQuery.select('id');
 
       if (awayUpdateError) {
         console.error('[link-opponent] Failed to update away games:', awayUpdateError);
-        // Don't fail - alias was created, just log the error
       } else {
-        // Add to awayUpdated (don't overwrite - we may have already updated the specific game)
         awayUpdated += awayUpdateData?.length || 0;
       }
 
-      gamesUpdated = homeUpdated + awayUpdated;
+      gamesUpdated = (specificGameUpdated ? 1 : 0) + homeUpdated + awayUpdated;
       console.log('[link-opponent] Total games updated:', { homeUpdated, awayUpdated, gamesUpdated });
-
-      // 5. Create audit log entry
-      const { error: auditError } = await supabase
-        .from('team_link_audit')
-        .insert({
-          provider_team_id: providerTeamIdStr,
-          team_id_master: teamIdMaster,
-          provider_id: game.provider_id,
-          games_updated: gamesUpdated,
-          linked_by: 'frontend_user',
-          notes: `Home: ${homeUpdated}, Away: ${awayUpdated}`,
-        });
-
-      if (auditError) {
-        console.error('[link-opponent] Failed to create audit log:', auditError);
-        // Don't fail - the main operation succeeded
-      }
     } else {
-      // If not applying to all games, just count the specific game update
       gamesUpdated = specificGameUpdated ? 1 : 0;
+    }
+
+    // 6. Create audit log entry
+    const { error: auditError } = await supabase
+      .from('team_link_audit')
+      .insert({
+        provider_team_id: providerTeamIdStr,
+        team_id_master: teamIdMaster,
+        provider_id: game.provider_id,
+        games_updated: gamesUpdated,
+        linked_by: 'frontend_user',
+        notes: `Home: ${homeUpdated}, Away: ${awayUpdated}`,
+      });
+
+    if (auditError) {
+      console.error('[link-opponent] Failed to create audit log:', auditError);
     }
 
     return NextResponse.json({
@@ -469,25 +424,6 @@ export async function POST(request: NextRequest) {
       message: gamesUpdated > 0
         ? `Successfully linked ${gamesUpdated} game(s) to ${team.team_name}`
         : `Alias created for ${team.team_name}. Future games will be linked automatically.`,
-      // Debug info to help diagnose issues
-      debug: {
-        gameId,
-        opponentProviderId,
-        teamIdMaster,
-        specificGameUpdated,
-        isOpponentHome,
-        isOpponentAway,
-        gameBeforeUpdate: {
-          provider_id: game.provider_id,
-          home_provider_id: game.home_provider_id,
-          away_provider_id: game.away_provider_id,
-          home_team_master_id: game.home_team_master_id,
-          away_team_master_id: game.away_team_master_id,
-        },
-        gameAfterUpdate: verificationResult,
-        homeUpdated,
-        awayUpdated,
-      }
     });
   } catch (error) {
     console.error('[link-opponent] Unexpected error:', error);
