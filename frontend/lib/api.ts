@@ -253,14 +253,66 @@ export const api = {
       rankingsFullData?.rank_in_cohort_final ??
       null;
 
+    // Compute rank_in_state_final and sos_rank_state using COUNT queries (not fetching rows)
+    // This avoids transferring up to 10K rows per query which caused frequent timeouts
+    const stateForRank = rankingData?.state ?? stateRankData?.state ?? null;
+    const ageForRank = rankingData?.age ?? stateRankData?.age ?? null;
+    const genderForRank = rankingData?.gender ?? stateRankData?.gender ?? null;
     const sosNormState = stateRankData?.sos_norm_state ?? null;
 
-    // Use rank_in_state_final directly from state_rankings_view.
-    // The view computes ROW_NUMBER() with SOS tie-breaking, filtered to Active/Not Enough Ranked Games only.
-    // This matches the client-side ranking logic in RankingsTable.tsx (computedRanks).
-    // Previously used COUNT queries which didn't handle ties and could diverge from the rankings page.
-    const rankInStateFinal: number | null = stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? null;
-    const sosRankState: number | null = stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? rankingData?.sos_rank_state ?? null;
+    // Phase 3: Compute state rank and SOS rank in parallel using COUNT queries
+    let rankInStateFinal: number | null = null;
+    let sosRankState: number | null = null;
+
+    if (stateForRank && ageForRank != null && genderForRank) {
+      const stateRankPromise = powerScoreFinal !== null
+        ? supabase
+            .from('state_rankings_view')
+            .select('*', { count: 'exact', head: true })
+            .eq('state', stateForRank)
+            .eq('age', ageForRank)
+            .eq('gender', genderForRank)
+            .in('status', ['Active', 'Not Enough Ranked Games'])
+            .gt('power_score_final', powerScoreFinal)
+        : null;
+
+      const sosRankPromise = sosNormState !== null
+        ? supabase
+            .from('state_rankings_view')
+            .select('*', { count: 'exact', head: true })
+            .eq('state', stateForRank)
+            .eq('age', ageForRank)
+            .eq('gender', genderForRank)
+            .in('status', ['Active', 'Not Enough Ranked Games'])
+            .gt('sos_norm_state', sosNormState)
+        : null;
+
+      const [stateRankCount, sosRankCount] = await Promise.all([
+        stateRankPromise,
+        sosRankPromise,
+      ]);
+
+      if (stateRankCount && !stateRankCount.error && stateRankCount.count !== null) {
+        rankInStateFinal = stateRankCount.count + 1;
+      } else {
+        if (stateRankCount?.error) {
+          console.warn('[api.getTeam] Error computing filtered state rank, falling back:', stateRankCount.error);
+        }
+        rankInStateFinal = stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? null;
+      }
+
+      if (sosRankCount && !sosRankCount.error && sosRankCount.count !== null) {
+        sosRankState = sosRankCount.count + 1;
+      } else {
+        if (sosRankCount?.error) {
+          console.warn('[api.getTeam] Error computing filtered SOS rank, falling back:', sosRankCount.error);
+        }
+        sosRankState = stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? rankingData?.sos_rank_state ?? null;
+      }
+    } else {
+      rankInStateFinal = stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? null;
+      sosRankState = stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? rankingData?.sos_rank_state ?? null;
+    }
 
     const gamesPlayed =
       rankingData?.games_played ??
