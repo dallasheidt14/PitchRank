@@ -253,66 +253,16 @@ export const api = {
       rankingsFullData?.rank_in_cohort_final ??
       null;
 
-    // Compute rank_in_state_final and sos_rank_state using COUNT queries (not fetching rows)
-    // This avoids transferring up to 10K rows per query which caused frequent timeouts
-    const stateForRank = rankingData?.state ?? stateRankData?.state ?? null;
-    const ageForRank = rankingData?.age ?? stateRankData?.age ?? null;
-    const genderForRank = rankingData?.gender ?? stateRankData?.gender ?? null;
     const sosNormState = stateRankData?.sos_norm_state ?? null;
 
-    // Phase 3: Compute state rank and SOS rank in parallel using COUNT queries
-    let rankInStateFinal: number | null = null;
-    let sosRankState: number | null = null;
-
-    if (stateForRank && ageForRank != null && genderForRank) {
-      const stateRankPromise = powerScoreFinal !== null
-        ? supabase
-            .from('state_rankings_view')
-            .select('*', { count: 'exact', head: true })
-            .eq('state', stateForRank)
-            .eq('age', ageForRank)
-            .eq('gender', genderForRank)
-            .in('status', ['Active', 'Not Enough Ranked Games'])
-            .gt('power_score_final', powerScoreFinal)
-        : null;
-
-      const sosRankPromise = sosNormState !== null
-        ? supabase
-            .from('state_rankings_view')
-            .select('*', { count: 'exact', head: true })
-            .eq('state', stateForRank)
-            .eq('age', ageForRank)
-            .eq('gender', genderForRank)
-            .in('status', ['Active', 'Not Enough Ranked Games'])
-            .gt('sos_norm_state', sosNormState)
-        : null;
-
-      const [stateRankCount, sosRankCount] = await Promise.all([
-        stateRankPromise,
-        sosRankPromise,
-      ]);
-
-      if (stateRankCount && !stateRankCount.error && stateRankCount.count !== null) {
-        rankInStateFinal = stateRankCount.count + 1;
-      } else {
-        if (stateRankCount?.error) {
-          console.warn('[api.getTeam] Error computing filtered state rank, falling back:', stateRankCount.error);
-        }
-        rankInStateFinal = stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? null;
-      }
-
-      if (sosRankCount && !sosRankCount.error && sosRankCount.count !== null) {
-        sosRankState = sosRankCount.count + 1;
-      } else {
-        if (sosRankCount?.error) {
-          console.warn('[api.getTeam] Error computing filtered SOS rank, falling back:', sosRankCount.error);
-        }
-        sosRankState = stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? rankingData?.sos_rank_state ?? null;
-      }
-    } else {
-      rankInStateFinal = stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? null;
-      sosRankState = stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? rankingData?.sos_rank_state ?? null;
-    }
+    // Use rank_in_state_final and sos_rank_state directly from the view.
+    // The view's ROW_NUMBER() compares FLOAT8 to FLOAT8 (same type, no precision issues).
+    // Previously, COUNT queries with .gt('power_score_final', X) caused a FLOAT8 vs NUMERIC
+    // comparison bug: PostgreSQL casts the FLOAT8 column to NUMERIC for comparison, revealing
+    // hidden binary precision (e.g., 0.497134135753087 as FLOAT8 is actually 0.49713413575308703
+    // in full precision). This caused teams to count against themselves, inflating their rank by 1.
+    const rankInStateFinal: number | null = stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? null;
+    const sosRankState: number | null = stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? rankingData?.sos_rank_state ?? null;
 
     const gamesPlayed =
       rankingData?.games_played ??
