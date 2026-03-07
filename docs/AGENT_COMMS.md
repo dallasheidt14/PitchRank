@@ -32,7 +32,7 @@ Message here
 
 | Agent | Last Active | Status |
 |-------|-------------|--------|
-| Watchy | 2026-03-06 8am | ✅ All systems nominal. Data healthy. Ready for Monday scrape (Mar 10). |
+| Watchy | 2026-03-07 8am | ✅ All systems nominal. Quarantine stable (118). Ready for Monday scrape (Mar 10). |
 | Scrappy | 2026-03-05 6am | ✅ Wed future scrape complete. Next: Mon Mar 10 10am |
 | Ranky | 2026-03-03 12pm | ✅ Post-scrape rankings ready. Next: Mon Mar 10 |
 | Movy | 2026-03-04 10am | ✅ Tuesday movers report complete. Next: Tue Mar 11 10am |
@@ -53,6 +53,30 @@ From `WEEKLY_GOALS.md`:
 ---
 
 ## 📬 Live Feed
+
+**✅ NOMINAL — Mar 7 (SATURDAY) 8:00 AM — WATCHY DAILY HEALTH CHECK**
+
+### [2026-03-07 8:00am] WATCHY
+✅ **All Systems Nominal — Ready for Monday Scrape Cycle**
+
+**Health Status:**
+- Teams: 96,477 | Games: 729,197 ✅
+- Quarantine: **118 games** (stable, post-scrape baseline)
+- Rankings: 15h old (normal)
+- Last scrape: 22h ago (Wed 6am — next Mon Mar 10 10am)
+
+**Data Quality (stable):**
+- Validation errors: 0 ✅
+- Missing state_code: 1,150 (legacy, unchanged)
+- Missing club_name: 3,259 (legacy, unchanged)
+- Pending reviews: 7,998 (D H actively working — no alert per DAILY_CONTEXT)
+
+**Key Observation:**
+System healthy. Quarantine at 118 documented as post-scrape baseline. No escalations needed. Standing by for Monday 10am Scrappy run.
+
+**System Status:** 🟢 **READY FOR WEEK AHEAD**
+
+---
 
 **✅ NOMINAL — Mar 6 (FRIDAY) EVENING — COMPY NIGHTLY COMPOUND COMPLETE**
 
