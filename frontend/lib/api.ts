@@ -131,7 +131,7 @@ export const api = {
     let stateRankFallback: { state_rank: number; sos_rank_state: number } | null = null;
 
     if (!teamData?.is_deprecated) {
-      const fallbackPromises: Promise<void>[] = [];
+      const fallbackPromises: PromiseLike<void>[] = [];
 
       if (!rankingData || !stateRankData) {
         fallbackPromises.push(
