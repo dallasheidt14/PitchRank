@@ -122,10 +122,12 @@ export const api = {
       console.warn('[api.getTeam] state_rankings_view error, continuing without state ranking data:', stateRankError.message);
     }
 
-    // Fallback: If views returned no data, try querying rankings_full directly
-    // Skip this fallback for deprecated teams — they are intentionally excluded from views
+    // Fallback: If either view returned no data, try querying rankings_full directly.
+    // This commonly happens when state_rankings_view times out (its ROW_NUMBER window
+    // function requires scanning all rows). rankings_full has pre-computed state_rank.
+    // Skip this fallback for deprecated teams — they are intentionally excluded from views.
     let rankingsFullData = null;
-    if (!rankingData && !stateRankData && !teamData?.is_deprecated) {
+    if ((!rankingData || !stateRankData) && !teamData?.is_deprecated) {
       const { data: rfData, error: rfError } = await supabase
         .from('rankings_full')
         .select('*')
@@ -253,7 +255,7 @@ export const api = {
       rankingsFullData?.rank_in_cohort_final ??
       null;
 
-    const sosNormState = stateRankData?.sos_norm_state ?? null;
+    const sosNormState = stateRankData?.sos_norm_state ?? rankingsFullData?.sos_norm ?? null;
 
     // Use rank_in_state_final and sos_rank_state directly from the view.
     // The view's ROW_NUMBER() compares FLOAT8 to FLOAT8 (same type, no precision issues).
@@ -261,8 +263,8 @@ export const api = {
     // comparison bug: PostgreSQL casts the FLOAT8 column to NUMERIC for comparison, revealing
     // hidden binary precision (e.g., 0.497134135753087 as FLOAT8 is actually 0.49713413575308703
     // in full precision). This caused teams to count against themselves, inflating their rank by 1.
-    const rankInStateFinal: number | null = stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? null;
-    const sosRankState: number | null = stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? rankingData?.sos_rank_state ?? null;
+    const rankInStateFinal: number | null = stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? rankingsFullData?.state_rank ?? null;
+    const sosRankState: number | null = stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? rankingData?.sos_rank_state ?? rankingsFullData?.sos_rank_state ?? null;
 
     const gamesPlayed =
       rankingData?.games_played ??
