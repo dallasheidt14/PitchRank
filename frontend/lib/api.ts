@@ -127,27 +127,29 @@ export const api = {
     // requires scanning all rows. The RPC computes state rank via COUNT on rankings_full
     // using FLOAT8 > FLOAT8 comparison (no PostgREST FLOAT8→NUMERIC precision bug).
     // Skip fallbacks for deprecated teams — they are intentionally excluded from views.
-    let rankingsFullData = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let rankingsFullData: Record<string, any> | null = null;
     let stateRankFallback: { state_rank: number; sos_rank_state: number } | null = null;
 
     if (!teamData?.is_deprecated) {
-      const fallbackPromises: PromiseLike<void>[] = [];
+      const needsRankingsFull = !rankingData || !stateRankData;
+      const needsStateRank = !stateRankData;
 
-      if (!rankingData || !stateRankData) {
-        fallbackPromises.push(
-          supabase.from('rankings_full').select('*').eq('team_id', id).maybeSingle()
-            .then(({ data, error }) => { if (!error && data) rankingsFullData = data; })
-        );
+      const [rankingsFullResult, stateRankRpcResult] = await Promise.all([
+        needsRankingsFull
+          ? supabase.from('rankings_full').select('*').eq('team_id', id).maybeSingle()
+          : null,
+        needsStateRank
+          ? supabase.rpc('get_team_state_rank', { p_team_id: id }).maybeSingle()
+          : null,
+      ]);
+
+      if (rankingsFullResult && !rankingsFullResult.error && rankingsFullResult.data) {
+        rankingsFullData = rankingsFullResult.data;
       }
-
-      if (!stateRankData) {
-        fallbackPromises.push(
-          supabase.rpc('get_team_state_rank', { p_team_id: id }).maybeSingle()
-            .then(({ data, error }) => { if (!error && data) stateRankFallback = data as { state_rank: number; sos_rank_state: number }; })
-        );
+      if (stateRankRpcResult && !stateRankRpcResult.error && stateRankRpcResult.data) {
+        stateRankFallback = stateRankRpcResult.data as { state_rank: number; sos_rank_state: number };
       }
-
-      await Promise.all(fallbackPromises);
     }
 
     // Resolve merged team IDs so total games include games from deprecated teams
