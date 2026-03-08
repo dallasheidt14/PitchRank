@@ -81,7 +81,13 @@ export function RecentMovers({
     return rankings
       .filter(team => {
         const change = team[rankChangeField];
-        return change !== null && change !== undefined && Math.abs(change) > 0;
+        // Must have a non-zero rank change
+        if (change === null || change === undefined || Math.abs(change) === 0) return false;
+        // Filter out teams with very few games (unreliable rank swings)
+        if ((team.total_games_played ?? 0) < 8) return false;
+        // Exclude teams that just became ranked (status indicates not enough games)
+        if (team.status === 'Not Enough Ranked Games') return false;
+        return true;
       })
       .sort((a, b) => {
         const changeA = Math.abs(a[rankChangeField] ?? 0);
