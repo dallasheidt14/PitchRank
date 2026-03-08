@@ -143,7 +143,7 @@ export const api = {
       if (!stateRankData) {
         fallbackPromises.push(
           supabase.rpc('get_team_state_rank', { p_team_id: id }).maybeSingle()
-            .then(({ data, error }) => { if (!error && data) stateRankFallback = data; })
+            .then(({ data, error }) => { if (!error && data) stateRankFallback = data as { state_rank: number; sos_rank_state: number }; })
         );
       }
 
