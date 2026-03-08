@@ -122,21 +122,32 @@ export const api = {
       console.warn('[api.getTeam] state_rankings_view error, continuing without state ranking data:', stateRankError.message);
     }
 
-    // Fallback: If either view returned no data, try querying rankings_full directly.
-    // This commonly happens when state_rankings_view times out (its ROW_NUMBER window
-    // function requires scanning all rows). rankings_full has pre-computed state_rank.
-    // Skip this fallback for deprecated teams — they are intentionally excluded from views.
+    // Fallback: If either view returned no data, try rankings_full and/or state rank RPC.
+    // state_rankings_view commonly times out because its ROW_NUMBER window function
+    // requires scanning all rows. The RPC computes state rank via COUNT on rankings_full
+    // using FLOAT8 > FLOAT8 comparison (no PostgREST FLOAT8→NUMERIC precision bug).
+    // Skip fallbacks for deprecated teams — they are intentionally excluded from views.
     let rankingsFullData = null;
-    if ((!rankingData || !stateRankData) && !teamData?.is_deprecated) {
-      const { data: rfData, error: rfError } = await supabase
-        .from('rankings_full')
-        .select('*')
-        .eq('team_id', id)
-        .maybeSingle();
+    let stateRankFallback: { state_rank: number; sos_rank_state: number } | null = null;
 
-      if (!rfError && rfData) {
-        rankingsFullData = rfData;
+    if (!teamData?.is_deprecated) {
+      const fallbackPromises: Promise<void>[] = [];
+
+      if (!rankingData || !stateRankData) {
+        fallbackPromises.push(
+          supabase.from('rankings_full').select('*').eq('team_id', id).maybeSingle()
+            .then(({ data, error }) => { if (!error && data) rankingsFullData = data; })
+        );
       }
+
+      if (!stateRankData) {
+        fallbackPromises.push(
+          supabase.rpc('get_team_state_rank', { p_team_id: id }).maybeSingle()
+            .then(({ data, error }) => { if (!error && data) stateRankFallback = data; })
+        );
+      }
+
+      await Promise.all(fallbackPromises);
     }
 
     // Resolve merged team IDs so total games include games from deprecated teams
@@ -263,8 +274,8 @@ export const api = {
     // comparison bug: PostgreSQL casts the FLOAT8 column to NUMERIC for comparison, revealing
     // hidden binary precision (e.g., 0.497134135753087 as FLOAT8 is actually 0.49713413575308703
     // in full precision). This caused teams to count against themselves, inflating their rank by 1.
-    const rankInStateFinal: number | null = stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? rankingsFullData?.state_rank ?? null;
-    const sosRankState: number | null = stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? rankingData?.sos_rank_state ?? rankingsFullData?.sos_rank_state ?? null;
+    const rankInStateFinal: number | null = stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? stateRankFallback?.state_rank ?? null;
+    const sosRankState: number | null = stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? rankingData?.sos_rank_state ?? stateRankFallback?.sos_rank_state ?? null;
 
     const gamesPlayed =
       rankingData?.games_played ??
