@@ -402,7 +402,7 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
               </Badge>
             </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 pt-4 border-t">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 pt-4 border-t">
             <div>
               <div className="text-xs sm:text-sm text-muted-foreground mb-1">National Rank</div>
               <div className="text-xl sm:text-2xl font-semibold">
@@ -421,12 +421,27 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                   <div>
                     <div className="text-xs sm:text-sm text-muted-foreground mb-1">Games Played</div>
                     <div className="text-xl sm:text-2xl font-semibold">
-                      {teamRanking?.games_played ?? 0}/{teamRanking?.total_games_played ?? 0}
+                      {teamRanking?.total_games_played ?? 0}
                     </div>
                   </div>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Ranked games (used in rankings) / Total games played</p>
+                  <p>Total completed games across all time</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <div className="text-xs sm:text-sm text-muted-foreground mb-1">Ranked Games</div>
+                    <div className="text-xl sm:text-2xl font-semibold">
+                      {teamRanking?.games_played ?? 0}
+                    </div>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Recent games used in PowerScore calculation (last 365 days, max 30)</p>
                 </TooltipContent>
               </Tooltip>
             </div>
