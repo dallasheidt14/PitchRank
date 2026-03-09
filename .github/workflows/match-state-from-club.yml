@@ -5,73 +5,150 @@ on:
     # Run every Monday at 9:00 AM Mountain Time
     # MST (UTC-7): 9:00 AM MST = 4:00 PM UTC (16:00)
     # MDT (UTC-6): 9:00 AM MDT = 3:00 PM UTC (15:00)
-    # Using 16:00 UTC means: MST = 9:00 AM, MDT = 10:00 AM
     - cron: '0 16 * * 1'
-  workflow_dispatch: # Allow manual trigger from GitHub Actions tab
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (scan only, no writes)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      run_club_standardization_first:
+        description: 'Run club name standardization (Step 1) before matching'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+# ─────────────────────────────────────────────────────────────
+# Pipeline: Club standardization → State code matching
+#
+#   Step 1 (optional): full_club_analysis.py — Standardize club names
+#   Step 2: match_state_from_club.py — Match teams to state via club lookup
+#
+# Why run Step 1 first: match_state_from_club uses the same normalization
+# as full_club_analysis. Running it first maximizes match rate (141 vs 14).
+# ─────────────────────────────────────────────────────────────
+
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  PYTHONUNBUFFERED: '1'
 
 jobs:
   match-state-codes:
+    name: Match State Codes via Club Names
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
-      # ---------------------------------------------------------------
-      # 1. CHECKOUT THE MAIN BRANCH
-      # ---------------------------------------------------------------
+      # ── Setup ─────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
 
-      # ---------------------------------------------------------------
-      # 2. SET UP PYTHON ENVIRONMENT
-      # ---------------------------------------------------------------
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
-      # ---------------------------------------------------------------
-      # 3. INSTALL PYTHON DEPENDENCIES
-      # ---------------------------------------------------------------
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          else
-            # Install core dependencies if requirements.txt doesn't exist
-            pip install supabase python-dotenv pandas
-          fi
-          # Verify critical packages are installed
-          python -c "import supabase, dotenv; print('✅ All critical imports successful')"
+          pip install --upgrade pip
+          pip install supabase python-dotenv
+          echo "✅ Dependencies installed"
 
-      # ---------------------------------------------------------------
-      # 4. RUN THE STATE CODE MATCHING SCRIPT
-      # ---------------------------------------------------------------
-      - name: Match teams to state codes via club names
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          PYTHONUNBUFFERED: "1"  # Force Python to output logs immediately
+      - name: Verify Supabase secrets
         run: |
-          export PYTHONPATH="${PYTHONPATH}:${PWD}"
-          echo "⚽ Matching teams without state_code to clubs with state codes"
-          echo "Python version: $(python --version)"
-          echo "Current directory: $(pwd)"
-          echo "SUPABASE_URL configured: $([[ -n "$SUPABASE_URL" ]] && echo 'Yes' || echo 'No')"
-          python scripts/match_state_from_club.py --yes || {
+          echo "SUPABASE_URL is set: $([ -n "$SUPABASE_URL" ] && echo yes || echo no)"
+          echo "SUPABASE_KEY is set: $([ -n "$SUPABASE_KEY" ] && echo yes || echo no)"
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
+            echo "::error::Missing secrets. Add SUPABASE_URL and SUPABASE_SERVICE_KEY."
+            exit 1
+          fi
+
+      - name: Create logs directory
+        run: mkdir -p logs
+
+      # ── Step 1: Club Name Standardization (optional) ───────
+      - name: 'Step 1: Club Name Standardization'
+        id: step1
+        if: ${{ github.event.inputs.run_club_standardization_first != 'false' }}
+        run: |
+          echo "═══════════════════════════════════════════════════"
+          echo "STEP 1: CLUB NAME STANDARDIZATION"
+          echo "═══════════════════════════════════════════════════"
+
+          EXECUTE_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" != "true" ]; then
+            EXECUTE_FLAG="--execute"
+          else
+            EXECUTE_FLAG="--dry-run"
+          fi
+
+          python scripts/full_club_analysis.py $EXECUTE_FLAG 2>&1 | tee logs/step1_club_standardize.log
+
+          TOTAL_FIXES=$(grep -oP 'TOTAL: \K\d+' logs/step1_club_standardize.log || echo "0")
+          echo "naming_fixes=$TOTAL_FIXES" >> $GITHUB_OUTPUT
+
+      # ── Step 2: Match State Codes via Club Names ──────────
+      - name: 'Step 2: Match teams to state codes via club names'
+        id: step2
+        run: |
+          echo "═══════════════════════════════════════════════════"
+          echo "STEP 2: MATCH STATE CODES VIA CLUB NAMES"
+          echo "═══════════════════════════════════════════════════"
+
+          DRY_RUN_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+            DRY_RUN_FLAG="--dry-run"
+          else
+            DRY_RUN_FLAG="--yes"
+          fi
+
+          python scripts/match_state_from_club.py $DRY_RUN_FLAG 2>&1 | tee logs/step2_match_state.log || {
             echo "❌ State code matching failed with exit code $?"
             exit 1
           }
 
-      # ---------------------------------------------------------------
-      # 5. FINAL REPORT
-      # ---------------------------------------------------------------
-      - name: Report results
+          MATCHED=$(grep -oP 'Can be matched via club name: \K\d+' logs/step2_match_state.log || echo "0")
+          echo "teams_matched=$MATCHED" >> $GITHUB_OUTPUT
+
+      # ── Artifacts ─────────────────────────────────────────
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: match-state-logs-${{ github.run_number }}
+          path: logs/
+          retention-days: 30
+
+      # ── Summary ───────────────────────────────────────────
+      - name: Pipeline Summary
         if: always()
         run: |
-          echo "State code matching completed. Check logs above for details."
+          MODE="${{ github.event.inputs.dry_run == 'true' && '🔍 Dry Run' || '⚡ Live' }}"
 
+          echo "## ⚽ Match Teams to State Codes via Club Names" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Mode:** $MODE" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Task | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 1 | Club Name Standardization | ${{ steps.step1.outputs.naming_fixes || 'skipped' }} fixes |" >> $GITHUB_STEP_SUMMARY
+          echo "| 2 | Match State Codes | ${{ steps.step2.outputs.teams_matched || '0' }} teams matched |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Integration" >> $GITHUB_STEP_SUMMARY
+          echo "Uses same normalization as data-hygiene-weekly Step 1 (full_club_analysis)." >> $GITHUB_STEP_SUMMARY
+          echo "Match types: exact, (XX) extraction, fuzzy (90%+ SequenceMatcher)." >> $GITHUB_STEP_SUMMARY

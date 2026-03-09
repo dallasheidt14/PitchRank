@@ -1,12 +1,24 @@
-"""Match teams without state_code to clubs that have state codes"""
+"""Match teams without state_code to clubs that have state codes.
+
+Uses normalization aligned with data-hygiene-weekly Step 1 (full_club_analysis.py)
+and fuzzy matching from Step 3 (find_fuzzy_duplicate_teams.py) for better coverage.
+"""
 import os
+import re
 import sys
 import csv
 from pathlib import Path
 from collections import defaultdict
 from datetime import datetime
+from difflib import SequenceMatcher
 from dotenv import load_dotenv
 from supabase import create_client
+
+# Placeholder club names to treat as "no club" (e.g. TGS "No Club Selection")
+NO_CLUB_VALUES = frozenset({
+    "no club selection", "no club", "n/a", "none", "not selected",
+    "select club", "select a club", "choose club", "athlete one",
+})
 
 # State code to state name mapping
 STATE_CODE_TO_NAME = {
@@ -24,6 +36,7 @@ STATE_CODE_TO_NAME = {
     'VT': 'Vermont', 'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia',
     'WI': 'Wisconsin', 'WY': 'Wyoming', 'DC': 'District of Columbia'
 }
+VALID_STATE_CODES = frozenset(STATE_CODE_TO_NAME.keys())
 
 # Load environment variables
 env_local = Path('.env.local')
@@ -41,16 +54,50 @@ if not supabase_url or not supabase_key:
 
 supabase = create_client(supabase_url, supabase_key)
 
+# Regex to match (XX) or (XXX) at end of string - e.g. (CA), (TX), (DC)
+STATE_IN_PARENS_RE = re.compile(r'\s*\(([A-Z]{2})\)\s*$', re.IGNORECASE)
+
+
+def strip_state_from_club_name(name):
+    """Remove (XX) suffix from club name for matching. e.g. 'Titans FC (CA)' -> 'Titans FC'"""
+    if not name or not isinstance(name, str):
+        return name or ""
+    return STATE_IN_PARENS_RE.sub("", name.strip()).strip()
+
+
+def extract_state_from_club_name(name):
+    """Extract state code from (XX) in club name. e.g. 'Titans FC (CA)' -> 'CA'. Returns None if not found or invalid."""
+    if not name or not isinstance(name, str):
+        return None
+    match = STATE_IN_PARENS_RE.search(name.strip())
+    if not match:
+        return None
+    code = match.group(1).upper()
+    return code if code in VALID_STATE_CODES else None
+
+
 def normalize_club_name(name):
-    """Normalize club name for matching"""
+    """Normalize club name for matching. Aligned with full_club_analysis.normalize_for_grouping.
+
+    Preserves FC vs SC distinction (FC Dallas ≠ Dallas SC). Normalizes suffix variations:
+    Soccer Club/S.C. → sc, Football Club/F.C./Futbol Club → fc.
+    """
     if not name:
         return None
-    # Remove common suffixes and normalize
-    name = name.strip()
-    # Remove common variations
-    name = name.replace(' FC', '').replace(' F.C.', '').replace(' FC.', '')
-    name = name.replace(' Soccer Club', '').replace(' SC', '').replace(' S.C.', '')
-    return name.strip().upper()
+    # Strip (XX) before normalizing so "Titans FC (CA)" matches "Titans FC"
+    name = strip_state_from_club_name(name)
+    if not name:
+        return None
+    n = name.lower().strip()
+    # Same suffix normalization as full_club_analysis (Step 1)
+    n = re.sub(r'\s+soccer\s+club\s*$', ' sc', n)
+    n = re.sub(r'\s+s\.c\.\s*$', ' sc', n)
+    n = re.sub(r'\s+football\s+club\s*$', ' fc', n)
+    n = re.sub(r'\s+futbol\s+club\s*$', ' fc', n)
+    n = re.sub(r'\s+f\.c\.\s*$', ' fc', n)
+    n = re.sub(r'\s+f\.c\s*$', ' fc', n)  # "F.C" without trailing dot
+    return n.strip() or None
+
 
 def main(dry_run=False, auto_yes=False):
     print("="*80)
@@ -60,26 +107,30 @@ def main(dry_run=False, auto_yes=False):
     print("="*80)
     print()
     
-    # Step 1: Get all teams without state_code
+    # Step 1: Get teams without state_code (NULL or empty), exclude deprecated
     print("Step 1: Fetching teams without state_code...")
     teams_no_state = []
+    seen_ids = set()
     page_size = 1000
-    offset = 0
-    
-    while True:
-        result = supabase.table('teams').select(
-            'team_id_master, team_name, club_name, age_group, gender, state, state_code'
-        ).is_('state_code', 'null').range(offset, offset + page_size - 1).execute()
-        
-        if not result.data:
-            break
-        
-        teams_no_state.extend(result.data)
-        offset += page_size
-        
-        if len(result.data) < page_size:
-            break
-    
+
+    for is_null in (True, False):
+        offset = 0
+        while True:
+            q = supabase.table('teams').select(
+                'team_id_master, team_name, club_name, age_group, gender, state, state_code'
+            ).eq('is_deprecated', False)
+            q = q.is_('state_code', 'null') if is_null else q.eq('state_code', '')
+            result = q.range(offset, offset + page_size - 1).execute()
+            if not result.data:
+                break
+            for t in result.data:
+                if t['team_id_master'] not in seen_ids:
+                    seen_ids.add(t['team_id_master'])
+                    teams_no_state.append(t)
+            offset += page_size
+            if len(result.data) < page_size:
+                break
+
     print(f"Found {len(teams_no_state)} teams without state_code")
     print()
     
@@ -92,28 +143,41 @@ def main(dry_run=False, auto_yes=False):
     while True:
         result = supabase.table('teams').select(
             'club_name, state_code'
-        ).not_.is_('state_code', 'null').not_.is_('club_name', 'null').range(offset, offset + page_size - 1).execute()
-        
+        ).not_.is_('state_code', 'null').neq('state_code', '').not_.is_('club_name', 'null').eq(
+            'is_deprecated', False
+        ).range(offset, offset + page_size - 1).execute()
+
         if not result.data:
             break
-        
+
         for team in result.data:
             club_name = team.get('club_name')
             state_code = team.get('state_code')
-            if club_name and state_code:
+            if club_name and state_code and (club_name or '').strip().lower() not in NO_CLUB_VALUES:
                 normalized = normalize_club_name(club_name)
                 if normalized:
                     club_state_lookup[normalized].add(state_code)
                     if normalized not in club_state_full:
                         club_state_full[normalized] = defaultdict(int)
                     club_state_full[normalized][state_code] += 1
-        
+
         offset += page_size
-        
+
         if len(result.data) < page_size:
             break
-    
+
     print(f"Found {len(club_state_lookup)} unique clubs with state codes")
+
+    # Build first-word index for fuzzy matching (single-state clubs only)
+    # Aligns with find_fuzzy_duplicate_teams.py SequenceMatcher approach
+    FUZZY_MIN_SCORE = 0.90
+    single_state_clubs = [(norm, list(states)[0]) for norm, states in club_state_lookup.items() if len(states) == 1]
+    first_word_index = defaultdict(list)  # first_word -> [(norm, state_code), ...]
+    for norm, state_code in single_state_clubs:
+        first = (norm.split()[0] if norm else "") or ""
+        if first:
+            first_word_index[first].append((norm, state_code))
+
     print()
     
     # Step 3: Match teams without state_code to clubs
@@ -129,31 +193,38 @@ def main(dry_run=False, auto_yes=False):
     while True:
         result = supabase.table('teams').select(
             'club_name, state_code'
-        ).not_.is_('state_code', 'null').not_.is_('club_name', 'null').range(offset, offset + page_size - 1).execute()
-        
+        ).not_.is_('state_code', 'null').neq('state_code', '').not_.is_('club_name', 'null').eq(
+            'is_deprecated', False
+        ).range(offset, offset + page_size - 1).execute()
+
         if not result.data:
             break
-        
+
         for team in result.data:
             club_name = team.get('club_name')
             state_code = team.get('state_code')
-            if club_name and state_code:
+            if club_name and state_code and (club_name or '').strip().lower() not in NO_CLUB_VALUES:
                 exact_club_states[club_name].add(state_code)
-        
+
         offset += page_size
-        
+
         if len(result.data) < page_size:
             break
-    
+
     for team in teams_no_state:
         team_id = team['team_id_master']
         team_name = team['team_name']
         club_name = team.get('club_name')
-        
+
         if not club_name:
             no_club_name.append(team)
             continue
-        
+
+        # Skip placeholder "no club" values (e.g. TGS "No Club Selection")
+        if (club_name or '').strip().lower() in NO_CLUB_VALUES:
+            no_club_name.append(team)
+            continue
+
         # Special handling: Check if team name contains "Ventura" - this is Ventura County, CA
         # We need to handle this before normalization because "VC Fusion" might match "KC Fusion"
         is_ventura_county = 'ventura' in team_name.lower()
@@ -185,7 +256,38 @@ def main(dry_run=False, auto_yes=False):
         
         # Check if we have this club in our lookup
         if normalized_club not in club_state_lookup:
-            no_match.append(team)
+            # Fallback 1: extract state from (XX) in club_name, e.g. "Titans FC (CA)" -> CA
+            state_from_name = extract_state_from_club_name(club_name)
+            if state_from_name:
+                matches.append({
+                    'team_id_master': team_id,
+                    'team_name': team_name,
+                    'club_name': club_name,
+                    'matched_state_code': state_from_name,
+                    'all_state_codes': [state_from_name],
+                    'confidence': 'from_club_name'
+                })
+                continue
+
+            # Fallback 2: fuzzy match (aligned with find_fuzzy_duplicate_teams.py)
+            first_word = normalized_club.split()[0] if normalized_club else ""
+            candidates = first_word_index.get(first_word, []) if first_word else []
+            best_score, best_state = 0.0, None
+            for cand_norm, cand_state in candidates:
+                score = SequenceMatcher(None, normalized_club, cand_norm).ratio()
+                if score >= FUZZY_MIN_SCORE and score > best_score:
+                    best_score, best_state = score, cand_state
+            if best_state:
+                matches.append({
+                    'team_id_master': team_id,
+                    'team_name': team_name,
+                    'club_name': club_name,
+                    'matched_state_code': best_state,
+                    'all_state_codes': [best_state],
+                    'confidence': 'fuzzy_match'
+                })
+            else:
+                no_match.append(team)
             continue
         
         # Also check exact club_name for multiple states (more accurate)
@@ -228,6 +330,13 @@ def main(dry_run=False, auto_yes=False):
     print(f"  No club name: {len(no_club_name)} teams")
     print(f"  No match found: {len(no_match)} teams")
     print(f"  Excluded (multiple states): {len(multiple_states)} teams")
+    by_confidence = defaultdict(int)
+    for m in matches:
+        by_confidence[m['confidence']] += 1
+    if by_confidence:
+        print(f"  By confidence: exact={by_confidence.get('single_state', 0)}, "
+              f"(XX)={by_confidence.get('from_club_name', 0)}, "
+              f"fuzzy={by_confidence.get('fuzzy_match', 0)}")
     print()
     
     # Step 4: Show summary
