@@ -388,12 +388,21 @@ export function ComparePanel() {
                         </td>
                       </tr>
                       <tr>
-                        <td className="py-3 px-3 sm:px-4 text-xs sm:text-sm text-muted-foreground">Games</td>
+                        <td className="py-3 px-3 sm:px-4 text-xs sm:text-sm text-muted-foreground">Games Played</td>
                         <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
-                          {team1Details.games_played}/{team1Details.total_games_played ?? 0}
+                          {team1Details.total_games_played ?? 0}
                         </td>
                         <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
-                          {team2Details.games_played}/{team2Details.total_games_played ?? 0}
+                          {team2Details.total_games_played ?? 0}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-3 px-3 sm:px-4 text-xs sm:text-sm text-muted-foreground">Ranked Games</td>
+                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
+                          {team1Details.games_played}
+                        </td>
+                        <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
+                          {team2Details.games_played}
                         </td>
                       </tr>
                     </tbody>
