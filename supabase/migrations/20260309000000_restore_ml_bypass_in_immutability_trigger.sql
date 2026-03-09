@@ -1,9 +1,6 @@
--- Migration: Add unlink_game_team function
--- Allows reverting an incorrect team link by setting team_master_id back to NULL
--- Bypasses immutability trigger safely via SECURITY DEFINER
-
--- Update immutability trigger to also allow value -> NULL (unlinking)
-DROP TRIGGER IF EXISTS enforce_game_immutability ON games;
+-- Restore ml_overperformance bypass in prevent_game_updates trigger
+-- The 20260305 migration (add_unlink_game_team_function) accidentally dropped
+-- Exception 3 (ML field bypass) that was added in 20260206. This restores it.
 
 CREATE OR REPLACE FUNCTION prevent_game_updates() RETURNS TRIGGER AS $$
 BEGIN
@@ -90,56 +87,3 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
-
--- Recreate trigger with updated function
-CREATE TRIGGER enforce_game_immutability
-    BEFORE UPDATE ON games
-    FOR EACH ROW
-    EXECUTE FUNCTION prevent_game_updates();
-
--- Function to unlink a team from a specific game
-CREATE OR REPLACE FUNCTION unlink_game_team(
-    p_game_id UUID,
-    p_team_id_master UUID,
-    p_is_home_team BOOLEAN
-) RETURNS BOOLEAN AS $$
-DECLARE
-    v_current_value UUID;
-    v_success BOOLEAN := FALSE;
-BEGIN
-    -- Verify the current value matches what we expect to unlink
-    IF p_is_home_team THEN
-        SELECT home_team_master_id INTO v_current_value FROM games WHERE id = p_game_id;
-        IF v_current_value IS NULL THEN
-            RAISE EXCEPTION 'Home team is already unlinked for game: %', p_game_id;
-        END IF;
-        IF v_current_value != p_team_id_master THEN
-            RAISE EXCEPTION 'Home team mismatch: expected %, found %', p_team_id_master, v_current_value;
-        END IF;
-        UPDATE games SET home_team_master_id = NULL WHERE id = p_game_id;
-    ELSE
-        SELECT away_team_master_id INTO v_current_value FROM games WHERE id = p_game_id;
-        IF v_current_value IS NULL THEN
-            RAISE EXCEPTION 'Away team is already unlinked for game: %', p_game_id;
-        END IF;
-        IF v_current_value != p_team_id_master THEN
-            RAISE EXCEPTION 'Away team mismatch: expected %, found %', p_team_id_master, v_current_value;
-        END IF;
-        UPDATE games SET away_team_master_id = NULL WHERE id = p_game_id;
-    END IF;
-
-    -- Verify the update worked
-    IF p_is_home_team THEN
-        SELECT home_team_master_id IS NULL INTO v_success FROM games WHERE id = p_game_id;
-    ELSE
-        SELECT away_team_master_id IS NULL INTO v_success FROM games WHERE id = p_game_id;
-    END IF;
-
-    RETURN v_success;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-GRANT EXECUTE ON FUNCTION unlink_game_team TO authenticated;
-GRANT EXECUTE ON FUNCTION unlink_game_team TO service_role;
-
-COMMENT ON FUNCTION unlink_game_team IS 'Safely unlink a team from a game by setting team_master_id back to NULL. Verifies the current link matches before unlinking.';
