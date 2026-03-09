@@ -220,7 +220,18 @@ async def fetch_games_for_rankings(
         logger.warning(f"⚠️  Removed {before_dedup - after_dedup:,} duplicate games")
 
     logger.info(f"📊 Processing {len(games_df):,} games...")
-    
+
+    # DIAGNOSTIC: Count how many raw games involve deprecated vs canonical teams
+    if merge_resolver is not None and merge_resolver.has_merges:
+        deprecated_ids = merge_resolver.get_deprecated_teams()
+        home_strs = games_df['home_team_master_id'].astype(str)
+        away_strs = games_df['away_team_master_id'].astype(str)
+        dep_game_count = (home_strs.isin(deprecated_ids) | away_strs.isin(deprecated_ids)).sum()
+        logger.info(
+            f"  [MERGE-DIAG] {len(deprecated_ids)} deprecated teams in merge map; "
+            f"{dep_game_count} raw games involve deprecated teams"
+        )
+
     # Fetch teams for age_group and gender
     team_ids = set()
     team_ids.update(games_df['home_team_master_id'].dropna().tolist())
@@ -379,7 +390,25 @@ async def fetch_games_for_rankings(
     # Apply merge resolution if resolver provided
     if merge_resolver is not None and merge_resolver.has_merges:
         logger.info(f"🔀 Applying merge resolution ({merge_resolver.merge_count} merges, version: {merge_resolver.version})")
+
+        # DIAGNOSTIC: Count deprecated team perspective rows before merge
+        deprecated_in_merge = merge_resolver.get_deprecated_teams()
+        team_id_strs = v53e_df['team_id'].astype(str)
+        dep_rows_before = team_id_strs.isin(deprecated_in_merge).sum()
+        logger.info(f"  [MERGE-DIAG] Pre-merge: {dep_rows_before:,} perspective rows have deprecated team_id")
+
         v53e_df = merge_resolver.resolve_dataframe(v53e_df, ['team_id', 'opp_id'])
+
+        # DIAGNOSTIC: Verify merge resolution worked
+        team_id_strs_after = v53e_df['team_id'].astype(str)
+        dep_rows_after = team_id_strs_after.isin(deprecated_in_merge).sum()
+        if dep_rows_after > 0:
+            logger.warning(
+                f"  [MERGE-DIAG] ⚠️ Post-merge: {dep_rows_after:,} rows STILL have deprecated team_id! "
+                f"Merge resolution may be incomplete."
+            )
+        else:
+            logger.info(f"  [MERGE-DIAG] Post-merge: All deprecated team_ids resolved successfully")
 
         # After merge resolution, team_id/opp_id point to canonical teams but
         # age/gender still reflect the deprecated team's metadata.  Re-map them
@@ -388,6 +417,16 @@ async def fetch_games_for_rankings(
         v53e_df['gender'] = v53e_df['team_id'].map(team_gender_map).fillna(v53e_df['gender'])
         v53e_df['opp_age'] = v53e_df['opp_id'].map(team_age_map).fillna(v53e_df['opp_age'])
         v53e_df['opp_gender'] = v53e_df['opp_id'].map(team_gender_map).fillna(v53e_df['opp_gender'])
+    else:
+        # DIAGNOSTIC: Log why merge resolution was skipped
+        if merge_resolver is None:
+            logger.warning("⚠️ [MERGE-DIAG] merge_resolver is None — merge resolution SKIPPED")
+        elif not merge_resolver.has_merges:
+            logger.warning(
+                f"⚠️ [MERGE-DIAG] merge_resolver has no merges (loaded={merge_resolver._loaded}, "
+                f"map_size={len(merge_resolver._merge_map)}, version={merge_resolver._version}) "
+                f"— merge resolution SKIPPED"
+            )
 
     # Filter out perspective rows where team_id is a deprecated team.
     # After merge resolution, most deprecated IDs are already resolved to canonical.
@@ -398,6 +437,8 @@ async def fetch_games_for_rankings(
         removed_deprecated = before_deprecated_filter - len(v53e_df)
         if removed_deprecated > 0:
             logger.info(f"🚫 Removed {removed_deprecated:,} perspective rows for {len(deprecated_team_ids)} deprecated teams")
+        else:
+            logger.info(f"✅ Deprecated filter: 0 rows removed (all {len(deprecated_team_ids)} deprecated teams properly merged)")
 
     # Filter out rows with missing scores
     before_filter = len(v53e_df)

@@ -55,18 +55,40 @@ class MergeResolver:
         """
         Load current merge mappings from database.
 
-        Fetches all entries from team_merge_map and builds an in-memory
-        lookup dictionary. Also computes a version hash for cache invalidation.
+        Fetches ALL entries from team_merge_map using pagination (Supabase
+        defaults to 1000 rows per query) and builds an in-memory lookup
+        dictionary. Also computes a version hash for cache invalidation.
         """
         try:
-            response = self.client.table('team_merge_map').select(
-                'deprecated_team_id, canonical_team_id'
-            ).execute()
+            # Paginate to fetch ALL merge entries (Supabase defaults to 1000 row limit)
+            all_data = []
+            page_size = 1000
+            offset = 0
 
-            self._merge_map = {
-                str(row['deprecated_team_id']): str(row['canonical_team_id'])
-                for row in response.data
-            }
+            while True:
+                response = self.client.table('team_merge_map').select(
+                    'deprecated_team_id, canonical_team_id'
+                ).range(offset, offset + page_size - 1).execute()
+
+                if not response.data:
+                    break
+
+                all_data.extend(response.data)
+
+                # If we got fewer than page_size, we've reached the end
+                if len(response.data) < page_size:
+                    break
+
+                offset += page_size
+
+            if not all_data:
+                logger.warning("team_merge_map query returned no data")
+                self._merge_map = {}
+            else:
+                self._merge_map = {
+                    str(row['deprecated_team_id']): str(row['canonical_team_id'])
+                    for row in all_data
+                }
 
             # Compute version hash for cache invalidation
             if self._merge_map:

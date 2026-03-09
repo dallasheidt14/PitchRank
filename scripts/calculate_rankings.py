@@ -385,6 +385,10 @@ async def main():
     merge_resolver.load_merge_map()
     if merge_resolver.has_merges:
         console.print(f"[dim]Loaded {merge_resolver.merge_count} team merges (version: {merge_resolver.version})[/dim]")
+    else:
+        # CRITICAL: Warn loudly if merge map is empty — deprecated teams will be silently dropped
+        console.print(f"[yellow]⚠️  No team merges loaded (version: {merge_resolver.version})[/yellow]")
+        console.print(f"[yellow]   If team_merge_map has entries, check Supabase connectivity and permissions.[/yellow]")
 
     # Run rankings calculation
     try:
@@ -416,6 +420,7 @@ async def main():
                 lookback_days=args.lookback_days,
                 provider_filter=args.provider,
                 force_rebuild=args.force_rebuild,
+                merge_resolver=merge_resolver,
             )
         
         teams_df = result["teams"]

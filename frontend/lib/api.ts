@@ -171,9 +171,11 @@ export const api = {
       .from('games')
       .select('home_team_master_id, away_team_master_id, home_score, away_score')
       .or(gameOrConditions)
-      .eq('is_excluded', false);
+      .eq('is_excluded', false)
+      .not('home_score', 'is', null)
+      .not('away_score', 'is', null);
 
-    // Calculate total games count and win/loss/draw record from games
+    // Calculate total games count and win/loss/draw record from completed games
     const totalGamesCount = gamesData?.length ?? 0;
     let calculatedWins = 0;
     let calculatedLosses = 0;
