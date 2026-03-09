@@ -39,6 +39,16 @@ CLUB_CANONICAL_OVERRIDES = [
     ("WA", "regex", r"Eastside FC\s*\(wa\)\s*$", "Eastside FC"),
     ("WA", "regex", r"Atletico\s*\(wa\)\s*$", "Atletico FC"),
     ("WA", "prefix", "NW United", "Northwest United FC"),
+    # North Carolina
+    ("NC", "exact", "CESA", "Carolina Elite Soccer Academy"),
+    ("NC", "regex", r"Charlotte Soccer Academy\s*\(CSA\)\s*$", "Charlotte Soccer Academy"),
+    ("NC", "regex", r"Charlotte Independence SC\s*\(CISC\)\s*$", "Charlotte Independence SC"),
+    ("NC", "regex", r"Waxhaw Athletic Association\s*\(WAA\)\s*$", "Waxhaw Athletic Association"),
+    ("NC", "exact", "Liverpool FC IA Carolinas", "Liverpool FC International Academy Carolinas"),
+    ("NC", "exact", "NCFC Youth", "NCFC"),
+    ("NC", "exact", "Triangle Soccer Academy", "Triangle United"),
+    ("NC", "exact", "Triangle Y SC", "Triangle United"),
+    ("NC", "exact", "Wilmington Hammerheads Youth FC", "Wilmington Hammerheads FC"),
 ]
 
 # Acronyms to keep uppercase
