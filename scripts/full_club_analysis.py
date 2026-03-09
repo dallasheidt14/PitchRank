@@ -39,6 +39,11 @@ CLUB_CANONICAL_OVERRIDES = [
     ("WA", "regex", r"Eastside FC\s*\(wa\)\s*$", "Eastside FC"),
     ("WA", "regex", r"Atletico\s*\(wa\)\s*$", "Atletico FC"),
     ("WA", "prefix", "NW United", "Northwest United FC"),
+    ("WA", "exact", "Eastside F.C", "Eastside FC"),
+    ("WA", "exact", "Mount Rainier FC", "Mt. Rainier Futbol Club"),
+    # Oklahoma (from full merge history - 4x prefers short form)
+    ("OK", "exact", "Oklahoma Celtic Football Club", "Oklahoma Celtic"),
+    ("OK", "exact", "West Side Alliance", "West Side Alliance SC"),
     # North Carolina
     ("NC", "exact", "CESA", "Carolina Elite Soccer Academy"),
     ("NC", "regex", r"Charlotte Soccer Academy\s*\(CSA\)\s*$", "Charlotte Soccer Academy"),
@@ -59,6 +64,60 @@ CLUB_CANONICAL_OVERRIDES = [
     ("TX", "exact", "Soccer Central/AC River/SA Athenians", "AC River"),
     ("TX", "exact", "Valencia Academy Houston", "Valencia CF"),
     ("TX", "regex", r"Juventus Academy Houston\s*\(JA\)\s*$", "Juventus Academy Houston"),
+    ("TX", "exact", "Lonestar Soccer Club", "Lonestar"),
+    ("TX", "exact", "Cavalry FC", "Cavalry Youth Soccer"),
+    ("TX", "exact", "Atlético Dallas Youth", "Atletico Dallas Youth"),
+    # Nevada (from full merge history)
+    ("NV", "exact", "LV Heat Surf SC", "Las Vegas Heat Surf SC"),
+    # New York
+    ("NY", "exact", "WNY Flash", "Western New York Flash"),
+    ("NY", "exact", "East Coast Surf SC", "East Coast Surf"),
+    # Idaho
+    ("ID", "exact", "Boise Timbers | Thorns", "Boise Timbers | Thorns FC"),
+    # Oregon
+    ("OR", "exact", "Oregon Surf", "Oregon Surf SC"),
+    ("OR", "exact", "FC Portland", "FC Portland Academy"),
+    ("OR", "exact", "Saints Soccer Academy", "Saints Academy"),
+    # Utah
+    ("UT", "exact", "Sparta United", "Sparta United Soccer Club"),
+    ("UT", "exact", "La Roca", "La Roca FC"),
+    # South Carolina
+    ("SC", "exact", "South Carolina United", "South Carolina United FC"),
+    ("SC", "exact", "South Carolina Surf", "South Carolina Surf SC"),
+    ("SC", "regex", r"James Island Youth SC\s+\(JIYSC\)\s*$", "James Island Youth SC"),
+    ("SC", "exact", "Coast Futbol Alliance", "Coast FA"),
+    # Tennessee
+    ("TN", "exact", "FC Alliance", "FC Alliance TN"),
+    # Minnesota (4x each direction - pick St. Croix as canonical)
+    ("MN", "exact", "St Croix Soccer Club", "St. Croix"),
+    # Michigan
+    ("MI", "exact", "Nationals SC", "Nationals"),
+    # Connecticut
+    ("CT", "exact", "Beachside Soccer Club CT", "Beachside of Connecticut"),
+    ("CT", "exact", "AC Connecticut", "A.C. Connecticut"),
+    # Georgia
+    ("GA", "exact", "NTH NASA", "NASA Tophat"),
+    ("GA", "exact", "Concord Fire", "Concorde Fire"),
+    # Virginia
+    ("VA", "exact", "Springfield SYC Soccer", "Springfield SYC"),
+    ("VA", "exact", "PWSI Courage", "Prince William Soccer Inc"),
+    ("VA", "exact", "Arlington Soccer Association", "Arlington Soccer"),
+    ("VA", "regex", r"Beach FC\s+\(VA\)\s*$", "Beach FC"),
+    ("VA", "exact", "VA Reign FC", "Virginia Reign"),
+    ("VA", "exact", "Richmond Utd", "Richmond United"),
+    # New Jersey
+    ("NJ", "exact", "Match Fit Surf", "Match Fit Academy"),
+    ("NJ", "exact", "Franklin Township Youth Soccer Association", "Franklin Township SC"),
+    # Ohio
+    ("OH", "exact", "Canton Force", "Canton Akron United Force"),
+    ("OH", "exact", "Ohio Elite SA", "Ohio Elite Soccer Academy"),
+    ("OH", "exact", "Cincinnati United", "Cincinnati United Premier Soccer Club"),
+    # California
+    ("CA", "exact", "Mustang SC", "Mustang Soccer"),
+    ("CA", "exact", "FC Golden State Force", "FC Golden State"),
+    ("CA", "regex", r"Beach FC\s+\(CA\)\s*$", "Beach Futbol Club"),
+    # Mississippi
+    ("MS", "exact", "MS Futbol Club", "Mississippi Rush"),
 ]
 
 # Acronyms to keep uppercase
