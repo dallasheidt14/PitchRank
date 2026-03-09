@@ -35,17 +35,16 @@ on:
 # Pipeline order (dependencies matter!):
 #
 #   1. full_club_analysis.py       — Standardize club name variants (SC vs Soccer Club, caps)
-#   2. normalize_team_names.py     — Ages (14B→2014, 15M→2015), strip gender words
-#   3. find_fuzzy_duplicate_teams  — Fuzzy-match & merge duplicate teams (all male age groups)
-#   4. find_queue_matches.py       — Match review queue entries to existing teams
-#   5. match_state_from_club.py    — Match teams without state_code to clubs with state
-#   6. fix_team_age_groups.py      — Fix age_group from birth year in team names
+#   2. match_state_from_club.py    — Fill state_code from club (before Fuzzy groups by state)
+#   3. normalize_team_names.py     — Ages (14B→2014, 15M→2015), strip gender words
+#   4. fix_team_age_groups.py      — Fix age_group from birth year (before Fuzzy compares)
+#   5. find_fuzzy_duplicate_teams  — Fuzzy-match & merge (needs state for grouping)
+#   6. find_queue_matches.py       — Match review queue (fewer orphans after Fuzzy)
 #
 # Why this order:
-#   • Club names must be clean BEFORE team name normalization
-#   • Team names must be normalized BEFORE finding duplicates
-#   • Fuzzy merge runs before queue matching (fewer orphan queue entries)
-#   • Match state uses club names (from Step 1); Fix age uses normalized names (from Step 2)
+#   • Match State before Fuzzy: more teams have state, so Fuzzy groups correctly (avoids false merges)
+#   • Fix Age before Fuzzy: correct age before comparing duplicates
+#   • Club before Normalize; Normalize before Fix Age
 # ─────────────────────────────────────────────────────────────
 
 env:
@@ -117,13 +116,32 @@ jobs:
           echo "naming_fixes=$TOTAL_FIXES" >> $GITHUB_OUTPUT
           echo "teams_standardized=$TEAMS_AFFECTED" >> $GITHUB_OUTPUT
 
-      # ── Step 2: Normalize Team Names ──────────────────────
-      - name: 'Step 2: Normalize Team Names'
+      # ── Step 2: Match State Codes via Club Names ───────────
+      - name: 'Step 2: Match State Codes via Club Names'
         id: step2
         if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',2,') }}
         run: |
           echo "═══════════════════════════════════════════════════"
-          echo "STEP 2: NORMALIZE TEAM NAMES"
+          echo "STEP 2: MATCH STATE CODES VIA CLUB NAMES"
+          echo "═══════════════════════════════════════════════════"
+
+          STATE_FLAGS="--yes"
+          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+            STATE_FLAGS="--dry-run"
+          fi
+
+          python scripts/match_state_from_club.py $STATE_FLAGS 2>&1 | tee logs/step2_match_state.log
+
+          STATE_MATCHED=$(grep -oP 'Can be matched via club name: \K\d+' logs/step2_match_state.log || echo "0")
+          echo "state_matched=$STATE_MATCHED" >> $GITHUB_OUTPUT
+
+      # ── Step 3: Normalize Team Names ──────────────────────
+      - name: 'Step 3: Normalize Team Names'
+        id: step3
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',3,') }}
+        run: |
+          echo "═══════════════════════════════════════════════════"
+          echo "STEP 3: NORMALIZE TEAM NAMES"
           echo "═══════════════════════════════════════════════════"
 
           DRY_RUN_FLAG=""
@@ -131,18 +149,37 @@ jobs:
             DRY_RUN_FLAG="--dry-run"
           fi
 
-          python scripts/normalize_team_names.py --all-teams $DRY_RUN_FLAG 2>&1 | tee logs/step2_normalize_names.log
+          python scripts/normalize_team_names.py --all-teams $DRY_RUN_FLAG 2>&1 | tee logs/step3_normalize_names.log
 
-          NORMALIZED=$(grep -oP '(Would update|Updated): \K\d+' logs/step2_normalize_names.log || echo "0")
+          NORMALIZED=$(grep -oP '(Would update|Updated): \K\d+' logs/step3_normalize_names.log || echo "0")
           echo "teams_normalized=$NORMALIZED" >> $GITHUB_OUTPUT
 
-      # ── Step 3: Fuzzy Duplicate Merge ─────────────────────
-      - name: 'Step 3: Fuzzy Duplicate Merge'
-        id: step3
-        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',3,') }}
+      # ── Step 4: Fix Age Year Discrepancies ─────────────────
+      - name: 'Step 4: Fix Age Year Discrepancies'
+        id: step4
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',4,') }}
         run: |
           echo "═══════════════════════════════════════════════════"
-          echo "STEP 3: FUZZY DUPLICATE MERGE"
+          echo "STEP 4: FIX AGE YEAR DISCREPANCIES"
+          echo "═══════════════════════════════════════════════════"
+
+          AGE_FLAGS=""
+          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+            AGE_FLAGS="--dry-run"
+          fi
+
+          python scripts/fix_team_age_groups.py $AGE_FLAGS 2>&1 | tee logs/step4_fix_age.log
+
+          AGE_FIXED=$(grep -oP 'SUMMARY: Fixed \K\d+' logs/step4_fix_age.log || grep -oP 'Found \K\d+(?= teams with age)' logs/step4_fix_age.log || echo "0")
+          echo "age_fixed=$AGE_FIXED" >> $GITHUB_OUTPUT
+
+      # ── Step 5: Fuzzy Duplicate Merge ─────────────────────
+      - name: 'Step 5: Fuzzy Duplicate Merge'
+        id: step5
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',5,') }}
+        run: |
+          echo "═══════════════════════════════════════════════════"
+          echo "STEP 5: FUZZY DUPLICATE MERGE"
           echo "═══════════════════════════════════════════════════"
 
           # Determine which genders to run (scheduled runs default to male)
@@ -164,16 +201,16 @@ jobs:
               if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
                 python scripts/find_fuzzy_duplicate_teams.py \
                   --age-group "$AGE" --gender "$GENDER" --dry-run --min-score 0.90 \
-                  2>&1 | tee -a logs/step3_fuzzy_merge.log
+                  2>&1 | tee -a logs/step5_fuzzy_merge.log
               else
                 python scripts/find_fuzzy_duplicate_teams.py \
                   --age-group "$AGE" --gender "$GENDER" --auto-merge --min-score 0.90 \
-                  2>&1 | tee -a logs/step3_fuzzy_merge.log
+                  2>&1 | tee -a logs/step5_fuzzy_merge.log
               fi
 
               # Accumulate counts
-              SUGGESTED=$(grep -oP 'Suggested merges.*?: \K\d+' logs/step3_fuzzy_merge.log | tail -1 || echo "0")
-              MERGED_NOW=$(grep -oP 'Done: \K\d+' logs/step3_fuzzy_merge.log | tail -1 || echo "0")
+              SUGGESTED=$(grep -oP 'Suggested merges.*?: \K\d+' logs/step5_fuzzy_merge.log | tail -1 || echo "0")
+              MERGED_NOW=$(grep -oP 'Done: \K\d+' logs/step5_fuzzy_merge.log | tail -1 || echo "0")
               TOTAL_SUGGESTED=$((TOTAL_SUGGESTED + SUGGESTED))
               TOTAL_MERGED=$((TOTAL_MERGED + MERGED_NOW))
             done
@@ -182,13 +219,13 @@ jobs:
           echo "fuzzy_suggested=$TOTAL_SUGGESTED" >> $GITHUB_OUTPUT
           echo "fuzzy_merged=$TOTAL_MERGED" >> $GITHUB_OUTPUT
 
-      # ── Step 4: Match Review Queue ────────────────────────
-      - name: 'Step 4: Match Review Queue'
-        id: step4
-        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',4,') }}
+      # ── Step 6: Match Review Queue ────────────────────────
+      - name: 'Step 6: Match Review Queue'
+        id: step6
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',6,') }}
         run: |
           echo "═══════════════════════════════════════════════════"
-          echo "STEP 4: MATCH REVIEW QUEUE"
+          echo "STEP 6: MATCH REVIEW QUEUE"
           echo "═══════════════════════════════════════════════════"
 
           EXECUTE_FLAG=""
@@ -196,50 +233,12 @@ jobs:
             EXECUTE_FLAG="--execute --yes"
           fi
 
-          python scripts/find_queue_matches.py --force $EXECUTE_FLAG 2>&1 | tee logs/step4_queue_matches.log
+          python scripts/find_queue_matches.py --force $EXECUTE_FLAG 2>&1 | tee logs/step6_queue_matches.log
 
-          EXACT=$(grep -oP 'EXACT \(95%\+\):\s+\K\d+' logs/step4_queue_matches.log || echo "0")
-          QUEUE_MERGED=$(grep -oP 'Approved: \K\d+' logs/step4_queue_matches.log || echo "0")
+          EXACT=$(grep -oP 'EXACT \(95%\+\):\s+\K\d+' logs/step6_queue_matches.log || echo "0")
+          QUEUE_MERGED=$(grep -oP 'Approved: \K\d+' logs/step6_queue_matches.log || echo "0")
           echo "exact_matches=$EXACT" >> $GITHUB_OUTPUT
           echo "queue_merged=$QUEUE_MERGED" >> $GITHUB_OUTPUT
-
-      # ── Step 5: Match State Codes via Club Names ───────────
-      - name: 'Step 5: Match State Codes via Club Names'
-        id: step5
-        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',5,') }}
-        run: |
-          echo "═══════════════════════════════════════════════════"
-          echo "STEP 5: MATCH STATE CODES VIA CLUB NAMES"
-          echo "═══════════════════════════════════════════════════"
-
-          STATE_FLAGS="--yes"
-          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
-            STATE_FLAGS="--dry-run"
-          fi
-
-          python scripts/match_state_from_club.py $STATE_FLAGS 2>&1 | tee logs/step5_match_state.log
-
-          STATE_MATCHED=$(grep -oP 'Can be matched via club name: \K\d+' logs/step5_match_state.log || echo "0")
-          echo "state_matched=$STATE_MATCHED" >> $GITHUB_OUTPUT
-
-      # ── Step 6: Fix Age Year Discrepancies ─────────────────
-      - name: 'Step 6: Fix Age Year Discrepancies'
-        id: step6
-        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',6,') }}
-        run: |
-          echo "═══════════════════════════════════════════════════"
-          echo "STEP 6: FIX AGE YEAR DISCREPANCIES"
-          echo "═══════════════════════════════════════════════════"
-
-          AGE_FLAGS=""
-          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
-            AGE_FLAGS="--dry-run"
-          fi
-
-          python scripts/fix_team_age_groups.py $AGE_FLAGS 2>&1 | tee logs/step6_fix_age.log
-
-          AGE_FIXED=$(grep -oP 'SUMMARY: Fixed \K\d+' logs/step6_fix_age.log || grep -oP 'Found \K\d+(?= teams with age)' logs/step6_fix_age.log || echo "0")
-          echo "age_fixed=$AGE_FIXED" >> $GITHUB_OUTPUT
 
       # ── Artifacts ─────────────────────────────────────────
       - name: Upload logs
@@ -266,14 +265,14 @@ jobs:
           echo "| Step | Task | Result |" >> $GITHUB_STEP_SUMMARY
           echo "|------|------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| 1 | Club Name Standardization | ${{ steps.step1.outputs.naming_fixes || 'skipped' }} fixes (${{ steps.step1.outputs.teams_standardized || '0' }} teams) |" >> $GITHUB_STEP_SUMMARY
-          echo "| 2 | Normalize Team Names | ${{ steps.step2.outputs.teams_normalized || 'skipped' }} normalized |" >> $GITHUB_STEP_SUMMARY
-          echo "| 3 | Fuzzy Duplicate Merge | ${{ steps.step3.outputs.fuzzy_suggested || 'skipped' }} suggested, ${{ steps.step3.outputs.fuzzy_merged || '0' }} merged |" >> $GITHUB_STEP_SUMMARY
-          echo "| 4 | Match Review Queue | ${{ steps.step4.outputs.exact_matches || 'skipped' }} exact, ${{ steps.step4.outputs.queue_merged || '0' }} merged |" >> $GITHUB_STEP_SUMMARY
-          echo "| 5 | Match State Codes | ${{ steps.step5.outputs.state_matched || 'skipped' }} matched |" >> $GITHUB_STEP_SUMMARY
-          echo "| 6 | Fix Age Year | ${{ steps.step6.outputs.age_fixed || 'skipped' }} fixed |" >> $GITHUB_STEP_SUMMARY
+          echo "| 2 | Match State Codes | ${{ steps.step2.outputs.state_matched || 'skipped' }} matched |" >> $GITHUB_STEP_SUMMARY
+          echo "| 3 | Normalize Team Names | ${{ steps.step3.outputs.teams_normalized || 'skipped' }} normalized |" >> $GITHUB_STEP_SUMMARY
+          echo "| 4 | Fix Age Year | ${{ steps.step4.outputs.age_fixed || 'skipped' }} fixed |" >> $GITHUB_STEP_SUMMARY
+          echo "| 5 | Fuzzy Duplicate Merge | ${{ steps.step5.outputs.fuzzy_suggested || 'skipped' }} suggested, ${{ steps.step5.outputs.fuzzy_merged || '0' }} merged |" >> $GITHUB_STEP_SUMMARY
+          echo "| 6 | Match Review Queue | ${{ steps.step6.outputs.exact_matches || 'skipped' }} exact, ${{ steps.step6.outputs.queue_merged || '0' }} merged |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Pipeline Order" >> $GITHUB_STEP_SUMMARY
-          echo "1. Club → 2. Team names → 3. Fuzzy merge → 4. Queue → 5. Match state → 6. Fix age" >> $GITHUB_STEP_SUMMARY
+          echo "1. Club → 2. Match state → 3. Normalize → 4. Fix age → 5. Fuzzy merge → 6. Queue" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Safety Notes" >> $GITHUB_STEP_SUMMARY
           echo "- Fuzzy merge only merges teams with same club_name and 90%+ similarity" >> $GITHUB_STEP_SUMMARY
