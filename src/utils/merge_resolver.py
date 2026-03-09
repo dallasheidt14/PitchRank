@@ -79,6 +79,9 @@ class MergeResolver:
 
             if self._merge_map:
                 logger.info(f"Loaded {len(self._merge_map)} team merges (version: {self._version})")
+                # Log all merge entries for diagnostics
+                for dep_id, canon_id in self._merge_map.items():
+                    logger.info(f"  Merge: {dep_id} → {canon_id}")
             else:
                 logger.debug("No team merges found")
 
