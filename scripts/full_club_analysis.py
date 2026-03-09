@@ -49,6 +49,16 @@ CLUB_CANONICAL_OVERRIDES = [
     ("NC", "exact", "Triangle Soccer Academy", "Triangle United"),
     ("NC", "exact", "Triangle Y SC", "Triangle United"),
     ("NC", "exact", "Wilmington Hammerheads Youth FC", "Wilmington Hammerheads FC"),
+    # Texas
+    ("TX", "exact", "El Paso Locomotive Youth Soccer Club", "El Paso Locomotive FC"),
+    ("TX", "exact", "FC Dallas Youth", "FC Dallas"),
+    ("TX", "exact", "LTFC", "Lake Travis Football Club"),
+    ("TX", "exact", "SA Athenians", "AC River"),
+    ("TX", "exact", "Santa Fe YSC", "Santa Fe Youth Soccer"),
+    ("TX", "exact", "Soccer Central", "AC River"),
+    ("TX", "exact", "Soccer Central/AC River/SA Athenians", "AC River"),
+    ("TX", "exact", "Valencia Academy Houston", "Valencia CF"),
+    ("TX", "regex", r"Juventus Academy Houston\s*\(JA\)\s*$", "Juventus Academy Houston"),
 ]
 
 # Acronyms to keep uppercase
