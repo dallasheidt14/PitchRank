@@ -25,6 +25,22 @@ SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('SUPABASE_SER
 
 SKIP_STATES = set()  # Scan all states (CA/AZ were previously skipped)
 
+# Hard-coded canonical overrides: (state_code, match_type, pattern, canonical_name)
+# match_type: "exact" (case-insensitive), "prefix" (starts with), "regex"
+CLUB_CANONICAL_OVERRIDES = [
+    ("WA", "exact", "XF", "Crossfire Premier"),
+    ("WA", "exact", "XL", "Crossfire Select Soccer Club"),
+    ("WA", "exact", "HPFC Heat", "Highline Premier FC"),
+    ("WA", "exact", "Kitsap Alliance FC B", "Kitsap Alliance FC"),
+    ("WA", "exact", "PacNW", "Pacific Northwest SC"),
+    ("WA", "exact", "Pacific FC Washington", "Pacific FC"),
+    ("WA", "exact", "Washington Premier", "Washington Premier FC"),
+    ("WA", "exact", "Wenatchee FC Youth", "Wenatchee FC"),
+    ("WA", "regex", r"Eastside FC\s*\(wa\)\s*$", "Eastside FC"),
+    ("WA", "regex", r"Atletico\s*\(wa\)\s*$", "Atletico FC"),
+    ("WA", "prefix", "NW United", "Northwest United FC"),
+]
+
 # Acronyms to keep uppercase
 ACRONYMS = {
     'FC', 'SC', 'SA', 'AC', 'CF', 'CD', 'YSA', 'YSO', 'YSL', 'SL', 'CC', 'AD',
@@ -107,22 +123,54 @@ def fetch_all_teams(client, state_code):
     
     return all_teams
 
+def _matches_override(club: str, match_type: str, pattern: str) -> bool:
+    """Check if club name matches the override pattern."""
+    if not club:
+        return False
+    c = club.strip()
+    if match_type == "exact":
+        return c.lower() == pattern.lower()
+    if match_type == "prefix":
+        return c.lower().startswith(pattern.lower())
+    if match_type == "regex":
+        return bool(re.search(pattern, c, re.IGNORECASE))
+    return False
+
+
 def analyze_state(client, state_code):
     """Analyze club names in a state, return fixes needed."""
     teams = fetch_all_teams(client, state_code)
     if not teams:
         return [], 0
-    
+
     # Count club names
     club_counts = defaultdict(int)
     for team in teams:
         club = team.get('club_name')
         if club:
             club_counts[club] += 1
-    
+
     fixes = []
     processed = set()
-    
+
+    # 0. Apply hard-coded canonical overrides (state-specific)
+    for state, match_type, pattern, canonical in CLUB_CANONICAL_OVERRIDES:
+        if state != state_code:
+            continue
+        for club in list(club_counts.keys()):
+            if club in processed:
+                continue
+            if _matches_override(club, match_type, pattern):
+                if club != canonical:
+                    fixes.append({
+                        'from': club,
+                        'to': canonical,
+                        'count': club_counts[club],
+                        'type': 'CANONICAL',
+                        'state': state_code
+                    })
+                    processed.add(club)
+
     # 1. Find caps issues (same lowercase, different case)
     by_lower = defaultdict(list)
     for club in club_counts:
@@ -282,10 +330,11 @@ def main():
         
         if fixes:
             affected = sum(f['count'] for f in fixes)
+            canonical = sum(1 for f in fixes if f['type'] == 'CANONICAL')
             caps = sum(1 for f in fixes if f['type'] == 'CAPS')
             naming = sum(1 for f in fixes if f['type'] == 'NAMING')
-            summary[state] = {'caps': caps, 'naming': naming, 'affected': affected, 'total': total}
-            print(f"{caps} caps, {naming} naming ({affected} teams)")
+            summary[state] = {'canonical': canonical, 'caps': caps, 'naming': naming, 'affected': affected, 'total': total}
+            print(f"{canonical} canonical, {caps} caps, {naming} naming ({affected} teams)")
         else:
             print("clean")
     
@@ -301,15 +350,23 @@ def main():
     
     total_fixes = len(all_fixes)
     total_affected = sum(f['count'] for f in all_fixes)
+    total_canonical = sum(1 for f in all_fixes if f['type'] == 'CANONICAL')
     total_caps = sum(1 for f in all_fixes if f['type'] == 'CAPS')
     total_naming = sum(1 for f in all_fixes if f['type'] == 'NAMING')
-    
+
     for state in sorted(summary.keys()):
         s = summary[state]
-        print(f"  {state}: {s['caps']} caps + {s['naming']} naming = {s['affected']} teams affected")
-    
+        parts = []
+        if s.get('canonical'):
+            parts.append(f"{s['canonical']} canonical")
+        if s.get('caps'):
+            parts.append(f"{s['caps']} caps")
+        if s.get('naming'):
+            parts.append(f"{s['naming']} naming")
+        print(f"  {state}: {' + '.join(parts)} = {s['affected']} teams affected")
+
     print('-'*60)
-    print(f"TOTAL: {total_fixes} fixes ({total_caps} caps + {total_naming} naming)")
+    print(f"TOTAL: {total_fixes} fixes ({total_canonical} canonical + {total_caps} caps + {total_naming} naming)")
     print(f"       {total_affected} teams will be updated")
     print(f"\nSQL written to: {output_path}")
     
