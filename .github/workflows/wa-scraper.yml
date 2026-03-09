@@ -1,0 +1,145 @@
+name: Affinity WA Scraper
+
+on:
+  schedule:
+    # Run Sunday 11 PM Pacific time.
+    # We schedule both 06:00 and 07:00 UTC Monday and gate in-job using America/Los_Angeles
+    # so this stays correct across DST transitions.
+    - cron: '0 6 * * 1'
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+    inputs:
+      days_back:
+        description: 'Number of days back to scrape'
+        required: false
+        default: '7'
+      dry_run:
+        description: 'Dry run (scrape only, no import)'
+        type: boolean
+        required: false
+        default: false
+
+jobs:
+  scrape-wa-games:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          mkdir -p data/raw/affinity_wa
+
+      - name: Schedule guard (Sunday 11 PM Pacific)
+        if: ${{ github.event_name == 'schedule' }}
+        env:
+          TZ: America/Los_Angeles
+        run: |
+          set -euo pipefail
+          LOCAL_DOW="$(date +%u)"   # 1..7 (Mon..Sun)
+          LOCAL_HOUR="$(date +%H)"  # 00..23
+          echo "Local Pacific time: $(date)"
+          if [ "${LOCAL_DOW}" != "7" ] || [ "${LOCAL_HOUR}" != "23" ]; then
+            echo "Not Sunday 11 PM Pacific; skipping scheduled run."
+            exit 1
+          fi
+          echo "Schedule guard passed."
+
+      - name: Scrape WA Affinity games (U10-U18, male+female, last N days)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+
+          DAYS_BACK="${{ github.event.inputs.days_back || '7' }}"
+          TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+          OUT_DIR="data/raw/affinity_wa"
+          MERGED="${OUT_DIR}/affinity_wa_all_u10_u18_last${DAYS_BACK}d_${TIMESTAMP}.csv"
+
+          tmp_files=()
+
+          for age in 10 11 12 13 14 15 16 17 18; do
+            for gender in male female; do
+              out_file="${OUT_DIR}/affinity_wa_u${age}_${gender}_${TIMESTAMP}.csv"
+              echo "Scraping u${age} ${gender}, last ${DAYS_BACK} days -> ${out_file}"
+              python scripts/scrape_affinity_wa_tournament.py \
+                --age "u${age}" \
+                --gender "${gender}" \
+                --days-back "${DAYS_BACK}" \
+                --output "${out_file}"
+              tmp_files+=("${out_file}")
+            done
+          done
+
+          # Merge all CSV files into one export (header from first file only)
+          first=1
+          for f in "${tmp_files[@]}"; do
+            if [ ! -f "${f}" ]; then
+              continue
+            fi
+            if [ "${first}" -eq 1 ]; then
+              cat "${f}" > "${MERGED}"
+              first=0
+            else
+              tail -n +2 "${f}" >> "${MERGED}"
+            fi
+          done
+
+          if [ ! -f "${MERGED}" ]; then
+            echo "ERROR: merged output was not created"
+            exit 1
+          fi
+
+          ROW_COUNT=$(wc -l < "${MERGED}")
+          echo "Merged output: ${MERGED} (${ROW_COUNT} rows)"
+          echo "MERGED_FILE=${MERGED}" >> "${GITHUB_ENV}"
+          echo "ROW_COUNT=${ROW_COUNT}" >> "${GITHUB_ENV}"
+
+      - name: Upload WA scraper output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wa-scraper-${{ github.run_number }}
+          path: |
+            data/raw/affinity_wa/affinity_wa_u*_*.csv
+            ${{ env.MERGED_FILE }}
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Import scraped WA games
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MERGED_FILE:-}" ]; then
+            echo "ERROR: MERGED_FILE not set"
+            exit 1
+          fi
+          python scripts/import_games_enhanced.py "${MERGED_FILE}" affinity_wa --batch-size 500
+
+      - name: Report results
+        if: always()
+        run: |
+          echo "===================="
+          echo "Affinity WA Scraper completed"
+          echo "===================="
+          echo "Days back: ${{ github.event.inputs.days_back || '7' }}"
+          echo "Dry run: ${{ github.event.inputs.dry_run || 'false' }}"
+          echo "Output rows: ${ROW_COUNT:-unknown}"
+          echo "Merged file: ${MERGED_FILE:-not-set}"
