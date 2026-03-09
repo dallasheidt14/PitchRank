@@ -63,10 +63,14 @@ class MergeResolver:
                 'deprecated_team_id, canonical_team_id'
             ).execute()
 
-            self._merge_map = {
-                str(row['deprecated_team_id']): str(row['canonical_team_id'])
-                for row in response.data
-            }
+            if not response.data:
+                logger.warning(f"team_merge_map query returned no data (data={response.data})")
+                self._merge_map = {}
+            else:
+                self._merge_map = {
+                    str(row['deprecated_team_id']): str(row['canonical_team_id'])
+                    for row in response.data
+                }
 
             # Compute version hash for cache invalidation
             if self._merge_map:
