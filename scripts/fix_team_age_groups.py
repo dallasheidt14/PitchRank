@@ -123,11 +123,13 @@ def main():
     batch_size = 1000
 
     while True:
-        query = client.table('teams').select('team_id_master, team_name, age_group, birth_year, gender, state_code')
-        
+        query = client.table('teams').select(
+            'team_id_master, team_name, age_group, birth_year, gender, state_code'
+        ).eq('is_deprecated', False)
+
         if args.team_name:
             query = query.ilike('team_name', f'%{args.team_name}%')
-        
+
         query = query.range(offset, offset + batch_size - 1)
         result = query.execute()
         

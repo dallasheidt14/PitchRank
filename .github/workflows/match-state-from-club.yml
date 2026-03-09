@@ -1,11 +1,7 @@
 name: Match Teams to State Codes via Club Names
 
 on:
-  schedule:
-    # Run every Monday at 9:00 AM Mountain Time
-    # MST (UTC-7): 9:00 AM MST = 4:00 PM UTC (16:00)
-    # MDT (UTC-6): 9:00 AM MDT = 3:00 PM UTC (15:00)
-    - cron: '0 16 * * 1'
+  # Schedule removed: now runs as Step 5 of data-hygiene-weekly (Tuesday)
   workflow_dispatch:
     inputs:
       dry_run:
