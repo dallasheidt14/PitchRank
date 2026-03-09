@@ -316,6 +316,7 @@ async def compute_rankings_v53e_only(
     provider_filter: Optional[str] = None,
     force_rebuild: bool = False,
     team_state_map: Optional[Dict[str, str]] = None,  # For SCF regional bubble detection
+    merge_resolver=None,  # Optional MergeResolver for team merge resolution
 ) -> Dict[str, pd.DataFrame]:
     """
     Run v53e rankings engine only (without ML layer).
@@ -333,7 +334,8 @@ async def compute_rankings_v53e_only(
                 supabase_client=supabase_client,
                 lookback_days=lookback_days,
                 provider_filter=provider_filter,
-                today=today
+                today=today,
+                merge_resolver=merge_resolver,
             )
         else:
             raise ValueError("games_df is required if fetch_from_supabase is False")

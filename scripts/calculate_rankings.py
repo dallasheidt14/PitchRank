@@ -416,6 +416,7 @@ async def main():
                 lookback_days=args.lookback_days,
                 provider_filter=args.provider,
                 force_rebuild=args.force_rebuild,
+                merge_resolver=merge_resolver,
             )
         
         teams_df = result["teams"]
