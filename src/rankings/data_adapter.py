@@ -221,20 +221,16 @@ async def fetch_games_for_rankings(
 
     logger.info(f"📊 Processing {len(games_df):,} games...")
 
-    # DIAGNOSTIC: If merge_resolver provided, count games per deprecated team
-    # to detect if their games are even being fetched
+    # DIAGNOSTIC: Count how many raw games involve deprecated vs canonical teams
     if merge_resolver is not None and merge_resolver.has_merges:
-        for dep_id in merge_resolver.get_deprecated_teams():
-            canon_id = merge_resolver.resolve(dep_id)
-            dep_home = (games_df['home_team_master_id'].astype(str) == dep_id).sum()
-            dep_away = (games_df['away_team_master_id'].astype(str) == dep_id).sum()
-            canon_home = (games_df['home_team_master_id'].astype(str) == canon_id).sum()
-            canon_away = (games_df['away_team_master_id'].astype(str) == canon_id).sum()
-            logger.info(
-                f"  [MERGE-DIAG] Raw games fetched: "
-                f"deprecated {dep_id[:8]}... home={dep_home} away={dep_away} total={dep_home + dep_away} | "
-                f"canonical {canon_id[:8]}... home={canon_home} away={canon_away} total={canon_home + canon_away}"
-            )
+        deprecated_ids = merge_resolver.get_deprecated_teams()
+        home_strs = games_df['home_team_master_id'].astype(str)
+        away_strs = games_df['away_team_master_id'].astype(str)
+        dep_game_count = (home_strs.isin(deprecated_ids) | away_strs.isin(deprecated_ids)).sum()
+        logger.info(
+            f"  [MERGE-DIAG] {len(deprecated_ids)} deprecated teams in merge map; "
+            f"{dep_game_count} raw games involve deprecated teams"
+        )
 
     # Fetch teams for age_group and gender
     team_ids = set()
@@ -395,36 +391,24 @@ async def fetch_games_for_rankings(
     if merge_resolver is not None and merge_resolver.has_merges:
         logger.info(f"🔀 Applying merge resolution ({merge_resolver.merge_count} merges, version: {merge_resolver.version})")
 
-        # DIAGNOSTIC: Log merge map entries and pre-merge state for deprecated teams
+        # DIAGNOSTIC: Count deprecated team perspective rows before merge
         deprecated_in_merge = merge_resolver.get_deprecated_teams()
-        for dep_id in deprecated_in_merge:
-            canon_id = merge_resolver.resolve(dep_id)
-            dep_as_team = (v53e_df['team_id'].astype(str) == dep_id).sum()
-            dep_as_opp = (v53e_df['opp_id'].astype(str) == dep_id).sum()
-            canon_as_team = (v53e_df['team_id'].astype(str) == canon_id).sum()
-            logger.info(
-                f"  [MERGE-DIAG] {dep_id[:8]}→{canon_id[:8]}: "
-                f"pre-merge deprecated_as_team={dep_as_team}, deprecated_as_opp={dep_as_opp}, "
-                f"canonical_as_team={canon_as_team}"
-            )
+        team_id_strs = v53e_df['team_id'].astype(str)
+        dep_rows_before = team_id_strs.isin(deprecated_in_merge).sum()
+        logger.info(f"  [MERGE-DIAG] Pre-merge: {dep_rows_before:,} perspective rows have deprecated team_id")
 
         v53e_df = merge_resolver.resolve_dataframe(v53e_df, ['team_id', 'opp_id'])
 
-        # DIAGNOSTIC: Verify merge resolution actually worked
-        for dep_id in deprecated_in_merge:
-            canon_id = merge_resolver.resolve(dep_id)
-            remaining_dep = (v53e_df['team_id'].astype(str) == dep_id).sum()
-            canon_after = (v53e_df['team_id'].astype(str) == canon_id).sum()
-            if remaining_dep > 0:
-                logger.warning(
-                    f"  [MERGE-DIAG] ⚠️ MERGE FAILED: {dep_id[:8]} still has "
-                    f"{remaining_dep} rows as team_id after resolve_dataframe!"
-                )
-            logger.info(
-                f"  [MERGE-DIAG] {dep_id[:8]}→{canon_id[:8]}: "
-                f"post-merge remaining_deprecated={remaining_dep}, "
-                f"canonical_total={canon_after}"
+        # DIAGNOSTIC: Verify merge resolution worked
+        team_id_strs_after = v53e_df['team_id'].astype(str)
+        dep_rows_after = team_id_strs_after.isin(deprecated_in_merge).sum()
+        if dep_rows_after > 0:
+            logger.warning(
+                f"  [MERGE-DIAG] ⚠️ Post-merge: {dep_rows_after:,} rows STILL have deprecated team_id! "
+                f"Merge resolution may be incomplete."
             )
+        else:
+            logger.info(f"  [MERGE-DIAG] Post-merge: All deprecated team_ids resolved successfully")
 
         # After merge resolution, team_id/opp_id point to canonical teams but
         # age/gender still reflect the deprecated team's metadata.  Re-map them

@@ -385,9 +385,6 @@ async def main():
     merge_resolver.load_merge_map()
     if merge_resolver.has_merges:
         console.print(f"[dim]Loaded {merge_resolver.merge_count} team merges (version: {merge_resolver.version})[/dim]")
-        for dep_id in merge_resolver.get_deprecated_teams():
-            canon_id = merge_resolver.resolve(dep_id)
-            console.print(f"[dim]  {dep_id} → {canon_id}[/dim]")
     else:
         # CRITICAL: Warn loudly if merge map is empty — deprecated teams will be silently dropped
         console.print(f"[yellow]⚠️  No team merges loaded (version: {merge_resolver.version})[/yellow]")
