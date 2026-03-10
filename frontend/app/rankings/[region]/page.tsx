@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { US_STATES } from '@/lib/constants';
 import { api } from '@/lib/api';
+import { formatPowerScore } from '@/lib/utils';
 
 // Revalidate every hour for ISR caching
 export const revalidate = 3600;
@@ -235,7 +236,7 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
                             {team.team_name}
                           </Link>
                           <span className="text-xs text-muted-foreground ml-auto">
-                            {team.power_score_final.toFixed(1)}
+                            {formatPowerScore(team.power_score_final)}
                           </span>
                         </li>
                       ))}
@@ -275,7 +276,7 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
                             {team.team_name}
                           </Link>
                           <span className="text-xs text-muted-foreground ml-auto">
-                            {team.power_score_final.toFixed(1)}
+                            {formatPowerScore(team.power_score_final)}
                           </span>
                         </li>
                       ))}

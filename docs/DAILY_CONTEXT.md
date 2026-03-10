@@ -40,14 +40,14 @@ D H: "you can do whatever without my approval just don't mess with algo and star
 - **Content readiness:** Blog launch OPERATIONAL, ready for weekly publication
 - **Status:** 🟢 **Content pipeline LIVE**
 
-**📈 Movy Weekly Movers Report:** ✅ COMPLETED (MAR 4 10AM)
-- Data snapshot: **March 2, 2026** (latest)
-- **Top Climber:** PRE-ACADEMY II 2014 (Barcelona United, U12 OH) — #2352 → #923 (+1,429)
-- **Biggest Faller:** CFU U12 Comp (CFU Soccer, U12 FL) — #946 → #1745 (-799)
-- **Algorithm Status:** ✅ WORKING — Movement correlates 1:1 to actual game results
-- **Data Quality:** HIGH — Quarantine stable at 117, games flowing (443 in 24h)
-- **Key Pattern:** TX academy divisions thriving, OH PRE divisions breaking through
-- **Status:** Report sent to D H
+**📈 Movy Weekly Movers Report:** ✅ COMPLETED (MAR 10 10AM)
+- Data snapshot: **March 10, 2026** (latest)
+- **Top Climber:** Eastshore Alliance FC ECNL RL 2012 (Eastshore Alliance FC, U14 CA) — #2723 → #652 (+2,071)
+- **Biggest Faller:** PRE-ACADEMY II 2014 (Barcelona United, U12 OH) — #923 → #2645 (-1,722) [reversal from Mar 2]
+- **Algorithm Status:** ✅ WORKING PERFECTLY — Movement correlates 1:1 to actual game results, blowouts punishing scores
+- **Data Quality:** HIGH — Movement patterns clean, recent game data flowing correctly
+- **Key Pattern:** CA, OH, TX, OK U11-U14 academies extremely competitive; Eastshore alliance surge +2K
+- **Status:** Report sent to D H. Detailed commentary (explainy) in progress.
 - **Errors:** None
 
 ### Recent History (Feb 23 - Mar 2)
