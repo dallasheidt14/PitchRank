@@ -22,6 +22,7 @@ import { useUser, hasPremiumAccess } from '@/hooks/useUser';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { trackPaywallImpression, trackPaywallUpgradeClicked } from '@/lib/events';
 import type {
   TeamInsightsResponse,
   SeasonTruthInsight,
@@ -74,6 +75,17 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
     }
   }, [isPremium, teamId, fetchInsights]);
 
+  // Track paywall impression for non-premium users
+  useEffect(() => {
+    if (!isPremium && !userLoading) {
+      trackPaywallImpression({
+        feature: 'team_insights',
+        location: 'team_detail_page',
+        team_id: teamId,
+      });
+    }
+  }, [isPremium, userLoading, teamId]);
+
   const seasonTruth = insights?.insights.find(
     (i) => i.type === 'season_truth'
   ) as SeasonTruthInsight | undefined;
@@ -103,10 +115,10 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
     );
   }
 
-  // Non-premium users see upgrade prompt
+  // Non-premium users see teaser with blurred preview
   if (!isPremium) {
     return (
-      <Card className="border-l-4 border-l-amber-500/50">
+      <Card className="border-l-4 border-l-amber-500/50 overflow-hidden">
         <CardHeader className="pb-3">
           <CardTitle className="font-display uppercase tracking-wide text-base flex items-center gap-2">
             <Brain className="h-4 w-4" />
@@ -115,16 +127,56 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
           <CardDescription>AI-powered scouting analysis</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-col items-center justify-center py-4 text-center">
-            <Lock className="h-8 w-8 text-muted-foreground mb-2" />
-            <p className="text-sm text-muted-foreground mb-3">
-              Premium feature
-            </p>
-            <Link href="/upgrade">
-              <Button size="sm" variant="outline" className="text-xs">
-                Upgrade to unlock
-              </Button>
-            </Link>
+          {/* Blurred teaser content */}
+          <div className="relative">
+            <div className="blur-sm pointer-events-none select-none" aria-hidden="true">
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold text-sm bg-purple-500/20 text-purple-700">
+                  <Swords className="h-4 w-4" />
+                  Giant Killer
+                </div>
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold text-sm bg-emerald-500/20 text-emerald-700">
+                  <Trophy className="h-4 w-4" />
+                  Two-Way Powerhouse
+                </div>
+              </div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-muted-foreground">Consistency</span>
+                <div className="flex items-center gap-2">
+                  <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
+                    <div className="h-full rounded-full bg-green-500 w-3/4" />
+                  </div>
+                  <span className="text-sm font-mono font-semibold">78</span>
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Rank Trend</span>
+                <span className="text-sm font-medium text-green-600">Rising</span>
+              </div>
+            </div>
+
+            {/* Overlay CTA */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/60 backdrop-blur-[1px]">
+              <Lock className="h-5 w-5 text-muted-foreground mb-2" />
+              <p className="text-xs text-muted-foreground mb-2">
+                Unlock AI-powered team analysis
+              </p>
+              <Link
+                href={`/upgrade?source=team_insights&team=${teamId}`}
+                onClick={() =>
+                  trackPaywallUpgradeClicked({
+                    feature: 'team_insights',
+                    location: 'team_detail_page',
+                    team_id: teamId,
+                  })
+                }
+              >
+                <Button size="sm" className="text-xs">
+                  <Lock className="w-3 h-3 mr-1" />
+                  Upgrade to Unlock
+                </Button>
+              </Link>
+            </div>
           </div>
         </CardContent>
       </Card>
