@@ -15,74 +15,75 @@ This audit identified **40+ performance issues** across the PitchRank stack. The
 
 **Estimated total impact:** Ranking pipeline from ~35 min → ~10 min; frontend TTFB reduced 200-500ms on key pages.
 
+> **⚠️ REVISION NOTE (Deep Review, 2026-03-10):** Items marked with ❌ or ⚠️ below were
+> downgraded after senior full-stack code review found ripple effects, breaking changes,
+> or insufficient ROI. See "Deep Review Findings" appendix at bottom for full analysis.
+
 ---
 
-## Top 10 High-ROI Improvements (Prioritized)
+## Top 10 High-ROI Improvements (Prioritized — Revised)
 
-### 1. Parallelize Sequential Supabase Batch Fetches
+### 1. Parallelize Sequential Supabase Batch Fetches ✅
 - **Files:** `src/rankings/data_adapter.py:251-269`, `scripts/calculate_rankings.py:470-488`
 - **Problem:** Team metadata fetched sequentially in 100-ID batches via for-loop. With 100K teams, this is 1,000+ serial API calls.
 - **Fix:** Use `asyncio.gather()` with 10-20 concurrent batches.
 - **Impact:** **CRITICAL** — 50-100x faster metadata fetching (from ~15 min to ~15 sec)
 - **Effort:** Medium
 
-### 2. Vectorize `.apply(axis=1)` in v53e Engine
+### 2. Vectorize `.apply(axis=1)` in v53e Engine ⚠️ PARTIAL
 - **File:** `src/etl/v53e.py:1002-1006, 787, 1021, 1415-1416`
 - **Problem:** Adaptive K-factor, context multipliers, and power mapping use row-by-row `.apply()` and `.map(lambda)`. Called on 100K+ game rows.
 - **Fix:** Replace with vectorized `.map(dict)`, `np.where()`, and direct column arithmetic.
 - **Impact:** **HIGH** — 10-30% speedup on v53e calculation (5-15 min savings)
 - **Effort:** Medium
+- **⚠️ Deep Review:** `adaptive_k` is safely vectorizable via `.map()`. `context_mult` has multiplicative conditional logic (`mult *= A; mult *= B`) that risks subtle math bugs if vectorized incorrectly. Only vectorize `adaptive_k`; leave `context_mult` unless profiling proves it's a bottleneck.
 
-### 3. Use TRUNCATE Instead of Delete-All for Rankings
+### 3. ❌ ~~Use TRUNCATE Instead of Delete-All for Rankings~~ — REJECTED
 - **File:** `scripts/calculate_rankings.py:245`
-- **Problem:** Deletes all rows with `.delete().neq('team_id', '00000000...')` — full table scan on 1M+ rows.
-- **Fix:** Use Supabase RPC to call `TRUNCATE rankings_full` directly.
-- **Impact:** **HIGH** — 2-5 min savings per ranking run
-- **Effort:** Low
+- **Original suggestion:** Use Supabase RPC to call `TRUNCATE rankings_full` directly.
+- **❌ Deep Review:** Current `.delete().neq('team_id', '00000000...')` is an **intentional safeguard** — it excludes the null UUID sentinel. TRUNCATE bypasses RLS policies, could cascade through foreign keys, and breaks the downstream deprecated-team cleanup logic (lines 333-348). **Keep current approach.**
 
-### 4. Optimize Frontend Middleware Auth Checks
+### 4. Optimize Frontend Middleware Auth Checks ⚠️ LIMITED
 - **File:** `frontend/middleware.ts:67-68, 97-101`
-- **Problem:** Calls `getSession()` AND `getUser()` on **every request** (including public pages). Premium route check adds a third DB query.
-- **Fix:** Only check auth on protected routes; remove redundant `getSession()` when `getUser()` is called.
-- **Impact:** **HIGH** — 100-300ms reduction on every page load
+- **Problem:** Calls `getSession()` AND `getUser()` on every request. Premium route check adds a DB query.
+- **Impact (revised):** ~50ms savings (not 100-300ms as originally estimated)
 - **Effort:** Low
+- **⚠️ Deep Review:** `getSession()` **refreshes expired auth tokens** via cookie updates. Skipping it on public routes causes token expiry → unexpected logouts when navigating to protected routes. **Only safe optimization:** skip the premium profile DB query (lines 97-101) on non-premium routes. Keep `getSession()`/`getUser()` on ALL routes.
 
-### 5. Replace `.select('*')` with Column-Specific Queries
+### 5. Replace `.select('*')` with Column-Specific Queries ⚠️ PARTIAL
 - **File:** `frontend/lib/api.ts:48, 99-101, 140, 379, 495, 677, 683`
-- **Problem:** 7+ queries fetch all columns from teams, rankings_full, and games tables. These tables have 50+ columns; most views need 5-10.
-- **Fix:** Specify exact columns needed per query.
-- **Impact:** **HIGH** — 40-70% bandwidth reduction on team detail and rankings pages
+- **Problem:** 7+ queries fetch all columns from teams, rankings_full, and games tables.
+- **Impact:** **HIGH** — 40-70% bandwidth reduction on safe queries
 - **Effort:** Low
+- **⚠️ Deep Review:** `getTeam()` (lines 99-101) has cascading fallback chains across 3+ data sources (`rankingData?.power_score_final ?? stateRankData?.power_score_final ?? ...`). Missing a column silently returns `undefined`. **Only safe for:** `getTeamGames()`, `getRankings()`, and `team_merge_map` queries. Leave `getTeam()` alone.
 
-### 6. Remove Debug Console Logging from useRankings
+### 6. Remove Debug Console Logging from useRankings ✅
 - **File:** `frontend/hooks/useRankings.ts:19-207`
-- **Problem:** 12+ `console.log` statements execute on every query, including full result dumps.
-- **Fix:** Remove or gate behind `process.env.NODE_ENV === 'development'`.
-- **Impact:** **MEDIUM** — Immediate production perf improvement, DevTools won't slow down
+- **Problem:** 16 console statements execute on every query.
+- **Fix:** Remove 14 `console.log` statements. Keep 2 `console.error` statements (lines 79, 94).
+- **Impact:** **LOW** (dev cleanup only — Next.js compiler already strips `console.log` in production via `removeConsole` config)
 - **Effort:** Trivial
+- **✅ Deep Review:** E2E test `homepage.spec.ts:70-71` filters the 2 `console.error` patterns — do NOT remove those.
 
-### 7. Cache Team State Metadata Across Ranking Passes
+### 7. ❌ ~~Cache Team State Metadata Across Ranking Passes~~ — UNNECESSARY
 - **File:** `src/rankings/calculator.py:569-585`
-- **Problem:** Team state metadata is fetched in Pass 1, then fetched again identically in Pass 3.
-- **Fix:** Store result from Pass 1 and reuse in Pass 3.
-- **Impact:** **MEDIUM** — Eliminates ~1,000 redundant Supabase API calls per ranking run
-- **Effort:** Low
+- **Original suggestion:** Reuse Pass 1 state_code in Pass 3.
+- **❌ Deep Review:** The two fetches serve **different architectural purposes** (Fetch 1: SCF algorithm input; Fetch 2: SOS output enrichment). Both are read-only, no writes between them. However, Fetch 2 only takes ~10 seconds for 10K teams — **not a bottleneck**. Merging them adds complexity for negligible gain. **Skip this optimization.**
 
-### 8. Increase Batch Size from 100 to 200 UUIDs
+### 8. ❌ ~~Increase Batch Size from 100 to 200 UUIDs~~ — UNSAFE
 - **File:** `src/rankings/data_adapter.py:249`
-- **Problem:** Batch size of 100 UUIDs (~3.6KB) is conservative; Supabase supports 8KB URIs (~200 UUIDs safely).
-- **Fix:** Change `batch_size = 100` to `batch_size = 200`.
-- **Impact:** **MEDIUM** — 50% fewer API calls for team metadata fetches
-- **Effort:** Trivial
+- **Original suggestion:** Change `batch_size = 100` to `batch_size = 200`.
+- **❌ Deep Review:** Requires coordinated changes across **11+ files** (data_adapter, calculator, ranking_history, scrapers, scripts). At batch_size=180 with combined filters (`.in_().eq().gte().lte()`), URI reaches ~6.85KB against 8KB limit — only 1.15KB margin. Silent failures return empty results (no exception), causing **undetected data corruption** in rankings. **Keep at 100, or standardize to 150 max** (already proven safe in 3 scripts).
 
-### 9. Add pip/npm Caching to GitHub Actions
-- **Files:** `.github/workflows/calculate-rankings.yml:70-71`, all frontend workflows
-- **Problem:** Every workflow run installs all dependencies from scratch.
-- **Fix:** Add `cache: 'pip'` to `setup-python` and `cache: 'npm'` to `setup-node`.
-- **Impact:** **MEDIUM** — 3-5 min saved per workflow run × 15+ workflows/week
-- **Effort:** Trivial
+### 9. Add pip Caching to GitHub Actions ✅ (no npm needed)
+- **Files:** 5 workflows missing caching: `calculate-rankings.yml`, `process-missing-games.yml`, `tgs-event-scrape-import.yml`, `auto-gotsport-event-scrape.yml`, `scrape-specific-event.yml`
+- **Problem:** 5/16 workflows install dependencies from scratch; 4 workflows have redundant `pip install` after `requirements.txt`.
+- **Fix:** Add `cache: 'pip'` to `setup-python`; remove redundant installs; standardize to `@v5`.
+- **Impact:** **MEDIUM** — `process-missing-games.yml` (hourly) alone saves ~120-180 min/week
+- **Effort:** Low
+- **✅ Deep Review:** No npm workflows exist (Vercel handles frontend). Requires removing redundant `pip install scrapy twisted` and `pip install beautifulsoup4 lxml` from 4 workflows (packages already in requirements.txt).
 
-### 10. Consolidate groupby-concat Patterns in v53e
+### 10. Consolidate groupby-concat Patterns in v53e ✅
 - **File:** `src/etl/v53e.py:738, 868, 873, 977, 980`
 - **Problem:** Five separate `pd.concat([fn(grp) for _, grp in df.groupby()])` patterns create N temporary DataFrames.
 - **Fix:** Use `.groupby().transform()` or `.groupby().apply()` with return.
@@ -187,16 +188,16 @@ This audit identified **40+ performance issues** across the PitchRank stack. The
 
 ---
 
-## Implementation Roadmap
+## Implementation Roadmap (Revised After Deep Review)
 
 ### Phase 1 — Quick Wins (1-2 days, highest ROI)
-- [ ] Remove debug logging from useRankings (#32)
-- [ ] Replace `.select('*')` with specific columns (#27)
-- [ ] Optimize middleware to skip auth on public routes (#28)
-- [ ] Increase batch size to 200 (#18)
-- [ ] Add pip/npm caching to workflows (#39, #40)
-- [ ] Use TRUNCATE instead of delete-all (#24)
-- [ ] Cache team metadata across ranking passes (#13)
+- [ ] Remove 14 debug `console.log` from useRankings; keep 2 `console.error` (#32) ✅
+- [ ] Replace `.select('*')` in `getTeamGames()` and `getRankings()` only (#27) ⚠️
+- [ ] Skip premium profile DB query on non-premium routes in middleware (#28) ⚠️
+- [ ] Add `cache: 'pip'` to 5 uncached workflows; remove 4 redundant installs (#39) ✅
+- ~~[ ] Increase batch size to 200 (#18)~~ ❌ REJECTED — URI overflow risk
+- ~~[ ] Use TRUNCATE instead of delete-all (#24)~~ ❌ REJECTED — bypasses safeguards
+- ~~[ ] Cache team metadata across ranking passes (#13)~~ ❌ UNNECESSARY — only saves ~10s
 
 ### Phase 2 — Vectorization (3-5 days)
 - [ ] Vectorize adaptive K calculation (#1)
@@ -236,3 +237,49 @@ This audit identified **40+ performance issues** across the PitchRank stack. The
 | Team detail page bandwidth | ~500KB | ~150KB | 70% reduction |
 | GH Actions workflow time | ~8 min avg | ~5 min avg | 37% faster |
 | Peak memory (ranking engine) | ~4GB | ~2.5GB | 37% reduction |
+
+---
+
+## Deep Review Findings (Appendix)
+
+### Batch Size 100→180/200: REJECTED
+
+**Problem:** Not an isolated config change — requires coordinated updates across 11+ files:
+- `src/rankings/data_adapter.py:249`, `calculator.py:540,571`, `ranking_history.py:185,285`
+- `scripts/calculate_rankings.py:76,101,475`, `scrapers/base.py:108`, `merge_suggester.py:341`
+- Several queries combine `.in_()` with `.eq()`, `.gte()`, `.lte()` — adding filter overhead to URI
+
+**URI math at batch_size=180:** ~6.85KB used / 8KB limit = only 1.15KB margin.
+**Failure mode:** Silent empty results (no exception) → undetected ranking data corruption.
+**Recommendation:** Keep 100 everywhere, or standardize to 150 (proven safe in 3 scripts).
+
+### Middleware Auth Optimization: LIMITED SCOPE
+
+**Problem:** `getSession()` in middleware refreshes expired Supabase auth tokens via cookie updates.
+**Failure scenario:** Skip on public routes → token expires during browsing → user navigates to protected route → unexpected logout.
+**Safe optimization:** Only skip the premium profile DB query (lines 97-101) on non-premium routes. Keep `getSession()`/`getUser()` on ALL page routes.
+**Revised impact:** ~50ms savings (not 100-300ms originally estimated).
+
+### Cache Team Metadata: UNNECESSARY
+
+**Finding:** Two fetches serve different architectural purposes:
+- Fetch 1 (line 413): SCF algorithm input (pre-ranking)
+- Fetch 2 (line 568): SOS output enrichment (post-ranking)
+- No writes to `teams` table between them (confirmed safe)
+- **But Fetch 2 only takes ~10 seconds** — not a bottleneck vs. Pass 1/2 (minutes)
+
+### Console.log Removal: ALREADY HANDLED
+
+**Finding:** `next.config.ts` has `compiler.removeConsole` that strips `console.log` in production.
+Only `console.error` and `console.warn` survive to production. Removal is dev cleanup only.
+**Critical:** 2 `console.error` statements (lines 79, 94) are filtered by E2E test `homepage.spec.ts:70-71` — do NOT remove.
+
+### GH Actions Caching: SAFE BUT COMPLEX
+
+**Findings:**
+- No npm workflows exist (Vercel handles frontend deployment)
+- 5/16 workflows lack pip caching entirely
+- 4 workflows have redundant `pip install` after `requirements.txt` (packages already included)
+- `process-missing-games.yml` runs hourly — biggest win (~120-180 min/week saved)
+- Mixed `setup-python@v4` vs `@v5` — should standardize to `@v5`
+- 6 workflows use selective `pip install pkg1 pkg2` instead of `requirements.txt` — poor cache key match
