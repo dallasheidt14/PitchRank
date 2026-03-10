@@ -193,8 +193,8 @@ export function useRankings(
       console.log('[useRankings] queryFn returning', allResults.length, 'results');
       return allResults;
     },
-    staleTime: 5 * 60 * 1000, // 5 minutes – matches global default, avoids refetch on every mount
-    gcTime: 60 * 60 * 1000, // Keep in cache for 1 hour
+    staleTime: 2 * 60 * 1000, // 2 minutes – refresh fairly often when switching filters
+    gcTime: 10 * 60 * 1000, // 10 minutes – matches global default, don't hold stale state data too long
   });
 
   // Debug: Log query result state
