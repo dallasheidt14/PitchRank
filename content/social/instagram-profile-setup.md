@@ -19,11 +19,32 @@ Use the **PR Monogram Icon** (`logo/logo3faviconfinal.png` or `frontend/public/l
 `PitchRank ⚽ Youth Soccer Rankings`
 
 ### Bio (150 characters max)
+
+**Primary (recommended):**
 ```
-📊 Data-driven youth soccer rankings
-🏆 25,000+ teams ranked nationally
-⚡ Updated weekly
-👇 Find your team's rank
+Youth soccer rankings without the politics.
+25K+ teams ranked by algorithm—not opinions.
+Context > record.
+👇 Find your team
+```
+
+**Alternative options:**
+
+**Option B — Provocative hook:**
+```
+Losing to the #1 team says more than
+beating a bad one 8-0.
+That's why we built PitchRank.
+25K+ teams ranked weekly.
+👇 pitchrank.io
+```
+
+**Option C — Authority claim:**
+```
+America's most accurate youth soccer rankings.
+25K+ teams. 500K+ games. 13 algorithm layers.
+Context over records. Updated Mondays.
+👇 What's your PowerScore?
 ```
 
 ### Link in Bio
