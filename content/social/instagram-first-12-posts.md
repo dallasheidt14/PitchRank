@@ -19,11 +19,17 @@
 
 ### Caption
 ```
-We rank 25,000+ youth soccer teams. Every week. With math, not opinions.
+Your team's record is lying to you.
 
-PitchRank uses a 13-layer algorithm that looks at every game your team plays — not just wins and losses, but WHO you beat, HOW you beat them, and WHEN you beat them.
+Going 10-0 against weak teams doesn't make you elite. Losing 2-3 to the best team in the country? That tells us more than any blowout.
 
-No politics. No pay-to-play rankings. Just data.
+That's why we built PitchRank.
+
+Our 13-layer algorithm ranks 25,000+ youth soccer teams by CONTEXT — not just wins and losses, but who you beat, how you beat them, and who THEY beat.
+
+No politics. No pay-to-play. No coaches voting in a room.
+
+Just math.
 
 Find your team → link in bio
 
