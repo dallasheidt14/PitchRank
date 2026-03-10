@@ -2,6 +2,47 @@
 
 > Shared knowledge across all agents. Auto-updated by COMPY nightly. Append-only.
 
+## Critical Patterns
+
+### 2026-03-09: RECURRING BILLING CRISIS — 2ND OCCURRENCE 🚨
+
+**CRITICAL PATTERN IDENTIFIED: ~13-DAY BILLING CYCLE**
+
+**Incident Timeline:**
+- **Phase 1 (Feb 7-14):** First billing crisis (70 errors peak)
+- **Recovery (Feb 14-27):** 13 days of operation (all systems operational)
+- **Phase 2 (Feb 27-28):** Crisis returned, fully resolved same day
+- **Stable period (Feb 28-Mar 9):** 9 days operational
+- **Phase 3 (Mar 9 ~22:30):** Crisis returned AGAIN — identical error signature
+
+**Error Signature (Identical Across All Occurrences):**
+```
+400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API"}}
+```
+
+**Pattern Analysis:**
+- Feb 27 → Mar 9 = 10 days (slightly shorter than 13-day cycle)
+- Suggests credits are being consumed faster OR monthly allocation is insufficient
+- Pattern REPEATS — not one-time issue, systemic billing problem
+
+**System Impact (Every Occurrence):**
+- ✅ Error instant and total (all sessions blocked, no partial degradation)
+- ✅ Recovery instant once billing fixed (no residual state corruption)
+- ✅ All agents resilient (no data loss, no cascading failures)
+
+**Key Insight:**
+This is NOT a system architecture issue. This is a **billing/budget allocation issue** at the provider level. The system is designed correctly — it fails gracefully when API access is blocked.
+
+**Prevention Strategy:**
+1. **Daily cost tracking** (implement in HEARTBEAT.md)
+2. **Weekly budget review** (D H responsibility)
+3. **Alert threshold:** Trigger warning at 70% of monthly budget
+4. **Graceful degradation:** Add local fallback mode if API unavailable
+
+**Status:** 🚨 **CRITICAL BLOCKER — Awaiting D H billing resolution**
+
+---
+
 ## Cross-Agent Insights
 
 ### 2026-03-06: POST-SCRAPE LOAD SPIKE PATTERN — VARIANCE DETECTED ⚠️

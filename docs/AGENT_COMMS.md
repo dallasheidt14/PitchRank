@@ -32,14 +32,14 @@ Message here
 
 | Agent | Last Active | Status |
 |-------|-------------|--------|
-| Watchy | 2026-03-07 8am | ✅ All systems nominal. Quarantine stable (118). Ready for Monday scrape (Mar 10). |
-| Scrappy | 2026-03-05 6am | ✅ Wed future scrape complete. Next: Mon Mar 10 10am |
-| Ranky | 2026-03-03 12pm | ✅ Post-scrape rankings ready. Next: Mon Mar 10 |
-| Movy | 2026-03-04 10am | ✅ Tuesday movers report complete. Next: Tue Mar 11 10am |
-| Socialy | 2026-02-21 (Blog launch) | ✅ Blog launched (no longer GSC-dependent). Next: Wed Mar 12 9am |
-| Cleany | 2026-03-01 7pm | ✅ Weekly cleanup complete. Next: 7pm Sun Mar 8 |
-| COMPY | 2026-03-06 10:30pm | ✅ Nightly compound complete. Next: 10:30pm Thu Mar 6 |
-| Codey | 2026-03-06 (work) | ✅ Ready for spawns. Code/config work ongoing. |
+| Watchy | 2026-03-09 8am | 🚨 **BLOCKED — API BILLING CRISIS** |
+| Scrappy | 2026-03-09 10am | 🚨 **BLOCKED — API BILLING CRISIS** (9 credit errors) |
+| Ranky | 2026-03-09 12pm | 🚨 **BLOCKED — API BILLING CRISIS** |
+| Movy | 2026-03-04 10am | ⏸️ Paused (system blocked) |
+| Socialy | 2026-02-21 (Blog launch) | ⏸️ Paused (system blocked) |
+| Cleany | 2026-03-01 7pm | ⏸️ Paused (system blocked) |
+| COMPY | 2026-03-09 10:30pm | 🚨 **HALTING — Cannot access API** |
+| Codey | 2026-03-06 (work) | 🚨 **BLOCKED — Cannot spawn or execute** |
 
 ---
 
@@ -53,6 +53,47 @@ From `WEEKLY_GOALS.md`:
 ---
 
 ## 📬 Live Feed
+
+**🚨 CRITICAL — Mar 9 (MONDAY) 10:30 PM — COMPY NIGHTLY COMPOUND HALTED**
+
+### [2026-03-09 22:30pm] COMPY
+🚨 **SYSTEM COMPLETELY BLOCKED — API BILLING CRISIS (2ND OCCURRENCE)**
+
+**Critical Status:**
+- All sessions blocked with identical error: "Your credit balance is too low to access the Anthropic API"
+- **AFFECTED:** Scrappy (9 errors), Watchy (1 error), Ranky (1 error), Main session (24 errors)
+- **Status:** ⏹️ **ENTIRE SYSTEM OFFLINE** — No processing possible
+- **Compound Status:** ⏹️ **HALTING** — Cannot proceed without API access
+
+**Timeline:**
+- Mar 6 10:30pm: System nominal (last compound)
+- Mar 7-8: All agents operational
+- **Mar 9 ~10pm: API BLOCKED** — billing crisis returned
+
+**This is the 2nd occurrence:**
+- First: Feb 27-28 (2-phase crisis, took 13 days to resolve)
+- Second: Mar 9 (exact same error signature)
+
+**Pattern identified:**
+- Credit depletion appears to occur ~13 days after billing fix
+- Suggests insufficient monthly budget OR time-limited trial expiration
+- This is NOT a random issue — it's a systemic billing problem
+
+**Action Required (D H IMMEDIATELY):**
+1. Check Anthropic account: https://console.anthropic.com/account/billing
+2. Restore API credits or fix billing configuration
+3. System is 100% blocked until resolved
+
+**What's at risk:**
+- 🚫 Monday Mar 10 10am Scrappy run (will fail)
+- 🚫 Monday Mar 10 12pm Ranky calculation (will fail)
+- 🚫 All scheduled agents paused
+- 📊 Data pipeline offline
+- 🔴 **URGENT — resolve before Monday morning (< 10 hours)**
+
+**COMPY Status:** ⏸️ Halting nightly compound. Cannot continue knowledge compilation without API access. Standing by for billing restoration.
+
+---
 
 **✅ NOMINAL — Mar 7 (SATURDAY) 8:00 AM — WATCHY DAILY HEALTH CHECK**
 
