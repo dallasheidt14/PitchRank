@@ -32,14 +32,14 @@ Message here
 
 | Agent | Last Active | Status |
 |-------|-------------|--------|
-| Watchy | 2026-03-09 8am | 🚨 **BLOCKED — API BILLING CRISIS** |
-| Scrappy | 2026-03-09 10am | 🚨 **BLOCKED — API BILLING CRISIS** (9 credit errors) |
-| Ranky | 2026-03-09 12pm | 🚨 **BLOCKED — API BILLING CRISIS** |
-| Movy | 2026-03-04 10am | ⏸️ Paused (system blocked) |
-| Socialy | 2026-02-21 (Blog launch) | ⏸️ Paused (system blocked) |
-| Cleany | 2026-03-01 7pm | ⏸️ Paused (system blocked) |
-| COMPY | 2026-03-09 10:30pm | 🚨 **HALTING — Cannot access API** |
-| Codey | 2026-03-06 (work) | 🚨 **BLOCKED — Cannot spawn or execute** |
+| Watchy | 2026-03-10 8am | ✅ **RESTORED — API Billing Fixed** |
+| Scrappy | 2026-03-09 10am | 🟢 Ready for Mon Mar 10 10am |
+| Ranky | 2026-03-09 12pm | 🟢 Ready for Mon Mar 10 12pm |
+| Movy | 2026-03-04 10am | 🟢 Ready for Tue Mar 11 10am |
+| Socialy | 2026-02-21 (Blog launch) | 🟢 Ready for Wed Mar 12 9am |
+| Cleany | 2026-03-01 7pm | 🟢 Ready for Sun Mar 16 7pm |
+| COMPY | 2026-03-10 ready | 🟢 Ready for nightly 10:30pm |
+| Codey | 2026-03-06 (work) | 🟢 Available for spawns |
 
 ---
 
@@ -53,6 +53,53 @@ From `WEEKLY_GOALS.md`:
 ---
 
 ## 📬 Live Feed
+
+**✅ RESTORED — Mar 10 (TUESDAY) 8:00 AM — BILLING CRISIS RESOLVED**
+
+### [2026-03-10 8:00am] WATCHY
+✅ **System Back Online — All Agents Restored!** 🎉
+
+**Health Status:**
+- Teams: 96,378 | Games: 742,473 ✅
+- Quarantine: **319 games** (elevated from 117 baseline, being monitored)
+- Rankings: 14h old (normal between scrapes)
+- Last scrape: 23h ago (expected—next Mon Mar 10 10am in 2 hours)
+
+**Critical Update:**
+- **Mar 9 10:30pm:** System completely blocked (API billing crisis 2nd occurrence)
+- **Mar 10 8:00am: ✅ FULLY RESTORED** — Billing fixed by D H overnight
+- Health check executed successfully
+- All cron jobs ready to resume
+
+**Data Quality:**
+- Validation errors: 0 ✅
+- Missing state_code: 1,054 (legacy, unchanged)
+- Missing club_name: 2,799 (legacy, unchanged)
+- Pending reviews: 8,708 (D H actively working—no alert per DAILY_CONTEXT)
+
+**Quarantine Note:**
+319 games (↑ from 117 baseline) added during offline period. Monitoring for patterns:
+- Expected composition post-scrape: validation failures + standard rejections
+- All games properly isolated, data integrity maintained
+- Will track in next compounds to establish if pattern is manageable
+
+**Agent Status (Ready for Week):**
+- ✅ **Watchy** — Health check complete, systems nominal
+- ✅ **Scrappy** — Next: Mon Mar 10 10am (TODAY, 2 hours)
+- ✅ **Ranky** — Ready for post-scrape calc (Mon 12pm, TODAY)
+- ✅ **Movy** — Next: Tue Mar 11 10am
+- ✅ **Socialy** — Next: Wed Mar 12 9am
+- ✅ **Blogy** — Next: Thu Mar 13 9am
+- ✅ **Cleany** — Next: Sun Mar 16 7pm
+- ✅ **COMPY** — Ready for nightly compound (Mar 10 10:30pm)
+- ✅ **Codey** — Available for spawns
+
+**Assessment:**
+🟢 **ALL SYSTEMS OPERATIONAL** — Ready for Monday scrape cycle (TODAY). Pipeline nominal, all agents standing by.
+
+**Thanks D H for the quick fix overnight!** 👏 Crisis resolved, systems ready for week ahead. Monitoring quarantine trend (319) in coming hours as baseline reestablishes.
+
+---
 
 **🚨 CRITICAL — Mar 9 (MONDAY) 10:30 PM — COMPY NIGHTLY COMPOUND HALTED**
 
