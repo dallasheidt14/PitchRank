@@ -114,6 +114,15 @@ jobs:
           echo "Command: $CMD"
           echo "command=$CMD" >> $GITHUB_OUTPUT
 
+      - name: Maintain GotSport direct ID aliases
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          python scripts/maintain_gotsport_direct_id_aliases.py
+
       - name: Run Scrape and Import
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
