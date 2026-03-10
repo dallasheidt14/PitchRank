@@ -420,6 +420,128 @@ Hardcoded legacy recency parameters (`RECENT_K=15`, `RECENT_SHARE=0.65`) are mar
 
 ---
 
+## 9. Scraper-Specific Issues
+
+### 9.1 Timezone date-shift in GotSport match parsing
+
+**File:** `src/scrapers/gotsport.py:373-382`
+
+```python
+if 'T' in match_date:
+    dt = datetime.fromisoformat(match_date.replace('Z', '+00:00'))
+    if dt.tzinfo is not None:
+        game_date = dt.astimezone(timezone.utc).date()
+```
+
+A game at `2025-11-07T23:00:00-04:00` (Eastern) converts to `2025-11-08` in UTC. This shifts the game to the wrong date, which affects the recency decay calculation and could cause duplicate detection to miss matches.
+
+**Fix (safe):** Use the local date from the original timezone, not UTC:
+```python
+game_date = dt.date()  # Use local date, not UTC-converted date
+```
+
+### 9.2 Silent `except: pass` in match sort
+
+**File:** `src/scrapers/gotsport.py:183-186`
+
+```python
+try:
+    matches.sort(key=lambda m: m.get('match_date') or '', reverse=True)
+except Exception:
+    pass
+```
+
+If `match_date` is corrupted across records, the sort silently fails and games process in arbitrary order. The early-exit optimization (line 207) then breaks — it could stop at a random game instead of the oldest.
+
+**Fix (safe):** Log the failure:
+```python
+except Exception as e:
+    logger.warning(f"Match sort failed for team {normalized_team_id}, processing unsorted: {e}")
+```
+
+### 9.3 Empty opponent_id passes validation
+
+**File:** `src/scrapers/gotsport.py:408`
+
+```python
+opponent_id = str(opponent.get('team_id', ''))  # Could be empty string ''
+```
+
+An empty string passes the truthiness check in `_game_data_to_dict()` (base.py:59). The game gets imported with `opponent_id=''`, which later fails silently during team matching.
+
+**Fix (safe):** Validate before returning:
+```python
+opponent_id = opponent.get('team_id')
+if not opponent_id:
+    logger.debug(f"No opponent_id for match, skipping")
+    return None
+```
+
+### 9.4 SincSports HTML selector fragility
+
+**File:** `src/scrapers/sincsports.py:245-259`
+
+HTML scraping uses CSS selectors with no fallback. If SincSports changes their HTML structure, the scraper silently returns empty results instead of failing visibly.
+
+**Fix (safe):** Add a structure validation check:
+```python
+if not soup.select('.schedule-row'):
+    logger.error(f"No schedule rows found — HTML structure may have changed")
+    raise ValueError("SincSports HTML structure mismatch")
+```
+
+### 9.5 Inconsistent home/away perspective across providers
+
+**File:** `src/scrapers/athleteone_scraper.py:175-217` vs `src/scrapers/sincsports.py:427`
+
+AthleteOne creates **two** GameData objects per game (home + away perspectives). SincSports creates **one** (hardcoded `home_away='H'`). GotSport creates one from the scraped team's perspective.
+
+This inconsistency means AthleteOne games get double-weighted in rankings unless the ETL pipeline deduplicates perspectives. The enhanced pipeline does handle this (via `duplicates_skipped` metric), but there's no validation that perspective dedup actually fired.
+
+**Fix (safe, additive):** Add a provider-level assertion in the import pipeline:
+```python
+if provider == 'athleteone':
+    expected_perspective_ratio = 2.0  # ~2 records per real game
+    actual_ratio = total_records / unique_games
+    if actual_ratio < 1.5:
+        logger.warning(f"AthleteOne perspective ratio {actual_ratio:.1f} < expected 2.0")
+```
+
+### 9.6 GotSport event timeout env var not read by code
+
+**File:** `.github/workflows/auto-gotsport-event-scrape.yml` sets `GOTSPORT_EVENT_TIMEOUT=240` but `src/scrapers/gotsport_event.py` never reads this env var.
+
+**Fix (safe):** Add to event scraper init:
+```python
+self.per_event_timeout = int(os.getenv('GOTSPORT_EVENT_TIMEOUT', '240'))
+```
+
+### 9.7 TGS event range is hardcoded
+
+**File:** `.github/workflows/tgs-event-scrape-import.yml:35-36`
+
+```yaml
+DEFAULT_START_EVENT='4050'
+DEFAULT_END_EVENT='4150'
+```
+
+Only covers 100 event IDs. If TGS adds events beyond this range, they're silently skipped.
+
+**Fix (safe):** Make the range dynamic or at least wider, and log when the range is exhausted:
+```yaml
+DEFAULT_END_EVENT='5000'  # Wider range with early-exit on 404s
+```
+
+### 9.8 Modular11 workflow schedule is disabled
+
+**File:** `.github/workflows/modular11-weekly-scrape.yml:4-11`
+
+The `schedule:` trigger is commented out. MLS NEXT games update frequently but rely on manual dispatch only.
+
+**Fix (safe):** Re-enable the schedule or document why it was disabled.
+
+---
+
 ## Summary
 
 The pipeline is solid for its scale. The improvements above are all **additive or isolated** — none require restructuring the pipeline architecture. Priority order:
