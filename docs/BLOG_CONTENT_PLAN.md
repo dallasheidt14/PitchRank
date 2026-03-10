@@ -1,6 +1,25 @@
 # PitchRank Blog Content Plan
 **Created:** 2026-02-21  
-**By:** Socialy 📱 (SEO Strategist)
+**By:** Socialy 📱 (SEO Strategist)  
+**Last Updated:** 2026-03-10 (Socialy SEO optimization pass)
+
+---
+
+## 🔥 THIS WEEK'S TARGET (Mar 10-16)
+
+**BLOG POST:** Texas Youth Soccer Rankings Guide  
+**ASSIGNED TO:** Blogy 📝  
+**TARGET KEYWORDS:** `texas youth soccer rankings`, `texas club soccer rankings`  
+**WHY NOW:** High search volume, 9,452 TX teams tracked, weak competition (USARank only)  
+**DEADLINE:** Publish by Friday, March 14  
+
+**OPTIMIZATIONS COMPLETED (Mar 10):**
+- ✅ California blog post title/meta optimized (191 impressions → only 5 clicks, 2.6% CTR)
+- ✅ New title: "California Youth Soccer Rankings: Find Your Team Among 15,693 CA Clubs (2026)"
+- ✅ New meta leads with question + specificity + brand names
+- ✅ Expected CTR improvement: 2.6% → 8-10%
+
+---
 
 ## Strategy Overview
 
@@ -390,11 +409,15 @@ These address real frustrations parents search for and talk about online.
 ### Week 3 (Mar 3-9)
 3. ✅ **Youth Soccer Rankings Explained** — COMPLETED 2026-03-05 (support #52 position)
 
-### Week 4 (Mar 10-16)
-4. 🔥 **Is Club Soccer Worth $15K?** (PAIN POINT - high search volume)
+### Week 4 (Mar 10-16) — **CURRENT WEEK**
+4. 🎯 **Texas Youth Soccer Rankings: Your Complete Guide to TX Club Soccer (2026)** — **TARGET FOR BLOGY**
+   - **Target keywords:** `texas youth soccer rankings`, `texas club soccer rankings`, `tx soccer rankings`
+   - **GSC opportunity:** High search volume, weak competition (USARank, high school focus)
+   - **Data advantage:** 9,452 TX teams tracked
+   - **Status:** Assigned to Blogy (publish by Fri Mar 14)
 
-### Week 4 (Mar 10-16)
-5. 🔥 **Is Your Kid's Team Actually Good?** (PAIN POINT)
+### Week 5 (Mar 17-23)
+5. 🔥 **Is Club Soccer Worth $15K?** (PAIN POINT - high search volume)
 
 ### Month 2
 6. **Florida Youth Soccer Rankings** (priority state)
