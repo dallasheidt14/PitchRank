@@ -7,6 +7,7 @@ import { Toaster } from "@/components/ui/Toaster";
 import { StructuredData } from "@/components/StructuredData";
 import { Footer } from "@/components/Footer";
 import { GoogleAnalytics } from "@/components/GoogleAnalytics";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 // Athletic Editorial Typography
 const oswald = Oswald({
@@ -138,6 +139,7 @@ export default function RootLayout({
           <Footer />
           <Toaster />
         </Providers>
+        <SpeedInsights />
       </body>
     </html>
   );
