@@ -783,6 +783,7 @@ export default function InfographicsPage() {
                   regionName={getRegionName()}
                   teamName={selectedInfographicType === 'spotlight' && rankings ? rankings[selectedSpotlightTeamIndex]?.team_name : undefined}
                   rank={selectedInfographicType === 'spotlight' ? selectedSpotlightTeamIndex + 1 : undefined}
+                  teamCount={top10Teams.length}
                 />
               </CardContent>
             </Card>
