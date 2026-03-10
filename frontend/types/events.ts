@@ -87,3 +87,21 @@ export interface MissingGameEventPayload {
   team_name: string;
   game_date?: string | null;
 }
+
+/**
+ * Payload for upgrade/conversion funnel events
+ */
+export interface UpgradeEventPayload {
+  source?: string;
+  plan?: 'monthly' | 'yearly';
+  price?: number;
+}
+
+/**
+ * Payload for paywall impression events
+ */
+export interface PaywallImpressionPayload {
+  feature: string;
+  location: string;
+  team_id?: string;
+}

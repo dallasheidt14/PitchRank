@@ -18,6 +18,8 @@ import type {
   PredictionEventPayload,
   ChartViewEventPayload,
   MissingGameEventPayload,
+  UpgradeEventPayload,
+  PaywallImpressionPayload,
 } from '@/types/events';
 
 // ============================================================================
@@ -235,6 +237,69 @@ export function trackMissingGameSubmitted(payload: MissingGameEventPayload): voi
     team_id_master: payload.team_id_master,
     team_name: payload.team_name,
     game_date: payload.game_date,
+  });
+}
+
+// ============================================================================
+// Upgrade / Conversion Funnel Events
+// ============================================================================
+
+/**
+ * Track when the upgrade page is viewed
+ */
+export function trackUpgradePageViewed(payload: UpgradeEventPayload): void {
+  gtagEvent('upgrade_page_viewed', {
+    source: payload.source || 'direct',
+  });
+}
+
+/**
+ * Track when a user selects a plan (clicks subscribe button)
+ */
+export function trackPlanSelected(payload: UpgradeEventPayload): void {
+  gtagEvent('plan_selected', {
+    plan: payload.plan,
+    price: payload.price,
+    source: payload.source,
+  });
+}
+
+/**
+ * Track when Stripe checkout is initiated
+ */
+export function trackCheckoutInitiated(payload: UpgradeEventPayload): void {
+  gtagEvent('checkout_initiated', {
+    plan: payload.plan,
+    price: payload.price,
+  });
+}
+
+/**
+ * Track when subscription is completed (success page viewed)
+ */
+export function trackSubscriptionCompleted(): void {
+  gtagEvent('subscription_completed', {});
+}
+
+/**
+ * Track when a paywall/premium gate is shown to a free user
+ */
+export function trackPaywallImpression(payload: PaywallImpressionPayload): void {
+  gtagEvent('paywall_impression', {
+    feature: payload.feature,
+    location: payload.location,
+    team_id: payload.team_id,
+  });
+}
+
+/**
+ * Track when a user clicks an upgrade CTA from a paywall
+ */
+export function trackPaywallUpgradeClicked(payload: PaywallImpressionPayload): void {
+  gtagEvent('paywall_upgrade_clicked', {
+    feature: payload.feature,
+    location: payload.location,
+    team_id: payload.team_id,
   });
 }
 
