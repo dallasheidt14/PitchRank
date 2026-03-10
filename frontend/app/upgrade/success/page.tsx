@@ -40,6 +40,7 @@ const ONBOARDING_STEPS = [
 
 export default function UpgradeSuccessPage() {
   const [showConfetti, setShowConfetti] = useState(false);
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
 
   useEffect(() => {
     // Trigger confetti animation on mount
@@ -60,15 +61,18 @@ export default function UpgradeSuccessPage() {
     if (navigator.share) {
       try {
         await navigator.share(shareData);
-      } catch {
-        // User cancelled or share failed
+      } catch (_err) {
+        // User cancelled share dialog - no action needed
       }
     } else {
       // Fallback: copy to clipboard
       try {
         await navigator.clipboard.writeText(shareData.url);
-      } catch {
-        // Clipboard failed
+        setShareStatus("Link copied!");
+        setTimeout(() => setShareStatus(null), 2000);
+      } catch (_err) {
+        setShareStatus("Could not copy link");
+        setTimeout(() => setShareStatus(null), 2000);
       }
     }
   };
@@ -169,7 +173,7 @@ export default function UpgradeSuccessPage() {
           </p>
           <Button variant="outline" size="sm" onClick={handleShare}>
             <Share2 className="w-4 h-4 mr-2" />
-            Share PitchRank
+            {shareStatus || "Share PitchRank"}
           </Button>
         </div>
       </div>

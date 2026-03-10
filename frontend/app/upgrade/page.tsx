@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -11,7 +11,6 @@ import {
   TrendingUp,
   Star,
   Pencil,
-  Users,
   BarChart3,
   Eye,
   ArrowRight,
@@ -69,6 +68,14 @@ const TESTIMONIALS = [
 ];
 
 export default function UpgradePage() {
+  return (
+    <Suspense>
+      <UpgradePageContent />
+    </Suspense>
+  );
+}
+
+function UpgradePageContent() {
   const { user, isLoading: userLoading } = useUser();
   const searchParams = useSearchParams();
   const [loadingPlan, setLoadingPlan] = useState<"monthly" | "yearly" | null>(null);
