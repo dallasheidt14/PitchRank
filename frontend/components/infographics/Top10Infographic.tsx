@@ -131,19 +131,6 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
               Rankings as of {formatDate(generatedDate)}
             </div>
 
-            {/* Engagement CTA */}
-            <div
-              style={{
-                fontFamily: "'DM Sans', Arial, sans-serif",
-                fontSize: `${ctaSize}px`,
-                fontWeight: 600,
-                color: BRAND_COLORS.brightWhite,
-                marginTop: 12,
-                textDecoration: 'none',
-              }}
-            >
-              Did we get it right? Tag your team {'\u{1F447}'}
-            </div>
           </div>
 
           {/* Rankings List */}

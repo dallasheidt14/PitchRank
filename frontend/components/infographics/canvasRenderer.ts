@@ -124,14 +124,7 @@ export async function renderInfographicToCanvas(options: RenderOptions): Promise
   ctx.font = `400 ${statsSize}px "DM Sans", Arial, sans-serif`;
   ctx.fillText(`Rankings as of ${formatDate(generatedDate)}`, dimensions.width / 2, currentY + statsSize / 2);
 
-  currentY += statsSize + 12;
-
-  // Engagement CTA
-  ctx.fillStyle = BRAND_COLORS.brightWhite;
-  ctx.font = `600 ${ctaSize}px "DM Sans", Arial, sans-serif`;
-  ctx.fillText('Did we get it right? Tag your team \u{1F447}', dimensions.width / 2, currentY + ctaSize / 2);
-
-  currentY += ctaSize + (isVertical ? 36 : 20);
+  currentY += statsSize + (isVertical ? 48 : 32);
 
   // ===== RANKINGS LIST =====
   const top10 = teams.slice(0, 10);
