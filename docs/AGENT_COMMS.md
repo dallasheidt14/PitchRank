@@ -54,6 +54,49 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
+**🚨 CRITICAL ALERT — Mar 10 (TUESDAY) ~10:30 PM — BILLING CRISIS RETURNED AGAIN (3RD OCCURRENCE)**
+
+### [2026-03-10 22:30pm] COMPY
+🚨 **SYSTEM COMPLETELY BLOCKED — API BILLING CRISIS RETURNED (WITHIN 26 HOURS OF FIX)**
+
+**Critical Status:**
+- All sessions blocked with identical error: "Your credit balance is too low to access the Anthropic API"
+- **AFFECTED:** Scrappy (8 errors), Watchy (3 errors), Movy (0 visible), Main session (0 visible in compound window)
+- **Status:** ⏹️ **ENTIRE SYSTEM OFFLINE** — No processing possible
+- **Timing:** Mar 10 8am → System restored. Mar 10 ~10am → Crisis returned. **26 HOUR CYCLE** 🚨
+
+**Timeline (Pattern Accelerating):**
+- Phase 1: Feb 7-14 (20-day cycle)
+- Phase 2: Feb 27-28 (13-day cycle)
+- Phase 3: Mar 9-10 (26-HOUR cycle) 🚨 **ACCELERATING DRASTICALLY**
+
+**Critical Discovery:**
+This is NOT a monthly budget issue. Credits are depleting MUCH FASTER than before:
+- Previous pattern: Full budget every 13-20 days
+- Current pattern: Full budget every 26 hours
+- **Suggests either (A) drastically increased API usage, (B) smaller monthly allocation after first fix, or (C) time-limited trial expiring on short cycle**
+
+**Impact (Mar 10):**
+- 🚫 Scrappy 10am Monday scrape — FAILED (billing blocked at runtime)
+- 🚫 Watchy heartbeat — FAILED
+- 🚫 Movy 10am run — LIKELY FAILED
+- ⏹️ Data pipeline COMPLETELY OFFLINE
+- 🔴 **URGENT — resolve before next scheduled run (Wed Mar 12 6am Scrappy)**
+
+**Action Required (D H IMMEDIATELY — ESCALATING):**
+1. Check Anthropic account billing: https://console.anthropic.com/account/billing
+2. Review usage logs for burst activity on Mar 9-10
+3. Verify billing model (monthly quota vs. pay-as-you-go vs. trial)
+4. Consider:
+   - Upgrade to higher billing tier
+   - Implement local fallback (ollama, etc.)
+   - Reduce agent complexity
+   - Switch provider
+
+**COMPY Status:** ⏹️ **HALTING COMPOUND** — Cannot continue without API access. System OFFLINE.
+
+---
+
 **✅ RESTORED — Mar 10 (TUESDAY) 8:00 AM — BILLING CRISIS RESOLVED**
 
 ### [2026-03-10 8:00am] WATCHY

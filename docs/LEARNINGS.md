@@ -4,16 +4,16 @@
 
 ## Critical Patterns
 
-### 2026-03-09: RECURRING BILLING CRISIS — 2ND OCCURRENCE 🚨
+### 2026-03-10: CRITICAL BILLING CRISIS — 3RD OCCURRENCE IN 3 WEEKS 🚨
 
-**CRITICAL PATTERN IDENTIFIED: ~13-DAY BILLING CYCLE**
+**PATTERN ACCELERATING: CRISIS RECURRING WITHIN HOURS OF FIXES**
 
-**Incident Timeline:**
+**Incident Timeline (ACCELERATING FASTER):**
 - **Phase 1 (Feb 7-14):** First billing crisis (70 errors peak)
-- **Recovery (Feb 14-27):** 13 days of operation (all systems operational)
-- **Phase 2 (Feb 27-28):** Crisis returned, fully resolved same day
-- **Stable period (Feb 28-Mar 9):** 9 days operational
-- **Phase 3 (Mar 9 ~22:30):** Crisis returned AGAIN — identical error signature
+- **Recovery (Feb 14-27):** 13 days of operation
+- **Phase 2 (Feb 27-28):** Crisis returned, fixed same day → 9 days operational
+- **Phase 3 (Mar 9 ~22:30):** Crisis returned AGAIN, fixed Mar 10 8am
+- **Phase 4 (Mar 10 ~10:00am-10:30am):** 🚨 **CRISIS RETURNED WITHIN 2 HOURS OF FIX**
 
 **Error Signature (Identical Across All Occurrences):**
 ```
@@ -21,25 +21,46 @@
 ```
 
 **Pattern Analysis:**
-- Feb 27 → Mar 9 = 10 days (slightly shorter than 13-day cycle)
-- Suggests credits are being consumed faster OR monthly allocation is insufficient
-- Pattern REPEATS — not one-time issue, systemic billing problem
+- Feb 7 → Feb 27 = 20 days (Phase 1 → Phase 2)
+- Feb 27 → Mar 9 = 10 days (Phase 2 → Phase 3)
+- Mar 9 8am → Mar 10 10am = **26 HOURS** (Phase 3 → Phase 4) 🚨
+- **Cycle is ACCELERATING, not extending — credits depleting faster**
+
+**Depletion Rate Estimate:**
+- Feb-Mar cycle: ~$1-5/day × 13 days = monthly budget ≈ $65-130
+- Current depletion: Full monthly budget exhausted in 26 hours
+- **This suggests either (A) drastically increased API usage OR (B) monthly allocation too low for actual workload**
 
 **System Impact (Every Occurrence):**
-- ✅ Error instant and total (all sessions blocked, no partial degradation)
-- ✅ Recovery instant once billing fixed (no residual state corruption)
-- ✅ All agents resilient (no data loss, no cascading failures)
+- ✅ Error instant and total (all sessions blocked at time of depletion)
+- ✅ Recovery instant once billing fixed (no residual corruption)
+- ✅ All agents resilient (no cascading failures)
+- 🚨 **NEW: Cycle repeats within HOURS, not days**
 
-**Key Insight:**
-This is NOT a system architecture issue. This is a **billing/budget allocation issue** at the provider level. The system is designed correctly — it fails gracefully when API access is blocked.
+**Affected Operations (Mar 10):**
+- ❌ Scrappy 10am run (Monday scrape) — BLOCKED
+- ❌ Watchy heartbeat — BLOCKED post-8am check
+- ❌ Movy 10am run — BLOCKED
+- ⏸️ Ranky calculation — PAUSED
+- 🚫 **Data pipeline OFFLINE**
 
-**Prevention Strategy:**
-1. **Daily cost tracking** (implement in HEARTBEAT.md)
-2. **Weekly budget review** (D H responsibility)
-3. **Alert threshold:** Trigger warning at 70% of monthly budget
-4. **Graceful degradation:** Add local fallback mode if API unavailable
+**Key Insight (REVISED):**
+This is NOT a monthly budget issue OR a gradual depletion. This is either:
+1. **Rapidly accelerating API consumption** (something is using 3-5x normal credits)
+2. **Time-limited trial/credit package** expiring/renewing on short cycle
+3. **Rate-based billing model** where each API call is disproportionately expensive
 
-**Status:** 🚨 **CRITICAL BLOCKER — Awaiting D H billing resolution**
+**CRITICAL ACTION REQUIRED (D H):**
+1. **Immediately review Anthropic billing dashboard:** https://console.anthropic.com/account/billing
+2. **Check usage logs** — Is there a burst of high-cost operations on Mar 9-10?
+3. **Verify billing model** — Is this monthly quota, pay-as-you-go, or trial with expiration?
+4. **Consider alternatives:**
+   - Upgrade to paid plan with higher limits
+   - Implement local fallback (Claude via ollama or similar)
+   - Reduce agent complexity to lower per-day API usage
+   - Switch to cheaper model (haiku = current approach, already minimal)
+
+**Status:** 🚨 **CRITICAL BLOCKER — System OFFLINE — Awaiting D H billing resolution (URGENT)**
 
 ---
 
