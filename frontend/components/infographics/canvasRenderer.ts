@@ -52,7 +52,8 @@ export async function renderInfographicToCanvas(options: RenderOptions): Promise
 
   // Font sizes based on platform
   const titleSize = isVertical ? 72 : isSquare ? 64 : 56;
-  const subtitleSize = isVertical ? 32 : isSquare ? 28 : 24;
+  const subtitleSize = isVertical ? 36 : isSquare ? 32 : 28;
+  const ctaSize = isVertical ? 24 : isSquare ? 22 : 18;
   const rankSize = isVertical ? 36 : isSquare ? 32 : 28;
   const teamNameSize = isVertical ? 26 : isSquare ? 22 : 18;
   const statsSize = isVertical ? 20 : isSquare ? 18 : 16;
@@ -94,10 +95,12 @@ export async function renderInfographicToCanvas(options: RenderOptions): Promise
 
   currentY += titleSize + 16;
 
-  // Draw title (TOP 10 U12 BOYS - NATIONAL)
+  // Draw title (TOP 10 U12 BOYS IN FLORIDA)
   const genderLabel = gender === 'M' ? 'BOYS' : 'GIRLS';
   const regionLabel = region ? regionName.toUpperCase() : 'NATIONAL';
-  const title = `TOP 10 ${ageGroup.toUpperCase()} ${genderLabel} - ${regionLabel}`;
+  const title = region
+    ? `TOP 10 ${ageGroup.toUpperCase()} ${genderLabel} IN ${regionLabel}`
+    : `TOP 10 ${ageGroup.toUpperCase()} ${genderLabel} - NATIONAL`;
 
   ctx.fillStyle = BRAND_COLORS.electricYellow;
   ctx.font = `700 ${subtitleSize}px Oswald, "Arial Black", sans-serif`;
@@ -116,7 +119,14 @@ export async function renderInfographicToCanvas(options: RenderOptions): Promise
   ctx.font = `400 ${statsSize}px "DM Sans", Arial, sans-serif`;
   ctx.fillText(`Rankings as of ${formatDate(generatedDate)}`, dimensions.width / 2, currentY + statsSize / 2);
 
-  currentY += statsSize + (isVertical ? 48 : 32);
+  currentY += statsSize + 12;
+
+  // Engagement CTA
+  ctx.fillStyle = BRAND_COLORS.brightWhite;
+  ctx.font = `600 ${ctaSize}px "DM Sans", Arial, sans-serif`;
+  ctx.fillText('Did we get it right? Tag your team \u{1F447}', dimensions.width / 2, currentY + ctaSize / 2);
+
+  currentY += ctaSize + (isVertical ? 36 : 20);
 
   // ===== RANKINGS LIST =====
   const top10 = teams.slice(0, 10);
@@ -241,17 +251,11 @@ export async function renderInfographicToCanvas(options: RenderOptions): Promise
   ctx.lineTo(dimensions.width - padding, currentY - 16);
   ctx.stroke();
 
-  // pitchrank.io
-  ctx.textAlign = 'left';
+  // pitchrank.io — clean footer, no hashtags (those go in the caption)
+  ctx.textAlign = 'center';
   ctx.fillStyle = '#999999';
-  ctx.font = `400 ${statsSize - 2}px "DM Sans", Arial, sans-serif`;
-  ctx.fillText('pitchrank.io', padding, currentY);
-
-  // Hashtags
-  const hashtags = `#YouthSoccer #${ageGroup}Soccer${region ? ` #${regionName}Soccer` : ''}`;
-  ctx.textAlign = 'right';
-  ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillText(hashtags, dimensions.width - padding, currentY);
+  ctx.font = `400 ${statsSize}px "DM Sans", Arial, sans-serif`;
+  ctx.fillText('pitchrank.io/rankings', dimensions.width / 2, currentY);
 
   return canvas;
 }

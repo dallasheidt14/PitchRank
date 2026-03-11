@@ -28,7 +28,8 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
 
     // Scale factors based on platform
     const titleSize = isVertical ? 72 : isSquare ? 64 : 56;
-    const subtitleSize = isVertical ? 32 : isSquare ? 28 : 24;
+    const subtitleSize = isVertical ? 36 : isSquare ? 32 : 28;
+    const ctaSize = isVertical ? 24 : isSquare ? 22 : 18;
     const rankSize = isVertical ? 36 : isSquare ? 32 : 28;
     const teamNameSize = isVertical ? 28 : isSquare ? 24 : 20;
     const statsSize = isVertical ? 20 : isSquare ? 18 : 16;
@@ -40,13 +41,12 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
       return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     };
 
-    // Generate dynamic title
+    // Generate dynamic title — use "IN {STATE}" for state rankings, dash for national
     const genderLabel = gender === 'M' ? 'BOYS' : 'GIRLS';
     const regionLabel = region ? (regionName || region.toUpperCase()) : 'NATIONAL';
-    const title = `TOP 10 ${ageGroup.toUpperCase()} ${genderLabel} - ${regionLabel}`;
-
-    // Generate dynamic hashtags
-    const hashtags = `#YouthSoccer #${ageGroup}Soccer${region ? ` #${regionName || region}Soccer` : ''}`;
+    const title = region
+      ? `TOP 10 ${ageGroup.toUpperCase()} ${genderLabel} IN ${regionLabel}`
+      : `TOP 10 ${ageGroup.toUpperCase()} ${genderLabel} - NATIONAL`;
 
     return (
       <InfographicWrapper ref={ref} platform={platform} scale={scale}>
@@ -126,6 +126,20 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
             >
               Rankings as of {formatDate(generatedDate)}
             </div>
+
+            {/* Engagement CTA */}
+            <div
+              style={{
+                fontFamily: "'DM Sans', Arial, sans-serif",
+                fontSize: `${ctaSize}px`,
+                fontWeight: 600,
+                color: BRAND_COLORS.brightWhite,
+                marginTop: 12,
+                textDecoration: 'none',
+              }}
+            >
+              Did we get it right? Tag your team {'\u{1F447}'}
+            </div>
           </div>
 
           {/* Rankings List */}
@@ -164,24 +178,15 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
             <div
               style={{
                 fontFamily: "Arial, sans-serif",
-                fontSize: `${statsSize - 2}px`,
+                fontSize: `${statsSize}px`,
                 fontWeight: 400,
                 color: '#999999',
                 textDecoration: 'none',
+                width: '100%',
+                textAlign: 'center',
               }}
             >
-              pitchrank.io
-            </div>
-            <div
-              style={{
-                fontFamily: "Arial, sans-serif",
-                fontSize: `${statsSize - 2}px`,
-                fontWeight: 400,
-                color: BRAND_COLORS.electricYellow,
-                textDecoration: 'none',
-              }}
-            >
-              {hashtags}
+              pitchrank.io/rankings
             </div>
           </div>
         </div>
