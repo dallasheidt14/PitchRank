@@ -106,18 +106,33 @@ def extract_year(division_name: str) -> Optional[int]:
     return None
 
 
-def extract_gender(division_name: str) -> Optional[str]:
-    """Extract gender from division name (e.g., 'B2012' -> 'Boys', 'G2013' -> 'Girls')
-    
+def extract_gender(division_name: str, event_name: Optional[str] = None) -> Optional[str]:
+    """Extract gender from division name, falling back to event name.
+
+    Strategy:
+    1. Check division name prefix (e.g., 'B2012' -> 'Boys', 'G2013' -> 'Girls')
+    2. If no B/G prefix, search event name for keywords ('Boys', 'Girls', etc.)
+
     Returns normalized gender values that match validator expectations:
-    - 'Boys' for B divisions
-    - 'Girls' for G divisions
+    - 'Boys' for B/male divisions
+    - 'Girls' for G/female divisions
     """
+    # Try division name prefix first (e.g., "B2014", "G2013")
     division_upper = division_name.upper()
     if division_upper.startswith('B'):
         return 'Boys'
     elif division_upper.startswith('G'):
         return 'Girls'
+
+    # Fallback: search event name for gender keywords
+    # e.g., "Pre-ECNL Boys Northern Cal 2025-2026"
+    if event_name:
+        event_upper = event_name.upper()
+        if re.search(r'\bBOYS?\b|\bMALE\b|\bMEN\b', event_upper):
+            return 'Boys'
+        elif re.search(r'\bGIRLS?\b|\bFEMALE\b|\bWOMEN\b', event_upper):
+            return 'Girls'
+
     return None
 
 
@@ -313,9 +328,9 @@ def normalize_api_game(
     division_id = division.get("divisionID")
     division_name = division.get("divisionName", "")
     
-    # Extract age_year and gender from division name
+    # Extract age_year and gender from division name (fall back to event name)
     age_year = extract_year(division_name)
-    gender = extract_gender(division_name)
+    gender = extract_gender(division_name, event_name=event_name)
     
     # Calculate age_group from age_year
     age_group = ""

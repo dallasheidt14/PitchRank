@@ -208,33 +208,52 @@ def batch_create_teams_and_aliases(
         console.print(team_records[0] if team_records else "No teams to show")
         return stats
     
-    # Batch INSERT teams
+    # Batch INSERT teams (upsert to handle partial duplicates)
     console.print(f"\n[bold green]Inserting {len(team_records)} teams...[/bold green]")
-    
+
     for i in track(range(0, len(team_records), batch_size), description="Inserting teams"):
         batch = team_records[i:i+batch_size]
         try:
             supabase.table('teams').insert(batch).execute()
             stats['created'] += len(batch)
         except Exception as e:
-            # Check if it's a duplicate key error
+            # Batch failed — fall back to one-by-one to save non-duplicate rows
             if 'duplicate key' in str(e).lower() or '23505' in str(e):
-                logger.warning(f"Batch {i//batch_size + 1}: Some teams already exist, skipping batch")
-                stats['skipped_existing'] += len(batch)
+                batch_num = i // batch_size + 1
+                logger.info(f"Batch {batch_num}: conflict detected, falling back to row-by-row insert")
+                for record in batch:
+                    try:
+                        supabase.table('teams').insert(record).execute()
+                        stats['created'] += 1
+                    except Exception as row_err:
+                        if 'duplicate key' in str(row_err).lower() or '23505' in str(row_err):
+                            stats['skipped_existing'] += 1
+                        else:
+                            logger.error(f"Error inserting team {record.get('team_name')}: {row_err}")
+                            stats['errors'] += 1
             else:
                 logger.error(f"Error inserting team batch {i//batch_size + 1}: {e}")
                 stats['errors'] += len(batch)
-    
-    # Batch INSERT aliases
+
+    # Batch INSERT aliases (with row-by-row fallback)
     console.print(f"\n[bold green]Inserting {len(alias_records)} aliases...[/bold green]")
-    
+
     for i in track(range(0, len(alias_records), batch_size), description="Inserting aliases"):
         batch = alias_records[i:i+batch_size]
         try:
             supabase.table('team_alias_map').insert(batch).execute()
         except Exception as e:
             if 'duplicate key' in str(e).lower() or '23505' in str(e):
-                logger.warning(f"Batch {i//batch_size + 1}: Some aliases already exist, skipping batch")
+                batch_num = i // batch_size + 1
+                logger.info(f"Alias batch {batch_num}: conflict detected, falling back to row-by-row insert")
+                for record in batch:
+                    try:
+                        supabase.table('team_alias_map').insert(record).execute()
+                    except Exception as row_err:
+                        if 'duplicate key' in str(row_err).lower() or '23505' in str(row_err):
+                            pass  # Already exists, skip silently
+                        else:
+                            logger.error(f"Error inserting alias for {record.get('provider_team_id')}: {row_err}")
             else:
                 logger.error(f"Error inserting alias batch {i//batch_size + 1}: {e}")
     
