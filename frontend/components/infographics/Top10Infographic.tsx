@@ -73,7 +73,10 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
             {/* Logo */}
             <div
               style={{
-                position: 'relative',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '12px',
                 fontFamily: "Oswald, 'Arial Black', sans-serif",
                 fontSize: `${titleSize}px`,
                 fontWeight: 800,
@@ -84,17 +87,18 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
             >
               <span
                 style={{
-                  position: 'absolute',
-                  left: '-24px',
-                  top: '50%',
-                  transform: 'translateY(-50%) skewX(-12deg)',
+                  display: 'inline-block',
                   width: '10px',
-                  height: '70%',
+                  height: `${titleSize * 0.7}px`,
                   background: BRAND_COLORS.electricYellow,
+                  transform: 'skewX(-12deg)',
+                  flexShrink: 0,
                 }}
               />
-              <span style={{ color: BRAND_COLORS.brightWhite }}>PITCH</span>
-              <span style={{ color: BRAND_COLORS.electricYellow }}>RANK</span>
+              <span>
+                <span style={{ color: BRAND_COLORS.brightWhite }}>PITCH</span>
+                <span style={{ color: BRAND_COLORS.electricYellow }}>RANK</span>
+              </span>
             </div>
 
             {/* Title */}

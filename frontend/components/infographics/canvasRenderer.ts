@@ -71,24 +71,27 @@ export async function renderInfographicToCanvas(options: RenderOptions): Promise
 
   const pitchWidth = ctx.measureText('PITCH').width;
   const rankWidth = ctx.measureText('RANK').width;
-  const totalLogoWidth = pitchWidth + rankWidth;
+  const slashGap = 18; // space between slash and P
+  const slashWidth = 10;
+  const totalLogoWidth = slashWidth + slashGap + pitchWidth + rankWidth;
   const logoStartX = (dimensions.width - totalLogoWidth) / 2;
 
-  // Yellow slash bar - positioned right before the P
+  // Yellow slash bar
   ctx.save();
-  ctx.translate(logoStartX, logoY - titleSize * 0.4);
+  ctx.translate(logoStartX + slashWidth / 2, logoY - titleSize * 0.4);
   ctx.transform(1, 0, -0.2, 1, 0, 0);
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillRect(-14, 0, 10, titleSize * 0.8);
+  ctx.fillRect(-slashWidth / 2, 0, slashWidth, titleSize * 0.8);
   ctx.restore();
 
   // Draw PITCH in white
+  const textStartX = logoStartX + slashWidth + slashGap;
   ctx.fillStyle = BRAND_COLORS.brightWhite;
-  ctx.fillText('PITCH', logoStartX, logoY);
+  ctx.fillText('PITCH', textStartX, logoY);
 
   // Draw RANK in yellow
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillText('RANK', logoStartX + pitchWidth, logoY);
+  ctx.fillText('RANK', textStartX + pitchWidth, logoY);
 
   // Reset alignment
   ctx.textAlign = 'center';
