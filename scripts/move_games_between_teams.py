@@ -67,12 +67,61 @@ def update(table, match_params, data):
     return resp.json()
 
 
+def delete(table, match_params):
+    """DELETE via PostgREST."""
+    resp = httpx.delete(
+        f"{REST_URL}/{table}",
+        headers=HEADERS,
+        params=match_params,
+        timeout=15,
+    )
+    resp.raise_for_status()
+    return resp
+
+
 def get_team_info(team_id):
     rows = query('teams', {
         'select': 'team_name,age_group,gender',
         'team_id_master': f'eq.{team_id}',
     })
     return rows[0] if rows else None
+
+
+def check_merge_map():
+    """Check for team_merge_map entries linking FROM_TEAM and TO_TEAM."""
+    entries = []
+
+    # Check if FROM_TEAM is deprecated → TO_TEAM
+    rows = query('team_merge_map', {
+        'select': 'id,deprecated_team_id,canonical_team_id',
+        'deprecated_team_id': f'eq.{FROM_TEAM}',
+        'canonical_team_id': f'eq.{TO_TEAM}',
+    })
+    entries.extend(rows)
+
+    # Check if TO_TEAM is deprecated → FROM_TEAM
+    rows = query('team_merge_map', {
+        'select': 'id,deprecated_team_id,canonical_team_id',
+        'deprecated_team_id': f'eq.{TO_TEAM}',
+        'canonical_team_id': f'eq.{FROM_TEAM}',
+    })
+    entries.extend(rows)
+
+    return entries
+
+
+def remove_merge_entries(entries, dry_run=True):
+    """Remove team_merge_map entries that link FROM and TO teams."""
+    removed = 0
+    for entry in entries:
+        entry_id = entry['id']
+        dep = entry['deprecated_team_id'][:8]
+        can = entry['canonical_team_id'][:8]
+        print(f"  Merge entry: {dep}... → {can}... (id: {entry_id})")
+        if not dry_run:
+            delete('team_merge_map', {'id': f'eq.{entry_id}'})
+            removed += 1
+    return removed
 
 
 def find_target_games():
@@ -165,41 +214,77 @@ def main():
     print(f"TO:   {to_info['team_name']} ({TO_TEAM[:8]}...)")
     print(f"Mode: {'DRY RUN' if args.dry_run else 'LIVE'}")
 
+    # Check for merge map entries that would make the move invisible on the frontend
+    # The frontend resolves team IDs through team_merge_map, so if these teams are
+    # linked, games show on BOTH teams regardless of which team ID is on the record.
+    merge_entries = check_merge_map()
+    if merge_entries:
+        print(f"\n⚠  Found {len(merge_entries)} team_merge_map entries linking these teams:")
+        for entry in merge_entries:
+            dep = entry['deprecated_team_id'][:8]
+            can = entry['canonical_team_id'][:8]
+            print(f"    {dep}... → {can}...")
+        print("  These MUST be removed or the frontend will still show games on both teams.")
+        print("  (The frontend resolves merged team IDs and queries games for ALL linked IDs)")
+    else:
+        print("\n✓  No team_merge_map entries linking these teams.")
+
     games = find_target_games()
 
     if not games:
         print("\nNo matching games found for Playmaker Sports Tournaments "
               "on 2026-02-28 / 2026-03-01.")
-        sys.exit(1)
+        if not merge_entries:
+            sys.exit(1)
+        # Still proceed to remove merge entries even if games already moved
+        print("  (Games may have already been moved in a prior run.)")
 
-    print(f"\nFound {len(games)} Playmaker games to move:")
-    print("-" * 65)
-    for g in games:
-        lock = "locked" if g['is_immutable'] else "unlocked"
-        print(f"  [{lock}] {g['game_date']} | {g['position']:4} | "
-              f"{g['score']:5} | {g['competition']}")
-    print("-" * 65)
+    if games:
+        print(f"\nFound {len(games)} Playmaker games to move:")
+        print("-" * 65)
+        for g in games:
+            lock = "locked" if g['is_immutable'] else "unlocked"
+            print(f"  [{lock}] {g['game_date']} | {g['position']:4} | "
+                  f"{g['score']:5} | {g['competition']}")
+        print("-" * 65)
 
-    if len(games) != 3:
-        print(f"\nExpected 3 games but found {len(games)}. Please verify.")
+        if len(games) != 3:
+            print(f"\nExpected 3 games but found {len(games)}. Please verify.")
 
     moved = 0
     errors = 0
-    for g in games:
-        ok = move_game(g, dry_run=args.dry_run)
-        if ok:
-            moved += 1
+    if games:
+        for g in games:
+            ok = move_game(g, dry_run=args.dry_run)
+            if ok:
+                moved += 1
+            else:
+                errors += 1
+
+    # Remove merge map entries between source and target teams
+    merge_removed = 0
+    if merge_entries:
+        if args.dry_run:
+            print(f"\n  Would remove {len(merge_entries)} merge map entries")
         else:
-            errors += 1
+            print(f"\nRemoving {len(merge_entries)} merge map entries...")
+            merge_removed = remove_merge_entries(merge_entries, dry_run=False)
+            print(f"  Removed {merge_removed} merge map entries")
 
     print("\n" + "=" * 65)
     print("SUMMARY")
     print("=" * 65)
     if args.dry_run:
-        print(f"  Would move: {len(games)} games")
+        if games:
+            print(f"  Would move: {len(games)} games")
+        if merge_entries:
+            print(f"  Would remove: {len(merge_entries)} merge map entries")
         print(f"\n  Run without --dry-run to execute")
     else:
-        print(f"  Moved: {moved} games")
+        if games:
+            print(f"  Moved: {moved} games")
+        if merge_entries:
+            print(f"  Merge entries removed: {merge_removed}")
         if errors:
             print(f"  Errors: {errors}")
 
