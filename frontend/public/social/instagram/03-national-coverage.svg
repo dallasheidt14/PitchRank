@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1080" height="1080" viewBox="0 0 1080 1080" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGrad3" x1="0" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#0A1B2B"/>
+      <stop offset="50%" stop-color="#0B3D55"/>
+      <stop offset="100%" stop-color="#0A1B2B"/>
+    </linearGradient>
+    <linearGradient id="mapGlow" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#1E90FF" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#1E90FF" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="pointGlow">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="bigGlow">
+      <feGaussianBlur stdDeviation="12" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <pattern id="scanlines3" x="0" y="0" width="4" height="4" patternUnits="userSpaceOnUse">
+      <rect width="4" height="1" fill="white" opacity="0.02"/>
+    </pattern>
+    <radialGradient id="pulseGrad" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#00BFFF" stop-opacity="0.8"/>
+      <stop offset="50%" stop-color="#00BFFF" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#00BFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1080" height="1080" fill="url(#bgGrad3)"/>
+  <rect width="1080" height="1080" fill="url(#scanlines3)"/>
+
+  <!-- Decorative diagonals -->
+  <rect x="60" y="60" width="10" height="120" fill="#F4D03F" transform="skewX(-12)" opacity="0.8"/>
+  <rect x="82" y="75" width="5" height="80" fill="#F4D03F" transform="skewX(-12)" opacity="0.35"/>
+
+  <!-- Title -->
+  <text x="540" y="105" font-family="Oswald, sans-serif" font-weight="600" font-size="32" fill="#00BFFF" text-anchor="middle" letter-spacing="8" opacity="0.8">YOUTH SOCCER RANKINGS</text>
+  <text x="540" y="175" font-family="Oswald, sans-serif" font-weight="700" font-size="68" fill="#FDFEFE" text-anchor="middle" letter-spacing="2">ACROSS THE COUNTRY</text>
+
+  <!-- Yellow divider -->
+  <rect x="340" y="200" width="400" height="3" rx="1.5" fill="#F4D03F" opacity="0.6"/>
+
+  <!-- USA Map (simplified outline) -->
+  <g transform="translate(100, 240) scale(0.85)" opacity="0.25">
+    <path d="M180,280 L200,250 L250,240 L300,220 L340,210 L380,200 L420,195 L460,200 L500,220 L530,240 L560,230 L600,220 L640,225 L680,230 L720,240 L760,250 L800,260 L830,280 L850,300 L840,330 L830,360 L810,380 L790,400 L770,410 L750,400 L730,390 L710,395 L690,410 L670,430 L650,440 L630,435 L610,420 L590,410 L570,400 L550,410 L530,430 L510,440 L490,435 L470,420 L450,400 L430,380 L410,370 L390,360 L370,355 L350,360 L330,370 L310,380 L290,375 L270,360 L250,340 L230,320 L210,310 L190,300 Z" fill="none" stroke="#00BFFF" stroke-width="2"/>
+  </g>
+
+  <!-- Glowing data points across "map" area -->
+  <g filter="url(#pointGlow)">
+    <!-- California -->
+    <circle cx="180" cy="450" r="6" fill="#00BFFF" opacity="0.9"/>
+    <circle cx="180" cy="450" r="12" fill="#00BFFF" opacity="0.2"/>
+    <circle cx="195" cy="500" r="5" fill="#00BFFF" opacity="0.7"/>
+
+    <!-- Pacific NW -->
+    <circle cx="210" cy="340" r="5" fill="#00BFFF" opacity="0.8"/>
+    <circle cx="240" cy="360" r="4" fill="#00BFFF" opacity="0.6"/>
+
+    <!-- Southwest -->
+    <circle cx="280" cy="520" r="5" fill="#00BFFF" opacity="0.7"/>
+    <circle cx="320" cy="480" r="4" fill="#00BFFF" opacity="0.6"/>
+
+    <!-- Mountain -->
+    <circle cx="310" cy="400" r="4" fill="#00BFFF" opacity="0.6"/>
+    <circle cx="350" cy="420" r="3" fill="#00BFFF" opacity="0.5"/>
+
+    <!-- Texas -->
+    <circle cx="450" cy="560" r="7" fill="#00BFFF" opacity="0.9"/>
+    <circle cx="450" cy="560" r="14" fill="#00BFFF" opacity="0.2"/>
+    <circle cx="480" cy="520" r="5" fill="#00BFFF" opacity="0.7"/>
+    <circle cx="420" cy="540" r="4" fill="#00BFFF" opacity="0.6"/>
+
+    <!-- Midwest -->
+    <circle cx="520" cy="380" r="5" fill="#00BFFF" opacity="0.7"/>
+    <circle cx="560" cy="400" r="4" fill="#00BFFF" opacity="0.6"/>
+    <circle cx="580" cy="360" r="5" fill="#00BFFF" opacity="0.7"/>
+    <circle cx="500" cy="340" r="4" fill="#00BFFF" opacity="0.5"/>
+
+    <!-- Great Lakes -->
+    <circle cx="640" cy="340" r="5" fill="#00BFFF" opacity="0.7"/>
+    <circle cx="670" cy="360" r="4" fill="#00BFFF" opacity="0.6"/>
+
+    <!-- Southeast -->
+    <circle cx="620" cy="480" r="5" fill="#00BFFF" opacity="0.7"/>
+    <circle cx="660" cy="500" r="4" fill="#00BFFF" opacity="0.6"/>
+    <circle cx="700" cy="480" r="5" fill="#00BFFF" opacity="0.7"/>
+
+    <!-- Florida -->
+    <circle cx="720" cy="560" r="7" fill="#00BFFF" opacity="0.9"/>
+    <circle cx="720" cy="560" r="14" fill="#00BFFF" opacity="0.2"/>
+    <circle cx="700" cy="540" r="4" fill="#00BFFF" opacity="0.6"/>
+
+    <!-- East Coast -->
+    <circle cx="770" cy="380" r="6" fill="#00BFFF" opacity="0.8"/>
+    <circle cx="770" cy="380" r="12" fill="#00BFFF" opacity="0.2"/>
+    <circle cx="790" cy="420" r="5" fill="#00BFFF" opacity="0.7"/>
+    <circle cx="800" cy="460" r="4" fill="#00BFFF" opacity="0.6"/>
+    <circle cx="750" cy="350" r="4" fill="#00BFFF" opacity="0.6"/>
+
+    <!-- Northeast -->
+    <circle cx="820" cy="330" r="6" fill="#00BFFF" opacity="0.9"/>
+    <circle cx="820" cy="330" r="12" fill="#00BFFF" opacity="0.2"/>
+    <circle cx="850" cy="310" r="5" fill="#00BFFF" opacity="0.7"/>
+    <circle cx="870" cy="340" r="4" fill="#00BFFF" opacity="0.6"/>
+
+    <!-- Colorado -->
+    <circle cx="370" cy="410" r="5" fill="#00BFFF" opacity="0.8"/>
+  </g>
+
+  <!-- Connection lines between clusters -->
+  <g stroke="#00BFFF" stroke-width="0.5" opacity="0.15">
+    <line x1="180" y1="450" x2="450" y2="560"/>
+    <line x1="450" y1="560" x2="720" y2="560"/>
+    <line x1="720" y1="560" x2="820" y2="330"/>
+    <line x1="820" y1="330" x2="640" y2="340"/>
+    <line x1="640" y1="340" x2="370" y2="410"/>
+    <line x1="370" y1="410" x2="210" y2="340"/>
+    <line x1="770" y1="380" x2="580" y2="360"/>
+    <line x1="520" y1="380" x2="310" y2="400"/>
+  </g>
+
+  <!-- Stats callout boxes -->
+  <g transform="translate(80, 680)">
+    <rect width="220" height="100" rx="10" fill="#0A1B2B" stroke="#00BFFF" stroke-width="1.5" stroke-opacity="0.4"/>
+    <text x="110" y="42" font-family="Oswald, sans-serif" font-weight="700" font-size="32" fill="#00BFFF" text-anchor="middle">THOUSANDS</text>
+    <text x="110" y="72" font-family="DM Sans, sans-serif" font-size="18" fill="#FDFEFE" text-anchor="middle" opacity="0.7">of teams ranked</text>
+  </g>
+
+  <g transform="translate(320, 680)">
+    <rect width="200" height="100" rx="10" fill="#0A1B2B" stroke="#00BFFF" stroke-width="1.5" stroke-opacity="0.4"/>
+    <text x="100" y="42" font-family="Oswald, sans-serif" font-weight="700" font-size="32" fill="#00BFFF" text-anchor="middle">U10 – U18</text>
+    <text x="100" y="72" font-family="DM Sans, sans-serif" font-size="18" fill="#FDFEFE" text-anchor="middle" opacity="0.7">age groups</text>
+  </g>
+
+  <g transform="translate(540, 680)">
+    <rect width="220" height="100" rx="10" fill="#0A1B2B" stroke="#00BFFF" stroke-width="1.5" stroke-opacity="0.4"/>
+    <text x="110" y="42" font-family="Oswald, sans-serif" font-weight="700" font-size="32" fill="#00BFFF" text-anchor="middle">BOYS &amp; GIRLS</text>
+    <text x="110" y="72" font-family="DM Sans, sans-serif" font-size="18" fill="#FDFEFE" text-anchor="middle" opacity="0.7">divisions covered</text>
+  </g>
+
+  <g transform="translate(780, 680)">
+    <rect width="220" height="100" rx="10" fill="#0A1B2B" stroke="#00BFFF" stroke-width="1.5" stroke-opacity="0.4"/>
+    <text x="110" y="42" font-family="Oswald, sans-serif" font-weight="700" font-size="32" fill="#00BFFF" text-anchor="middle">WEEKLY</text>
+    <text x="110" y="72" font-family="DM Sans, sans-serif" font-size="18" fill="#FDFEFE" text-anchor="middle" opacity="0.7">updates every Monday</text>
+  </g>
+
+  <!-- Subtitle -->
+  <text x="540" y="850" font-family="DM Sans, sans-serif" font-weight="500" font-size="26" fill="#FDFEFE" text-anchor="middle" opacity="0.65">Data-driven rankings for youth soccer teams nationwide</text>
+
+  <!-- Bottom bar -->
+  <rect x="0" y="1010" width="1080" height="70" fill="#0A1B2B" opacity="0.9"/>
+  <rect x="0" y="1008" width="1080" height="3" fill="#F4D03F" opacity="0.6"/>
+  <rect x="50" y="1025" width="8" height="35" fill="#F4D03F" transform="skewX(-12)"/>
+  <text x="75" y="1055" font-family="Oswald, sans-serif" font-weight="700" font-size="30" fill="#FDFEFE" letter-spacing="2">PITCH<tspan fill="#F4D03F">RANK</tspan></text>
+  <text x="1030" y="1055" font-family="DM Sans, sans-serif" font-weight="500" font-size="22" fill="#F4D03F" text-anchor="end" opacity="0.8">pitchrank.io/rankings</text>
+
+  <!-- Bottom right diagonals -->
+  <rect x="950" y="870" width="10" height="120" fill="#F4D03F" transform="skewX(-12)" opacity="0.5"/>
+  <rect x="970" y="885" width="5" height="80" fill="#F4D03F" transform="skewX(-12)" opacity="0.25"/>
+</svg>

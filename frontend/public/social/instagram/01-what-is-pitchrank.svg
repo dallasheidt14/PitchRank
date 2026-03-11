@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1080" height="1080" viewBox="0 0 1080 1080" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#052E27"/>
+      <stop offset="50%" stop-color="#0B5345"/>
+      <stop offset="100%" stop-color="#052E27"/>
+    </linearGradient>
+    <linearGradient id="yellowGlow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F4D03F" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#F4D03F" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="softGlow">
+      <feGaussianBlur stdDeviation="20" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- Scan lines pattern -->
+    <pattern id="scanlines" x="0" y="0" width="4" height="4" patternUnits="userSpaceOnUse">
+      <rect width="4" height="1" fill="white" opacity="0.03"/>
+    </pattern>
+    <!-- Grid pattern -->
+    <pattern id="grid" x="0" y="0" width="60" height="60" patternUnits="userSpaceOnUse">
+      <path d="M 60 0 L 0 0 0 60" fill="none" stroke="#F4D03F" stroke-width="0.5" opacity="0.08"/>
+    </pattern>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1080" height="1080" fill="url(#bgGrad)"/>
+  <rect width="1080" height="1080" fill="url(#scanlines)"/>
+  <rect width="1080" height="1080" fill="url(#grid)"/>
+
+  <!-- Decorative diagonal slash accent (top-left) -->
+  <rect x="60" y="80" width="12" height="200" fill="#F4D03F" transform="skewX(-12)" opacity="0.9"/>
+  <rect x="85" y="100" width="6" height="140" fill="#F4D03F" transform="skewX(-12)" opacity="0.4"/>
+
+  <!-- Decorative diagonal slash accent (bottom-right) -->
+  <rect x="950" y="800" width="12" height="200" fill="#F4D03F" transform="skewX(-12)" opacity="0.9"/>
+  <rect x="975" y="820" width="6" height="140" fill="#F4D03F" transform="skewX(-12)" opacity="0.4"/>
+
+  <!-- Glowing circle accent -->
+  <circle cx="540" cy="380" r="180" fill="#F4D03F" opacity="0.04" filter="url(#softGlow)"/>
+
+  <!-- Soccer ball icon (centered) -->
+  <g transform="translate(540, 340)" filter="url(#glow)">
+    <circle r="90" fill="none" stroke="#F4D03F" stroke-width="3" opacity="0.8"/>
+    <circle r="70" fill="none" stroke="#F4D03F" stroke-width="1.5" opacity="0.4"/>
+    <!-- Pentagon pattern -->
+    <polygon points="0,-40 38,-12 24,32 -24,32 -38,-12" fill="none" stroke="#F4D03F" stroke-width="2" opacity="0.6"/>
+    <!-- Connecting lines to circle -->
+    <line x1="0" y1="-40" x2="0" y2="-70" stroke="#F4D03F" stroke-width="1.5" opacity="0.5"/>
+    <line x1="38" y1="-12" x2="67" y2="-22" stroke="#F4D03F" stroke-width="1.5" opacity="0.5"/>
+    <line x1="24" y1="32" x2="41" y2="56" stroke="#F4D03F" stroke-width="1.5" opacity="0.5"/>
+    <line x1="-24" y1="32" x2="-41" y2="56" stroke="#F4D03F" stroke-width="1.5" opacity="0.5"/>
+    <line x1="-38" y1="-12" x2="-67" y2="-22" stroke="#F4D03F" stroke-width="1.5" opacity="0.5"/>
+    <!-- Data nodes around the ball -->
+    <circle cx="0" cy="-90" r="4" fill="#F4D03F" opacity="0.7"/>
+    <circle cx="86" cy="-28" r="4" fill="#F4D03F" opacity="0.7"/>
+    <circle cx="53" cy="73" r="4" fill="#F4D03F" opacity="0.7"/>
+    <circle cx="-53" cy="73" r="4" fill="#F4D03F" opacity="0.7"/>
+    <circle cx="-86" cy="-28" r="4" fill="#F4D03F" opacity="0.7"/>
+    <!-- Bar chart elements radiating out -->
+    <rect x="-10" y="-140" width="20" height="30" rx="3" fill="#F4D03F" opacity="0.3"/>
+    <rect x="100" y="-20" width="30" height="20" rx="3" fill="#F4D03F" opacity="0.3"/>
+    <rect x="-130" y="-20" width="30" height="20" rx="3" fill="#F4D03F" opacity="0.3"/>
+  </g>
+
+  <!-- Title: WHAT IS -->
+  <text x="540" y="520" font-family="Oswald, sans-serif" font-weight="600" font-size="52" fill="#FDFEFE" text-anchor="middle" letter-spacing="8" opacity="0.7">WHAT IS</text>
+
+  <!-- Title: PITCHRANK -->
+  <text x="540" y="600" font-family="Oswald, sans-serif" font-weight="700" font-size="96" fill="#FDFEFE" text-anchor="middle" letter-spacing="4">PITCH<tspan fill="#F4D03F">RANK</tspan></text>
+
+  <!-- Yellow divider -->
+  <rect x="390" y="625" width="300" height="4" rx="2" fill="#F4D03F" opacity="0.8"/>
+
+  <!-- Subtitle -->
+  <text x="540" y="680" font-family="DM Sans, sans-serif" font-weight="500" font-size="28" fill="#FDFEFE" text-anchor="middle" opacity="0.85">Youth Soccer Rankings Powered by Data</text>
+
+  <!-- Feature bullets -->
+  <g font-family="DM Sans, sans-serif" font-size="24" fill="#FDFEFE" opacity="0.75">
+    <!-- Bullet 1 -->
+    <circle cx="280" cy="742" r="5" fill="#F4D03F" opacity="0.9"/>
+    <text x="300" y="750">Thousands of teams ranked nationally</text>
+
+    <!-- Bullet 2 -->
+    <circle cx="280" cy="792" r="5" fill="#F4D03F" opacity="0.9"/>
+    <text x="300" y="800">Data-driven, unbiased algorithm</text>
+
+    <!-- Bullet 3 -->
+    <circle cx="280" cy="842" r="5" fill="#F4D03F" opacity="0.9"/>
+    <text x="300" y="850">All age groups, boys &amp; girls</text>
+
+    <!-- Bullet 4 -->
+    <circle cx="280" cy="892" r="5" fill="#F4D03F" opacity="0.9"/>
+    <text x="300" y="900">Updated weekly with real match data</text>
+  </g>
+
+  <!-- Bottom bar -->
+  <rect x="0" y="1010" width="1080" height="70" fill="#052E27" opacity="0.8"/>
+  <rect x="0" y="1008" width="1080" height="3" fill="#F4D03F" opacity="0.6"/>
+
+  <!-- Logo text in bottom bar -->
+  <rect x="50" y="1025" width="8" height="35" fill="#F4D03F" transform="skewX(-12)"/>
+  <text x="75" y="1055" font-family="Oswald, sans-serif" font-weight="700" font-size="30" fill="#FDFEFE" letter-spacing="2">PITCH<tspan fill="#F4D03F">RANK</tspan></text>
+
+  <!-- Website URL -->
+  <text x="1030" y="1055" font-family="DM Sans, sans-serif" font-weight="500" font-size="22" fill="#F4D03F" text-anchor="end" opacity="0.8">pitchrank.io</text>
+</svg>

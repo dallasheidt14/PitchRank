@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1080" height="1080" viewBox="0 0 1080 1080" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGrad4" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0A1B2B"/>
+      <stop offset="50%" stop-color="#0B2940"/>
+      <stop offset="100%" stop-color="#0A1B2B"/>
+    </linearGradient>
+    <filter id="glow4">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="bigGlow4">
+      <feGaussianBlur stdDeviation="25" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <pattern id="scanlines4" x="0" y="0" width="4" height="4" patternUnits="userSpaceOnUse">
+      <rect width="4" height="1" fill="white" opacity="0.02"/>
+    </pattern>
+    <linearGradient id="upArrow" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="#22C55E" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#22C55E" stop-opacity="0.8"/>
+    </linearGradient>
+    <linearGradient id="downArrow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#EF4444" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#EF4444" stop-opacity="0.8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1080" height="1080" fill="url(#bgGrad4)"/>
+  <rect width="1080" height="1080" fill="url(#scanlines4)"/>
+
+  <!-- Decorative diagonals -->
+  <rect x="60" y="60" width="10" height="120" fill="#F4D03F" transform="skewX(-12)" opacity="0.8"/>
+  <rect x="82" y="75" width="5" height="80" fill="#F4D03F" transform="skewX(-12)" opacity="0.35"/>
+
+  <!-- Large ambient glow behind center -->
+  <circle cx="540" cy="480" r="250" fill="#F4D03F" opacity="0.04" filter="url(#bigGlow4)"/>
+
+  <!-- Central soccer ball with ranking numbers orbiting -->
+  <g transform="translate(540, 420)">
+    <!-- Outer orbit ring -->
+    <circle r="200" fill="none" stroke="#F4D03F" stroke-width="1" opacity="0.15" stroke-dasharray="8,12"/>
+    <circle r="160" fill="none" stroke="#F4D03F" stroke-width="0.5" opacity="0.1" stroke-dasharray="4,8"/>
+
+    <!-- Soccer ball -->
+    <circle r="80" fill="none" stroke="#F4D03F" stroke-width="3" opacity="0.7" filter="url(#glow4)"/>
+    <circle r="60" fill="none" stroke="#F4D03F" stroke-width="1.5" opacity="0.3"/>
+    <polygon points="0,-35 33,-11 20,28 -20,28 -33,-11" fill="none" stroke="#F4D03F" stroke-width="2" opacity="0.5"/>
+
+    <!-- Ranking numbers orbiting -->
+    <!-- #1 (top) -->
+    <g transform="translate(0, -200)" filter="url(#glow4)">
+      <circle r="28" fill="#0A1B2B" stroke="#F4D03F" stroke-width="2"/>
+      <text x="0" y="8" font-family="Oswald, sans-serif" font-weight="700" font-size="28" fill="#F4D03F" text-anchor="middle">#1</text>
+    </g>
+
+    <!-- #5 (right) -->
+    <g transform="translate(190, -62)" filter="url(#glow4)">
+      <circle r="24" fill="#0A1B2B" stroke="#F4D03F" stroke-width="1.5" opacity="0.8"/>
+      <text x="0" y="7" font-family="Oswald, sans-serif" font-weight="700" font-size="22" fill="#F4D03F" text-anchor="middle" opacity="0.8">#5</text>
+    </g>
+
+    <!-- #12 (bottom-right) -->
+    <g transform="translate(118, 162)" filter="url(#glow4)">
+      <circle r="22" fill="#0A1B2B" stroke="#F4D03F" stroke-width="1.5" opacity="0.6"/>
+      <text x="0" y="7" font-family="Oswald, sans-serif" font-weight="600" font-size="20" fill="#F4D03F" text-anchor="middle" opacity="0.7">#12</text>
+    </g>
+
+    <!-- #3 (bottom-left) -->
+    <g transform="translate(-118, 162)" filter="url(#glow4)">
+      <circle r="22" fill="#0A1B2B" stroke="#F4D03F" stroke-width="1.5" opacity="0.6"/>
+      <text x="0" y="7" font-family="Oswald, sans-serif" font-weight="600" font-size="20" fill="#F4D03F" text-anchor="middle" opacity="0.7">#3</text>
+    </g>
+
+    <!-- #8 (left) -->
+    <g transform="translate(-190, -62)" filter="url(#glow4)">
+      <circle r="24" fill="#0A1B2B" stroke="#F4D03F" stroke-width="1.5" opacity="0.8"/>
+      <text x="0" y="7" font-family="Oswald, sans-serif" font-weight="700" font-size="22" fill="#F4D03F" text-anchor="middle" opacity="0.8">#8</text>
+    </g>
+
+    <!-- Up arrows (green) -->
+    <g transform="translate(-60, -130)">
+      <polygon points="0,-20 12,5 -12,5" fill="url(#upArrow)"/>
+      <line x1="0" y1="5" x2="0" y2="25" stroke="#22C55E" stroke-width="3" opacity="0.4"/>
+    </g>
+    <g transform="translate(130, 60)">
+      <polygon points="0,-18 10,3 -10,3" fill="url(#upArrow)" opacity="0.6"/>
+    </g>
+
+    <!-- Down arrows (red) -->
+    <g transform="translate(60, 130)">
+      <polygon points="0,20 12,-5 -12,-5" fill="url(#downArrow)"/>
+      <line x1="0" y1="-5" x2="0" y2="-25" stroke="#EF4444" stroke-width="3" opacity="0.4"/>
+    </g>
+    <g transform="translate(-130, 80)">
+      <polygon points="0,18 10,-3 -10,-3" fill="url(#downArrow)" opacity="0.6"/>
+    </g>
+  </g>
+
+  <!-- Title -->
+  <text x="540" y="720" font-family="Oswald, sans-serif" font-weight="700" font-size="100" fill="#FDFEFE" text-anchor="middle" letter-spacing="4">WEEKLY</text>
+  <text x="540" y="800" font-family="Oswald, sans-serif" font-weight="700" font-size="100" fill="#F4D03F" text-anchor="middle" letter-spacing="4">RANKINGS</text>
+
+  <!-- Subtitle -->
+  <rect x="370" y="820" width="340" height="3" rx="1.5" fill="#F4D03F" opacity="0.5"/>
+  <text x="540" y="870" font-family="Oswald, sans-serif" font-weight="500" font-size="36" fill="#FDFEFE" text-anchor="middle" letter-spacing="6" opacity="0.7">UPDATED EVERY MONDAY</text>
+
+  <!-- Who's rising, who's falling -->
+  <g transform="translate(540, 940)" font-family="DM Sans, sans-serif" font-size="24" text-anchor="middle">
+    <text x="-120" y="0" fill="#22C55E" font-weight="600">Who's rising?</text>
+    <text x="0" y="0" fill="#FDFEFE" opacity="0.4">|</text>
+    <text x="120" y="0" fill="#EF4444" font-weight="600">Who's falling?</text>
+  </g>
+
+  <!-- Bottom bar -->
+  <rect x="0" y="1010" width="1080" height="70" fill="#0A1B2B" opacity="0.9"/>
+  <rect x="0" y="1008" width="1080" height="3" fill="#F4D03F" opacity="0.6"/>
+  <rect x="50" y="1025" width="8" height="35" fill="#F4D03F" transform="skewX(-12)"/>
+  <text x="75" y="1055" font-family="Oswald, sans-serif" font-weight="700" font-size="30" fill="#FDFEFE" letter-spacing="2">PITCH<tspan fill="#F4D03F">RANK</tspan></text>
+  <text x="1030" y="1055" font-family="DM Sans, sans-serif" font-weight="500" font-size="22" fill="#F4D03F" text-anchor="end" opacity="0.8">pitchrank.io</text>
+</svg>
