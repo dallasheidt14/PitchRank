@@ -132,8 +132,11 @@ def batch_create_teams_and_aliases(
     batch_size: int = 500
 ):
     """
-    Batch INSERT teams and aliases.
-    
+    Batch INSERT teams and aliases, skipping teams that already have a direct_id alias.
+
+    Checks team_alias_map first to avoid creating duplicate teams. Only teams
+    whose provider_team_id has no existing alias get a new master team + alias.
+
     Args:
         supabase: Supabase client
         provider_id: Provider UUID
@@ -149,13 +152,38 @@ def batch_create_teams_and_aliases(
         'skipped_existing': 0,
         'errors': 0
     }
-    
+
     # Convert teams dict to list for progress tracking
     teams_list = list(teams.values())
-    
-    console.print(f"\n[bold]Preparing {len(teams_list)} teams for import...[/bold]")
-    
-    for team_data in track(teams_list, description="Processing teams"):
+
+    # Pre-check: fetch existing aliases to avoid creating duplicate teams
+    all_provider_ids = [t['provider_team_id'] for t in teams_list]
+    existing_aliases = set()
+
+    console.print(f"\n[bold]Checking {len(all_provider_ids)} teams against existing aliases...[/bold]")
+    for i in range(0, len(all_provider_ids), 100):  # Batch to avoid URI length limits
+        batch_ids = all_provider_ids[i:i+100]
+        try:
+            result = supabase.table('team_alias_map') \
+                .select('provider_team_id') \
+                .eq('provider_id', provider_id) \
+                .in_('provider_team_id', batch_ids) \
+                .execute()
+            for row in result.data:
+                existing_aliases.add(str(row['provider_team_id']))
+        except Exception as e:
+            logger.warning(f"Error checking existing aliases (batch {i//100 + 1}): {e}")
+
+    if existing_aliases:
+        console.print(f"[yellow]  Found {len(existing_aliases)} teams already in alias map — will skip these[/yellow]")
+
+    # Filter to only new teams
+    new_teams = [t for t in teams_list if t['provider_team_id'] not in existing_aliases]
+    stats['skipped_existing'] = len(teams_list) - len(new_teams)
+
+    console.print(f"[bold]Preparing {len(new_teams)} new teams for import (skipping {stats['skipped_existing']} existing)...[/bold]")
+
+    for team_data in track(new_teams, description="Processing teams"):
         try:
             team_id = team_data['provider_team_id']
             team_name = team_data['team_name']
