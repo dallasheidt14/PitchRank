@@ -135,22 +135,29 @@ export async function POST(request: NextRequest) {
     let gamesUpdated = 0;
     let homeUpdated = 0;
     let awayUpdated = 0;
+    const providerIdIsNull = game.provider_id === null;
 
     // Count games where opponent is HOME team first
-    const { count: homeCount } = await supabase
+    let homeCountQuery = supabase
       .from('games')
       .select('id', { count: 'exact', head: true })
       .eq('home_provider_id', providerTeamIdStr)
-      .eq('provider_id', game.provider_id)
       .is('home_team_master_id', null);
+    homeCountQuery = providerIdIsNull
+      ? homeCountQuery.is('provider_id', null)
+      : homeCountQuery.eq('provider_id', game.provider_id);
+    const { count: homeCount } = await homeCountQuery;
 
     // Update games where opponent is HOME team
-    const { error: homeUpdateError } = await supabase
+    let homeUpdateQuery = supabase
       .from('games')
       .update({ home_team_master_id: teamIdMaster })
       .eq('home_provider_id', providerTeamIdStr)
-      .eq('provider_id', game.provider_id)
       .is('home_team_master_id', null);
+    homeUpdateQuery = providerIdIsNull
+      ? homeUpdateQuery.is('provider_id', null)
+      : homeUpdateQuery.eq('provider_id', game.provider_id);
+    const { error: homeUpdateError } = await homeUpdateQuery;
 
     if (homeUpdateError) {
       console.error('[create-team] Failed to update home games:', homeUpdateError);
@@ -159,20 +166,26 @@ export async function POST(request: NextRequest) {
     }
 
     // Count games where opponent is AWAY team first
-    const { count: awayCount } = await supabase
+    let awayCountQuery = supabase
       .from('games')
       .select('id', { count: 'exact', head: true })
       .eq('away_provider_id', providerTeamIdStr)
-      .eq('provider_id', game.provider_id)
       .is('away_team_master_id', null);
+    awayCountQuery = providerIdIsNull
+      ? awayCountQuery.is('provider_id', null)
+      : awayCountQuery.eq('provider_id', game.provider_id);
+    const { count: awayCount } = await awayCountQuery;
 
     // Update games where opponent is AWAY team
-    const { error: awayUpdateError } = await supabase
+    let awayUpdateQuery = supabase
       .from('games')
       .update({ away_team_master_id: teamIdMaster })
       .eq('away_provider_id', providerTeamIdStr)
-      .eq('provider_id', game.provider_id)
       .is('away_team_master_id', null);
+    awayUpdateQuery = providerIdIsNull
+      ? awayUpdateQuery.is('provider_id', null)
+      : awayUpdateQuery.eq('provider_id', game.provider_id);
+    const { error: awayUpdateError } = await awayUpdateQuery;
 
     if (awayUpdateError) {
       console.error('[create-team] Failed to update away games:', awayUpdateError);
