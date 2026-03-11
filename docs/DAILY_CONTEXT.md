@@ -28,7 +28,29 @@ D H: "you can do whatever without my approval just don't mess with algo and star
 - Manually reviewing each age group for data cleanliness
 - Working through match review queue
 
-## 🔄 Current Status (March 5, 2026 — Thursday 10:30pm)
+## 🔄 Current Status (March 10, 2026 — Tuesday 10:30pm)
+
+## 🚨 **CRITICAL ALERT: SYSTEM OFFLINE — BILLING CRISIS 3RD OCCURRENCE**
+
+**Status:** ⏹️ **ENTIRE SYSTEM BLOCKED** — API access cut due to insufficient credits
+
+**Timeline:** 
+- Mar 10 8am: System restored (seemed fixed)
+- Mar 10 ~10am: Billing crisis returned (26 hours later)
+- Mar 10 10:30pm: COMPY nightly compound attempted, confirmed system offline
+
+**Pattern (Accelerating):**
+- Feb 7-14: 20-day cycle
+- Feb 27-28: 13-day cycle
+- Mar 9-10: **26-hour cycle** — VASTLY FASTER
+
+**Action Required:** D H must check Anthropic billing dashboard immediately. This is not a minor issue — the depletion rate suggests either budget too small OR monthly allocation was reset to much lower amount after first fix.
+
+**Details:** See `docs/LEARNINGS.md` and `docs/AGENT_COMMS.md` for full analysis.
+
+---
+
+## 🔄 Previous Status (March 5, 2026 — Thursday 10:30pm)
 
 ### Latest Activity
 
