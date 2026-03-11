@@ -76,12 +76,14 @@ export async function renderInfographicToCanvas(options: RenderOptions): Promise
   const totalLogoWidth = slashWidth + slashGap + pitchWidth + rankWidth;
   const logoStartX = (dimensions.width - totalLogoWidth) / 2;
 
-  // Yellow slash bar
+  // Yellow slash bar — vertically centered on the cap-height of the text
+  const slashHeight = titleSize * 0.7;
+  const slashTop = logoY - slashHeight; // align top of slash with top of capital letters
   ctx.save();
-  ctx.translate(logoStartX + slashWidth / 2, logoY - titleSize * 0.4);
+  ctx.translate(logoStartX + slashWidth / 2, slashTop);
   ctx.transform(1, 0, -0.2, 1, 0, 0);
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillRect(-slashWidth / 2, 0, slashWidth, titleSize * 0.8);
+  ctx.fillRect(-slashWidth / 2, 0, slashWidth, slashHeight);
   ctx.restore();
 
   // Draw PITCH in white
