@@ -1,131 +1,96 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg width="1080" height="1080" viewBox="0 0 1080 1080" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="bgGrad5" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#052E27"/>
-      <stop offset="50%" stop-color="#0B5345"/>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0B5345"/>
       <stop offset="100%" stop-color="#052E27"/>
     </linearGradient>
-    <filter id="glow5">
-      <feGaussianBlur stdDeviation="6" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-    <filter id="bigGlow5">
-      <feGaussianBlur stdDeviation="30" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-    <pattern id="scanlines5" x="0" y="0" width="4" height="4" patternUnits="userSpaceOnUse">
+    <pattern id="scanlines" x="0" y="0" width="4" height="3" patternUnits="userSpaceOnUse">
       <rect width="4" height="1" fill="white" opacity="0.03"/>
     </pattern>
-    <linearGradient id="searchBar" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#0D6B58" stop-opacity="0.6"/>
-      <stop offset="100%" stop-color="#052E27" stop-opacity="0.8"/>
-    </linearGradient>
-    <linearGradient id="cardBg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0D6B58" stop-opacity="0.4"/>
-      <stop offset="100%" stop-color="#052E27" stop-opacity="0.7"/>
-    </linearGradient>
   </defs>
 
   <!-- Background -->
-  <rect width="1080" height="1080" fill="url(#bgGrad5)"/>
-  <rect width="1080" height="1080" fill="url(#scanlines5)"/>
+  <rect width="1080" height="1080" fill="url(#bgGrad)"/>
+  <rect width="1080" height="1080" fill="url(#scanlines)"/>
 
-  <!-- Decorative diagonals -->
-  <rect x="60" y="60" width="10" height="120" fill="#F4D03F" transform="skewX(-12)" opacity="0.8"/>
-  <rect x="82" y="75" width="5" height="80" fill="#F4D03F" transform="skewX(-12)" opacity="0.35"/>
+  <!-- ====== TOP: Logo with diagonal slash ====== -->
+  <rect x="200" y="55" width="8" height="100" fill="#F4D03F" transform="skewX(-10)"/>
+  <text x="228" y="135" font-family="Oswald, sans-serif" font-weight="800" font-size="72" fill="#FDFEFE" letter-spacing="2">PITCHRANK</text>
 
-  <!-- Big ambient glow -->
-  <circle cx="540" cy="500" r="300" fill="#F4D03F" opacity="0.03" filter="url(#bigGlow5)"/>
+  <!-- ====== HEADLINE ====== -->
+  <text x="540" y="250" font-family="Oswald, sans-serif" font-weight="800" font-size="72" fill="#FDFEFE" text-anchor="middle" letter-spacing="2">FIND YOUR</text>
+  <text x="540" y="335" font-family="Oswald, sans-serif" font-weight="800" font-size="72" fill="#F4D03F" text-anchor="middle" letter-spacing="2">TEAM'S RANK</text>
 
-  <!-- Title -->
-  <text x="540" y="130" font-family="Oswald, sans-serif" font-weight="700" font-size="88" fill="#FDFEFE" text-anchor="middle" letter-spacing="3">FIND YOUR</text>
-  <text x="540" y="230" font-family="Oswald, sans-serif" font-weight="700" font-size="88" fill="#F4D03F" text-anchor="middle" letter-spacing="3">TEAM'S RANK</text>
-
-  <!-- Yellow divider -->
-  <rect x="340" y="255" width="400" height="4" rx="2" fill="#F4D03F" opacity="0.6"/>
-
-  <!-- Search bar mockup -->
-  <g transform="translate(140, 300)">
-    <rect width="800" height="70" rx="12" fill="url(#searchBar)" stroke="#F4D03F" stroke-width="2" stroke-opacity="0.4"/>
+  <!-- ====== SEARCH BAR ====== -->
+  <g transform="translate(140, 380)">
+    <rect width="800" height="65" rx="10" fill="#FDFEFE" opacity="0.06" stroke="#F4D03F" stroke-width="1.5" stroke-opacity="0.3"/>
     <!-- Search icon -->
-    <circle cx="45" cy="35" r="14" fill="none" stroke="#F4D03F" stroke-width="2.5" opacity="0.7"/>
-    <line x1="55" y1="45" x2="65" y2="55" stroke="#F4D03F" stroke-width="2.5" opacity="0.7"/>
+    <circle cx="42" cy="32" r="12" fill="none" stroke="#F4D03F" stroke-width="2" opacity="0.6"/>
+    <line x1="51" y1="41" x2="60" y2="50" stroke="#F4D03F" stroke-width="2" opacity="0.6"/>
     <!-- Placeholder text -->
-    <text x="85" y="42" font-family="DM Sans, sans-serif" font-size="24" fill="#FDFEFE" opacity="0.4">Search for your team...</text>
-    <!-- Cursor blink -->
-    <rect x="340" y="18" width="2" height="34" fill="#F4D03F" opacity="0.6"/>
+    <text x="78" y="38" font-family="DM Sans, sans-serif" font-weight="500" font-size="22" fill="#FDFEFE" opacity="0.35">Search for your team...</text>
   </g>
 
-  <!-- Sample ranking results -->
+  <!-- ====== RANKING RESULTS ====== -->
   <!-- Result 1 -->
-  <g transform="translate(140, 410)">
-    <rect width="800" height="80" rx="10" fill="url(#cardBg)" stroke="#F4D03F" stroke-width="1" stroke-opacity="0.15"/>
+  <g transform="translate(140, 470)">
+    <rect width="800" height="75" rx="8" fill="#FDFEFE" opacity="0.06"/>
     <!-- Rank badge -->
-    <rect x="15" y="15" width="50" height="50" rx="8" fill="#F4D03F" opacity="0.15"/>
-    <text x="40" y="50" font-family="Oswald, sans-serif" font-weight="700" font-size="28" fill="#F4D03F" text-anchor="middle">#1</text>
-    <!-- Team name -->
-    <text x="85" y="38" font-family="Oswald, sans-serif" font-weight="600" font-size="24" fill="#FDFEFE" letter-spacing="1">FC DALLAS YOUTH 2014B ECNL</text>
-    <text x="85" y="62" font-family="DM Sans, sans-serif" font-size="17" fill="#FDFEFE" opacity="0.5">U12 Boys · Texas · ECNL</text>
+    <rect x="15" y="15" width="45" height="45" rx="8" fill="#F4D03F" opacity="0.15"/>
+    <text x="37" y="46" font-family="Oswald, sans-serif" font-weight="800" font-size="22" fill="#F4D03F" text-anchor="middle">#1</text>
+    <!-- Team info -->
+    <text x="78" y="36" font-family="Oswald, sans-serif" font-weight="800" font-size="22" fill="#FDFEFE" letter-spacing="1">FC DALLAS YOUTH 2014B ECNL</text>
+    <text x="78" y="58" font-family="DM Sans, sans-serif" font-weight="500" font-size="16" fill="#FDFEFE" opacity="0.5">U12 Boys · Texas · ECNL</text>
     <!-- PowerScore -->
-    <rect x="650" y="18" width="120" height="44" rx="8" fill="#F4D03F" opacity="0.12"/>
-    <text x="710" y="34" font-family="Oswald, sans-serif" font-weight="600" font-size="14" fill="#F4D03F" text-anchor="middle" letter-spacing="1">POWER</text>
-    <text x="710" y="54" font-family="Oswald, sans-serif" font-weight="700" font-size="22" fill="#F4D03F" text-anchor="middle">0.96</text>
+    <rect x="650" y="16" width="120" height="42" rx="8" fill="#F4D03F" opacity="0.12"/>
+    <text x="710" y="32" font-family="Oswald, sans-serif" font-weight="800" font-size="11" fill="#F4D03F" text-anchor="middle" letter-spacing="1">POWER</text>
+    <text x="710" y="52" font-family="Oswald, sans-serif" font-weight="800" font-size="20" fill="#F4D03F" text-anchor="middle">0.96</text>
   </g>
 
   <!-- Result 2 -->
-  <g transform="translate(140, 505)">
-    <rect width="800" height="80" rx="10" fill="url(#cardBg)" stroke="#F4D03F" stroke-width="1" stroke-opacity="0.1"/>
-    <rect x="15" y="15" width="50" height="50" rx="8" fill="#F4D03F" opacity="0.12"/>
-    <text x="40" y="50" font-family="Oswald, sans-serif" font-weight="700" font-size="28" fill="#F4D03F" text-anchor="middle">#2</text>
-    <text x="85" y="38" font-family="Oswald, sans-serif" font-weight="600" font-size="24" fill="#FDFEFE" letter-spacing="1">REAL SALT LAKE AZ 2013G ECNL</text>
-    <text x="85" y="62" font-family="DM Sans, sans-serif" font-size="17" fill="#FDFEFE" opacity="0.5">U13 Girls · Arizona · ECNL</text>
-    <rect x="650" y="18" width="120" height="44" rx="8" fill="#F4D03F" opacity="0.1"/>
-    <text x="710" y="34" font-family="Oswald, sans-serif" font-weight="600" font-size="14" fill="#F4D03F" text-anchor="middle" letter-spacing="1" opacity="0.8">POWER</text>
-    <text x="710" y="54" font-family="Oswald, sans-serif" font-weight="700" font-size="22" fill="#F4D03F" text-anchor="middle" opacity="0.8">0.93</text>
+  <g transform="translate(140, 558)">
+    <rect width="800" height="75" rx="8" fill="#FDFEFE" opacity="0.05"/>
+    <rect x="15" y="15" width="45" height="45" rx="8" fill="#F4D03F" opacity="0.12"/>
+    <text x="37" y="46" font-family="Oswald, sans-serif" font-weight="800" font-size="22" fill="#F4D03F" text-anchor="middle" opacity="0.85">#2</text>
+    <text x="78" y="36" font-family="Oswald, sans-serif" font-weight="800" font-size="22" fill="#FDFEFE" letter-spacing="1">REAL SALT LAKE AZ 2013G ECNL</text>
+    <text x="78" y="58" font-family="DM Sans, sans-serif" font-weight="500" font-size="16" fill="#FDFEFE" opacity="0.5">U13 Girls · Arizona · ECNL</text>
+    <rect x="650" y="16" width="120" height="42" rx="8" fill="#F4D03F" opacity="0.1"/>
+    <text x="710" y="32" font-family="Oswald, sans-serif" font-weight="800" font-size="11" fill="#F4D03F" text-anchor="middle" letter-spacing="1" opacity="0.8">POWER</text>
+    <text x="710" y="52" font-family="Oswald, sans-serif" font-weight="800" font-size="20" fill="#F4D03F" text-anchor="middle" opacity="0.8">0.93</text>
   </g>
 
   <!-- Result 3 -->
-  <g transform="translate(140, 600)">
-    <rect width="800" height="80" rx="10" fill="url(#cardBg)" stroke="#F4D03F" stroke-width="1" stroke-opacity="0.08"/>
-    <rect x="15" y="15" width="50" height="50" rx="8" fill="#F4D03F" opacity="0.1"/>
-    <text x="40" y="50" font-family="Oswald, sans-serif" font-weight="700" font-size="28" fill="#F4D03F" text-anchor="middle">#3</text>
-    <text x="85" y="38" font-family="Oswald, sans-serif" font-weight="600" font-size="24" fill="#FDFEFE" letter-spacing="1">SURF SC 2015B ECNL-RL</text>
-    <text x="85" y="62" font-family="DM Sans, sans-serif" font-size="17" fill="#FDFEFE" opacity="0.5">U11 Boys · California · ECNL-RL</text>
-    <rect x="650" y="18" width="120" height="44" rx="8" fill="#F4D03F" opacity="0.08"/>
-    <text x="710" y="34" font-family="Oswald, sans-serif" font-weight="600" font-size="14" fill="#F4D03F" text-anchor="middle" letter-spacing="1" opacity="0.6">POWER</text>
-    <text x="710" y="54" font-family="Oswald, sans-serif" font-weight="700" font-size="22" fill="#F4D03F" text-anchor="middle" opacity="0.6">0.91</text>
+  <g transform="translate(140, 646)">
+    <rect width="800" height="75" rx="8" fill="#FDFEFE" opacity="0.04"/>
+    <rect x="15" y="15" width="45" height="45" rx="8" fill="#F4D03F" opacity="0.1"/>
+    <text x="37" y="46" font-family="Oswald, sans-serif" font-weight="800" font-size="22" fill="#F4D03F" text-anchor="middle" opacity="0.7">#3</text>
+    <text x="78" y="36" font-family="Oswald, sans-serif" font-weight="800" font-size="22" fill="#FDFEFE" letter-spacing="1">SURF SC 2015B ECNL-RL</text>
+    <text x="78" y="58" font-family="DM Sans, sans-serif" font-weight="500" font-size="16" fill="#FDFEFE" opacity="0.5">U11 Boys · California · ECNL-RL</text>
+    <rect x="650" y="16" width="120" height="42" rx="8" fill="#F4D03F" opacity="0.08"/>
+    <text x="710" y="32" font-family="Oswald, sans-serif" font-weight="800" font-size="11" fill="#F4D03F" text-anchor="middle" letter-spacing="1" opacity="0.6">POWER</text>
+    <text x="710" y="52" font-family="Oswald, sans-serif" font-weight="800" font-size="20" fill="#F4D03F" text-anchor="middle" opacity="0.6">0.91</text>
   </g>
 
-  <!-- Fade out hint (more results) -->
-  <g transform="translate(140, 695)">
-    <rect width="800" height="60" rx="10" fill="url(#cardBg)" opacity="0.4"/>
-    <text x="400" y="38" font-family="DM Sans, sans-serif" font-size="18" fill="#FDFEFE" text-anchor="middle" opacity="0.35">+ thousands more teams...</text>
+  <!-- More teams hint -->
+  <g transform="translate(140, 734)">
+    <rect width="800" height="50" rx="8" fill="#FDFEFE" opacity="0.03"/>
+    <text x="400" y="32" font-family="DM Sans, sans-serif" font-weight="500" font-size="18" fill="#FDFEFE" text-anchor="middle" opacity="0.3">+ thousands more teams...</text>
   </g>
 
-  <!-- CTA -->
-  <g transform="translate(340, 800)">
-    <rect width="400" height="65" rx="12" fill="#F4D03F"/>
-    <text x="200" y="42" font-family="Oswald, sans-serif" font-weight="700" font-size="28" fill="#052E27" text-anchor="middle" letter-spacing="2">SEARCH RANKINGS FREE</text>
+  <!-- ====== CTA BUTTON ====== -->
+  <g transform="translate(340, 825)">
+    <rect width="400" height="60" rx="8" fill="#F4D03F"/>
+    <text x="200" y="40" font-family="Oswald, sans-serif" font-weight="800" font-size="26" fill="#052E27" text-anchor="middle" letter-spacing="2">SEARCH RANKINGS FREE</text>
   </g>
 
-  <!-- Subtitle under CTA -->
-  <text x="540" y="910" font-family="DM Sans, sans-serif" font-size="22" fill="#FDFEFE" text-anchor="middle" opacity="0.5">Parents, players, and coaches — find your team instantly</text>
+  <!-- Subtitle -->
+  <text x="540" y="925" font-family="DM Sans, sans-serif" font-weight="500" font-size="22" fill="#FDFEFE" text-anchor="middle" opacity="0.5">Parents, players, and coaches — find your team instantly</text>
 
-  <!-- Bottom bar -->
-  <rect x="0" y="1010" width="1080" height="70" fill="#052E27" opacity="0.8"/>
-  <rect x="0" y="1008" width="1080" height="3" fill="#F4D03F" opacity="0.6"/>
-  <rect x="50" y="1025" width="8" height="35" fill="#F4D03F" transform="skewX(-12)"/>
-  <text x="75" y="1055" font-family="Oswald, sans-serif" font-weight="700" font-size="30" fill="#FDFEFE" letter-spacing="2">PITCH<tspan fill="#F4D03F">RANK</tspan></text>
-  <text x="1030" y="1055" font-family="DM Sans, sans-serif" font-weight="500" font-size="22" fill="#F4D03F" text-anchor="end" opacity="0.8">pitchrank.io/rankings</text>
-
-  <!-- Bottom right diagonals -->
-  <rect x="950" y="870" width="10" height="120" fill="#F4D03F" transform="skewX(-12)" opacity="0.6"/>
-  <rect x="970" y="885" width="5" height="80" fill="#F4D03F" transform="skewX(-12)" opacity="0.3"/>
+  <!-- ====== BOTTOM BAR ====== -->
+  <rect x="0" y="975" width="1080" height="105" fill="#052E27" opacity="0.7"/>
+  <rect x="385" y="998" width="8" height="60" fill="#F4D03F" transform="skewX(-10)"/>
+  <text x="415" y="1044" font-family="Oswald, sans-serif" font-weight="800" font-size="42" letter-spacing="2">
+    <tspan fill="#FDFEFE">PITCH</tspan><tspan fill="#F4D03F">RANK</tspan>
+  </text>
 </svg>
