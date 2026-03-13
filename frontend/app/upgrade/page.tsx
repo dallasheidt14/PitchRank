@@ -90,6 +90,9 @@ function UpgradePageContent() {
   }, [source]);
 
   const handleUpgrade = async (plan: "monthly" | "yearly") => {
+    // Wait for auth state to load before checking
+    if (userLoading) return;
+
     // If not authenticated, redirect to signup
     if (!user) {
       window.location.href = `/signup?next=/upgrade`;
@@ -246,7 +249,7 @@ function UpgradePageContent() {
                   e.stopPropagation();
                   handleUpgrade("monthly");
                 }}
-                disabled={loadingPlan !== null}
+                disabled={loadingPlan !== null || userLoading}
               >
                 {loadingPlan === "monthly" ? (
                   <span className="flex items-center gap-2">
@@ -313,7 +316,7 @@ function UpgradePageContent() {
                   e.stopPropagation();
                   handleUpgrade("yearly");
                 }}
-                disabled={loadingPlan !== null}
+                disabled={loadingPlan !== null || userLoading}
               >
                 {loadingPlan === "yearly" ? (
                   <span className="flex items-center gap-2">
@@ -488,7 +491,7 @@ function UpgradePageContent() {
           <Button
             size="lg"
             onClick={() => handleUpgrade(selectedPlan)}
-            disabled={loadingPlan !== null}
+            disabled={loadingPlan !== null || userLoading}
             className="px-8"
           >
             <Crown className="w-4 h-4 mr-2" />
