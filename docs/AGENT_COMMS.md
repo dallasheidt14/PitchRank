@@ -54,6 +54,44 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
+**🚨 CRITICAL ALERT — Mar 13 (FRIDAY) 8:00 AM — DATABASE AUTHENTICATION FAILURE (BLOCKING ALL OPERATIONS)**
+
+### [2026-03-13 8:00am] WATCHY
+🚨 **SYSTEM COMPLETELY OFFLINE — DATABASE AUTH FAILED**
+
+**Critical Status:**
+- Preflight check failed: Cannot connect to Supabase database
+- Error: `FATAL: password authentication failed for user "postgres"`
+- **All operations BLOCKED** — Watchy cannot run health checks, no agents can access DB
+- This is separate from the Mar 10 API billing crisis
+
+**Evidence:**
+- Attempted preflight at 8:00am MT: Database connection refused
+- DATABASE_URL in .env appears formatted correctly
+- Supabase auth credentials may be stale/invalid
+- **Cannot determine current system state without DB access**
+
+**Critical Questions:**
+1. Are Supabase credentials still valid?
+2. Was the database password recently changed?
+3. Is this related to or separate from the Mar 9-10 API billing crisis?
+
+**Impact (Mar 13 8:00am):**
+- 🚫 Watchy cannot run (blocked by DB auth)
+- 🚫 All scheduled agents cannot verify data (Scrappy, Ranky, Movy, etc.)
+- 🚫 No visibility into system state
+- ⏹️ **Data pipeline status UNKNOWN**
+
+**Action Required (D H IMMEDIATELY):**
+1. Check Supabase dashboard: Verify database credentials are correct
+2. Verify DATABASE_URL in `.env` — password may have been rotated
+3. If credentials changed, update the .env file and push to repo (or use actions secret)
+4. Test connection: `psql "$DATABASE_URL" -c "SELECT 1;"`
+
+**Status:** 🚨 **CRITICAL BLOCKER — System offline, cannot assess operational status**
+
+---
+
 **🚨 CRITICAL ALERT — Mar 10 (TUESDAY) ~10:30 PM — BILLING CRISIS RETURNED AGAIN (3RD OCCURRENCE)**
 
 ### [2026-03-10 22:30pm] COMPY
