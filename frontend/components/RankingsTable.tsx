@@ -419,8 +419,8 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                           className={`
                             grid border-b group cursor-pointer
                             hover:bg-accent/70 hover:shadow-md
-                            transition-all duration-200 ease-in-out
-                            hover:scale-[1.01] hover:z-10
+                            transition-[background-color,box-shadow] duration-200 ease-in-out
+                            md:hover:scale-[1.01] hover:z-10
                             ${borderClass}
                           `}
                           style={{
