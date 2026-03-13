@@ -90,6 +90,9 @@ function UpgradePageContent() {
   }, [source]);
 
   const handleUpgrade = async (plan: "monthly" | "yearly") => {
+    // Wait for auth state to load before checking
+    if (userLoading) return;
+
     // If not authenticated, redirect to signup
     if (!user) {
       window.location.href = `/signup?next=/upgrade`;
@@ -98,7 +101,7 @@ function UpgradePageContent() {
 
     trackPlanSelected({
       plan,
-      price: plan === "monthly" ? 6.99 : 69,
+      price: plan === "monthly" ? 6.99 : 69.99,
       source,
     });
 
@@ -111,7 +114,7 @@ function UpgradePageContent() {
         console.error("[UpgradePage] Missing Stripe price ID for plan:", plan, { monthly: !!PRICE_IDS.MONTHLY, yearly: !!PRICE_IDS.YEARLY });
         throw new Error("Pricing is not configured. Please contact support.");
       }
-      trackCheckoutInitiated({ plan, price: plan === "monthly" ? 6.99 : 69 });
+      trackCheckoutInitiated({ plan, price: plan === "monthly" ? 6.99 : 69.99 });
       await startCheckout(priceId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -219,10 +222,12 @@ function UpgradePageContent() {
               <CardDescription>Perfect for trying out premium</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="mb-6">
+              <div className="mb-2">
                 <span className="text-4xl font-bold">$6.99</span>
                 <span className="text-muted-foreground">/month</span>
               </div>
+              <p className="text-sm text-green-600 font-medium mb-1">7-day free trial</p>
+              <p className="text-xs text-muted-foreground mb-4">After trial: $6.99/month. Cancel anytime.</p>
               <ul className="space-y-3">
                 {FEATURES.map((feature, index) => (
                   <li key={index} className="flex items-start gap-3">
@@ -246,7 +251,7 @@ function UpgradePageContent() {
                   e.stopPropagation();
                   handleUpgrade("monthly");
                 }}
-                disabled={loadingPlan !== null}
+                disabled={loadingPlan !== null || userLoading}
               >
                 {loadingPlan === "monthly" ? (
                   <span className="flex items-center gap-2">
@@ -255,7 +260,7 @@ function UpgradePageContent() {
                   </span>
                 ) : (
                   <>
-                    Get Started
+                    Start Free Trial
                     <ArrowRight className="w-4 h-4 ml-2" />
                   </>
                 )}
@@ -281,16 +286,18 @@ function UpgradePageContent() {
               <CardDescription>Best value for serious soccer families</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="mb-6">
-                <span className="text-4xl font-bold">$69</span>
+              <div className="mb-2">
+                <span className="text-4xl font-bold">$69.99</span>
                 <span className="text-muted-foreground">/year</span>
                 <div className="text-sm text-muted-foreground mt-1">
-                  That&apos;s just <span className="font-semibold text-foreground">$5.75/mo</span>
+                  That&apos;s just <span className="font-semibold text-foreground">$5.83/mo</span>
                   {" "}
                   <span className="line-through">$83.88</span>
-                  <span className="text-green-600 font-medium ml-1">Save $14.88</span>
+                  <span className="text-green-600 font-medium ml-1">Save $13.89</span>
                 </div>
               </div>
+              <p className="text-sm text-green-600 font-medium mb-1">7-day free trial</p>
+              <p className="text-xs text-muted-foreground mb-4">After trial: $69.99/year. Cancel anytime.</p>
               <ul className="space-y-3">
                 {FEATURES.map((feature, index) => (
                   <li key={index} className="flex items-start gap-3">
@@ -313,7 +320,7 @@ function UpgradePageContent() {
                   e.stopPropagation();
                   handleUpgrade("yearly");
                 }}
-                disabled={loadingPlan !== null}
+                disabled={loadingPlan !== null || userLoading}
               >
                 {loadingPlan === "yearly" ? (
                   <span className="flex items-center gap-2">
@@ -323,7 +330,7 @@ function UpgradePageContent() {
                 ) : (
                   <>
                     <Crown className="w-4 h-4 mr-2" />
-                    Get Started - Best Value
+                    Start Free Trial - Best Value
                   </>
                 )}
               </Button>
@@ -488,15 +495,15 @@ function UpgradePageContent() {
           <Button
             size="lg"
             onClick={() => handleUpgrade(selectedPlan)}
-            disabled={loadingPlan !== null}
+            disabled={loadingPlan !== null || userLoading}
             className="px-8"
           >
             <Crown className="w-4 h-4 mr-2" />
-            {selectedPlan === "yearly" ? "Start for $5.75/mo" : "Start for $6.99/mo"}
+            {selectedPlan === "yearly" ? "Start Free 7-Day Trial" : "Start Free 7-Day Trial"}
             <ArrowRight className="w-4 h-4 ml-2" />
           </Button>
           <p className="text-xs text-muted-foreground mt-3">
-            Cancel anytime. No commitment required.
+            7-day free trial. Cancel anytime. No commitment required.
           </p>
         </div>
       </div>
