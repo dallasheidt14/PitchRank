@@ -108,7 +108,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     return;
   }
 
-  // Fetch subscription details to get period end
+  // Fetch subscription details to get period end and status (may be "trialing" for free trials)
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
   const periodEnd = (subscription as { current_period_end?: number }).current_period_end ||
     Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60; // Default to 30 days from now
@@ -117,7 +117,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     .from("user_profiles")
     .update({
       stripe_subscription_id: subscriptionId,
-      subscription_status: "active",
+      subscription_status: subscription.status,
       plan: "premium",
       subscription_period_end: new Date(periodEnd * 1000).toISOString(),
       updated_at: new Date().toISOString(),

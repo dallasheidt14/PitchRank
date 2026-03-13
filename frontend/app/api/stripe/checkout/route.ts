@@ -79,6 +79,7 @@ export async function POST(req: Request) {
       success_url: `${process.env.NEXT_PUBLIC_SITE_URL}/upgrade/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL}/upgrade`,
       subscription_data: {
+        trial_period_days: 7,
         metadata: {
           supabase_user_id: user.id,
         },
