@@ -71,7 +71,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // Create Stripe checkout session
+    // Create Stripe checkout session with 7-day free trial
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: customerId,

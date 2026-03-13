@@ -226,7 +226,8 @@ function UpgradePageContent() {
                 <span className="text-4xl font-bold">$6.99</span>
                 <span className="text-muted-foreground">/month</span>
               </div>
-              <p className="text-sm text-green-600 font-medium mb-4">7-day free trial included</p>
+              <p className="text-sm text-green-600 font-medium mb-1">7-day free trial</p>
+              <p className="text-xs text-muted-foreground mb-4">After trial: $6.99/month. Cancel anytime.</p>
               <ul className="space-y-3">
                 {FEATURES.map((feature, index) => (
                   <li key={index} className="flex items-start gap-3">
@@ -295,7 +296,8 @@ function UpgradePageContent() {
                   <span className="text-green-600 font-medium ml-1">Save $13.89</span>
                 </div>
               </div>
-              <p className="text-sm text-green-600 font-medium mb-4">7-day free trial included</p>
+              <p className="text-sm text-green-600 font-medium mb-1">7-day free trial</p>
+              <p className="text-xs text-muted-foreground mb-4">After trial: $69.99/year. Cancel anytime.</p>
               <ul className="space-y-3">
                 {FEATURES.map((feature, index) => (
                   <li key={index} className="flex items-start gap-3">
