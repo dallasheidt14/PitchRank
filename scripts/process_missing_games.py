@@ -179,7 +179,7 @@ class MissingGamesProcessor:
             return None
     
     def scrape_games_for_date(self, provider_code: str, team_id: str, game_date: str) -> List[Dict]:
-        """Scrape games for a specific team within a 61-day window (±30 days from selected date)"""
+        """Scrape games for a specific team within a 181-day window (±90 days from selected date)"""
         scraper = self.scrapers.get(provider_code)
         if not scraper:
             raise ValueError(f"No scraper available for provider: {provider_code}")
@@ -187,15 +187,15 @@ class MissingGamesProcessor:
         # Parse the target date
         target_date = datetime.strptime(game_date, '%Y-%m-%d').date()
 
-        # Define the 61-day window: 30 days before, target date, 30 days after
-        date_window_start = target_date - timedelta(days=30)
-        date_window_end = target_date + timedelta(days=30)
+        # Define the 181-day window: 90 days before, target date, 90 days after
+        date_window_start = target_date - timedelta(days=90)
+        date_window_end = target_date + timedelta(days=90)
 
-        # Scrape with a date range starting 30 days before (to catch timezone issues)
-        # The scraper uses since_date, so we'll scrape from 30 days before and filter
+        # Scrape with a date range starting 90 days before (to catch timezone issues)
+        # The scraper uses since_date, so we'll scrape from 90 days before and filter
         start_date = datetime.combine(date_window_start, datetime.min.time())
 
-        logger.info(f"Scraping games for team {team_id} in 61-day window: {date_window_start} to {date_window_end} (selected date: {game_date})")
+        logger.info(f"Scraping games for team {team_id} in 181-day window: {date_window_start} to {date_window_end} (selected date: {game_date})")
         
         try:
             # Use the scraper's method to get games (only takes since_date, not until_date)
@@ -204,7 +204,7 @@ class MissingGamesProcessor:
                 since_date=start_date
             )
             
-            # Filter to games within the 5-day window
+            # Filter to games within the 181-day window
             filtered_games = []
             for game in games:
                 # GameData.game_date is a string in 'YYYY-MM-DD' format
@@ -213,7 +213,7 @@ class MissingGamesProcessor:
                     # Parse date for comparison only (don't modify the original string)
                     game_dt = datetime.strptime(game.game_date, '%Y-%m-%d').date()
                     
-                    # Include games within the 5-day window
+                    # Include games within the 181-day window
                     if date_window_start <= game_dt <= date_window_end:
                         # Use the EXACT game_date string from the scraper (no manipulation)
                         # This ensures timezone issues don't cause date shifts
@@ -250,7 +250,7 @@ class MissingGamesProcessor:
                     logger.warning(f"Error parsing game date for game: {e}, game_date value: {getattr(game, 'game_date', 'MISSING')}")
                     continue
             
-            logger.info(f"Found {len(filtered_games)} games in 61-day window ({date_window_start} to {date_window_end})")
+            logger.info(f"Found {len(filtered_games)} games in 181-day window ({date_window_start} to {date_window_end})")
             if filtered_games:
                 game_dates = sorted(set(g['game_date'] for g in filtered_games))
                 logger.info(f"Game dates found: {', '.join(game_dates)}")
@@ -451,7 +451,7 @@ class MissingGamesProcessor:
                 else:
                     raise ValueError(f"No scraper available for provider: {provider_code}")
 
-            # Scrape games for the date (±30 days window)
+            # Scrape games for the date (±90 days window)
             # If team ID returns 404, try alternative IDs from team_alias_map
             tried_team_ids = []
             games = None
@@ -497,7 +497,7 @@ class MissingGamesProcessor:
             )
             
             logger.info(f"Successfully processed request {request_id}: "
-                       f"{len(games)} games found in 61-day window, {games_imported} imported")
+                       f"{len(games)} games found in 181-day window, {games_imported} imported")
             
             self.stats['successful'] += 1
             return True

@@ -95,12 +95,12 @@ def extract_year(division_name: str) -> Optional[int]:
     """Extract birth year from division name (e.g., 'B2012' -> 2012).
 
     Only returns years in the valid range for tracked age groups:
-    - U10-U18 corresponds to birth years 2008-2016 (for 2025 season)
+    - U10-U18 corresponds to birth years 2008-2016 (for 2026 season)
     """
     match = re.search(r'(\d{4})', division_name)
     if match:
         year = int(match.group(1))
-        # Only accept birth years 2008-2016 (U18-U10 for 2025 season)
+        # Only accept birth years 2008-2016 (U18-U10 for 2026 season)
         if 2008 <= year <= 2016:
             return year
     return None
@@ -747,18 +747,30 @@ def main():
 
     scrape_duration = time.time() - scrape_start
 
-    if not records:
-        print("❌ No games scraped")
-        return
+    # Validate records (if any)
+    if records:
+        validate_records(records)
 
-    # Validate records
-    validate_records(records)
-
-    # Write output (unless dry-run)
+    # Always write output (even if 0 records) so downstream workflow steps can find the CSV
+    # This prevents the "Could not find scraped CSV file" error in GitHub Actions
     if not config["dry_run"]:
         write_output(records, config["output_dir"], start_event, end_event)
+        if not records:
+            print("⚠️  No games scraped — empty CSV written (headers only)")
     else:
         print(f"\n🔍 DRY RUN — {len(records)} records validated (not written)")
+
+    # Exit early with summary if no records
+    if not records:
+        print(f"\n{'='*60}")
+        print(f"⚠️  SCRAPE COMPLETE — NO GAMES FOUND")
+        print(f"{'='*60}")
+        print(f"  📅 Events scraped: {total_events}")
+        print(f"  ⏱️  Total time: {scrape_duration:.1f}s")
+        print(f"  💡 Possible reasons: no active flights, all divisions outside U10-U18,")
+        print(f"     all games are future-dated, or event IDs don't exist")
+        print(f"{'='*60}")
+        return
 
     # Final summary
     games_count = len(records) // 2  # Each game has home + away records
