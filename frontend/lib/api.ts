@@ -616,8 +616,27 @@ export const api = {
       return true;
     });
 
+    // Second pass: remove games with Unknown (null) opponents when a linked version
+    // of the same game exists. This handles the case where a match is scraped from
+    // both teams' schedules with different provider IDs — after linking one copy,
+    // the other may still have a null opponent and generates a different dedup key.
+    const finalGames = deduplicatedGames.filter((game) => {
+      const hasNullOpponent = !game.home_team_master_id || !game.away_team_master_id;
+      if (!hasNullOpponent) return true;
+
+      // Check if a fully-linked version of this game exists in the list
+      const sortedScores = [game.home_score, game.away_score].sort((a, b) => (a ?? 0) - (b ?? 0)).join('-');
+      return !deduplicatedGames.some((other) => {
+        if (other === game) return false;
+        if (!other.home_team_master_id || !other.away_team_master_id) return false;
+        if (other.game_date !== game.game_date) return false;
+        const otherSortedScores = [other.home_score, other.away_score].sort((a, b) => (a ?? 0) - (b ?? 0)).join('-');
+        return sortedScores === otherSortedScores;
+      });
+    });
+
     return {
-      games: deduplicatedGames,
+      games: finalGames,
       lastScrapedAt: mostRecentScrapedAt,
     };
   },
