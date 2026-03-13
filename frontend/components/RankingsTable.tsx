@@ -357,7 +357,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
             <div className="overflow-x-auto -mx-4 sm:mx-0 touch-pan-x">
               <div className="inline-block min-w-full align-middle min-w-[400px] sm:min-w-[500px]">
                 {/* Table Header */}
-                <div data-testid="rankings-table-header" className="grid border-b-2 border-primary bg-secondary/50 sticky top-0 z-10" style={{ gridTemplateColumns: '60px 2fr 1fr 1fr' }}>
+                <div data-testid="rankings-table-header" className="grid grid-cols-[52px_3fr_1fr_1fr] sm:grid-cols-[70px_2fr_1fr_1fr] border-b-2 border-primary bg-secondary/50 sticky top-0 z-10">
                   <div className="px-1.5 sm:px-4 py-2 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <SortButton field="rank" label="Rank" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
                   </div>
@@ -417,14 +417,13 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                           data-testid={`rankings-row-${virtualRow.index}`}
                           ref={virtualizer.measureElement}
                           className={`
-                            grid border-b group cursor-pointer
+                            grid grid-cols-[52px_3fr_1fr_1fr] sm:grid-cols-[70px_2fr_1fr_1fr] border-b group cursor-pointer
                             hover:bg-accent/70 hover:shadow-md
                             transition-[background-color,box-shadow] duration-200 ease-in-out
                             md:hover:scale-[1.01] hover:z-10
                             ${borderClass}
                           `}
                           style={{
-                            gridTemplateColumns: '60px 2fr 1fr 1fr',
                             position: 'absolute',
                             top: 0,
                             left: 0,
