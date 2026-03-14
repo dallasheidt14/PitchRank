@@ -56,7 +56,6 @@ export function GlobalSearch() {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [FuseClass, setFuseClass] = useState<typeof Fuse | null>(null);
-  const [searchActivated, setSearchActivated] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -67,9 +66,7 @@ export function GlobalSearch() {
   // Track if search is pending (deferred value hasn't caught up)
   const isSearchPending = searchQuery !== deferredSearchQuery;
 
-  // Only fetch all teams once the user actually interacts with search
-  // This avoids 25K+ team fetches on every page load
-  const { data: allTeams, isLoading, isError, error, refetch } = useTeamSearch(searchActivated);
+  const { data: allTeams, isLoading, isError, error, refetch } = useTeamSearch();
 
   // Dynamically load Fuse.js only when needed
   useEffect(() => {
@@ -229,8 +226,6 @@ export function GlobalSearch() {
             setIsOpen(true);
           }}
           onFocus={() => {
-            // Activate team data fetch on first focus (lazy-load)
-            if (!searchActivated) setSearchActivated(true);
             if (searchQuery.length >= 2) {
               setIsOpen(true);
             }
