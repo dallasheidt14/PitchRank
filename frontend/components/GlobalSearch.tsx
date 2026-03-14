@@ -225,6 +225,7 @@ export function GlobalSearch() {
           placeholder="Search teams..."
           value={searchQuery}
           onChange={(e) => {
+            if (!searchActivated) setSearchActivated(true);
             setSearchQuery(e.target.value);
             setIsOpen(true);
           }}
