@@ -99,7 +99,6 @@
     @apply border-border outline-ring/50;
   }
   html {
-    @apply transition-colors duration-300 ease-in-out;
     /* Smooth scrolling for better mobile UX */
     scroll-behavior: smooth;
     /* Prevent text size adjustment on mobile landscape */
@@ -107,7 +106,7 @@
     text-size-adjust: 100%;
   }
   body {
-    @apply bg-background text-foreground transition-colors duration-300 ease-in-out leading-relaxed;
+    @apply bg-background text-foreground leading-relaxed;
     /* Better touch scrolling on iOS */
     -webkit-overflow-scrolling: touch;
   }
@@ -127,7 +126,7 @@
     }
   }
   main {
-    @apply transition-colors duration-300 ease-in-out;
+    /* No transition needed — no dark mode or dynamic color changes */
   }
   /* Global focus styles for accessibility */
   *:focus-visible {

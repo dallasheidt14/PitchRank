@@ -128,7 +128,7 @@ export default function RootLayout({
         <GoogleAnalytics measurementId={process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID} />
       </head>
       <body
-        className={`${oswald.variable} ${dmSans.variable} ${jetbrainsMono.variable} antialiased transition-colors duration-300 ease-in-out flex flex-col min-h-screen`}
+        className={`${oswald.variable} ${dmSans.variable} ${jetbrainsMono.variable} antialiased flex flex-col min-h-screen`}
       >
         <Providers>
           <Navigation />

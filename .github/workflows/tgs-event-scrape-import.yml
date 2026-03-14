@@ -95,8 +95,20 @@ jobs:
           echo "Found CSV file: $CSV_FILE"
           echo "csv_file=$CSV_FILE" >> $GITHUB_OUTPUT
 
+          # Check if CSV has any data rows (beyond header)
+          LINE_COUNT=$(wc -l < "$CSV_FILE")
+          GAME_COUNT=$((LINE_COUNT - 1))  # Subtract header row
+          echo "game_count=$GAME_COUNT" >> $GITHUB_OUTPUT
+          if [ "$GAME_COUNT" -le 0 ]; then
+            echo "⚠️  CSV has 0 game records (headers only) — skipping import steps"
+            echo "has_games=false" >> $GITHUB_OUTPUT
+          else
+            echo "✅ CSV has $GAME_COUNT game records"
+            echo "has_games=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Pre-create TGS Teams (Prevents Review Queue Bloat)
-        if: ${{ github.event_name == 'schedule' || inputs.skip_import == false }}
+        if: ${{ steps.find_csv.outputs.has_games == 'true' && (github.event_name == 'schedule' || inputs.skip_import == false) }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -110,7 +122,7 @@ jobs:
           python scripts/extract_and_import_tgs_teams.py "$CSV_FILE" tgs
 
       - name: Import Games
-        if: ${{ github.event_name == 'schedule' || inputs.skip_import == false }}
+        if: ${{ steps.find_csv.outputs.has_games == 'true' && (github.event_name == 'schedule' || inputs.skip_import == false) }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -123,7 +135,7 @@ jobs:
           python scripts/import_games_enhanced.py "$CSV_FILE" tgs --stream --concurrency 8 --checkpoint
 
       - name: Maintain TGS Direct ID Aliases
-        if: ${{ github.event_name == 'schedule' || inputs.skip_import == false }}
+        if: ${{ steps.find_csv.outputs.has_games == 'true' && (github.event_name == 'schedule' || inputs.skip_import == false) }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -159,7 +171,10 @@ jobs:
           echo "TGS event scrape and import workflow completed"
           echo "Events: ${{ steps.events.outputs.start_event }} through ${{ steps.events.outputs.end_event }}"
           echo "Trigger: ${{ github.event_name }}"
-          if [ "${{ github.event_name }}" == "schedule" ] || [ "${{ inputs.skip_import }}" == "false" ]; then
+          echo "Games found: ${{ steps.find_csv.outputs.game_count || '0' }}"
+          if [ "${{ steps.find_csv.outputs.has_games }}" == "false" ]; then
+            echo "Import: Skipped (no games to import)"
+          elif [ "${{ github.event_name }}" == "schedule" ] || [ "${{ inputs.skip_import }}" == "false" ]; then
             echo "Import: Completed"
           else
             echo "Import: Skipped"
