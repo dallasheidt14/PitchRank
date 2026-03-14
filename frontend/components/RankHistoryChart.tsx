@@ -151,7 +151,7 @@ export function RankHistoryChart({ teamId }: RankHistoryChartProps) {
       <CardContent className="pt-0">
         <div className="h-[180px] w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+            <LineChart data={chartData} margin={{ top: 8, right: 8, left: 4, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
               <XAxis
                 dataKey="label"
@@ -169,7 +169,8 @@ export function RankHistoryChart({ teamId }: RankHistoryChartProps) {
                 axisLine={false}
                 tickFormatter={(v: number) => `#${v}`}
                 className="fill-muted-foreground"
-                width={42}
+                width={48}
+                allowDecimals={false}
               />
               <RechartsTooltip
                 content={({ active, payload }: { active?: boolean; payload?: ReadonlyArray<{ payload: (typeof chartData)[0] }> }) => {
