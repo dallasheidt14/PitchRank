@@ -164,10 +164,11 @@ jobs:
       - name: Skip execution note
         if: ${{ steps.due.outputs.approved_count == '0' || github.event.inputs.dry_run == 'true' }}
         run: |
-          echo "Execution skipped."
-          echo "all_pass=${{ steps.due.outputs.all_pass }}"
-          echo "approved_count=${{ steps.due.outputs.approved_count }}"
-          echo "dry_run=${{ github.event.inputs.dry_run || 'false' }}"
+          if [ "${{ github.event.inputs.dry_run || 'false' }}" = "true" ]; then
+            echo "Execution skipped: dry_run=true (approved_count=${{ steps.due.outputs.approved_count }} would have executed)"
+          else
+            echo "Execution skipped: no approved matches (approved=0, review=${{ steps.due.outputs.review_count }})"
+          fi
 
       - name: Discover new teams from no_match opponents
         id: discover
@@ -255,4 +256,4 @@ jobs:
           echo "- Skipped (metadata): **${{ steps.discover.outputs.discovery_skipped || '0' }}**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Errors: **${{ steps.discover.outputs.discovery_errors || '0' }}**" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Execution happens only when all due diligence rows are approved." >> "$GITHUB_STEP_SUMMARY"
+          echo "Execution runs for all approved rows, even if some need review." >> "$GITHUB_STEP_SUMMARY"
