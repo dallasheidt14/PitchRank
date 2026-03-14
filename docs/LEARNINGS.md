@@ -4,6 +4,77 @@
 
 ## Critical Patterns
 
+### 2026-03-13: DUAL BLOCKER CRISIS — DATABASE AUTH FAILURE + OPENAI TPM RATE LIMITING 🚨
+
+**TWO SEPARATE CRITICAL ISSUES (NOT ONE):**
+
+**ISSUE #1: SUPABASE DATABASE AUTHENTICATION FAILURE**
+- **First detected:** Mar 13 8:00am (Watchy preflight check)
+- **Error:** `FATAL: password authentication failed for user "postgres"`
+- **Affected agents:** ALL DB-dependent agents (Watchy, Scrappy, Ranky, Movy, Cleany)
+- **Timeline:** Last successful DB connection was Mar 10 (3+ days ago)
+- **Status:** ⏹️ **DATA PIPELINE COMPLETELY OFFLINE**
+- **Root cause:** Supabase credentials appear stale/invalid
+  - DATABASE_URL in `.env` may have incorrect password
+  - Supabase password may have been rotated
+  - Connection pooling/session may have expired
+
+**System Impact (from Watchy perspective):**
+- Cannot verify team/game counts
+- Cannot read from any database table
+- Cannot check quarantine status
+- **No visibility into system state**
+
+**ISSUE #2: OPENAI TPM (TOKENS PER MINUTE) RATE LIMITING**
+- **First detected:** Mar 13 evening (multiple agent runs)
+- **Error pattern:** "Rate limit reached for gpt-5.1-codex in organization... TPM: Limit 500000, Used 500000, Requested XXXXX"
+- **Affected agents:** Socialy, Watchy (concurrent), COMPY (tonight)
+- **Type:** Capacity limit (500k TPM per minute exceeded)
+- **Timeline:** Started hitting limits on multiple agent runs Mar 13 afternoon/evening
+
+**Capacity Analysis:**
+- OpenAI 500k TPM = ~2.5M tokens across 5 minutes
+- Current usage pattern: Multiple concurrent agents (Watchy + Socialy + Compy) pushing 500k TPM ceiling
+- **Most likely cause:** System configuration using default/basic tier with low TPM limit
+- **Solution options:** Upgrade tier, reduce concurrency, switch to higher-tier model, or use Anthropic (Claude) exclusively
+
+**DISTINCTION FROM PRIOR INCIDENTS:**
+
+| Incident | Date | Root Cause | Error Signature |
+|----------|------|-----------|-----------------|
+| **Anthropic Billing Crisis** | Mar 10 | Insufficient API credits | "credit balance too low" |
+| **Database Auth Failure** | Mar 13 | Stale credentials | "password authentication failed" |
+| **OpenAI TPM Limiting** | Mar 13 | Capacity exhausted | "Rate limit reached... TPM" |
+
+**Why They're Different:**
+1. **Different providers:** Anthropic ≠ Supabase ≠ OpenAI
+2. **Different errors:** Credit ≠ Auth ≠ Capacity
+3. **Different solutions required:** Billing fix ≠ Credential fix ≠ Upgrade tier
+4. **Timing:** Mar 10 vs Mar 13 (3-day gap)
+
+**Critical Understanding:**
+The system was hit by THREE SEPARATE CRISES across THREE PROVIDERS in 6 days:
+- Mar 7: Anthropic billing exhaustion (resolved Mar 10)
+- Mar 10: Anthropic depletion again (resolved)
+- Mar 13 8am: Supabase auth failed (NEW)
+- Mar 13 evening: OpenAI TPM limit (NEW)
+
+This is NOT a software bug. This is a **MULTI-PROVIDER CAPACITY & CREDENTIAL MANAGEMENT ISSUE.**
+
+**Pattern Recognition (for future compounds):**
+1. Always check error source (Anthropic vs OpenAI vs Supabase)
+2. Different error = different fix required
+3. Multiple concurrent crises = check all providers, don't assume one fix solves all
+4. Database auth failures require manual credential review (not API calls to fix)
+
+**ACTION REQUIRED (BOTH IMMEDIATE):**
+1. **D H must restore Supabase credentials** → Update DATABASE_URL in .env
+2. **D H must address OpenAI TPM limits** → Upgrade tier or reduce concurrency
+
+**Status:** 🚨 **CRITICAL — DUAL BLOCKER — System offline until both resolved**
+
+---
+
 ### 2026-03-10: CRITICAL BILLING CRISIS — 3RD OCCURRENCE IN 3 WEEKS 🚨
 
 **PATTERN ACCELERATING: CRISIS RECURRING WITHIN HOURS OF FIXES**

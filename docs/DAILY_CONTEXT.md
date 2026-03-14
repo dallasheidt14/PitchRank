@@ -2,8 +2,8 @@
 
 > Updated throughout the day. All agents should read this on startup.
 
-**Date:** 2026-03-06 (Friday) — Updated by COMPY 10:30pm MT
-**🟢 SYSTEM OPERATIONAL — All agents running, content pipeline LIVE, ready for Monday scrape**
+**Date:** 2026-03-13 (Friday) — Updated by COMPY 10:30pm MT
+**🚨 SYSTEM CRITICAL — DUAL BLOCKER: Database Auth Failed + OpenAI TPM Rate Limited**
 
 ## 🚫 PROTECTED (Never Touch Without Asking)
 - Rankings algorithm

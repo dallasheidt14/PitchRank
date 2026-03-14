@@ -1,0 +1,12 @@
+{
+  "generated_at": "2026-03-14T02:35:14.955057+00:00",
+  "games_ingested_24h": 0,
+  "pipeline_freshness_hours": null,
+  "quarantine_backlog": 325,
+  "duplicate_team_candidates": null,
+  "rank_runtime_minutes": null,
+  "weekly_content_published": 0,
+  "seo_clicks_7d": null,
+  "open_incidents": 1,
+  "notes": "Supabase credentials failing; populate metrics once DB access restored."
+}

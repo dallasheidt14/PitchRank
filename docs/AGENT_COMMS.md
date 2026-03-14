@@ -32,14 +32,14 @@ Message here
 
 | Agent | Last Active | Status |
 |-------|-------------|--------|
-| Watchy | 2026-03-10 8am | ✅ **RESTORED — API Billing Fixed** |
-| Scrappy | 2026-03-09 10am | 🟢 Ready for Mon Mar 10 10am |
-| Ranky | 2026-03-09 12pm | 🟢 Ready for Mon Mar 10 12pm |
-| Movy | 2026-03-04 10am | 🟢 Ready for Tue Mar 11 10am |
-| Socialy | 2026-02-21 (Blog launch) | 🟢 Ready for Wed Mar 12 9am |
-| Cleany | 2026-03-01 7pm | 🟢 Ready for Sun Mar 16 7pm |
-| COMPY | 2026-03-10 ready | 🟢 Ready for nightly 10:30pm |
-| Codey | 2026-03-06 (work) | 🟢 Available for spawns |
+| Watchy | 2026-03-13 8am | 🔴 **DB AUTH FAILED — Cannot connect to Supabase** |
+| Scrappy | 2026-03-12 6am | 🔴 **BLOCKED — Cannot access database** |
+| Ranky | 2026-03-10 12pm | 🔴 **BLOCKED — Cannot access database** |
+| Movy | 2026-03-12 10am | 🔴 **BLOCKED — Cannot access database** |
+| Socialy | 2026-03-13 morning | 🟡 **OpenAI TPM Rate Limited — gpt-5.1-codex at capacity** |
+| Cleany | 2026-03-08 7pm | 🔴 **BLOCKED — Cannot access database** |
+| COMPY | 2026-03-13 22:30pm | 🔍 **Analyzing 2 Critical Issues** |
+| Codey | 2026-03-06 (work) | 🟡 **Available but OpenAI rate-limited** |
 
 ---
 
@@ -53,6 +53,57 @@ From `WEEKLY_GOALS.md`:
 ---
 
 ## 📬 Live Feed
+
+**🚨 CRITICAL ALERT — Mar 13 (FRIDAY) 10:30 PM — TWO CRITICAL ISSUES IDENTIFIED**
+
+### [2026-03-13 22:30pm] COMPY NIGHTLY COMPOUND
+🔍 **IDENTIFYING TWO CRITICAL BLOCKING ISSUES (NOT ONE)**
+
+After reviewing 9 sessions from Mar 13 24h window, discovered:
+
+**ISSUE #1: DATABASE AUTHENTICATION FAILURE (8am Mar 13)**
+- Watchy preflight at 8am: Cannot connect to Supabase
+- Error: `FATAL: password authentication failed for user "postgres"`
+- **Impact:** All DB-dependent agents blocked (Watchy, Scrappy, Ranky, Movy, Cleany)
+- **Status:** ⏹️ **DATA PIPELINE COMPLETELY OFFLINE**
+- **Timeline:** Last successful DB access was Watchy on Mar 10
+- **Root cause:** Supabase credentials appear stale/invalid (3+ days without connection)
+
+**ISSUE #2: OpenAI TPM RATE LIMITING (Evening Mar 13)**
+- Multiple agents hitting OpenAI capacity limits
+- Error: "Rate limit reached for gpt-5.1-codex... Limit 500000, Used 500000"
+- **Affected agents:** Socialy, Watchy (Mar 13 runs), Compy (tonight)
+- **Type:** Tokens Per Minute (TPM) capacity exhausted
+- **Status:** 🟡 **SECONDARY BLOCKER** (impacts non-DB agents)
+
+**CRITICAL DISCOVERY: These are TWO SEPARATE ISSUES**
+- NOT the same as the Mar 10 Anthropic billing crisis
+- Database auth is PRIMARY blocker (prevents data access)
+- OpenAI TPM is SECONDARY blocker (prevents analysis/reporting)
+- Both require immediate human intervention
+
+**ACTION REQUIRED (D H — BOTH URGENT):**
+1. **Database Auth (PRIMARY):** 
+   - Check Supabase dashboard: Verify DATABASE_URL credentials
+   - Verify password hasn't been rotated
+   - Test: `psql "$DATABASE_URL" -c "SELECT 1;"`
+   - Update .env if credentials changed
+
+2. **OpenAI TPM (SECONDARY):**
+   - Check OpenAI account billing: Verify TPM limits
+   - Review usage pattern (why 500k TPM hit in last 24h?)
+   - Consider: Upgrade tier, reduce request volume, or switch to Anthropic (Claude)
+
+**Impact Assessment (Mar 13 evening):**
+- ❌ **Data pipeline: OFFLINE** (can't read from Supabase)
+- ❌ **Health checks: BLOCKED** (Watchy cannot run)
+- ❌ **Scheduled scrapes: BLOCKED** (Scrappy cannot access DB)
+- ❌ **Rankings: FROZEN** (Ranky cannot compute)
+- 🟡 **Reporting: RATE LIMITED** (Socialy/Compy slowed by TPM)
+
+**System Status:** 🚨 **CRITICAL — DUAL BLOCKER SCENARIO**
+
+---
 
 **🚨 CRITICAL ALERT — Mar 13 (FRIDAY) 8:00 AM — DATABASE AUTHENTICATION FAILURE (BLOCKING ALL OPERATIONS)**
 
