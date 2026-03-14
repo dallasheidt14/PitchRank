@@ -29,6 +29,19 @@ on:
         required: false
         default: ""
         type: string
+      discover_teams:
+        description: "Discover and create new teams from no_match opponents"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      discover_min_games:
+        description: "Minimum games for team discovery (default: 1)"
+        required: false
+        default: "1"
+        type: string
 
 env:
   SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -156,6 +169,51 @@ jobs:
           echo "approved_count=${{ steps.due.outputs.approved_count }}"
           echo "dry_run=${{ github.event.inputs.dry_run || 'false' }}"
 
+      - name: Discover new teams from no_match opponents
+        id: discover
+        if: ${{ github.event.inputs.discover_teams != 'false' }}
+        run: |
+          DISCOVER_CSV="data/exports/team_discovery_report_weekly_${{ steps.export.outputs.timestamp }}.csv"
+          EXECUTE_FLAG=""
+          if [ "${{ github.event.inputs.dry_run || 'false' }}" != "true" ]; then
+            EXECUTE_FLAG="--execute"
+          fi
+          MIN_GAMES="${{ github.event.inputs.discover_min_games || '1' }}"
+
+          python3 scripts/discover_teams_from_opponents.py \
+            --match-report "${{ steps.match.outputs.match_csv }}" \
+            --provider "${{ github.event.inputs.provider || 'gotsport' }}" \
+            --min-games "$MIN_GAMES" \
+            --output "$DISCOVER_CSV" \
+            $EXECUTE_FLAG | tee logs/unknown_discover.log
+
+          echo "discover_csv=$DISCOVER_CSV" >> "$GITHUB_OUTPUT"
+
+          # Parse CI-friendly outputs
+          python3 - <<'PY'
+          import os
+          import pathlib
+
+          log = pathlib.Path("logs/unknown_discover.log").read_text(encoding="utf-8").splitlines()
+          values = {}
+          for line in log:
+              if "=" in line and line.startswith("DISCOVERY_"):
+                  k, v = line.split("=", 1)
+                  values[k] = v
+
+          mapping = {
+              "discovery_total": values.get("DISCOVERY_TOTAL", "0"),
+              "discovery_created": values.get("DISCOVERY_CREATED", "0"),
+              "discovery_skipped": values.get("DISCOVERY_SKIPPED_METADATA", "0"),
+              "discovery_errors": values.get("DISCOVERY_ERRORS", "0"),
+              "discovery_backfilled": values.get("DISCOVERY_GAMES_BACKFILLED", "0"),
+          }
+          github_output = os.environ["GITHUB_OUTPUT"]
+          with open(github_output, "a", encoding="utf-8") as f:
+              for key, val in mapping.items():
+                  f.write(f"{key}={val}\n")
+          PY
+
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -169,6 +227,7 @@ jobs:
             ${{ steps.due.outputs.all_csv }}
             ${{ steps.due.outputs.approved_csv }}
             ${{ steps.due.outputs.review_csv }}
+            ${{ steps.discover.outputs.discover_csv }}
           retention-days: 30
 
       - name: Workflow summary
@@ -187,5 +246,13 @@ jobs:
           echo "- Due diligence approved: **${{ steps.due.outputs.approved_count || '0' }}**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Due diligence needs review: **${{ steps.due.outputs.review_count || '0' }}**" >> "$GITHUB_STEP_SUMMARY"
           echo "- All pass gate: **${{ steps.due.outputs.all_pass || 'false' }}**" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Team Discovery (no_match opponents)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Discover teams enabled: **${{ github.event.inputs.discover_teams || 'true' }}**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- No-match processed: **${{ steps.discover.outputs.discovery_total || '0' }}**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Teams created: **${{ steps.discover.outputs.discovery_created || '0' }}**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Games backfilled: **${{ steps.discover.outputs.discovery_backfilled || '0' }}**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Skipped (metadata): **${{ steps.discover.outputs.discovery_skipped || '0' }}**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Errors: **${{ steps.discover.outputs.discovery_errors || '0' }}**" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Execution happens only when all due diligence rows are approved." >> "$GITHUB_STEP_SUMMARY"
