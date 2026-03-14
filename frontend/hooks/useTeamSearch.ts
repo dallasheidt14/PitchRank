@@ -9,13 +9,11 @@ import type { RankingRow } from '@/types/RankingRow';
  * Transforms to RankingRow format with default/null values for ranking fields
  *
  * Uses pagination to fetch all teams (handles >1000 teams by fetching in batches)
- * Pass enabled=false to defer fetching until the user actually needs search (e.g., on focus)
  * Updated: 2024-11-23
  */
-export function useTeamSearch(enabled: boolean = true) {
+export function useTeamSearch() {
   return useQuery<RankingRow[]>({
     queryKey: ['team-search'],
-    enabled,
     queryFn: async () => {
       const BATCH_SIZE = 1000; // Supabase default limit
       const allTeams: RankingRow[] = [];
