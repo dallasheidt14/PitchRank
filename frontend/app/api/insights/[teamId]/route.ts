@@ -173,12 +173,14 @@ export async function GET(
     };
 
     if (ranking?.age && ranking?.gender) {
+      // Only include Active teams in cohort stats to match v53e ranking logic
+      // v53e only assigns rank_in_cohort to Active teams (8+ games in 180 days)
       const { data: cohortData, error: cohortError } = await supabase
         .from("rankings_view")
         .select("power_score_final")
         .eq("age", ranking.age)
         .eq("gender", ranking.gender)
-        .in("status", ["Active", "Not Enough Ranked Games"])
+        .eq("status", "Active")
         .order("power_score_final", { ascending: false });
 
       if (!cohortError && cohortData && cohortData.length > 0) {

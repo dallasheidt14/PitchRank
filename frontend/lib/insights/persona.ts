@@ -16,13 +16,34 @@
 import type { InsightInputData, PersonaInsight } from "./types";
 
 /**
- * Power score difference thresholds for opponent categorization
- * Using power score (0-1 scale) instead of rank makes this cohort-size independent
+ * Base power score difference threshold for opponent categorization (in powerscore_adj space, [0-1])
  *
- * 0.08 power difference ≈ meaningful strength gap
- * For context: In a 100-team cohort, this is roughly 8 percentile points
+ * 0.08 ≈ meaningful strength gap in the pre-anchor [0,1] range.
+ * For context: In a 100-team cohort, this is roughly 8 percentile points.
+ *
+ * IMPORTANT: power_score_final is anchor-scaled by age (U10 max=0.40, U18 max=1.00).
+ * A fixed threshold in final space would be too coarse for younger age groups.
+ * We scale this by the team's age anchor so the threshold represents the same
+ * relative strength gap regardless of age group.
  */
-const POWER_DIFF_THRESHOLD = 0.08;
+const BASE_POWER_DIFF_THRESHOLD = 0.08;
+
+/**
+ * Age-to-anchor mapping matching v53e Layer 11
+ * Younger age groups have compressed power_score_final ranges
+ */
+const AGE_TO_ANCHOR: Record<number, number> = {
+  10: 0.40,
+  11: 0.475,
+  12: 0.55,
+  13: 0.625,
+  14: 0.70,
+  15: 0.775,
+  16: 0.85,
+  17: 0.925,
+  18: 1.0,
+  19: 1.0,
+};
 
 /**
  * Big win/loss threshold - goal differential that indicates dominant/dominated result
@@ -32,11 +53,13 @@ const BIG_MARGIN_THRESHOLD = 3;
 
 /**
  * Analyzes performance against opponents by tier using power score
+ * Threshold is scaled by age anchor to maintain consistent sensitivity across age groups
  */
 function analyzePerformanceByTier(
   games: InsightInputData["games"],
   teamId: string,
-  teamPower: number | null
+  teamPower: number | null,
+  powerDiffThreshold: number
 ): {
   winsVsHigherRanked: number;
   totalVsHigherRanked: number;
@@ -82,11 +105,11 @@ function analyzePerformanceByTier(
     // Power difference: negative = opponent stronger, positive = opponent weaker
     const powerDiff = teamPower - oppPower;
 
-    if (powerDiff < -POWER_DIFF_THRESHOLD) {
+    if (powerDiff < -powerDiffThreshold) {
       // Opponent has meaningfully higher power score (stronger)
       totalVsHigherRanked++;
       if (won) winsVsHigherRanked++;
-    } else if (powerDiff > POWER_DIFF_THRESHOLD) {
+    } else if (powerDiff > powerDiffThreshold) {
       // Opponent has meaningfully lower power score (weaker)
       totalVsLowerRanked++;
       if (won) winsVsLowerRanked++;
@@ -235,11 +258,19 @@ function findSignatureResult(
 export function generatePersonaInsight(data: InsightInputData): PersonaInsight {
   const { team, ranking, games } = data;
 
+  // Scale power diff threshold by age anchor to maintain consistent sensitivity
+  // across age groups. power_score_final range varies: U10=[0,0.40], U18=[0,1.0]
+  // Without scaling, U10 teams almost always get "Wildcard" because 0.08 is 20%
+  // of their entire range vs only 8% for U18.
+  const anchor = (team.age !== null ? AGE_TO_ANCHOR[team.age] : null) ?? 1.0;
+  const scaledThreshold = BASE_POWER_DIFF_THRESHOLD * anchor;
+
   // Use power score for tier analysis (cohort-size independent)
   const stats = analyzePerformanceByTier(
     games,
     team.team_id_master,
-    ranking.power_score_final
+    ranking.power_score_final,
+    scaledThreshold
   );
 
   const { label, explanation } = determinePersona(stats);
