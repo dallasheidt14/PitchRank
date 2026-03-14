@@ -1,6 +1,6 @@
 # CLAUDE.md — PitchRank AI Assistant Guide
 
-> Last updated: 2026-03-10
+> Last updated: 2026-03-14
 
 PitchRank is a **youth soccer ranking platform** that scrapes game data from multiple providers, calculates rankings using a proprietary 13-layer algorithm (v53e + ML), and serves results through a Next.js frontend. This file is the primary reference for AI assistants working in this codebase.
 
@@ -40,25 +40,28 @@ PitchRank/
 ├── frontend/               # Next.js web application
 │   ├── app/                # App Router pages + API routes
 │   ├── components/         # React components (shadcn/ui + custom)
+│   ├── content/            # Static content files (social media, blog)
 │   ├── lib/                # API client, types, utilities, Supabase clients
 │   ├── hooks/              # Custom React hooks
 │   ├── types/              # TypeScript type definitions
+│   ├── public/             # Static assets (images, fonts)
 │   ├── e2e/                # Playwright E2E tests
+│   ├── scripts/            # Frontend build scripts
 │   └── middleware.ts       # Auth + route protection
 │
-├── scripts/                # 146+ operational scripts (import, ranking, hygiene)
+├── scripts/                # 280+ operational scripts (import, ranking, hygiene)
 ├── scrapers/               # Scrapy-based scrapers (Modular11/MLS NEXT)
-├── config/                 # Centralized settings.py (12K+ lines)
+├── config/                 # Centralized settings.py
 ├── data/                   # Cache, master data, raw imports, backtests
 ├── models/                 # ML model artifacts
-├── supabase/               # Database migrations (70+ files)
+├── supabase/               # Database migrations (80+ files)
 ├── tests/                  # Python test suite
-├── docs/                   # 110+ documentation files
+├── docs/                   # 90+ documentation files
 ├── memory/                 # Agent working memory files
 ├── .claude/                # Claude agent configs + skills
 │   ├── agents/             # SEO sub-agent definitions
 │   └── skills/             # Domain skills (ranking, scraping, SEO, etc.)
-├── .github/workflows/      # 15+ automated workflows
+├── .github/workflows/      # 15 automated workflows
 ├── dashboard.py            # Streamlit admin dashboard (248K lines)
 └── agent_skills/           # Standalone agent skill packages
 ```
@@ -253,6 +256,13 @@ npm run analyze
 | `unknown-opponent-hygiene-weekly.yml` | Weekly | Resolve "Unknown" opponents |
 | `auto-merge-queue.yml` | Post-import | Auto-approve low-risk merges |
 | `modular11-weekly-scrape.yml` | Manual dispatch | MLS NEXT league scraping |
+| `modular11-events-weekly-scrape.yml` | Manual dispatch | MLS NEXT event scraping |
+| `process-missing-games.yml` | Manual dispatch | Find & import missing games (±90d window) |
+| `fix-age-year-discrepancies.yml` | Manual dispatch | Correct age/birth year mismatches |
+| `match-state-from-club.yml` | Manual dispatch | Backfill team state from club data |
+| `update-missing-club-names.yml` | Manual dispatch | Backfill missing club names |
+| `scrape-specific-event.yml` | Manual dispatch | One-off event scraping |
+| `wa-scraper.yml` | Manual dispatch | Washington state scraping |
 
 ### Weekly Cycle
 
@@ -274,7 +284,7 @@ Required variables are documented in `.env.example`. Key groups:
 - **ML config**: `ML_LAYER_ENABLED`, `ML_ALPHA`, `ML_XGB_N_ESTIMATORS`, etc.
 - **Scraping**: `ZENROWS_API_KEY`, `GOTSPORT_DELAY_MIN/MAX`
 - **Frontend**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SITE_URL`
-- **Payments**: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
+- **Payments**: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PRICE_MONTHLY`, `NEXT_PUBLIC_STRIPE_PRICE_YEARLY`
 - **Email**: `RESEND_API_KEY`
 
 **Never commit `.env` or `.env.local` files.**
@@ -303,7 +313,13 @@ Required variables are documented in `.env.example`. Key groups:
 - `/compare` — Team comparison (premium)
 - `/watchlist` — User's tracked teams (premium)
 - `/blog/[slug]` — Blog posts
+- `/infographics` — Social media infographic generator + caption tool
+- `/embed` — Embeddable ranking widgets
+- `/upgrade` — Subscription plans (7-day free trial, Stripe)
+- `/upgrade/success` — Post-checkout success page
+- `/methodology` — Ranking methodology explainer
 - `/mission-control` — Admin dashboard
+- `/login`, `/signup`, `/forgot-password`, `/reset-password` — Auth flows
 
 ### Design System
 
@@ -312,6 +328,22 @@ Required variables are documented in `.env.example`. Key groups:
 - **Primary color**: Forest Green (`#0B5345`)
 - **Accent**: Electric Yellow (`#F4D03F`)
 - **Path alias**: `@/*` → root directory
+
+### Subscription & Payments (Stripe)
+
+- **7-day free trial** on both monthly and yearly plans
+- Monthly: $6.99/month | Yearly: $69.99/year
+- Premium features: team detail pages, team comparison, watchlist
+- Stripe Checkout for payment, Stripe Customer Portal for management
+- Webhook handling at `/api/stripe/webhook`
+- `UpgradePromptBanner` component gates premium content
+
+### Infographics & Social Media
+
+- `/infographics` page generates shareable social media images (canvas rendering)
+- Types: `top10`, `spotlight`, `movers`, `headToHead`, `stateChampions`, `stories`, `covers`
+- `CaptionGenerator` component creates platform-optimized captions (hook, body, CTA, hashtags, bio link)
+- Instagram content strategy and assets in `frontend/content/social/`
 
 ---
 
@@ -362,7 +394,14 @@ PitchRank uses a multi-agent system with specialized personas:
 | **Watchy** | Monitoring, health checks | `memory/WORKING-watchy.md` |
 | **Socialy** | SEO, content, marketing | `memory/WORKING-socialy.md` |
 
-Skills are defined in `.claude/skills/` and provide domain-specific knowledge for ranking algorithms, scraping patterns, database operations, and more.
+Skills are defined in `.claude/skills/` (18 skill files + 14 skill directories) and provide domain-specific knowledge for ranking algorithms, scraping patterns, database operations, SEO, and more.
+
+Sub-agents for SEO are defined in `.claude/agents/` (6 agents: content, performance, schema, sitemap, technical, visual).
+
+### MCP Integration
+
+- Supabase MCP server configured in `.mcp.json` (read-only mode)
+- Provides direct database access for Claude Code sessions
 
 ---
 
@@ -401,3 +440,8 @@ Skills are defined in `.claude/skills/` and provide domain-specific knowledge fo
 | Supabase migrations | `supabase/migrations/` |
 | GH Actions workflows | `.github/workflows/` |
 | Admin dashboard | `dashboard.py` (Streamlit) |
+| Infographic generator | `frontend/components/infographics/` |
+| Caption generator | `frontend/components/infographics/CaptionGenerator.tsx` |
+| Stripe checkout | `frontend/app/api/stripe/checkout/route.ts` |
+| Upgrade prompt banner | `frontend/components/subscription/UpgradePromptBanner.tsx` |
+| MCP config | `.mcp.json` |
