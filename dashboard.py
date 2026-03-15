@@ -5172,6 +5172,16 @@ elif section == "🛡️ Due Diligence Review":
                             .is_("away_team_master_id", "null")
                         )
 
+                        # Remove approved row from CSV on disk
+                        try:
+                            remaining_df = pd.read_csv(selected_csv, dtype=str).fillna("")
+                            remaining_df = remaining_df[
+                                remaining_df["unknown_provider_team_id"].str.strip() != unknown_pid.strip()
+                            ]
+                            remaining_df.to_csv(selected_csv, index=False)
+                        except Exception as exc:
+                            st.warning(f"CSV cleanup failed (link was applied): {exc}")
+
                         st.session_state.dd_decisions[unknown_pid] = "approved"
                         st.success(f"Approved & linked [{unknown_pid}] → {matched_name}")
                         st.rerun()
@@ -5184,6 +5194,36 @@ elif section == "🛡️ Due Diligence Review":
                     key=f"dd_reject_{unknown_pid}_{idx}",
                     disabled=not dd_reviewer,
                 ):
+                    # 1. Write rejection to team_match_review_queue in DB
+                    if db:
+                        try:
+                            provider_id = row.get("provider_id", "")
+                            execute_with_retry(
+                                lambda pid=provider_id, upid=unknown_pid, tid=matched_tid: db.table("team_match_review_queue").upsert(
+                                    {
+                                        "provider_id": pid,
+                                        "provider_team_id": upid,
+                                        "suggested_team_id_master": tid,
+                                        "match_confidence": float(best_score) if best_score else 0.0,
+                                        "review_status": "rejected",
+                                        "reviewed_by": dd_reviewer,
+                                    },
+                                    on_conflict="provider_id,provider_team_id",
+                                )
+                            )
+                        except Exception as exc:
+                            st.error(f"DB reject write failed (still removing from CSV): {exc}")
+
+                    # 2. Remove rejected row from the CSV file on disk
+                    try:
+                        remaining_df = pd.read_csv(selected_csv, dtype=str).fillna("")
+                        remaining_df = remaining_df[
+                            remaining_df["unknown_provider_team_id"].str.strip() != unknown_pid.strip()
+                        ]
+                        remaining_df.to_csv(selected_csv, index=False)
+                    except Exception as exc:
+                        st.error(f"CSV update failed: {exc}")
+
                     st.session_state.dd_decisions[unknown_pid] = "rejected"
                     st.rerun()
 
