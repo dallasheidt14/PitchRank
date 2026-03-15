@@ -103,7 +103,8 @@ section = st.sidebar.radio(
         "📍 Missing State Codes",
         "🔀 Team Merge Manager",
         "✏️ Manual Team Edit",
-        "🔎 Team Discovery Review"
+        "🔎 Team Discovery Review",
+        "🛡️ Due Diligence Review"
     ]
 )
 
@@ -4936,6 +4937,281 @@ elif section == "🔎 Team Discovery Review":
             file_name=f"team_discovery_review_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv",
         )
+
+# ============================================================================
+# DUE DILIGENCE REVIEW SECTION
+# ============================================================================
+elif section == "🛡️ Due Diligence Review":
+    st.header("Due Diligence Review")
+    st.markdown(
+        "Review auto-link candidates that **failed due diligence checks** and need manual approval or rejection. "
+        "These are unknown opponents that fuzzy-matched to an existing team but had at least one check mismatch."
+    )
+
+    db = get_database()
+    if not db:
+        st.error("Database connection required for approve actions.")
+
+    # ------------------------------------------------------------------
+    # File picker — find needs_review CSVs
+    # ------------------------------------------------------------------
+    exports_dir = Path("data/exports")
+    review_csvs = sorted(
+        exports_dir.glob("*_needs_review.csv"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    ) if exports_dir.exists() else []
+
+    if not review_csvs:
+        st.warning(
+            "No needs-review CSV files found in `data/exports/`. "
+            "Run the due diligence script first:\n\n"
+            "```\npython scripts/due_diligence_unknown_opponents.py "
+            "--match-report data/exports/unknown_opponent_match_report_weekly.csv\n```"
+        )
+        st.stop()
+
+    selected_csv = st.selectbox(
+        "Select needs-review CSV",
+        options=review_csvs,
+        format_func=lambda p: f"{p.name} ({p.stat().st_size / 1024:.0f} KB)",
+        key="dd_csv_select",
+    )
+
+    # ------------------------------------------------------------------
+    # Load CSV
+    # ------------------------------------------------------------------
+    dd_df = pd.read_csv(selected_csv, dtype=str).fillna("")
+    st.info(f"Loaded **{len(dd_df)}** needs-review candidates from `{selected_csv.name}`")
+
+    if dd_df.empty:
+        st.success("No items to review — CSV is empty.")
+        st.stop()
+
+    # ------------------------------------------------------------------
+    # Check columns — color-code helper
+    # ------------------------------------------------------------------
+    CHECK_COLS = [
+        "alias_conflict", "club_check", "age_check", "gender_check",
+        "state_check", "cohort_age_check", "cohort_gender_check", "name_literal_check",
+    ]
+
+    def _check_badge(col_name: str, value: str) -> str:
+        """Return emoji badge for a check value."""
+        v = str(value).strip().lower()
+        if col_name == "alias_conflict":
+            return "🔴 CONFLICT" if v == "true" else "✅ None"
+        if col_name == "name_literal_check":
+            return "✅ Match" if v == "true" else "⚠️ No match"
+        if v == "ok" or v == "exact":
+            return "✅ OK"
+        if v == "partial":
+            return "🟡 Partial"
+        if v == "mismatch":
+            return "🔴 Mismatch"
+        return "⚪ Unknown"
+
+    # ------------------------------------------------------------------
+    # Summary metrics
+    # ------------------------------------------------------------------
+    total_games_impacted = dd_df["total_games_impacted"].astype(int).sum() if "total_games_impacted" in dd_df.columns else 0
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Items to Review", f"{len(dd_df)}")
+    m2.metric("Games Impacted", f"{total_games_impacted:,}")
+    # Count how many have each type of failure
+    failure_counts = {}
+    for col in CHECK_COLS:
+        if col in dd_df.columns:
+            if col == "alias_conflict":
+                count = (dd_df[col].str.lower() == "true").sum()
+            elif col == "name_literal_check":
+                count = (dd_df[col].str.lower() != "true").sum()
+            else:
+                count = (dd_df[col].str.lower() == "mismatch").sum()
+            if count > 0:
+                failure_counts[col] = int(count)
+    m3.metric("Distinct Failures", f"{len(failure_counts)}")
+
+    if failure_counts:
+        st.markdown("**Failure breakdown:** " + " | ".join(
+            f"`{k}`: {v}" for k, v in sorted(failure_counts.items(), key=lambda x: -x[1])
+        ))
+
+    st.divider()
+
+    # ------------------------------------------------------------------
+    # Reviewer email for approve actions
+    # ------------------------------------------------------------------
+    dd_reviewer = st.text_input(
+        "Your email (required for approve/reject)", key="dd_reviewer_email"
+    )
+
+    # Track approvals/rejections in session state
+    if "dd_decisions" not in st.session_state:
+        st.session_state.dd_decisions = {}  # unknown_provider_team_id -> "approved" | "rejected"
+
+    # ------------------------------------------------------------------
+    # Render each candidate
+    # ------------------------------------------------------------------
+    for idx, row in dd_df.iterrows():
+        unknown_pid = row.get("unknown_provider_team_id", "")
+        matched_name = row.get("matched_team_name", "???")
+        matched_age = row.get("matched_team_age_group", "")
+        matched_gender = row.get("matched_team_gender", "")
+        matched_state = row.get("matched_team_state", "")
+        matched_club = row.get("matched_team_club", "")
+        matched_tid = row.get("matched_team_id_master", "")
+        best_score = row.get("best_score", "")
+        games = row.get("total_games_impacted", "0")
+        api_name = row.get("unknown_api_full_name", "")
+        api_club = row.get("unknown_api_club_name", "")
+        api_age = row.get("unknown_api_age_group", "")
+        api_gender = row.get("unknown_api_gender", "")
+        api_state = row.get("unknown_api_state", "")
+
+        # Check if already decided this session
+        decision = st.session_state.dd_decisions.get(unknown_pid)
+        if decision:
+            decision_icon = "✅" if decision == "approved" else "❌"
+            st.markdown(f"{decision_icon} **[{unknown_pid}]** {api_name} → {matched_name} — **{decision.upper()}**")
+            continue
+
+        # Build failure summary for the label
+        failures = []
+        for col in CHECK_COLS:
+            val = str(row.get(col, "")).strip().lower()
+            if col == "alias_conflict" and val == "true":
+                failures.append("alias_conflict")
+            elif col == "name_literal_check" and val != "true":
+                pass  # name check alone is not a hard failure
+            elif val == "mismatch":
+                failures.append(col.replace("_check", ""))
+
+        failure_str = ", ".join(failures) if failures else "soft failures"
+        label = (
+            f"⚠️ [{unknown_pid}] {api_name or '???'} → {matched_name} "
+            f"({matched_age} {matched_gender}, {matched_state}) — "
+            f"**{failure_str}** | {games} games | score={best_score}"
+        )
+
+        with st.expander(label, expanded=False):
+            ec1, ec2 = st.columns(2)
+
+            with ec1:
+                st.markdown("**Unknown Opponent (GotSport API)**")
+                st.text(f"Name:     {api_name}")
+                st.text(f"Club:     {api_club}")
+                st.text(f"Age:      {api_age}")
+                st.text(f"Gender:   {api_gender}")
+                st.text(f"State:    {api_state}")
+                st.caption(f"Provider Team ID: `{unknown_pid}`")
+
+            with ec2:
+                st.markdown("**Suggested Match (Database)**")
+                st.text(f"Name:     {matched_name}")
+                st.text(f"Club:     {matched_club}")
+                st.text(f"Age:      {matched_age}")
+                st.text(f"Gender:   {matched_gender}")
+                st.text(f"State:    {matched_state}")
+                st.caption(f"Master ID: `{matched_tid}`")
+
+            # Check results grid
+            st.markdown("**Due Diligence Checks**")
+            check_cols = st.columns(4)
+            for ci, col in enumerate(CHECK_COLS):
+                with check_cols[ci % 4]:
+                    val = row.get(col, "")
+                    badge = _check_badge(col, val)
+                    display_name = col.replace("_", " ").title()
+                    st.markdown(f"**{display_name}**: {badge}")
+
+            st.text(f"Match score: {best_score}  |  Games impacted: {games}  |  Sides: {row.get('sides', '')}")
+
+            # Action buttons
+            btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 3])
+            with btn_col1:
+                if st.button(
+                    "✅ Approve & Link",
+                    key=f"dd_approve_{unknown_pid}_{idx}",
+                    type="primary",
+                    disabled=not dd_reviewer or not db,
+                ):
+                    try:
+                        provider_id = row.get("provider_id", "")
+
+                        # 1. Upsert alias
+                        execute_with_retry(
+                            lambda pid=provider_id, upid=unknown_pid, tid=matched_tid: db.table("team_alias_map").upsert(
+                                {
+                                    "provider_id": pid,
+                                    "provider_team_id": upid,
+                                    "team_id_master": tid,
+                                    "match_method": "fuzzy_auto",
+                                    "match_confidence": 1.0,
+                                    "review_status": "approved",
+                                },
+                                on_conflict="provider_id,provider_team_id",
+                            )
+                        )
+
+                        # 2. Backfill home games
+                        execute_with_retry(
+                            lambda pid=provider_id, upid=unknown_pid, tid=matched_tid: db.table("games")
+                            .update({"home_team_master_id": tid})
+                            .eq("provider_id", pid)
+                            .eq("home_provider_id", upid)
+                            .is_("home_team_master_id", "null")
+                        )
+
+                        # 3. Backfill away games
+                        execute_with_retry(
+                            lambda pid=provider_id, upid=unknown_pid, tid=matched_tid: db.table("games")
+                            .update({"away_team_master_id": tid})
+                            .eq("provider_id", pid)
+                            .eq("away_provider_id", upid)
+                            .is_("away_team_master_id", "null")
+                        )
+
+                        st.session_state.dd_decisions[unknown_pid] = "approved"
+                        st.success(f"Approved & linked [{unknown_pid}] → {matched_name}")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Approve failed: {exc}")
+
+            with btn_col2:
+                if st.button(
+                    "❌ Reject",
+                    key=f"dd_reject_{unknown_pid}_{idx}",
+                    disabled=not dd_reviewer,
+                ):
+                    st.session_state.dd_decisions[unknown_pid] = "rejected"
+                    st.rerun()
+
+            with btn_col3:
+                gs_url = f"https://system.gotsport.com/api/v1/team_ranking_data/team_details?team_id={unknown_pid}"
+                st.link_button("🔗 GotSport API", gs_url)
+
+    # ------------------------------------------------------------------
+    # Session summary
+    # ------------------------------------------------------------------
+    approved_this_session = sum(1 for v in st.session_state.dd_decisions.values() if v == "approved")
+    rejected_this_session = sum(1 for v in st.session_state.dd_decisions.values() if v == "rejected")
+    remaining = len(dd_df) - approved_this_session - rejected_this_session
+
+    if approved_this_session or rejected_this_session:
+        st.divider()
+        sc1, sc2, sc3 = st.columns(3)
+        sc1.metric("Approved this session", approved_this_session)
+        sc2.metric("Rejected this session", rejected_this_session)
+        sc3.metric("Remaining", remaining)
+
+        if remaining == 0:
+            st.success("All items reviewed! Queue is clear.")
+
+        # Reset button
+        if st.button("🔄 Reset session decisions"):
+            st.session_state.dd_decisions = {}
+            st.rerun()
 
 # Footer
 st.divider()
