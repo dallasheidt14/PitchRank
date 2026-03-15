@@ -7,6 +7,7 @@ import { AgentSelectBar } from '@/components/agent-hq/AgentSelectBar';
 import { RPGStatsPanel } from '@/components/agent-hq/RPGStatsPanel';
 import { RoleProtocolPanel } from '@/components/agent-hq/RoleProtocolPanel';
 import { AgentPortrait } from '@/components/agent-hq/AgentPortrait';
+import { InstagramReviewQueue } from '@/components/mission-control/InstagramReviewQueue';
 import { AGENTS, type AgentId } from '@/lib/agent-config';
 import '@/components/agent-hq/agent-hq.css';
 
@@ -208,6 +209,9 @@ export default function MissionControlPage() {
           selectedAgent={selectedAgent}
           onSelectAgent={setSelectedAgent}
         />
+
+        {/* Instagram Review Queue */}
+        <InstagramReviewQueue />
 
         {/* Footer info */}
         <div className="text-center text-xs text-gray-500 pt-4 border-t border-gray-800">

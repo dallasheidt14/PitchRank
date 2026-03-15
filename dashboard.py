@@ -105,7 +105,8 @@ section = st.sidebar.radio(
         "🔀 Team Merge Manager",
         "✏️ Manual Team Edit",
         "🔎 Team Discovery Review",
-        "🛡️ Due Diligence Review"
+        "🛡️ Due Diligence Review",
+        "📸 Instagram Review"
     ]
 )
 
@@ -5555,6 +5556,168 @@ elif section == "🛡️ Due Diligence Review":
         if st.button("🔄 Reset session decisions"):
             st.session_state.dd_decisions = {}
             st.rerun()
+
+elif section == "📸 Instagram Review":
+    st.header("📸 Instagram Handle Review Queue")
+    st.markdown("Review team-level Instagram handle matches discovered by Phase 2.")
+
+    # ── Filters ──────────────────────────────────────────────────────────
+    filter_cols = st.columns([1, 1, 1, 1])
+    with filter_cols[0]:
+        level_filter = st.selectbox("Profile Level", ["team", "club", "all"], index=0)
+    with filter_cols[1]:
+        status_filter = st.selectbox("Status", ["needs_review", "auto_approved", "confirmed", "rejected", "all"], index=0)
+    with filter_cols[2]:
+        ig_state_filter = st.text_input("State Code (e.g. AZ)", value="").strip().upper()
+    with filter_cols[3]:
+        ig_search = st.text_input("Search club/handle", value="").strip().lower()
+
+    # ── Fetch records ────────────────────────────────────────────────────
+    @st.cache_data(ttl=30)
+    def fetch_instagram_queue(_status, _level, _state):
+        query = supabase.table("team_social_profiles").select(
+            "id, team_id, handle, confidence_score, review_status, profile_level, query_used, match_details"
+        ).eq("platform", "instagram")
+
+        if _level != "all":
+            query = query.eq("profile_level", _level)
+        if _status != "all":
+            query = query.eq("review_status", _status)
+
+        all_rows = []
+        offset = 0
+        page_size = 1000
+        while True:
+            rows = query.range(offset, offset + page_size - 1).execute().data or []
+            all_rows.extend(rows)
+            if len(rows) < page_size:
+                break
+            offset += page_size
+
+        if not all_rows:
+            return []
+
+        # Fetch team info for display
+        team_ids = list({r["team_id"] for r in all_rows})
+        team_map = {}
+        for i in range(0, len(team_ids), 100):
+            batch = supabase.table("teams").select(
+                "team_id_master, team_name, club_name, state_code, birth_year, gender"
+            ).in_("team_id_master", team_ids[i:i+100]).execute().data or []
+            for t in batch:
+                team_map[t["team_id_master"]] = t
+
+        enriched = []
+        for r in all_rows:
+            t = team_map.get(r["team_id"], {})
+            state = t.get("state_code", "")
+            if _state and state != _state:
+                continue
+            enriched.append({
+                "id": r["id"],
+                "team_id": r["team_id"],
+                "club_name": t.get("club_name", ""),
+                "team_name": t.get("team_name", ""),
+                "state": state,
+                "birth_year": t.get("birth_year", ""),
+                "gender": t.get("gender", ""),
+                "handle": r["handle"],
+                "confidence": r["confidence_score"],
+                "status": r["review_status"],
+                "level": r["profile_level"],
+                "query_used": r.get("query_used", ""),
+                "match_details": r.get("match_details", {}),
+            })
+
+        enriched.sort(key=lambda x: -x["confidence"])
+        return enriched
+
+    rows = fetch_instagram_queue(status_filter, level_filter, ig_state_filter)
+
+    if ig_search:
+        rows = [r for r in rows if ig_search in r["club_name"].lower() or ig_search in r["handle"].lower() or ig_search in r["team_name"].lower()]
+
+    st.metric("Records", len(rows))
+
+    if not rows:
+        st.info("No records match the current filters.")
+    else:
+        # ── Summary stats ────────────────────────────────────────────────
+        conf_bins = {"0.90+": 0, "0.85-0.89": 0, "0.75-0.84": 0, "0.60-0.74": 0, "<0.60": 0}
+        for r in rows:
+            c = r["confidence"]
+            if c >= 0.90: conf_bins["0.90+"] += 1
+            elif c >= 0.85: conf_bins["0.85-0.89"] += 1
+            elif c >= 0.75: conf_bins["0.75-0.84"] += 1
+            elif c >= 0.60: conf_bins["0.60-0.74"] += 1
+            else: conf_bins["<0.60"] += 1
+
+        stat_cols = st.columns(5)
+        for i, (label, count) in enumerate(conf_bins.items()):
+            stat_cols[i].metric(label, count)
+
+        # ── Batch actions ────────────────────────────────────────────────
+        st.subheader("Batch Actions")
+        batch_cols = st.columns([2, 1, 1])
+        with batch_cols[0]:
+            batch_threshold = st.slider("Confidence threshold for batch approve", 0.60, 1.00, 0.85, 0.05)
+        with batch_cols[1]:
+            eligible = [r for r in rows if r["confidence"] >= batch_threshold and r["status"] == "needs_review"]
+            st.metric("Eligible", len(eligible))
+        with batch_cols[2]:
+            if st.button(f"✅ Approve {len(eligible)} above {batch_threshold}", type="primary", disabled=len(eligible) == 0):
+                progress = st.progress(0)
+                for idx, r in enumerate(eligible):
+                    supabase.table("team_social_profiles").update(
+                        {"review_status": "auto_approved"}
+                    ).eq("id", r["id"]).execute()
+                    progress.progress((idx + 1) / len(eligible))
+                st.success(f"Approved {len(eligible)} records!")
+                st.cache_data.clear()
+                st.rerun()
+
+        # ── Individual review table ──────────────────────────────────────
+        st.subheader("Individual Review")
+        PAGE_SIZE = 50
+        total_pages = max(1, (len(rows) + PAGE_SIZE - 1) // PAGE_SIZE)
+        ig_page = st.number_input("Page", min_value=1, max_value=total_pages, value=1)
+        page_rows = rows[(ig_page - 1) * PAGE_SIZE : ig_page * PAGE_SIZE]
+
+        for r in page_rows:
+            with st.container():
+                cols = st.columns([3, 2, 1, 1, 1, 1])
+                with cols[0]:
+                    st.markdown(f"**{r['club_name']}** / {r['team_name']}")
+                    st.caption(f"{r['state']} | {r['birth_year']} {r['gender']} | {r['level']}")
+                with cols[1]:
+                    st.markdown(f"[@{r['handle']}](https://instagram.com/{r['handle']})")
+                with cols[2]:
+                    conf_pct = f"{r['confidence'] * 100:.0f}%"
+                    if r["confidence"] >= 0.85:
+                        st.success(conf_pct)
+                    elif r["confidence"] >= 0.70:
+                        st.warning(conf_pct)
+                    else:
+                        st.error(conf_pct)
+                with cols[3]:
+                    st.caption(r["status"])
+                with cols[4]:
+                    if st.button("✅", key=f"approve_{r['id']}", help="Approve"):
+                        supabase.table("team_social_profiles").update(
+                            {"review_status": "confirmed"}
+                        ).eq("id", r["id"]).execute()
+                        st.cache_data.clear()
+                        st.rerun()
+                with cols[5]:
+                    if st.button("❌", key=f"reject_{r['id']}", help="Reject"):
+                        supabase.table("team_social_profiles").update(
+                            {"review_status": "rejected"}
+                        ).eq("id", r["id"]).execute()
+                        st.cache_data.clear()
+                        st.rerun()
+                st.divider()
+
+        st.caption(f"Page {ig_page} of {total_pages} | {len(rows)} total records")
 
 # Footer
 st.divider()
