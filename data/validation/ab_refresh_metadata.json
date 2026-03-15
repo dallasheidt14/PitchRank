@@ -1,0 +1,26 @@
+{
+  "refreshed_at_utc": "2026-02-19T05:31:52Z",
+  "today_used_for_window": "2026-02-19",
+  "rows_fetched": 980915,
+  "teams_fetched": 77477,
+  "max_game_date_in_fetch": "2026-02-16",
+  "min_game_date_in_fetch": "2025-02-19",
+  "tested_cohorts": [
+    {
+      "age": "13",
+      "gender": "male"
+    },
+    {
+      "age": "12",
+      "gender": "male"
+    },
+    {
+      "age": "11",
+      "gender": "male"
+    },
+    {
+      "age": "14",
+      "gender": "male"
+    }
+  ]
+}
