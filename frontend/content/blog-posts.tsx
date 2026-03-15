@@ -1792,4 +1792,458 @@ export const blogPosts: BlogPost[] = [
       </div>
     ),
   },
+  {
+    slug: 'texas-youth-soccer-rankings-guide',
+    title: "Texas Youth Soccer Rankings: The Complete Guide for Parents (2026)",
+    excerpt: "Everything Texas soccer parents need to know about youth soccer rankings—from FC Dallas to Albion Hurricanes FC, we're tracking 9,460 teams across the Lone Star State.",
+    author: 'PitchRank Team',
+    date: '2026-03-14',
+    readingTime: '10 min read',
+    tags: ['Texas', 'Youth Soccer', 'Rankings', 'Parent Guide'],
+    content: (
+      <div className="space-y-8">
+        {/* Introduction */}
+        <section>
+          <p className="text-lg text-muted-foreground leading-relaxed mb-4">
+            Texas isn't just big — it's a <strong>youth soccer powerhouse</strong>. From Houston to Dallas to Austin, the Lone Star State produces more Division I college players and professional prospects than almost any region in the country.
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            We're tracking <strong>9,460 Texas teams</strong> across every age group and competitive level. That's FC Dallas Academy, Solar SC, Albion Hurricanes FC, Lonestar, Challenge SC, HTX, and hundreds more clubs competing from U8 through U19. Whether you're in DFW navigating the metroplex's elite club scene, in Houston comparing HTX to Albion, or in Austin trying to figure out where your team stands — this guide gives you the clarity you need.
+          </p>
+          <p className="text-muted-foreground leading-relaxed">
+            Here's everything Texas soccer parents need to know about youth soccer rankings in 2026 — backed by real data from 9,460 teams and counting.
+          </p>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings/tx" className="text-primary hover:underline">View all Texas youth soccer rankings</a></p>
+          </div>
+        </section>
+
+        {/* Why Rankings Matter */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Target className="size-6 text-primary" />
+            Why Texas Soccer Rankings Matter
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Texas youth soccer is massively competitive. With <strong>9,460 teams</strong> competing across the state, understanding where your child's team actually ranks isn't just about bragging rights — it's about making informed decisions.
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">Rankings solve three critical problems for Texas parents:</p>
+          <div className="grid gap-3 mb-4">
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border">
+              <CheckCircle className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Regional context</strong> — Your DFW team might dominate locally, but how do they stack up against Houston's elite academies? San Antonio's top clubs?</p>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border">
+              <CheckCircle className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Club comparison</strong> — When choosing between Solar SC, Lonestar, FC Dallas, or a smaller local club, rankings show development quality beyond marketing claims</p>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border">
+              <CheckCircle className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>College recruiting reality</strong> — Texas produces tons of D1 talent, but rankings help you understand if your child is at that elite level</p>
+            </div>
+          </div>
+        </section>
+
+        {/* Texas Landscape */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <MapPin className="size-6 text-primary" />
+            The Texas Youth Soccer Landscape
+          </h2>
+          
+          <h3 className="text-xl font-display font-semibold mb-3">Major Texas Soccer Clubs</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">Based on our database of 9,460 teams, here are Texas's largest youth soccer organizations:</p>
+          
+          <div className="grid gap-2 mb-6">
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>Albion Hurricanes FC</strong> (410 teams) — One of Texas's largest competitive programs with statewide presence</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>Lonestar</strong> (405 teams) — Massive DFW-based organization with deep academy structure</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>FC Dallas</strong> (361 teams) — MLS academy pathway with professional development focus</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>Solar SC</strong> (322 teams) — Elite Dallas club known for ECNL girls program</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>Challenge SC</strong> (295 teams) — Strong Houston presence with competitive teams</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>HTX</strong> (286 teams) — Houston Texans SC, rapidly growing competitive program</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>Sting Soccer Club</strong> (208 teams) — Austin-area powerhouse</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Users className="size-4 text-primary" />
+              <span className="text-sm"><strong>Atletico Dallas Youth</strong> (194 teams) — Strong DFW competitive program</span>
+            </div>
+          </div>
+
+          <h3 className="text-xl font-display font-semibold mb-3">Texas Soccer Regions</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">Texas's youth soccer scene divides into distinct regions, each with its own character:</p>
+          
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">Dallas-Fort Worth Metroplex</h4>
+              <p className="text-sm text-muted-foreground">FC Dallas, Solar SC, Lonestar, Dallas Texans — The densest concentration of elite clubs. MLS Next, ECNL, and year-round training. Massive tournament scene.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">Houston Metro</h4>
+              <p className="text-sm text-muted-foreground">Albion Hurricanes, HTX, Challenge SC — Strong ECNL and GA presence. Competitive club scene rivaling DFW.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">Austin/Central Texas</h4>
+              <p className="text-sm text-muted-foreground">Sting Soccer Club, Lonestar Austin — Rapidly growing market with emerging talent pool.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">San Antonio & South Texas</h4>
+              <p className="text-sm text-muted-foreground">Growing competitive scene with unique border-region flavor and cross-state competition.</p>
+            </div>
+          </div>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings/tx/u14/male" className="text-primary hover:underline">View TX U14 boys rankings</a> • <a href="/rankings/tx/u13/female" className="text-primary hover:underline">TX U13 girls</a></p>
+          </div>
+        </section>
+
+        {/* Age Group Breakdown */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Activity className="size-6 text-primary" />
+            Texas Teams by Age Group
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Our database tracks Texas teams across 12 age groups. Here's the breakdown of the <strong>9,460 teams</strong> we're monitoring:
+          </p>
+          
+          <div className="grid sm:grid-cols-3 gap-3 mb-6">
+            <div className="p-3 rounded-lg bg-muted/50 border text-center">
+              <p className="text-2xl font-bold text-primary">1,425</p>
+              <p className="text-sm text-muted-foreground">U13 teams</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border text-center">
+              <p className="text-2xl font-bold text-primary">1,419</p>
+              <p className="text-sm text-muted-foreground">U12 teams</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border text-center">
+              <p className="text-2xl font-bold text-primary">1,336</p>
+              <p className="text-sm text-muted-foreground">U11 teams</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border text-center">
+              <p className="text-2xl font-bold text-primary">1,213</p>
+              <p className="text-sm text-muted-foreground">U14 teams</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border text-center">
+              <p className="text-2xl font-bold text-primary">1,068</p>
+              <p className="text-sm text-muted-foreground">U15 teams</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border text-center">
+              <p className="text-2xl font-bold text-primary">958</p>
+              <p className="text-sm text-muted-foreground">U16 teams</p>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-lg bg-primary/10 border border-primary/20 mb-6">
+            <p className="text-sm"><strong>Key insight:</strong> U12-U13 represents the peak competitive age range with the most teams. This is when players transition from developmental to competitive soccer, creating intense competition for roster spots at top Texas clubs.</p>
+          </div>
+
+          <h3 className="text-xl font-display font-semibold mb-3">Gender Distribution</h3>
+          <div className="grid sm:grid-cols-2 gap-4 mb-4">
+            <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/20 text-center">
+              <p className="text-3xl font-bold text-blue-600">6,241</p>
+              <p className="text-sm text-muted-foreground">Male teams (66%)</p>
+            </div>
+            <div className="p-4 rounded-lg bg-pink-500/10 border border-pink-500/20 text-center">
+              <p className="text-3xl font-bold text-pink-600">3,219</p>
+              <p className="text-sm text-muted-foreground">Female teams (34%)</p>
+            </div>
+          </div>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings/tx/u15/male" className="text-primary hover:underline">TX U15 boys rankings</a> • <a href="/rankings/tx/u16/female" className="text-primary hover:underline">TX U16 girls rankings</a></p>
+          </div>
+        </section>
+
+        {/* How Rankings Work */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Brain className="size-6 text-primary" />
+            How Texas Soccer Rankings Actually Work
+          </h2>
+          
+          <h3 className="text-xl font-display font-semibold mb-3">What PitchRank Tracks for Texas Teams</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Most ranking systems only track MLS Next and ECNL — the elite tiers. That misses 90%+ of Texas's youth soccer players. PitchRank is different.
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-6">We track:</p>
+          
+          <div className="grid gap-3 mb-6">
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
+              <Activity className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Every level of play</strong> — MLS Next, ECNL, GA, DPL, NPL, North Texas Premier, Houston Premier League, and more</p>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
+              <Globe className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>9,460 Texas teams</strong> — from elite to developmental across all regions</p>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
+              <Calendar className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>12 age groups</strong> from U8 through U19</p>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
+              <Shield className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>Cross-regional games</strong> — When DFW plays Houston at showcase events, we capture it</p>
+            </div>
+          </div>
+
+          <h3 className="text-xl font-display font-semibold mb-3">The Algorithm Explained (Simply)</h3>
+          <div className="grid gap-3 mb-4">
+            <div className="flex items-start gap-3">
+              <span className="flex items-center justify-center size-6 rounded-full bg-primary text-primary-foreground text-sm font-bold shrink-0">1</span>
+              <p className="text-sm text-muted-foreground"><strong>Base score</strong> — Wins, losses, draws, and goal differential create the foundation</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="flex items-center justify-center size-6 rounded-full bg-primary text-primary-foreground text-sm font-bold shrink-0">2</span>
+              <p className="text-sm text-muted-foreground"><strong>Strength of schedule</strong> — Beating FC Dallas Academy boosts your ranking more than beating a developmental squad</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="flex items-center justify-center size-6 rounded-full bg-primary text-primary-foreground text-sm font-bold shrink-0">3</span>
+              <p className="text-sm text-muted-foreground"><strong>Recency</strong> — Last month's games matter more than results from six months ago</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="flex items-center justify-center size-6 rounded-full bg-primary text-primary-foreground text-sm font-bold shrink-0">4</span>
+              <p className="text-sm text-muted-foreground"><strong>Consistency</strong> — Teams that perform steadily rank higher than inconsistent rollercoasters</p>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-lg bg-muted/50 border">
+            <h4 className="font-semibold mb-2">PowerScore Scale (0.0 to 1.0)</h4>
+            <div className="grid gap-1 text-sm">
+              <p><strong className="text-green-600">0.85+</strong> = Elite national-level team (top MLS Next/ECNL)</p>
+              <p><strong className="text-blue-600">0.70-0.84</strong> = Top competitive tier (strong ECNL/GA)</p>
+              <p><strong className="text-yellow-600">0.50-0.69</strong> = Solid competitive team (DPL/NPL)</p>
+              <p><strong className="text-orange-600">0.30-0.49</strong> = Developing/mid-level (league play)</p>
+              <p><strong className="text-muted-foreground">Below 0.30</strong> = Recreational or limited data</p>
+            </div>
+          </div>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/methodology" className="text-primary hover:underline">Learn how our ranking algorithm works</a></p>
+          </div>
+        </section>
+
+        {/* DFW vs Houston */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <TrendingUp className="size-6 text-primary" />
+            DFW vs Houston: The Great Texas Soccer Rivalry
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            It's the debate that never ends among Texas soccer parents: Is Dallas-Fort Worth or Houston better for youth soccer? Here's what the data tells us:
+          </p>
+
+          <div className="grid sm:grid-cols-2 gap-4 mb-6">
+            <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
+              <h4 className="font-semibold mb-2 text-blue-700 dark:text-blue-400">DFW Advantages</h4>
+              <ul className="text-sm text-muted-foreground space-y-1">
+                <li>• FC Dallas MLS Next Academy (free, professional pathway)</li>
+                <li>• More ECNL clubs (Solar SC, FC Dallas Girls, etc.)</li>
+                <li>• Massive tournament scene (Dallas Cup, etc.)</li>
+                <li>• Dense college scout presence</li>
+                <li>• More total teams = more competition tiers</li>
+              </ul>
+            </div>
+            <div className="p-4 rounded-lg bg-orange-500/10 border border-orange-500/20">
+              <h4 className="font-semibold mb-2 text-orange-700 dark:text-orange-400">Houston Advantages</h4>
+              <ul className="text-sm text-muted-foreground space-y-1">
+                <li>• Albion Hurricanes (one of state's largest clubs)</li>
+                <li>• Strong Girls Academy presence</li>
+                <li>• Less roster-hopping culture</li>
+                <li>• Growing showcase tournament scene</li>
+                <li>• Easier access to border region competition</li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="text-sm"><strong>The truth:</strong> Both regions produce elite talent. DFW has more volume and elite options, while Houston offers strong development with slightly less hyper-competitive pressure. The "best" region depends on your child's goals and your family's priorities.</p>
+          </div>
+        </section>
+
+        {/* Elite Pathways */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Zap className="size-6 text-primary" />
+            Texas's Elite Player Pathways
+          </h2>
+          
+          <h3 className="text-xl font-display font-semibold mb-3">Understanding the Development Tiers</h3>
+          <div className="grid gap-3 mb-6">
+            <div className="p-4 rounded-lg border border-green-500/30 bg-green-500/5">
+              <h4 className="font-semibold text-green-700 dark:text-green-400 mb-2">Tier 1: MLS Academy</h4>
+              <p className="text-sm text-muted-foreground">FC Dallas Academy (boys only). Free to play, highest level, direct pathway to professional soccer and Generation Adidas contracts.</p>
+            </div>
+            <div className="p-4 rounded-lg border border-blue-500/30 bg-blue-500/5">
+              <h4 className="font-semibold text-blue-700 dark:text-blue-400 mb-2">Tier 2: MLS Next & ECNL</h4>
+              <p className="text-sm text-muted-foreground">Solar SC, FC Dallas Girls, Lonestar, Albion Hurricanes. Elite competition, national showcases, strong college exposure. Typical cost: $3,000-6,000/year.</p>
+            </div>
+            <div className="p-4 rounded-lg border border-yellow-500/30 bg-yellow-500/5">
+              <h4 className="font-semibold text-yellow-700 dark:text-yellow-400 mb-2">Tier 3: GA, DPL, NPL</h4>
+              <p className="text-sm text-muted-foreground">Girls Academy, Discovery Premier League, National Premier League. Strong competition, good development. Typical cost: $2,000-4,000/year.</p>
+            </div>
+            <div className="p-4 rounded-lg border border-gray-500/30 bg-gray-500/5">
+              <h4 className="font-semibold text-gray-700 dark:text-gray-400 mb-2">Tier 4: State & Regional Leagues</h4>
+              <p className="text-sm text-muted-foreground">North Texas Premier, Houston Premier League, state leagues. Competitive soccer without elite-level travel/cost. Great for development focus.</p>
+            </div>
+          </div>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings/tx/u17/male" className="text-primary hover:underline">See TX U17 boys rankings</a> • <a href="/rankings/tx/u18/female" className="text-primary hover:underline">TX U18 girls rankings</a></p>
+          </div>
+        </section>
+
+        {/* College Recruiting */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <GraduationCap className="size-6 text-primary" />
+            Texas Soccer Rankings and College Recruiting
+          </h2>
+          
+          <h3 className="text-xl font-display font-semibold mb-3">Texas's College Soccer Advantage</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Texas has a massive NCAA Division I soccer presence — SMU, TCU, Texas Tech, Baylor, Houston, Texas State, and many more. That means more local recruiting, more showcase attendance, and more opportunities for Texas players.
+          </p>
+
+          <div className="grid gap-3 mb-6">
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>Division I recruiting</strong> — Coaches actively scout Texas's top 5% of teams. If you're ranked in the top 500 nationally, you're on their radar.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>Division II recruiting</strong> — Texas has strong D2 programs that recruit from the top 15-20% of competitive teams.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>Division III recruiting</strong> — Rankings matter less than academics, character, and video highlights.</p>
+            </div>
+          </div>
+
+          <h3 className="text-xl font-display font-semibold mb-3">The Texas Showcases That Matter</h3>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm font-semibold">Dallas Cup</p>
+              <p className="text-xs text-muted-foreground">One of the nation's premier youth tournaments with international teams.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm font-semibold">ECNL Texas Conference Events</p>
+              <p className="text-xs text-muted-foreground">Major recruiting weekends for elite Texas players.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm font-semibold">FC Dallas Showcase</p>
+              <p className="text-xs text-muted-foreground">Regional showcase with strong college attendance.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm font-semibold">Houston Dynamo | Dash Youth Cup</p>
+              <p className="text-xs text-muted-foreground">Growing showcase event in Houston market.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* Choosing a Team */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <HelpCircle className="size-6 text-primary" />
+            How to Use Rankings When Choosing a Texas Club
+          </h2>
+          
+          <h3 className="text-xl font-display font-semibold mb-3">Questions to Ask Club Directors</h3>
+          <div className="grid gap-3 mb-6">
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm text-muted-foreground"><strong>"What's your player development philosophy?"</strong><br/>Listen for: Individual development over team results, age-appropriate training, playing time policies.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm text-muted-foreground"><strong>"How do you handle the competitive pressure of Texas soccer?"</strong><br/>Good clubs acknowledge burnout risks and have strategies to prevent it.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm text-muted-foreground"><strong>"Where have your players gone after club soccer?"</strong><br/>Track record of college placements, academy promotions, or simply happy, well-adjusted players.</p>
+            </div>
+          </div>
+
+          <h3 className="text-xl font-display font-semibold mb-3">The Texas Club Selection Checklist</h3>
+          <div className="grid gap-2 mb-4">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="size-4 text-primary" />
+              <span className="text-sm text-muted-foreground">Team ranking within 50-100 positions of appropriate level</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CheckCircle className="size-4 text-primary" />
+              <span className="text-sm text-muted-foreground">Commute time you can sustain 3-4x per week (especially in DFW traffic)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CheckCircle className="size-4 text-primary" />
+              <span className="text-sm text-muted-foreground">Budget alignment (elite TX clubs: $4,000-7,000/year all-in)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CheckCircle className="size-4 text-primary" />
+              <span className="text-sm text-muted-foreground">Playing time guarantee (ask directly)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CheckCircle className="size-4 text-primary" />
+              <span className="text-sm text-muted-foreground">Coach credentials and turnover history</span>
+            </div>
+          </div>
+        </section>
+
+        {/* FAQ */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <HelpCircle className="size-6 text-primary" />
+            Common Texas Soccer Ranking Questions
+          </h2>
+          
+          <div className="grid gap-4">
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">"We just moved to Texas. How does it compare to other states?"</h4>
+              <p className="text-sm text-muted-foreground">Texas is one of the top 3 most competitive states for youth soccer (with California and Florida). A mid-level Texas team often matches elite teams from smaller states. Give your child time to adjust — the level is higher here.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">"Is it worth paying $6,000/year for an elite club?"</h4>
+              <p className="text-sm text-muted-foreground"><strong>It depends.</strong> If your child is getting meaningful minutes, high-quality coaching, and appropriate competition, yes. If they're sitting the bench to boost the club's ranking, absolutely not. Rankings help you evaluate — but playing time matters more than club prestige.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">"Should my 11-year-old play for the highest-ranked team possible?"</h4>
+              <p className="text-sm text-muted-foreground"><strong>No.</strong> At U11/U12, development and enjoyment matter infinitely more than rankings. Put them where they'll play 50+ minutes per game, develop skills, and love soccer. Rankings become more relevant at U14+ when college recruiting starts.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">"Why isn't my team ranked if we're winning our league?"</h4>
+              <p className="text-sm text-muted-foreground">Rankings require game data. If your league or tournament results aren't being reported to major platforms, we may not have visibility. You can help by reporting missing games through PitchRank to ensure your team gets credit.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* CTA */}
+        <section className="p-6 rounded-lg bg-primary/10 border border-primary/20">
+          <h2 className="text-2xl font-display font-bold mb-4">Find Your Texas Team's Ranking</h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Ready to see where your team stands among Texas's <strong>9,460 tracked teams</strong>? Visit <strong>PitchRank.io</strong>, search for your club and age group, and get the data-backed perspective you need.
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Whether your child plays for FC Dallas, Solar SC, Albion Hurricanes, Lonestar, or your local club — rankings give you clarity on where they stand and where they could go.
+          </p>
+          <p className="text-foreground font-semibold">
+            Because in Texas's crowded youth soccer market, knowledge is power. And knowing where your team truly ranks is the first step to making smarter decisions.
+          </p>
+        </section>
+      </div>
+    ),
+  },
 ];
