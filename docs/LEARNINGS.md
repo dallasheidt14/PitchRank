@@ -4,6 +4,30 @@
 
 ## Critical Patterns
 
+### 2026-03-14 22:30: RECOVERY UPDATE — Database Auth Still Failing, TPM Limiting Recurring 🚨
+
+**Status (24h review, Mar 13 10:30pm - Mar 14 10:30pm):**
+- **Database auth failures:** 9 connection errors in last 24h (still failing)
+- **OpenAI TPM limiting:** 1 rate limit hit (recurring pattern)
+- **Agent resilience:** All agents attempted runs despite blockers ✅
+
+**Timeline of Current Crisisses:**
+- Mar 10 (Tue) 8am: Anthropic billing crisis (credits exhausted) — RESOLVED
+- Mar 13 (Fri) 8am: Database auth failure (password auth rejected) — **STILL FAILING**
+- Mar 13 (Fri) evening: OpenAI TPM rate limiting (500k TPM exhausted) — **RECURRING**
+
+**Impact Assessment (Mar 14 22:30):**
+- ❌ **Database pipeline:** Still offline (9 connection errors in last 24h)
+- ❌ **Data visibility:** No team/game counts, no quarantine checks
+- 🟡 **Reporting pipeline:** OpenAI TPM hits are slowing but not blocking
+- ✅ **Agent autonomy:** Agents retry appropriately despite failures
+
+**What Needs Human Attention (D H):**
+1. **Database auth:** Check Supabase dashboard, verify credentials in `.env`, test `psql "$DATABASE_URL" -c "SELECT 1;"`
+2. **OpenAI TPM:** Consider tier upgrade or reduce concurrent agent runs
+
+---
+
 ### 2026-03-13: DUAL BLOCKER CRISIS — DATABASE AUTH FAILURE + OPENAI TPM RATE LIMITING 🚨
 
 **TWO SEPARATE CRITICAL ISSUES (NOT ONE):**
@@ -13,7 +37,7 @@
 - **Error:** `FATAL: password authentication failed for user "postgres"`
 - **Affected agents:** ALL DB-dependent agents (Watchy, Scrappy, Ranky, Movy, Cleany)
 - **Timeline:** Last successful DB connection was Mar 10 (3+ days ago)
-- **Status:** ⏹️ **DATA PIPELINE COMPLETELY OFFLINE**
+- **Status:** ⏹️ **DATA PIPELINE COMPLETELY OFFLINE** — **STILL FAILING AS OF MAR 14**
 - **Root cause:** Supabase credentials appear stale/invalid
   - DATABASE_URL in `.env` may have incorrect password
   - Supabase password may have been rotated
@@ -27,10 +51,10 @@
 
 **ISSUE #2: OPENAI TPM (TOKENS PER MINUTE) RATE LIMITING**
 - **First detected:** Mar 13 evening (multiple agent runs)
-- **Error pattern:** "Rate limit reached for gpt-5.1-codex in organization... TPM: Limit 500000, Used 500000, Requested XXXXX"
-- **Affected agents:** Socialy, Watchy (concurrent), COMPY (tonight)
+- **Error pattern:** "Rate limit reached for gpt-5.1-codex in organization... TPM: Limit 500000, Used 455678, Requested 60912"
+- **Affected agents:** Socialy, Watchy (concurrent), COMPY (Mar 14 22:30)
 - **Type:** Capacity limit (500k TPM per minute exceeded)
-- **Timeline:** Started hitting limits on multiple agent runs Mar 13 afternoon/evening
+- **Timeline:** Started hitting limits on multiple agent runs Mar 13 afternoon/evening, **recurring Mar 14**
 
 **Capacity Analysis:**
 - OpenAI 500k TPM = ~2.5M tokens across 5 minutes
@@ -43,8 +67,8 @@
 | Incident | Date | Root Cause | Error Signature |
 |----------|------|-----------|-----------------|
 | **Anthropic Billing Crisis** | Mar 10 | Insufficient API credits | "credit balance too low" |
-| **Database Auth Failure** | Mar 13 | Stale credentials | "password authentication failed" |
-| **OpenAI TPM Limiting** | Mar 13 | Capacity exhausted | "Rate limit reached... TPM" |
+| **Database Auth Failure** | Mar 13-14 | Stale credentials | "password authentication failed" |
+| **OpenAI TPM Limiting** | Mar 13-14 | Capacity exhausted | "Rate limit reached... TPM" |
 
 **Why They're Different:**
 1. **Different providers:** Anthropic ≠ Supabase ≠ OpenAI

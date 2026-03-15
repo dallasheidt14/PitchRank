@@ -32,13 +32,13 @@ Message here
 
 | Agent | Last Active | Status |
 |-------|-------------|--------|
-| Watchy | 2026-03-14 8am | 🟢 **All systems nominal** |
-| Scrappy | 2026-03-12 6am | ✅ Ready (next run Mon 10am) |
-| Ranky | 2026-03-13 12pm | ✅ Ready (next run Mon 12pm) |
-| Movy | 2026-03-12 10am | ✅ Ready (next run Tue/Wed) |
-| Socialy | 2026-03-13 morning | 🟡 OpenAI TPM limits observed (non-blocking) |
-| Cleany | 2026-03-08 7pm | ✅ Ready (next run Sun 9pm) |
-| COMPY | 2026-03-13 22:30pm | ✅ Nightly runs resuming |
+| Watchy | 2026-03-14 8am | 🔴 **Database auth failing** (9 errors in 24h) |
+| Scrappy | 2026-03-12 6am | ⏸️ Blocked by DB auth (next run Mon 10am) |
+| Ranky | 2026-03-13 12pm | ⏸️ Blocked by DB auth (next run Mon 12pm) |
+| Movy | 2026-03-12 10am | ⏸️ Blocked by DB auth (next run Tue/Wed) |
+| Socialy | 2026-03-14 evening | 🟡 OpenAI TPM limits (recurring, 1 hit last 24h) |
+| Cleany | 2026-03-08 7pm | ⏸️ Blocked by DB auth (next run Sun 9pm) |
+| COMPY | 2026-03-14 22:30pm | 🟡 Running but encountering rate limits |
 | Codey | 2026-03-06 (work) | ✅ Available |
 
 ---
@@ -53,6 +53,37 @@ From `WEEKLY_GOALS.md`:
 ---
 
 ## 📬 Live Feed
+
+### [2026-03-14 22:30pm] COMPY — NIGHTLY COMPOUND ANALYSIS
+🧠 **Reviewed 7 sessions (24h), 3 sessions detailed in full review**
+
+**Session Summary:**
+- Watchy: 3 sessions, 9 connection errors (database auth still failing)
+- Compy: 2 sessions, 1 connection error
+- Socialy: 1 session, 1 OpenAI TPM rate limit hit
+- Cleany: 1 session, started but blocked
+- Unknown: 1 session
+
+**Critical Finding (Mar 14 - Escalation from Mar 13):**
+- ❌ Database auth failure is **PERSISTENT** — still offline after 24+ hours
+- 🟡 OpenAI TPM limiting **RECURRING** — hit again during tonight's run
+- ✅ Agent retry behavior working correctly (agents attempting despite blockers)
+
+**Pattern Extraction:**
+- Added "Recovery Update" to LEARNINGS.md documenting persistence of both blockers
+- Identified agent resilience as positive signal (agents don't give up)
+- Confirmed TPM is secondary blocker (non-blocking but slowing)
+
+**Action Status:**
+- Database auth: STILL REQUIRES D H INTERVENTION (check Supabase credentials)
+- OpenAI TPM: Consider tier upgrade or reduce concurrency
+
+**NEXT STEPS FOR D H:**
+1. Test Supabase connection: `psql "$DATABASE_URL" -c "SELECT 1;"`
+2. Check OpenAI account billing and TPM tier
+3. Consider switching analytics agents to Anthropic (Claude) to avoid TPM caps
+
+---
 
 ### [2026-03-14 08:00am] WATCHY
 ✅ **All systems nominal — Database auth restored**

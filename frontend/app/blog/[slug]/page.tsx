@@ -32,6 +32,7 @@ export async function generateMetadata({ params }: BlogPostPageProps): Promise<M
   }
 
   const canonicalUrl = `${baseUrl}/blog/${slug}`;
+  const heroImage = post.image ? `${baseUrl}${post.image}` : `${baseUrl}/opengraph-image.png`;
 
   return {
     title: post.title,
@@ -49,7 +50,7 @@ export async function generateMetadata({ params }: BlogPostPageProps): Promise<M
       authors: [post.author],
       images: [
         {
-          url: `${baseUrl}/logos/pitchrank-wordmark.svg`,
+          url: heroImage,
           width: 1200,
           height: 630,
           alt: post.title,
@@ -60,7 +61,7 @@ export async function generateMetadata({ params }: BlogPostPageProps): Promise<M
       card: 'summary_large_image',
       title: `${post.title} | PitchRank`,
       description: post.excerpt,
-      images: [`${baseUrl}/logos/pitchrank-wordmark.svg`],
+      images: [heroImage],
     },
   };
 }
@@ -73,6 +74,8 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
     notFound();
   }
 
+  const heroImagePath = post.image || '/opengraph-image.png';
+
   return (
     <div className="container mx-auto py-8 px-4">
       <BlogPostSchema
@@ -83,6 +86,8 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
         author={post.author}
         readingTime={post.readingTime}
         tags={post.tags}
+        image={heroImagePath}
+        articleSection={post.tags?.[0]}
       />
       <BreadcrumbSchema
         items={[

@@ -10,6 +10,7 @@ interface BlogPostSchemaProps {
   tags?: string[];
   modifiedDate?: string;
   image?: string;
+  articleSection?: string;
 }
 
 /**
@@ -27,10 +28,15 @@ export function BlogPostSchema({
   tags,
   modifiedDate,
   image,
+  articleSection,
 }: BlogPostSchemaProps) {
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
   const postUrl = `${baseUrl}/blog/${slug}`;
-  const imageUrl = image || `${baseUrl}/logos/pitchrank-wordmark.svg`;
+  const imageUrl = image
+    ? image.startsWith('http')
+      ? image
+      : `${baseUrl}${image}`
+    : `${baseUrl}/opengraph-image.png`;
   
   const schema = {
     '@context': 'https://schema.org',
@@ -57,6 +63,7 @@ export function BlogPostSchema({
       '@type': 'WebPage',
       '@id': postUrl,
     },
+    ...(articleSection && { articleSection }),
     ...(tags && tags.length > 0 && { keywords: tags.join(', ') }),
     ...(readingTime && { 
       // Extract minutes from "X min read" format

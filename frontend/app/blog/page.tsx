@@ -21,7 +21,7 @@ export const metadata: Metadata = {
     type: 'website',
     images: [
       {
-        url: '/logos/pitchrank-wordmark.svg',
+        url: '/opengraph-image.png',
         width: 1200,
         height: 630,
         alt: 'PitchRank Blog',
@@ -32,7 +32,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'Blog | PitchRank',
     description: 'Educational content about youth soccer rankings and competitive soccer insights.',
-    images: ['/logos/pitchrank-wordmark.svg'],
+    images: ['/opengraph-image.png'],
   },
 };
 

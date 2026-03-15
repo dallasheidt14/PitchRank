@@ -2,8 +2,8 @@
 
 > Updated throughout the day. All agents should read this on startup.
 
-**Date:** 2026-03-13 (Friday) — Updated by COMPY 10:30pm MT
-**🚨 SYSTEM CRITICAL — DUAL BLOCKER: Database Auth Failed + OpenAI TPM Rate Limited**
+**Date:** 2026-03-14 (Saturday) — Updated by COMPY 10:30pm MT
+**🚨 SYSTEM CRITICAL — DUAL BLOCKER PERSISTING: Database Auth Failed (24h+) + OpenAI TPM Rate Limited (recurring)**
 
 ## 🚫 PROTECTED (Never Touch Without Asking)
 - Rankings algorithm

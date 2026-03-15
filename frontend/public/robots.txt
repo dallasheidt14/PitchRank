@@ -1,16 +1,13 @@
 # robots.txt for PitchRank
-# Allow all search engines to crawl the site
+# Allow human-friendly crawlers everywhere except authenticated or API surfaces
 
 User-agent: *
 Allow: /
-
-# Public pages - crawlable
 Allow: /rankings/
 Allow: /blog/
 Allow: /methodology
 
-# Auth-gated pages - DO NOT crawl (will redirect)
-# These require authentication and will redirect Googlebot
+# Auth-gated or internal areas — block all bots
 Disallow: /teams/
 Disallow: /watchlist
 Disallow: /compare
@@ -18,55 +15,21 @@ Disallow: /login
 Disallow: /signup
 Disallow: /upgrade
 Disallow: /auth/
-
-# Admin/API/test pages
+Disallow: /mission-control
 Disallow: /api/
 Disallow: /test
-Disallow: /mission-control
 
-# AI Search Crawlers - allow public content
+# AI Search Crawlers — block completely
 User-agent: GPTBot
-Allow: /
-Allow: /rankings/
-Allow: /blog/
-Allow: /methodology
-Disallow: /api/
-Disallow: /auth/
-Disallow: /teams/
-Disallow: /watchlist
-Disallow: /compare
-Disallow: /login
-Disallow: /signup
-Disallow: /mission-control
+Disallow: /
 
 User-agent: ClaudeBot
-Allow: /
-Allow: /rankings/
-Allow: /blog/
-Allow: /methodology
-Disallow: /api/
-Disallow: /auth/
-Disallow: /teams/
-Disallow: /watchlist
-Disallow: /compare
-Disallow: /login
-Disallow: /signup
-Disallow: /mission-control
+Disallow: /
 
 User-agent: PerplexityBot
-Allow: /
-Allow: /rankings/
-Allow: /blog/
-Allow: /methodology
-Disallow: /api/
-Disallow: /auth/
-Disallow: /teams/
-Disallow: /watchlist
-Disallow: /compare
-Disallow: /login
-Disallow: /signup
-Disallow: /mission-control
+Disallow: /
 
+# Block known scraping bots that ignore polite rules
 User-agent: Bytespider
 Disallow: /
 

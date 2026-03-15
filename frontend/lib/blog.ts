@@ -9,6 +9,7 @@ export interface BlogPost {
   author: string;
   readingTime?: string;
   tags?: string[];
+  image?: string;
 }
 
 /**
