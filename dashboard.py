@@ -102,7 +102,8 @@ section = st.sidebar.radio(
         "🗺️ State Coverage",
         "📍 Missing State Codes",
         "🔀 Team Merge Manager",
-        "✏️ Manual Team Edit"
+        "✏️ Manual Team Edit",
+        "🔎 Team Discovery Review"
     ]
 )
 
@@ -4635,6 +4636,306 @@ elif section == "✏️ Manual Team Edit":
                     import traceback
                     with st.expander("View Error Details"):
                         st.code(traceback.format_exc())
+
+# ============================================================================
+# TEAM DISCOVERY REVIEW SECTION
+# ============================================================================
+elif section == "🔎 Team Discovery Review":
+    st.header("Team Discovery Review")
+    st.markdown(
+        "Review teams recently created by the **discover_teams_from_opponents** pipeline. "
+        "Verify metadata is correct, flag bad entries, or delete teams that should not exist."
+    )
+
+    db = get_database()
+    if not db:
+        st.error("Database connection required.")
+        st.stop()
+
+    # ------------------------------------------------------------------
+    # Controls
+    # ------------------------------------------------------------------
+    ctrl_col1, ctrl_col2, ctrl_col3 = st.columns(3)
+    with ctrl_col1:
+        disc_days = st.selectbox(
+            "Created within",
+            options=[1, 3, 7, 14, 30],
+            index=2,
+            format_func=lambda d: f"Last {d} day{'s' if d > 1 else ''}",
+            key="disc_days",
+        )
+    with ctrl_col2:
+        disc_sort = st.selectbox(
+            "Sort by",
+            options=["Newest first", "Oldest first", "Most games first", "Name A-Z"],
+            key="disc_sort",
+        )
+    with ctrl_col3:
+        disc_filter_state = st.text_input(
+            "Filter by state code (e.g. TX, FL)", key="disc_filter_state"
+        )
+
+    disc_search = st.text_input(
+        "Search by team name, club, or provider team ID", key="disc_search"
+    )
+
+    # ------------------------------------------------------------------
+    # Load recently discovered teams via alias table
+    # ------------------------------------------------------------------
+    @st.cache_data(ttl=60, show_spinner="Loading discovered teams...")
+    def load_discovered_teams(_days: int):
+        cutoff = (datetime.now() - timedelta(days=_days)).isoformat()
+
+        # Fetch aliases created by discover script (direct_id method, recent)
+        page_size = 1000
+        offset = 0
+        all_aliases = []
+        while True:
+            batch = (
+                db.table("team_alias_map")
+                .select("provider_id,provider_team_id,team_id_master,match_confidence,match_method,review_status,created_at")
+                .eq("match_method", "direct_id")
+                .gte("created_at", cutoff)
+                .order("created_at", desc=True)
+                .range(offset, offset + page_size - 1)
+                .execute()
+                .data or []
+            )
+            all_aliases.extend(batch)
+            if len(batch) < page_size:
+                break
+            offset += page_size
+
+        if not all_aliases:
+            return [], {}
+
+        # Batch-fetch team details
+        team_ids = list({a["team_id_master"] for a in all_aliases if a.get("team_id_master")})
+        team_lookup = {}
+        for i in range(0, len(team_ids), 100):
+            batch_ids = team_ids[i:i + 100]
+            try:
+                res = db.table("teams").select(
+                    "team_id_master,team_name,club_name,age_group,gender,state_code,provider_team_id"
+                ).in_("team_id_master", batch_ids).execute()
+                for t in (res.data or []):
+                    team_lookup[t["team_id_master"]] = t
+            except Exception:
+                pass
+
+        # Count games per team_id_master (home + away)
+        game_counts = {}
+        for tid in team_ids[:500]:  # Limit to avoid excessive queries
+            try:
+                home_count = (
+                    db.table("games")
+                    .select("id", count="exact", head=True)
+                    .eq("home_team_master_id", tid)
+                    .execute()
+                    .count or 0
+                )
+                away_count = (
+                    db.table("games")
+                    .select("id", count="exact", head=True)
+                    .eq("away_team_master_id", tid)
+                    .execute()
+                    .count or 0
+                )
+                game_counts[tid] = home_count + away_count
+            except Exception:
+                game_counts[tid] = 0
+
+        return all_aliases, team_lookup, game_counts
+
+    try:
+        disc_result = load_discovered_teams(disc_days)
+        disc_aliases, disc_team_map, disc_game_counts = disc_result
+    except Exception as e:
+        st.error(f"Error loading discovered teams: {e}")
+        import traceback
+        st.code(traceback.format_exc())
+        disc_aliases, disc_team_map, disc_game_counts = [], {}, {}
+
+    # ------------------------------------------------------------------
+    # Build display rows
+    # ------------------------------------------------------------------
+    disc_rows = []
+    for alias in disc_aliases:
+        tid = alias.get("team_id_master", "")
+        team = disc_team_map.get(tid, {})
+        disc_rows.append({
+            "team_id_master": tid,
+            "provider_team_id": alias.get("provider_team_id", ""),
+            "team_name": team.get("team_name", "???"),
+            "club_name": team.get("club_name", ""),
+            "age_group": team.get("age_group", ""),
+            "gender": team.get("gender", ""),
+            "state_code": team.get("state_code", ""),
+            "games": disc_game_counts.get(tid, 0),
+            "created_at": alias.get("created_at", ""),
+        })
+
+    # Apply filters
+    if disc_filter_state.strip():
+        state_term = disc_filter_state.strip().upper()
+        disc_rows = [r for r in disc_rows if r["state_code"] == state_term]
+
+    if disc_search.strip():
+        term = disc_search.strip().lower()
+        disc_rows = [
+            r for r in disc_rows
+            if term in r["team_name"].lower()
+            or term in r["club_name"].lower()
+            or term in r["provider_team_id"].lower()
+        ]
+
+    # Sort
+    if disc_sort == "Newest first":
+        disc_rows.sort(key=lambda r: r["created_at"], reverse=True)
+    elif disc_sort == "Oldest first":
+        disc_rows.sort(key=lambda r: r["created_at"])
+    elif disc_sort == "Most games first":
+        disc_rows.sort(key=lambda r: r["games"], reverse=True)
+    elif disc_sort == "Name A-Z":
+        disc_rows.sort(key=lambda r: r["team_name"].lower())
+
+    # ------------------------------------------------------------------
+    # Summary metrics
+    # ------------------------------------------------------------------
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Discovered Teams", f"{len(disc_rows):,}")
+    total_games = sum(r["games"] for r in disc_rows)
+    m2.metric("Total Games Linked", f"{total_games:,}")
+    states = set(r["state_code"] for r in disc_rows if r["state_code"])
+    m3.metric("States", f"{len(states)}")
+    age_groups = set(r["age_group"] for r in disc_rows if r["age_group"])
+    m4.metric("Age Groups", f"{len(age_groups)}")
+
+    st.divider()
+
+    # ------------------------------------------------------------------
+    # Summary table (overview)
+    # ------------------------------------------------------------------
+    if not disc_rows:
+        st.info("No discovered teams found for the selected filters.")
+    else:
+        st.subheader(f"Discovered Teams ({len(disc_rows):,})")
+
+        # Show overview dataframe
+        overview_df = pd.DataFrame([
+            {
+                "Provider ID": r["provider_team_id"],
+                "Team Name": r["team_name"],
+                "Club": r["club_name"],
+                "Age": r["age_group"],
+                "Gender": r["gender"],
+                "State": r["state_code"],
+                "Games": r["games"],
+                "Created": r["created_at"][:10] if r["created_at"] else "",
+            }
+            for r in disc_rows
+        ])
+        st.dataframe(overview_df, use_container_width=True, hide_index=True)
+
+        # ------------------------------------------------------------------
+        # Expandable detail cards with delete action
+        # ------------------------------------------------------------------
+        st.divider()
+        st.subheader("Review & Actions")
+        st.markdown(
+            "Expand a team to see full details. **Delete** removes the team, alias, "
+            "and un-backfills game FKs (sets master IDs back to NULL)."
+        )
+
+        disc_reviewer = st.text_input(
+            "Your email (required for delete actions)", key="disc_reviewer_email"
+        )
+
+        for idx, row in enumerate(disc_rows):
+            age_gender = f"{row['age_group']} {row['gender']}" if row['age_group'] else ""
+            label = (
+                f"{'✅' if row['games'] >= 5 else '⚠️'} "
+                f"[{row['provider_team_id']}] {row['team_name']}  "
+                f"({age_gender}, {row['state_code']})  —  {row['games']} games"
+            )
+
+            with st.expander(label, expanded=False):
+                dc1, dc2 = st.columns(2)
+                with dc1:
+                    st.markdown("**Team Details**")
+                    st.text(f"Name:     {row['team_name']}")
+                    st.text(f"Club:     {row['club_name']}")
+                    st.text(f"Age:      {row['age_group']}")
+                    st.text(f"Gender:   {row['gender']}")
+                    st.text(f"State:    {row['state_code']}")
+                with dc2:
+                    st.markdown("**Identifiers**")
+                    st.text(f"Master ID:    {row['team_id_master']}")
+                    st.text(f"Provider ID:  {row['provider_team_id']}")
+                    st.text(f"Games:        {row['games']}")
+                    st.text(f"Created:      {row['created_at']}")
+
+                # Delete button
+                btn_col1, btn_col2, _ = st.columns([1, 1, 3])
+                with btn_col1:
+                    if st.button(
+                        "🗑️ Delete Team",
+                        key=f"disc_delete_{row['team_id_master']}_{idx}",
+                        type="secondary",
+                        disabled=not disc_reviewer,
+                    ):
+                        try:
+                            tid = row["team_id_master"]
+                            pid = row["provider_team_id"]
+
+                            # 1. Un-backfill games (set master IDs back to NULL)
+                            execute_with_retry(
+                                lambda t=tid: db.table("games")
+                                .update({"home_team_master_id": None})
+                                .eq("home_team_master_id", t)
+                            )
+                            execute_with_retry(
+                                lambda t=tid: db.table("games")
+                                .update({"away_team_master_id": None})
+                                .eq("away_team_master_id", t)
+                            )
+
+                            # 2. Delete alias
+                            execute_with_retry(
+                                lambda t=tid: db.table("team_alias_map")
+                                .delete()
+                                .eq("team_id_master", t)
+                            )
+
+                            # 3. Delete team
+                            execute_with_retry(
+                                lambda t=tid: db.table("teams")
+                                .delete()
+                                .eq("team_id_master", t)
+                            )
+
+                            st.success(f"Deleted team {row['team_name']} ({tid})")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Delete failed: {exc}")
+                            import traceback
+                            st.code(traceback.format_exc())
+
+                with btn_col2:
+                    gs_url = f"https://system.gotsport.com/api/v1/team_ranking_data/team_details?team_id={row['provider_team_id']}"
+                    st.link_button("🔗 GotSport API", gs_url)
+
+        # ------------------------------------------------------------------
+        # Bulk CSV export
+        # ------------------------------------------------------------------
+        st.divider()
+        csv_data = overview_df.to_csv(index=False)
+        st.download_button(
+            label="📥 Download CSV",
+            data=csv_data,
+            file_name=f"team_discovery_review_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv",
+        )
 
 # Footer
 st.divider()
