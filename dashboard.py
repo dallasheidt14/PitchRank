@@ -98,6 +98,7 @@ section = st.sidebar.radio(
         "📋 Review Queue",
         "👥 Age Groups",
         "📈 Database Import Stats",
+        "🆕 New Accounts",
         "🧩 Unknown Opponent Review",
         "🗺️ State Coverage",
         "📍 Missing State Codes",
@@ -1555,6 +1556,308 @@ elif section == "📈 Database Import Stats":
             import traceback
             with st.expander("View Error Details"):
                 st.code(traceback.format_exc())
+
+# ============================================================================
+# NEW ACCOUNTS SECTION
+# ============================================================================
+elif section == "🆕 New Accounts":
+    st.header("New Accounts")
+    st.markdown("Monitor user signup velocity, plan distribution, and newsletter growth.")
+
+    db = get_database()
+
+    if not db:
+        st.error("Database connection not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your .env file.")
+    else:
+        accounts_df = pd.DataFrame()
+        newsletter_df = pd.DataFrame()
+        newsletter_available = True
+        newsletter_error = None
+
+        # -----------------------------
+        # Load accounts (user_profiles)
+        # -----------------------------
+        try:
+            account_rows = fetch_all_rows(
+                db.table('user_profiles')
+                .select('id, email, plan, created_at, updated_at')
+                .order('created_at', desc=True)
+            )
+            accounts_df = pd.DataFrame(account_rows)
+        except Exception as e:
+            st.error(f"Error loading user profiles: {e}")
+
+        # -------------------------------------
+        # Load newsletter_subscribers (optional)
+        # -------------------------------------
+        try:
+            newsletter_rows = fetch_all_rows(
+                db.table('newsletter_subscribers')
+                .select('id, email, source, subscribed_at, created_at')
+                .order('subscribed_at', desc=True)
+            )
+            newsletter_df = pd.DataFrame(newsletter_rows)
+        except Exception as e:
+            newsletter_available = False
+            newsletter_error = e
+
+        now_utc = pd.Timestamp.utcnow()
+
+        # Normalize account fields
+        if not accounts_df.empty:
+            accounts_df['email'] = accounts_df.get('email', '').fillna('')
+            accounts_df['plan'] = accounts_df.get('plan', 'free').fillna('free').astype(str).str.lower()
+            accounts_df['created_at_ts'] = pd.to_datetime(accounts_df.get('created_at'), errors='coerce', utc=True)
+            accounts_df['updated_at_ts'] = pd.to_datetime(accounts_df.get('updated_at'), errors='coerce', utc=True)
+        else:
+            accounts_df = pd.DataFrame(columns=['id', 'email', 'plan', 'created_at_ts', 'updated_at_ts'])
+
+        # Normalize newsletter fields
+        if not newsletter_df.empty:
+            newsletter_df['email'] = newsletter_df.get('email', '').fillna('')
+            newsletter_df['source'] = newsletter_df.get('source', 'unknown').fillna('unknown')
+            if 'subscribed_at' in newsletter_df.columns:
+                newsletter_df['subscribed_at_ts'] = pd.to_datetime(newsletter_df['subscribed_at'], errors='coerce', utc=True)
+            else:
+                newsletter_df['subscribed_at_ts'] = pd.to_datetime(newsletter_df.get('created_at'), errors='coerce', utc=True)
+        else:
+            newsletter_df = pd.DataFrame(columns=['email', 'source', 'subscribed_at_ts'])
+
+        # -----------------------------
+        # Top summary metrics
+        # -----------------------------
+        total_accounts = len(accounts_df)
+        created_valid = accounts_df['created_at_ts'].dropna()
+        new_7d = int((created_valid >= (now_utc - pd.Timedelta(days=7))).sum()) if not created_valid.empty else 0
+        prev_7d = int(((created_valid >= (now_utc - pd.Timedelta(days=14))) & (created_valid < (now_utc - pd.Timedelta(days=7)))).sum()) if not created_valid.empty else 0
+        premium_accounts = int((accounts_df['plan'] == 'premium').sum()) if total_accounts > 0 else 0
+        premium_pct = (premium_accounts / total_accounts * 100) if total_accounts > 0 else 0.0
+        total_subscribers = len(newsletter_df)
+
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Accounts", f"{total_accounts:,}")
+        with col2:
+            st.metric("New Accounts (7d)", f"{new_7d:,}", delta=f"{new_7d - prev_7d:+,} vs prior 7d")
+        with col3:
+            st.metric("Premium Accounts", f"{premium_accounts:,}", delta=f"{premium_pct:.1f}% of accounts")
+        with col4:
+            if newsletter_available:
+                st.metric("Newsletter Subscribers", f"{total_subscribers:,}")
+            else:
+                st.metric("Newsletter Subscribers", "N/A")
+
+        tabs = st.tabs(["Accounts Table", "Signup Analytics", "Newsletter Subscribers"])
+
+        # -----------------------------
+        # Accounts table tab
+        # -----------------------------
+        with tabs[0]:
+            st.subheader("Filterable Accounts Table")
+
+            if total_accounts == 0:
+                st.info("No account records found in user_profiles.")
+            else:
+                f1, f2, f3, f4 = st.columns([1.2, 1.2, 1.6, 1.2])
+
+                plan_options = sorted(accounts_df['plan'].dropna().unique().tolist())
+                with f1:
+                    selected_plans = st.multiselect("Plan", options=plan_options, default=plan_options, key="acct_plan_filter")
+                with f2:
+                    lookback_option = st.selectbox(
+                        "Signup Window",
+                        ["All Time", "Last 7 Days", "Last 30 Days", "Last 90 Days", "Last 365 Days"],
+                        index=2,
+                        key="acct_lookback_filter"
+                    )
+                with f3:
+                    email_search = st.text_input("Search Email or User ID", key="acct_search_filter").strip().lower()
+                with f4:
+                    sort_option = st.selectbox("Sort", ["Newest First", "Oldest First", "Email A→Z"], key="acct_sort_filter")
+
+                filtered_accounts = accounts_df.copy()
+
+                if selected_plans:
+                    filtered_accounts = filtered_accounts[filtered_accounts['plan'].isin(selected_plans)]
+
+                cutoff_map = {
+                    "Last 7 Days": now_utc - pd.Timedelta(days=7),
+                    "Last 30 Days": now_utc - pd.Timedelta(days=30),
+                    "Last 90 Days": now_utc - pd.Timedelta(days=90),
+                    "Last 365 Days": now_utc - pd.Timedelta(days=365),
+                }
+                if lookback_option in cutoff_map:
+                    filtered_accounts = filtered_accounts[filtered_accounts['created_at_ts'] >= cutoff_map[lookback_option]]
+
+                if email_search:
+                    filtered_accounts = filtered_accounts[
+                        filtered_accounts['email'].str.lower().str.contains(email_search, na=False)
+                        | filtered_accounts['id'].astype(str).str.lower().str.contains(email_search, na=False)
+                    ]
+
+                if sort_option == "Newest First":
+                    filtered_accounts = filtered_accounts.sort_values('created_at_ts', ascending=False)
+                elif sort_option == "Oldest First":
+                    filtered_accounts = filtered_accounts.sort_values('created_at_ts', ascending=True)
+                else:
+                    filtered_accounts = filtered_accounts.sort_values('email', ascending=True)
+
+                st.caption(f"Showing {len(filtered_accounts):,} of {total_accounts:,} accounts")
+
+                display_accounts = filtered_accounts[['email', 'plan', 'created_at_ts', 'updated_at_ts', 'id']].copy()
+                display_accounts['created_at_ts'] = display_accounts['created_at_ts'].dt.strftime('%Y-%m-%d %H:%M UTC')
+                display_accounts['updated_at_ts'] = display_accounts['updated_at_ts'].dt.strftime('%Y-%m-%d %H:%M UTC')
+                display_accounts.columns = ['Email', 'Plan', 'Created At', 'Updated At', 'User ID']
+
+                st.dataframe(display_accounts, use_container_width=True, hide_index=True)
+
+        # -----------------------------
+        # Signup analytics tab
+        # -----------------------------
+        with tabs[1]:
+            st.subheader("Account Signup Analytics")
+
+            valid_signup_df = accounts_df.dropna(subset=['created_at_ts']).copy()
+            if valid_signup_df.empty:
+                st.info("No timestamped signup data available for analytics.")
+            else:
+                analytics_window = st.selectbox(
+                    "Analytics Window",
+                    ["Last 30 Days", "Last 90 Days", "Last 365 Days", "All Time"],
+                    index=1,
+                    key="acct_analytics_window"
+                )
+
+                window_cutoff_map = {
+                    "Last 30 Days": now_utc - pd.Timedelta(days=30),
+                    "Last 90 Days": now_utc - pd.Timedelta(days=90),
+                    "Last 365 Days": now_utc - pd.Timedelta(days=365),
+                }
+
+                if analytics_window in window_cutoff_map:
+                    valid_signup_df = valid_signup_df[valid_signup_df['created_at_ts'] >= window_cutoff_map[analytics_window]]
+
+                if valid_signup_df.empty:
+                    st.info("No account signups in the selected analytics window.")
+                else:
+                    daily_signups = (
+                        valid_signup_df
+                        .set_index('created_at_ts')
+                        .resample('D')
+                        .size()
+                        .rename('New Accounts')
+                        .to_frame()
+                    )
+
+                    weekly_signups = (
+                        valid_signup_df
+                        .set_index('created_at_ts')
+                        .resample('W')
+                        .size()
+                        .rename('Weekly New Accounts')
+                        .to_frame()
+                    )
+
+                    col_left, col_right = st.columns(2)
+                    with col_left:
+                        st.markdown("**Daily New Accounts**")
+                        st.line_chart(daily_signups)
+                    with col_right:
+                        st.markdown("**Weekly New Accounts**")
+                        st.area_chart(weekly_signups)
+
+                    st.markdown("**Plan Distribution (Selected Window)**")
+                    plan_distribution = (
+                        valid_signup_df['plan']
+                        .value_counts()
+                        .rename_axis('plan')
+                        .reset_index(name='accounts')
+                        .set_index('plan')
+                    )
+                    st.bar_chart(plan_distribution)
+
+        # -----------------------------
+        # Newsletter tab
+        # -----------------------------
+        with tabs[2]:
+            st.subheader("Newsletter Subscribers")
+
+            if not newsletter_available:
+                st.info(f"newsletter_subscribers table is not available in this environment: {newsletter_error}")
+            elif newsletter_df.empty:
+                st.info("No newsletter subscribers found.")
+            else:
+                valid_subscribers = newsletter_df.dropna(subset=['subscribed_at_ts']).copy()
+
+                sub_col1, sub_col2, sub_col3, sub_col4 = st.columns(4)
+                new_subs_30d = int((valid_subscribers['subscribed_at_ts'] >= (now_utc - pd.Timedelta(days=30))).sum()) if not valid_subscribers.empty else 0
+                top_source = newsletter_df['source'].value_counts().idxmax() if len(newsletter_df) > 0 else "N/A"
+                source_count = newsletter_df['source'].nunique()
+                account_overlap = len(
+                    set(newsletter_df['email'].str.lower().tolist()) &
+                    set(accounts_df['email'].str.lower().tolist())
+                ) if total_accounts > 0 else 0
+
+                with sub_col1:
+                    st.metric("Total Subscribers", f"{len(newsletter_df):,}")
+                with sub_col2:
+                    st.metric("New Subscribers (30d)", f"{new_subs_30d:,}")
+                with sub_col3:
+                    st.metric("Top Source", str(top_source), delta=f"{source_count} sources")
+                with sub_col4:
+                    st.metric("Subscribers With Accounts", f"{account_overlap:,}")
+
+                sf1, sf2, sf3 = st.columns([1.2, 1.6, 1.0])
+                source_options = sorted(newsletter_df['source'].dropna().unique().tolist())
+                with sf1:
+                    selected_sources = st.multiselect("Source", options=source_options, default=source_options, key="newsletter_source_filter")
+                with sf2:
+                    subscriber_search = st.text_input("Search Subscriber Email", key="newsletter_search_filter").strip().lower()
+                with sf3:
+                    subscriber_window = st.selectbox(
+                        "Signup Window",
+                        ["All Time", "Last 30 Days", "Last 90 Days", "Last 365 Days"],
+                        index=1,
+                        key="newsletter_window_filter"
+                    )
+
+                filtered_subscribers = newsletter_df.copy()
+
+                if selected_sources:
+                    filtered_subscribers = filtered_subscribers[filtered_subscribers['source'].isin(selected_sources)]
+
+                sub_cutoff_map = {
+                    "Last 30 Days": now_utc - pd.Timedelta(days=30),
+                    "Last 90 Days": now_utc - pd.Timedelta(days=90),
+                    "Last 365 Days": now_utc - pd.Timedelta(days=365),
+                }
+                if subscriber_window in sub_cutoff_map:
+                    filtered_subscribers = filtered_subscribers[filtered_subscribers['subscribed_at_ts'] >= sub_cutoff_map[subscriber_window]]
+
+                if subscriber_search:
+                    filtered_subscribers = filtered_subscribers[
+                        filtered_subscribers['email'].str.lower().str.contains(subscriber_search, na=False)
+                    ]
+
+                filtered_subscribers = filtered_subscribers.sort_values('subscribed_at_ts', ascending=False)
+                st.caption(f"Showing {len(filtered_subscribers):,} of {len(newsletter_df):,} subscribers")
+
+                if not valid_subscribers.empty:
+                    daily_newsletter = (
+                        valid_subscribers
+                        .set_index('subscribed_at_ts')
+                        .resample('D')
+                        .size()
+                        .rename('New Subscribers')
+                        .to_frame()
+                    )
+                    st.markdown("**Daily Newsletter Signups**")
+                    st.line_chart(daily_newsletter)
+
+                display_subscribers = filtered_subscribers[['email', 'source', 'subscribed_at_ts']].copy()
+                display_subscribers['subscribed_at_ts'] = display_subscribers['subscribed_at_ts'].dt.strftime('%Y-%m-%d %H:%M UTC')
+                display_subscribers.columns = ['Email', 'Source', 'Subscribed At']
+                st.dataframe(display_subscribers, use_container_width=True, hide_index=True)
 
 # ============================================================================
 # STATE COVERAGE SECTION
