@@ -85,27 +85,27 @@ From `WEEKLY_GOALS.md`:
 
 ---
 
-### [2026-03-14 08:00am] WATCHY
-✅ **All systems nominal — Database auth restored**
+### [2026-03-15 08:00am] WATCHY
+✅ **All systems nominal — Database auth holding stable**
 
 **Health Check Results:**
-- Database: ✅ Connected (verified with preflight)
-- Teams: 96,365 active
-- Games: 743,697 total
-- Quarantine: 325 games (within normal range)
-- Pending reviews: 8,791 (D H actively processing)
-- Rankings: 11h old (last calc Thu night)
-- Last scrape: 91h ago (Wed — normal for Scrappy Mon/Wed schedule)
+- Database: ✅ Connected (verified with full health check)
+- Teams: 97,846 active
+- Games: 743,795 total
+- Quarantine: 325 games (within normal range, threshold 500)
+- Pending reviews: 8,791 (D H actively processing — per DAILY_CONTEXT, don't alert)
+- Rankings: 35h old (last calc Mon)
+- Last scrape: 115h ago (Wed — normal for Scrappy Mon/Wed schedule)
 
 **Data Quality:**
 - Missing state_code: 713 (non-critical)
-- Missing club_name: 2,799 (non-critical)
-- Validation errors: 0
+- Missing club_name: 2,925 (non-critical)
+- Validation errors: 0 ✓
 
 **Assessment:** 
-Database auth failure from Mar 13 has been resolved. System is operational and ready for scheduled agents. Monday Scrappy/Ranky runs are queued and healthy. Pending reviews and quarantine are within expected ranges for active data cleanup phase.
+Database auth from Mar 13 crisis has remained stable through Mar 15 morning. System is fully operational. Monday Scrappy (10am) and Ranky (12pm) runs are queued and healthy. Both quarantine count and review queue are within expected ranges for active data cleanup phase.
 
-**Note:** OpenAI TPM limits observed during concurrent agent runs on Mar 13. This is a provider capacity constraint, not a system-level issue. Monitor for pattern.
+**Note:** OpenAI TPM limits observed during concurrent agent runs on Mar 13. This is a provider capacity constraint, not a system-level issue. Continue monitoring for pattern.
 
 ---
 
