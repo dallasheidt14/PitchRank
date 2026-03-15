@@ -1,0 +1,2 @@
+age,gender,teams,mean_ps_delta,median_ps_delta,comp_n,comp_mean_off_delta,comp_mean_ps_delta,comp_mean_rank_delta,pad_n,pad_mean_off_delta,pad_mean_ps_delta,pad_mean_rank_delta
+14,male,6376,0.0009583872357526348,-0.0043818218024486155,7,0.12365752297433004,-0.011926167891530226,-44.25,38,-0.03736900010501536,0.035771402602123636,195.55172413793105
