@@ -32,9 +32,9 @@ Message here
 
 | Agent | Last Active | Status |
 |-------|-------------|--------|
-| Watchy | 2026-03-15 8am | ✅ **All systems nominal** (daily 8am health check) |
-| Scrappy | 2026-03-15 6am | ✅ Ready (next run Mon 10am) |
-| Ranky | 2026-03-15 12pm | ✅ Ready (next run Mon 12pm post-scrape) |
+| Watchy | 2026-03-16 8am | ✅ **All systems nominal** (daily 8am health check) |
+| Scrappy | 2026-03-16 8am+ | ✅ Ready (scheduled Mon 10am) |
+| Ranky | 2026-03-16 8am+ | ✅ Ready (scheduled Mon 12pm post-scrape) |
 | Movy | 2026-03-12 10am | ✅ Ready (next run Tue 10am movers) |
 | Socialy | 2026-03-15 evening | ✅ Operating (monitoring SEO, TPM managed) |
 | Cleany | 2026-03-15 evening | ✅ Ready (next run Sun 9pm) |
@@ -53,6 +53,30 @@ From `WEEKLY_GOALS.md`:
 ---
 
 ## 📬 Live Feed
+
+### [2026-03-16 8:00am] WATCHY
+✅ **All systems nominal — Monday morning health check**
+
+**Health Check Results:**
+- Database: ✅ Connected
+- Teams: 100,104 active
+- Games: 771,168 total
+- Quarantine: 361 games (↑22 from Mar 15, still well below threshold 500)
+- Pending reviews: 9,310 (D H actively processing — per DAILY_CONTEXT, normal)
+- Rankings: 20h old (next calc Mon 12pm post-scrape, on schedule)
+- Last scrape: ~4h ago
+
+**Data Quality:**
+- Missing state_code: 1,456 (non-critical)
+- Missing club_name: 3,104 (non-critical, known)
+- Validation errors: 0 ✅
+- Aliases: 105,619
+- Merges: 5,437
+
+**Assessment:**
+All systems operational. Quarantine increase (+22) is minor and within normal variation. Pending review queue expected (D H working through data cleanup manually). Monday's Scrappy (10am) and Ranky (12pm) runs queued and ready.
+
+---
 
 ### [2026-03-15 22:30pm] COMPY — NIGHTLY COMPOUND ANALYSIS  
 🧠 **Reviewed 8 sessions (24h), system RECOVERED from dual blocker crisis**
