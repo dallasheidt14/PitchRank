@@ -1,0 +1,166 @@
+---
+title: "What Predicts Winning Better Than Goals Scored? We Analyzed 700,000+ Youth Soccer Games to Find Out"
+slug: "what-predicts-winning-beyond-goals"
+excerpt: "Goals scored alone predict only 47% of outcomes — barely better than a coin flip. After analyzing 700,000+ youth soccer games, we found the real predictors of team quality. The answer might surprise you."
+author: "PitchRank Team"
+date: "2026-03-16"
+readingTime: "9 min read"
+tags: ["Data", "Rankings", "Methodology", "Youth Soccer", "Analysis"]
+keywords: ["youth soccer rankings", "soccer prediction", "strength of schedule", "pitchrank powerscore", "youth soccer analytics", "soccer team quality"]
+---
+
+# What Predicts Winning Better Than Goals Scored? We Analyzed 700,000+ Youth Soccer Games to Find Out
+
+Every soccer parent has had the argument.
+
+Your U14 squad just went 8-2-1 for the season. They scored 34 goals, allowed only 12. By every measure you can see in the standings, they're having a great year. Then tournament weekend arrives — and you run into a team that looked *less impressive* on paper, and they beat you 3-1.
+
+What happened?
+
+It's a question we've been obsessing over at PitchRank. After building a dataset of **700,000+ youth soccer games** across **77,000+ teams in all 50 states**, we didn't just want to rank teams — we wanted to understand what *actually* separates great teams from average ones.
+
+What we found challenges almost everything the typical youth soccer standings sheet tells you.
+
+---
+
+## The Goals Problem: Why Your Score Sheet Is Lying to You
+
+Let's start with the uncomfortable truth.
+
+Goals scored — the thing everyone looks at first — is a surprisingly weak predictor of team quality. When we ran our models against hundreds of thousands of game outcomes, we found that **goals scored alone predicts only about 47% of outcomes**.
+
+Let that sink in: a metric that the entire youth soccer world uses to rank teams is barely more accurate than flipping a coin.
+
+This isn't a flaw in the data. It's a flaw in how we think about goals. Here's why:
+
+**Goals are context-free.** Scoring 5 goals against a bottom-of-the-table U12 side tells you almost nothing about a team's true quality. But beating a top-ranked team 2-1 in a hard-fought match? That tells you *everything*.
+
+When you strip away the context of who those goals were scored against, the number loses most of its meaning.
+
+Think about it from your own season. How many of your wins were against teams that outmatched you? And how many of those losses came against teams that had no business being in the same bracket? Raw goal counts capture all of it equally — the blowouts of weak opponents, the heartbreaking close losses to elite squads — and treat them as if they're worth the same.
+
+They're not.
+
+---
+
+## What Actually Predicts Team Quality
+
+After analyzing 700,000+ games, our data pointed to five factors that, together, paint a far more accurate picture of team quality than goals alone ever could.
+
+### 1. Strength of Schedule (SOS): The Most Important Factor Nobody Talks About
+
+If you take nothing else from this article, take this: **who you play matters more than how much you score**.
+
+This is the cornerstone insight behind PitchRank's PowerScore formula, and it's why Strength of Schedule carries **50% of the total weight** in our ranking model. That's double the weight of either offensive or defensive production.
+
+Why so much? Because SOS is the great equalizer. It answers the question that raw stats never can: *Was your record earned against real competition, or was it padded against weaker opponents?*
+
+A team that goes 7-3 against a murderer's row of top-ranked squads is almost certainly better than a team that goes 9-1 against bottom-half competition — even if the second team's goal differential looks prettier on paper.
+
+Our SOS calculation isn't a simple formula either. We use a **3-pass iterative calculation with transitivity** — meaning we don't just look at your opponents' records, we look at your opponents' opponents' records, and then go one level deeper still. This chains together performance across the entire competitive ecosystem, so a win against a team that beat a team that beat a nationally ranked program carries meaningful weight.
+
+After three passes of refinement, the model converges on a stable, fair assessment of how hard each team's schedule actually was.
+
+### 2. Defensive Efficiency: It's Not Just About Clean Sheets
+
+Every parent cheers for the shutout. And clean sheets *are* meaningful — but only when you adjust for who you were keeping out.
+
+**Raw goals allowed is almost as misleading as raw goals scored.** Allowing zero goals against a club that averages one shot on target per game is very different from conceding zero against a high-powered attack that presses relentlessly for 90 minutes.
+
+What PitchRank measures is **goals allowed per opponent strength** — a defensive efficiency metric that adjusts for the quality of attacks your team faced. A defense that holds a top-10 team to one goal in a tight match gets far more credit in our system than a defense that records a shutout against an average squad.
+
+This matters practically for parents and coaches: it means teams that consistently play up — competing against stronger opposition — are properly rewarded even when they don't always win. And teams that run up shutouts against weaker competition aren't unfairly inflated.
+
+### 3. Offensive Efficiency: Goals Scored, Adjusted for Reality
+
+On the flip side of defensive efficiency is **offensive efficiency** — goals scored adjusted for the quality of defenses you faced.
+
+A striker who scores three goals against an elite goalkeeper is doing something very different than a striker who scores three goals against a squad with a 4.5 GAA. Our model accounts for this on the team level, adjusting every team's offensive production based on the defensive strength of their opponents.
+
+The result: teams that find ways to score against strong defenses — even if their overall goal totals look modest — get properly recognized as dangerous offensive units. And teams that pile up goals against weak opposition don't get to pretend they're elite attackers.
+
+Together, offensive and defensive efficiency each carry **25% of the PowerScore weight** — meaningful, but properly calibrated so that the quality-of-opponent context (captured in SOS) always comes first.
+
+### 4. Recent Form With Context: Hot Streaks Only Count If They're Earned
+
+Form matters. A team that's won their last six games is probably playing differently than a team that's stumbled through their last six. But like everything else, form without context is misleading.
+
+A six-game winning streak against bottom-half opponents heading into tournament season doesn't tell you the team is peaking — it might just mean they got a favorable draw. A team that's gone 3-3 in their last six but played four top-15 ranked squads in that stretch? They might be the better team heading into the same tournament.
+
+PitchRank weights recent results, but only after filtering them through opponent quality. A win over a ranked opponent in the last three weeks carries more weight than three wins over unranked teams. This gives the model the ability to spot teams genuinely hitting their stride — and filter out false peaks.
+
+### 5. Head-to-Head Common Opponents: The Transitive Test
+
+Sometimes the most telling indicator of team quality isn't your record against your own opponents — it's how you performed against **the same opponents as the team you're being compared to**.
+
+This is the power of transitive analysis. If Team A and Team B have never played each other but both played Team C, the scores against Team C tell us something meaningful about the A vs. B comparison. If Team A beat Team C 3-0 and Team B barely scraped by 1-0, that's signal — even if A and B have never shared a field.
+
+Our 3-pass SOS calculation bakes this transitivity in systematically, using it across the entire dataset rather than just for direct comparisons. The result is that even teams playing in completely separate leagues or regions can be meaningfully compared — because the chains of common opponents eventually connect them.
+
+---
+
+## How PitchRank's PowerScore Comes Together
+
+All five of these factors feed into a single number: the **PowerScore**.
+
+The formula is deliberately transparent:
+
+- **50%** — Strength of Schedule (who you played, calculated iteratively)
+- **25%** — Offensive Efficiency (goals scored, adjusted for opponent defense quality)
+- **25%** — Defensive Efficiency (goals allowed, adjusted for opponent offensive quality)
+
+No secret sauce. No proprietary black box. The weights were chosen based on what the data actually showed predicts outcomes — and SOS came out as the dominant factor by a significant margin.
+
+When we validated our model against held-out game data, the prediction accuracy improved from roughly **42% to 58%** as the model accumulated more games and more SOS iterations. The more interconnected the competitive graph became — the more teams shared common opponents — the more accurate the predictions got.
+
+Our prediction error settled at a **Mean Absolute Error of 2.2–2.6 goals** per game. That's not perfect — soccer is wonderfully unpredictable, which is why we watch it — but it's a meaningful improvement over the "guess based on goal totals" approach the standings sheet gives you.
+
+---
+
+## What This Means for Youth Soccer Parents
+
+So what do you actually *do* with this information?
+
+### When Reading Rankings
+
+Look past the raw record. A team ranked in the top 10 of their age group with a 6-4 record probably earned it by competing hard against top competition. A team at 10-0 that's unranked might be dominating a weak schedule. The record alone doesn't tell the story — the ranking does.
+
+### When Choosing a Club or League
+
+If your goal is development, the data strongly suggests playing **up in competition** is more valuable than padding stats in a weaker league. Teams that consistently face stronger opponents develop faster, show up better in rankings, and are more honestly evaluated when the time comes for tryouts, showcases, or recruitment.
+
+### When Evaluating Tournament Draws
+
+Before a tournament, check who your group opponents are and what their PowerScores look like. A "friendlier" draw might feel good, but a tough draw against quality opposition will tell you far more about where your team actually stands — and will count more in the final standings if rankings matter.
+
+### When Your Team Loses to "Weaker" Opposition
+
+This happens to every team. But if our model predicted a loss — because the "weaker" team actually had a tougher schedule and better efficiency metrics — it might be time to look more carefully at what the data was seeing that the eye test missed.
+
+---
+
+## The Bigger Picture: Why This Matters for Youth Soccer
+
+The youth soccer world has been running on incomplete data for decades. Win-loss records, goal totals, league standings — these tools were designed for a world where teams mostly played within tightly defined competitive pools. They weren't designed for a world where a U13 team from Phoenix might have meaningful competitive connections to a team in Colorado through a series of shared tournament opponents.
+
+**PitchRank was built for the world that actually exists.**
+
+With 700,000+ games and 77,000+ teams across all 50 states, we have the dataset to trace those competitive connections, calculate SOS with the depth it deserves, and surface rankings that actually reflect how teams perform in context — not just in raw numbers.
+
+Parents deserve better than a coin flip. Their kids deserve rankings that reflect how hard they've competed, not just how many goals they've scored against easy opponents.
+
+That's what we're building. And the data is getting more accurate every week.
+
+---
+
+## See Where Your Team Ranks
+
+Curious how your child's team is ranked using PitchRank's PowerScore methodology? Search for your team at [PitchRank.io](https://pitchrank.io) — we rank teams across all age groups, in all 50 states, using the same SOS-weighted, efficiency-adjusted model described in this post.
+
+If you have questions about how a specific team's ranking was calculated, or why a team with a great record sits lower than expected (or vice versa), the answer is almost always in the schedule. Check who they played.
+
+The data doesn't lie — it just requires the right model to read it.
+
+---
+
+*PitchRank analyzes youth soccer data across all 50 states to produce fair, context-adjusted team rankings. Our methodology is transparent and updated regularly as new game data is processed.*
