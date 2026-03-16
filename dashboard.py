@@ -5305,7 +5305,57 @@ elif section == "🛡️ Due Diligence Review":
     # Load CSV
     # ------------------------------------------------------------------
     dd_df = pd.read_csv(selected_csv, dtype=str).fillna("")
-    st.info(f"Loaded **{len(dd_df)}** needs-review candidates from `{selected_csv.name}`")
+    original_count = len(dd_df)
+
+    # ------------------------------------------------------------------
+    # Filter out items already processed in the database
+    # (handles cases where CSV cleanup failed on previous runs)
+    # ------------------------------------------------------------------
+    if db and not dd_df.empty and "unknown_provider_team_id" in dd_df.columns:
+        pids = dd_df["unknown_provider_team_id"].str.strip().tolist()
+        already_processed = set()
+
+        # Check team_alias_map for approved links (batch by 100 for URI limits)
+        for i in range(0, len(pids), 100):
+            batch = pids[i : i + 100]
+            try:
+                resp = db.table("team_alias_map").select("provider_team_id").in_(
+                    "provider_team_id", batch
+                ).eq("review_status", "approved").execute()
+                already_processed.update(r["provider_team_id"] for r in (resp.data or []))
+            except Exception:
+                pass  # Non-fatal — worst case we show an already-processed item
+
+        # Check team_match_review_queue for rejected items
+        for i in range(0, len(pids), 100):
+            batch = pids[i : i + 100]
+            try:
+                resp = db.table("team_match_review_queue").select("provider_team_id").in_(
+                    "provider_team_id", batch
+                ).eq("review_status", "rejected").execute()
+                already_processed.update(r["provider_team_id"] for r in (resp.data or []))
+            except Exception:
+                pass
+
+        if already_processed:
+            dd_df = dd_df[~dd_df["unknown_provider_team_id"].str.strip().isin(already_processed)]
+            skipped = original_count - len(dd_df)
+            # Also clean up the CSV file so it stays in sync
+            if skipped > 0:
+                try:
+                    dd_df.to_csv(selected_csv, index=False)
+                except Exception:
+                    pass  # Non-fatal
+                st.info(
+                    f"Loaded **{len(dd_df)}** needs-review candidates from `{selected_csv.name}` "
+                    f"({skipped} already processed items filtered out)"
+                )
+            else:
+                st.info(f"Loaded **{len(dd_df)}** needs-review candidates from `{selected_csv.name}`")
+        else:
+            st.info(f"Loaded **{len(dd_df)}** needs-review candidates from `{selected_csv.name}`")
+    else:
+        st.info(f"Loaded **{len(dd_df)}** needs-review candidates from `{selected_csv.name}`")
 
     if dd_df.empty:
         st.success("No items to review — CSV is empty.")
@@ -5503,10 +5553,11 @@ elif section == "🛡️ Due Diligence Review":
                             ]
                             remaining_df.to_csv(selected_csv, index=False)
                         except Exception as exc:
-                            st.warning(f"CSV cleanup failed (link was applied): {exc}")
+                            # Log but don't block — DB write succeeded,
+                            # and the DB cross-check on next load will filter it out
+                            pass
 
                         st.session_state.dd_decisions[unknown_pid] = "approved"
-                        st.success(f"Approved & linked [{unknown_pid}] → {matched_name}")
                         st.rerun()
                     except Exception as exc:
                         st.error(f"Approve failed: {exc}")
