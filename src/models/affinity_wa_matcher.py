@@ -96,7 +96,8 @@ class AffinityWAGameMatcher(GameHistoryMatcher):
     """
 
     def __init__(self, supabase, provider_id=None, alias_cache=None):
-        super().__init__(supabase, provider_id=provider_id, alias_cache=alias_cache, default_state_code='WA')
+        super().__init__(supabase, provider_id=provider_id, alias_cache=alias_cache)
+        self.default_state_code = STATE_CODE
         self._affinity_variant_gate_required = MATCHING_CONFIG.get('affinity_variant_gate_required', True)
         self._affinity_rcl_strict = MATCHING_CONFIG.get('affinity_rcl_strict', True)
         self._affinity_club_similarity_threshold = MATCHING_CONFIG.get('affinity_club_similarity_threshold', 0.9)

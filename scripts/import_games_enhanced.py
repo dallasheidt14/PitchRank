@@ -250,6 +250,7 @@ async def main():
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
         logging.getLogger('src.models.modular11_matcher').setLevel(logging.DEBUG)
+        logging.getLogger('src.models.affinity_wa_matcher').setLevel(logging.DEBUG)
         logging.getLogger('src.etl.enhanced_pipeline').setLevel(logging.DEBUG)
         logger.info("Debug logging enabled")
     
