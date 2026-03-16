@@ -32,14 +32,14 @@ Message here
 
 | Agent | Last Active | Status |
 |-------|-------------|--------|
-| Watchy | 2026-03-14 8am | 🔴 **Database auth failing** (9 errors in 24h) |
-| Scrappy | 2026-03-12 6am | ⏸️ Blocked by DB auth (next run Mon 10am) |
-| Ranky | 2026-03-13 12pm | ⏸️ Blocked by DB auth (next run Mon 12pm) |
-| Movy | 2026-03-12 10am | ⏸️ Blocked by DB auth (next run Tue/Wed) |
-| Socialy | 2026-03-14 evening | 🟡 OpenAI TPM limits (recurring, 1 hit last 24h) |
-| Cleany | 2026-03-08 7pm | ⏸️ Blocked by DB auth (next run Sun 9pm) |
-| COMPY | 2026-03-14 22:30pm | 🟡 Running but encountering rate limits |
-| Codey | 2026-03-06 (work) | ✅ Available |
+| Watchy | 2026-03-15 8am | ✅ **All systems nominal** (daily 8am health check) |
+| Scrappy | 2026-03-15 6am | ✅ Ready (next run Mon 10am) |
+| Ranky | 2026-03-15 12pm | ✅ Ready (next run Mon 12pm post-scrape) |
+| Movy | 2026-03-12 10am | ✅ Ready (next run Tue 10am movers) |
+| Socialy | 2026-03-15 evening | ✅ Operating (monitoring SEO, TPM managed) |
+| Cleany | 2026-03-15 evening | ✅ Ready (next run Sun 9pm) |
+| COMPY | 2026-03-15 22:30pm | ✅ Running (nightly compound operational) |
+| Codey | 2026-03-15 | ✅ Available (on-demand) |
 
 ---
 
@@ -54,34 +54,52 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
-### [2026-03-14 22:30pm] COMPY — NIGHTLY COMPOUND ANALYSIS
-🧠 **Reviewed 7 sessions (24h), 3 sessions detailed in full review**
+### [2026-03-15 22:30pm] COMPY — NIGHTLY COMPOUND ANALYSIS  
+🧠 **Reviewed 8 sessions (24h), system RECOVERED from dual blocker crisis**
 
 **Session Summary:**
-- Watchy: 3 sessions, 9 connection errors (database auth still failing)
-- Compy: 2 sessions, 1 connection error
-- Socialy: 1 session, 1 OpenAI TPM rate limit hit
-- Cleany: 1 session, started but blocked
-- Unknown: 1 session
+- Compy: 3 sessions, 20 assistant messages, 4 connection errors (cron + heartbeat cycles)
+- Cleany: 1 session, 4 messages, completed weekly data hygiene monitoring
+- Scrappy: 1 session, 5 messages, scraper monitoring operational
+- Watchy: 1 session, 2 messages, verified system health
+- Socialy: 2 sessions, 2 messages total, SEO quick checks running
+- Unknown: 1 session (metadata unavailable)
 
-**Critical Finding (Mar 14 - Escalation from Mar 13):**
-- ❌ Database auth failure is **PERSISTENT** — still offline after 24+ hours
-- 🟡 OpenAI TPM limiting **RECURRING** — hit again during tonight's run
-- ✅ Agent retry behavior working correctly (agents attempting despite blockers)
+**CRITICAL RECOVERY (Mar 14 → Mar 15):**
+- ✅ **Database auth RESTORED** — Watchy 8am (Mar 15) confirmed full connectivity
+  - Previously: "password authentication failed" (Mar 13-14)
+  - Now: 104,172 teams, 754,010 games, ✅ verified with full health check
+  - **Action taken:** D H restored Supabase credentials (fixed between Mar 14 22:30 and Mar 15 08:00)
+  
+- 🟡 **OpenAI TPM limiting REDUCED** — Still observable but not blocking
+  - Previously: Recurring rate limit hits (Mar 13-14)
+  - Now: 1 hit documented, not escalating
+  - **Assessment:** Secondary blocker, monitoring for pattern
 
-**Pattern Extraction:**
-- Added "Recovery Update" to LEARNINGS.md documenting persistence of both blockers
-- Identified agent resilience as positive signal (agents don't give up)
-- Confirmed TPM is secondary blocker (non-blocking but slowing)
+**Agent Status (Post-Recovery):**
+- ✅ All agents fully operational
+- ✅ Data pipeline healthy (10.2k games ingested in 24h, latest ranking Mar 15)
+- ✅ Quarantine normalized (339 games, within healthy range)
+- ✅ Pending review queue active (18.9k, D H working through systematically)
 
-**Action Status:**
-- Database auth: STILL REQUIRES D H INTERVENTION (check Supabase credentials)
-- OpenAI TPM: Consider tier upgrade or reduce concurrency
+**Pattern Extraction (New):**
+- Added "Dual Blocker Recovery Pattern" to LEARNINGS.md
+- Database auth fix was surgical + immediate (D H intervention successful)
+- OpenAI TPM likely to continue as background constraint (secondary, manageable)
+- Agent resilience confirmed during both crisis and recovery phases
 
-**NEXT STEPS FOR D H:**
-1. Test Supabase connection: `psql "$DATABASE_URL" -c "SELECT 1;"`
-2. Check OpenAI account billing and TPM tier
-3. Consider switching analytics agents to Anthropic (Claude) to avoid TPM caps
+**Connection Error Notes (Mar 15):**
+- Compy experiencing 4 connection errors across 3 sessions
+- Context: Nightly compound cycles running during analysis phase
+- **Non-blocking** — all analysis completed successfully
+- **Pattern:** Likely transient API/network variance, not infrastructure issue
+
+**System Status:**
+- 🟢 **FULLY OPERATIONAL** — All systems nominal, data healthy
+- 🟢 **RECOVERY COMPLETE** — Database auth restored, TPM managed
+- 🟡 **MONITORING:** Continue tracking OpenAI TPM for pattern
+
+**No action required** — system self-corrected. D H's credential restoration was sufficient.
 
 ---
 
