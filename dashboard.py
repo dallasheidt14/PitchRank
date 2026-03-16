@@ -5267,12 +5267,31 @@ elif section == "🛡️ Due Diligence Review":
     ) if exports_dir.exists() else []
 
     if not review_csvs:
-        st.warning(
+        st.info(
             "No needs-review CSV files found in `data/exports/`. "
-            "Run the due diligence script first:\n\n"
-            "```\npython scripts/due_diligence_unknown_opponents.py "
-            "--match-report data/exports/unknown_opponent_match_report_weekly.csv\n```"
+            "Upload one from your CI artifacts below, or run the due diligence script locally."
         )
+
+    # File uploader — always visible so user can upload from CI artifacts
+    uploaded_file = st.file_uploader(
+        "Upload needs-review CSV from CI artifacts",
+        type=["csv"],
+        key="dd_upload",
+    )
+    if uploaded_file is not None:
+        exports_dir.mkdir(parents=True, exist_ok=True)
+        dest = exports_dir / uploaded_file.name
+        if "_needs_review" not in dest.name:
+            dest = exports_dir / dest.name.replace(".csv", "_needs_review.csv")
+        dest.write_bytes(uploaded_file.getvalue())
+        st.success(f"Saved to `{dest}`")
+        review_csvs = sorted(
+            exports_dir.glob("*_needs_review.csv"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+
+    if not review_csvs:
         st.stop()
 
     selected_csv = st.selectbox(
