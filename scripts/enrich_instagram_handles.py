@@ -849,18 +849,22 @@ def fetch_top_n_per_cohort_ids(
     state_filter: Optional[str] = None,
     age_filter: Optional[str] = None,
     gender_filter: Optional[str] = None,
+    national: bool = False,
 ) -> Tuple[List[str], Dict[str, int]]:
     """
-    Select the top N teams by power_score_final within every
-    (state_code, age_group, gender) cohort that has Active rankings.
+    Select the top N teams by power_score_final within every cohort.
+
+    Cohort grouping:
+      - Default: (state_code, age_group, gender)
+      - national=True: (age_group, gender) — top N nationally regardless of state
 
     Optional filters narrow to a specific state, age group, or gender.
 
     Returns:
         (ordered_team_ids, cohort_counts)
         ordered_team_ids: sorted by power_score desc within each cohort,
-                          then cohorts sorted by state/age/gender
-        cohort_counts: { "TX|u14|Female": 10, ... } for summary logging
+                          then cohorts sorted alphabetically
+        cohort_counts: { "u14|Female": 100, ... } for summary logging
     """
     page_size = 1000
     offset = 0
@@ -871,9 +875,10 @@ def fetch_top_n_per_cohort_ids(
             supabase.table("rankings_full")
             .select("team_id,power_score_final,age_group,gender,state_code")
             .eq("status", "Active")
-            .not_.is_("state_code", "null")
             .not_.is_("power_score_final", "null")
         )
+        if not national:
+            query = query.not_.is_("state_code", "null")
         if state_filter:
             query = query.eq("state_code", state_filter.upper())
         if age_filter:
@@ -887,23 +892,27 @@ def fetch_top_n_per_cohort_ids(
             break
         offset += page_size
 
-    # Group into cohorts
-    cohorts: DefaultDict[Tuple[str, str, str], List[Dict[str, Any]]] = defaultdict(list)
+    # Group into cohorts — national mode ignores state
+    cohorts: DefaultDict[Tuple[str, ...], List[Dict[str, Any]]] = defaultdict(list)
     for r in all_rows:
         tid = r.get("team_id")
         if not tid or tid in already_done:
             continue
-        state = (r.get("state_code") or "").strip().upper()
         age = (r.get("age_group") or "").strip().lower()
         gender = (r.get("gender") or "").strip()
-        if state and age and gender:
-            cohorts[(state, age, gender)].append(r)
+        if not age or not gender:
+            continue
+        if national:
+            cohorts[(age, gender)].append(r)
+        else:
+            state = (r.get("state_code") or "").strip().upper()
+            if state:
+                cohorts[(state, age, gender)].append(r)
 
     # Take top N per cohort, ordered by power_score desc
     selected_ids: List[str] = []
     cohort_counts: Dict[str, int] = {}
     for cohort_key in sorted(cohorts.keys()):
-        state, age, gender = cohort_key
         group = sorted(
             cohorts[cohort_key],
             key=lambda x: x.get("power_score_final") or 0.0,
@@ -912,7 +921,8 @@ def fetch_top_n_per_cohort_ids(
         top = group[:top_n]
         for r in top:
             selected_ids.append(r["team_id"])
-        cohort_counts[f"{state}|{age}|{gender}"] = len(top)
+        cohort_label = "|".join(cohort_key)
+        cohort_counts[cohort_label] = len(top)
 
     return selected_ids, cohort_counts
 
@@ -1279,6 +1289,15 @@ def main() -> None:
             "Use with --limit to cap total teams for testing."
         ),
     )
+    parser.add_argument(
+        "--national",
+        action="store_true",
+        help=(
+            "Group cohorts by (age_group × gender) instead of "
+            "(state × age_group × gender).  Selects the top N teams "
+            "nationally per age/gender.  Requires --top-n-per-cohort."
+        ),
+    )
     args = parser.parse_args()
 
     workers = max(1, args.workers)
@@ -1446,10 +1465,10 @@ def main() -> None:
 
     # ── Team selection ────────────────────────────────────────────────────────
     if args.top_n_per_cohort:
-        # Cohort mode: top N by power_score within every state × age × gender group
+        grouping = "(age_group × gender) nationally" if args.national else "(state × age_group × gender)"
         log(
             f"Cohort mode: top {args.top_n_per_cohort} teams per "
-            "(state × age_group × gender) cohort..."
+            f"{grouping} cohort..."
         )
         cohort_ids, cohort_counts = fetch_top_n_per_cohort_ids(
             supabase,
@@ -1458,17 +1477,20 @@ def main() -> None:
             state_filter=args.state,
             age_filter=args.age_group,
             gender_filter=args.gender,
+            national=args.national,
         )
         total_cohorts = len(cohort_counts)
         total_selected = len(cohort_ids)
 
-        # Print cohort breakdown (sample: first 20 cohorts)
         log(f"Cohorts with ranked teams: {total_cohorts:,}")
         log(f"Total teams selected:      {total_selected:,}")
         sample_cohorts = sorted(cohort_counts.items())[:20]
         for cohort_key, count in sample_cohorts:
-            state, age, gender = cohort_key.split("|")
-            log(f"  {state:2s}  {age:<4s}  {gender:<7s}  → {count} teams")
+            parts = cohort_key.split("|")
+            if args.national:
+                log(f"  {parts[0]:<5s}  {parts[1]:<7s}  → {count} teams")
+            else:
+                log(f"  {parts[0]:2s}  {parts[1]:<5s}  {parts[2]:<7s}  → {count} teams")
         if len(cohort_counts) > 20:
             log(f"  ... and {len(cohort_counts) - 20} more cohorts")
         log("")
