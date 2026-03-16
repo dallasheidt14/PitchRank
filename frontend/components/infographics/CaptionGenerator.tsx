@@ -22,6 +22,8 @@ interface CaptionGeneratorProps {
   teamName?: string;
   rank?: number;
   teamCount?: number;
+  /** Formatted @handles for tagging clubs/teams (e.g. ["@club_sc", "@team_g11"]) */
+  instagramHandles?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -260,6 +262,7 @@ export function CaptionGenerator({
   teamName,
   rank,
   teamCount = 10,
+  instagramHandles = [],
 }: CaptionGeneratorProps) {
   const [copied, setCopied] = useState(false);
   const [blockSeeds, setBlockSeeds] = useState({
@@ -320,7 +323,7 @@ export function CaptionGenerator({
     const engagement = fillVars(pickTemplate(engagementTemplates, blockSeeds.engagement));
     const cta = fillVars(pickTemplate(ctaTemplates, blockSeeds.cta));
 
-    return [
+    const parts = [
       hook,
       '',
       `${context}\n${contextSuffix}`,
@@ -328,10 +331,19 @@ export function CaptionGenerator({
       engagement,
       '',
       `👇 ${cta}`,
-      '',
-      hashtags,
-    ].join('\n');
-  }, [infographicType, blockSeeds, fillVars, hashtags]);
+    ];
+
+    // Add Instagram handles if available
+    if (instagramHandles.length > 0) {
+      parts.push('');
+      parts.push(instagramHandles.join(' '));
+    }
+
+    parts.push('');
+    parts.push(hashtags);
+
+    return parts.join('\n');
+  }, [infographicType, blockSeeds, fillVars, hashtags, instagramHandles]);
 
   // Character counts for different platforms
   const charCounts = {
@@ -445,6 +457,24 @@ export function CaptionGenerator({
             </>
           )}
         </Button>
+
+        {/* Quick Copy Instagram Handles */}
+        {instagramHandles.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-muted-foreground mb-2">Quick Copy Handles:</p>
+            <div className="flex flex-wrap gap-1">
+              {instagramHandles.slice(0, 12).map((handle) => (
+                <button
+                  key={handle}
+                  onClick={() => navigator.clipboard.writeText(handle)}
+                  className="text-xs bg-pink-500/10 hover:bg-pink-500/20 text-pink-700 dark:text-pink-400 px-2 py-1 rounded transition-colors"
+                >
+                  {handle}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Quick Copy Hashtags */}
         <div>
