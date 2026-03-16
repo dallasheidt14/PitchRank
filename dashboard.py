@@ -5578,7 +5578,6 @@ elif section == "📸 Instagram Review":
         ig_search = st.text_input("Search club/handle", value="").strip().lower()
 
     # ── Fetch records ────────────────────────────────────────────────────
-    @st.cache_data(ttl=30)
     def fetch_instagram_queue(_status, _level, _state):
         query = db.table("team_social_profiles").select(
             "id, team_id, handle, confidence_score, review_status, profile_level, query_used, match_details"
@@ -5678,7 +5677,6 @@ elif section == "📸 Instagram Review":
                     ).eq("id", r["id"]).execute()
                     progress.progress((idx + 1) / len(eligible))
                 st.success(f"Approved {len(eligible)} records!")
-                st.cache_data.clear()
                 st.rerun()
 
         # ── Individual review table ──────────────────────────────────────
@@ -5711,14 +5709,12 @@ elif section == "📸 Instagram Review":
                         db.table("team_social_profiles").update(
                             {"review_status": "confirmed"}
                         ).eq("id", r["id"]).execute()
-                        st.cache_data.clear()
                         st.rerun()
                 with cols[5]:
                     if st.button("❌", key=f"reject_{r['id']}", help="Reject"):
                         db.table("team_social_profiles").update(
                             {"review_status": "rejected"}
                         ).eq("id", r["id"]).execute()
-                        st.cache_data.clear()
                         st.rerun()
                 st.divider()
 
