@@ -19,6 +19,7 @@ import { renderStateChampionsToCanvas, generateStateChampions } from '@/componen
 import { renderStoryTemplateToCanvas, STORY_TYPES } from '@/components/infographics/storyTemplateRenderer';
 import { renderCoverImageToCanvas, COVER_PLATFORMS } from '@/components/infographics/coverImageRenderer';
 import { useRankings } from '@/hooks/useRankings';
+import { useInstagramHandles, collectHandlesForCaption } from '@/hooks/useInstagramHandles';
 import { US_STATES } from '@/lib/constants';
 import { Download, Share2, RefreshCw, Instagram, Facebook, ChevronDown, AlertCircle, Trophy, TrendingUp, Users, Award, Megaphone, Image } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -108,6 +109,47 @@ export default function InfographicsPage() {
     selectedAgeGroup,
     selectedGender
   );
+
+  // Collect team IDs for Instagram handle lookup (top 25 teams)
+  const relevantTeamIds = React.useMemo(() => {
+    if (!rankings || rankings.length === 0) return [];
+    return rankings.slice(0, 25).map((t) => t.team_id_master);
+  }, [rankings]);
+
+  const { data: handleMap } = useInstagramHandles(relevantTeamIds);
+
+  // Build the @handles list for the caption based on infographic type
+  const captionHandles = React.useMemo(() => {
+    if (!handleMap || !rankings) return [];
+
+    let teamIds: string[] = [];
+    switch (selectedInfographicType) {
+      case 'top10':
+        teamIds = rankings.slice(0, 10).map((t) => t.team_id_master);
+        break;
+      case 'spotlight':
+        if (rankings[selectedSpotlightTeamIndex]) {
+          teamIds = [rankings[selectedSpotlightTeamIndex].team_id_master];
+        }
+        break;
+      case 'movers': {
+        const movers = generateMoverData(rankings);
+        teamIds = [...movers.climbers, ...movers.fallers].map((t) => t.team_id_master);
+        break;
+      }
+      case 'headToHead':
+        if (rankings[headToHeadTeam1Index]) teamIds.push(rankings[headToHeadTeam1Index].team_id_master);
+        if (rankings[headToHeadTeam2Index]) teamIds.push(rankings[headToHeadTeam2Index].team_id_master);
+        break;
+      case 'stateChampions':
+        teamIds = rankings.slice(0, 25).map((t) => t.team_id_master);
+        break;
+      default:
+        break;
+    }
+
+    return collectHandlesForCaption(handleMap, teamIds);
+  }, [handleMap, rankings, selectedInfographicType, selectedSpotlightTeamIndex, headToHeadTeam1Index, headToHeadTeam2Index]);
 
   // Calculate preview scale
   useEffect(() => {
@@ -784,6 +826,7 @@ export default function InfographicsPage() {
                   teamName={selectedInfographicType === 'spotlight' && rankings ? rankings[selectedSpotlightTeamIndex]?.team_name : undefined}
                   rank={selectedInfographicType === 'spotlight' ? selectedSpotlightTeamIndex + 1 : undefined}
                   teamCount={top10Teams.length}
+                  instagramHandles={captionHandles}
                 />
               </CardContent>
             </Card>
