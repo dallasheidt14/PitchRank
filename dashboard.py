@@ -5561,6 +5561,11 @@ elif section == "📸 Instagram Review":
     st.header("📸 Instagram Handle Review Queue")
     st.markdown("Review team-level Instagram handle matches discovered by Phase 2.")
 
+    db = get_database()
+    if not db:
+        st.error("Database connection required.")
+        st.stop()
+
     # ── Filters ──────────────────────────────────────────────────────────
     filter_cols = st.columns([1, 1, 1, 1])
     with filter_cols[0]:
@@ -5575,7 +5580,7 @@ elif section == "📸 Instagram Review":
     # ── Fetch records ────────────────────────────────────────────────────
     @st.cache_data(ttl=30)
     def fetch_instagram_queue(_status, _level, _state):
-        query = supabase.table("team_social_profiles").select(
+        query = db.table("team_social_profiles").select(
             "id, team_id, handle, confidence_score, review_status, profile_level, query_used, match_details"
         ).eq("platform", "instagram")
 
@@ -5601,7 +5606,7 @@ elif section == "📸 Instagram Review":
         team_ids = list({r["team_id"] for r in all_rows})
         team_map = {}
         for i in range(0, len(team_ids), 100):
-            batch = supabase.table("teams").select(
+            batch = db.table("teams").select(
                 "team_id_master, team_name, club_name, state_code, birth_year, gender"
             ).in_("team_id_master", team_ids[i:i+100]).execute().data or []
             for t in batch:
@@ -5668,7 +5673,7 @@ elif section == "📸 Instagram Review":
             if st.button(f"✅ Approve {len(eligible)} above {batch_threshold}", type="primary", disabled=len(eligible) == 0):
                 progress = st.progress(0)
                 for idx, r in enumerate(eligible):
-                    supabase.table("team_social_profiles").update(
+                    db.table("team_social_profiles").update(
                         {"review_status": "auto_approved"}
                     ).eq("id", r["id"]).execute()
                     progress.progress((idx + 1) / len(eligible))
@@ -5703,14 +5708,14 @@ elif section == "📸 Instagram Review":
                     st.caption(r["status"])
                 with cols[4]:
                     if st.button("✅", key=f"approve_{r['id']}", help="Approve"):
-                        supabase.table("team_social_profiles").update(
+                        db.table("team_social_profiles").update(
                             {"review_status": "confirmed"}
                         ).eq("id", r["id"]).execute()
                         st.cache_data.clear()
                         st.rerun()
                 with cols[5]:
                     if st.button("❌", key=f"reject_{r['id']}", help="Reject"):
-                        supabase.table("team_social_profiles").update(
+                        db.table("team_social_profiles").update(
                             {"review_status": "rejected"}
                         ).eq("id", r["id"]).execute()
                         st.cache_data.clear()
