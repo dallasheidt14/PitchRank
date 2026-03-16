@@ -186,12 +186,13 @@ MATCHING_CONFIG = {
     },
     'club_boost_identical': 0.10,
     'club_min_similarity': 0.8,
-    # New: boost when BOTH club AND variant (color/coach/direction) match
     'club_variant_match_boost': 0.15,
-    # New: max confidence stored for fuzzy matches (prevents 1.0 for non-direct)
     'fuzzy_confidence_ceiling': 0.99,
-    # New: refresh Supabase client every N games during long imports
     'connection_refresh_interval': 1000,
+    'affinity_variant_gate_required': True,
+    'affinity_rcl_strict': True,
+    'affinity_club_similarity_threshold': 0.9,
+    'affinity_debug_match_reasons': False,
 }
 
 # ETL Configuration
