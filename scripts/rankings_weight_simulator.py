@@ -184,10 +184,71 @@ def find_elite_rank(off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_perf=Fal
     return 99
 
 
+def score_ranking_quality(results):
+    """Score how 'correct' a ranking feels based on domain knowledge.
+
+    Heuristics (higher = better):
+    - Elite #1 = ideal (SOS king with best defense should lead)
+    - Academy top-3 = good (strong off/def, decent SOS, 18 games = slight uncertainty)
+    - Tucson top-3 = acceptable (great off/def, but perf is inflated by weak SOS)
+    - Dynamos/Tuzos NOT top-3 = good (high perf but low offense or SOS)
+    - Reasonable spread (top 3 not bunched within 0.005 of each other)
+    - No absurd inversions (e.g., Playmaker #1 despite 0.857 SOS)
+    """
+    score = 0.0
+    rank_map = {}
+    for i, r in enumerate(results, 1):
+        if "Elite" in r["name"]:
+            rank_map["elite"] = (i, r["ps_ml"])
+        elif "Academy" in r["name"]:
+            rank_map["academy"] = (i, r["ps_ml"])
+        elif "Tucson" in r["name"]:
+            rank_map["tucson"] = (i, r["ps_ml"])
+        elif "Dynamos" in r["name"]:
+            rank_map["dynamos"] = (i, r["ps_ml"])
+        elif "Tuzos" in r["name"]:
+            rank_map["tuzos"] = (i, r["ps_ml"])
+        elif "Playmaker" in r["name"]:
+            rank_map["playmaker"] = (i, r["ps_ml"])
+
+    # Elite should be #1 (10 pts), #2 okay (6 pts), #3 meh (2 pts)
+    er = rank_map.get("elite", (99, 0))[0]
+    if er == 1: score += 10
+    elif er == 2: score += 6
+    elif er == 3: score += 2
+
+    # Academy should be top 3
+    ar = rank_map.get("academy", (99, 0))[0]
+    if ar <= 3: score += 4
+    elif ar <= 5: score += 2
+
+    # Tucson should be top 4 (good team, just perf-inflated)
+    tr = rank_map.get("tucson", (99, 0))[0]
+    if tr <= 4: score += 3
+    elif tr <= 6: score += 1
+
+    # Dynamos/Tuzos should NOT be top 3 (inflated perf, weak offense)
+    dr = rank_map.get("dynamos", (99, 0))[0]
+    tzr = rank_map.get("tuzos", (99, 0))[0]
+    if dr > 3: score += 2
+    if tzr > 5: score += 2
+
+    # Spread: top 3 should have visible gaps (not all bunched at same score)
+    if len(results) >= 3:
+        top3_scores = [results[i]["ps_ml"] for i in range(3)]
+        gap_1_2 = top3_scores[0] - top3_scores[1]
+        gap_2_3 = top3_scores[1] - top3_scores[2]
+        if gap_1_2 > 0.005: score += 1  # meaningful #1 vs #2 gap
+        if gap_2_3 > 0.005: score += 1  # meaningful #2 vs #3 gap
+
+    return round(score, 1)
+
+
 if __name__ == "__main__":
-    print("\n" + "🏆" * 40)
+    print("\n" + "=" * 90)
     print("  PitchRank Weight Simulator — AZ U12 Male Top 10")
-    print("🏆" * 40)
+    print("  EXHAUSTIVE GRID SEARCH: All Levers")
+    print("=" * 90)
 
     # =====================================================================
     # SECTION 1: Current production baseline
@@ -196,203 +257,207 @@ if __name__ == "__main__":
         "CURRENT PRODUCTION",
         off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.15, ml_alpha=0.15,
     )
+    baseline_results = simulate(0.25, 0.25, 0.50, 0.15, 0.15)
+    baseline_score = score_ranking_quality(baseline_results)
+    print(f"\n  Quality Score: {baseline_score}/23")
 
     # =====================================================================
-    # SECTION 2: PERF weight sweep (keep OFF/DEF/SOS same)
-    # The key question: what PERF weight keeps overperformance signal
-    # without letting stat-padding dominate?
-    # =====================================================================
-    for pw in [0.12, 0.10, 0.08, 0.05, 0.03]:
-        rank = find_elite_rank(0.25, 0.25, 0.50, pw, 0.15)
-        label = f"PERF SWEEP: PERF={pw} (Elite rank: #{rank})"
-        print_results(label, off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=pw, ml_alpha=0.15)
-
-    # =====================================================================
-    # SECTION 3: SOS-weighted PERF (the fix)
-    # Instead of reducing PERF weight, multiply perf_centered by sos_norm.
-    # This preserves the overperformance signal but weights it by schedule
-    # strength — beating expectations vs tough opponents matters more.
-    # =====================================================================
-    print("\n" + "⚡" * 40)
-    print("  SOS-WEIGHTED PERFORMANCE SCENARIOS")
-    print("  perf_adjusted = perf_centered * sos_norm")
-    print("  (overperformance vs tough schedule = amplified)")
-    print("  (stat-padding vs weak schedule = dampened)")
-    print("⚡" * 40)
-
-    print_results(
-        "SOS-WEIGHTED PERF: Current weights (0.25/0.25/0.50, PERF=0.15)",
-        off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.15, ml_alpha=0.15,
-        sos_weighted_perf=True,
-    )
-
-    print_results(
-        "SOS-WEIGHTED PERF: Higher SOS (0.20/0.20/0.60, PERF=0.15)",
-        off_w=0.20, def_w=0.20, sos_w=0.60, perf_w=0.15, ml_alpha=0.15,
-        sos_weighted_perf=True,
-    )
-
-    print_results(
-        "SOS-WEIGHTED PERF: SOS 0.60, PERF=0.10",
-        off_w=0.20, def_w=0.20, sos_w=0.60, perf_w=0.10, ml_alpha=0.15,
-        sos_weighted_perf=True,
-    )
-
-    # =====================================================================
-    # SECTION 4: Combined tuning — SOS weight + PERF fix + ML alpha
-    # =====================================================================
-    print("\n" + "🎯" * 40)
-    print("  COMBINED TUNING SCENARIOS")
-    print("🎯" * 40)
-
-    print_results(
-        "COMBO A: SOS 0.55, PERF 0.10 (SOS-weighted), ML 0.15",
-        off_w=0.225, def_w=0.225, sos_w=0.55, perf_w=0.10, ml_alpha=0.15,
-        sos_weighted_perf=True,
-    )
-
-    print_results(
-        "COMBO B: SOS 0.55, PERF 0.10 (SOS-weighted), ML 0.10",
-        off_w=0.225, def_w=0.225, sos_w=0.55, perf_w=0.10, ml_alpha=0.10,
-        sos_weighted_perf=True,
-    )
-
-    print_results(
-        "COMBO C: SOS 0.60, PERF 0.08 (SOS-weighted), ML 0.12",
-        off_w=0.20, def_w=0.20, sos_w=0.60, perf_w=0.08, ml_alpha=0.12,
-        sos_weighted_perf=True,
-    )
-
-    print_results(
-        "COMBO D: SOS 0.55, PERF 0.12 (SOS-weighted), ML 0.15",
-        off_w=0.225, def_w=0.225, sos_w=0.55, perf_w=0.12, ml_alpha=0.15,
-        sos_weighted_perf=True,
-    )
-
-    # =====================================================================
-    # SECTION 5: Quick grid search — find all combos where Elite is #1
-    # =====================================================================
-    print("\n" + "🔍" * 40)
-    print("  GRID SEARCH: All combos where Phoenix United Elite = #1")
-    print("  (SOS-weighted PERF enabled)")
-    print("🔍" * 40)
-
-    winners = []
-    for sos_w in [0.45, 0.50, 0.55, 0.60, 0.65]:
-        remaining = 1.0 - sos_w
-        off_w = remaining / 2
-        def_w = remaining / 2
-        for perf_w in [0.00, 0.03, 0.05, 0.08, 0.10, 0.12, 0.15]:
-            for ml_a in [0.08, 0.10, 0.12, 0.15, 0.18, 0.20]:
-                rank = find_elite_rank(off_w, def_w, sos_w, perf_w, ml_a, sos_weighted_perf=True)
-                if rank == 1:
-                    winners.append((off_w, def_w, sos_w, perf_w, ml_a, rank))
-
-    if winners:
-        print(f"\n  Found {len(winners)} winning combinations:\n")
-        print(f"  {'OFF':>6} {'DEF':>6} {'SOS':>6} {'PERF':>6} {'ML_A':>6}")
-        print(f"  {'-'*6} {'-'*6} {'-'*6} {'-'*6} {'-'*6}")
-        for w in winners:
-            print(f"  {w[0]:>6.3f} {w[1]:>6.3f} {w[2]:>6.3f} {w[3]:>6.3f} {w[4]:>6.3f}")
-    else:
-        print("\n  No combinations found where Elite is #1 with SOS-weighted PERF.")
-        print("  Showing combos where Elite is #1 WITHOUT SOS-weighted PERF:\n")
-        for sos_w in [0.45, 0.50, 0.55, 0.60, 0.65]:
-            remaining = 1.0 - sos_w
-            off_w = remaining / 2
-            def_w = remaining / 2
-            for perf_w in [0.00, 0.03, 0.05, 0.08, 0.10, 0.12, 0.15]:
-                for ml_a in [0.08, 0.10, 0.12, 0.15, 0.18, 0.20]:
-                    rank = find_elite_rank(off_w, def_w, sos_w, perf_w, ml_a, sos_weighted_perf=False)
-                    if rank == 1:
-                        winners.append((off_w, def_w, sos_w, perf_w, ml_a, rank))
-        if winners:
-            print(f"  Found {len(winners)} combos (no SOS-weighted PERF):\n")
-            print(f"  {'OFF':>6} {'DEF':>6} {'SOS':>6} {'PERF':>6} {'ML_A':>6}")
-            print(f"  {'-'*6} {'-'*6} {'-'*6} {'-'*6} {'-'*6}")
-            for w in winners:
-                print(f"  {w[0]:>6.3f} {w[1]:>6.3f} {w[2]:>6.3f} {w[3]:>6.3f} {w[4]:>6.3f}")
-
-    # =====================================================================
-    # SECTION 6: PERF CAP scenarios — clip perf_centered tighter
-    # Current: perf_centered is [-0.5, +0.5] (percentile-based, no clip)
-    # These scenarios add a symmetric cap to limit outlier influence.
-    # =====================================================================
-    print("\n" + "=" * 40)
-    print("  PERF CAP SCENARIOS")
-    print("  Clip perf_centered to +/-cap before blending")
-    print("=" * 40)
-
-    # A) Tighter cap only (keep current PERF weight 0.15)
-    for cap in [0.40, 0.30, 0.25, 0.20, 0.15]:
-        rank = find_elite_rank(0.25, 0.25, 0.50, 0.15, 0.15, perf_cap=cap)
-        label = f"CAP ONLY: perf_cap=+/-{cap}, PERF=0.15 (Elite #{rank})"
-        print_results(label, off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.15, ml_alpha=0.15, perf_cap=cap)
-
-    # B) Lower PERF weight only (no cap change)
-    print("\n" + "-" * 40)
-    print("  LOWER WEIGHT ONLY (no cap)")
-    print("-" * 40)
-    for pw in [0.10, 0.08, 0.05]:
-        rank = find_elite_rank(0.25, 0.25, 0.50, pw, 0.15)
-        label = f"WEIGHT ONLY: PERF={pw}, no cap (Elite #{rank})"
-        print_results(label, off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=pw, ml_alpha=0.15)
-
-    # C) Both — tighter cap + lower weight
-    print("\n" + "-" * 40)
-    print("  BOTH: TIGHTER CAP + LOWER WEIGHT")
-    print("-" * 40)
-    combos = [
-        (0.10, 0.30),  # moderate weight, moderate cap
-        (0.10, 0.25),  # moderate weight, tight cap
-        (0.08, 0.25),  # low weight, tight cap
-        (0.05, 0.25),  # very low weight, tight cap
-        (0.05, 0.20),  # very low weight, very tight cap
-    ]
-    for pw, cap in combos:
-        rank = find_elite_rank(0.25, 0.25, 0.50, pw, 0.15, perf_cap=cap)
-        label = f"BOTH: PERF={pw}, cap=+/-{cap} (Elite #{rank})"
-        print_results(label, off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=pw, ml_alpha=0.15, perf_cap=cap)
-
-    # D) Cap + SOS-weighted PERF (best of all worlds?)
-    print("\n" + "-" * 40)
-    print("  CAP + SOS-WEIGHTED PERF")
-    print("-" * 40)
-    combos_sos = [
-        (0.15, 0.25),  # current weight, tight cap, SOS-weighted
-        (0.10, 0.25),  # lower weight, tight cap, SOS-weighted
-        (0.10, 0.30),  # lower weight, moderate cap, SOS-weighted
-    ]
-    for pw, cap in combos_sos:
-        rank = find_elite_rank(0.25, 0.25, 0.50, pw, 0.15, sos_weighted_perf=True, perf_cap=cap)
-        label = f"CAP+SOS-W: PERF={pw}, cap=+/-{cap}, SOS-weighted (Elite #{rank})"
-        print_results(label, off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=pw, ml_alpha=0.15,
-                      sos_weighted_perf=True, perf_cap=cap)
-
-    # =====================================================================
-    # SECTION 7: Summary comparison table
+    # SECTION 2: EXHAUSTIVE GRID SEARCH
+    # Sweep ALL levers: SOS weight, PERF weight, PERF cap, ML alpha,
+    # SOS-weighted PERF toggle, and OFF/DEF balance.
     # =====================================================================
     print("\n" + "=" * 90)
-    print("  SUMMARY: Elite rank across all approaches")
+    print("  EXHAUSTIVE GRID SEARCH")
+    print("  6 levers: SOS_W, OFF/DEF split, PERF_W, PERF_CAP, ML_ALPHA, SOS-weighted PERF")
     print("=" * 90)
-    print(f"  {'Scenario':<55} {'Elite #':>7}")
-    print(f"  {'-'*55} {'-'*7}")
 
-    scenarios = [
-        ("Current production (PERF=0.15, no cap)", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.15, ml_alpha=0.15)),
-        ("Lower weight: PERF=0.10", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.10, ml_alpha=0.15)),
-        ("Lower weight: PERF=0.05", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.05, ml_alpha=0.15)),
-        ("Tighter cap: +/-0.30", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.15, ml_alpha=0.15, perf_cap=0.30)),
-        ("Tighter cap: +/-0.25", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.15, ml_alpha=0.15, perf_cap=0.25)),
-        ("Tighter cap: +/-0.20", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.15, ml_alpha=0.15, perf_cap=0.20)),
-        ("Both: PERF=0.10, cap=+/-0.25", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.10, ml_alpha=0.15, perf_cap=0.25)),
-        ("Both: PERF=0.05, cap=+/-0.25", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.05, ml_alpha=0.15, perf_cap=0.25)),
-        ("SOS-weighted PERF=0.15", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.15, ml_alpha=0.15, sos_weighted_perf=True)),
-        ("SOS-weighted + cap=+/-0.25", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.15, ml_alpha=0.15, sos_weighted_perf=True, perf_cap=0.25)),
-        ("SOS-weighted PERF=0.10 + cap=+/-0.25", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.10, ml_alpha=0.15, sos_weighted_perf=True, perf_cap=0.25)),
-    ]
-    for name, kw in scenarios:
-        rank = find_elite_rank(**kw)
-        print(f"  {name:<55} {'#' + str(rank):>7}")
+    all_results = []
+
+    # Parameter ranges (fine-grained)
+    sos_weights = [0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70]
+    off_def_ratios = [0.50]  # symmetric (OFF=DEF) — can add asymmetric later
+    perf_weights = [0.00, 0.03, 0.05, 0.08, 0.10, 0.12, 0.15, 0.18]
+    perf_caps = [0.15, 0.20, 0.25, 0.30, 0.40, 0.50]
+    ml_alphas = [0.00, 0.05, 0.08, 0.10, 0.12, 0.15, 0.18, 0.20, 0.25]
+    sos_perf_modes = [False, True]
+
+    total_combos = (len(sos_weights) * len(off_def_ratios) * len(perf_weights)
+                    * len(perf_caps) * len(ml_alphas) * len(sos_perf_modes))
+    print(f"\n  Searching {total_combos:,} combinations...\n")
+
+    for sos_w in sos_weights:
+        for od_ratio in off_def_ratios:
+            remaining = 1.0 - sos_w
+            off_w = remaining * od_ratio
+            def_w = remaining * (1.0 - od_ratio)
+            for perf_w in perf_weights:
+                for cap in perf_caps:
+                    for ml_a in ml_alphas:
+                        for sos_perf in sos_perf_modes:
+                            results = simulate(off_w, def_w, sos_w, perf_w, ml_a,
+                                               sos_weighted_perf=sos_perf, perf_cap=cap)
+                            quality = score_ranking_quality(results)
+                            elite_rank = 99
+                            elite_score = 0
+                            for i, r in enumerate(results, 1):
+                                if "Elite" in r["name"]:
+                                    elite_rank = i
+                                    elite_score = r["ps_ml"]
+                                    break
+
+                            all_results.append({
+                                "off_w": round(off_w, 3),
+                                "def_w": round(def_w, 3),
+                                "sos_w": sos_w,
+                                "perf_w": perf_w,
+                                "perf_cap": cap,
+                                "ml_alpha": ml_a,
+                                "sos_perf": sos_perf,
+                                "elite_rank": elite_rank,
+                                "elite_score": elite_score,
+                                "quality": quality,
+                                "results": results,
+                            })
+
+    # Sort by quality score descending, then by elite rank ascending
+    all_results.sort(key=lambda x: (-x["quality"], x["elite_rank"]))
+
+    # =====================================================================
+    # SECTION 3: TOP 30 COMBINATIONS BY QUALITY SCORE
+    # =====================================================================
+    print("=" * 110)
+    print("  TOP 30 COMBINATIONS (sorted by quality score)")
+    print("=" * 110)
+    print(f"  {'#':>3} {'Q':>4} {'E#':>3} {'SOS_W':>6} {'OFF':>6} {'DEF':>6} {'PERF_W':>7} {'CAP':>5} "
+          f"{'ML_A':>6} {'SOS-P':>5}  {'Top 3 teams':<50}")
+    print(f"  {'-'*3} {'-'*4} {'-'*3} {'-'*6} {'-'*6} {'-'*6} {'-'*7} {'-'*5} "
+          f"{'-'*6} {'-'*5}  {'-'*50}")
+
+    seen = set()
+    shown = 0
+    for entry in all_results:
+        # Deduplicate by ranking order (some param combos produce identical rankings)
+        order_key = tuple(r["name"] for r in entry["results"])
+        if order_key in seen:
+            continue
+        seen.add(order_key)
+
+        top3 = ", ".join(
+            f"{'*' if 'Elite' in r['name'] else ''}{r['name'][:20]}{'*' if 'Elite' in r['name'] else ''}"
+            for r in entry["results"][:3]
+        )
+        sp = "Y" if entry["sos_perf"] else "N"
+        print(
+            f"  {shown+1:>3} {entry['quality']:>4.0f} {entry['elite_rank']:>3} "
+            f"{entry['sos_w']:>6.2f} {entry['off_w']:>6.3f} {entry['def_w']:>6.3f} "
+            f"{entry['perf_w']:>7.2f} {entry['perf_cap']:>5.2f} {entry['ml_alpha']:>6.2f} "
+            f"{sp:>5}  {top3:<50}"
+        )
+        shown += 1
+        if shown >= 30:
+            break
+
+    # =====================================================================
+    # SECTION 4: ELITE #1 ONLY — all combos where Elite ranks first
+    # =====================================================================
+    elite_first = [e for e in all_results if e["elite_rank"] == 1]
+    print(f"\n{'=' * 110}")
+    print(f"  ALL COMBINATIONS WHERE ELITE = #1  ({len(elite_first)} found)")
+    print(f"{'=' * 110}")
+
+    if elite_first:
+        print(f"  {'Q':>4} {'SOS_W':>6} {'OFF':>6} {'DEF':>6} {'PERF_W':>7} {'CAP':>5} "
+              f"{'ML_A':>6} {'SOS-P':>5}  {'#2 team':<25} {'Gap':>6}")
+        print(f"  {'-'*4} {'-'*6} {'-'*6} {'-'*6} {'-'*7} {'-'*5} "
+              f"{'-'*6} {'-'*5}  {'-'*25} {'-'*6}")
+
+        seen_e1 = set()
+        for entry in elite_first:
+            order_key = tuple(r["name"] for r in entry["results"][:3])
+            if order_key in seen_e1:
+                continue
+            seen_e1.add(order_key)
+
+            r2 = entry["results"][1]
+            gap = entry["results"][0]["ps_ml"] - r2["ps_ml"]
+            sp = "Y" if entry["sos_perf"] else "N"
+            print(
+                f"  {entry['quality']:>4.0f} {entry['sos_w']:>6.2f} {entry['off_w']:>6.3f} "
+                f"{entry['def_w']:>6.3f} {entry['perf_w']:>7.2f} {entry['perf_cap']:>5.2f} "
+                f"{entry['ml_alpha']:>6.2f} {sp:>5}  {r2['name'][:25]:<25} {gap:>6.4f}"
+            )
+    else:
+        print("\n  No combinations produce Elite at #1.")
+        print("  Closest (Elite #2):")
+        elite_second = [e for e in all_results if e["elite_rank"] == 2]
+        if elite_second:
+            seen_e2 = set()
+            print(f"  {'Q':>4} {'SOS_W':>6} {'OFF':>6} {'DEF':>6} {'PERF_W':>7} {'CAP':>5} "
+                  f"{'ML_A':>6} {'SOS-P':>5}  {'#1 team':<25} {'Gap':>6}")
+            print(f"  {'-'*4} {'-'*6} {'-'*6} {'-'*6} {'-'*7} {'-'*5} "
+                  f"{'-'*6} {'-'*5}  {'-'*25} {'-'*6}")
+            for entry in elite_second[:20]:
+                order_key = tuple(r["name"] for r in entry["results"][:3])
+                if order_key in seen_e2:
+                    continue
+                seen_e2.add(order_key)
+                r1 = entry["results"][0]
+                gap = r1["ps_ml"] - entry["results"][1]["ps_ml"]
+                sp = "Y" if entry["sos_perf"] else "N"
+                print(
+                    f"  {entry['quality']:>4.0f} {entry['sos_w']:>6.2f} {entry['off_w']:>6.3f} "
+                    f"{entry['def_w']:>6.3f} {entry['perf_w']:>7.2f} {entry['perf_cap']:>5.2f} "
+                    f"{entry['ml_alpha']:>6.2f} {sp:>5}  {r1['name'][:25]:<25} {gap:>6.4f}"
+                )
+
+    # =====================================================================
+    # SECTION 5: BEST OVERALL PICK — print full rankings for top candidates
+    # =====================================================================
+    print(f"\n{'=' * 90}")
+    print("  DETAILED VIEW: Top 5 unique ranking orders by quality score")
+    print(f"{'=' * 90}")
+
+    seen_detail = set()
+    detail_count = 0
+    for entry in all_results:
+        order_key = tuple(r["name"] for r in entry["results"])
+        if order_key in seen_detail:
+            continue
+        seen_detail.add(order_key)
+
+        sp_label = "SOS-weighted" if entry["sos_perf"] else "raw"
+        cap_label = f"cap=+/-{entry['perf_cap']}" if entry["perf_cap"] < 0.50 else "no cap"
+        label = (f"CANDIDATE #{detail_count+1} (Quality={entry['quality']}/23): "
+                 f"SOS={entry['sos_w']}, PERF={entry['perf_w']} ({sp_label}, {cap_label}), "
+                 f"ML={entry['ml_alpha']}")
+        print_results(label, entry["off_w"], entry["def_w"], entry["sos_w"],
+                      entry["perf_w"], entry["ml_alpha"], entry["sos_perf"], entry["perf_cap"])
+        print(f"  Quality: {entry['quality']}/23 | Elite: #{entry['elite_rank']}")
+
+        detail_count += 1
+        if detail_count >= 5:
+            break
+
+    # =====================================================================
+    # SECTION 6: SENSITIVITY ANALYSIS — how far is current from optimal?
+    # =====================================================================
+    print(f"\n{'=' * 90}")
+    print("  SENSITIVITY: Current production vs best candidate")
+    print(f"{'=' * 90}")
+
+    best = all_results[0]
+    print(f"\n  {'Parameter':<20} {'Current':>10} {'Optimal':>10} {'Delta':>10}")
+    print(f"  {'-'*20} {'-'*10} {'-'*10} {'-'*10}")
+    print(f"  {'SOS_WEIGHT':<20} {'0.50':>10} {best['sos_w']:>10.2f} {best['sos_w'] - 0.50:>+10.2f}")
+    print(f"  {'OFF_WEIGHT':<20} {'0.25':>10} {best['off_w']:>10.3f} {best['off_w'] - 0.25:>+10.3f}")
+    print(f"  {'DEF_WEIGHT':<20} {'0.25':>10} {best['def_w']:>10.3f} {best['def_w'] - 0.25:>+10.3f}")
+    print(f"  {'PERF_BLEND_WEIGHT':<20} {'0.15':>10} {best['perf_w']:>10.2f} {best['perf_w'] - 0.15:>+10.2f}")
+    print(f"  {'PERF_CAP':<20} {'0.50':>10} {best['perf_cap']:>10.2f} {best['perf_cap'] - 0.50:>+10.2f}")
+    print(f"  {'ML_ALPHA':<20} {'0.15':>10} {best['ml_alpha']:>10.2f} {best['ml_alpha'] - 0.15:>+10.2f}")
+    sp_cur = "No"
+    sp_best = "Yes" if best["sos_perf"] else "No"
+    print(f"  {'SOS_WEIGHTED_PERF':<20} {sp_cur:>10} {sp_best:>10} {'CHANGE' if sp_cur != sp_best else 'same':>10}")
+    print(f"\n  Quality: {baseline_score}/23 -> {best['quality']}/23")
+    print(f"  Elite rank: #3 -> #{best['elite_rank']}")
 
     print("\n")
