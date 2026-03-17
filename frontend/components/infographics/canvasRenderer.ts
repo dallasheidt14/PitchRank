@@ -52,8 +52,7 @@ export async function renderInfographicToCanvas(options: RenderOptions): Promise
 
   // Font sizes based on platform
   const titleSize = isVertical ? 72 : isSquare ? 64 : 56;
-  const subtitleSize = isVertical ? 36 : isSquare ? 32 : 28;
-  const ctaSize = isVertical ? 24 : isSquare ? 22 : 18;
+  const subtitleSize = isVertical ? 32 : isSquare ? 28 : 24;
   const rankSize = isVertical ? 36 : isSquare ? 32 : 28;
   const teamNameSize = isVertical ? 26 : isSquare ? 22 : 18;
   const statsSize = isVertical ? 20 : isSquare ? 18 : 16;
@@ -71,41 +70,34 @@ export async function renderInfographicToCanvas(options: RenderOptions): Promise
 
   const pitchWidth = ctx.measureText('PITCH').width;
   const rankWidth = ctx.measureText('RANK').width;
-  const slashGap = 18; // space between slash and P
-  const slashWidth = 10;
-  const totalLogoWidth = slashWidth + slashGap + pitchWidth + rankWidth;
+  const totalLogoWidth = pitchWidth + rankWidth;
   const logoStartX = (dimensions.width - totalLogoWidth) / 2;
 
-  // Yellow slash bar — vertically centered on the cap-height of the text
-  const slashHeight = titleSize * 0.7;
-  const slashTop = logoY - slashHeight; // align top of slash with top of capital letters
+  // Yellow slash bar - positioned right before the P
   ctx.save();
-  ctx.translate(logoStartX + slashWidth / 2, slashTop);
+  ctx.translate(logoStartX, logoY - titleSize * 0.4);
   ctx.transform(1, 0, -0.2, 1, 0, 0);
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillRect(-slashWidth / 2, 0, slashWidth, slashHeight);
+  ctx.fillRect(-14, 0, 10, titleSize * 0.8);
   ctx.restore();
 
   // Draw PITCH in white
-  const textStartX = logoStartX + slashWidth + slashGap;
   ctx.fillStyle = BRAND_COLORS.brightWhite;
-  ctx.fillText('PITCH', textStartX, logoY);
+  ctx.fillText('PITCH', logoStartX, logoY);
 
   // Draw RANK in yellow
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillText('RANK', textStartX + pitchWidth, logoY);
+  ctx.fillText('RANK', logoStartX + pitchWidth, logoY);
 
   // Reset alignment
   ctx.textAlign = 'center';
 
   currentY += titleSize + 16;
 
-  // Draw title (TOP 10 U12 BOYS IN FLORIDA)
+  // Draw title (TOP 10 U12 BOYS - NATIONAL)
   const genderLabel = gender === 'M' ? 'BOYS' : 'GIRLS';
   const regionLabel = region ? regionName.toUpperCase() : 'NATIONAL';
-  const title = region
-    ? `TOP 10 ${ageGroup.toUpperCase()} ${genderLabel} IN ${regionLabel}`
-    : `TOP 10 ${ageGroup.toUpperCase()} ${genderLabel} - NATIONAL`;
+  const title = `TOP 10 ${ageGroup.toUpperCase()} ${genderLabel} - ${regionLabel}`;
 
   ctx.fillStyle = BRAND_COLORS.electricYellow;
   ctx.font = `700 ${subtitleSize}px Oswald, "Arial Black", sans-serif`;
@@ -249,11 +241,17 @@ export async function renderInfographicToCanvas(options: RenderOptions): Promise
   ctx.lineTo(dimensions.width - padding, currentY - 16);
   ctx.stroke();
 
-  // pitchrank.io — clean footer, no hashtags (those go in the caption)
-  ctx.textAlign = 'center';
+  // pitchrank.io
+  ctx.textAlign = 'left';
   ctx.fillStyle = '#999999';
-  ctx.font = `400 ${statsSize}px "DM Sans", Arial, sans-serif`;
-  ctx.fillText('pitchrank.io/rankings', dimensions.width / 2, currentY);
+  ctx.font = `400 ${statsSize - 2}px "DM Sans", Arial, sans-serif`;
+  ctx.fillText('pitchrank.io', padding, currentY);
+
+  // Hashtags
+  const hashtags = `#YouthSoccer #${ageGroup}Soccer${region ? ` #${regionName}Soccer` : ''}`;
+  ctx.textAlign = 'right';
+  ctx.fillStyle = BRAND_COLORS.electricYellow;
+  ctx.fillText(hashtags, dimensions.width - padding, currentY);
 
   return canvas;
 }

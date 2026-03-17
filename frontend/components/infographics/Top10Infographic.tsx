@@ -28,8 +28,7 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
 
     // Scale factors based on platform
     const titleSize = isVertical ? 72 : isSquare ? 64 : 56;
-    const subtitleSize = isVertical ? 36 : isSquare ? 32 : 28;
-    const ctaSize = isVertical ? 24 : isSquare ? 22 : 18;
+    const subtitleSize = isVertical ? 32 : isSquare ? 28 : 24;
     const rankSize = isVertical ? 36 : isSquare ? 32 : 28;
     const teamNameSize = isVertical ? 28 : isSquare ? 24 : 20;
     const statsSize = isVertical ? 20 : isSquare ? 18 : 16;
@@ -41,12 +40,13 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
       return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     };
 
-    // Generate dynamic title — use "IN {STATE}" for state rankings, dash for national
+    // Generate dynamic title
     const genderLabel = gender === 'M' ? 'BOYS' : 'GIRLS';
     const regionLabel = region ? (regionName || region.toUpperCase()) : 'NATIONAL';
-    const title = region
-      ? `TOP 10 ${ageGroup.toUpperCase()} ${genderLabel} IN ${regionLabel}`
-      : `TOP 10 ${ageGroup.toUpperCase()} ${genderLabel} - NATIONAL`;
+    const title = `TOP 10 ${ageGroup.toUpperCase()} ${genderLabel} - ${regionLabel}`;
+
+    // Generate dynamic hashtags
+    const hashtags = `#YouthSoccer #${ageGroup}Soccer${region ? ` #${regionName || region}Soccer` : ''}`;
 
     return (
       <InfographicWrapper ref={ref} platform={platform} scale={scale}>
@@ -73,10 +73,7 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
             {/* Logo */}
             <div
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '12px',
+                position: 'relative',
                 fontFamily: "Oswald, 'Arial Black', sans-serif",
                 fontSize: `${titleSize}px`,
                 fontWeight: 800,
@@ -87,18 +84,17 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
             >
               <span
                 style={{
-                  display: 'inline-block',
+                  position: 'absolute',
+                  left: '-24px',
+                  top: '50%',
+                  transform: 'translateY(-50%) skewX(-12deg)',
                   width: '10px',
-                  height: `${titleSize * 0.7}px`,
+                  height: '70%',
                   background: BRAND_COLORS.electricYellow,
-                  transform: 'skewX(-12deg)',
-                  flexShrink: 0,
                 }}
               />
-              <span>
-                <span style={{ color: BRAND_COLORS.brightWhite }}>PITCH</span>
-                <span style={{ color: BRAND_COLORS.electricYellow }}>RANK</span>
-              </span>
+              <span style={{ color: BRAND_COLORS.brightWhite }}>PITCH</span>
+              <span style={{ color: BRAND_COLORS.electricYellow }}>RANK</span>
             </div>
 
             {/* Title */}
@@ -130,7 +126,6 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
             >
               Rankings as of {formatDate(generatedDate)}
             </div>
-
           </div>
 
           {/* Rankings List */}
@@ -169,15 +164,24 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
             <div
               style={{
                 fontFamily: "Arial, sans-serif",
-                fontSize: `${statsSize}px`,
+                fontSize: `${statsSize - 2}px`,
                 fontWeight: 400,
                 color: '#999999',
                 textDecoration: 'none',
-                width: '100%',
-                textAlign: 'center',
               }}
             >
-              pitchrank.io/rankings
+              pitchrank.io
+            </div>
+            <div
+              style={{
+                fontFamily: "Arial, sans-serif",
+                fontSize: `${statsSize - 2}px`,
+                fontWeight: 400,
+                color: BRAND_COLORS.electricYellow,
+                textDecoration: 'none',
+              }}
+            >
+              {hashtags}
             </div>
           </div>
         </div>
