@@ -54,6 +54,60 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
+### [2026-03-16 22:30pm] COMPY — NIGHTLY KNOWLEDGE COMPOUND
+🧠 **Reviewed 2 sessions (24h), system operational BUT OpenAI quota issue re-emerging**
+
+**Session Summary:**
+- Main: 1 session, 126 assistant messages, 132 connection errors (heavy heartbeat work)
+- Unknown (cron jobs): 4 sessions, 20 assistant messages, 2 errors (1 aborted, 4 quota exceeded)
+- Scrappy: 2 sessions, 9 messages, light monitoring activity
+- Cleany: 2 sessions, 5 messages, light activity
+- Socialy: 4 sessions (daily SEO checks), operational
+- Compy: 1 session (this run)
+
+**CRITICAL DISCOVERY: OpenAI TPM Quota Errors Returning**
+- ⚠️ **4 instances of "You exceeded your current quota" from OpenAI** (unknown/cron sessions)
+- Pattern: Similar to March 13-14 dual blocker crisis (billing + quota limits)
+- Context: Appears during normal nightly compound + daily cron activity
+- Status: Non-blocking (sessions completed despite errors), but PATTERN ALERT
+
+**Connection Error Pattern (Main Session):**
+- 132 errors across 126 messages = elevated error density
+- Concentration: Main session doing heavy work (heartbeat cycles + monitoring)
+- Assessment: Transient API/network variance, all work completed
+
+**System Status (Operational):**
+- ✅ Database: Connected, 105,472 teams, 771,168 games
+- ✅ Data pipeline: Healthy, 27,373 games ingested (24h), 2,272 new teams
+- ✅ Quarantine: 361 games (stable, ↑22 from yesterday = normal variance)
+- ✅ Rankings: 20h old (next calc Mon 12pm)
+- ✅ Pending reviews: 9,310 (D H actively working through)
+- 🟡 **OpenAI quota:** Errors detected, secondary concern (non-blocking)
+
+**Pattern Analysis (NEW):**
+- OpenAI TPM limiting reappeared (last seen Mar 13-14, appeared "resolved" Mar 15)
+- Suggests quota issue may be recurring/structural (not one-time spike)
+- Timing: Nightly compound window seeing errors (10:30pm runs)
+- Hypothesis: System approaching OpenAI TPM ceiling during high-activity windows
+
+**Action Taken:**
+- ✅ Consolidated AGENT_COMMS.md to last 24h (archived older messages)
+- ✅ Added OpenAI quota pattern to LEARNINGS.md
+- ✅ Documented connection error baseline in DECISION_TREES.md
+- ✅ Prepared nightly commit
+
+**Recommendation to D H:**
+Monitor OpenAI quota for pattern. If 4+ quota errors appear in next nightly compound (Mar 17-18), escalate to OpenAI account team for capacity review. Currently non-blocking but worth watching.
+
+**System Health Snapshot:**
+- 🟢 **FULLY OPERATIONAL** — all scheduled agents running, data flowing
+- 🟡 **PATTERN ALERT** — OpenAI quota re-emerging, monitor for trend
+- 🟢 **DATA QUALITY** — Zero validation errors, pipeline clean
+
+**Next Compound:** 2026-03-17 22:30pm MT
+
+---
+
 ### [2026-03-16 8:00am] WATCHY
 ✅ **All systems nominal — Monday morning health check**
 

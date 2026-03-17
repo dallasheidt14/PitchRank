@@ -21,6 +21,67 @@ def get_connection():
     return psycopg2.connect(DATABASE_URL)
 
 
+def get_instagram_handles(cur, team_ids):
+    """
+    Fetch Instagram handles for a list of team IDs.
+    Returns dict: {team_id: {'handle': '@xxx', 'level': 'team'|'club'}}
+    Prefers team-level handles over club-level.
+    Only uses auto_approved handles.
+    """
+    if not team_ids:
+        return {}
+    
+    # Convert to list of strings for query
+    team_id_list = [str(tid) for tid in team_ids if tid]
+    if not team_id_list:
+        return {}
+    
+    query = """
+    SELECT DISTINCT ON (team_id)
+        team_id::text,
+        handle,
+        profile_level
+    FROM team_instagram_handles
+    WHERE team_id::text = ANY(%s)
+      AND review_status = 'auto_approved'
+      AND handle IS NOT NULL
+    ORDER BY team_id, 
+             CASE profile_level WHEN 'team' THEN 1 ELSE 2 END,
+             confidence_score DESC
+    """
+    
+    cur.execute(query, (team_id_list,))
+    results = cur.fetchall()
+    
+    return {
+        row[0]: {'handle': f"@{row[1]}", 'level': row[2]}
+        for row in results
+    }
+
+
+def get_team_ids_for_movers(cur, team_names_clubs):
+    """
+    Get team_id_master for teams by name + club combo.
+    Returns dict: {(team_name, club_name): team_id}
+    """
+    if not team_names_clubs:
+        return {}
+    
+    results = {}
+    for team_name, club_name in team_names_clubs:
+        cur.execute("""
+            SELECT team_id_master::text
+            FROM teams
+            WHERE team_name = %s AND club_name = %s
+            LIMIT 1
+        """, (team_name, club_name))
+        row = cur.fetchone()
+        if row:
+            results[(team_name, club_name)] = row[0]
+    
+    return results
+
+
 def get_biggest_climbers(cur, days=7, limit=10, age_group=None, gender=None, state=None):
     """Get teams that climbed the most in national rankings."""
     
@@ -62,7 +123,8 @@ def get_biggest_climbers(cur, days=7, limit=10, age_group=None, gender=None, sta
         pr.rank_in_cohort as old_rank,
         cr.rank_in_cohort as new_rank,
         (pr.rank_in_cohort - cr.rank_in_cohort) as rank_change,
-        cr.power_score_final
+        cr.power_score_final,
+        cr.team_id::text as team_id
     FROM current_rank cr
     JOIN past_rank pr ON cr.team_id = pr.team_id
         AND cr.age_group = pr.age_group
@@ -119,7 +181,8 @@ def get_biggest_fallers(cur, days=7, limit=10, age_group=None, gender=None, stat
         pr.rank_in_cohort as old_rank,
         cr.rank_in_cohort as new_rank,
         (cr.rank_in_cohort - pr.rank_in_cohort) as rank_drop,
-        cr.power_score_final
+        cr.power_score_final,
+        cr.team_id::text as team_id
     FROM current_rank cr
     JOIN past_rank pr ON cr.team_id = pr.team_id
         AND cr.age_group = pr.age_group

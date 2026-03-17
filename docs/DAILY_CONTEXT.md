@@ -2,8 +2,8 @@
 
 > Updated throughout the day. All agents should read this on startup.
 
-**Date:** 2026-03-15 (Sunday) — Updated by COMPY 10:30pm MT
-**🟢 SYSTEM OPERATIONAL — Dual Blocker Resolved: Database Auth Restored + OpenAI TPM Managed**
+**Date:** 2026-03-16 (Monday) — Updated by Scrappy 10:00am MT
+**🟢 SYSTEM OPERATIONAL — All systems nominal, Monday scrape cycle active**
 
 ## 🚫 PROTECTED (Never Touch Without Asking)
 - Rankings algorithm
@@ -28,25 +28,29 @@ D H: "you can do whatever without my approval just don't mess with algo and star
 - Manually reviewing each age group for data cleanliness
 - Working through match review queue
 
-## 🔄 Current Status (March 15, 2026 — Sunday 10:30pm)
+## 🔄 Current Status (March 16, 2026 — Monday 10:00am)
 
-## 🟢 **SYSTEM OPERATIONAL — All Systems Nominal**
+## 🟢 **SYSTEM OPERATIONAL — Monday Scrape Cycle Active**
 
-**Status:** ✅ **FULL OPERATIONAL** — All data flowing, agents running, recovery complete
+**Status:** ✅ **FULL OPERATIONAL** — All data flowing, Monday workflow dispatched
 
-**Timeline (Crisis → Recovery):**
-- Mar 13 8:00am: Database auth failure detected (password auth failed)
-- Mar 13 evening: OpenAI TPM rate limiting detected
-- Mar 14 22:30: COMPY analysis confirmed dual blocker persistence (24h+)
-- Mar 15 8:00am: Watchy confirmed database auth restored (full health check passed)
-- Mar 15 22:30: COMPY analysis confirms full operational recovery
+**Monday 12:00pm Ranky Rankings Calculation:** ✅ VERIFIED
+- 71,669 teams ranked (snapshot: 2026-03-16)
+- PowerScores: [0.0, 0.92] — all valid
+- Invalid scores: 0
+
+**Monday 10:00am Scrappy Report:**
+- ✅ **Weekend scrapes completed successfully** (Sat-Sun offline, normal gap)
+- ✅ **Scrape Games workflow triggered** (limit_teams=25000, queued)
+- ✅ **GotSport team scrape running** (5h5m elapsed, continuing)
+- ✅ **Health check passed** — all systems nominal
 
 **Current Health:**
-- Database: ✅ Connected, 104,172 teams, 754,010 games
-- Data pipeline: ✅ Healthy, 10,215 games ingested (24h), latest ranking Mar 15
-- Quarantine: ✅ Normalized, 339 games (healthy baseline)
+- Database: ✅ Connected, 105,472 teams, 771,168 games
+- Data pipeline: ✅ Healthy, 27,373 games ingested (24h), 2,272 new teams
+- Quarantine: ✅ Normalized, 361 games (healthy baseline)
 - Agent fleet: ✅ All 8 agents operational
-- OpenAI TPM: 🟡 Managed as secondary constraint (non-blocking)
+- Stale teams: 51,621 (>7d without scrape, expected for non-scrape weekend)
 
 **Action Completed:** D H restored Supabase credentials between checks (Mar 14-15). System self-corrected upon restoration.
 

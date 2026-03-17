@@ -4,6 +4,50 @@
 
 ## Critical Patterns
 
+### 2026-03-16 22:30: OpenAI Quota Issue Re-Emerging (Secondary Pattern) ⚠️
+
+**Discovery (Mar 16 nightly compound):**
+- 4 instances of "You exceeded your current quota" errors from OpenAI
+- Timing: During nightly compound + daily cron activity (10:30pm window)
+- Context: Appears during normal operations (not crisis-level frequency)
+- Status: **Non-blocking** (all cron sessions completed work despite errors)
+
+**Pattern Comparison to Mar 13-14 Crisis:**
+- **Mar 13-14:** OpenAI TPM rate limiting during heavy agent concurrency
+  - Error: "Rate limit reached... TPM Limit 500000, Used..."
+  - Status: Secondary blocker to database auth failure
+  - Duration: 24h+ unresolved until Mar 15 recovery
+- **Mar 16:** New quota error signature
+  - Error: "You exceeded your current quota..."
+  - Different error type (quota vs TPM)
+  - Status: Emerging pattern, non-blocking
+
+**Hypothesis:**
+- OpenAI quota issue may be structural (recurring) vs one-time incident
+- System pushing against provider capacity limits during peak activity windows
+- Nightly compound window (10:30pm) combining multiple cron jobs → quota hit
+
+**Assessment (Non-Critical Currently):**
+- ✅ Errors non-blocking (cron jobs complete despite quota errors)
+- ✅ System remains operational
+- 🟡 Pattern worth monitoring (if >4 errors next night → escalate)
+- 🟡 May indicate approaching OpenAI account tier limits
+
+**Action Recommended:**
+1. Monitor next 2-3 nightly compounds for quota error frequency
+2. If pattern escalates (8+ errors in single night) → escalate to D H
+3. If stable (4 errors/night) → acceptable operational variance
+4. Consider: May need OpenAI account tier review or load scheduling
+
+**Prevention Strategy:**
+- Track OpenAI quota errors in daily AGENT_COMMS.md
+- If recurring in same time window → stagger cron jobs to reduce peak load
+- Alert D H if error count exceeds 10/day
+
+**Status:** 🟡 **PATTERN ALERT (NON-CRITICAL)** — Monitoring for trend, non-blocking currently
+
+---
+
 ### 2026-03-15 22:30: RECOVERY COMPLETE — Dual Blocker Resolved ✅
 
 **Crisis Timeline (Complete Cycle):**
