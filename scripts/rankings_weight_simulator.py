@@ -251,13 +251,18 @@ if __name__ == "__main__":
     print("=" * 90)
 
     # =====================================================================
-    # SECTION 1: Current production baseline
+    # SECTION 1: Current production baseline (updated 2026-03-17)
     # =====================================================================
+    PROD_OFF = 0.20
+    PROD_DEF = 0.20
+    PROD_SOS = 0.60
+    PROD_PERF = 0.00
+    PROD_ML = 0.18
     print_results(
-        "CURRENT PRODUCTION",
-        off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.15, ml_alpha=0.15,
+        "CURRENT PRODUCTION (60/20/20, PERF=0, ML=0.18)",
+        off_w=PROD_OFF, def_w=PROD_DEF, sos_w=PROD_SOS, perf_w=PROD_PERF, ml_alpha=PROD_ML,
     )
-    baseline_results = simulate(0.25, 0.25, 0.50, 0.15, 0.15)
+    baseline_results = simulate(PROD_OFF, PROD_DEF, PROD_SOS, PROD_PERF, PROD_ML)
     baseline_score = score_ranking_quality(baseline_results)
     print(f"\n  Quality Score: {baseline_score}/23")
 
@@ -273,12 +278,12 @@ if __name__ == "__main__":
 
     all_results = []
 
-    # Parameter ranges (fine-grained)
-    sos_weights = [0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70]
-    off_def_ratios = [0.50]  # symmetric (OFF=DEF) — can add asymmetric later
-    perf_weights = [0.00, 0.03, 0.05, 0.08, 0.10, 0.12, 0.15, 0.18]
-    perf_caps = [0.15, 0.20, 0.25, 0.30, 0.40, 0.50]
-    ml_alphas = [0.00, 0.05, 0.08, 0.10, 0.12, 0.15, 0.18, 0.20, 0.25]
+    # Parameter ranges — expanded with asymmetric OFF/DEF and finer SOS granularity
+    sos_weights = [0.40, 0.45, 0.50, 0.55, 0.58, 0.60, 0.62, 0.65, 0.68, 0.70, 0.75]
+    off_def_ratios = [0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65]  # asymmetric OFF/DEF
+    perf_weights = [0.00, 0.03, 0.05, 0.08, 0.10, 0.12, 0.15]
+    perf_caps = [0.15, 0.20, 0.25, 0.35, 0.50]
+    ml_alphas = [0.00, 0.05, 0.10, 0.12, 0.15, 0.18, 0.20, 0.25]
     sos_perf_modes = [False, True]
 
     total_combos = (len(sos_weights) * len(off_def_ratios) * len(perf_weights)
@@ -448,16 +453,26 @@ if __name__ == "__main__":
     best = all_results[0]
     print(f"\n  {'Parameter':<20} {'Current':>10} {'Optimal':>10} {'Delta':>10}")
     print(f"  {'-'*20} {'-'*10} {'-'*10} {'-'*10}")
-    print(f"  {'SOS_WEIGHT':<20} {'0.50':>10} {best['sos_w']:>10.2f} {best['sos_w'] - 0.50:>+10.2f}")
-    print(f"  {'OFF_WEIGHT':<20} {'0.25':>10} {best['off_w']:>10.3f} {best['off_w'] - 0.25:>+10.3f}")
-    print(f"  {'DEF_WEIGHT':<20} {'0.25':>10} {best['def_w']:>10.3f} {best['def_w'] - 0.25:>+10.3f}")
-    print(f"  {'PERF_BLEND_WEIGHT':<20} {'0.15':>10} {best['perf_w']:>10.2f} {best['perf_w'] - 0.15:>+10.2f}")
-    print(f"  {'PERF_CAP':<20} {'0.50':>10} {best['perf_cap']:>10.2f} {best['perf_cap'] - 0.50:>+10.2f}")
-    print(f"  {'ML_ALPHA':<20} {'0.15':>10} {best['ml_alpha']:>10.2f} {best['ml_alpha'] - 0.15:>+10.2f}")
+    print(f"  {'SOS_WEIGHT':<20} {PROD_SOS:>10.2f} {best['sos_w']:>10.2f} {best['sos_w'] - PROD_SOS:>+10.2f}")
+    print(f"  {'OFF_WEIGHT':<20} {PROD_OFF:>10.3f} {best['off_w']:>10.3f} {best['off_w'] - PROD_OFF:>+10.3f}")
+    print(f"  {'DEF_WEIGHT':<20} {PROD_DEF:>10.3f} {best['def_w']:>10.3f} {best['def_w'] - PROD_DEF:>+10.3f}")
+    print(f"  {'PERF_BLEND_WEIGHT':<20} {PROD_PERF:>10.2f} {best['perf_w']:>10.2f} {best['perf_w'] - PROD_PERF:>+10.2f}")
+    print(f"  {'PERF_CAP':<20} {'0.15':>10} {best['perf_cap']:>10.2f} {best['perf_cap'] - 0.15:>+10.2f}")
+    print(f"  {'ML_ALPHA':<20} {PROD_ML:>10.2f} {best['ml_alpha']:>10.2f} {best['ml_alpha'] - PROD_ML:>+10.2f}")
     sp_cur = "No"
     sp_best = "Yes" if best["sos_perf"] else "No"
     print(f"  {'SOS_WEIGHTED_PERF':<20} {sp_cur:>10} {sp_best:>10} {'CHANGE' if sp_cur != sp_best else 'same':>10}")
-    print(f"\n  Quality: {baseline_score}/23 -> {best['quality']}/23")
-    print(f"  Elite rank: #3 -> #{best['elite_rank']}")
+
+    # Find the current production config in the grid results
+    prod_in_grid = [e for e in all_results
+                    if abs(e['sos_w'] - PROD_SOS) < 0.01
+                    and abs(e['off_w'] - PROD_OFF) < 0.01
+                    and abs(e['perf_w'] - PROD_PERF) < 0.01
+                    and abs(e['ml_alpha'] - PROD_ML) < 0.01]
+    prod_grid_score = prod_in_grid[0]['quality'] if prod_in_grid else baseline_score
+    prod_elite = prod_in_grid[0]['elite_rank'] if prod_in_grid else "?"
+
+    print(f"\n  Quality: {prod_grid_score}/23 -> {best['quality']}/23")
+    print(f"  Elite rank: #{prod_elite} -> #{best['elite_rank']}")
 
     print("\n")
