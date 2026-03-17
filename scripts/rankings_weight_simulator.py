@@ -279,10 +279,10 @@ if __name__ == "__main__":
 
     # Parameter ranges — expanded with asymmetric OFF/DEF and finer SOS granularity
     sos_weights = [0.40, 0.45, 0.50, 0.55, 0.58, 0.60, 0.62, 0.65, 0.68, 0.70, 0.75]
-    off_def_ratios = [0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65]  # asymmetric OFF/DEF
+    off_def_ratios = [0.50]  # equal OFF/DEF only (user constraint)
     perf_weights = [0.00, 0.03, 0.05, 0.08, 0.10, 0.12, 0.15]
     perf_caps = [0.15, 0.20, 0.25, 0.35, 0.50]
-    ml_alphas = [0.00, 0.05, 0.10, 0.12, 0.15, 0.18, 0.20, 0.25]
+    ml_alphas = [0.08, 0.10, 0.12, 0.15, 0.18]
     sos_perf_modes = [False, True]
 
     total_combos = (len(sos_weights) * len(off_def_ratios) * len(perf_weights)
