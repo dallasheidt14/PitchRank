@@ -15,78 +15,77 @@ Usage:
 Edit the SCENARIOS list at the bottom to try different weight combos.
 """
 
-# AZ U12 Male top teams — normalized components from rankings_full
-# power_presos = 0.5 * off_norm + 0.5 * def_norm (used for perf expected margin)
+# AZ U12 Male top teams — fresh from rankings_full (2026-03-17)
 TEAMS = [
     {
-        "name": "FC Tucson 2014 Pre-MLSN #1",
+        "name": "FC Tucson 2014 Pre-MLSN",
         "team_id": "ffa679df",
-        "off_norm": 0.9737, "def_norm": 0.9891, "sos_norm": 0.9364,
-        "perf_centered": 0.4357, "perf_raw": None,  # high perf = beating weak teams by lots
-        "ml_norm": 0.1218, "ml_overperf": 0.0719, "games_played": 30,
-    },
-    {
-        "name": "Phoenix United 2014 Academy",
-        "team_id": "5a9dac52",
-        "off_norm": 0.9777, "def_norm": 0.9891, "sos_norm": 0.9155,
-        "perf_centered": 0.3002, "perf_raw": None,
-        "ml_norm": 0.3008, "ml_overperf": 0.5167, "games_played": 18,
+        "off_norm": 0.9735, "def_norm": 0.9890, "sos_norm": 0.9361,
+        "perf_centered": 0.1500, "perf_raw": None,
+        "ml_norm": 0.2256, "ml_overperf": 0.4276, "games_played": 30,
     },
     {
         "name": "Phoenix United 2014 Elite ⭐",
         "team_id": "691eb36d",
-        "off_norm": 0.8905, "def_norm": 0.9891, "sos_norm": 0.9921,
-        "perf_centered": -0.0373, "perf_raw": None,
-        "ml_norm": 0.1968, "ml_overperf": 0.2411, "games_played": 30,
+        "off_norm": 0.8913, "def_norm": 0.9890, "sos_norm": 0.9892,
+        "perf_centered": -0.0362, "perf_raw": None,
+        "ml_norm": 0.1392, "ml_overperf": 0.1408, "games_played": 30,
     },
     {
-        "name": "Dynamos SC 2014 SC",
-        "team_id": "c2f8e0aa",
-        "off_norm": 0.7760, "def_norm": 0.9891, "sos_norm": 0.9633,
-        "perf_centered": 0.3560, "perf_raw": None,
-        "ml_norm": -0.2737, "ml_overperf": -0.4287, "games_played": 30,
-    },
-    {
-        "name": "RSL Arizona North 2014 GSA",
-        "team_id": "291aa4d2",
-        "off_norm": 0.9486, "def_norm": 0.9131, "sos_norm": 0.9378,
-        "perf_centered": 0.1755, "perf_raw": None,
-        "ml_norm": -0.1890, "ml_overperf": -0.2021, "games_played": 30,
+        "name": "Phoenix United 2014 Academy",
+        "team_id": "5a9dac52",
+        "off_norm": 0.9731, "def_norm": 0.9890, "sos_norm": 0.8756,
+        "perf_centered": 0.1500, "perf_raw": None,
+        "ml_norm": 0.3815, "ml_overperf": 1.1581, "games_played": 16,
     },
     {
         "name": "Next Level Southeast 2014 Black",
         "team_id": "448ebe45",
-        "off_norm": 0.8295, "def_norm": 0.9891, "sos_norm": 0.9346,
-        "perf_centered": -0.2864, "perf_raw": None,
-        "ml_norm": 0.2872, "ml_overperf": 0.4811, "games_played": 30,
+        "off_norm": 0.8310, "def_norm": 0.9890, "sos_norm": 0.9128,
+        "perf_centered": -0.1500, "perf_raw": None,
+        "ml_norm": 0.1212, "ml_overperf": 0.0805, "games_played": 30,
+    },
+    {
+        "name": "RSL Arizona North 2014 GSA",
+        "team_id": "291aa4d2",
+        "off_norm": 0.9491, "def_norm": 0.9155, "sos_norm": 0.9276,
+        "perf_centered": 0.1500, "perf_raw": None,
+        "ml_norm": -0.1160, "ml_overperf": -0.0601, "games_played": 30,
+    },
+    {
+        "name": "Dynamos SC 2014 SC",
+        "team_id": "c2f8e0aa",
+        "off_norm": 0.7774, "def_norm": 0.9890, "sos_norm": 0.9581,
+        "perf_centered": 0.1500, "perf_raw": None,
+        "ml_norm": -0.1495, "ml_overperf": -0.1630, "games_played": 30,
     },
     {
         "name": "Playmaker PRE-ECNL 2014",
         "team_id": "a8e57856",
-        "off_norm": 0.9449, "def_norm": 0.8233, "sos_norm": 0.8566,
-        "perf_centered": 0.2502, "perf_raw": None,
-        "ml_norm": -0.1015, "ml_overperf": -0.0074, "games_played": 30,
-    },
-    {
-        "name": "Excel Soccer Academy 2014 Red",
-        "team_id": "929083d0",
-        "off_norm": 0.7898, "def_norm": 0.7909, "sos_norm": 0.9421,
-        "perf_centered": 0.0156, "perf_raw": None,
-        "ml_norm": 0.1425, "ml_overperf": 0.1136, "games_played": 30,
-    },
-    {
-        "name": "BRAZAS FC 2014 Black",
-        "team_id": "a180387c",
-        "off_norm": 0.8538, "def_norm": 0.9739, "sos_norm": 0.9206,
-        "perf_centered": 0.0278, "perf_raw": None,
-        "ml_norm": -0.3110, "ml_overperf": -0.5272, "games_played": 30,
+        "off_norm": 0.9475, "def_norm": 0.8528, "sos_norm": 0.8468,
+        "perf_centered": 0.1500, "perf_raw": None,
+        "ml_norm": 0.1795, "ml_overperf": 0.2658, "games_played": 30,
     },
     {
         "name": "Tuzos Royals 2014",
         "team_id": "5981ccbc",
-        "off_norm": 0.6055, "def_norm": 0.9481, "sos_norm": 0.9080,
-        "perf_centered": 0.3630, "perf_raw": None,
-        "ml_norm": -0.2426, "ml_overperf": -0.3392, "games_played": 30,
+        "off_norm": 0.6070, "def_norm": 0.9479, "sos_norm": 0.9097,
+        "perf_centered": 0.1500, "perf_raw": None,
+        "ml_norm": 0.1368, "ml_overperf": 0.1326, "games_played": 30,
+    },
+    {
+        "name": "Excel Soccer Academy 2014 Red",
+        "team_id": "929083d0",
+        "off_norm": 0.7914, "def_norm": 0.7923, "sos_norm": 0.9413,
+        "perf_centered": 0.0161, "perf_raw": None,
+        "ml_norm": -0.1545, "ml_overperf": -0.1800, "games_played": 30,
+    },
+    {
+        "name": "BRAZAS FC 2014 Black",
+        "team_id": "a180387c",
+        "off_norm": 0.8537, "def_norm": 0.9742, "sos_norm": 0.9115,
+        "perf_centered": 0.0309, "perf_raw": None,
+        "ml_norm": -0.3417, "ml_overperf": -0.9007, "games_played": 30,
     },
 ]
 
