@@ -1,16 +1,13 @@
 'use client';
 
+import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { RankingCard } from '@/components/infographics';
 
-/**
- * Clean render page for Ranking Card infographic export
- * URL: /infographics/ranking/render?variant=square|story&team=...
- */
-export default function RankingRenderPage() {
+function RankingRenderContent() {
   const searchParams = useSearchParams();
   const variant = (searchParams.get('variant') as 'square' | 'story') || 'square';
-  
+
   // Default sample data - can be overridden via URL params
   const rank = parseInt(searchParams.get('rank') || '1');
   const teamName = searchParams.get('team') || 'LAFC Academy 2012';
@@ -21,7 +18,7 @@ export default function RankingRenderPage() {
   const powerScore = parseInt(searchParams.get('score') || '1892');
   const record = searchParams.get('record') || '12-1-0';
   const movement = parseInt(searchParams.get('movement') || '5');
-  
+
   return (
     <div data-infographic="ranking" className="inline-block">
       <RankingCard
@@ -37,5 +34,17 @@ export default function RankingRenderPage() {
         variant={variant}
       />
     </div>
+  );
+}
+
+/**
+ * Clean render page for Ranking Card infographic export
+ * URL: /infographics/ranking/render?variant=square|story&team=...
+ */
+export default function RankingRenderPage() {
+  return (
+    <Suspense fallback={null}>
+      <RankingRenderContent />
+    </Suspense>
   );
 }

@@ -1,17 +1,14 @@
 'use client';
 
+import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { WeeklyMovers } from '@/components/infographics';
 
-/**
- * Clean render page for Weekly Movers infographic export
- * URL: /infographics/movers/render?variant=square|portrait
- */
-export default function MoversRenderPage() {
+function MoversRenderContent() {
   const searchParams = useSearchParams();
   const variant = (searchParams.get('variant') as 'square' | 'portrait') || 'portrait';
   const week = parseInt(searchParams.get('week') || '0') || undefined;
-  
+
   // Sample data - in production this would come from API
   const sampleMovers = [
     { teamName: 'LAFC Academy', state: 'CA', ageGroup: 'U14', gender: 'Boys' as const, movement: 47, newRank: 12 },
@@ -20,10 +17,22 @@ export default function MoversRenderPage() {
     { teamName: 'Tophat SC', state: 'GA', ageGroup: 'U12', gender: 'Girls' as const, movement: 24, newRank: 15 },
     { teamName: 'SC del Sol', state: 'AZ', ageGroup: 'U16', gender: 'Boys' as const, movement: 21, newRank: 31 },
   ];
-  
+
   return (
     <div data-infographic="movers" className="inline-block">
       <WeeklyMovers movers={sampleMovers} week={week} variant={variant} />
     </div>
+  );
+}
+
+/**
+ * Clean render page for Weekly Movers infographic export
+ * URL: /infographics/movers/render?variant=square|portrait
+ */
+export default function MoversRenderPage() {
+  return (
+    <Suspense fallback={null}>
+      <MoversRenderContent />
+    </Suspense>
   );
 }
