@@ -15,78 +15,77 @@ Usage:
 Edit the SCENARIOS list at the bottom to try different weight combos.
 """
 
-# AZ U12 Male top teams — normalized components from rankings_full
-# power_presos = 0.5 * off_norm + 0.5 * def_norm (used for perf expected margin)
+# AZ U12 Male top teams — fresh from rankings_full (2026-03-17)
 TEAMS = [
     {
-        "name": "FC Tucson 2014 Pre-MLSN #1",
+        "name": "FC Tucson 2014 Pre-MLSN",
         "team_id": "ffa679df",
-        "off_norm": 0.9737, "def_norm": 0.9891, "sos_norm": 0.9364,
-        "perf_centered": 0.4357, "perf_raw": None,  # high perf = beating weak teams by lots
-        "ml_norm": 0.1218, "ml_overperf": 0.0719, "games_played": 30,
-    },
-    {
-        "name": "Phoenix United 2014 Academy",
-        "team_id": "5a9dac52",
-        "off_norm": 0.9777, "def_norm": 0.9891, "sos_norm": 0.9155,
-        "perf_centered": 0.3002, "perf_raw": None,
-        "ml_norm": 0.3008, "ml_overperf": 0.5167, "games_played": 18,
+        "off_norm": 0.9735, "def_norm": 0.9890, "sos_norm": 0.9361,
+        "perf_centered": 0.1500, "perf_raw": None,
+        "ml_norm": 0.2256, "ml_overperf": 0.4276, "games_played": 30,
     },
     {
         "name": "Phoenix United 2014 Elite ⭐",
         "team_id": "691eb36d",
-        "off_norm": 0.8905, "def_norm": 0.9891, "sos_norm": 0.9921,
-        "perf_centered": -0.0373, "perf_raw": None,
-        "ml_norm": 0.1968, "ml_overperf": 0.2411, "games_played": 30,
+        "off_norm": 0.8913, "def_norm": 0.9890, "sos_norm": 0.9892,
+        "perf_centered": -0.0362, "perf_raw": None,
+        "ml_norm": 0.1392, "ml_overperf": 0.1408, "games_played": 30,
     },
     {
-        "name": "Dynamos SC 2014 SC",
-        "team_id": "c2f8e0aa",
-        "off_norm": 0.7760, "def_norm": 0.9891, "sos_norm": 0.9633,
-        "perf_centered": 0.3560, "perf_raw": None,
-        "ml_norm": -0.2737, "ml_overperf": -0.4287, "games_played": 30,
-    },
-    {
-        "name": "RSL Arizona North 2014 GSA",
-        "team_id": "291aa4d2",
-        "off_norm": 0.9486, "def_norm": 0.9131, "sos_norm": 0.9378,
-        "perf_centered": 0.1755, "perf_raw": None,
-        "ml_norm": -0.1890, "ml_overperf": -0.2021, "games_played": 30,
+        "name": "Phoenix United 2014 Academy",
+        "team_id": "5a9dac52",
+        "off_norm": 0.9731, "def_norm": 0.9890, "sos_norm": 0.8756,
+        "perf_centered": 0.1500, "perf_raw": None,
+        "ml_norm": 0.3815, "ml_overperf": 1.1581, "games_played": 16,
     },
     {
         "name": "Next Level Southeast 2014 Black",
         "team_id": "448ebe45",
-        "off_norm": 0.8295, "def_norm": 0.9891, "sos_norm": 0.9346,
-        "perf_centered": -0.2864, "perf_raw": None,
-        "ml_norm": 0.2872, "ml_overperf": 0.4811, "games_played": 30,
+        "off_norm": 0.8310, "def_norm": 0.9890, "sos_norm": 0.9128,
+        "perf_centered": -0.1500, "perf_raw": None,
+        "ml_norm": 0.1212, "ml_overperf": 0.0805, "games_played": 30,
+    },
+    {
+        "name": "RSL Arizona North 2014 GSA",
+        "team_id": "291aa4d2",
+        "off_norm": 0.9491, "def_norm": 0.9155, "sos_norm": 0.9276,
+        "perf_centered": 0.1500, "perf_raw": None,
+        "ml_norm": -0.1160, "ml_overperf": -0.0601, "games_played": 30,
+    },
+    {
+        "name": "Dynamos SC 2014 SC",
+        "team_id": "c2f8e0aa",
+        "off_norm": 0.7774, "def_norm": 0.9890, "sos_norm": 0.9581,
+        "perf_centered": 0.1500, "perf_raw": None,
+        "ml_norm": -0.1495, "ml_overperf": -0.1630, "games_played": 30,
     },
     {
         "name": "Playmaker PRE-ECNL 2014",
         "team_id": "a8e57856",
-        "off_norm": 0.9449, "def_norm": 0.8233, "sos_norm": 0.8566,
-        "perf_centered": 0.2502, "perf_raw": None,
-        "ml_norm": -0.1015, "ml_overperf": -0.0074, "games_played": 30,
-    },
-    {
-        "name": "Excel Soccer Academy 2014 Red",
-        "team_id": "929083d0",
-        "off_norm": 0.7898, "def_norm": 0.7909, "sos_norm": 0.9421,
-        "perf_centered": 0.0156, "perf_raw": None,
-        "ml_norm": 0.1425, "ml_overperf": 0.1136, "games_played": 30,
-    },
-    {
-        "name": "BRAZAS FC 2014 Black",
-        "team_id": "a180387c",
-        "off_norm": 0.8538, "def_norm": 0.9739, "sos_norm": 0.9206,
-        "perf_centered": 0.0278, "perf_raw": None,
-        "ml_norm": -0.3110, "ml_overperf": -0.5272, "games_played": 30,
+        "off_norm": 0.9475, "def_norm": 0.8528, "sos_norm": 0.8468,
+        "perf_centered": 0.1500, "perf_raw": None,
+        "ml_norm": 0.1795, "ml_overperf": 0.2658, "games_played": 30,
     },
     {
         "name": "Tuzos Royals 2014",
         "team_id": "5981ccbc",
-        "off_norm": 0.6055, "def_norm": 0.9481, "sos_norm": 0.9080,
-        "perf_centered": 0.3630, "perf_raw": None,
-        "ml_norm": -0.2426, "ml_overperf": -0.3392, "games_played": 30,
+        "off_norm": 0.6070, "def_norm": 0.9479, "sos_norm": 0.9097,
+        "perf_centered": 0.1500, "perf_raw": None,
+        "ml_norm": 0.1368, "ml_overperf": 0.1326, "games_played": 30,
+    },
+    {
+        "name": "Excel Soccer Academy 2014 Red",
+        "team_id": "929083d0",
+        "off_norm": 0.7914, "def_norm": 0.7923, "sos_norm": 0.9413,
+        "perf_centered": 0.0161, "perf_raw": None,
+        "ml_norm": -0.1545, "ml_overperf": -0.1800, "games_played": 30,
+    },
+    {
+        "name": "BRAZAS FC 2014 Black",
+        "team_id": "a180387c",
+        "off_norm": 0.8537, "def_norm": 0.9742, "sos_norm": 0.9115,
+        "perf_centered": 0.0309, "perf_raw": None,
+        "ml_norm": -0.3417, "ml_overperf": -0.9007, "games_played": 30,
     },
 ]
 
@@ -251,13 +250,18 @@ if __name__ == "__main__":
     print("=" * 90)
 
     # =====================================================================
-    # SECTION 1: Current production baseline
+    # SECTION 1: Current production baseline (updated 2026-03-17)
     # =====================================================================
+    PROD_OFF = 0.20
+    PROD_DEF = 0.20
+    PROD_SOS = 0.60
+    PROD_PERF = 0.00
+    PROD_ML = 0.18
     print_results(
-        "CURRENT PRODUCTION",
-        off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.15, ml_alpha=0.15,
+        "CURRENT PRODUCTION (60/20/20, PERF=0, ML=0.18)",
+        off_w=PROD_OFF, def_w=PROD_DEF, sos_w=PROD_SOS, perf_w=PROD_PERF, ml_alpha=PROD_ML,
     )
-    baseline_results = simulate(0.25, 0.25, 0.50, 0.15, 0.15)
+    baseline_results = simulate(PROD_OFF, PROD_DEF, PROD_SOS, PROD_PERF, PROD_ML)
     baseline_score = score_ranking_quality(baseline_results)
     print(f"\n  Quality Score: {baseline_score}/23")
 
@@ -273,12 +277,12 @@ if __name__ == "__main__":
 
     all_results = []
 
-    # Parameter ranges (fine-grained)
-    sos_weights = [0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70]
-    off_def_ratios = [0.50]  # symmetric (OFF=DEF) — can add asymmetric later
-    perf_weights = [0.00, 0.03, 0.05, 0.08, 0.10, 0.12, 0.15, 0.18]
-    perf_caps = [0.15, 0.20, 0.25, 0.30, 0.40, 0.50]
-    ml_alphas = [0.00, 0.05, 0.08, 0.10, 0.12, 0.15, 0.18, 0.20, 0.25]
+    # Parameter ranges — expanded with asymmetric OFF/DEF and finer SOS granularity
+    sos_weights = [0.40, 0.45, 0.50, 0.55, 0.58, 0.60, 0.62, 0.65, 0.68, 0.70, 0.75]
+    off_def_ratios = [0.50]  # equal OFF/DEF only (user constraint)
+    perf_weights = [0.00, 0.03, 0.05, 0.08, 0.10, 0.12, 0.15]
+    perf_caps = [0.15, 0.20, 0.25, 0.35, 0.50]
+    ml_alphas = [0.08, 0.10, 0.12, 0.15, 0.18]
     sos_perf_modes = [False, True]
 
     total_combos = (len(sos_weights) * len(off_def_ratios) * len(perf_weights)
@@ -448,16 +452,26 @@ if __name__ == "__main__":
     best = all_results[0]
     print(f"\n  {'Parameter':<20} {'Current':>10} {'Optimal':>10} {'Delta':>10}")
     print(f"  {'-'*20} {'-'*10} {'-'*10} {'-'*10}")
-    print(f"  {'SOS_WEIGHT':<20} {'0.50':>10} {best['sos_w']:>10.2f} {best['sos_w'] - 0.50:>+10.2f}")
-    print(f"  {'OFF_WEIGHT':<20} {'0.25':>10} {best['off_w']:>10.3f} {best['off_w'] - 0.25:>+10.3f}")
-    print(f"  {'DEF_WEIGHT':<20} {'0.25':>10} {best['def_w']:>10.3f} {best['def_w'] - 0.25:>+10.3f}")
-    print(f"  {'PERF_BLEND_WEIGHT':<20} {'0.15':>10} {best['perf_w']:>10.2f} {best['perf_w'] - 0.15:>+10.2f}")
-    print(f"  {'PERF_CAP':<20} {'0.50':>10} {best['perf_cap']:>10.2f} {best['perf_cap'] - 0.50:>+10.2f}")
-    print(f"  {'ML_ALPHA':<20} {'0.15':>10} {best['ml_alpha']:>10.2f} {best['ml_alpha'] - 0.15:>+10.2f}")
+    print(f"  {'SOS_WEIGHT':<20} {PROD_SOS:>10.2f} {best['sos_w']:>10.2f} {best['sos_w'] - PROD_SOS:>+10.2f}")
+    print(f"  {'OFF_WEIGHT':<20} {PROD_OFF:>10.3f} {best['off_w']:>10.3f} {best['off_w'] - PROD_OFF:>+10.3f}")
+    print(f"  {'DEF_WEIGHT':<20} {PROD_DEF:>10.3f} {best['def_w']:>10.3f} {best['def_w'] - PROD_DEF:>+10.3f}")
+    print(f"  {'PERF_BLEND_WEIGHT':<20} {PROD_PERF:>10.2f} {best['perf_w']:>10.2f} {best['perf_w'] - PROD_PERF:>+10.2f}")
+    print(f"  {'PERF_CAP':<20} {'0.15':>10} {best['perf_cap']:>10.2f} {best['perf_cap'] - 0.15:>+10.2f}")
+    print(f"  {'ML_ALPHA':<20} {PROD_ML:>10.2f} {best['ml_alpha']:>10.2f} {best['ml_alpha'] - PROD_ML:>+10.2f}")
     sp_cur = "No"
     sp_best = "Yes" if best["sos_perf"] else "No"
     print(f"  {'SOS_WEIGHTED_PERF':<20} {sp_cur:>10} {sp_best:>10} {'CHANGE' if sp_cur != sp_best else 'same':>10}")
-    print(f"\n  Quality: {baseline_score}/23 -> {best['quality']}/23")
-    print(f"  Elite rank: #3 -> #{best['elite_rank']}")
+
+    # Find the current production config in the grid results
+    prod_in_grid = [e for e in all_results
+                    if abs(e['sos_w'] - PROD_SOS) < 0.01
+                    and abs(e['off_w'] - PROD_OFF) < 0.01
+                    and abs(e['perf_w'] - PROD_PERF) < 0.01
+                    and abs(e['ml_alpha'] - PROD_ML) < 0.01]
+    prod_grid_score = prod_in_grid[0]['quality'] if prod_in_grid else baseline_score
+    prod_elite = prod_in_grid[0]['elite_rank'] if prod_in_grid else "?"
+
+    print(f"\n  Quality: {prod_grid_score}/23 -> {best['quality']}/23")
+    print(f"  Elite rank: #{prod_elite} -> #{best['elite_rank']}")
 
     print("\n")
