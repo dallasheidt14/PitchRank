@@ -99,16 +99,20 @@ def provisional_mult(gp: int) -> float:
     return 0.6 + 0.4 * (gp / MIN_GAMES_PROVISIONAL)
 
 
-def simulate(off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_perf=False):
+def simulate(off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_perf=False, perf_cap=0.50):
     """Re-blend PowerScore with custom weights and return ranked list.
 
     If sos_weighted_perf=True, replaces perf_centered with an SOS-weighted
     version: perf_adjusted = perf_centered * sos_norm. This means overperformance
     against tough schedules gets amplified, while stat-padding against weak
     schedules gets dampened.
+
+    perf_cap: Symmetric cap on perf_centered (default ±0.50 = no effective cap
+    since perf_centered is already [-0.5, +0.5]). Lower values like 0.25 clip
+    outlier overperformers while leaving mid-range teams unaffected.
     """
-    max_ps_theoretical = 1.0 + 0.5 * perf_w
-    max_ml_theoretical = 1.0 + 0.5 * ml_alpha
+    max_ps_theoretical = 1.0 + perf_cap * perf_w
+    max_ml_theoretical = 1.0 + perf_cap * ml_alpha
 
     results = []
     for t in TEAMS:
@@ -117,6 +121,9 @@ def simulate(off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_perf=False):
         if sos_weighted_perf:
             # Multiply perf by sos_norm: high SOS amplifies, low SOS dampens
             perf = perf * t["sos_norm"]
+
+        # Apply perf cap — clips outliers symmetrically
+        perf = max(-perf_cap, min(perf_cap, perf))
 
         ps_core = (
             off_w * t["off_norm"]
@@ -147,18 +154,20 @@ def simulate(off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_perf=False):
     return results
 
 
-def print_results(label, off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_perf=False):
+def print_results(label, off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_perf=False, perf_cap=0.50):
     print(f"\n{'='*90}")
     print(f"  {label}")
     weights_str = f"  OFF={off_w}  DEF={def_w}  SOS={sos_w}  PERF={perf_w}  ML_ALPHA={ml_alpha}"
     if sos_weighted_perf:
         weights_str += "  [SOS-weighted PERF]"
+    if perf_cap < 0.50:
+        weights_str += f"  [PERF cap=+/-{perf_cap}]"
     print(weights_str)
     print(f"{'='*90}")
     print(f"  {'#':<3} {'Team':<38} {'Base':>7} {'ML':>7} {'Disp':>6}  {'OFF':>6} {'SOS':>6} {'PERF':>7} {'ML_N':>7}")
     print(f"  {'-'*3} {'-'*38} {'-'*7} {'-'*7} {'-'*6}  {'-'*6} {'-'*6} {'-'*7} {'-'*7}")
 
-    results = simulate(off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_perf)
+    results = simulate(off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_perf, perf_cap)
     for i, r in enumerate(results, 1):
         print(
             f"  {i:<3} {r['name']:<38} {r['ps_adj']:>7.4f} {r['ps_ml']:>7.4f} "
@@ -166,9 +175,9 @@ def print_results(label, off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_per
         )
 
 
-def find_elite_rank(off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_perf=False):
+def find_elite_rank(off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_perf=False, perf_cap=0.50):
     """Return the rank of Phoenix United Elite for a given config."""
-    results = simulate(off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_perf)
+    results = simulate(off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_perf, perf_cap)
     for i, r in enumerate(results, 1):
         if "Elite" in r["name"]:
             return i
@@ -303,5 +312,87 @@ if __name__ == "__main__":
             print(f"  {'-'*6} {'-'*6} {'-'*6} {'-'*6} {'-'*6}")
             for w in winners:
                 print(f"  {w[0]:>6.3f} {w[1]:>6.3f} {w[2]:>6.3f} {w[3]:>6.3f} {w[4]:>6.3f}")
+
+    # =====================================================================
+    # SECTION 6: PERF CAP scenarios — clip perf_centered tighter
+    # Current: perf_centered is [-0.5, +0.5] (percentile-based, no clip)
+    # These scenarios add a symmetric cap to limit outlier influence.
+    # =====================================================================
+    print("\n" + "=" * 40)
+    print("  PERF CAP SCENARIOS")
+    print("  Clip perf_centered to +/-cap before blending")
+    print("=" * 40)
+
+    # A) Tighter cap only (keep current PERF weight 0.15)
+    for cap in [0.40, 0.30, 0.25, 0.20, 0.15]:
+        rank = find_elite_rank(0.25, 0.25, 0.50, 0.15, 0.15, perf_cap=cap)
+        label = f"CAP ONLY: perf_cap=+/-{cap}, PERF=0.15 (Elite #{rank})"
+        print_results(label, off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.15, ml_alpha=0.15, perf_cap=cap)
+
+    # B) Lower PERF weight only (no cap change)
+    print("\n" + "-" * 40)
+    print("  LOWER WEIGHT ONLY (no cap)")
+    print("-" * 40)
+    for pw in [0.10, 0.08, 0.05]:
+        rank = find_elite_rank(0.25, 0.25, 0.50, pw, 0.15)
+        label = f"WEIGHT ONLY: PERF={pw}, no cap (Elite #{rank})"
+        print_results(label, off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=pw, ml_alpha=0.15)
+
+    # C) Both — tighter cap + lower weight
+    print("\n" + "-" * 40)
+    print("  BOTH: TIGHTER CAP + LOWER WEIGHT")
+    print("-" * 40)
+    combos = [
+        (0.10, 0.30),  # moderate weight, moderate cap
+        (0.10, 0.25),  # moderate weight, tight cap
+        (0.08, 0.25),  # low weight, tight cap
+        (0.05, 0.25),  # very low weight, tight cap
+        (0.05, 0.20),  # very low weight, very tight cap
+    ]
+    for pw, cap in combos:
+        rank = find_elite_rank(0.25, 0.25, 0.50, pw, 0.15, perf_cap=cap)
+        label = f"BOTH: PERF={pw}, cap=+/-{cap} (Elite #{rank})"
+        print_results(label, off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=pw, ml_alpha=0.15, perf_cap=cap)
+
+    # D) Cap + SOS-weighted PERF (best of all worlds?)
+    print("\n" + "-" * 40)
+    print("  CAP + SOS-WEIGHTED PERF")
+    print("-" * 40)
+    combos_sos = [
+        (0.15, 0.25),  # current weight, tight cap, SOS-weighted
+        (0.10, 0.25),  # lower weight, tight cap, SOS-weighted
+        (0.10, 0.30),  # lower weight, moderate cap, SOS-weighted
+    ]
+    for pw, cap in combos_sos:
+        rank = find_elite_rank(0.25, 0.25, 0.50, pw, 0.15, sos_weighted_perf=True, perf_cap=cap)
+        label = f"CAP+SOS-W: PERF={pw}, cap=+/-{cap}, SOS-weighted (Elite #{rank})"
+        print_results(label, off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=pw, ml_alpha=0.15,
+                      sos_weighted_perf=True, perf_cap=cap)
+
+    # =====================================================================
+    # SECTION 7: Summary comparison table
+    # =====================================================================
+    print("\n" + "=" * 90)
+    print("  SUMMARY: Elite rank across all approaches")
+    print("=" * 90)
+    print(f"  {'Scenario':<55} {'Elite #':>7}")
+    print(f"  {'-'*55} {'-'*7}")
+
+    scenarios = [
+        ("Current production (PERF=0.15, no cap)", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.15, ml_alpha=0.15)),
+        ("Lower weight: PERF=0.10", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.10, ml_alpha=0.15)),
+        ("Lower weight: PERF=0.05", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.05, ml_alpha=0.15)),
+        ("Tighter cap: +/-0.30", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.15, ml_alpha=0.15, perf_cap=0.30)),
+        ("Tighter cap: +/-0.25", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.15, ml_alpha=0.15, perf_cap=0.25)),
+        ("Tighter cap: +/-0.20", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.15, ml_alpha=0.15, perf_cap=0.20)),
+        ("Both: PERF=0.10, cap=+/-0.25", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.10, ml_alpha=0.15, perf_cap=0.25)),
+        ("Both: PERF=0.05, cap=+/-0.25", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.05, ml_alpha=0.15, perf_cap=0.25)),
+        ("SOS-weighted PERF=0.15", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.15, ml_alpha=0.15, sos_weighted_perf=True)),
+        ("SOS-weighted + cap=+/-0.25", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.15, ml_alpha=0.15, sos_weighted_perf=True, perf_cap=0.25)),
+        ("SOS-weighted PERF=0.10 + cap=+/-0.25", dict(off_w=0.25, def_w=0.25, sos_w=0.50, perf_w=0.10, ml_alpha=0.15, sos_weighted_perf=True, perf_cap=0.25)),
+    ]
+    for name, kw in scenarios:
+        rank = find_elite_rank(**kw)
+        print(f"  {name:<55} {'#' + str(rank):>7}")
 
     print("\n")
