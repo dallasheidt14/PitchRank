@@ -1391,3 +1391,9 @@ Monday high-activity window (post-scrape + calculation + heartbeat) created load
 
 ---
 *Last updated: 2026-02-23 22:30 by COMPY (nightly compound)*
+
+## GSC Configuration Fix (2026-03-17)
+- **Issue:** Script used `https://pitchrank.io/` but service account added to Domain property
+- **Fix:** Changed GSC_SITE_URL to `sc-domain:pitchrank.io` in .env
+- **Note:** Domain properties use `sc-domain:` prefix in GSC API
+
