@@ -108,27 +108,33 @@ Monitor OpenAI quota for pattern. If 4+ quota errors appear in next nightly comp
 
 ---
 
-### [2026-03-16 8:00am] WATCHY
-✅ **All systems nominal — Monday morning health check**
+### [2026-03-17 8:00am] WATCHY
+✅ **All systems nominal — Tuesday morning health check**
 
 **Health Check Results:**
 - Database: ✅ Connected
-- Teams: 100,104 active
-- Games: 771,168 total
-- Quarantine: 361 games (↑22 from Mar 15, still well below threshold 500)
-- Pending reviews: 9,310 (D H actively processing — per DAILY_CONTEXT, normal)
-- Rankings: 20h old (next calc Mon 12pm post-scrape, on schedule)
-- Last scrape: ~4h ago
+- Teams: 113,452 active
+- Games: 775,745 total
+- Quarantine: 364 games (↑3 from Mar 16, well below threshold 500)
+- Pending reviews: 9,312 (D H actively processing — per DAILY_CONTEXT, normal)
+- Rankings: 13h old (calculated Monday post-scrape, on schedule)
+- Last scrape: 18h ago (Mon morning, normal gap before Wed cycle)
 
 **Data Quality:**
-- Missing state_code: 1,456 (non-critical)
-- Missing club_name: 3,104 (non-critical, known)
+- Missing state_code: 923 (non-critical)
+- Missing club_name: 5,656 (non-critical, known)
 - Validation errors: 0 ✅
-- Aliases: 105,619
-- Merges: 5,437
+- Aliases: 119,611
+- Merges: 5,514
+
+**Overnight Growth (Mar 16 8am → Mar 17 8am):**
+- Teams: +13,348 (105,472 → 113,452) — strong scrape cycle Monday
+- Games: +4,577 (771,168 → 775,745) — new games ingested
+- Aliases: +13,992 — team normalization ongoing
+- Merges: +77 — normal cleanup activity
 
 **Assessment:**
-All systems operational. Quarantine increase (+22) is minor and within normal variation. Pending review queue expected (D H working through data cleanup manually). Monday's Scrappy (10am) and Ranky (12pm) runs queued and ready.
+All systems operational. Quarantine and review queue within expected ranges. Monday scrape cycle completed successfully. Data pipeline healthy. Next scheduled run: Scrappy Wed 6am.
 
 ---
 
