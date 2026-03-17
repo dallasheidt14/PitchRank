@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
     await browser.close();
     
     // Return the image
-    return new NextResponse(screenshot, {
+    return new NextResponse(Buffer.from(screenshot), {
       status: 200,
       headers: {
         'Content-Type': 'image/png',
