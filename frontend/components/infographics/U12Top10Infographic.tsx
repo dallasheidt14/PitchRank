@@ -148,20 +148,13 @@ export const U12Top10Infographic = forwardRef<HTMLDivElement, U12Top10Infographi
             <div
               style={{
                 fontFamily: "'DM Sans', sans-serif",
-                fontSize: `${statsSize - 2}px`,
+                fontSize: `${statsSize}px`,
                 color: 'rgba(255, 255, 255, 0.6)',
+                width: '100%',
+                textAlign: 'center',
               }}
             >
-              pitchrank.io
-            </div>
-            <div
-              style={{
-                fontFamily: "'DM Sans', sans-serif",
-                fontSize: `${statsSize - 2}px`,
-                color: BRAND_COLORS.electricYellow,
-              }}
-            >
-              #YouthSoccer #U12Soccer
+              pitchrank.io/rankings
             </div>
           </div>
         </div>
