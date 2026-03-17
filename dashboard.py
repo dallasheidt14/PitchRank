@@ -106,7 +106,8 @@ section = st.sidebar.radio(
         "✏️ Manual Team Edit",
         "🔎 Team Discovery Review",
         "🛡️ Due Diligence Review",
-        "📸 Instagram Review"
+        "📸 Instagram Review",
+        "⚖️ Weight Simulator"
     ]
 )
 
@@ -5789,6 +5790,244 @@ elif section == "📸 Instagram Review":
                 st.divider()
 
         st.caption(f"Page {ig_page} of {total_pages} | {len(rows)} total records")
+
+elif section == "⚖️ Weight Simulator":
+    st.header("PowerScore Weight Simulator")
+    st.markdown(
+        "Replay the PowerScore blend with different weights **without re-running the full pipeline**. "
+        "Uses normalized components (off_norm, def_norm, sos_norm, perf_centered, ml_norm) "
+        "from `rankings_full`."
+    )
+
+    # ── Data source toggle ──────────────────────────────────────────
+    sim_tabs = st.tabs(["Live (Supabase)", "Sample (AZ U12M)"])
+
+    # --- helpers shared by both tabs ---
+    def _sim_provisional_mult(gp, min_gp=8):
+        if gp >= min_gp:
+            return 1.0
+        return 0.6 + 0.4 * (gp / min_gp)
+
+    def _sim_blend(rows, off_w, def_w, sos_w, perf_w, perf_cap, ml_alpha, sos_weighted_perf):
+        """Recompute PowerScore from normalized components."""
+        import numpy as np
+        results = []
+        for _, r in rows.iterrows():
+            perf = float(r.get("perf_centered", 0.0))
+            if sos_weighted_perf:
+                perf = perf * float(r.get("sos_norm", 0.5))
+            perf = max(-perf_cap, min(perf_cap, perf))
+
+            max_ps = 1.0 + perf_cap * perf_w
+            max_ml = 1.0 + perf_cap * ml_alpha
+
+            ps_core = (
+                off_w * float(r.get("off_norm", 0.5))
+                + def_w * float(r.get("def_norm", 0.5))
+                + sos_w * float(r.get("sos_norm", 0.5))
+                + perf * perf_w
+            ) / max_ps if max_ps > 0 else 0
+
+            gp = int(r.get("games_played", 30))
+            ps_adj = ps_core * _sim_provisional_mult(gp)
+
+            ml_norm_val = float(r.get("ml_norm", 0.0))
+            ps_ml = (ps_adj + ml_alpha * ml_norm_val) / max_ml if max_ml > 0 else ps_adj
+            ps_ml = max(0.0, min(1.0, ps_ml))
+
+            results.append({
+                "team_name": r.get("team_name", r.get("name", "Unknown")),
+                "club_name": r.get("club_name", ""),
+                "age_group": r.get("age_group", ""),
+                "gender": r.get("gender", ""),
+                "games_played": gp,
+                "off_norm": round(float(r.get("off_norm", 0)), 4),
+                "def_norm": round(float(r.get("def_norm", 0)), 4),
+                "sos_norm": round(float(r.get("sos_norm", 0)), 4),
+                "perf_centered": round(perf, 4),
+                "ml_norm": round(ml_norm_val, 4),
+                "ps_adj": round(ps_adj, 4),
+                "ps_ml": round(ps_ml, 4),
+                "display_score": round(ps_ml * 55, 2),
+            })
+        df = pd.DataFrame(results).sort_values("ps_ml", ascending=False).reset_index(drop=True)
+        df.index = df.index + 1
+        df.index.name = "Rank"
+        return df
+
+    # ── Sidebar-style controls (in main area via columns) ───────────
+    st.subheader("Weight Controls")
+    ctrl_cols = st.columns(4)
+    with ctrl_cols[0]:
+        sim_off_w = st.slider("OFF Weight", 0.0, 0.50, 0.20, 0.025, key="sim_off")
+        sim_def_w = st.slider("DEF Weight", 0.0, 0.50, 0.20, 0.025, key="sim_def")
+    with ctrl_cols[1]:
+        sim_sos_w = st.slider("SOS Weight", 0.20, 0.80, 0.60, 0.05, key="sim_sos")
+        weight_sum = sim_off_w + sim_def_w + sim_sos_w
+        if abs(weight_sum - 1.0) > 0.02:
+            st.warning(f"OFF+DEF+SOS = {weight_sum:.2f} (should be ~1.0)")
+        else:
+            st.success(f"OFF+DEF+SOS = {weight_sum:.2f}")
+    with ctrl_cols[2]:
+        sim_perf_w = st.slider("PERF Weight", 0.0, 0.25, 0.00, 0.01, key="sim_perf")
+        sim_perf_cap = st.slider("PERF Cap (±)", 0.05, 0.50, 0.15, 0.05, key="sim_cap")
+    with ctrl_cols[3]:
+        sim_ml_alpha = st.slider("ML Alpha", 0.0, 0.30, 0.18, 0.01, key="sim_ml")
+        sim_sos_perf = st.checkbox("SOS-weighted PERF", value=False, key="sim_sos_perf",
+                                   help="Multiply perf_centered by sos_norm before blending")
+
+    # Show current vs production
+    st.markdown("---")
+    prod_cols = st.columns(7)
+    prod_labels = ["OFF", "DEF", "SOS", "PERF", "CAP", "ML_A", "SOS-P"]
+    prod_vals = [0.20, 0.20, 0.60, 0.00, 0.15, 0.18, "N"]
+    sim_vals = [sim_off_w, sim_def_w, sim_sos_w, sim_perf_w, sim_perf_cap, sim_ml_alpha,
+                "Y" if sim_sos_perf else "N"]
+    for col, label, prod, sim in zip(prod_cols, prod_labels, prod_vals, sim_vals):
+        with col:
+            if isinstance(prod, float):
+                delta = sim - prod
+                st.metric(label, f"{sim:.2f}", f"{delta:+.2f}" if abs(delta) > 0.001 else "0")
+            else:
+                st.metric(label, str(sim), "CHANGED" if sim != prod else "")
+
+    # ── Tab 1: Live data from Supabase ──────────────────────────────
+    with sim_tabs[0]:
+        st.subheader("Live Rankings Simulation")
+
+        live_cols = st.columns(3)
+        with live_cols[0]:
+            live_age = st.selectbox("Age Group", ["All"] + [f"U{a}" for a in range(10, 20)], key="live_age")
+        with live_cols[1]:
+            live_gender = st.selectbox("Gender", ["All", "Male", "Female"], key="live_gender")
+        with live_cols[2]:
+            live_state = st.text_input("State (e.g. AZ, CA)", value="", key="live_state").strip().upper()
+
+        if st.button("Fetch & Simulate", key="live_fetch", type="primary"):
+            with st.spinner("Fetching from rankings_full..."):
+                try:
+                    query = db.table("rankings_full").select(
+                        "team_id,team_name,club_name,age_group,gender,state_code,"
+                        "games_played,off_norm,def_norm,sos_norm,perf_centered,ml_norm,"
+                        "powerscore_ml"
+                    )
+                    if live_age != "All":
+                        query = query.eq("age_group", live_age)
+                    if live_gender != "All":
+                        query = query.eq("gender", live_gender)
+                    if live_state:
+                        query = query.eq("state_code", live_state)
+                    query = query.order("powerscore_ml", desc=True).limit(100)
+                    resp = query.execute()
+                    if resp.data:
+                        live_df = pd.DataFrame(resp.data)
+                        st.session_state["sim_live_data"] = live_df
+                        st.success(f"Fetched {len(live_df)} teams")
+                    else:
+                        st.warning("No data returned. Check filters.")
+                except Exception as e:
+                    st.error(f"Supabase error: {e}")
+
+        if "sim_live_data" in st.session_state:
+            live_df = st.session_state["sim_live_data"]
+            sim_result = _sim_blend(
+                live_df, sim_off_w, sim_def_w, sim_sos_w,
+                sim_perf_w, sim_perf_cap, sim_ml_alpha, sim_sos_perf
+            )
+
+            # Show comparison: current production rank vs simulated rank
+            display_cols = ["team_name", "club_name", "age_group", "gender",
+                           "games_played", "off_norm", "def_norm", "sos_norm",
+                           "perf_centered", "ml_norm", "ps_ml", "display_score"]
+            st.dataframe(
+                sim_result[display_cols],
+                use_container_width=True,
+                height=600,
+                column_config={
+                    "ps_ml": st.column_config.NumberColumn("PowerScore", format="%.4f"),
+                    "display_score": st.column_config.NumberColumn("Display (×55)", format="%.2f"),
+                    "off_norm": st.column_config.NumberColumn("OFF", format="%.3f"),
+                    "def_norm": st.column_config.NumberColumn("DEF", format="%.3f"),
+                    "sos_norm": st.column_config.NumberColumn("SOS", format="%.3f"),
+                    "perf_centered": st.column_config.NumberColumn("PERF", format="%+.4f"),
+                    "ml_norm": st.column_config.NumberColumn("ML", format="%+.4f"),
+                }
+            )
+
+    # ── Tab 2: Hardcoded sample data ────────────────────────────────
+    with sim_tabs[1]:
+        st.subheader("Sample Data: AZ U12 Male Top 10")
+        st.caption("Hardcoded normalized components for quick testing without database access.")
+
+        sample_data = pd.DataFrame([
+            {"name": "FC Tucson 2014 Pre-MLSN #1", "off_norm": 0.9737, "def_norm": 0.9891,
+             "sos_norm": 0.9364, "perf_centered": 0.4357, "ml_norm": 0.1218, "games_played": 30},
+            {"name": "Phoenix United 2014 Academy", "off_norm": 0.9777, "def_norm": 0.9891,
+             "sos_norm": 0.9155, "perf_centered": 0.3002, "ml_norm": 0.3008, "games_played": 18},
+            {"name": "Phoenix United 2014 Elite", "off_norm": 0.8905, "def_norm": 0.9891,
+             "sos_norm": 0.9921, "perf_centered": -0.0373, "ml_norm": 0.1968, "games_played": 30},
+            {"name": "Dynamos SC 2014 SC", "off_norm": 0.7760, "def_norm": 0.9891,
+             "sos_norm": 0.9633, "perf_centered": 0.3560, "ml_norm": -0.2737, "games_played": 30},
+            {"name": "RSL Arizona North 2014 GSA", "off_norm": 0.9486, "def_norm": 0.9131,
+             "sos_norm": 0.9378, "perf_centered": 0.1755, "ml_norm": -0.1890, "games_played": 30},
+            {"name": "Next Level Southeast 2014 Black", "off_norm": 0.8295, "def_norm": 0.9891,
+             "sos_norm": 0.9346, "perf_centered": -0.2864, "ml_norm": 0.2872, "games_played": 30},
+            {"name": "Playmaker PRE-ECNL 2014", "off_norm": 0.9449, "def_norm": 0.8233,
+             "sos_norm": 0.8566, "perf_centered": 0.2502, "ml_norm": -0.1015, "games_played": 30},
+            {"name": "Excel Soccer Academy 2014 Red", "off_norm": 0.7898, "def_norm": 0.7909,
+             "sos_norm": 0.9421, "perf_centered": 0.0156, "ml_norm": 0.1425, "games_played": 30},
+            {"name": "BRAZAS FC 2014 Black", "off_norm": 0.8538, "def_norm": 0.9739,
+             "sos_norm": 0.9206, "perf_centered": 0.0278, "ml_norm": -0.3110, "games_played": 30},
+            {"name": "Tuzos Royals 2014", "off_norm": 0.6055, "def_norm": 0.9481,
+             "sos_norm": 0.9080, "perf_centered": 0.3630, "ml_norm": -0.2426, "games_played": 30},
+        ])
+        sample_data["team_name"] = sample_data["name"]
+
+        sim_sample = _sim_blend(
+            sample_data, sim_off_w, sim_def_w, sim_sos_w,
+            sim_perf_w, sim_perf_cap, sim_ml_alpha, sim_sos_perf
+        )
+
+        # Highlight Elite row
+        def _highlight_elite(row):
+            if "Elite" in str(row.get("team_name", "")):
+                return ["background-color: #1a472a; color: #F4D03F"] * len(row)
+            return [""] * len(row)
+
+        display_cols_sample = ["team_name", "games_played", "off_norm", "def_norm",
+                               "sos_norm", "perf_centered", "ml_norm", "ps_adj", "ps_ml", "display_score"]
+        styled = sim_sample[display_cols_sample].style.apply(_highlight_elite, axis=1)
+        st.dataframe(
+            styled,
+            use_container_width=True,
+            height=450,
+            column_config={
+                "ps_ml": st.column_config.NumberColumn("PowerScore", format="%.4f"),
+                "ps_adj": st.column_config.NumberColumn("Base", format="%.4f"),
+                "display_score": st.column_config.NumberColumn("Display (×55)", format="%.2f"),
+            }
+        )
+
+        # Quick comparison: production vs current sliders
+        st.markdown("---")
+        st.subheader("Production vs Simulation Comparison")
+        prod_sample = _sim_blend(sample_data, 0.20, 0.20, 0.60, 0.00, 0.15, 0.18, False)
+        comp_cols = st.columns(2)
+        with comp_cols[0]:
+            st.markdown("**Production** (OFF=0.20, DEF=0.20, SOS=0.60, PERF=0.00, ML=0.18)")
+            st.dataframe(
+                prod_sample[["team_name", "ps_ml", "display_score"]],
+                use_container_width=True,
+                height=400,
+            )
+        with comp_cols[1]:
+            st.markdown(f"**Simulation** (OFF={sim_off_w}, DEF={sim_def_w}, SOS={sim_sos_w}, "
+                       f"PERF={sim_perf_w}, ML={sim_ml_alpha})")
+            st.dataframe(
+                sim_sample[["team_name", "ps_ml", "display_score"]],
+                use_container_width=True,
+                height=400,
+            )
 
 # Footer
 st.divider()

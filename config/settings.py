@@ -121,7 +121,8 @@ RANKING_CONFIG = {
     # Layer 6 (Performance)
     'performance_k': float(os.getenv("PERFORMANCE_K", 0.15)),  # V53EConfig.PERFORMANCE_K (legacy, use perf_* instead)
     'perf_game_scale': float(os.getenv("PERF_GAME_SCALE", 0.15)),  # V53EConfig.PERF_GAME_SCALE - scales per-game residual
-    'perf_blend_weight': float(os.getenv("PERF_BLEND_WEIGHT", 0.15)),  # V53EConfig.PERF_BLEND_WEIGHT - weight in powerscore
+    'perf_blend_weight': float(os.getenv("PERF_BLEND_WEIGHT", 0.00)),  # V53EConfig.PERF_BLEND_WEIGHT - weight in powerscore (was 0.15, reduced to 0.00 — stat-padding bias fix)
+    'perf_cap': float(os.getenv("PERF_CAP", 0.15)),  # V53EConfig.PERF_CAP - symmetric cap on perf_centered before blending
     'performance_decay_rate': float(os.getenv("PERFORMANCE_DECAY_RATE", 0.08)),  # V53EConfig.PERFORMANCE_DECAY_RATE
     'performance_threshold': float(os.getenv("PERFORMANCE_THRESHOLD", 0.5)),  # V53EConfig.PERFORMANCE_THRESHOLD – lowered from 2.0
     'performance_goal_scale': float(os.getenv("PERFORMANCE_GOAL_SCALE", 5.0)),  # V53EConfig.PERFORMANCE_GOAL_SCALE
@@ -141,10 +142,10 @@ RANKING_CONFIG = {
     'opponent_adjust_clip_min': float(os.getenv("OPPONENT_ADJUST_CLIP_MIN", 0.4)),  # V53EConfig.OPPONENT_ADJUST_CLIP_MIN
     'opponent_adjust_clip_max': float(os.getenv("OPPONENT_ADJUST_CLIP_MAX", 1.6)),  # V53EConfig.OPPONENT_ADJUST_CLIP_MAX
 
-    # Layer 10 weights
-    'off_weight': float(os.getenv("OFF_WEIGHT", 0.25)),  # V53EConfig.OFF_WEIGHT
-    'def_weight': float(os.getenv("DEF_WEIGHT", 0.25)),  # V53EConfig.DEF_WEIGHT
-    'sos_weight': float(os.getenv("SOS_WEIGHT", 0.50)),  # V53EConfig.SOS_WEIGHT
+    # Layer 10 weights (tuned via weight simulator — SOS boosted for schedule-strength emphasis)
+    'off_weight': float(os.getenv("OFF_WEIGHT", 0.20)),  # V53EConfig.OFF_WEIGHT (was 0.25)
+    'def_weight': float(os.getenv("DEF_WEIGHT", 0.20)),  # V53EConfig.DEF_WEIGHT (was 0.25)
+    'sos_weight': float(os.getenv("SOS_WEIGHT", 0.60)),  # V53EConfig.SOS_WEIGHT (was 0.50)
     
     # Provisional
     'min_games_for_ranking': int(os.getenv("MIN_GAMES_FOR_RANKING", 8)),  # V53EConfig.MIN_GAMES_PROVISIONAL
@@ -207,7 +208,7 @@ ETL_CONFIG = {
 # ML Layer Configuration (Layer 13)
 ML_CONFIG = {
     'enabled': os.getenv("ML_LAYER_ENABLED", "true").lower() == "true",
-    'alpha': float(os.getenv("ML_ALPHA", 0.12)),  # Blend weight for ML adjustment
+    'alpha': float(os.getenv("ML_ALPHA", 0.18)),  # Blend weight for ML adjustment (was 0.12, bumped to compensate for PERF removal)
     'recency_decay_lambda': float(os.getenv("ML_RECENCY_DECAY_LAMBDA", 0.06)),
     'min_team_games_for_residual': int(os.getenv("ML_MIN_TEAM_GAMES", 6)),
     'residual_clip_goals': float(os.getenv("ML_RESIDUAL_CLIP", 3.5)),
