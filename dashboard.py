@@ -5741,6 +5741,7 @@ elif section == "📸 Instagram Review":
         st.caption(f"Page {ig_page} of {total_pages} | {len(rows)} total records")
 
 elif section == "⚖️ Weight Simulator":
+    db = get_database()
     st.header("PowerScore Weight Simulator")
     st.markdown(
         "Replay the PowerScore blend with different weights **without re-running the full pipeline**. "
