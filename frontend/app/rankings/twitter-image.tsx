@@ -1,3 +1,5 @@
 // Re-export the OpenGraph image for Twitter Card
-// Next.js uses this file convention for twitter:image meta tag
-export { default, alt, size, contentType, runtime } from './opengraph-image';
+// Next.js requires runtime to be statically defined, not re-exported
+export { default, alt, size, contentType } from './opengraph-image';
+
+export const runtime = 'edge';
