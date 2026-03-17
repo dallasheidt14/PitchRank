@@ -106,6 +106,50 @@ def _normalize_age_group(value: Optional[str]) -> Optional[str]:
     return None
 
 
+DIVISION_TIERS = {
+    "ecnl", "ecnl-rl", "ecnl rl", "rl",
+    "ga", "ga cup",
+    "dpl", "npl",
+    "mls next", "mls next pro",
+    "hd", "ad",
+    "premier", "elite", "select", "classic",
+    "pre-ecnl", "pre ecnl",
+    "academy", "development",
+    "gold", "silver", "bronze", "platinum",
+    "division 1", "division 2", "division 3",
+    "div 1", "div 2", "div 3",
+    "d1", "d2", "d3",
+    "flight 1", "flight 2", "flight 3",
+    "tier 1", "tier 2", "tier 3",
+}
+
+
+def _extract_tier(name: Optional[str]) -> Optional[str]:
+    """Extract the division tier keyword from a team name, if present."""
+    if not name:
+        return None
+    s = str(name).lower().strip()
+    s = re.sub(r"[^a-z0-9 \-]+", " ", s)
+    s = " ".join(s.split())
+    for tier in sorted(DIVISION_TIERS, key=len, reverse=True):
+        if re.search(r"(?:^|\s)" + re.escape(tier) + r"(?:\s|$)", s):
+            return tier
+    return None
+
+
+def _tier_check(unknown_name: str, matched_name: str) -> str:
+    """Compare division tiers extracted from team names."""
+    u_tier = _extract_tier(unknown_name)
+    m_tier = _extract_tier(matched_name)
+    if not u_tier and not m_tier:
+        return "unknown"
+    if not u_tier or not m_tier:
+        return "unknown"
+    if u_tier == m_tier:
+        return "ok"
+    return "mismatch"
+
+
 def _normalize_text(s: Optional[str]) -> str:
     if not s:
         return ""
@@ -278,6 +322,9 @@ def main() -> None:
         )
         club_check = _club_compare(unknown_club, team_club)
 
+        # Division tier check: Premier ≠ Elite, ECNL ≠ ECNL-RL, etc.
+        tier_check = _tier_check(unknown_full_name, str(team.get("team_name") or ""))
+
         # Name literal check: relaxed contains/substring matching.
         norm_full = _normalize_text(unknown_full_name)
         norm_team = _normalize_text(str(team.get("team_name") or ""))
@@ -323,6 +370,9 @@ def main() -> None:
         )
 
         # Core verdict rule.
+        # NOTE: cohort_age_check excluded from verdict — playing up/down across
+        # age groups is common in youth soccer tournaments, causing false negatives.
+        # The direct age_check (GotSport API vs DB) is the reliable signal.
         core_ok = all(
             [
                 not alias_conflict,
@@ -330,7 +380,7 @@ def main() -> None:
                 age_check != "mismatch",
                 gender_check != "mismatch",
                 state_check != "mismatch",
-                cohort_age_check != "mismatch",
+                tier_check != "mismatch",
                 cohort_gender_check != "mismatch",
             ]
         )
@@ -359,6 +409,7 @@ def main() -> None:
             "age_check": age_check,
             "gender_check": gender_check,
             "state_check": state_check,
+            "tier_check": tier_check,
             "cohort_age_check": cohort_age_check,
             "cohort_gender_check": cohort_gender_check,
             "unknown_api_full_name": unknown_full_name,
