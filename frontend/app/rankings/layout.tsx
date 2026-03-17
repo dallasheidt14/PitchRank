@@ -11,30 +11,21 @@ const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
  */
 export const metadata: Metadata = {
   title: 'Youth Soccer Rankings',
-  description: 'Browse comprehensive youth soccer team rankings for U10-U18 boys and girls teams. Filter by region, age group, and gender to find top teams nationwide.',
+  description: 'Browse comprehensive youth soccer team rankings across the country. Filter by region, age group, and gender to find top teams nationwide.',
   alternates: {
     canonical: `${baseUrl}/rankings`,
   },
   openGraph: {
     title: 'Youth Soccer Rankings | PitchRank',
-    description: 'Browse comprehensive youth soccer team rankings for U10-U18 boys and girls teams. Filter by region, age group, and gender to find top teams.',
+    description: 'Browse comprehensive youth soccer team rankings across the country.',
     url: `${baseUrl}/rankings`,
     siteName: 'PitchRank',
     type: 'website',
-    images: [
-      {
-        url: `${baseUrl}/logos/pitchrank-wordmark.svg`,
-        width: 1200,
-        height: 630,
-        alt: 'PitchRank - Youth Soccer Rankings',
-      },
-    ],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Youth Soccer Rankings | PitchRank',
-    description: 'Browse comprehensive youth soccer team rankings for U10-U18 boys and girls teams.',
-    images: [`${baseUrl}/logos/pitchrank-wordmark.svg`],
+    description: 'Data-driven youth soccer rankings. Find your team.',
   },
 };
 

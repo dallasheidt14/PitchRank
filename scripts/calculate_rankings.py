@@ -132,8 +132,26 @@ async def save_rankings_to_supabase(supabase_client, teams_df, use_rankings_full
                 # Convert DataFrame to records (handle NaN values)
                 records_full = rankings_full_df.replace({pd.NA: None, pd.NaT: None}).to_dict('records')
                 
-                # Clean up records: convert numpy types to Python native types
+                # DIAGNOSTIC: Verify power_score_final != national_power_score before upsert
                 import numpy as np
+                if records_full:
+                    # Sample a few records from different age groups to verify anchor scaling
+                    age_samples = {}
+                    for rec in records_full:
+                        ag = rec.get('age_group', '')
+                        if ag and ag not in age_samples:
+                            age_samples[ag] = rec
+                        if len(age_samples) >= 5:
+                            break
+                    console.print(f"[bold]🔍 DIAG: Verifying power_score_final vs national_power_score in records (pre-upsert):[/bold]")
+                    for ag, rec in sorted(age_samples.items()):
+                        psf = rec.get('power_score_final')
+                        nps = rec.get('national_power_score')
+                        ps_adj = rec.get('powerscore_adj')
+                        match = "⚠️  IDENTICAL" if psf is not None and nps is not None and abs(psf - nps) < 0.001 else "✅ different"
+                        console.print(f"  {ag}: psf={psf}, nps={nps}, ps_adj={ps_adj} → {match}")
+
+                # Clean up records: convert numpy types to Python native types
                 for record in records_full:
                     for key, value in record.items():
                         if isinstance(value, (np.integer, np.int64)):

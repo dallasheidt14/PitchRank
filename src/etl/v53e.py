@@ -50,7 +50,8 @@ class V53EConfig:
     # Layer 6 (Performance)
     PERFORMANCE_K: float = 0.15  # Legacy: kept for backward compatibility, use PERF_* instead
     PERF_GAME_SCALE: float = 0.15  # Scales per-game performance residual
-    PERF_BLEND_WEIGHT: float = 0.15  # Weight of perf_centered in final powerscore
+    PERF_BLEND_WEIGHT: float = 0.00  # Weight of perf_centered in final powerscore (was 0.15, set to 0.00 — stat-padding bias fix)
+    PERF_CAP: float = 0.15  # Symmetric cap on perf_centered [-cap, +cap] before blending (clips outlier overperformers)
     PERFORMANCE_DECAY_RATE: float = 0.08   # decay per recency index step
     PERFORMANCE_THRESHOLD: float = 0.5     # goals – lowered from 2.0 to fix asymmetric filtering bias against defensive teams
     PERFORMANCE_GOAL_SCALE: float = 5.0    # goals per 1.0 power diff
@@ -89,10 +90,10 @@ class V53EConfig:
     OPPONENT_ADJUST_CLIP_MIN: float = 0.4  # Min multiplier (avoid extreme adjustments)
     OPPONENT_ADJUST_CLIP_MAX: float = 1.6  # Max multiplier (conservative bounds)
 
-    # Layer 10 weights
-    OFF_WEIGHT: float = 0.25
-    DEF_WEIGHT: float = 0.25
-    SOS_WEIGHT: float = 0.50
+    # Layer 10 weights (tuned via weight simulator — SOS boosted for schedule-strength emphasis)
+    OFF_WEIGHT: float = 0.20  # was 0.25
+    DEF_WEIGHT: float = 0.20  # was 0.25
+    SOS_WEIGHT: float = 0.60  # was 0.50
 
     # Provisional
     MIN_GAMES_PROVISIONAL: int = 8
@@ -1446,20 +1447,22 @@ def compute_rankings(
         lambda s: s.rank(method="average", pct=True) - 0.5
     )
 
+    # Apply PERF_CAP: clip perf_centered to [-cap, +cap] to limit outlier influence.
+    # This prevents teams from gaining outsized boost by running up scores against
+    # weak opponents. Mid-range teams (perf close to 0) are unaffected.
+    team["perf_centered"] = team["perf_centered"].clip(-cfg.PERF_CAP, cfg.PERF_CAP)
+
     # -------------------------
     # Layer 10: Core PowerScore + Provisional
     # -------------------------
-    # Uses PERF_BLEND_WEIGHT to control how much performance adjustment affects final score
+    # Uses PERF_BLEND_WEIGHT to control how much performance adjustment affects final score.
+    # With PERF_BLEND_WEIGHT=0.00 (default since v54), perf_centered is still computed
+    # and stored for diagnostics but does not affect the final score.
     #
-    # IMPORTANT: perf_centered ranges [-0.5, +0.5], so the theoretical max of the raw sum
-    # is 1.0 + 0.5 * PERF_BLEND_WEIGHT = 1.075. We normalize by this max to ensure
-    # powerscore_core stays in [0, 1] range. This prevents ceiling clipping that would
-    # cause multiple top teams to have identical power scores.
-    #
-    # Without normalization: 10-20 top teams per cohort all get clipped to 1.0
-    # With normalization: full differentiation preserved among top teams
+    # The theoretical max of the raw sum is 1.0 + PERF_CAP * PERF_BLEND_WEIGHT.
+    # We normalize by this max to ensure powerscore_core stays in [0, 1] range.
 
-    MAX_POWERSCORE_THEORETICAL = 1.0 + 0.5 * cfg.PERF_BLEND_WEIGHT  # = 1.075 with default config
+    MAX_POWERSCORE_THEORETICAL = 1.0 + cfg.PERF_CAP * cfg.PERF_BLEND_WEIGHT
 
     team["powerscore_core"] = (
         cfg.OFF_WEIGHT * team["off_norm"]
