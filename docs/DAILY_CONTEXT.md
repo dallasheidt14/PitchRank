@@ -70,15 +70,18 @@ D H: "you can do whatever without my approval just don't mess with algo and star
 - **Content readiness:** Blog launch OPERATIONAL, ready for weekly publication
 - **Status:** 🟢 **Content pipeline LIVE**
 
-**📈 Movy Weekly Movers Report:** ✅ COMPLETED (MAR 10 10AM)
-- Data snapshot: **March 10, 2026** (latest)
-- **Top Climber:** Eastshore Alliance FC ECNL RL 2012 (Eastshore Alliance FC, U14 CA) — #2723 → #652 (+2,071)
-- **Biggest Faller:** PRE-ACADEMY II 2014 (Barcelona United, U12 OH) — #923 → #2645 (-1,722) [reversal from Mar 2]
-- **Algorithm Status:** ✅ WORKING PERFECTLY — Movement correlates 1:1 to actual game results, blowouts punishing scores
-- **Data Quality:** HIGH — Movement patterns clean, recent game data flowing correctly
-- **Key Pattern:** CA, OH, TX, OK U11-U14 academies extremely competitive; Eastshore alliance surge +2K
-- **Status:** Report sent to D H. Detailed commentary (explainy) in progress.
-- **Errors:** None
+**📈 Movy Weekly Movers Report:** ✅ COMPLETED (MAR 17 10AM)
+- Data snapshot: **March 17, 2026** (latest, Tuesday morning)
+- **Top Climber:** Roca SA - Real Madrid 2012 (RSA, U14 TX) — #1730 → #691 (+1,039) | Quality wins vs ranked opponents
+- **Biggest Faller:** SOS 2014-2015 (Square One Sports, U12 WV) — #1617 → #2840 (-1,223) | SOS recalc
+- **Algorithm Status:** ✅ WORKING PERFECTLY — Movement consistently driven by:
+  - Quality wins vs ranked opponents (+50-51% PowerScore gains)
+  - Strength of schedule recalculation (opponent rank shifts)
+  - Recent record momentum (5-1 climbs faster than marginal 1-2)
+- **Data Quality:** HIGH — All 6 major movers have clear game-driven or SOS-driven explanations
+- **Key Pattern:** TX academies dominating U14 space with high volatility; SOS-driven fallers show minimal recent activity
+- **Status:** Report generated from explainy_commentary.py. movy_report.py error (schema mismatch) escalated to Codey for fix.
+- **Errors:** movy_report.py ValueError (unpacking 9 values, got more) — Codey fixing
 
 ### Recent History (Feb 23 - Mar 2)
 

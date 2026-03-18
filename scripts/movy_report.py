@@ -211,7 +211,7 @@ def get_snapshot_dates(cur):
 
 def format_team(row):
     """Format a team row for display."""
-    team_name, club_name, age_group, gender, state, old_rank, new_rank, change, power_score = row
+    team_name, club_name, age_group, gender, state, old_rank, new_rank, change, power_score, team_id = row
     gender_label = "Boys" if gender == "male" else "Girls"
     return f"{team_name} ({club_name}) - {age_group.upper()} {gender_label} {state}"
 
@@ -221,7 +221,7 @@ def generate_social_caption(climbers, period="week"):
     lines = [f"📈 BIGGEST CLIMBERS THIS {period.upper()}!", ""]
     
     for i, row in enumerate(climbers[:5], 1):
-        team_name, club_name, age_group, gender, state, old_rank, new_rank, change, _ = row
+        team_name, club_name, age_group, gender, state, old_rank, new_rank, change, _, team_id = row
         gender_emoji = "👦" if gender == "male" else "👧"
         lines.append(f"{i}. {team_name} {gender_emoji}")
         lines.append(f"   #{old_rank} → #{new_rank} (+{change} spots)")

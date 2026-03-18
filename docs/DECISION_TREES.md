@@ -42,35 +42,52 @@ IF: Persistent → Check billing/credits
 ESCALATE: If billing issue persists >1 hour
 ```
 
-### OpenAI Quota Exceeded (Mar 16 Emerging Pattern)
+### OpenAI Quota Exceeded (CRITICAL Escalation — Mar 17)
 ```
 WHEN: "You exceeded your current quota" from OpenAI
-CHECK: Is this happening during nightly cron window (10pm+)?
-IF: Yes, 1-2 errors → Normal variance, log and continue
-IF: Yes, >4 errors per night → Quota approaching limit, log pattern
-IF: Persistent across multiple days → Account tier may be insufficient
+CHECK: Count quota errors in 24h window and compare to trend
 
-PATTERN DISCOVERED (Mar 16):
-- 4 quota errors during nightly compound (Mar 16 22:30)
-- Non-blocking (sessions completed despite errors)
-- Similar to Mar 13-14 TPM limiting but different error type
-- Suggests system approaching provider capacity ceiling
+PATTERN DISCOVERED (Mar 16-17 ESCALATING):
+- Mar 16: 4 quota errors (initially classified "monitor pattern")
+- Mar 17: 10+ quota errors (2.5x increase — NOW CRITICAL TREND)
+- Error signature: "You exceeded your current quota..." (account-level ceiling, not transient)
+- Timing: Distributed across 24h (not concentrated in single cron window)
+- Impact: Non-blocking (sessions completed), but error density rising
 
-ASSESSMENT:
+ASSESSMENT (UPDATED):
 - Different from Anthropic credit exhaustion (Mar 7-10)
 - Different from OpenAI TPM rate limiting (Mar 13-14)
-- This is quota (account limit), not rate limit (per-minute ceiling)
+- This is quota (daily/monthly account limit), system hitting ceiling consistently
+- **TRAJECTORY: 4 → 10 errors means account baseline ops exceed daily quota replenishment**
 
-IF: <4 errors/night → Acceptable. Monitor for escalation.
-IF: 4-8 errors/night → Watch trend. Consider load scheduling.
-IF: >8 errors/night → ESCALATE to D H. Likely account tier review needed.
+CURRENT ESCALATION THRESHOLDS (Mar 17 Updated):
+IF: <4 errors/night → Acceptable variance (OUTDATED)
+IF: 4-8 errors/night → Watch trend (ACTIVE Mar 16)
+IF: >8 errors/night → ESCALATE IMMEDIATELY (ACTIVE Mar 17 — 10+ errors detected)
 
-ACTION:
-1. Track daily in AGENT_COMMS.md
-2. Alert if pattern emerges (same time window multiple nights)
-3. Consider staggering cron jobs if quota errors persist
+IF: Errors continue >5 nights → Account tier insufficient, requires upgrade
+IF: Errors appear to accelerate (10 → 20 → 30) → Risk of total quota block (like Mar 13)
 
-ESCALATE: If >8 quota errors in single 24h window
+ACTION (AUTONOMOUS):
+1. Track daily error count in AGENT_COMMS.md (now part of nightly report)
+2. Stagger cron jobs to avoid concurrent peak loads
+3. Consider switching low-cost agents (Watchy baseline) to Anthropic to split load
+4. Set automatic threshold: >15 quota errors = immediate escalation to D H
+
+ACTION (ESCALATION):
+1. Check OpenAI account dashboard: Current quota tier, daily limit, usage
+2. Compare baseline: How much quota does one full day cost?
+3. Determine: Is daily usage >daily quota replenishment? (explains 4→10 trend)
+4. Decision options:
+   - Upgrade OpenAI tier (increase daily/monthly quota)
+   - Switch high-volume agents to Claude (Anthropic) to split load
+   - Reduce cron job frequency or main session heartbeat
+   - Investigate if Mar 13 billing crisis affected quota availability
+
+ESCALATE: 
+- Immediately if >10 errors in single 24h window ✅ (ACTIVE Mar 17)
+- If errors continue >2 nights and trend not reversing
+- If account approaches total quota block (would be visible as 100%+ of quota used)
 ```
 
 ### Persistent Connection Errors (Billing Crisis Pattern - Feb 7-13)

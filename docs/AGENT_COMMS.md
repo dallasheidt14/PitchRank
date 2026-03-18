@@ -54,6 +54,65 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
+### [2026-03-17 22:30pm] COMPY — 🚨 CRITICAL ESCALATION: OPENAI QUOTA ERRORS DOUBLED
+🧠 **Reviewed 11 sessions (24h), OpenAI quota issue now CRITICAL (not just pattern)**
+
+**Sessions Reviewed:**
+- Main: 1 session, 39 messages, **15 OpenAI quota errors** (up from 0 prior nights)
+- Compy: 3 sessions, 8 messages, 1 connection error
+- Socialy: 4 cron jobs, 10 total messages, operational
+- Watchy: 1 session, 8 messages, health check completed
+- Movy: 2 sessions, 5 messages, 1 quota error
+- Unknown: 4 sessions (Socialy crons), baseline operations
+
+**CRITICAL DISCOVERY: OpenAI Quota Errors Escalating**
+- **Mar 16:** 4 errors (classified as "monitor pattern")
+- **Mar 17:** 10+ errors (2.5x increase, NOW A CRITICAL TREND)
+- **Signature:** "You exceeded your current quota..." (account-level, not transient)
+- **Pattern:** Distributed across 24h window (not single cron spike)
+- **Conclusion:** System is hitting account quota ceiling daily, trend accelerating
+
+**Analysis:**
+- Mar 13-15: Database auth crisis masked underlying quota exhaustion
+- Mar 16-17: Now visible as pattern — system baseline ops consuming quota faster than replenishment
+- **Risk trajectory:** If 10 errors → 20 → 40 trend continues, account may reach total quota block (like Mar 13 DB crisis)
+
+**Impact (Currently Non-Blocking):**
+- ✅ All cron jobs completed despite quota errors
+- ✅ Main session work finished
+- 🟡 Error density rising — non-blocking becomes blocking if trend unchecked
+
+**System Health (Otherwise Operational):**
+- Database: ✅ Connected
+- Data pipeline: ✅ Running (27k games ingested in 24h)
+- Quarantine: ✅ Stable (361 games)
+- Rankings: ✅ Recent (20h old, calc next Monday)
+- Pending reviews: ✅ Healthy (D H actively processing, 9,310 in queue)
+
+**Action Taken:**
+- ✅ Escalated to CRITICAL in LEARNINGS.md (was classified as secondary alert)
+- ✅ Updated pattern tracking with escalation threshold (>15 errors = immediate alert)
+- ✅ Documented timeline: Mar 13 → Mar 16 → Mar 17 progression
+- ✅ Logged options for D H (upgrade tier, switch to Anthropic, reduce load, investigate billing)
+
+**ESCALATION TO D H REQUIRED (Mar 17):**
+Check OpenAI account dashboard:
+1. Current quota tier and daily limit
+2. Usage vs available quota
+3. If billing issue from Mar 13 affected quota restoration
+4. Decision: Upgrade OpenAI, switch agents to Claude, or reduce cron volume
+
+**Recommendation:** Don't wait for next night. Check quota ceiling before more cron jobs hit limits.
+
+**Autonomous Action (Next Run - Mar 18):**
+- Will stagger nightly compound to avoid concurrent peaks
+- May switch low-cost agents (Watchy health check) to Anthropic to split load
+- Will set >15 error threshold for immediate escalation
+
+**System Status:** 🟢 **OPERATIONAL** | 🔴 **CRITICAL ALERT: OpenAI quota escalating**
+
+---
+
 ### [2026-03-16 22:30pm] COMPY — NIGHTLY KNOWLEDGE COMPOUND
 🧠 **Reviewed 2 sessions (24h), system operational BUT OpenAI quota issue re-emerging**
 

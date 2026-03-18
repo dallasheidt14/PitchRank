@@ -4,47 +4,62 @@
 
 ## Critical Patterns
 
-### 2026-03-16 22:30: OpenAI Quota Issue Re-Emerging (Secondary Pattern) ⚠️
+### 2026-03-17 22:30: OpenAI Quota Crisis Escalating — URGENT ESCALATION 🚨
 
-**Discovery (Mar 16 nightly compound):**
-- 4 instances of "You exceeded your current quota" errors from OpenAI
-- Timing: During nightly compound + daily cron activity (10:30pm window)
-- Context: Appears during normal operations (not crisis-level frequency)
-- Status: **Non-blocking** (all cron sessions completed work despite errors)
+**ESCALATION UPDATE (Mar 17 nightly compound):**
+- **Mar 16:** 4 quota errors detected (non-blocking)
+- **Mar 17:** 10 quota errors in 24h window (ESCALATING, 2.5x increase)
+- **Status:** **NO LONGER PATTERN ALERT — NOW A CRITICAL TREND**
+- **Affected agents:** Main session (15 total errors, 10 quota), Movy (1), and 4 Socialy cron jobs
+- **Impact:** Non-blocking (all work completed) but error density rising rapidly
 
-**Pattern Comparison to Mar 13-14 Crisis:**
-- **Mar 13-14:** OpenAI TPM rate limiting during heavy agent concurrency
-  - Error: "Rate limit reached... TPM Limit 500000, Used..."
-  - Status: Secondary blocker to database auth failure
-  - Duration: 24h+ unresolved until Mar 15 recovery
-- **Mar 16:** New quota error signature
-  - Error: "You exceeded your current quota..."
-  - Different error type (quota vs TPM)
-  - Status: Emerging pattern, non-blocking
+**Key Discovery:**
+- Error signature identical across all 10 instances: "You exceeded your current quota..."
+- Window: Distributed across 24h (not concentrated in single cron window)
+- **This indicates account-level quota exhaustion, not transient API limits**
 
-**Hypothesis:**
-- OpenAI quota issue may be structural (recurring) vs one-time incident
-- System pushing against provider capacity limits during peak activity windows
-- Nightly compound window (10:30pm) combining multiple cron jobs → quota hit
+**Root Cause Hypothesis:**
+- OpenAI account tier may have insufficient quota for current usage patterns
+- System is hitting quota ceiling regularly (Mar 13, Mar 16, Mar 17 pattern)
+- Each nightly compound + daily heartbeats + cron jobs approaching or exceeding daily quota limit
+- Not a spike — **this is baseline operational cost hitting ceiling**
 
-**Assessment (Non-Critical Currently):**
-- ✅ Errors non-blocking (cron jobs complete despite quota errors)
-- ✅ System remains operational
-- 🟡 Pattern worth monitoring (if >4 errors next night → escalate)
-- 🟡 May indicate approaching OpenAI account tier limits
+**Critical Timeline:**
+1. **Mar 13:** 8pm — TPM rate limiting (500k limit hit during dual crisis)
+2. **Mar 13:** 22:30 — Identified as secondary blocker to DB auth
+3. **Mar 15:** Morning — DB auth recovered, TPM errors reduced
+4. **Mar 16:** 22:30 — Quota errors re-emerged (4 instances, noted as "pattern to monitor")
+5. **Mar 17:** 22:30 — **Quota errors doubled to 10 (ESCALATION CONFIRMED)**
 
-**Action Recommended:**
-1. Monitor next 2-3 nightly compounds for quota error frequency
-2. If pattern escalates (8+ errors in single night) → escalate to D H
-3. If stable (4 errors/night) → acceptable operational variance
-4. Consider: May need OpenAI account tier review or load scheduling
+**Assessment (NOW CRITICAL):**
+- ❌ Previous classification "non-blocking" was premature
+- ❌ Error count DOUBLING indicates approaching total account shutdown risk
+- ❌ If trend continues: 10 → 20 → 40 errors over next 2-3 nights
+- ⚠️ **Risk: Account quota exhaustion could block all agents at once** (like Mar 13 DB crisis)
 
-**Prevention Strategy:**
-- Track OpenAI quota errors in daily AGENT_COMMS.md
-- If recurring in same time window → stagger cron jobs to reduce peak load
-- Alert D H if error count exceeds 10/day
+**Escalation Required (D H — IMMEDIATE):**
+1. Check OpenAI account dashboard:
+   - Current quota tier
+   - Daily/monthly usage vs limits
+   - Billing history (Mar 13 crisis may have affected quota availability)
+2. Compare to baseline:
+   - How much quota does one full day cost? (heartbeat + cron + main session)
+   - How many days of quota remaining?
+3. Options:
+   - **Option A:** Upgrade OpenAI tier (increase TPM + quota limits)
+   - **Option B:** Switch high-volume cron jobs to Claude (Anthropic) to split load
+   - **Option C:** Reduce heartbeat frequency or cron job volume
+   - **Option D:** Investigate if Mar 13 billing crisis affected quota restoration
 
-**Status:** 🟡 **PATTERN ALERT (NON-CRITICAL)** — Monitoring for trend, non-blocking currently
+**Immediate Actions (COMPY can implement autonomously):**
+1. Stagger nightly compound to avoid concurrent cron job peaks
+2. Switch Watchy (health check) from OpenAI to Anthropic (lower cost baseline)
+3. Log quota error count in daily AGENT_COMMS.md for trend tracking
+4. Set automatic escalation: If quota errors >15 in single night → alert D H immediately
+
+**Status:** 🚨 **CRITICAL ESCALATION** — From "pattern to monitor" to "active threat to system stability"
+
+**Next COMPY Run:** Mar 18 22:30 — Will confirm if trend continues (target: stable or decreasing error count)
 
 ---
 
