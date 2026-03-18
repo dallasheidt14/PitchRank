@@ -2,8 +2,8 @@
 
 > Updated throughout the day. All agents should read this on startup.
 
-**Date:** 2026-03-16 (Monday) — Updated by Scrappy 10:00am MT
-**🟢 SYSTEM OPERATIONAL — All systems nominal, Monday scrape cycle active**
+**Date:** 2026-03-18 (Wednesday) — Updated by Scrappy 6:00am MT
+**🟢 SYSTEM OPERATIONAL — Wednesday scrape cycle active**
 
 ## 🚫 PROTECTED (Never Touch Without Asking)
 - Rankings algorithm
@@ -28,22 +28,19 @@ D H: "you can do whatever without my approval just don't mess with algo and star
 - Manually reviewing each age group for data cleanliness
 - Working through match review queue
 
-## 🔄 Current Status (March 16, 2026 — Monday 10:00am)
+## 🔄 Current Status (March 18, 2026 — Wednesday 6:00am)
 
-## 🟢 **SYSTEM OPERATIONAL — Monday Scrape Cycle Active**
+## 🟢 **SYSTEM OPERATIONAL — Wednesday Future Games Scrape**
 
-**Status:** ✅ **FULL OPERATIONAL** — All data flowing, Monday workflow dispatched
+**Status:** ✅ **SCRAPING ACTIVE** — Future games collection in progress
 
-**Monday 12:00pm Ranky Rankings Calculation:** ✅ VERIFIED
-- 71,669 teams ranked (snapshot: 2026-03-16)
-- PowerScores: [0.0, 0.92] — all valid
-- Invalid scores: 0
-
-**Monday 10:00am Scrappy Report:**
-- ✅ **Weekend scrapes completed successfully** (Sat-Sun offline, normal gap)
-- ✅ **Scrape Games workflow triggered** (limit_teams=25000, queued)
-- ✅ **GotSport team scrape running** (5h5m elapsed, continuing)
-- ✅ **Health check passed** — all systems nominal
+**Wednesday 6:00am Scrappy Report (CA, TX, AZ rotation):**
+- ✅ **Future games scraper initialized** (1,335 top-25 teams in CA/TX/AZ)
+- ✅ **Scheduled games query** running — sampling tournament events 5+ days ahead
+- ✅ **Rate limiting active** (1.5-2.5s between requests, 3 retries, 30s timeout)
+- ✅ **Progress:** ~48 of 1,335 teams processed (continuous)
+- ⚠️ **Big games finder:** 0 matchups detected (expected — Mon rankings required for comparison)
+- ✅ **No blockers detected** — system nominal
 
 **Current Health:**
 - Database: ✅ Connected, 105,472 teams, 771,168 games

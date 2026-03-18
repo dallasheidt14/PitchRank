@@ -10,22 +10,22 @@ const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
  * NOTE: Uses absolute URLs for canonical/OG to avoid Google indexing issues
  */
 export const metadata: Metadata = {
-  title: 'Youth Soccer Rankings',
-  description: 'Browse comprehensive youth soccer team rankings across the country. Filter by region, age group, and gender to find top teams nationwide.',
+  title: 'See Where Your Team Ranks: 101,000+ Youth Soccer Teams | PitchRank',
+  description: 'Find your team among 101,354 youth soccer teams nationwide. Compare rankings by state, age, and gender. Updated daily from 726,730+ real game results. No fluff, just data.',
   alternates: {
     canonical: `${baseUrl}/rankings`,
   },
   openGraph: {
-    title: 'Youth Soccer Rankings | PitchRank',
-    description: 'Browse comprehensive youth soccer team rankings across the country.',
+    title: 'See Where Your Team Ranks: 101,000+ Youth Soccer Teams | PitchRank',
+    description: 'Find your team among 101,354 youth soccer teams nationwide. Compare rankings by state, age, and gender. Updated daily from real game results.',
     url: `${baseUrl}/rankings`,
     siteName: 'PitchRank',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Youth Soccer Rankings | PitchRank',
-    description: 'Data-driven youth soccer rankings. Find your team.',
+    title: 'Youth Soccer Rankings | 101K+ Teams Ranked',
+    description: 'Data-driven youth soccer rankings. Find your team among 101,354 teams nationwide.',
   },
 };
 

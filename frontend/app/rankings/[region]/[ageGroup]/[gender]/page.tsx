@@ -63,7 +63,7 @@ export async function generateMetadata({ params }: RankingsPageProps): Promise<M
       : getStateName(region);
     
     const title = `${locationText} ${formattedAgeGroup} ${formattedGender} Soccer Rankings | PitchRank`;
-    const description = `${locationText} ${formattedAgeGroup} ${formattedGender} rankings updated weekly. See where your team ranks among 77K+ teams. PowerScore ratings from 700K+ analyzed games. Find your club now!`;
+    const description = `${locationText} ${formattedAgeGroup} ${formattedGender} youth soccer team rankings. See where your team stands among 101,354 teams nationwide. Updated daily from 726,730+ real game results. Data-driven, no bias.`;
 
     return {
       title,

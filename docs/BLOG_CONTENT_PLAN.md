@@ -5,19 +5,27 @@
 
 ---
 
-## 🔥 THIS WEEK'S TARGET (Mar 10-16)
+## 🔥 THIS WEEK'S TARGET (Mar 17-23) — **SET BY SOCIALY 2026-03-18**
 
-**BLOG POST:** Texas Youth Soccer Rankings Guide  
-**ASSIGNED TO:** Blogy 📝  
-**TARGET KEYWORDS:** `texas youth soccer rankings`, `texas club soccer rankings`  
-**WHY NOW:** High search volume, 9,452 TX teams tracked, weak competition (USARank only)  
-**DEADLINE:** Publish by Friday, March 14  
+**Keyword:** `michigan youth soccer rankings`, `michigan club soccer rankings`  
+**Search Volume Estimate:** MEDIUM (growing - just appeared in GSC!)  
+**Competition:** LOW (USArank has zero content, MaxPreps only does high school)  
+**Current Position:** #30.5 (page 3 - VERY WINNABLE!)  
+**Why This Keyword:** NEW query appearance in GSC, weak competition, easy push to page 1  
+**Angle:** Michigan-specific clubs (Nationals, Vardar, Michigan Jaguars), ECNL/GA teams, regional breakdown (Detroit metro, Ann Arbor, Grand Rapids)  
+**Assigned To:** Blogy 📝  
+**Target Publish:** Friday, March 21
 
-**OPTIMIZATIONS COMPLETED (Mar 10):**
-- ✅ California blog post title/meta optimized (191 impressions → only 5 clicks, 2.6% CTR)
-- ✅ New title: "California Youth Soccer Rankings: Find Your Team Among 15,693 CA Clubs (2026)"
-- ✅ New meta leads with question + specificity + brand names
-- ✅ Expected CTR improvement: 2.6% → 8-10%
+**OPTIMIZATIONS COMPLETED (Mar 18):**
+- ✅ `/rankings` page meta optimized (118 impressions, 6.8% CTR → targeting 15%+)
+  - **NEW TITLE:** "See Where Your Team Ranks: 101,000+ Youth Soccer Teams | PitchRank"
+  - **NEW META:** Leads with specificity (101,354 teams, 726,730+ games), daily updates, no fluff
+- ✅ National/State age pages meta optimized (35 impressions, 8.6% CTR → targeting 12%+)
+  - Updated team count from 77K to 101K+
+  - More parent-focused language, data-driven positioning
+
+**PREVIOUS WEEK (Mar 10-16):**
+- ✅ Texas Youth Soccer Rankings Guide published (March 14)
 
 ---
 
