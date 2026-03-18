@@ -25,6 +25,8 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
   const isNavigatingRef = useRef(false);
   // Track the target path we're navigating to
   const targetPathRef = useRef<string | null>(null);
+  // Track if the user has interacted with the filters (prevents auto-redirect on initial load)
+  const hasUserInteractedRef = useRef(false);
 
   // Extract current URL parts → /rankings/[region]/[ageGroup]/[gender]
   const pathParts = pathname.split("/").filter(Boolean);
@@ -38,16 +40,19 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
 
   // Handlers that track filter changes
   const handleRegionChange = (newRegion: string) => {
+    hasUserInteractedRef.current = true;
     setRegion(newRegion);
     trackFilterApplied({ region: newRegion, age_group: ageGroup, gender });
   };
 
   const handleAgeGroupChange = (newAgeGroup: string) => {
+    hasUserInteractedRef.current = true;
     setAgeGroup(newAgeGroup);
     trackFilterApplied({ region, age_group: newAgeGroup, gender });
   };
 
   const handleGenderChange = (newGender: string) => {
+    hasUserInteractedRef.current = true;
     setGender(newGender);
     trackFilterApplied({ region, age_group: ageGroup, gender: newGender });
   };
@@ -86,17 +91,22 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
 
   // Handle filter changes
   useEffect(() => {
-    // If on home rankings page, use callback immediately
+    // If on home rankings page with callback, use it
     if (pathname === '/rankings' && onFilterChange) {
       onFilterChange(region, ageGroup, gender);
       return;
     }
 
-    // Otherwise, navigate to filtered route
-    if (!pathname.startsWith('/rankings/')) {
+    // Navigate to filtered route from /rankings or /rankings/...
+    if (!pathname.startsWith('/rankings')) {
       return;
     }
-    
+
+    // On the base /rankings page, only navigate when the user changes a filter
+    if (pathname === '/rankings' && !hasUserInteractedRef.current) {
+      return;
+    }
+
     const targetPath = `/rankings/${region}/${ageGroup}/${gender}`;
     const currentPath = pathname;
     
