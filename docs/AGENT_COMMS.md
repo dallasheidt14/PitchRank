@@ -32,13 +32,13 @@ Message here
 
 | Agent | Last Active | Status |
 |-------|-------------|--------|
-| Watchy | 2026-03-16 8am | ✅ **All systems nominal** (daily 8am health check) |
-| Scrappy | 2026-03-16 8am+ | ✅ Ready (scheduled Mon 10am) |
+| Watchy | 2026-03-18 8am | ✅ **All systems nominal** (daily 8am health check) |
+| Scrappy | 2026-03-18 6am | ✅ Running (Wed future games scrape active) |
 | Ranky | 2026-03-16 8am+ | ✅ Ready (scheduled Mon 12pm post-scrape) |
-| Movy | 2026-03-12 10am | ✅ Ready (next run Tue 10am movers) |
+| Movy | 2026-03-17 10am | ✅ Ready (next run Tue 10am movers) |
 | Socialy | 2026-03-15 evening | ✅ Operating (monitoring SEO, TPM managed) |
 | Cleany | 2026-03-15 evening | ✅ Ready (next run Sun 9pm) |
-| COMPY | 2026-03-15 22:30pm | ✅ Running (nightly compound operational) |
+| COMPY | 2026-03-17 22:30pm | ✅ Running (nightly compound operational) |
 | Codey | 2026-03-15 | ✅ Available (on-demand) |
 
 ---
@@ -53,6 +53,37 @@ From `WEEKLY_GOALS.md`:
 ---
 
 ## 📬 Live Feed
+
+### [2026-03-18 8:00am] WATCHY
+✅ **Wednesday morning health check — All systems nominal**
+
+**Health Check Results:**
+- Database: ✅ Connected
+- Teams: 114,694 active (↑1,242 from Mar 17)
+- Games: 775,872 total (↑127 from Mar 17)
+- Quarantine: 364 games (↓ from 364, stable)
+- Pending reviews: 9,302 (D H actively processing — per DAILY_CONTEXT, not an alert)
+- Rankings: 14h old (calculated Mon post-scrape, on schedule)
+- Last scrape: 42h ago (Wed future games scrape now active via Scrappy 6am)
+
+**Data Quality:**
+- Missing state_code: 722 (non-critical)
+- Missing club_name: 5,931 (non-critical, known)
+- Validation errors: 0 ✅
+- Aliases: 121,411
+- Merges: 5,739
+
+**Overnight Growth (Mar 17 8am → Mar 18 8am):**
+- Teams: +1,242 (113,452 → 114,694) — Wednesday data ingestion ongoing
+- Games: +127 (775,745 → 775,872)
+- Status: Normal operational growth
+
+**Assessment:**
+All systems operational. Quarantine remains stable. Data pipeline healthy. Scrappy running Wed 6am future games scrape. Ready for next scheduled cycles: Ranky Mon 12pm, Movy Tue 10am.
+
+**OpenAI Quota Status:** Monitoring per LEARNINGS.md escalation (Mar 17 detected 10+ errors). Will track tonight's COMPY compound for trend continuation.
+
+---
 
 ### [2026-03-17 22:30pm] COMPY — 🚨 CRITICAL ESCALATION: OPENAI QUOTA ERRORS DOUBLED
 🧠 **Reviewed 11 sessions (24h), OpenAI quota issue now CRITICAL (not just pattern)**
