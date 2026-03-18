@@ -44,6 +44,19 @@ TEAM_IDS = [
 ]
 
 
+async def get_merged_team_ids(supabase, canonical_id: str) -> list:
+    """Get all deprecated team IDs that were merged into this canonical team."""
+    try:
+        result = supabase.table('team_merge_map').select(
+            'deprecated_team_id'
+        ).eq('canonical_team_id', canonical_id).execute()
+        deprecated_ids = [r['deprecated_team_id'] for r in (result.data or [])]
+        return [canonical_id] + deprecated_ids
+    except Exception as e:
+        console.print(f"[yellow]Warning: Could not fetch merge map: {e}[/yellow]")
+        return [canonical_id]
+
+
 async def run_audit():
     supabase_url = os.getenv('SUPABASE_URL')
     supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
@@ -122,36 +135,47 @@ async def run_audit():
         else:
             console.print("[yellow]Team not found in rankings_full table[/yellow]")
 
-        # 3) Fetch games
-        home_games = supabase.table('games').select(
-            'id, game_uid, game_date, home_team_master_id, away_team_master_id, '
-            'home_score, away_score'
-        ).eq('home_team_master_id', team_id).gte('game_date', cutoff_str).not_.is_(
-            'home_score', 'null'
-        ).not_.is_('away_score', 'null').execute()
-
-        away_games = supabase.table('games').select(
-            'id, game_uid, game_date, home_team_master_id, away_team_master_id, '
-            'home_score, away_score'
-        ).eq('away_team_master_id', team_id).gte('game_date', cutoff_str).not_.is_(
-            'home_score', 'null'
-        ).not_.is_('away_score', 'null').execute()
+        # 3) Fetch games (including games from deprecated/merged team IDs)
+        all_team_ids = await get_merged_team_ids(supabase, team_id)
+        if len(all_team_ids) > 1:
+            console.print(f"[cyan]Found {len(all_team_ids) - 1} merged team ID(s) — including their games[/cyan]")
 
         games = []
-        for game in (home_games.data or []):
-            games.append({
-                'date': game['game_date'],
-                'opp_id': game['away_team_master_id'],
-                'gf': game.get('home_score', 0),
-                'ga': game.get('away_score', 0),
-            })
-        for game in (away_games.data or []):
-            games.append({
-                'date': game['game_date'],
-                'opp_id': game['home_team_master_id'],
-                'gf': game.get('away_score', 0),
-                'ga': game.get('home_score', 0),
-            })
+        # Fetch games for all IDs (canonical + deprecated) in batches
+        for tid in all_team_ids:
+            home_games = supabase.table('games').select(
+                'id, game_uid, game_date, home_team_master_id, away_team_master_id, '
+                'home_score, away_score'
+            ).eq('home_team_master_id', tid).gte('game_date', cutoff_str).not_.is_(
+                'home_score', 'null'
+            ).not_.is_('away_score', 'null').execute()
+
+            away_games = supabase.table('games').select(
+                'id, game_uid, game_date, home_team_master_id, away_team_master_id, '
+                'home_score, away_score'
+            ).eq('away_team_master_id', tid).gte('game_date', cutoff_str).not_.is_(
+                'home_score', 'null'
+            ).not_.is_('away_score', 'null').execute()
+
+            for game in (home_games.data or []):
+                # Resolve opponent to canonical ID if it's a deprecated team
+                opp_id = game['away_team_master_id']
+                games.append({
+                    'date': game['game_date'],
+                    'opp_id': opp_id,
+                    'gf': game.get('home_score', 0),
+                    'ga': game.get('away_score', 0),
+                    'source_team_id': tid,
+                })
+            for game in (away_games.data or []):
+                opp_id = game['home_team_master_id']
+                games.append({
+                    'date': game['game_date'],
+                    'opp_id': opp_id,
+                    'gf': game.get('away_score', 0),
+                    'ga': game.get('home_score', 0),
+                    'source_team_id': tid,
+                })
 
         if not games:
             console.print("[red]No games found in 365-day window[/red]")
@@ -285,6 +309,11 @@ async def run_audit():
 
         summary.add_row("", "")
         summary.add_row("Total Games:", str(len(g)))
+        if 'source_team_id' in g.columns:
+            canonical_count = (g['source_team_id'] == team_id).sum()
+            merged_count = (g['source_team_id'] != team_id).sum()
+            summary.add_row("  → From canonical ID:", str(canonical_count))
+            summary.add_row("  → From merged IDs:", str(merged_count))
         summary.add_row("Games in SOS Calc:", str(len(g_sos)))
         summary.add_row("Games Repeat-Capped:", str(len(g) - len(g_sos)))
         summary.add_row("Unique Opponents:", str(g['opp_id'].nunique()))
