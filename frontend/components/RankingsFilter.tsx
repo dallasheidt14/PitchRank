@@ -60,10 +60,11 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
   // Keep dropdowns in sync with the URL when user navigates via links
   // Skip sync if we're the ones causing the navigation (prevents infinite loop)
   useEffect(() => {
-    // Check if we've arrived at our target path - reset navigation flag
+    // Check if we've arrived at our target path - reset navigation flags
     if (isNavigatingRef.current && targetPathRef.current && pathname === targetPathRef.current) {
       isNavigatingRef.current = false;
       targetPathRef.current = null;
+      hasUserInteractedRef.current = false;
       return;
     }
 
@@ -72,12 +73,17 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
       return;
     }
 
+    // Don't sync from URL if user just changed a filter — we're about to navigate
+    if (hasUserInteractedRef.current) {
+      return;
+    }
+
     // On /rankings page (home), don't sync from URL - let user control filters
     if (pathname === '/rankings') {
       return;
     }
 
-    // Only sync if URL params actually changed
+    // Only sync if URL params actually changed (external navigation, e.g. back/forward or link)
     if (
       currentRegion !== region ||
       currentAgeGroup !== ageGroup ||
