@@ -1584,7 +1584,7 @@ elif section == "🆕 New Accounts":
         try:
             account_rows = fetch_all_rows(
                 db.table('user_profiles')
-                .select('id, email, plan, created_at, updated_at')
+                .select('id, email, plan, subscription_status, subscription_period_end, stripe_customer_id, created_at, updated_at')
                 .order('created_at', desc=True)
             )
             accounts_df = pd.DataFrame(account_rows)
@@ -1611,10 +1611,32 @@ elif section == "🆕 New Accounts":
         if not accounts_df.empty:
             accounts_df['email'] = accounts_df.get('email', '').fillna('')
             accounts_df['plan'] = accounts_df.get('plan', 'free').fillna('free').astype(str).str.lower()
+            accounts_df['subscription_status'] = accounts_df.get('subscription_status', '').fillna('').astype(str).str.lower()
+            accounts_df['subscription_period_end'] = pd.to_datetime(accounts_df.get('subscription_period_end'), errors='coerce', utc=True)
+            accounts_df['stripe_customer_id'] = accounts_df.get('stripe_customer_id', '').fillna('')
             accounts_df['created_at_ts'] = pd.to_datetime(accounts_df.get('created_at'), errors='coerce', utc=True)
             accounts_df['updated_at_ts'] = pd.to_datetime(accounts_df.get('updated_at'), errors='coerce', utc=True)
+
+            # Build display_plan that distinguishes trial from active premium
+            def _display_plan(row):
+                p = row['plan']
+                ss = row['subscription_status']
+                if p == 'admin':
+                    return 'admin'
+                if p == 'premium':
+                    if ss == 'trialing':
+                        return 'premium (trial)'
+                    if ss == 'past_due':
+                        return 'premium (past due)'
+                    return 'premium'
+                # plan is 'free' but check if there's a canceled/expired subscription
+                if ss in ('canceled', 'incomplete_expired'):
+                    return 'free (churned)'
+                return 'free'
+
+            accounts_df['display_plan'] = accounts_df.apply(_display_plan, axis=1)
         else:
-            accounts_df = pd.DataFrame(columns=['id', 'email', 'plan', 'created_at_ts', 'updated_at_ts'])
+            accounts_df = pd.DataFrame(columns=['id', 'email', 'plan', 'subscription_status', 'subscription_period_end', 'stripe_customer_id', 'display_plan', 'created_at_ts', 'updated_at_ts'])
 
         # Normalize newsletter fields
         if not newsletter_df.empty:
@@ -1635,10 +1657,11 @@ elif section == "🆕 New Accounts":
         new_7d = int((created_valid >= (now_utc - pd.Timedelta(days=7))).sum()) if not created_valid.empty else 0
         prev_7d = int(((created_valid >= (now_utc - pd.Timedelta(days=14))) & (created_valid < (now_utc - pd.Timedelta(days=7)))).sum()) if not created_valid.empty else 0
         premium_accounts = int((accounts_df['plan'] == 'premium').sum()) if total_accounts > 0 else 0
+        trial_accounts = int((accounts_df['subscription_status'] == 'trialing').sum()) if total_accounts > 0 else 0
         premium_pct = (premium_accounts / total_accounts * 100) if total_accounts > 0 else 0.0
         total_subscribers = len(newsletter_df)
 
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
             st.metric("Total Accounts", f"{total_accounts:,}")
         with col2:
@@ -1646,6 +1669,8 @@ elif section == "🆕 New Accounts":
         with col3:
             st.metric("Premium Accounts", f"{premium_accounts:,}", delta=f"{premium_pct:.1f}% of accounts")
         with col4:
+            st.metric("Trial Accounts", f"{trial_accounts:,}")
+        with col5:
             if newsletter_available:
                 st.metric("Newsletter Subscribers", f"{total_subscribers:,}")
             else:
@@ -1664,7 +1689,7 @@ elif section == "🆕 New Accounts":
             else:
                 f1, f2, f3, f4 = st.columns([1.2, 1.2, 1.6, 1.2])
 
-                plan_options = sorted(accounts_df['plan'].dropna().unique().tolist())
+                plan_options = sorted(accounts_df['display_plan'].dropna().unique().tolist())
                 with f1:
                     selected_plans = st.multiselect("Plan", options=plan_options, default=plan_options, key="acct_plan_filter")
                 with f2:
@@ -1682,7 +1707,7 @@ elif section == "🆕 New Accounts":
                 filtered_accounts = accounts_df.copy()
 
                 if selected_plans:
-                    filtered_accounts = filtered_accounts[filtered_accounts['plan'].isin(selected_plans)]
+                    filtered_accounts = filtered_accounts[filtered_accounts['display_plan'].isin(selected_plans)]
 
                 cutoff_map = {
                     "Last 7 Days": now_utc - pd.Timedelta(days=7),
@@ -1708,10 +1733,12 @@ elif section == "🆕 New Accounts":
 
                 st.caption(f"Showing {len(filtered_accounts):,} of {total_accounts:,} accounts")
 
-                display_accounts = filtered_accounts[['email', 'plan', 'created_at_ts', 'updated_at_ts', 'id']].copy()
+                display_accounts = filtered_accounts[['email', 'display_plan', 'subscription_status', 'subscription_period_end', 'created_at_ts', 'updated_at_ts', 'id']].copy()
                 display_accounts['created_at_ts'] = display_accounts['created_at_ts'].dt.strftime('%Y-%m-%d %H:%M UTC')
                 display_accounts['updated_at_ts'] = display_accounts['updated_at_ts'].dt.strftime('%Y-%m-%d %H:%M UTC')
-                display_accounts.columns = ['Email', 'Plan', 'Created At', 'Updated At', 'User ID']
+                display_accounts['subscription_period_end'] = display_accounts['subscription_period_end'].dt.strftime('%Y-%m-%d %H:%M UTC')
+                display_accounts['subscription_status'] = display_accounts['subscription_status'].replace('', '-')
+                display_accounts.columns = ['Email', 'Plan', 'Sub Status', 'Sub Expires', 'Created At', 'Updated At', 'User ID']
 
                 st.dataframe(display_accounts, use_container_width=True, hide_index=True)
 
@@ -1772,7 +1799,7 @@ elif section == "🆕 New Accounts":
 
                     st.markdown("**Plan Distribution (Selected Window)**")
                     plan_distribution = (
-                        valid_signup_df['plan']
+                        valid_signup_df['display_plan']
                         .value_counts()
                         .rename_axis('plan')
                         .reset_index(name='accounts')
