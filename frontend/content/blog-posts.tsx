@@ -27,6 +27,349 @@ import {
  */
 export const blogPosts: BlogPost[] = [
   {
+    slug: 'michigan-youth-soccer-rankings-guide',
+    title: 'Michigan Youth Soccer Rankings: Your Complete Guide to MI Club Soccer (2026)',
+    excerpt: 'The most comprehensive Michigan youth soccer rankings covering 3,890 teams. Find out where your team stands from Detroit to Grand Rapids, with insights on top clubs like Nationals, Michigan Jaguars, and Detroit City FC.',
+    author: 'PitchRank Team',
+    date: '2026-03-19',
+    readingTime: '9 min read',
+    tags: ['Michigan', 'State Guide', 'Club Soccer', 'Rankings'],
+    content: (
+      <div className="space-y-8">
+        {/* Introduction */}
+        <section>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Your child's team just won their weekend tournament in Troy. Another parent says their kid plays for the "#1 ranked team in Michigan." A club director in Grand Rapids tells you their program is "top tier."
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            So where does YOUR team actually stand in Michigan's competitive youth soccer landscape?
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Michigan youth soccer is thriving—from the Nationals' 319 teams in the Detroit metro to the Michigan Jaguars' 267-team operation, to established clubs like Liverpool FC-IA Michigan and Detroit City FC. But with <strong>3,890 teams</strong> across the state, it's hard to know which rankings to trust and what they actually mean for your child's development.
+          </p>
+          <p className="text-muted-foreground leading-relaxed">
+            This guide gives you the full picture of Michigan youth soccer rankings. We'll show you how teams are actually ranked, which clubs dominate each age group, what the numbers mean for college recruiting, and how to use rankings to make smarter decisions during tryout season.
+          </p>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings" className="text-primary hover:underline">Check your Michigan team's current ranking</a></p>
+          </div>
+        </section>
+
+        {/* Michigan Soccer Landscape */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <MapPin className="size-6 text-primary" />
+            Michigan's Youth Soccer Landscape: By the Numbers
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Michigan is one of the most active youth soccer states in the Midwest. Our data shows exactly how big the competitive scene is:
+          </p>
+          
+          <div className="grid gap-3 mb-6">
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <div className="flex items-center gap-3 mb-2">
+                <Users className="size-5 text-primary" />
+                <p className="font-semibold">3,890 Teams Tracked Statewide</p>
+              </div>
+              <p className="text-sm text-muted-foreground">From U8 recreational to U19 elite, we rank every competitive team in Michigan</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <div className="flex items-center gap-3 mb-2">
+                <Activity className="size-5 text-primary" />
+                <p className="font-semibold">Peak Competition: U11-U13</p>
+              </div>
+              <p className="text-sm text-muted-foreground">U12 has 627 teams, U11 has 617 teams, and U13 has 541 teams—the most competitive age groups</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <div className="flex items-center gap-3 mb-2">
+                <TrendingUp className="size-5 text-primary" />
+                <p className="font-semibold">59% Male, 41% Female</p>
+              </div>
+              <p className="text-sm text-muted-foreground">2,293 boys teams and 1,597 girls teams across all age groups</p>
+            </div>
+          </div>
+
+          <p className="text-muted-foreground leading-relaxed">
+            What makes Michigan unique is the concentration of strong programs around Detroit, Ann Arbor, and Grand Rapids—but also the growing competitive clubs in Lansing, Kalamazoo, and even the Upper Peninsula.
+          </p>
+        </section>
+
+        {/* Top Clubs */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <BarChart3 className="size-6 text-primary" />
+            Top Michigan Youth Soccer Clubs by Team Count
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Size doesn't always equal quality, but the largest clubs in Michigan have built extensive programs that often correlate with strong rankings. Here are the biggest players:
+          </p>
+          
+          <div className="grid gap-3 mb-6">
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="font-semibold">1. Nationals — 319 teams</p>
+              <p className="text-sm text-muted-foreground">Based in the Detroit metro area, Nationals is Michigan's largest club with teams across all age groups</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="font-semibold">2. Michigan Jaguars — 267 teams</p>
+              <p className="text-sm text-muted-foreground">Novi-based with strong presence in competitive leagues and ECNL pathways</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="font-semibold">3. Liverpool FC-IA Michigan — 155 teams</p>
+              <p className="text-sm text-muted-foreground">Part of the Liverpool FC International Academy network, strong brand recognition</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="font-semibold">4. Detroit City FC — 151 teams</p>
+              <p className="text-sm text-muted-foreground">Connected to the pro club, growing youth development program</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="font-semibold">5. Michigan Tigers FC — 91 teams</p>
+              <p className="text-sm text-muted-foreground">Strong regional presence, multiple competitive divisions</p>
+            </div>
+          </div>
+
+          <h3 className="text-xl font-display font-semibold mb-3 mt-6">Other Notable Michigan Clubs:</h3>
+          <ul className="list-disc pl-6 text-muted-foreground space-y-2 mb-4">
+            <li><strong>Michigan Stars Elite SC</strong> (89 teams) — Competitive program with solid track record</li>
+            <li><strong>AC Grand Rapids Academy</strong> (75 teams) — Western Michigan's top developmental club</li>
+            <li><strong>Legends FC</strong> (73 teams) — Strong presence in southeastern Michigan</li>
+            <li><strong>Midwest United</strong> (67 teams) — Growing club with regional reach</li>
+            <li><strong>Michigan Wolves</strong> (63 teams) — Historic club with strong U15+ programs</li>
+          </ul>
+
+          <p className="text-muted-foreground leading-relaxed">
+            <strong>Why team count matters:</strong> Larger clubs typically offer more pathways (ECNL, NPL, regional leagues), better infrastructure, and stronger internal competition. But smaller, specialized clubs can sometimes produce better individual development—rankings help you see which clubs are actually competitive vs. just big.
+          </p>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings" className="text-primary hover:underline">Compare Michigan clubs by ranking across age groups</a></p>
+          </div>
+        </section>
+
+        {/* How Rankings Work */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Target className="size-6 text-primary" />
+            How Michigan Youth Soccer Rankings Actually Work
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Most Michigan parents are familiar with <strong>MYSL (Michigan Youth Soccer League)</strong> or <strong>MSPSP (Michigan State Premier Soccer Program)</strong> standings. But those only rank teams <em>within their specific leagues</em>.
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            <strong>PitchRank goes further:</strong> We track every game across all leagues, tournaments, and showcase events to create comprehensive state rankings. Here's how it works:
+          </p>
+
+          <div className="grid gap-3 mb-6">
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="font-semibold mb-1">1. Every Game Counts</p>
+              <p className="text-sm text-muted-foreground">Not just tournaments—league games, friendlies, and showcase matches all factor into rankings</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="font-semibold mb-1">2. Opponent Strength Matters Most</p>
+              <p className="text-sm text-muted-foreground">Beating a top-10 team moves your ranking more than 5 wins against weaker opponents</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="font-semibold mb-1">3. Recent Results Weighted Heavier</p>
+              <p className="text-sm text-muted-foreground">Your team's performance from the last 3 months matters more than results from a year ago</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="font-semibold mb-1">4. Algorithm-Based, Not Opinions</p>
+              <p className="text-sm text-muted-foreground">Unlike "expert rankings," our system uses objective data—no politics, no favoritism</p>
+            </div>
+          </div>
+
+          <p className="text-muted-foreground leading-relaxed">
+            This means a Michigan team can have a mediocre tournament record but still rank highly if they're consistently playing (and competing with) strong opponents. Conversely, a team with a 15-2 record against weak competition won't break into the top 50.
+          </p>
+        </section>
+
+        {/* Regional Breakdown */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Globe className="size-6 text-primary" />
+            Michigan Soccer by Region: Where the Competition Lives
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Michigan isn't one soccer market—it's several. Here's how the competitive landscape breaks down geographically:
+          </p>
+
+          <h3 className="text-xl font-display font-semibold mb-3">🏙️ Detroit Metro (Southeast Michigan)</h3>
+          <p className="text-muted-foreground leading-relaxed mb-3">
+            <strong>Clubs:</strong> Nationals, Michigan Jaguars (Novi), Liverpool FC-IA Michigan, Detroit City FC, Legends FC, Vardar<br />
+            <strong>Competition level:</strong> Highest in the state—most ECNL and GA clubs are based here<br />
+            <strong>Travel commitment:</strong> Lower for local teams, but expect regional travel for top tournaments
+          </p>
+
+          <h3 className="text-xl font-display font-semibold mb-3 mt-6">🌲 West Michigan (Grand Rapids Area)</h3>
+          <p className="text-muted-foreground leading-relaxed mb-3">
+            <strong>Clubs:</strong> AC Grand Rapids Academy, Grand Rapids Crew<br />
+            <strong>Competition level:</strong> Growing rapidly, with more top teams emerging in recent years<br />
+            <strong>Travel commitment:</strong> Moderate—teams often travel to Detroit metro for high-level games
+          </p>
+
+          <h3 className="text-xl font-display font-semibold mb-3 mt-6">🎓 Ann Arbor & Mid-Michigan</h3>
+          <p className="text-muted-foreground leading-relaxed mb-3">
+            <strong>Clubs:</strong> Ann Arbor United, Cap City Athletic 1847 (Lansing), Midwest United<br />
+            <strong>Competition level:</strong> Solid regional programs, some teams compete with Detroit metro clubs<br />
+            <strong>Travel commitment:</strong> Moderate—less intense than Detroit metro but still competitive
+          </p>
+
+          <h3 className="text-xl font-display font-semibold mb-3 mt-6">❄️ Upper Peninsula & Northern Michigan</h3>
+          <p className="text-muted-foreground leading-relaxed mb-3">
+            <strong>Competition level:</strong> Smaller club scene, but teams often punch above their weight in state competitions<br />
+            <strong>Travel commitment:</strong> HIGH—these teams drive hours for quality competition
+          </p>
+
+          <p className="text-muted-foreground leading-relaxed mt-6">
+            <strong>Key insight:</strong> If your child plays for a top-25 ranked team in Grand Rapids or Lansing, that often indicates stronger competition than a similar rank in Detroit metro—simply because there's more competition density in the southeast.
+          </p>
+        </section>
+
+        {/* What Rankings Mean */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <HelpCircle className="size-6 text-primary" />
+            What Your Michigan Team's Ranking Actually Means
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Let's say your child's U13 team is ranked #47 out of 541 Michigan U13 teams. What does that tell you?
+          </p>
+
+          <div className="grid gap-3 mb-6">
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="font-semibold mb-1">✅ Your team is in the top 9% statewide</p>
+              <p className="text-sm text-muted-foreground">That's legitimately competitive—this team regularly faces strong opponents</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="font-semibold mb-1">✅ College coaches will notice at U15+</p>
+              <p className="text-sm text-muted-foreground">If your team maintains this ranking, recruiters looking at Michigan will see your roster</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="font-semibold mb-1">⚠️ But it doesn't mean your child is a top-50 player</p>
+              <p className="text-sm text-muted-foreground">Team rankings show team strength—individual development is separate</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="font-semibold mb-1">⚠️ And it can change quickly</p>
+              <p className="text-sm text-muted-foreground">Rankings update weekly—one tough tournament stretch can shift things significantly</p>
+            </div>
+          </div>
+
+          <h3 className="text-xl font-display font-semibold mb-3 mt-6">Michigan Ranking Benchmarks by Tier:</h3>
+          <ul className="list-disc pl-6 text-muted-foreground space-y-2 mb-4">
+            <li><strong>Top 10:</strong> Elite Michigan teams—likely ECNL, GA, or top NPL. These teams regularly compete nationally.</li>
+            <li><strong>Top 50:</strong> Strong regional teams. Competitive in state tournaments, occasional national exposure.</li>
+            <li><strong>Top 100:</strong> Solid teams. Good local competition, developmental focus still matters.</li>
+            <li><strong>100-300:</strong> Mid-tier competitive. These teams play in strong leagues but may not dominate.</li>
+            <li><strong>300+:</strong> Recreational to lower-competitive. Rankings may fluctuate based on limited game data.</li>
+          </ul>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings" className="text-primary hover:underline">Find your team's Michigan percentile ranking</a></p>
+          </div>
+        </section>
+
+        {/* College Recruiting */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <GraduationCap className="size-6 text-primary" />
+            Michigan Youth Soccer Rankings and College Recruiting
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Here's the reality: <strong>College coaches look at Michigan differently than California or Texas.</strong> It's not a hotbed state for Division I soccer, but there are clear pathways—and rankings play a role.
+          </p>
+
+          <h3 className="text-xl font-display font-semibold mb-3">How College Coaches Use Michigan Rankings:</h3>
+          <ul className="list-disc pl-6 text-muted-foreground space-y-2 mb-6">
+            <li><strong>Top-10 teams get automatic attention</strong> — Coaches know these rosters have talent worth scouting</li>
+            <li><strong>Top-50 teams are on the radar</strong> — Especially for D2, D3, and NAIA programs looking in the Midwest</li>
+            <li><strong>Rankings help identify "diamonds"</strong> — A standout player on a top-100 team can still get recruited</li>
+            <li><strong>Team ranking opens doors, but individual performance closes deals</strong> — You still need highlight reels and stats</li>
+          </ul>
+
+          <h3 className="text-xl font-display font-semibold mb-3">Michigan's College Recruiting Reality Check:</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Michigan produces fewer D1 players than states like California, Florida, or New Jersey. But <strong>Michigan kids DO get recruited</strong>—especially to:
+          </p>
+          <ul className="list-disc pl-6 text-muted-foreground space-y-2 mb-4">
+            <li><strong>Big Ten schools:</strong> Michigan, Michigan State, Northwestern, Ohio State scout heavily in-state</li>
+            <li><strong>MAC schools:</strong> Western Michigan, Eastern Michigan, Central Michigan actively recruit locally</li>
+            <li><strong>Strong D2 programs:</strong> Grand Valley State, Northwood, Davenport, Ferris State</li>
+            <li><strong>Top D3 programs:</strong> Calvin, Hope College, Kalamazoo College (all nationally competitive)</li>
+          </ul>
+
+          <p className="text-muted-foreground leading-relaxed">
+            <strong>Bottom line:</strong> If your child plays for a top-50 Michigan team and has strong individual stats/video, college recruiting is realistic. But don't assume a top-10 team ranking guarantees a scholarship—academics and individual performance still matter most.
+          </p>
+        </section>
+
+        {/* Using Rankings for Decisions */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <CheckCircle className="size-6 text-primary" />
+            How to Use Michigan Rankings During Tryout Season
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Tryouts in Michigan typically happen in late spring (April-May) for the following season. Here's how to use rankings to make smarter club decisions:
+          </p>
+
+          <h3 className="text-xl font-display font-semibold mb-3">✅ DO Use Rankings To:</h3>
+          <ul className="list-disc pl-6 text-muted-foreground space-y-2 mb-6">
+            <li><strong>Compare clubs objectively</strong> — See which clubs have consistently strong teams across age groups</li>
+            <li><strong>Gauge competition level</strong> — Know if your child will be challenged or overmatched</li>
+            <li><strong>Identify clubs with strong older teams</strong> — If their U17/U18 teams rank well, the club likely develops players long-term</li>
+            <li><strong>Ask coaches about their ranking strategy</strong> — Good coaches know their team's ranking and can explain it</li>
+          </ul>
+
+          <h3 className="text-xl font-display font-semibold mb-3">❌ DON'T Use Rankings To:</h3>
+          <ul className="list-disc pl-6 text-muted-foreground space-y-2 mb-6">
+            <li><strong>Assume the #1 team is best for YOUR child</strong> — Development matters more than team ranking at U10-U13</li>
+            <li><strong>Dismiss lower-ranked clubs entirely</strong> — A smaller club might offer better coaching and playing time</li>
+            <li><strong>Ignore club culture</strong> — Rankings don't measure team environment, coaching philosophy, or parent drama</li>
+            <li><strong>Make it the only factor</strong> — Cost, travel commitment, and coaching quality matter as much as ranking</li>
+          </ul>
+
+          <p className="text-muted-foreground leading-relaxed mt-6">
+            <strong>Smart approach:</strong> Use rankings as <em>one data point</em> among many. Check the club's ranking trend over multiple age groups, ask how they use rankings internally, and prioritize fit over prestige.
+          </p>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings" className="text-primary hover:underline">Browse Michigan club rankings by age group before tryouts</a></p>
+          </div>
+        </section>
+
+        {/* Final Thoughts */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4">Final Thoughts: Using Michigan Rankings Wisely</h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Michigan youth soccer is competitive, growing, and full of strong clubs. But rankings are just a tool—not a verdict on your child's potential or your club choice.
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            <strong>What we hope you take away:</strong>
+          </p>
+          <ul className="list-disc pl-6 text-muted-foreground space-y-2 mb-4">
+            <li>Michigan has <strong>3,890 teams</strong> across all age groups—ranking top-100 is genuinely competitive</li>
+            <li>The biggest clubs (Nationals, Michigan Jaguars, Detroit City FC) aren't automatically the best fit for every player</li>
+            <li>Rankings help you understand <em>team strength</em>, but they don't measure individual development or coaching quality</li>
+            <li>College recruiting from Michigan is realistic, especially for D2/D3 programs—but team ranking alone won't get your child recruited</li>
+            <li>Use rankings during tryouts to compare clubs objectively, but balance them with culture, cost, and coaching philosophy</li>
+          </ul>
+          <p className="text-muted-foreground leading-relaxed">
+            At the end of the day, the "best" team is the one where your child develops, enjoys playing, and is appropriately challenged. Rankings help you find that team—but they're not the whole story.
+          </p>
+        </section>
+
+        <section className="p-6 rounded-lg bg-primary/10 border border-primary/20">
+          <p className="font-semibold mb-2">
+            <a href="/rankings" className="text-primary hover:underline">Explore Michigan Youth Soccer Rankings →</a>
+          </p>
+          <p className="text-sm text-muted-foreground">
+            See where your team ranks among 3,890 Michigan teams. Updated weekly with real game data from every league, tournament, and showcase event.
+          </p>
+        </section>
+      </div>
+    ),
+  },
+  {
     slug: 'youth-soccer-rankings-explained',
     title: 'Youth Soccer Rankings Explained: A Parent\'s Guide to Understanding Your Team\'s Position',
     excerpt: 'Confused by youth soccer rankings? This guide breaks down how different ranking systems work, what your team\'s ranking actually means, and which systems parents should trust.',
@@ -2846,6 +3189,293 @@ export const blogPosts: BlogPost[] = [
             <a href="/rankings" className="text-primary hover:underline">See your team&apos;s PowerScore — View rankings by age, region, and gender →</a>
           </p>
           <p className="text-sm text-muted-foreground mt-2">Updated weekly from real game data.</p>
+        </section>
+      </div>
+    ),
+  },
+  {
+    slug: 'michigan-youth-soccer-rankings-guide',
+    title: 'Michigan Youth Soccer Rankings: Your Guide to the State\'s Best Teams',
+    excerpt: 'Complete guide to Michigan youth soccer rankings. Discover where your team stands, what the top clubs are doing right, and how to use rankings to choose the best program for your child.',
+    author: 'PitchRank Team',
+    date: '2026-03-21',
+    readingTime: '9 min read',
+    tags: ['Michigan', 'Rankings', 'Club Soccer', 'Decision Making'],
+    content: (
+      <div className="space-y-8">
+        {/* Introduction */}
+        <section>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            If you're a Michigan soccer parent, you know the landscape is competitive. From the sprawling clubs of Detroit metro to the rising programs in Grand Rapids, Michigan has serious youth soccer culture.
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            But when it comes to actually comparing teams and understanding where your child's program stands, the information gets murky fast. GotSport shows one ranking. MYSL shows another. National rankings exist somewhere else. How do you know what's real?
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            We analyzed <strong>3,890 Michigan youth soccer teams</strong> across all age groups and competitive levels. The result: a comprehensive picture of Michigan's youth soccer landscape—from the powerhouse Nationals (319 teams) to emerging programs in every region of the state.
+          </p>
+          <p className="text-muted-foreground leading-relaxed">
+            This guide shows you where the best teams are, what makes them competitive, and how to use that information to evaluate the right program for your child.
+          </p>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings/mi" className="text-primary hover:underline">Check your Michigan team's current ranking</a></p>
+          </div>
+        </section>
+
+        {/* Michigan Youth Soccer by the Numbers */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <BarChart3 className="size-6 text-primary" />
+            Michigan Youth Soccer by the Numbers
+          </h2>
+          
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Michigan's competitive youth soccer ecosystem is massive. We're tracking <strong>3,890 teams</strong> across the state, spanning U8 to U19 age groups.
+          </p>
+
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
+              <p className="text-sm text-muted-foreground mb-1">Peak Age Groups</p>
+              <p className="text-2xl font-bold">U12 & U13</p>
+              <p className="text-xs text-muted-foreground mt-1">627 and 541 teams</p>
+            </div>
+            <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
+              <p className="text-sm text-muted-foreground mb-1">Gender Split</p>
+              <p className="text-2xl font-bold">59% / 41%</p>
+              <p className="text-xs text-muted-foreground mt-1">Male / Female</p>
+            </div>
+          </div>
+
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            What this tells you: U12 and U13 represent the heart of Michigan's competitive youth soccer. If you're evaluating a club, pay special attention to their depth in these age groups—it shows long-term sustainability.
+          </p>
+
+          <p className="text-muted-foreground leading-relaxed">
+            The roughly equal gender split (59% male, 41% female) reflects Michigan's commitment to girls' soccer development, with strong ECNL and Girls Academy programs growing across the state.
+          </p>
+        </section>
+
+        {/* The Power Clubs of Michigan */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <TrendingUp className="size-6 text-primary" />
+            Michigan's Power Clubs: Who Dominates the Rankings?
+          </h2>
+          
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            When you're evaluating Michigan clubs, a few names keep appearing at the top. Here's why:
+          </p>
+
+          <div className="space-y-4 mb-6">
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold text-lg mb-2">Nationals <span className="text-sm text-muted-foreground font-normal">(319 teams)</span></h4>
+              <p className="text-sm text-muted-foreground mb-2">The largest youth soccer organization in Michigan. Nationals fields teams across every age group (U8-U19) with two competitive teams per age bracket in their GA (Girls Academy) program. Recently ranked <strong>#7 nationally</strong> with 4,000+ players.</p>
+              <p className="text-xs text-muted-foreground italic">Why it matters: Scale + consistency. Having 2 teams per age group means proven development at multiple competitive levels.</p>
+            </div>
+
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold text-lg mb-2">Michigan Jaguars <span className="text-sm text-muted-foreground font-normal">(267 teams)</span></h4>
+              <p className="text-sm text-muted-foreground mb-2">Michigan's second-largest club with strong representation across competitive divisions. The Jaguars have established programs in ECNL, MLS NEXT, and competitive league play.</p>
+              <p className="text-xs text-muted-foreground italic">Why it matters: Multiple competitive pathways. Not all players want ECNL, and Jaguars offer choice.</p>
+            </div>
+
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold text-lg mb-2">Liverpool FC-IA Michigan <span className="text-sm text-muted-foreground font-normal">(155 teams)</span></h4>
+              <p className="text-sm text-muted-foreground mb-2">Brings international club structure to Michigan youth soccer. Strong in both boys' and girls' programs with emphasis on technical development.</p>
+              <p className="text-xs text-muted-foreground italic">Why it matters: International methodology. If your family values European-style training, this is worth exploring.</p>
+            </div>
+
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold text-lg mb-2">Detroit City FC & Michigan Tigers FC <span className="text-sm text-muted-foreground font-normal">(151 & 91 teams)</span></h4>
+              <p className="text-sm text-muted-foreground mb-2">Both offer strong competitive options, particularly in the Detroit metro area where competition is densest.</p>
+              <p className="text-xs text-muted-foreground italic">Why it matters: Regional dominance. If you're in Detroit, these clubs set the competitive standard.</p>
+            </div>
+          </div>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings/mi/u13/male" className="text-primary hover:underline">See where Michigan's top U13 boys teams rank</a></p>
+          </div>
+        </section>
+
+        {/* Regional Breakdown */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <MapPin className="size-6 text-primary" />
+            Where Are Michigan's Best Teams? A Regional Breakdown
+          </h2>
+          
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Competition in Michigan isn't evenly distributed. Certain regions have dramatically deeper competitive options than others.
+          </p>
+
+          <div className="space-y-4 mb-6">
+            <div className="p-4 rounded-lg border-l-4 border-l-primary bg-muted/30">
+              <h4 className="font-semibold mb-2">🏆 Detroit Metro (Southeast Michigan)</h4>
+              <p className="text-sm text-muted-foreground mb-2">Where the power is concentrated. Home to Nationals, Michigan Jaguars, Detroit City FC, and most ECNL/GA programs. If your family is in or near Detroit, you have the most competitive options in the state.</p>
+              <p className="text-xs text-muted-foreground"><strong>Reality check:</strong> More clubs = more competition. You'll have elite options, but also higher costs and more demanding commitments.</p>
+            </div>
+
+            <div className="p-4 rounded-lg border-l-4 border-l-emerald-500 bg-muted/30">
+              <h4 className="font-semibold mb-2">⚽ Grand Rapids & West Michigan</h4>
+              <p className="text-sm text-muted-foreground mb-2">Growing competitive soccer region with clubs like AC Grand Rapids Academy leading the way. Strong development culture but fewer ultra-elite options than Detroit.</p>
+              <p className="text-xs text-muted-foreground"><strong>Opportunity:</strong> Top-tier development with less travel burden. Often overlooked by families focused only on Detroit clubs.</p>
+            </div>
+
+            <div className="p-4 rounded-lg border-l-4 border-l-blue-500 bg-muted/30">
+              <h4 className="font-semibold mb-2">🎓 University of Michigan / Ann Arbor Region</h4>
+              <p className="text-sm text-muted-foreground mb-2">Emerging as a secondary competitive hub. College soccer culture drives youth development, and several quality clubs are establishing competitive teams here.</p>
+              <p className="text-xs text-muted-foreground"><strong>Emerging trend:</strong> Increasing options for families seeking college-pipeline development without Detroit costs.</p>
+            </div>
+          </div>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings/mi/u12/female" className="text-primary hover:underline">Check Michigan girls' soccer rankings by age group</a></p>
+          </div>
+        </section>
+
+        {/* Understanding Competitive Levels */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Target className="size-6 text-primary" />
+            What "Competitive" Actually Means in Michigan Soccer
+          </h2>
+          
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            You'll hear Michigan clubs described as ECNL, GA, MLS NEXT, or just "competitive." What's the difference? And why does it matter?
+          </p>
+
+          <div className="space-y-3 mb-6">
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>ECNL (Elite Clubs National League)</strong> — Top tier, invitation only. If a club has ECNL teams, they're among Michigan's best. Very high commitment and cost.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>GA (Girls Academy)</strong> — Boys' equivalent to ECNL for girls' soccer. Nationals dominates Michigan's GA landscape.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>MLS NEXT</strong> — Newer competitive tier focused on player development. Growing quickly in Michigan, especially boys' soccer.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>Competitive / Premier League</strong> — High-level play without ECNL/GA/MLS NEXT designation. Often more affordable, similar quality development.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>Recreational / House Leagues</strong> — Community soccer. Fun, local, much lower cost and commitment.</p>
+            </div>
+          </div>
+
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Here's the parent truth: Your child's optimal level depends on development needs and family priorities—not league prestige. A child can develop just fine in MLS NEXT. But if your family can only handle one seasonal commitment, ECNL might not be realistic.
+          </p>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/methodology" className="text-primary hover:underline">Learn how PitchRank ranks teams across all competitive levels</a></p>
+          </div>
+        </section>
+
+        {/* How to Use Rankings to Choose a Club */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <CheckCircle className="size-6 text-primary" />
+            Using Rankings to Choose a Michigan Club: The Parent Playbook
+          </h2>
+          
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Rankings are useful—but only when used the right way. Here's how to think about them during tryout season:
+          </p>
+
+          <div className="space-y-4 mb-6">
+            <div className="p-4 rounded-lg border-l-4 border-l-primary bg-primary/5">
+              <h4 className="font-semibold mb-2">1. Check the Ranking, But Don't Stop There</h4>
+              <p className="text-sm text-muted-foreground">If your child is trying out for a team ranked #5, that's one data point. But ask: #5 nationally? In Michigan? In your age group? Rankings are context-dependent. A team ranked #50 in U14 boys (when there are 500+ U14 teams in Michigan) is actually quite competitive.</p>
+            </div>
+
+            <div className="p-4 rounded-lg border-l-4 border-l-emerald-500 bg-emerald-500/5">
+              <h4 className="font-semibold mb-2">2. Look for Depth, Not Just One Ranked Team</h4>
+              <p className="text-sm text-muted-foreground">Nationals has 319 teams because they have multiple competitive teams at every age level. That's a sign of club stability and player development. A club with one ranked team might be strong at that level but underdeveloped elsewhere.</p>
+            </div>
+
+            <div className="p-4 rounded-lg border-l-4 border-l-blue-500 bg-blue-500/5">
+              <h4 className="font-semibold mb-2">3. Compare Within Your Region First</h4>
+              <p className="text-sm text-muted-foreground">A Grand Rapids team ranked #40 in Michigan might be top-tier for that region. Don't reject it because it's not top 10 statewide. Your child benefits from playing locally competitive soccer, not from joining an elite Detroit club where they sit on the bench.</p>
+            </div>
+
+            <div className="p-4 rounded-lg border-l-4 border-l-amber-500 bg-amber-500/5">
+              <h4 className="font-semibold mb-2">4. Ask Coaches About Their Ranking</h4>
+              <p className="text-sm text-muted-foreground mb-2">If a team is ranked #25, ask the coach:</p>
+              <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
+                <li>How do they use that ranking in player development?</li>
+                <li>Does higher ranking mean older, more selective rosters (less development for younger players)?</li>
+                <li>What's their philosophy—developing talent or winning now?</li>
+              </ul>
+            </div>
+
+            <div className="p-4 rounded-lg border-l-4 border-l-purple-500 bg-purple-500/5">
+              <h4 className="font-semibold mb-2">5. Balance Rankings with Playing Time</h4>
+              <p className="text-sm text-muted-foreground">Your child develops better playing 80 minutes per week on a good team than sitting the bench on an elite team. Check the team's roster depth and ask whether your child's skill level matches the team's typical starters.</p>
+            </div>
+          </div>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings/mi/u14/male" className="text-primary hover:underline">See exact Michigan U14 team rankings to compare clubs</a></p>
+          </div>
+        </section>
+
+        {/* The Reality Check */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <AlertTriangle className="size-6 text-primary" />
+            The Reality: What Michigan Rankings Don't Tell You
+          </h2>
+          
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Rankings are one tool. Here's what they don't measure:
+          </p>
+
+          <div className="space-y-3">
+            <div className="p-3 rounded-lg bg-red-50 border border-red-200 dark:bg-red-950/20 dark:border-red-900">
+              <p className="text-sm"><strong>Coaching Quality.</strong> Two teams with identical rankings might have very different coaches. Ask about coach backgrounds, player development rates, and college placement history.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-red-50 border border-red-200 dark:bg-red-950/20 dark:border-red-900">
+              <p className="text-sm"><strong>Your Child's Fit.</strong> Your kid is an individual. A top-ranked team might be the perfect fit or a terrible match depending on coaching style, team culture, and playing time.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-red-50 border border-red-200 dark:bg-red-950/20 dark:border-red-900">
+              <p className="text-sm"><strong>Cost & Travel Burden.</strong> Many elite Michigan clubs require significant travel, especially for tournament season. Rankings don't account for whether your family can sustain that commitment.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-red-50 border border-red-200 dark:bg-red-950/20 dark:border-red-900">
+              <p className="text-sm"><strong>College Recruiting.</strong> A ranked team helps you get noticed. But individual performance, academics, and character matter far more to college coaches.</p>
+            </div>
+          </div>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/blog/youth-soccer-rankings-explained" className="text-primary hover:underline">Read our guide to understanding what rankings actually mean</a></p>
+          </div>
+        </section>
+
+        {/* Call to Action / Closing */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Users className="size-6 text-primary" />
+            Ready to Find Where Your Michigan Team Stands?
+          </h2>
+          
+          <p className="text-muted-foreground leading-relaxed mb-6">
+            Michigan has <strong>3,890 youth soccer teams</strong> competing across every age group and competitive level. Whether you're evaluating clubs, comparing team strength, or just curious where your child's team ranks, PitchRank analyzes real game data to give you an objective picture.
+          </p>
+
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Use rankings as one tool in your decision-making process. Combine them with coaching conversations, club visits, and honest assessment of your family's priorities. The best club isn't always the highest-ranked one—it's the one that matches your child's development needs and your family's reality.
+          </p>
+
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold mb-2">→ <a href="/rankings/mi" className="text-primary hover:underline">Check Your Michigan Team's Ranking Now</a></p>
+            <p className="text-sm text-muted-foreground">Browse Michigan rankings by age group, gender, and competitive level.</p>
+          </div>
+
+          <div className="mt-8 p-4 rounded-lg bg-muted/50 border">
+            <p className="text-sm text-muted-foreground">
+              <strong>About this data:</strong> PitchRank tracks 3,890 Michigan youth soccer teams across U8-U19 age groups. Our rankings are based on real game results, updated weekly, and cover all competitive levels from recreational to elite. Unlike tournament-only rankings, we include every team's season-long performance.
+            </p>
+          </div>
         </section>
       </div>
     ),
