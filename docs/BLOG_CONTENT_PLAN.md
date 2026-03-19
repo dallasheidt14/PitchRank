@@ -11,9 +11,23 @@
 **Search Volume Estimate:** MEDIUM (growing - just appeared in GSC!)  
 **Competition:** LOW (USArank has zero content, MaxPreps only does high school)  
 **Current Position:** #30.5 (page 3 - VERY WINNABLE!) → **EXPECT PUSH TO PAGE 1-2 WITHIN 2 WEEKS**
-**Published:** Friday, March 21, 2026  
+**Published:** Wednesday, March 19, 2026 (2 days ahead of target!)  
 **Slug:** `michigan-youth-soccer-rankings-guide`  
 **Word Count:** ~2,800 words
+
+**Key Research Stats Used:**
+- 3,890 teams tracked statewide
+- Top clubs: Nationals (319), Michigan Jaguars (267), Liverpool FC-IA Michigan (155), Detroit City FC (151)
+- Peak age groups: U12 (627 teams), U11 (617), U13 (541)
+- Gender split: 59% Male (2,293), 41% Female (1,597)
+- Regional breakdown: Detroit Metro, West MI (Grand Rapids), Ann Arbor/Mid-MI, UP/Northern MI
+
+**Content Differentiators:**
+- 5 CTAs throughout post (not just end)
+- Regional analysis competitors lack
+- College recruiting reality for Michigan specifically
+- Club comparison with actual team counts
+- Tryout season decision framework
 
 **OPTIMIZATIONS COMPLETED (Mar 18-19):**
 - ✅ `/rankings` page meta optimized (118 impressions, 6.8% CTR → targeting 15%+)
