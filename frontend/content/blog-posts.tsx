@@ -13,7 +13,10 @@ import {
   Users,
   HelpCircle,
   GraduationCap,
-  AlertTriangle
+  AlertTriangle,
+  BarChart3,
+  Search,
+  ArrowRight
 } from 'lucide-react';
 
 /**
@@ -2242,6 +2245,607 @@ export const blogPosts: BlogPost[] = [
           <p className="text-foreground font-semibold">
             Because in Texas's crowded youth soccer market, knowledge is power. And knowing where your team truly ranks is the first step to making smarter decisions.
           </p>
+        </section>
+      </div>
+    ),
+  },
+  {
+    slug: 'what-is-powerscore-youth-soccer',
+    title: "What is PowerScore in Youth Soccer Rankings?",
+    excerpt: "PitchRank's PowerScore explained: what it measures, how to read it, and what makes a good score for your age group and level.",
+    author: 'PitchRank Team',
+    date: '2026-03-12',
+    readingTime: '7 min read',
+    tags: ['Rankings', 'Educational', 'PowerScore', 'Algorithm', 'Methodology'],
+    content: (
+      <div className="space-y-8">
+        {/* Introduction */}
+        <section>
+          <p className="text-lg text-muted-foreground leading-relaxed mb-4">
+            You check your team's ranking on PitchRank. You see a number next to your rank: <strong>0.74</strong>. Or maybe <strong>0.91</strong>. Or <strong>0.38</strong>.
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            That's your PowerScore. It's the number that drives every PitchRank ranking. But what does it actually mean?
+          </p>
+          <p className="text-muted-foreground leading-relaxed">
+            This guide explains PowerScore in plain language — what it measures, how it's calculated, and how to use it to understand your team's true competitive standing.
+          </p>
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings" className="text-primary hover:underline">See your team's PowerScore now</a></p>
+          </div>
+        </section>
+
+        {/* Simple definition */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Zap className="size-6 text-primary" />
+            PowerScore: The Simple Explanation
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            PowerScore is a number between <strong>0.0 and 1.0</strong> that represents your team's overall competitive strength — based on game results, opponent quality, strength of schedule, and performance consistency.
+          </p>
+          <div className="p-4 rounded-lg bg-muted/50 border mb-4">
+            <p className="font-semibold mb-2">The short version:</p>
+            <p className="text-sm text-muted-foreground">Higher = better. 1.0 is theoretically perfect. Most elite national teams score 0.85+. Most competitive club teams score between 0.40 and 0.75.</p>
+          </div>
+          <p className="text-muted-foreground leading-relaxed">
+            Unlike win-loss records or tournament points, PowerScore accounts for <em>who you beat</em>, not just whether you won. Beating a top-10 ranked team in your state does more for your PowerScore than winning a weekend tournament against developmental squads.
+          </p>
+        </section>
+
+        {/* PowerScore ranges */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <BarChart3 className="size-6 text-primary" />
+            What's a Good PowerScore?
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">PowerScore ranges and what they mean:</p>
+          <div className="grid gap-3 mb-4">
+            <div className="flex items-center gap-4 p-3 rounded-lg border-l-4 border-yellow-400 bg-muted/30">
+              <span className="font-display font-bold text-lg text-yellow-500 w-16 shrink-0">0.95+</span>
+              <div>
+                <p className="font-semibold text-sm">Elite national level</p>
+                <p className="text-xs text-muted-foreground">Top 1% nationally. ECNL finalists, MLS Next elite. College scouts are watching.</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 p-3 rounded-lg border-l-4 border-green-500 bg-muted/30">
+              <span className="font-display font-bold text-lg text-green-500 w-16 shrink-0">0.80–0.94</span>
+              <div>
+                <p className="font-semibold text-sm">Top tier</p>
+                <p className="text-xs text-muted-foreground">State title contenders. Top 5–10% nationally. D1 recruiting attention at U15+.</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 p-3 rounded-lg border-l-4 border-blue-500 bg-muted/30">
+              <span className="font-display font-bold text-lg text-blue-500 w-16 shrink-0">0.50–0.79</span>
+              <div>
+                <p className="font-semibold text-sm">Competitive</p>
+                <p className="text-xs text-muted-foreground">Solid competitive club. Good development environment. This is where most NPL/Premier teams land.</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 p-3 rounded-lg border-l-4 border-slate-400 bg-muted/30">
+              <span className="font-display font-bold text-lg text-slate-500 w-16 shrink-0">0.30–0.49</span>
+              <div>
+                <p className="font-semibold text-sm">Developing</p>
+                <p className="text-xs text-muted-foreground">Mid-level competition. Recreational to lower competitive. Building phase.</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 p-3 rounded-lg border-l-4 border-slate-300 bg-muted/30">
+              <span className="font-display font-bold text-lg text-slate-400 w-16 shrink-0">&lt;0.30</span>
+              <div>
+                <p className="font-semibold text-sm">Limited data or recreational</p>
+                <p className="text-xs text-muted-foreground">Newer team, limited game data, or recreational level. Score improves with more games.</p>
+              </div>
+            </div>
+          </div>
+          <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/20">
+            <p className="text-sm"><strong>Important:</strong> PowerScore is relative to age group. A 0.75 at U10 means something different than 0.75 at U17. Always compare within your age group.</p>
+          </div>
+        </section>
+
+        {/* What goes into it */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Brain className="size-6 text-primary" />
+            What Goes Into PowerScore
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            PowerScore is calculated using PitchRank's 13-layer V53E algorithm. Here's the non-technical version of the key inputs:
+          </p>
+          <div className="grid gap-3 mb-6">
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-semibold text-sm">Strength of Schedule (SOS)</span>
+                <span className="text-xs text-primary font-semibold bg-primary/10 px-2 py-0.5 rounded">50% of score</span>
+              </div>
+              <p className="text-xs text-muted-foreground">The biggest factor. Playing and competing against strong opponents builds your PowerScore faster than winning easy games. A team that goes 5-5 against elite opponents can rank higher than a team that goes 10-0 against weak ones.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-semibold text-sm">Offense + Defense Balance</span>
+                <span className="text-xs text-primary font-semibold bg-primary/10 px-2 py-0.5 rounded">25% combined</span>
+              </div>
+              <p className="text-xs text-muted-foreground">Goal differential (capped at 6 per game), goals allowed, and opponent-adjusted performance. Balanced teams rank higher than one-dimensional ones.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-semibold text-sm">Recency</span>
+                <span className="text-xs text-muted-foreground text-xs">Recent games weighted more</span>
+              </div>
+              <p className="text-xs text-muted-foreground">Games in the last 365 days count. Games in the last 15 carry 65% of the recency weight. A great fall season helps — but can be offset by a poor spring. Rankings reflect current form, not legacy results.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-semibold text-sm">Consistency</span>
+                <span className="text-xs text-muted-foreground text-xs">Bayesian shrinkage</span>
+              </div>
+              <p className="text-xs text-muted-foreground">Teams with fewer games get a shrinkage adjustment that pulls their score toward the average until they have enough data. A team with 5 games is scored more conservatively than a team with 30.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-semibold text-sm">ML Adjustment (Layer 13)</span>
+                <span className="text-xs text-muted-foreground text-xs">+/- 15% blend</span>
+              </div>
+              <p className="text-xs text-muted-foreground">Machine learning spots teams that consistently over- or under-perform their expected results. A team punching above its weight gets a small boost. This helps identify rising teams before rankings fully catch up.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* How to read it */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Search className="size-6 text-primary" />
+            How to Read Your Team's PowerScore
+          </h2>
+          <h3 className="text-xl font-display font-semibold mb-3">Step 1: Look at your state rank alongside PowerScore</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Your PowerScore tells you how strong your team is. Your state rank tells you how strong you are relative to everyone else in your state. Together, they tell the full story.
+          </p>
+          <h3 className="text-xl font-display font-semibold mb-3">Step 2: Check the trend, not just the number</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            A team at 0.65 and rising is in better shape than a team at 0.72 and falling. Rankings update weekly. Compare month over month to see if your team is improving.
+          </p>
+          <h3 className="text-xl font-display font-semibold mb-3">Step 3: Look at your opponents' scores</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            If you're winning but your opponents all have low PowerScores, your number isn't growing much. The path to a higher PowerScore runs through higher-quality competition.
+          </p>
+        </section>
+
+        {/* PowerScore vs other systems */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Target className="size-6 text-primary" />
+            PowerScore vs Other Ranking Systems
+          </h2>
+          <div className="grid gap-3 mb-4">
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="font-semibold text-sm mb-1">GotSport Points</p>
+              <p className="text-xs text-muted-foreground">Based on tournament placements in GotSport-hosted events. Misses all games outside their platform. Favors teams that travel to many GotSport tournaments.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="font-semibold text-sm mb-1">TopDrawerSoccer TeamRank</p>
+              <p className="text-xs text-muted-foreground">Points-based plus "executive evaluation" (subjective component). National only, U13+ age groups. No state-level breakdown.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="font-semibold text-sm mb-1">PitchRank PowerScore</p>
+              <p className="text-xs text-muted-foreground">Every game counted. 13 algorithmic layers. 0.0–1.0 scale. No subjective input. State and national rankings. All age groups U10–U18.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* FAQ */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <HelpCircle className="size-6 text-primary" />
+            PowerScore FAQ
+          </h2>
+          <div className="grid gap-4">
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">My team has a great record but a mediocre PowerScore. Why?</h4>
+              <p className="text-sm text-muted-foreground">Likely because you're winning against weak competition. PowerScore adjusts for opponent quality. Schedule tougher games — your score will reflect it.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">We just started tracking. Why is our PowerScore low?</h4>
+              <p className="text-sm text-muted-foreground">New teams start near the league average and earn their score through games. After 8–10 games, the picture gets clearer. After 15+, your PowerScore is reliable.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">Can a team manipulate PowerScore by cherry-picking opponents?</h4>
+              <p className="text-sm text-muted-foreground">No. Teams that avoid strong competition get lower SOS scores. You can't inflate PowerScore by beating weak teams — you'll plateau. The fastest path to a higher score is playing and competing well against better teams.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">How often does PowerScore update?</h4>
+              <p className="text-sm text-muted-foreground">Rankings and PowerScores recalculate weekly (typically Monday evenings). Individual game results are processed continuously as they come in.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* CTA */}
+        <section className="p-6 rounded-lg bg-primary/10 border border-primary/20">
+          <h2 className="text-2xl font-display font-bold mb-4">See Your Team's PowerScore</h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Your team's PowerScore updates weekly. Search for your club and age group, check your state rank, and track your trend throughout the season.
+          </p>
+          <p className="font-semibold">
+            <a href="/rankings" className="text-primary hover:underline">Find your team at PitchRank.io →</a>
+          </p>
+          <p className="text-sm text-muted-foreground mt-4">
+            <strong>Want to understand the full methodology?</strong> <a href="/methodology" className="text-primary hover:underline">Read how V53E calculates rankings →</a>
+          </p>
+        </section>
+      </div>
+    ),
+  },
+  {
+    slug: 'youth-soccer-rankings-by-state',
+    title: 'Youth Soccer Rankings by State: Complete Guide for 2026',
+    excerpt: "Find youth soccer team rankings in every state. The only platform with comprehensive 50-state rankings powered by a 13-layer algorithm. California, Texas, Florida, and more.",
+    author: 'PitchRank Team',
+    date: '2026-03-12',
+    readingTime: '12 min read',
+    tags: ['Youth Soccer', 'Rankings', 'State Rankings', 'Parent Guide', '50 States'],
+    content: (
+      <div className="space-y-8">
+        {/* Introduction */}
+        <section>
+          <p className="text-lg text-muted-foreground leading-relaxed mb-4">
+            Parents and coaches have been asking the same question for years: <strong>Where does my state's team rank?</strong>
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Until now, there was no good answer. TopDrawerSoccer ranks nationally. GotSport focuses on tournament placements. High school rankings only cover one slice. Nobody offered comprehensive youth soccer rankings by state — until PitchRank.
+          </p>
+          <p className="text-muted-foreground leading-relaxed">
+            We track <strong>25,000+ teams across all 50 states</strong> using one consistent methodology. No politics. No favoritism. Just data. Here's everything you need to know about youth soccer rankings by state in 2026.
+          </p>
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings" className="text-primary hover:underline">Find your team's state rank</a></p>
+          </div>
+        </section>
+
+        {/* Why state rankings matter */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Target className="size-6 text-primary" />
+            Why State Rankings Matter for Youth Soccer
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            National rankings get the headlines. But state rankings answer the questions parents actually ask.
+          </p>
+          <div className="grid gap-3 mb-6">
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border">
+              <CheckCircle className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>"How does my team compare to other clubs in our state?"</strong> — State rank tells you.</p>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border">
+              <CheckCircle className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>"Should we switch clubs?"</strong> — State rankings reveal the full competitive landscape.</p>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border">
+              <CheckCircle className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>"Is our league strong enough?"</strong> — Compare your state's top teams to yours.</p>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border">
+              <CheckCircle className="size-5 text-primary shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground"><strong>"Where does our state stack up nationally?"</strong> — Cross-state comparison matters for college recruiting.</p>
+            </div>
+          </div>
+          <p className="text-muted-foreground leading-relaxed">
+            State rankings also solve a problem national rankings create: <strong>context</strong>. Being #47 in California means something very different from #47 in Wyoming. California has 15,000+ teams. Wyoming has hundreds. State rankings level the playing field.
+          </p>
+        </section>
+
+        {/* How PitchRank calculates */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <BarChart3 className="size-6 text-primary" />
+            How PitchRank Calculates State Rankings
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Most ranking systems either ignore state entirely or use inconsistent methods. PitchRank applies the same 13-layer V53E algorithm to every team, in every state.
+          </p>
+          <h3 className="text-xl font-display font-semibold mb-3">What We Track</h3>
+          <div className="grid gap-2 mb-6">
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Activity className="size-4 text-primary" />
+              <span className="text-sm"><strong>Every game</strong> — League play, tournaments, friendlies, showcases</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Shield className="size-4 text-primary" />
+              <span className="text-sm"><strong>Opponent strength</strong> — Beating a top-10 state team matters more than crushing a developmental squad</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <TrendingUp className="size-4 text-primary" />
+              <span className="text-sm"><strong>Strength of schedule</strong> — 50% of your PowerScore comes from who you play</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Calendar className="size-4 text-primary" />
+              <span className="text-sm"><strong>Recency</strong> — Last month's games weigh more than last year's</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded bg-muted/30">
+              <Brain className="size-4 text-primary" />
+              <span className="text-sm"><strong>ML adjustment</strong> — Machine learning spots rising teams before rankings catch up</span>
+            </div>
+          </div>
+          <p className="text-muted-foreground leading-relaxed">
+            The result: a PowerScore from 0.0 to 1.0. We rank teams within each state, then connect states through cross-regional competition. A California U14 team that beats a Texas U14 team creates a bridge. Over time, we build a national map — state by state.
+          </p>
+        </section>
+
+        {/* Top states */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Globe className="size-6 text-primary" />
+            Top States for Youth Soccer
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Based on team count, competitive density, and PowerScore distribution, these states lead youth soccer in 2026:
+          </p>
+          <div className="grid gap-3 mb-6">
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-semibold">California</span>
+                <span className="text-xs text-muted-foreground bg-primary/10 px-2 py-0.5 rounded">Elite — most D1 recruits</span>
+              </div>
+              <p className="text-sm text-muted-foreground">15,693 teams tracked. LAFC Youth, San Diego Surf, United SoCal. Most competitive state in the country. <a href="/rankings/ca" className="text-primary hover:underline">View CA rankings →</a></p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-semibold">Texas</span>
+                <span className="text-xs text-muted-foreground bg-primary/10 px-2 py-0.5 rounded">Elite — MLS Next, ECNL powerhouses</span>
+              </div>
+              <p className="text-sm text-muted-foreground">9,460 teams. FC Dallas, Solar SC, Lonestar SC, Dallas Texans. Year-round play across Dallas, Houston, Austin. <a href="/rankings/tx" className="text-primary hover:underline">View TX rankings →</a></p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-semibold">Florida</span>
+                <span className="text-xs text-muted-foreground bg-primary/10 px-2 py-0.5 rounded">Elite — year-round play</span>
+              </div>
+              <p className="text-sm text-muted-foreground">4,500+ teams. Florida Rush, Orlando City, Tampa Bay United, Jacksonville FC. ECNL and MLS Next across the state. <a href="/rankings/fl" className="text-primary hover:underline">View FL rankings →</a></p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-semibold">Arizona</span>
+                <span className="text-xs text-muted-foreground bg-primary/10 px-2 py-0.5 rounded">Growing fast</span>
+              </div>
+              <p className="text-sm text-muted-foreground">1,940 teams. Phoenix Rising FC, RSL Arizona, CCV Stars, Arizona Arsenal. Fastest-growing youth soccer state in the West. <a href="/rankings/az" className="text-primary hover:underline">View AZ rankings →</a></p>
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            We cover all 50 states. Use the <a href="/rankings" className="text-primary hover:underline">rankings page</a> to filter by state, age group, and gender.
+          </p>
+        </section>
+
+        {/* State vs national */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <HelpCircle className="size-6 text-primary" />
+            State vs National Rankings: What's the Difference?
+          </h2>
+          <div className="grid md:grid-cols-2 gap-4 mb-6">
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h3 className="font-semibold mb-2 text-primary">State Rank</h3>
+              <ul className="text-sm text-muted-foreground space-y-1">
+                <li>Your team vs. teams in your state</li>
+                <li>Best for club comparison, league context</li>
+                <li>Top 10% in California = elite</li>
+              </ul>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h3 className="font-semibold mb-2 text-primary">National Rank</h3>
+              <ul className="text-sm text-muted-foreground space-y-1">
+                <li>Your team vs. all teams nationally</li>
+                <li>Best for college recruiting, showcase prep</li>
+                <li>Top 10% nationally = very elite</li>
+              </ul>
+            </div>
+          </div>
+          <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/20">
+            <p className="text-sm"><strong>Reality check:</strong> A team ranked #20 in California might be #150 nationally. A team ranked #20 in Montana might be #800 nationally. State rankings give you local context. National rankings give you national context. Use both.</p>
+          </div>
+        </section>
+
+        {/* FAQ */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <HelpCircle className="size-6 text-primary" />
+            FAQ: Youth Soccer Rankings by State
+          </h2>
+          <div className="grid gap-4">
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">How often do state rankings update?</h4>
+              <p className="text-sm text-muted-foreground">PitchRank updates rankings weekly, typically Monday evenings. New game results are processed continuously; the full recalculation runs weekly.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">Are state rankings the same as high school rankings?</h4>
+              <p className="text-sm text-muted-foreground">No. High school rankings (e.g., FHSAA in Florida, AHSAA in Alabama) cover school teams. PitchRank ranks <strong>club</strong> teams — the teams that play in ECNL, MLS Next, NPL, and state cups. Different ecosystems.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">Why doesn't TopDrawerSoccer have state rankings?</h4>
+              <p className="text-sm text-muted-foreground">TopDrawerSoccer focuses on national TeamRank for elite age groups (U13–U19). They don't break down by state. GotSport ranks by tournament performance but doesn't offer comprehensive state-by-state rankings. PitchRank fills that gap.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">Can I compare my state to another state?</h4>
+              <p className="text-sm text-muted-foreground">Yes. Our algorithm connects states through cross-regional games. When a California team plays a Texas team, that result feeds both state rankings. Over time, we build comparable PowerScores across states.</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border">
+              <h4 className="font-semibold mb-2">What if my state has fewer teams?</h4>
+              <p className="text-sm text-muted-foreground">Smaller states still get rankings. Coverage may be thinner (fewer games tracked), so rankings can be more volatile. As we track more games, accuracy improves.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* CTA */}
+        <section className="p-6 rounded-lg bg-primary/10 border border-primary/20">
+          <h2 className="text-2xl font-display font-bold mb-4">Find Your Team's State Rank</h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Ready to see where your team stands? Filter by state, age group, and gender. Get the data-backed perspective you need — no politics, no favoritism, just the numbers.
+          </p>
+          <p className="font-semibold">
+            <a href="/rankings" className="text-primary hover:underline">Find your team's rank at PitchRank.io →</a>
+          </p>
+          <p className="text-sm text-muted-foreground mt-4">
+            <strong>About PitchRank:</strong> Most accurate youth soccer rankings in the US. Powered by a 13-layer V53E algorithm and ML adjustment. 25,000+ teams. All 50 states. <a href="/methodology" className="text-primary hover:underline">Learn how we rank teams →</a>
+          </p>
+        </section>
+      </div>
+    ),
+  },
+  {
+    slug: 'what-is-powerscore-youth-soccer',
+    title: "What is PowerScore in Youth Soccer? The Complete Guide",
+    excerpt: "PowerScore is PitchRank's 0–1 team strength rating: 13 layers, 50% strength of schedule, updated weekly. Here's how it works and how to read your team's number.",
+    author: 'PitchRank',
+    date: '2026-03-18',
+    readingTime: '11 min read',
+    tags: ['PowerScore', 'Rankings', 'Educational', 'Methodology'],
+    content: (
+      <div className="space-y-8">
+        <section>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            PowerScore is a single number from 0 to 1 that tells you how strong a youth soccer team is—according to real game results, not opinions or politics. PitchRank calculates it using a 13-layer algorithm and updates it every week. If you&apos;re a parent or coach asking &quot;how good is our team?&quot; or &quot;what does our ranking mean?&quot;, this guide explains exactly what PowerScore is, how it&apos;s built, and how to use it.
+          </p>
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">→ <a href="/rankings" className="text-primary hover:underline">See your team&apos;s PowerScore</a></p>
+          </div>
+        </section>
+
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4">PowerScore: The Short Explanation</h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            <strong>PowerScore</strong> is PitchRank&apos;s core rating for youth soccer teams. It&apos;s a 0.0–1.0 score that blends:
+          </p>
+          <ul className="list-disc pl-6 text-muted-foreground space-y-2 mb-4">
+            <li><strong>How you performed</strong> — goals for and against, adjusted for opponent strength</li>
+            <li><strong>Who you played</strong> — strength of schedule (about 50% of the number)</li>
+            <li><strong>When you played</strong> — recent games count more than old ones</li>
+          </ul>
+          <p className="text-muted-foreground leading-relaxed">
+            Higher is better. No votes, no evaluator input—just game data and one transparent method for every team from U10 to U18, boys and girls.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4">How PitchRank Calculates PowerScore</h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            PitchRank runs on a pipeline called v53e plus a machine-learning layer (Layer 13). In plain terms:
+          </p>
+          <ol className="list-decimal pl-6 text-muted-foreground space-y-2 mb-4">
+            <li><strong>We pull game data</strong> — from GotSport, league feeds, and other sources. Tens of thousands of teams, 365-day window.</li>
+            <li><strong>We resolve who&apos;s who</strong> — same club across different leagues or seasons maps to one team so we&apos;re not double-counting or splitting them.</li>
+            <li><strong>We run the base algorithm (v53e)</strong> — 10 layers that handle offense, defense, strength of schedule, recency, and a few stability tweaks so one weird result doesn&apos;t swing the ranking.</li>
+            <li><strong>We apply the ML layer</strong> — a model that spots teams that are consistently over- or underperforming vs. expectation. It nudges the final number; it doesn&apos;t override the core logic.</li>
+            <li><strong>We blend into one number</strong> — PowerScore is a mix of offensive strength (25%), defensive strength (25%), and strength of schedule (50%). That blend is then scaled so it always sits between 0.0 and 1.0.</li>
+          </ol>
+          <p className="text-muted-foreground leading-relaxed">
+            So when you see a PowerScore, you&apos;re seeing: <em>given who you played and how those games went, where does this team sit on a 0–1 scale?</em>
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4">What Goes Into PowerScore (The 13 Layers, Simplified)</h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            You don&apos;t need to memorize these—but if you want to know what&apos;s under the hood:
+          </p>
+          <ul className="list-disc pl-6 text-muted-foreground space-y-2 mb-4">
+            <li><strong>Window</strong> — We look back 365 days. Teams with long gaps in play get treated so they don&apos;t get a free ride from old results.</li>
+            <li><strong>Offense and defense</strong> — Goals for and against, capped per game. We estimate how strong your attack and defense are.</li>
+            <li><strong>Recency</strong> — Recent games matter more. The last 15 games carry about 65% of the weight.</li>
+            <li><strong>Strength of schedule (SOS)</strong> — Iterative: we estimate how good everyone is, then re-estimate based on who beat whom. Beating strong teams helps; padding wins against weak teams doesn&apos;t.</li>
+            <li><strong>Opponent-adjusted performance</strong> — Your goals for/against are interpreted in light of opponent strength. A 1–0 loss to a top team can look better than a 10–0 win over a weak one.</li>
+            <li><strong>PowerScore blend</strong> — We combine offense (25%), defense (25%), and SOS (50%) into one number and clamp it to 0–1.</li>
+            <li><strong>ML Layer 13</strong> — A model trained on &quot;expected vs actual&quot; results adds a small adjustment so teams that consistently over- or underperform get a nudge.</li>
+          </ul>
+          <p className="text-muted-foreground leading-relaxed">
+            The exact weights and thresholds live in our <a href="/methodology" className="text-primary hover:underline">methodology</a>; the point here is: one process, same for every team, no manual overrides.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4">PowerScore vs Other Ranking Systems</h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Youth soccer rankings aren&apos;t standardized. Different systems answer &quot;who&apos;s best?&quot; in different ways.
+          </p>
+          <div className="grid gap-3 mb-4">
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>Tournament- or points-based (e.g. GotSport, GotSoccer)</strong> — Rankings follow event points, standings, or similar. Simple, but they can reward schedule luck or a few big weekends.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>Results + evaluation (e.g. TopDrawerSoccer)</strong> — Mix of results and scout/evaluator input. Good for visibility; the &quot;ranking&quot; is partly subjective.</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50 border">
+              <p className="text-sm"><strong>Fully algorithmic (PitchRank)</strong> — Only game results and one formula. No votes, no politics. PowerScore is our version of that: same inputs and method for everyone.</p>
+            </div>
+          </div>
+          <p className="text-muted-foreground leading-relaxed">
+            So PowerScore isn&apos;t &quot;another opinion.&quot; It&apos;s a single, repeatable number from one data-driven process.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4">How to Interpret Your Team&apos;s PowerScore</h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            PowerScore is always between 0.0 and 1.0. Use it in context:
+          </p>
+          <ul className="list-disc pl-6 text-muted-foreground space-y-2 mb-4">
+            <li><strong>Compare within age and region</strong> — A 0.72 in U14 boys in California means something different than the same number in U10 girls in Texas. We show rankings by age group, gender, and region for that reason.</li>
+            <li><strong>Look at trend, not just one week</strong> — We update weekly. A small move (e.g. 0.68 → 0.71) is normal. Big jumps usually mean new results shifted the strength-of-schedule math.</li>
+            <li><strong>Use it as a signal, not a verdict</strong> — PowerScore is a strong indicator of team strength. It doesn&apos;t replace watching games or coaching.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4">What&apos;s a Good PowerScore? (Ranges by Level)</h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            We don&apos;t publish rigid tiers—too much depends on age, region, and league. But in practice:
+          </p>
+          <ul className="list-disc pl-6 text-muted-foreground space-y-2 mb-4">
+            <li><strong>0.95+</strong> — Elite nationally. Very small group.</li>
+            <li><strong>0.80–0.95</strong> — Top tier in most regions. Consistently strong results and schedule.</li>
+            <li><strong>0.50–0.80</strong> — Solid, competitive. Most teams that play a full schedule land here.</li>
+            <li><strong>Below 0.50</strong> — Developing or lighter schedule. Not a judgment—just where the math puts the team with the data we have.</li>
+          </ul>
+          <p className="text-muted-foreground leading-relaxed">
+            So &quot;good&quot; depends on who you&apos;re comparing to and what you care about. A 0.65 in a tough region can be more impressive than a 0.72 somewhere with weaker opposition.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4">FAQ: PowerScore in Youth Soccer</h2>
+
+          <h3 className="text-xl font-display font-semibold mb-2 mt-6">How are youth soccer teams ranked?</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            It depends on the platform. PitchRank ranks teams with a 13-layer algorithm (v53e + ML) that uses only game results over a 365-day window. About 50% of the final PowerScore comes from strength of schedule; the rest from offensive and defensive strength. We update weekly.
+          </p>
+
+          <h3 className="text-xl font-display font-semibold mb-2 mt-6">What makes a good PowerScore?</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            PowerScore runs from 0.0 to 1.0. In practice, 0.95+ is elite, 0.80–0.95 is top tier, and 0.50–0.80 is competitive for most teams. What&apos;s &quot;good&quot; depends on age group, region, and who you&apos;re comparing to.
+          </p>
+
+          <h3 className="text-xl font-display font-semibold mb-2 mt-6">How do rankings work in youth soccer?</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Some systems use tournament or league points (e.g. GotSport). Others blend results with scout or evaluator input (e.g. TopDrawerSoccer). PitchRank uses only game data and a fixed algorithm: strength of schedule, opponent quality, recency, and a machine-learning adjustment. No subjectivity—same formula for every team.
+          </p>
+
+          <h3 className="text-xl font-display font-semibold mb-2 mt-6">What is strength of schedule in soccer?</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Strength of schedule (SOS) is how strong your opponents were. In PitchRank&apos;s PowerScore, SOS accounts for about 50% of the number. Beating strong teams helps your ranking more than piling up wins against weak ones.
+          </p>
+
+          <h3 className="text-xl font-display font-semibold mb-2 mt-6">How often are youth soccer rankings updated?</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            PitchRank recalculates rankings every week (Mondays) using a rolling 365-day window. Recent games are weighted more heavily.
+          </p>
+
+          <h3 className="text-xl font-display font-semibold mb-2 mt-6">What is PowerScore vs other ranking systems?</h3>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            PowerScore is PitchRank&apos;s 0–1 team strength metric. Unlike tournament-point systems (e.g. GotSport) or hybrid systems (e.g. TopDrawerSoccer), it&apos;s fully algorithmic from game data—no votes, no evaluator input. Same process for every team. You can read the full <a href="/methodology" className="text-primary hover:underline">methodology</a> for details.
+          </p>
+        </section>
+
+        <section className="p-6 rounded-lg bg-primary/10 border border-primary/20">
+          <p className="font-semibold">
+            <a href="/rankings" className="text-primary hover:underline">See your team&apos;s PowerScore — View rankings by age, region, and gender →</a>
+          </p>
+          <p className="text-sm text-muted-foreground mt-2">Updated weekly from real game data.</p>
         </section>
       </div>
     ),
