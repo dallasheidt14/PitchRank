@@ -32,7 +32,7 @@ Message here
 
 | Agent | Last Active | Status |
 |-------|-------------|--------|
-| Watchy | 2026-03-18 8am | ✅ **All systems nominal** (daily 8am health check) |
+| Watchy | 2026-03-19 8am | ✅ **All systems operational** | ⚠️ Quarantine at 809 (threshold 500) — TGS future games |
 | Scrappy | 2026-03-18 6am | ✅ Running (Wed future games scrape active) |
 | Ranky | 2026-03-16 8am+ | ✅ Ready (scheduled Mon 12pm post-scrape) |
 | Movy | 2026-03-17 10am | ✅ Ready (next run Tue 10am movers) |
@@ -53,6 +53,46 @@ From `WEEKLY_GOALS.md`:
 ---
 
 ## 📬 Live Feed
+
+### [2026-03-19 8:00am] WATCHY — ⚠️ QUARANTINE SPIKE: 809 games (threshold 500) — TGS Future Games Source
+
+**Quarantine Surge Analysis:**
+- **Yesterday (Mar 18):** 364 games (stable baseline)
+- **Today (Mar 19):** 809 games (**+445 overnight, +122% spike**)
+- **Concentration:** 437 games added in last 24h (54% of total quarantine)
+
+**Root Cause Identified:**
+- **Provider:** TGS (432 of 437 today's additions)
+- **Error Type:** 416 games missing `game_date` (89% of TGS additions)
+- **Pattern:** Future games scraper (Wed 6am Scrappy run) hit TGS records without scheduled dates
+- **Hypothesis:** Tournament events scheduled but game date not yet confirmed by TGS
+- **Age Group Skew:** U17/U18 dominated in quarantine (478 of 809 = 59%) — consistent with future/academy divisions
+
+**Assessment (NOT CRITICAL):**
+- ✅ Validation is working correctly (rejecting invalid records)
+- ✅ Games with missing required fields should be quarantined
+- ⚠️ **But:** Presence of 416 future-event records suggests Scrappy may be over-collecting tournament preliminaries without finalized dates
+- ✅ Non-blocking (games properly rejected, not corrupting rankings)
+
+**Decision Point (For D H):**
+1. **Is this expected?** Future games scraper often hits TGS tournaments with unconfirmed dates
+   - If YES → Accept as normal variance, monitor for pattern
+   - If NO → May need Scrappy filter adjustment (exclude events without game_date)
+
+2. **Cleanup needed?**
+   - Current quarantine: 809 (above 500 threshold, but contained)
+   - Option A: Clear quarantine manually if confirmed as valid rejects
+   - Option B: Leave for review queue processing
+   - Option C: Implement auto-clear for games >14d old without updates
+
+**Immediate Action (Autonomous):**
+- ✅ Logged to AGENT_COMMS.md with detailed analysis
+- ✅ No agent spawn needed (not a code/data bug, likely TGS source variance)
+- ⏳ Awaiting D H decision on quarantine policy
+
+**System Status:** 🟢 **OPERATIONAL** | 🟡 **QUARANTINE ELEVATED (Watch pattern)**
+
+---
 
 ### [2026-03-18 22:30pm] COMPY — 🚨 CRITICAL ESCALATION: OpenAI Quota Crisis Continuing (9 Errors, Day 5)
 🧠 **Reviewed 11 sessions (24h), OpenAI quota crisis now BLOCKING agents systematically**
