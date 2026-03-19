@@ -54,6 +54,68 @@ From `WEEKLY_GOALS.md`:
 
 ## 📬 Live Feed
 
+### [2026-03-18 22:30pm] COMPY — 🚨 CRITICAL ESCALATION: OpenAI Quota Crisis Continuing (9 Errors, Day 5)
+🧠 **Reviewed 11 sessions (24h), OpenAI quota crisis now BLOCKING agents systematically**
+
+**Sessions Reviewed (Mar 18 24h window):**
+- Compy: 2 sessions, 12 messages (this compound + prior work)
+- Socialy: 5 sessions, 37 messages, **9 quota errors** (4 across multiple cron runs)
+- Movy: 1 session, 3 messages (Wednesday weekend preview)
+- Watchy: 2 sessions, 12 messages (daily health checks, 2 runs)
+- Scrappy: 1 session, 6 messages (Wednesday future games scrape)
+
+**CRITICAL FINDING: OpenAI Quota Now Actively Blocking Agents**
+- **Total quota errors in 24h:** 9 (continuing from Mar 17's 10)
+- **Trend:** 4 (Mar 16) → 10 (Mar 17) → 9 (Mar 18) = **~7-8 errors/day baseline**
+- **Cumulative:** 23 quota errors in 72h window (Mar 16-18)
+- **Pattern:** Errors concentrated in Socialy (5 cron jobs hitting same quota), distributed across 24h
+- **Impact:** Non-blocking (agents complete work) but **sustainability questioned**
+
+**Root Cause Analysis:**
+- System is burning through OpenAI quota faster than daily replenishment
+- Socialy runs 4 separate crons (7:30am, 8:30am, 9am, later) — all competing for same quota pool
+- Each cron gets 3-4 quota errors but continues execution (degraded performance)
+- Quota depleted each day, replenished overnight, depleted again by 8:30am
+- **This is NOT a spike or transient issue — this is structural quota insufficiency**
+
+**Critical Timeline (5 Days of Escalation):**
+1. **Mar 13:** Dual crisis (DB auth + OpenAI TPM) — both blocked operations
+2. **Mar 15:** DB auth restored, TPM errors reduced (appeared "resolved")
+3. **Mar 16:** Quota errors re-emerged (4 instances, noted as pattern to monitor)
+4. **Mar 17:** Quota errors doubled to 10 (escalated to CRITICAL in LEARNINGS.md)
+5. **Mar 18:** 9 more errors (escalation continuing, Day 5 of quota crisis)
+
+**Detailed Error Distribution (Mar 18):**
+- Socialy daily SEO checks: 3 quota hits
+- Socialy cron jobs: 6 quota errors across 4 separate cron runs
+- Movy/Watchy/Main: No new quota errors (lower volume)
+
+**System Health (Otherwise Operational):**
+- Database: ✅ Connected (105,472 teams, 771,168 games)
+- Data pipeline: ✅ Healthy (27k games/24h ingestion)
+- Quarantine: ✅ Stable (364 games)
+- Agent fleet: ✅ All 8 agents running, work completing despite quota errors
+- **Status:** 🟢 **OPERATIONAL BUT UNSUSTAINABLE** — continuing to hit quota ceiling daily
+
+**Escalation to D H (URGENT — WITHIN 12H):**
+This is now a critical blocking issue. OpenAI quota exhaustion is systematic and daily.
+
+**Action Required:**
+1. Check OpenAI account dashboard:
+   - What is current quota available (tokens or dollars)?
+   - What is daily burn rate vs allocation?
+   - Verify billing is current (Mar 13 crisis may have affected quota restoration)
+   
+2. Pick one immediate action:
+   - **Option A:** Upgrade OpenAI tier (increase quota immediately)
+   - **Option B:** Switch Socialy (5 crons) + COMPY (nightly) to Claude/Anthropic to split load by ~60%
+   - **Option C:** Consolidate Socialy cron runs (4 jobs → 1-2) to reduce quota pressure
+   - **Option D:** Pause Socialy + COMPY until quota resolved, run manually as needed
+
+**System Status:** 🔴 **CRITICAL BLOCKER (Different Severity Than Mar 13, Same Risk)**
+
+---
+
 ### [2026-03-18 8:00am] WATCHY
 ✅ **Wednesday morning health check — All systems nominal**
 

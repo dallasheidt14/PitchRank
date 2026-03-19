@@ -28,15 +28,10 @@ These issues block indexing or could cause penalties.
 - Test with `curl -A "Googlebot" https://pitchrank.io` to verify
 - Review Vercel Edge Middleware for any bot-blocking logic
 
-### 3. Convert Rankings Index to Server Component
+### 3. ✅ Convert Rankings Index to Server Component (DONE 2026-03-18)
 **Impact:** Most important SEO page is invisible to crawlers when client-rendered
 **File:** `app/rankings/page.tsx`
-**Action:**
-- Remove `'use client'` directive
-- Move data fetching to server-side (use `fetch` with ISR revalidation)
-- Keep interactive filters as separate client components
-- Pattern: Server component wrapper → Client component for interactivity
-- This alone could unlock indexing of the rankings section
+**Resolution:** Removed `'use client'` and 52 lines of duplicated logic. Now a 10-line server component rendering `<RankingsPageContent>` with default props — same component used by dynamic routes. Google now receives server-rendered HTML.
 
 ### 4. Add Security Headers
 **Impact:** Trust signals, prevents clickjacking/XSS
@@ -63,48 +58,14 @@ async headers() {
 
 Significantly impacts rankings.
 
-### 5. Add `llms.txt` for AI Search Engines
+### 5. ✅ Add `llms.txt` for AI Search Engines (DONE 2026-03-18)
 **Impact:** Makes site visible to Perplexity, ChatGPT, Claude
-**File:** Create `frontend/public/llms.txt`
-**Action:**
-```
-# PitchRank
-> Data-powered youth soccer team rankings and performance analytics
+**File:** `frontend/public/llms.txt`
+**Resolution:** Implemented.
 
-## About
-PitchRank provides the most accurate youth soccer rankings in the United States, covering U10-U18 boys and girls teams across all 50 states.
-
-## Key Pages
-- [Rankings](https://pitchrank.io/rankings): Browse national and state-level rankings
-- [Methodology](https://pitchrank.io/methodology): How we calculate rankings
-- [Blog](https://pitchrank.io/blog): Youth soccer insights and analysis
-
-## Data
-- Rankings updated daily
-- Covers 50 states + national rankings
-- Age groups: U10 through U18
-- Both boys and girls divisions
-```
-
-### 6. Add AI Crawler Directives to robots.txt
+### 6. ✅ Add AI Crawler Directives to robots.txt (DONE 2026-03-18)
 **File:** `frontend/public/robots.txt`
-**Action:** Add explicit rules:
-```
-User-agent: GPTBot
-Allow: /
-Disallow: /api/
-Disallow: /auth/
-
-User-agent: ClaudeBot
-Allow: /
-Disallow: /api/
-Disallow: /auth/
-
-User-agent: PerplexityBot
-Allow: /
-Disallow: /api/
-Disallow: /auth/
-```
+**Resolution:** AI crawler rules added.
 
 ### 7. Add BlogPosting Schema to Blog Posts
 **Impact:** Enables rich results for blog content

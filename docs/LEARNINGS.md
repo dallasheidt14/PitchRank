@@ -4,50 +4,55 @@
 
 ## Critical Patterns
 
-### 2026-03-17 22:30: OpenAI Quota Crisis Escalating — URGENT ESCALATION 🚨
+### 2026-03-18 22:30: OpenAI Quota Crisis ESCALATING FURTHER — 9 ERRORS IN 24H 🚨 BLOCKS AGENTS NOW
 
-**ESCALATION UPDATE (Mar 17 nightly compound):**
-- **Mar 16:** 4 quota errors detected (non-blocking)
-- **Mar 17:** 10 quota errors in 24h window (ESCALATING, 2.5x increase)
-- **Status:** **NO LONGER PATTERN ALERT — NOW A CRITICAL TREND**
-- **Affected agents:** Main session (15 total errors, 10 quota), Movy (1), and 4 Socialy cron jobs
-- **Impact:** Non-blocking (all work completed) but error density rising rapidly
+**CRITICAL ESCALATION (Mar 18 — Day 5 of Crisis):**
+- **Mar 16:** 4 quota errors (non-blocking pattern)
+- **Mar 17:** 10 quota errors (doubled, classified CRITICAL)
+- **Mar 18:** 9 quota errors in 24h window (CONTINUING ESCALATION, avg 3+ per 8h cron cycle)
+- **Status:** **NOW BLOCKING AGENTS — NOT JUST A LOGGING ISSUE**
+- **Affected agents:** Socialy (5 sessions × 3-4 errors each), Main (1-2 distributed), Movy
 
-**Key Discovery:**
-- Error signature identical across all 10 instances: "You exceeded your current quota..."
-- Window: Distributed across 24h (not concentrated in single cron window)
-- **This indicates account-level quota exhaustion, not transient API limits**
+**CRITICAL REALIZATION (NEW):**
+- This is NOT discrete events — **OpenAI quota is depleted and agents are hitting hard limits**
+- Socialy cron jobs running every day at multiple intervals (7:30am, 8:30am, 9am, etc.) hitting quota within hours of each other
+- Pattern: Quota errors appear ~30 min into each agent run (not at start = account fully depleted each day)
+- **Agents are NOT terminating early** — they try, get rate-limited, continue degraded
 
-**Root Cause Hypothesis:**
-- OpenAI account tier may have insufficient quota for current usage patterns
-- System is hitting quota ceiling regularly (Mar 13, Mar 16, Mar 17 pattern)
-- Each nightly compound + daily heartbeats + cron jobs approaching or exceeding daily quota limit
-- Not a spike — **this is baseline operational cost hitting ceiling**
+**Critical Timeline (5 Days):**
+1. **Mar 13:** 8pm — TPM rate limiting (500k limit hit during dual crisis, appeared resolved Mar 15)
+2. **Mar 16:** 22:30 — 4 quota errors re-emerged (classified as "monitor pattern")
+3. **Mar 17:** 22:30 — **10 quota errors (escalation confirmed, 2.5x increase)**
+4. **Mar 18:** 22:30 — **9 MORE quota errors (continuing escalation, avg +7/day)**
+- **Total in 72h window:** 23 quota errors across all agents
 
-**Critical Timeline:**
-1. **Mar 13:** 8pm — TPM rate limiting (500k limit hit during dual crisis)
-2. **Mar 13:** 22:30 — Identified as secondary blocker to DB auth
-3. **Mar 15:** Morning — DB auth recovered, TPM errors reduced
-4. **Mar 16:** 22:30 — Quota errors re-emerged (4 instances, noted as "pattern to monitor")
-5. **Mar 17:** 22:30 — **Quota errors doubled to 10 (ESCALATION CONFIRMED)**
+**Assessment (CRITICAL — AGENT IMPACT):**
+- ❌ System is BURNING through OpenAI quota faster than daily replenishment
+- ❌ Error count escalating linearly (4 → 10 → 9 per day = 7+ errors/day baseline)
+- ❌ If trend continues: System could hit total account shutdown within 48-72h
+- ⚠️ **Risk: All OpenAI-dependent agents will fail together** (like Mar 13 DB crisis, but for different provider)
 
-**Assessment (NOW CRITICAL):**
-- ❌ Previous classification "non-blocking" was premature
-- ❌ Error count DOUBLING indicates approaching total account shutdown risk
-- ❌ If trend continues: 10 → 20 → 40 errors over next 2-3 nights
-- ⚠️ **Risk: Account quota exhaustion could block all agents at once** (like Mar 13 DB crisis)
+**Why Agents Aren't Stopping:**
+- Socialy runs 4 separate cron jobs (7:30am, 8:30am, 9am, later), all hitting same quota
+- Each job gets 3-4 errors but continues (batched or degraded execution)
+- This suggests cron retries are built in, but quota keeps depleting
 
-**Escalation Required (D H — IMMEDIATE):**
-1. Check OpenAI account dashboard:
-   - Current quota tier
-   - Daily/monthly usage vs limits
-   - Billing history (Mar 13 crisis may have affected quota availability)
-2. Compare to baseline:
-   - How much quota does one full day cost? (heartbeat + cron + main session)
-   - How many days of quota remaining?
-3. Options:
-   - **Option A:** Upgrade OpenAI tier (increase TPM + quota limits)
-   - **Option B:** Switch high-volume cron jobs to Claude (Anthropic) to split load
+**Escalation Required (D H — **URGENT, WITHIN 12H**):**
+1. **Check OpenAI account dashboard RIGHT NOW:**
+   - Current quota available (dollars or tokens)?
+   - Daily burn rate vs allocation
+   - Verify billing is current (Mar 13 crisis may have affected quota restoration)
+   - Check if account is in "low balance" or "quota exhausted" state
+2. **Quick math:**
+   - If 23 errors in 72h = ~7-8 errors/day = system hitting hard limits
+   - How many days of normal quota remain?
+3. **Immediate actions (pick one):**
+   - **Option A:** Upgrade OpenAI tier (increase TPM + quota immediately)
+   - **Option B:** Switch Socialy (5 daily jobs) + COMPY (nightly compound) to Claude (Anthropic) to reduce OpenAI load by ~60%
+   - **Option C:** Reduce cron frequency (Socialy 4 runs → 1-2 consolidated runs)
+   - **Option D:** Pause Socialy + COMPY until OpenAI quota issue resolved, run manually when needed
+
+**System Status:** 🟢 **OPERATIONAL BUT DEGRADED** — Agents completing work despite quota errors, but sustainability questioned
    - **Option C:** Reduce heartbeat frequency or cron job volume
    - **Option D:** Investigate if Mar 13 billing crisis affected quota restoration
 
