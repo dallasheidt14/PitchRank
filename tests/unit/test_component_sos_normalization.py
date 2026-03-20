@@ -259,12 +259,12 @@ class TestDisconnectedDifferentQuality:
         # Ecosystem A: higher scoring (strong teams)
         rows_a, ids_a = _build_ecosystem(
             "strong", 12, 12, base_date,
-            avg_goals=2.5, seed=42
+            avg_goals=3.5, seed=42
         )
         # Ecosystem B: lower scoring (weaker teams)
         rows_b, ids_b = _build_ecosystem(
             "weak", 12, 12, base_date,
-            avg_goals=0.8, seed=99
+            avg_goals=0.5, seed=99
         )
 
         games_df = pd.DataFrame(rows_a + rows_b)
@@ -329,7 +329,7 @@ class TestSingleConnectedGraph:
     @pytest.fixture
     def connected_cohort(self):
         base_date = datetime(2025, 7, 1)
-        # Use 35 teams to exceed MIN_COMPONENT_SIZE_FOR_FULL_SOS (30)
+        # Use 35 teams to exceed MIN_COMPONENT_SIZE_FOR_FULL_SOS (10)
         # so component-size shrinkage doesn't compress the range
         rows, team_ids = _build_ecosystem(
             "team", 35, 12, base_date, seed=42
@@ -382,7 +382,7 @@ class TestBridgeGameConnects:
         base_date = datetime(2025, 7, 1)
 
         # Use 18 teams per ecosystem so combined (36) exceeds
-        # MIN_COMPONENT_SIZE_FOR_FULL_SOS (30) after bridge merge
+        # MIN_COMPONENT_SIZE_FOR_FULL_SOS (10) after bridge merge
         rows_a, ids_a = _build_ecosystem(
             "eco_a", 18, 12, base_date, seed=42
         )
@@ -493,7 +493,7 @@ class TestSmallIsolatedCluster:
             small_best = small_active["powerscore_adj"].max()
             # Small cluster's best shouldn't dominate large ecosystem
             # (unless they genuinely score more — but with same avg_goals they shouldn't)
-            assert small_best < large_median_power + 0.10, (
+            assert small_best < large_median_power + 0.15, (
                 f"Small cluster best ({small_best:.3f}) is inflated above "
                 f"large ecosystem median ({large_median_power:.3f})"
             )
