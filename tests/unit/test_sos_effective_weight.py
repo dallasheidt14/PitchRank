@@ -154,5 +154,61 @@ class TestSOSEffectiveWeight:
             assert sos_norm.max() > 0.85, f"sos_norm max too low: {sos_norm.max():.3f}"
 
 
+class TestSOSPercentileAmplification:
+    """Test that SOS percentile normalization doesn't over-amplify small diffs.
+
+    FINDING: With PageRank dampening, raw SOS typically spans only ~0.07
+    (e.g. 0.365 to 0.435). Percentile normalization stretches this to [0,1],
+    creating 14x amplification. With 60% SOS weight, this means SOS explains
+    ~86% of PowerScore variance instead of the intended ~60%.
+
+    This is a known design trade-off (percentile norm guarantees full range),
+    but the amplification ratio should be monitored.
+    """
+
+    def test_sos_amplification_ratio_bounded(self):
+        """SOS amplification (norm range / raw range) should not exceed 20x.
+
+        If amplification is extreme, tiny SOS differences dominate rankings
+        and OFF/DEF performance becomes nearly irrelevant.
+        """
+        games, _ = _build_cohort(num_teams=35, games_per_team=12)
+        cfg = V53EConfig()
+        result = compute_rankings(games_df=games, cfg=cfg, today=pd.Timestamp("2025-07-01"))
+        teams = result["teams"]
+
+        raw_range = teams["sos"].max() - teams["sos"].min()
+        norm_range = teams["sos_norm"].max() - teams["sos_norm"].min()
+
+        if raw_range > 1e-10:
+            amp = norm_range / raw_range
+            assert amp < 20.0, (
+                f"SOS percentile amplification too extreme: {amp:.1f}x "
+                f"(raw range={raw_range:.4f}, norm range={norm_range:.4f}). "
+                f"SOS noise dominates rankings."
+            )
+
+    def test_sos_variance_fraction_reasonable(self):
+        """SOS should not explain more than 95% of PowerScore variance.
+
+        If SOS explains >95%, OFF/DEF performance is nearly irrelevant
+        and teams are ranked essentially by schedule alone.
+        """
+        games, _ = _build_cohort(num_teams=35, games_per_team=12)
+        cfg = V53EConfig()
+        result = compute_rankings(games_df=games, cfg=cfg, today=pd.Timestamp("2025-07-01"))
+        teams = result["teams"]
+
+        sos_contrib_var = (cfg.SOS_WEIGHT * teams["sos_norm"]).var()
+        ps_var = teams["powerscore_core"].var()
+
+        if ps_var > 1e-10:
+            sos_fraction = sos_contrib_var / ps_var
+            assert sos_fraction < 0.95, (
+                f"SOS explains {sos_fraction:.1%} of PowerScore variance "
+                f"(expected <95%). OFF/DEF may be irrelevant."
+            )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

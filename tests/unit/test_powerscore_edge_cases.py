@@ -210,7 +210,13 @@ class TestDegenerateCohorts:
         assert abs(solo["sos_norm"].values[0] - 0.5) < 0.01
 
     def test_all_identical_scores(self):
-        """All games ending 1-1 should produce valid rankings."""
+        """All games ending 1-1 should produce nearly identical PowerScores.
+
+        BUG CAUGHT: Floating-point noise in raw SOS (diffs ~1e-17) was being
+        amplified by percentile normalization into sos_norm spread of 0.11-0.78,
+        creating a 0.40 PowerScore gap from pure machine-epsilon noise.
+        Fix: round raw SOS to 10 decimal places before percentile ranking.
+        """
         team_ids = [f"t{i}" for i in range(10)]
         base = datetime(2025, 6, 1)
         games = _round_robin(team_ids, base, lambda h, a: (1, 1), n_rounds=3)
@@ -221,13 +227,29 @@ class TestDegenerateCohorts:
         # All PowerScores should be valid
         assert (teams["powerscore_adj"] >= 0.0).all()
         assert (teams["powerscore_adj"] <= 1.0).all()
-        # With identical game scores, OFF/DEF norms should be close.
-        # Note: SOS shrinkage and provisional multiplier can create spread
-        # for teams with different game counts, so we allow reasonable range.
-        off_range = teams["off_norm"].max() - teams["off_norm"].min()
-        def_range = teams["def_norm"].max() - teams["def_norm"].min()
-        assert off_range < 0.3, f"Identical-score teams have too much OFF spread: {off_range:.4f}"
-        assert def_range < 0.3, f"Identical-score teams have too much DEF spread: {def_range:.4f}"
+
+        # With identical results, raw SOS should be identical (same opponents)
+        sos_raw_spread = teams["sos"].max() - teams["sos"].min()
+        assert sos_raw_spread < 0.001, (
+            f"Raw SOS should be near-identical for equal-result teams, "
+            f"got spread={sos_raw_spread:.6f}"
+        )
+
+        # sos_norm should not amplify machine-epsilon noise.
+        # All teams should get sos_norm = 0.5 (tied, using rank method='average')
+        sos_norm_spread = teams["sos_norm"].max() - teams["sos_norm"].min()
+        assert sos_norm_spread < 0.05, (
+            f"sos_norm amplified noise: spread={sos_norm_spread:.4f} "
+            f"(should be ~0 for identical SOS teams). "
+            f"sos_norm values: {sorted(teams['sos_norm'].unique())}"
+        )
+
+        # Therefore PowerScore spread should be minimal
+        ps_range = teams["powerscore_adj"].max() - teams["powerscore_adj"].min()
+        assert ps_range < 0.10, (
+            f"Identical-score teams have {ps_range:.4f} PowerScore spread "
+            f"(noise amplification bug)"
+        )
 
 
 # ===========================================================================
@@ -237,36 +259,34 @@ class TestDegenerateCohorts:
 class TestEmptyData:
     """Handle empty or expired game data."""
 
-    def test_empty_games_returns_empty_or_raises(self):
-        """Empty input should return empty output or raise ValueError.
-        Note: v53e's pd.concat on empty groupby may raise — both are acceptable."""
+    def test_empty_games_returns_empty(self):
+        """Empty input should return empty output without crashing.
+
+        BUG CAUGHT: pd.concat on empty groupby raised ValueError instead of
+        returning empty results gracefully.
+        Fix: early-return when no groups produced by outlier-guard groupby.
+        """
         games = pd.DataFrame(columns=[
             "game_id", "date", "team_id", "opp_id",
             "age", "gender", "opp_age", "opp_gender", "gf", "ga"
         ])
         cfg = V53EConfig()
-        try:
-            result = compute_rankings(games_df=games, cfg=cfg, today=pd.Timestamp("2025-07-01"))
-            assert len(result["teams"]) == 0
-        except (ValueError, KeyError):
-            # Known edge case: pd.concat on empty groupby raises ValueError
-            pass
+        result = compute_rankings(games_df=games, cfg=cfg, today=pd.Timestamp("2025-07-01"))
+        assert len(result["teams"]) == 0
 
     def test_all_games_outside_window(self):
-        """Games older than WINDOW_DAYS should be excluded."""
+        """Games older than WINDOW_DAYS should produce empty results.
+
+        BUG CAUGHT: Same pd.concat crash as empty input when all games
+        are outside the 365-day window.
+        """
         team_ids = [f"t{i}" for i in range(6)]
-        # All games 400 days ago (outside 365-day window)
         old_date = datetime(2024, 5, 1)
         games = _round_robin(team_ids, old_date, n_rounds=3)
         cfg = V53EConfig()
-        try:
-            result = compute_rankings(games_df=games, cfg=cfg, today=pd.Timestamp("2025-07-01"))
-            # Should return empty or no active teams
-            teams = result["teams"]
-            assert len(teams) == 0 or (teams["status"] != "Active").all()
-        except (ValueError, KeyError):
-            # Known: empty after window filter → pd.concat raises
-            pass
+        result = compute_rankings(games_df=games, cfg=cfg, today=pd.Timestamp("2025-07-01"))
+        teams = result["teams"]
+        assert len(teams) == 0 or (teams["status"] != "Active").all()
 
     def test_missing_required_columns(self):
         """Missing required columns should return empty results gracefully."""
