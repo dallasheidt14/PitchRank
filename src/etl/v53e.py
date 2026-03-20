@@ -1570,9 +1570,9 @@ def compute_rankings(
                 sos_norm_values = team['sos_norm'].values
                 team['sos_norm'] = 0.5 + comp_shrink * (sos_norm_values - 0.5)
 
-            # Step 6: Apply low-sample shrinkage (vectorized) - QUADRATIC for aggressive dampening
+            # Step 6: Apply low-sample shrinkage (vectorized) - LINEAR for proportional dampening
             low_sample_mask = gps < cfg.MIN_GAMES_FOR_TOP_SOS
-            shrink_factor = np.clip((gps / cfg.MIN_GAMES_FOR_TOP_SOS) ** 2, 0.0, 1.0)
+            shrink_factor = np.clip(gps / cfg.MIN_GAMES_FOR_TOP_SOS, 0.0, 1.0)
             sos_norm_values = team['sos_norm'].values.copy()
             sos_norm_values[low_sample_mask] = (
                 0.5 + shrink_factor[low_sample_mask] * (sos_norm_values[low_sample_mask] - 0.5)
