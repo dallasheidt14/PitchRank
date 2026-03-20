@@ -25,13 +25,20 @@ from src.etl.v53e import V53EConfig, compute_rankings
 CACHE_DIR = Path(__file__).resolve().parents[2] / "data" / "cache"
 
 # Map of cohort → (games parquet filename, label)
-# Selected: 5 diverse cohorts (large boys, large girls, small cohort)
+# All 12 cohorts from cached production data
 COHORT_FILES = {
     "12 male": "rankings_108fe84b0d904b3467bf05d42fa019ff_games.parquet",
+    "13 male": "rankings_dcc3fc9976bd4bcc6e6ea63c61c3a759_games.parquet",
+    "11 male": "rankings_8b6fe036a69281b692d93e2676ed1169_games.parquet",
     "14 male": "rankings_bfa0b2debbc9f73f7f0d74b3d4e8c601_games.parquet",
-    "13 female": "rankings_93c7ba1817dfeb316bb8897192cac3c2_games.parquet",
     "15 male": "rankings_21c4f3864e1be9622831a87a6ae0494a_games.parquet",
+    "12 female": "rankings_c02154a64733e3d90f494a5d25ef591e_games.parquet",
+    "13 female": "rankings_93c7ba1817dfeb316bb8897192cac3c2_games.parquet",
     "11 female": "rankings_a2ccf7dc89751df7527e34dd3dabb3e0_games.parquet",
+    "14 female": "rankings_59f547805bfc962af51bae0383804ebd_games.parquet",
+    "15 female": "rankings_c87b9565fead104d2e1e4a333a73f22d_games.parquet",
+    "10 male": "rankings_b9bd491bd0e48272757e99db8671e05f_games.parquet",
+    "10 female": "rankings_88f9af04e08e3a507f08816ad5497020_games.parquet",
 }
 
 
