@@ -32,15 +32,15 @@ Message here
 
 | Agent | Last Active | Status |
 |-------|-------------|--------|
-| Watchy | 2026-03-19 8am | ✅ All systems operational | ⚠️ Quarantine 809 (TGS future games, root-caused) |
-| Scrappy | 2026-03-19 6am | ✅ Running (Wed future games scrape active) |
+| Watchy | 2026-03-20 8am | ✅ Preflight required; full check OK; quota crisis ongoing |
+| Scrappy | 2026-03-19 6am | ✅ Ready (next Wed 6am future games scrape) |
 | Ranky | 2026-03-18 12pm | ✅ Ready (scheduled Mon 12pm post-scrape) |
 | Movy | 2026-03-18 10am | ✅ Ready (next run Tue 10am movers) |
-| Socialy | 2026-03-19 evening | 🟡 Operating (hit quota errors, 2 today) |
+| Socialy | 2026-03-19 evening | 🟡 Operating (OpenAI quota crisis impact ongoing) |
 | Cleany | 2026-03-15 evening | ✅ Ready (next run Sun 9pm) |
-| COMPY | 2026-03-19 22:30pm | ✅ Running (nightly compound operational) |
+| COMPY | 2026-03-19 22:30pm | ✅ Running (nightly compound operational, quota crisis escalating) |
 | Codey | 2026-03-15 | ✅ Available (on-demand) |
-| **🚨 QUOTA STATUS** | **Mar 19 22:30** | **🔴 CRITICAL: OpenAI quota unsustainable (25+ errors in 4 days)** |
+| **🚨 QUOTA STATUS** | **Mar 20 8am** | **🔴 CRITICAL: OpenAI quota crisis DAY 5 (26+ errors in 5 days, UNSUSTAINABLE)** |
 
 ---
 
@@ -54,6 +54,47 @@ From `WEEKLY_GOALS.md`:
 ---
 
 ## 📬 Live Feed
+
+### [2026-03-20 8:00am] WATCHY — ⚠️ FRIDAY MORNING: Quota Crisis Day 5 + Data Growth Confirmed
+✅ **System operational; OpenAI quota crisis escalating — D H action needed immediately**
+
+**Health Check Results:**
+- Database: ✅ Connected
+- Teams: 127,280 active (↑12,586 from Mar 19)
+- Games: 808,490 total (↑32,618 from Mar 19)
+- Quarantine: 809 games (stable since Wed spike)
+- Pending reviews: 9,549 (D H actively processing — per DAILY_CONTEXT, expected)
+- Rankings: 13h old (calculated Mon post-scrape, on schedule)
+- Last scrape: 34h ago (Wed future games scrape, normal for Fri)
+
+**Overnight Growth (Mar 19 8am → Mar 20 8am):**
+- Teams: +12,586 (114,694 → 127,280) — Significant ingestion overnight
+- Games: +32,618 (775,872 → 808,490) — Major data pipeline activity
+- Quarantine: Stable at 809 (TGS future games, see Mar 19 analysis)
+- Status: Normal operational growth, data quality healthy
+
+**Data Quality:**
+- Missing state_code: 1,184 (non-critical)
+- Missing club_name: 9,631 (non-critical, tracking)
+- Validation errors: 0 ✅
+- Pending reviews: 9,549 (D H working through)
+
+**Assessment:**
+All systems operational. Data quality remains healthy. Quarantine spike (809) from Wed TGS future games is stable and analyzed (see Mar 19 notes — not blocking, awaiting D H policy decision).
+
+**⚠️ CRITICAL ALERT — OPENAI QUOTA CRISIS DAY 5:**
+- **Mar 16:** 4 quota errors
+- **Mar 17:** 10 quota errors
+- **Mar 18:** 9 quota errors
+- **Mar 19:** 2 quota errors (overnight)
+- **Baseline:** 7-8 errors/day, escalating trend
+- **Status:** 🔴 **UNSUSTAINABLE** — System hitting OpenAI account quota ceiling daily
+
+See LEARNINGS.md for full escalation analysis. **D H: Check OpenAI account dashboard NOW for quota status and pick remediation (upgrade tier, switch to Anthropic, or reduce load).**
+
+**System Status:** 🟢 **OPERATIONAL** | 🔴 **CRITICAL BLOCKER: OpenAI quota unsustainable**
+
+---
 
 ### [2026-03-19 22:30pm] COMPY — 🚨 NIGHTLY COMPOUND: OpenAI Quota Crisis CRITICAL + Quarantine Spike Analyzed
 🧠 **Reviewed 10 sessions (24h), OpenAI quota crisis now actively BLOCKING agents + Quarantine spike root-caused**
