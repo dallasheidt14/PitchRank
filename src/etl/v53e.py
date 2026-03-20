@@ -76,7 +76,8 @@ class V53EConfig:
     # because it caused games-played bias in sos_norm. Kept for backward compatibility only.
     SOS_SAMPLE_SIZE_THRESHOLD: int = 25  # DEPRECATED: no longer used
     OPPONENT_SAMPLE_SIZE_THRESHOLD: int = 20  # DEPRECATED: no longer used (opponent shrinkage removed)
-    MIN_GAMES_FOR_TOP_SOS: int = 10  # Post-percentile shrinkage threshold (teams < this shrink toward 0.5)
+    MIN_GAMES_FOR_TOP_SOS: int = 10  # Post-percentile shrinkage threshold (teams < this shrink toward anchor)
+    SOS_SHRINKAGE_ANCHOR: float = 0.35  # Low-sample teams shrink toward this (0.35 = below-average, not neutral)
     # NOTE: SOS_TOP_CAP_FOR_LOW_SAMPLE is DEPRECATED - hard caps were replaced with soft shrinkage
     SOS_TOP_CAP_FOR_LOW_SAMPLE: float = 0.70  # DEPRECATED: no longer used
 
@@ -1378,25 +1379,28 @@ def compute_rankings(
         "OK"
     )
 
-    # Soft shrinkage: blend toward neutral (0.5) based on sample size
+    # Soft shrinkage: blend toward anchor based on sample size
     # Using LINEAR shrinkage for proportional dampening of low-sample teams:
-    # - 0 games: shrink_factor = 0.0 (fully shrunk to 0.5)
+    # - 0 games: shrink_factor = 0.0 (fully shrunk to anchor)
     # - 5 games: shrink_factor = 0.50 (50% of raw SOS retained)
     # - 8 games: shrink_factor = 0.80 (80% of raw SOS retained)
     # - 10+ games: shrink_factor = 1.0 (no shrinkage)
+    # Anchor is 0.35 (below-average) to prevent low-GP teams from getting
+    # a free "neutral schedule" assumption.
     low_sample_mask = team["gp"] < cfg.MIN_GAMES_FOR_TOP_SOS
     gp_clipped = team["gp"].clip(lower=0)
     shrink_factor = (gp_clipped / cfg.MIN_GAMES_FOR_TOP_SOS).clip(0.0, 1.0)
+    anchor = cfg.SOS_SHRINKAGE_ANCHOR
 
-    # Apply shrinkage: sos_norm = 0.5 + shrink_factor * (sos_norm - 0.5)
+    # Apply shrinkage: sos_norm = anchor + shrink_factor * (sos_norm - anchor)
     team.loc[low_sample_mask, "sos_norm"] = (
-        0.5 + shrink_factor[low_sample_mask] * (team.loc[low_sample_mask, "sos_norm"] - 0.5)
+        anchor + shrink_factor[low_sample_mask] * (team.loc[low_sample_mask, "sos_norm"] - anchor)
     )
 
     low_sample_count = low_sample_mask.sum()
     if low_sample_count > 0:
         logger.info(
-            f"🏷️  Low sample handling: {low_sample_count} teams with soft SOS shrinkage toward 0.5"
+            f"🏷️  Low sample handling: {low_sample_count} teams with soft SOS shrinkage toward {anchor}"
         )
 
     # Correlation guardrail: detect if games-played is leaking into sos_norm
@@ -1577,12 +1581,13 @@ def compute_rankings(
                 sos_norm_values = team['sos_norm'].values
                 team['sos_norm'] = 0.5 + comp_shrink * (sos_norm_values - 0.5)
 
-            # Step 6: Apply low-sample shrinkage (vectorized) - LINEAR for proportional dampening
+            # Step 6: Apply low-sample shrinkage (vectorized) - LINEAR toward anchor
             low_sample_mask = gps < cfg.MIN_GAMES_FOR_TOP_SOS
             shrink_factor = np.clip(gps / cfg.MIN_GAMES_FOR_TOP_SOS, 0.0, 1.0)
             sos_norm_values = team['sos_norm'].values.copy()
+            anchor = cfg.SOS_SHRINKAGE_ANCHOR
             sos_norm_values[low_sample_mask] = (
-                0.5 + shrink_factor[low_sample_mask] * (sos_norm_values[low_sample_mask] - 0.5)
+                anchor + shrink_factor[low_sample_mask] * (sos_norm_values[low_sample_mask] - anchor)
             )
             team['sos_norm'] = sos_norm_values
 
