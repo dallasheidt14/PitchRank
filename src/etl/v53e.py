@@ -325,22 +325,23 @@ def _hybrid_sos_norm(x: pd.Series, zscore_blend: float = 0.30) -> pd.Series:
     ranks = x_rounded.rank(method='average')
     pct = (ranks - 1) / (len(x) - 1)
 
-    # Sigmoid z-score component
-    sd = x.std(ddof=0)
+    # Sigmoid z-score component (use rounded values to match percentile noise suppression)
+    sd = x_rounded.std(ddof=0)
     if sd == 0 or sd != sd:  # zero or NaN
         return pct  # fall back to pure percentile
-    z = (x - x.mean()) / sd
+    z = (x_rounded - x_rounded.mean()) / sd
     sigmoid = 1.0 / (1.0 + np.exp(-z))
 
     # Blend
     hybrid = (1.0 - zscore_blend) * pct + zscore_blend * sigmoid
 
-    # Re-scale to [0, 1] within group to guarantee full range
-    h_min, h_max = hybrid.min(), hybrid.max()
-    if h_max - h_min > 1e-10:
-        hybrid = (hybrid - h_min) / (h_max - h_min)
-    else:
-        hybrid = pd.Series([0.5] * len(hybrid), index=hybrid.index)
+    # Re-scale to [0, 1] within group to guarantee full range (skip for pure percentile)
+    if zscore_blend > 0:
+        h_min, h_max = hybrid.min(), hybrid.max()
+        if h_max - h_min > 1e-10:
+            hybrid = (hybrid - h_min) / (h_max - h_min)
+        else:
+            hybrid = pd.Series([0.5] * len(hybrid), index=hybrid.index)
 
     return hybrid
 
