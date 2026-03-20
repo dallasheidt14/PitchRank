@@ -109,6 +109,14 @@ class V53EConfig:
     # Normalization mode
     NORM_MODE: str = "percentile"  # or "zscore"
 
+    # SOS Hybrid Normalization
+    # Blends percentile rank (guarantees full [0,1] range) with sigmoid z-score
+    # (preserves natural gaps at the tails). Pure percentile compresses the top teams
+    # into a narrow band, wasting the 60% SOS weight. Hybrid re-introduces
+    # differentiation where raw SOS actually differs.
+    SOS_NORM_HYBRID_ENABLED: bool = False  # off by default — opt-in
+    SOS_NORM_HYBRID_ZSCORE_BLEND: float = 0.30  # fraction of z-score in the blend (0=pure percentile, 1=pure zscore)
+
     # =========================
     # Regional Bubble Detection (Layer 8b)
     # =========================
@@ -289,6 +297,53 @@ def _zscore_norm(x: pd.Series) -> pd.Series:
     z = (x - x.mean()) / sd
     # squash to [0,1] for combinability
     return 1 / (1 + np.exp(-z))
+
+
+def _hybrid_sos_norm(x: pd.Series, zscore_blend: float = 0.30) -> pd.Series:
+    """Blend percentile rank with sigmoid z-score for SOS normalization.
+
+    Pure percentile maps values to a uniform distribution — great for
+    guaranteeing full [0,1] range, but it destroys natural gaps.  Among the
+    top-30 teams whose raw SOS values cluster tightly, percentile compresses
+    them into 0.85–1.00 making SOS a near-constant.
+
+    Sigmoid z-score preserves natural gaps (large raw differences → large
+    normalized differences) but can under-use the [0,1] range in small
+    cohorts.
+
+    The hybrid blends both:
+        hybrid = (1 - α) * percentile + α * sigmoid_zscore
+
+    With α=0.30 the full range is mostly preserved while natural gaps at the
+    tails create real differentiation.
+    """
+    if len(x) <= 1:
+        return pd.Series([0.5] * len(x), index=x.index)
+
+    # Percentile component (same as existing)
+    x_rounded = x.round(10)
+    ranks = x_rounded.rank(method='average')
+    pct = (ranks - 1) / (len(x) - 1)
+
+    # Sigmoid z-score component (use rounded values to match percentile noise suppression)
+    sd = x_rounded.std(ddof=0)
+    if sd == 0 or sd != sd:  # zero or NaN
+        return pct  # fall back to pure percentile
+    z = (x_rounded - x_rounded.mean()) / sd
+    sigmoid = 1.0 / (1.0 + np.exp(-z))
+
+    # Blend
+    hybrid = (1.0 - zscore_blend) * pct + zscore_blend * sigmoid
+
+    # Re-scale to [0, 1] within group to guarantee full range (skip for pure percentile)
+    if zscore_blend > 0:
+        h_min, h_max = hybrid.min(), hybrid.max()
+        if h_max - h_min > 1e-10:
+            hybrid = (hybrid - h_min) / (h_max - h_min)
+        else:
+            hybrid = pd.Series([0.5] * len(hybrid), index=hybrid.index)
+
+    return hybrid
 
 
 def _normalize_by_cohort(df: pd.DataFrame, value_col: str, out_col: str, mode: str) -> pd.DataFrame:
@@ -1337,7 +1392,17 @@ def compute_rankings(
         ranks = x_rounded.rank(method='average')
         return (ranks - 1) / (len(x) - 1) if len(x) > 1 else pd.Series([0.5], index=x.index)
 
-    team['sos_norm'] = team.groupby(sos_group_cols)['sos'].transform(percentile_within_group)
+    # Select normalization function: hybrid (percentile+zscore blend) or pure percentile
+    if cfg.SOS_NORM_HYBRID_ENABLED:
+        _sos_norm_fn = lambda x: _hybrid_sos_norm(x, zscore_blend=cfg.SOS_NORM_HYBRID_ZSCORE_BLEND)
+        logger.info(
+            f"🔀 Using HYBRID SOS normalization "
+            f"(zscore_blend={cfg.SOS_NORM_HYBRID_ZSCORE_BLEND:.0%})"
+        )
+    else:
+        _sos_norm_fn = percentile_within_group
+
+    team['sos_norm'] = team.groupby(sos_group_cols)['sos'].transform(_sos_norm_fn)
 
     # Handle edge cases (NaN from single-team cohorts/components)
     team['sos_norm'] = team['sos_norm'].fillna(0.5)
@@ -1569,9 +1634,9 @@ def compute_rankings(
             team["sos"] = cfg.SOS_POWER_DAMPING * new_sos + (1 - cfg.SOS_POWER_DAMPING) * prev_sos
 
             # Step 5: Re-normalize SOS within connected components (or cohort if disabled)
-            # Uses the same groupby columns as the initial normalization to ensure
-            # disconnected ecosystems are normalized independently.
-            team['sos_norm'] = team.groupby(sos_group_cols)['sos'].transform(percentile_within_group)
+            # Uses the same groupby columns and normalization function as the initial
+            # normalization to ensure disconnected ecosystems are normalized independently.
+            team['sos_norm'] = team.groupby(sos_group_cols)['sos'].transform(_sos_norm_fn)
             team['sos_norm'] = team['sos_norm'].fillna(0.5).clip(0.0, 1.0)
 
             # Step 5b: Apply component-size shrinkage (same as initial normalization)
