@@ -13,9 +13,9 @@ Root cause analysis of the PowerScore formula and SOS mechanics:
    A team beating weak opponents gets LOW off_norm (good, opponent-adjusted)
    but their 60% SOS weight still dominates the score.
 
-3. NEUTRAL ANCHOR = 0.5: The shrinkage anchor is 0.5 (median). For weak-SOS
-   teams, this is generous. A more appropriate anchor might be lower (e.g., 0.35)
-   to avoid rewarding teams that haven't proven their schedule quality.
+3. ANCHOR (NOW 0.35): The shrinkage anchor was changed from 0.5 to 0.35 via
+   SOS_SHRINKAGE_ANCHOR config. This prevents rewarding teams that haven't
+   proven their schedule quality with a free "neutral" assumption.
 
 These tests quantify each mechanism and test potential fixes.
 """
@@ -267,39 +267,34 @@ class TestPotentialFixes:
 
     def test_fix_lower_shrinkage_anchor(self):
         """
-        Fix #1: Change shrinkage anchor from 0.5 to 0.35.
-        Weak-SOS teams with few games shrink toward 0.35 instead of 0.5,
+        Fix #1 (IMPLEMENTED): Shrinkage anchor is now 0.35 (via SOS_SHRINKAGE_ANCHOR).
+        Weak-SOS teams with few games shrink toward 0.35 instead of 0.50,
         preventing free SOS inflation.
         """
+        from src.etl.v53e import V53EConfig
+        cfg = V53EConfig()
         games, elite, mid, weak = _build_tiered_league()
 
-        # Baseline
+        # Run with the now-default 0.35 anchor
         team_baseline = _run_rankings(games)
 
-        # Modified: manually apply lower shrinkage anchor
-        # We can't easily change the anchor in v53e without modifying the code,
-        # so we'll compute the effect analytically
         weak_base = team_baseline[team_baseline["team_id"].isin(weak)]
         mid_base = team_baseline[team_baseline["team_id"].isin(mid)]
 
+        anchor = cfg.SOS_SHRINKAGE_ANCHOR
         print(f"\n{'='*70}")
-        print(f"FIX #1: Lower shrinkage anchor (0.5 → 0.35)")
+        print(f"FIX #1 (ACTIVE): Shrinkage anchor = {anchor}")
         print(f"{'='*70}")
         print(f"\n  Current state:")
         print(f"    Weak avg sos_norm: {weak_base['sos_norm'].mean():.4f}")
         print(f"    Mid avg sos_norm:  {mid_base['sos_norm'].mean():.4f}")
         print(f"    Gap:               {mid_base['sos_norm'].mean() - weak_base['sos_norm'].mean():.4f}")
 
-        # Simulate what would happen with 0.35 anchor
-        # new_sos = 0.35 + shrink_factor * (raw_sos - 0.35)
-        # vs current: 0.5 + shrink_factor * (raw_sos - 0.5)
-        # For a team with raw_sos=0.1, 5 games:
-        #   Current:  0.5 + 0.5*(0.1 - 0.5) = 0.30
-        #   Proposed: 0.35 + 0.5*(0.1 - 0.35) = 0.225
+        # Show the formula with the active anchor
         print(f"\n  Example: team with raw_sos_norm=0.10, 5 games (shrink=0.5):")
-        print(f"    Current (anchor=0.5):  {0.5 + 0.5*(0.1 - 0.5):.3f}")
-        print(f"    Proposed (anchor=0.35): {0.35 + 0.5*(0.1 - 0.35):.3f}")
-        print(f"    Improvement: {(0.5 + 0.5*(0.1 - 0.5)) - (0.35 + 0.5*(0.1 - 0.35)):.3f} lower")
+        print(f"    Anchor={anchor}: {anchor + 0.5*(0.1 - anchor):.3f}")
+        print(f"    (Old anchor=0.5 would have given: {0.5 + 0.5*(0.1 - 0.5):.3f})")
+        print(f"    Improvement: {(0.5 + 0.5*(0.1 - 0.5)) - (anchor + 0.5*(0.1 - anchor)):.3f} lower")
 
     def test_fix_sos_weight_reduction(self):
         """

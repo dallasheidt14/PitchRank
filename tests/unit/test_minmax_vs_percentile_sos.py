@@ -100,8 +100,9 @@ def _run_with_normalization(games, cfg, norm_fn, today="2025-07-01"):
     # Re-apply low-sample shrinkage
     low_mask = teams["gp"] < cfg.MIN_GAMES_FOR_TOP_SOS
     shrink = (teams["gp"] / cfg.MIN_GAMES_FOR_TOP_SOS).clip(0.0, 1.0)
+    anchor = cfg.SOS_SHRINKAGE_ANCHOR
     teams.loc[low_mask, "sos_norm"] = (
-        0.5 + shrink[low_mask] * (teams.loc[low_mask, "sos_norm"] - 0.5)
+        anchor + shrink[low_mask] * (teams.loc[low_mask, "sos_norm"] - anchor)
     )
 
     # Recompute PowerScore

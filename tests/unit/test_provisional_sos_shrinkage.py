@@ -3,7 +3,7 @@ Tests for provisional multiplier + SOS shrinkage compounding.
 
 Verifies:
 - Provisional multiplier thresholds (0.85 / 0.95 / 1.00) at game-count boundaries
-- SOS low-sample shrinkage toward 0.5
+- SOS low-sample shrinkage toward anchor (default 0.35)
 - The compound effect: provisional_mult * powerscore_core where sos_norm is
   already shrunk for low-game-count teams
 - Boundary conditions at the thresholds (gp=7→8, gp=14→15)
@@ -143,29 +143,32 @@ class TestProvisionalMultInPipeline:
 # ===========================================================================
 
 class TestSOSShrinkage:
-    """Verify SOS low-sample shrinkage toward 0.5."""
+    """Verify SOS low-sample shrinkage toward anchor."""
 
     def test_shrinkage_formula_linear(self):
         """
         For teams with gp < MIN_GAMES_FOR_TOP_SOS (10), sos_norm should be
-        shrunk toward 0.5: sos_norm = 0.5 + (gp/10) * (raw - 0.5).
+        shrunk toward anchor: sos_norm = anchor + (gp/10) * (raw - anchor).
         """
         cfg = V53EConfig()
+        anchor = cfg.SOS_SHRINKAGE_ANCHOR  # 0.35
         # A team with 5 games out of threshold 10 should retain 50% of the
-        # deviation from 0.5
+        # deviation from anchor
         gp = 5
         raw_sos_norm = 0.9
         shrink_factor = min(gp / cfg.MIN_GAMES_FOR_TOP_SOS, 1.0)
-        expected = 0.5 + shrink_factor * (raw_sos_norm - 0.5)
-        assert abs(expected - 0.7) < 0.01  # 0.5 + 0.5*(0.9-0.5) = 0.7
+        expected = anchor + shrink_factor * (raw_sos_norm - anchor)
+        # 0.35 + 0.5*(0.9-0.35) = 0.35 + 0.275 = 0.625
+        assert abs(expected - 0.625) < 0.01
 
     def test_full_games_no_shrinkage(self):
         """Teams with >= MIN_GAMES_FOR_TOP_SOS games should have no shrinkage."""
         cfg = V53EConfig()
+        anchor = cfg.SOS_SHRINKAGE_ANCHOR
         gp = 10
         raw_sos_norm = 0.9
         shrink_factor = min(gp / cfg.MIN_GAMES_FOR_TOP_SOS, 1.0)
-        expected = 0.5 + shrink_factor * (raw_sos_norm - 0.5)
+        expected = anchor + shrink_factor * (raw_sos_norm - anchor)
         assert abs(expected - 0.9) < 0.01  # factor=1.0 → no change
 
 
@@ -179,7 +182,7 @@ class TestCompoundEffect:
     def test_low_games_double_penalty(self):
         """
         A team with 5 games gets:
-        1. SOS shrinkage: sos_norm pulled toward 0.5 (factor=0.5)
+        1. SOS shrinkage: sos_norm pulled toward anchor (factor=0.5)
         2. Provisional: powerscore_adj = powerscore_core * 0.85
 
         The compound effect should be strictly less than a team with 20 games
@@ -187,6 +190,7 @@ class TestCompoundEffect:
         """
         # This is a formula-level test
         cfg = V53EConfig()
+        anchor = cfg.SOS_SHRINKAGE_ANCHOR
 
         # Simulate two teams with same off/def norms but different gp
         off_norm = 0.8
@@ -195,7 +199,7 @@ class TestCompoundEffect:
 
         # Team A: 5 games
         shrink_a = min(5 / cfg.MIN_GAMES_FOR_TOP_SOS, 1.0)  # 0.5
-        sos_norm_a = 0.5 + shrink_a * (raw_sos_norm - 0.5)  # 0.7
+        sos_norm_a = anchor + shrink_a * (raw_sos_norm - anchor)  # 0.35 + 0.5*0.55 = 0.625
         core_a = cfg.OFF_WEIGHT * off_norm + cfg.DEF_WEIGHT * def_norm + cfg.SOS_WEIGHT * sos_norm_a
         adj_a = core_a * _provisional_multiplier(5, cfg.MIN_GAMES_PROVISIONAL)  # * 0.85
 
