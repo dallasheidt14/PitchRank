@@ -176,7 +176,7 @@ class V53EConfig:
     # Minimum component size (within cohort) for full SOS percentile range.
     # Components smaller than this get their sos_norm shrunk toward 0.5.
     # Set to roughly the size of the smallest "real" league in a cohort.
-    MIN_COMPONENT_SIZE_FOR_FULL_SOS: int = 30
+    MIN_COMPONENT_SIZE_FOR_FULL_SOS: int = 10
 
 
 # =========================
@@ -1372,14 +1372,14 @@ def compute_rankings(
     )
 
     # Soft shrinkage: blend toward neutral (0.5) based on sample size
-    # Using QUADRATIC shrinkage for more aggressive dampening of low-sample teams:
+    # Using LINEAR shrinkage for proportional dampening of low-sample teams:
     # - 0 games: shrink_factor = 0.0 (fully shrunk to 0.5)
-    # - 5 games: shrink_factor = 0.25 (only 25% of raw SOS retained)
-    # - 8 games: shrink_factor = 0.64 (64% of raw SOS retained)
+    # - 5 games: shrink_factor = 0.50 (50% of raw SOS retained)
+    # - 8 games: shrink_factor = 0.80 (80% of raw SOS retained)
     # - 10+ games: shrink_factor = 1.0 (no shrinkage)
     low_sample_mask = team["gp"] < cfg.MIN_GAMES_FOR_TOP_SOS
     gp_clipped = team["gp"].clip(lower=0)
-    shrink_factor = ((gp_clipped / cfg.MIN_GAMES_FOR_TOP_SOS) ** 2).clip(0.0, 1.0)
+    shrink_factor = (gp_clipped / cfg.MIN_GAMES_FOR_TOP_SOS).clip(0.0, 1.0)
 
     # Apply shrinkage: sos_norm = 0.5 + shrink_factor * (sos_norm - 0.5)
     team.loc[low_sample_mask, "sos_norm"] = (
@@ -1570,9 +1570,9 @@ def compute_rankings(
                 sos_norm_values = team['sos_norm'].values
                 team['sos_norm'] = 0.5 + comp_shrink * (sos_norm_values - 0.5)
 
-            # Step 6: Apply low-sample shrinkage (vectorized) - QUADRATIC for aggressive dampening
+            # Step 6: Apply low-sample shrinkage (vectorized) - LINEAR for proportional dampening
             low_sample_mask = gps < cfg.MIN_GAMES_FOR_TOP_SOS
-            shrink_factor = np.clip((gps / cfg.MIN_GAMES_FOR_TOP_SOS) ** 2, 0.0, 1.0)
+            shrink_factor = np.clip(gps / cfg.MIN_GAMES_FOR_TOP_SOS, 0.0, 1.0)
             sos_norm_values = team['sos_norm'].values.copy()
             sos_norm_values[low_sample_mask] = (
                 0.5 + shrink_factor[low_sample_mask] * (sos_norm_values[low_sample_mask] - 0.5)

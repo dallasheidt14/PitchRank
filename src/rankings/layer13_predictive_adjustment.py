@@ -39,7 +39,7 @@ class Layer13Config:
     min_training_rows: int = 30            # Minimum rows to enable ML (prevents leakage)
     
     # blend into PowerScore
-    alpha: float = 0.18                    # Bumped from 0.15 to compensate for PERF removal (0.05–0.25 range)
+    alpha: float = 0.10                    # Reduced from 0.18 to let v53e SOS weighting drive rankings (0.05–0.25 range)
     norm_mode: str = "percentile"          # or "zscore"
     
     # supabase
