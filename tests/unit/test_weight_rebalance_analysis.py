@@ -549,5 +549,209 @@ class TestVarianceDecomposition:
                 print(f"    {'SOS':<8} {sos_w:.0%}       {sos_t30:.6f}    {sos_t30/total_t30:.1%}")
 
 
+def _run_with_hybrid(games, off_w, def_w, sos_w, zscore_blend=0.30):
+    """Run rankings with hybrid SOS normalization."""
+    cfg = V53EConfig(
+        OFF_WEIGHT=off_w,
+        DEF_WEIGHT=def_w,
+        SOS_WEIGHT=sos_w,
+        SOS_POWER_ITERATIONS=3,
+        COMPONENT_SOS_ENABLED=True,
+        OPPONENT_ADJUST_ENABLED=True,
+        PERF_BLEND_WEIGHT=0.0,
+        SCF_ENABLED=True,
+        PAGERANK_DAMPENING_ENABLED=True,
+        SOS_NORM_HYBRID_ENABLED=True,
+        SOS_NORM_HYBRID_ZSCORE_BLEND=zscore_blend,
+    )
+    result = compute_rankings(games_df=games, cfg=cfg, today=pd.Timestamp("2026-01-01"))
+    return result["teams"]
+
+
+class TestHybridNormalization:
+    """Compare hybrid (percentile+zscore) vs pure percentile normalization."""
+
+    @pytest.fixture(scope="class")
+    def league_data(self):
+        return _build_large_tiered_league(seed=42)
+
+    def test_hybrid_vs_percentile_head_to_head(self, league_data):
+        """
+        Run the same weight configs with both normalization modes and compare.
+        Hybrid should improve top-30 differentiation without hurting tier ordering.
+        """
+        games, elite, strong, mid, weak, true_skill = league_data
+
+        configs = [
+            (0.20, 0.20, 0.60, "20/20/60"),
+            (0.25, 0.25, 0.50, "25/25/50"),
+            (0.30, 0.30, 0.40, "30/30/40"),
+        ]
+
+        print(f"\n{'='*120}")
+        print(f"HYBRID vs PERCENTILE — Head-to-Head Comparison")
+        print(f"{'='*120}")
+
+        print(f"\n{'Config':<15} {'Mode':<12} {'Top30 Spread':<14} {'Top30 CV':<10} "
+              f"{'Pair Acc':<10} {'Rank Corr':<10} {'Bubble':<8} {'Elite/10':<10} "
+              f"{'Tier Sep':<10} {'T30 SOS var':<12}")
+        print(f"{'-'*120}")
+
+        for off_w, def_w, sos_w, label in configs:
+            # Pure percentile
+            teams_pct = _run_with_weights(games, off_w, def_w, sos_w)
+            m_pct = _compute_metrics(teams_pct, elite, strong, mid, weak, true_skill)
+
+            # Hybrid (30% zscore)
+            teams_hyb = _run_with_hybrid(games, off_w, def_w, sos_w, zscore_blend=0.30)
+            m_hyb = _compute_metrics(teams_hyb, elite, strong, mid, weak, true_skill)
+
+            for mode, m in [("percentile", m_pct), ("hybrid-30%", m_hyb)]:
+                if m is None:
+                    continue
+                # Top-30 SOS variance (the core metric we want to improve)
+                active = (teams_pct if mode == "percentile" else teams_hyb)
+                active = active[active["status"] == "Active"].sort_values("powerscore_adj", ascending=False)
+                t30_sos_var = active.head(30)["sos_norm"].var()
+
+                print(f"{label:<15} {mode:<12} "
+                      f"{m['top30_spread']:.4f}        "
+                      f"{m['top30_cv']:.4f}    "
+                      f"{m['pairwise_accuracy']:.4f}    "
+                      f"{m['rank_corr']:.4f}    "
+                      f"{m['bubble_leak']:>4d}    "
+                      f"{m['elite_in_top10']:>5d}     "
+                      f"{m['total_tier_separation']:.4f}    "
+                      f"{t30_sos_var:.6f}")
+
+    def test_hybrid_zscore_blend_sweep(self, league_data):
+        """
+        Sweep the zscore_blend parameter from 0% to 60% to find the sweet spot.
+        Uses the current 20/20/60 weights.
+        """
+        games, elite, strong, mid, weak, true_skill = league_data
+
+        print(f"\n{'='*100}")
+        print(f"HYBRID ZSCORE BLEND SWEEP (weights=20/20/60, blend 0%-60%)")
+        print(f"{'='*100}")
+        print(f"\n{'Blend':<8} {'Top30 Spread':<14} {'Top30 CV':<10} {'Pair Acc':<10} "
+              f"{'Rank Corr':<10} {'Bubble':<8} {'Tier Sep':<10} {'T30 SOS var':<12}")
+        print(f"{'-'*90}")
+
+        for blend_pct in range(0, 65, 5):
+            blend = blend_pct / 100
+            if blend == 0:
+                teams = _run_with_weights(games, 0.20, 0.20, 0.60)
+            else:
+                teams = _run_with_hybrid(games, 0.20, 0.20, 0.60, zscore_blend=blend)
+
+            m = _compute_metrics(teams, elite, strong, mid, weak, true_skill)
+            if m is None:
+                continue
+
+            active = teams[teams["status"] == "Active"].sort_values("powerscore_adj", ascending=False)
+            t30_sos_var = active.head(30)["sos_norm"].var()
+
+            marker = " ← pure percentile" if blend == 0 else ""
+            print(f"{blend:.0%}      "
+                  f"{m['top30_spread']:.4f}        "
+                  f"{m['top30_cv']:.4f}    "
+                  f"{m['pairwise_accuracy']:.4f}    "
+                  f"{m['rank_corr']:.4f}    "
+                  f"{m['bubble_leak']:>4d}    "
+                  f"{m['total_tier_separation']:.4f}    "
+                  f"{t30_sos_var:.6f}    {marker}")
+
+    def test_hybrid_cross_seed_stability(self, league_data):
+        """
+        Test hybrid normalization across multiple seeds to ensure stability.
+        Compare pure percentile vs hybrid at 30% blend.
+        """
+        seeds = [42, 123, 456, 789, 2025]
+
+        print(f"\n{'='*100}")
+        print(f"HYBRID CROSS-SEED STABILITY (20/20/60, 5 seeds)")
+        print(f"{'='*100}")
+
+        pct_metrics = {"pair_acc": [], "rank_corr": [], "bubble_leak": [],
+                       "top30_spread": [], "tier_sep": []}
+        hyb_metrics = {"pair_acc": [], "rank_corr": [], "bubble_leak": [],
+                       "top30_spread": [], "tier_sep": []}
+
+        for seed in seeds:
+            games, elite, strong, mid, weak, true_skill = _build_large_tiered_league(seed=seed)
+
+            teams_pct = _run_with_weights(games, 0.20, 0.20, 0.60)
+            m_pct = _compute_metrics(teams_pct, elite, strong, mid, weak, true_skill)
+
+            teams_hyb = _run_with_hybrid(games, 0.20, 0.20, 0.60, zscore_blend=0.30)
+            m_hyb = _compute_metrics(teams_hyb, elite, strong, mid, weak, true_skill)
+
+            if m_pct:
+                pct_metrics["pair_acc"].append(m_pct["pairwise_accuracy"])
+                pct_metrics["rank_corr"].append(m_pct["rank_corr"])
+                pct_metrics["bubble_leak"].append(m_pct["bubble_leak"])
+                pct_metrics["top30_spread"].append(m_pct["top30_spread"])
+                pct_metrics["tier_sep"].append(m_pct["total_tier_separation"])
+            if m_hyb:
+                hyb_metrics["pair_acc"].append(m_hyb["pairwise_accuracy"])
+                hyb_metrics["rank_corr"].append(m_hyb["rank_corr"])
+                hyb_metrics["bubble_leak"].append(m_hyb["bubble_leak"])
+                hyb_metrics["top30_spread"].append(m_hyb["top30_spread"])
+                hyb_metrics["tier_sep"].append(m_hyb["total_tier_separation"])
+
+        print(f"\n{'Mode':<15} {'Avg Pair Acc':<14} {'Avg Corr':<10} {'Avg Leak':<10} "
+              f"{'Avg Spread':<12} {'Avg Tier Sep':<12}")
+        print(f"{'-'*75}")
+        for label, m in [("Percentile", pct_metrics), ("Hybrid-30%", hyb_metrics)]:
+            print(f"{label:<15} "
+                  f"{np.mean(m['pair_acc']):.4f}        "
+                  f"{np.mean(m['rank_corr']):.4f}    "
+                  f"{np.mean(m['bubble_leak']):.1f}       "
+                  f"{np.mean(m['top30_spread']):.4f}      "
+                  f"{np.mean(m['tier_sep']):.4f}")
+
+        # Hybrid should not regress pairwise accuracy by more than 1%
+        pct_acc = np.mean(pct_metrics["pair_acc"])
+        hyb_acc = np.mean(hyb_metrics["pair_acc"])
+        print(f"\n  Pairwise accuracy delta: {hyb_acc - pct_acc:+.4f} "
+              f"({'improved' if hyb_acc >= pct_acc else 'regressed'})")
+
+    def test_hybrid_variance_decomposition(self, league_data):
+        """Show how hybrid normalization changes the variance decomposition."""
+        games, elite, strong, mid, weak, true_skill = league_data
+
+        print(f"\n{'='*100}")
+        print(f"VARIANCE DECOMPOSITION — Percentile vs Hybrid (20/20/60)")
+        print(f"{'='*100}")
+
+        for mode_label, teams in [
+            ("Percentile", _run_with_weights(games, 0.20, 0.20, 0.60)),
+            ("Hybrid-30%", _run_with_hybrid(games, 0.20, 0.20, 0.60, zscore_blend=0.30)),
+        ]:
+            active = teams[teams["status"] == "Active"]
+            top30 = active.sort_values("powerscore_adj", ascending=False).head(30)
+
+            # Full cohort variance
+            off_eff = (0.20 * active["off_norm"]).var()
+            def_eff = (0.20 * active["def_norm"]).var()
+            sos_eff = (0.60 * active["sos_norm"]).var()
+            total = off_eff + def_eff + sos_eff
+
+            # Top-30 variance
+            off_t30 = (0.20 * top30["off_norm"]).var()
+            def_t30 = (0.20 * top30["def_norm"]).var()
+            sos_t30 = (0.60 * top30["sos_norm"]).var()
+            total_t30 = off_t30 + def_t30 + sos_t30
+
+            print(f"\n  {mode_label}")
+            if total > 0:
+                print(f"    ALL TEAMS:  OFF={off_eff/total:.1%}  DEF={def_eff/total:.1%}  SOS={sos_eff/total:.1%}")
+            if total_t30 > 0:
+                print(f"    TOP-30:     OFF={off_t30/total_t30:.1%}  DEF={def_t30/total_t30:.1%}  SOS={sos_t30/total_t30:.1%}")
+            print(f"    SOS sos_norm range (top30): [{top30['sos_norm'].min():.4f}, {top30['sos_norm'].max():.4f}]")
+            print(f"    SOS sos_norm std (top30):   {top30['sos_norm'].std():.4f}")
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
