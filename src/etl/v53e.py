@@ -736,7 +736,10 @@ def compute_rankings(
         out["ga"] = _clip_outliers_series(out["ga"], cfg.OUTLIER_GUARD_ZSCORE)
         return out
 
-    g = pd.concat([clip_team_games(grp) for _, grp in g.groupby("team_id")]).reset_index(drop=True)
+    clipped_groups = [clip_team_games(grp) for _, grp in g.groupby("team_id")]
+    if not clipped_groups:
+        return {"teams": pd.DataFrame(), "games_used": pd.DataFrame()}
+    g = pd.concat(clipped_groups).reset_index(drop=True)
     # Cap individual gf/ga per game (consistent with GOAL_DIFF_CAP).
     # Without this, an 8-0 blowout contributes 8 goals of offensive output
     # even though gd is capped at 6. This inflates offense for teams
@@ -1324,9 +1327,13 @@ def compute_rankings(
     def percentile_within_group(x):
         if len(x) <= 1:
             return pd.Series([0.5] * len(x), index=x.index)
-        # Manual percentile: maps ranks to [0.0, 1.0] where worst=0, best=1.
-        # With ties, rank(method='average') assigns the mean of tied positions.
-        ranks = x.rank(method='average')
+        # Round to 10 decimal places before ranking to prevent floating-point
+        # noise (diffs < 1e-10) from creating false differentiation.
+        # Without this, teams with identical raw SOS (differing only at machine
+        # epsilon) get spread across the full [0, 1] range, creating up to 0.40
+        # PowerScore gaps from pure noise.
+        x_rounded = x.round(10)
+        ranks = x_rounded.rank(method='average')
         return (ranks - 1) / (len(x) - 1) if len(x) > 1 else pd.Series([0.5], index=x.index)
 
     team['sos_norm'] = team.groupby(sos_group_cols)['sos'].transform(percentile_within_group)
