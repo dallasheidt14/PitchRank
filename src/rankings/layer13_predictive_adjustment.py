@@ -138,6 +138,40 @@ def _rank_with_sos_tiebreaker(
     return df_sorted["_rank"].reindex(df.index).astype(int)
 
 
+def _rank_active_only(
+    df: pd.DataFrame,
+    cohort_cols: List[str],
+    score_col: str,
+    sos_col: str = "sos",
+    status_col: str = "status",
+) -> pd.Series:
+    """
+    Rank only "Active" teams; non-Active teams get NaN (NULL in DB).
+
+    This prevents teams with < MIN_GAMES_PROVISIONAL from receiving
+    a rank_in_cohort_ml that would override the NULL rank_in_cohort
+    set by v53e.
+    """
+    if df.empty:
+        return pd.Series(dtype="Int64")
+
+    # If no status column, fall back to ranking all teams
+    if status_col not in df.columns:
+        return _rank_with_sos_tiebreaker(df, cohort_cols, score_col, sos_col)
+
+    result = pd.Series(pd.NA, index=df.index, dtype="Int64")
+    active_mask = df[status_col] == "Active"
+
+    if active_mask.any():
+        active_df = df.loc[active_mask]
+        active_ranks = _rank_with_sos_tiebreaker(
+            active_df, cohort_cols, score_col, sos_col
+        )
+        result.loc[active_mask] = active_ranks.astype("Int64")
+
+    return result
+
+
 # ----------------------------
 # Game residual extraction
 # ----------------------------
@@ -236,7 +270,7 @@ async def apply_predictive_adjustment(
         out["powerscore_ml"] = out.get("powerscore_adj", out.get("powerscore_core", 0.0))
         # Clamp PowerScore within [0.0, 1.0] to preserve normalization bounds
         out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
-        out["rank_in_cohort_ml"] = _rank_with_sos_tiebreaker(out, cfg.cohort_key_cols, "powerscore_ml")
+        out["rank_in_cohort_ml"] = _rank_active_only(out, cfg.cohort_key_cols, "powerscore_ml")
         if return_game_residuals:
             return out, pd.DataFrame(columns=['game_id', 'residual'])
         return out
@@ -283,7 +317,7 @@ async def apply_predictive_adjustment(
         out["powerscore_ml"] = out.get("powerscore_adj", out.get("powerscore_core", 0.0))
         # Clamp PowerScore within [0.0, 1.0] to preserve normalization bounds
         out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
-        out["rank_in_cohort_ml"] = _rank_with_sos_tiebreaker(out, cfg.cohort_key_cols, "powerscore_ml")
+        out["rank_in_cohort_ml"] = _rank_active_only(out, cfg.cohort_key_cols, "powerscore_ml")
         if return_game_residuals:
             return out, pd.DataFrame(columns=['game_id', 'residual'])
         return out
@@ -329,7 +363,7 @@ async def apply_predictive_adjustment(
         out["powerscore_ml"] = out[base_power_col]
         # Clamp PowerScore within [0.0, 1.0] to preserve normalization bounds
         out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
-        out["rank_in_cohort_ml"] = _rank_with_sos_tiebreaker(out, cfg.cohort_key_cols, "powerscore_ml")
+        out["rank_in_cohort_ml"] = _rank_active_only(out, cfg.cohort_key_cols, "powerscore_ml")
         if return_game_residuals:
             return out, pd.DataFrame(columns=['game_id', 'ml_overperformance'])
         return out
@@ -352,7 +386,7 @@ async def apply_predictive_adjustment(
             out["ml_norm"] = 0.0
             out["powerscore_ml"] = out.get("powerscore_adj", out.get("powerscore_core", 0.0))
             out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
-            out["rank_in_cohort_ml"] = _rank_with_sos_tiebreaker(out, cfg.cohort_key_cols, "powerscore_ml")
+            out["rank_in_cohort_ml"] = _rank_active_only(out, cfg.cohort_key_cols, "powerscore_ml")
             if return_game_residuals:
                 return out, pd.DataFrame(columns=['game_id', 'ml_overperformance'])
             return out
@@ -365,7 +399,7 @@ async def apply_predictive_adjustment(
         out["ml_norm"] = 0.0
         out["powerscore_ml"] = out.get("powerscore_adj", out.get("powerscore_core", 0.0))
         out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
-        out["rank_in_cohort_ml"] = _rank_with_sos_tiebreaker(out, cfg.cohort_key_cols, "powerscore_ml")
+        out["rank_in_cohort_ml"] = _rank_active_only(out, cfg.cohort_key_cols, "powerscore_ml")
         if return_game_residuals:
             return out, pd.DataFrame(columns=['game_id', 'ml_overperformance'])
         return out
@@ -397,7 +431,7 @@ async def apply_predictive_adjustment(
     out["powerscore_ml"] = (out[base_power_col] + cfg.alpha * out["ml_norm"]) / MAX_ML_THEORETICAL
     # Safety clamp (shouldn't trigger after normalization, but keeps bounds valid)
     out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
-    out["rank_in_cohort_ml"] = _rank_with_sos_tiebreaker(out, cfg.cohort_key_cols, "powerscore_ml")
+    out["rank_in_cohort_ml"] = _rank_active_only(out, cfg.cohort_key_cols, "powerscore_ml")
 
     # 7) Extract per-game residuals if requested
     if return_game_residuals:

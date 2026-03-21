@@ -527,7 +527,7 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                       </span>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>Strength of Schedule — #{teamRanking.sos_rank_state} toughest schedule in {team.state || 'state'} for this age group. Lower = harder opponents faced.</p>
+                      <p>{teamRanking.sos_rank_state ? `Strength of Schedule — #${teamRanking.sos_rank_state} toughest schedule in ${team.state || 'state'} for this age group. Lower = harder opponents faced.` : 'Not enough games to calculate SOS rank.'}</p>
                     </TooltipContent>
                   </Tooltip>
                 </div>
@@ -542,7 +542,7 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                       </span>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>#{teamRanking.sos_rank_national} toughest schedule nationally for this age group. Lower = harder opponents faced.</p>
+                      <p>{teamRanking.sos_rank_national ? `#${teamRanking.sos_rank_national} toughest schedule nationally for this age group. Lower = harder opponents faced.` : 'Not enough games to calculate SOS rank.'}</p>
                     </TooltipContent>
                   </Tooltip>
                 </div>

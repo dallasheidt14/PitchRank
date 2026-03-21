@@ -825,16 +825,23 @@ def v53e_to_rankings_full_format(
         else:
             rankings_df[col] = rankings_df[col].astype(float)
     
+    # Preserve NULL rank_in_cohort_ml for non-Active teams (don't fill with 0)
+    # NULL means "not enough games to be ranked" — filling with 0 would cause
+    # COALESCE(rank_in_cohort_ml, rank_in_cohort) in DB views to show rank 0
     if 'rank_in_cohort_ml' in rankings_df.columns:
-        rankings_df['rank_in_cohort_ml'] = rankings_df['rank_in_cohort_ml'].fillna(0).astype(int)
+        rankings_df['rank_in_cohort_ml'] = pd.to_numeric(
+            rankings_df['rank_in_cohort_ml'], errors='coerce'
+        ).astype('Int64')
     else:
-        rankings_df['rank_in_cohort_ml'] = None
-    
-    # Map Ranking fields
+        rankings_df['rank_in_cohort_ml'] = pd.array([pd.NA] * len(rankings_df), dtype='Int64')
+
+    # Map Ranking fields — preserve NULL for non-Active teams
     if 'rank_in_cohort' in rankings_df.columns:
-        rankings_df['rank_in_cohort'] = rankings_df['rank_in_cohort'].fillna(0).astype(int)
+        rankings_df['rank_in_cohort'] = pd.to_numeric(
+            rankings_df['rank_in_cohort'], errors='coerce'
+        ).astype('Int64')
     else:
-        rankings_df['rank_in_cohort'] = None
+        rankings_df['rank_in_cohort'] = pd.array([pd.NA] * len(rankings_df), dtype='Int64')
     
     # National/state/global ranks will be computed in views, but store rank_in_cohort values
     # Set these to None initially - they'll be computed dynamically in views

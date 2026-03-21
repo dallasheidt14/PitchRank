@@ -4,8 +4,8 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 interface WatchlistTeamChange {
   team_name: string;
-  rank_change_7d: number;
-  current_rank: number;
+  rank_change_7d: number | null;
+  current_rank: number | null;
   power_score: number;
 }
 
@@ -26,18 +26,20 @@ export async function sendWeeklyDigest(data: DigestData) {
 
   const { email, user_name, teams } = data;
 
-  const movers = teams.filter((t) => t.rank_change_7d !== 0);
-  const climbers = movers.filter((t) => t.rank_change_7d > 0).sort((a, b) => b.rank_change_7d - a.rank_change_7d);
-  const fallers = movers.filter((t) => t.rank_change_7d < 0).sort((a, b) => a.rank_change_7d - b.rank_change_7d);
+  const movers = teams.filter((t) => t.rank_change_7d != null && t.rank_change_7d !== 0);
+  const climbers = movers.filter((t) => t.rank_change_7d! > 0).sort((a, b) => b.rank_change_7d! - a.rank_change_7d!);
+  const fallers = movers.filter((t) => t.rank_change_7d! < 0).sort((a, b) => a.rank_change_7d! - b.rank_change_7d!);
 
   const teamRows = teams
     .map((t) => {
-      const arrow = t.rank_change_7d > 0 ? '↑' : t.rank_change_7d < 0 ? '↓' : '—';
-      const color = t.rank_change_7d > 0 ? '#16a34a' : t.rank_change_7d < 0 ? '#ef4444' : '#6b7280';
-      const changeText = t.rank_change_7d !== 0 ? `${arrow} ${Math.abs(t.rank_change_7d)}` : '—';
+      const change = t.rank_change_7d;
+      const arrow = change != null && change > 0 ? '↑' : change != null && change < 0 ? '↓' : '—';
+      const color = change != null && change > 0 ? '#16a34a' : change != null && change < 0 ? '#ef4444' : '#6b7280';
+      const changeText = change != null && change !== 0 ? `${arrow} ${Math.abs(change)}` : '—';
+      const rankDisplay = t.current_rank != null ? `#${t.current_rank}` : '—';
       return `<tr>
         <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">${t.team_name}</td>
-        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:center;">#${t.current_rank}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:center;">${rankDisplay}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:center;color:${color};font-weight:600;">${changeText}</td>
       </tr>`;
     })
