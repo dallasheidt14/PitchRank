@@ -103,7 +103,9 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   const computedRanks = useMemo(() => {
     if (!rankings) return null;
     const map = new Map<string, number>();
-    const sorted = [...rankings].sort((a, b) => {
+    // Only rank Active teams (8+ games) — teams with "Not Enough Ranked Games" get no rank
+    const activeTeams = rankings.filter(t => t.status === 'Active');
+    const sorted = [...activeTeams].sort((a, b) => {
       const diff = (b.power_score_final ?? 0) - (a.power_score_final ?? 0);
       if (diff !== 0) return diff;
       // Tie-break by SOS (higher = better)
@@ -122,7 +124,9 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   const computedSosRanks = useMemo(() => {
     if (!rankings) return null;
     const map = new Map<string, number>();
-    const sorted = [...rankings].sort((a, b) => {
+    // Only rank Active teams for SOS — same gate as power score ranks
+    const activeTeams = rankings.filter(t => t.status === 'Active');
+    const sorted = [...activeTeams].sort((a, b) => {
       const aSos = region ? (a.sos_norm_state ?? a.sos_norm ?? 0) : (a.sos_norm ?? 0);
       const bSos = region ? (b.sos_norm_state ?? b.sos_norm ?? 0) : (b.sos_norm ?? 0);
       return bSos - aSos; // Higher SOS = tougher schedule = lower rank number
