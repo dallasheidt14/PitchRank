@@ -256,34 +256,35 @@ async def _save_batch_with_retry(supabase_client, table_name, records, table_nam
     retry_delay = 2  # seconds
     
     try:
-        # Use upsert (insert with conflict resolution)
-        # First, try to delete all existing rankings
-        delete_succeeded = False
-        try:
-            supabase_client.table(table_name).delete().neq('team_id', '00000000-0000-0000-0000-000000000000').execute()
-            delete_succeeded = True
-        except Exception as e:
-            console.print(f"[yellow]Warning: Full table delete failed for {table_display}: {e}[/yellow]")
-            console.print(f"[yellow]Will use upsert — stale entries for deprecated teams may persist[/yellow]")
-        
-        # Insert new rankings in batches with retry logic
+        # ---------------------------------------------------------------
+        # UPSERT-FIRST STRATEGY: Never delete before inserting.
+        # Old pattern (DELETE all → INSERT) left the table empty during
+        # the write window.  Now we upsert first (old data stays visible
+        # until overwritten), then clean up stale rows afterwards.
+        # ---------------------------------------------------------------
+
+        # Collect the set of team_ids we are about to write
+        new_team_ids = {r.get('team_id') or r.get('team_id_master') for r in records}
+        new_team_ids.discard(None)
+
+        # Upsert new rankings in batches with retry logic
         batch_size = 1000
         total_inserted = 0
         failed_batches = []
-        
+
         for i in range(0, len(records), batch_size):
             batch = records[i:i + batch_size]
             batch_num = (i // batch_size) + 1
             total_batches = (len(records) + batch_size - 1) // batch_size
-            
+
             # Small delay between batches to avoid overwhelming the server
             if batch_num > 1:
                 time.sleep(0.5)  # 500ms delay between batches
-            
+
             # Retry logic for SSL/network errors
             batch_retry_delay = retry_delay  # Reset delay for each batch
             batch_saved = False
-            
+
             for attempt in range(max_retries):
                 try:
                     result = supabase_client.table(table_name).upsert(batch).execute()
@@ -296,15 +297,15 @@ async def _save_batch_with_retry(supabase_client, table_name, records, table_nam
                     error_msg = str(e)
                     # Check for various connection/network errors
                     is_network_error = (
-                        'SSL' in error_msg or 
-                        'bad record' in error_msg.lower() or 
+                        'SSL' in error_msg or
+                        'bad record' in error_msg.lower() or
                         'ReadError' in error_msg or
                         'WinError 10054' in error_msg or
                         'connection' in error_msg.lower() and ('closed' in error_msg.lower() or 'reset' in error_msg.lower() or 'forcibly' in error_msg.lower()) or
                         'forcibly closed' in error_msg.lower() or
                         'remote host' in error_msg.lower()
                     )
-                    
+
                     if attempt < max_retries - 1 and is_network_error:
                         console.print(f"[yellow]Network error on batch {batch_num} ({table_display}), attempt {attempt + 1}/{max_retries}. Retrying in {batch_retry_delay}s...[/yellow]")
                         time.sleep(batch_retry_delay)
@@ -325,10 +326,10 @@ async def _save_batch_with_retry(supabase_client, table_name, records, table_nam
                         console.print(f"[red]Failed to save batch {batch_num} ({table_display}) after {max_retries} attempts: {e}[/red]")
                         failed_batches.append((batch_num, batch))
                         break  # Continue with next batch instead of raising
-            
+
             if not batch_saved:
                 console.print(f"[yellow]Skipping batch {batch_num} ({table_display}), will retry later[/yellow]")
-        
+
         # Retry failed batches
         if failed_batches:
             console.print(f"[yellow]Retrying {len(failed_batches)} failed batches ({table_display})...[/yellow]")
@@ -347,23 +348,44 @@ async def _save_batch_with_retry(supabase_client, table_name, records, table_nam
                             batch_retry_delay *= 2
                         else:
                             console.print(f"[red]Batch {batch_num} ({table_display}) failed after all retries: {e}[/red]")
-        
-        # Safety net: explicitly delete any deprecated teams that may remain
-        # in the table (e.g., from a previous run where the full delete failed).
-        if not delete_succeeded:
-            try:
-                # Use a subquery approach: delete rankings whose team_id is deprecated
-                deprecated_result = supabase_client.table('teams').select(
-                    'team_id_master'
-                ).eq('is_deprecated', True).execute()
-                if deprecated_result.data:
-                    dep_ids = [str(row['team_id_master']) for row in deprecated_result.data]
-                    for i in range(0, len(dep_ids), 100):
-                        batch = dep_ids[i:i + 100]
-                        supabase_client.table(table_name).delete().in_('team_id', batch).execute()
-                    console.print(f"[dim]Cleaned up {len(dep_ids)} deprecated team entries from {table_display}[/dim]")
-            except Exception as e:
-                console.print(f"[yellow]Warning: deprecated team cleanup failed for {table_display}: {e}[/yellow]")
+
+        # ---------------------------------------------------------------
+        # STALE ROW CLEANUP: Remove rows for teams no longer in rankings.
+        # This replaces the old "delete everything first" approach.
+        # Runs AFTER all upserts so the table is never empty.
+        # ---------------------------------------------------------------
+        stale_deleted = 0
+        try:
+            # Fetch all team_ids currently in the table (paginated)
+            existing_ids = set()
+            offset = 0
+            page_size = 1000
+            while True:
+                page = supabase_client.table(table_name).select(
+                    'team_id'
+                ).range(offset, offset + page_size - 1).execute()
+                if not page.data:
+                    break
+                for row in page.data:
+                    existing_ids.add(row['team_id'])
+                if len(page.data) < page_size:
+                    break
+                offset += page_size
+
+            # Compute stale IDs: exist in table but NOT in new rankings
+            stale_ids = existing_ids - new_team_ids
+            if stale_ids:
+                stale_list = list(stale_ids)
+                for i in range(0, len(stale_list), 100):
+                    batch = stale_list[i:i + 100]
+                    supabase_client.table(table_name).delete().in_('team_id', batch).execute()
+                    stale_deleted += len(batch)
+                console.print(f"[dim]Cleaned up {stale_deleted} stale rows from {table_display}[/dim]")
+            else:
+                console.print(f"[dim]No stale rows to clean up in {table_display}[/dim]")
+        except Exception as e:
+            console.print(f"[yellow]Warning: stale row cleanup failed for {table_display}: {e}[/yellow]")
+            console.print(f"[yellow]Old rankings for removed teams may persist until next run[/yellow]")
 
         console.print(f"[green]Saved {total_inserted} rankings to {table_display} table[/green]")
         return total_inserted

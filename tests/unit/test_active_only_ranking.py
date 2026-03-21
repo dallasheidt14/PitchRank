@@ -678,48 +678,65 @@ class TestSaveBatchRetry:
         )
 
     def test_primary_save_uses_upsert(self):
-        """The primary batch save must also use .upsert() for idempotency."""
+        """The primary batch save must use .upsert() for idempotency."""
         from pathlib import Path
 
         script_path = Path("scripts/calculate_rankings.py")
         source = script_path.read_text()
 
-        # Find the primary batch save section (before retry)
-        primary_section_start = source.find("# Insert new rankings in batches")
-        retry_section_start = source.find("# Retry failed batches")
+        # Find the _save_batch_with_retry function
+        func_start = source.find("async def _save_batch_with_retry(")
+        assert func_start > 0, "Cannot find _save_batch_with_retry function"
 
-        assert primary_section_start > 0, "Cannot find primary save section"
-        primary_section = source[primary_section_start:retry_section_start]
+        # Find the primary upsert section (before retry)
+        retry_section_start = source.find("# Retry failed batches", func_start)
+        assert retry_section_start > 0, "Cannot find retry section"
 
-        assert ".upsert(" in primary_section, (
+        primary_section = source[func_start:retry_section_start]
+
+        assert ".upsert(batch)" in primary_section, (
             "Primary save section should use .upsert() for idempotent writes"
         )
+        assert ".insert(batch)" not in primary_section, (
+            "Primary save section should NOT use .insert() — use .upsert() instead"
+        )
 
-    def test_delete_before_insert_is_non_atomic(self):
-        """Flag: the delete-all + insert pattern is NOT atomic.
+    def test_no_delete_before_upsert(self):
+        """The save function must NOT delete all rows before upserting.
 
-        Between the DELETE and the first INSERT batch, the rankings_full
-        table is EMPTY. Any frontend query during this window returns 0 results.
-        This is a design issue that should be addressed with a transaction
-        or swap-table pattern.
+        The old pattern (DELETE all → UPSERT) left the table empty during
+        the write window.  The correct pattern is: UPSERT first, then
+        clean up stale rows afterwards.
         """
         from pathlib import Path
 
         script_path = Path("scripts/calculate_rankings.py")
         source = script_path.read_text()
 
-        # Check if the code deletes before inserting
-        delete_pos = source.find(".delete().neq(")
-        insert_pos = source.find(".upsert(batch)")
+        # Find the _save_batch_with_retry function body
+        func_start = source.find("async def _save_batch_with_retry(")
+        assert func_start > 0, "Cannot find _save_batch_with_retry function"
 
-        if delete_pos > 0 and insert_pos > 0 and delete_pos < insert_pos:
-            import warnings
-            warnings.warn(
-                "NON-ATOMIC PATTERN: rankings_full is fully DELETEd before batch "
-                "upserts begin. During this window (potentially minutes for large "
-                "datasets), the table is empty. Consider using a staging table + "
-                "swap, or wrapping in a transaction."
-            )
+        # Get the function body (up to the next top-level function)
+        next_func = source.find("\nasync def ", func_start + 10)
+        if next_func < 0:
+            next_func = len(source)
+        func_body = source[func_start:next_func]
+
+        # The delete-all-first pattern should NOT exist
+        has_delete_neq = ".delete().neq(" in func_body
+        assert not has_delete_neq, (
+            "DANGEROUS: _save_batch_with_retry still uses .delete().neq() "
+            "BEFORE upserting. This empties the table during writes. "
+            "Use upsert-first, then clean up stale rows after."
+        )
+
+        # Verify there IS stale cleanup logic (delete AFTER upsert)
+        has_stale_cleanup = "stale" in func_body.lower() or "STALE ROW CLEANUP" in func_body
+        assert has_stale_cleanup, (
+            "_save_batch_with_retry has no stale row cleanup logic. "
+            "After upserts, old rows for removed teams will persist."
+        )
 
 
 # ---------------------------------------------------------------------------
