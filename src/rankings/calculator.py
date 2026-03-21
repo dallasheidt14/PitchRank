@@ -849,8 +849,8 @@ async def compute_all_cohorts(
                     age, anchor_val, base.max(), ps_scaled.max()
                 )
                 
-                # Update power_score_final for this age group
-                teams_combined.loc[mask, 'power_score_final'] = ps_scaled.values
+                # Update power_score_final for this age group (index-aligned to avoid misalignment)
+                teams_combined.loc[ps_scaled.index, 'power_score_final'] = ps_scaled
 
             # Check for teams that didn't get anchor scaling (ages outside 10-19 range)
             if 'power_score_final' in teams_combined.columns:
