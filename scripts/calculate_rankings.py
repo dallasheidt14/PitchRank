@@ -336,7 +336,7 @@ async def _save_batch_with_retry(supabase_client, table_name, records, table_nam
                 batch_retry_delay = retry_delay
                 for attempt in range(max_retries):
                     try:
-                        result = supabase_client.table(table_name).insert(batch).execute()
+                        result = supabase_client.table(table_name).upsert(batch).execute()
                         if result.data:
                             total_inserted += len(result.data)
                         console.print(f"[green]Batch {batch_num} ({table_display}) saved on retry[/green]")
