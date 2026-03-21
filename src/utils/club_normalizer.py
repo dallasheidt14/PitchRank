@@ -410,7 +410,11 @@ CANONICAL_CLUBS: Dict[str, List[str]] = {
         'fc united', 'fcu'
     ],
     'BALTIMORE ARMOUR': [
-        'baltimore armour', 'armour', 'balt armour'
+        'baltimore armour', 'armour', 'balt armour',
+        # MD: combined / legacy strings → Baltimore Armour
+        'baltimore armour/sac', 'baltimore armour / sac', 'baltimore armour sac',
+        # MD: Soccer Association of Columbia (SAC/BA) → same club as Baltimore Armour
+        'sa of columbia', 'sac/ba', 'sac ba', 'soccer association of columbia',
     ],
     'PA CLASSICS': [
         'pa classics', 'pennsylvania classics', 'pa classic'
@@ -473,7 +477,9 @@ CANONICAL_CLUBS: Dict[str, List[str]] = {
         'ballistic united', 'ballistic', 'ballistic sc'
     ],
     'ACHILLES FC': [
-        'achilles fc', 'achilles', 'achilles football club'
+        'achilles fc', 'achilles', 'achilles football club',
+        # MD: roster/import strings with age in club fragment
+        'achilles fc u16', 'achilles u16',
     ],
     'ATHLETUM FC': [
         'athletum fc', 'athletum', 'athletum fc academy'
@@ -481,8 +487,9 @@ CANONICAL_CLUBS: Dict[str, List[str]] = {
     'ONE FC': [
         'one fc', 'one football club', '1fc'
     ],
-    'HOOSIER PREMIER': [
-        'hoosier premier', 'hoosier', 'hoosier fc'
+    # Indiana — canonical names per club ops (was "Hoosier Premier" → Hoosier Futbol Club)
+    'HOOSIER FUTBOL CLUB': [
+        'hoosier premier', 'hoosier futbol club', 'hoosier futbol', 'hoosier fc',
     ],
     'NORTHERN VIRGINIA ALLIANCE': [
         'northern virginia alliance', 'nova alliance', 'nva', 'nova'
@@ -601,8 +608,11 @@ CANONICAL_CLUBS: Dict[str, List[str]] = {
     'TSF ACADEMY': [
         'tsf academy', 'tsf', 'the soccer factory'
     ],
-    'INDY ELEVEN': [
-        'indy eleven', 'indianapolis eleven', 'indy 11'
+    'INDY ELEVEN ACADEMY': [
+        'indy eleven', 'indy eleven academy', 'indianapolis eleven', 'indy 11',
+    ],
+    'INDY PREMIER SC': [
+        'indy premier', 'indy premier sc', 'indy premier soccer club',
     ],
     'FORWARD MADISON FC': [
         'forward madison fc', 'forward madison', 'fmfc'
