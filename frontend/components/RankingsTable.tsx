@@ -474,7 +474,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                                 age: team.age,
                                 gender: team.gender,
                                 rank_in_cohort_final: team.rank_in_cohort_final,
-                                rank_in_state_final: getDisplayRank(team) as number | undefined,
+                                rank_in_state_final: getDisplayRank(team) ?? undefined,
                               })}
                               className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block text-xs sm:text-sm truncate block w-full"
                               aria-label={`View ${team.team_name} team details`}
