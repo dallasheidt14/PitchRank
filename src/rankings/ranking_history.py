@@ -59,18 +59,24 @@ async def save_ranking_snapshot(
             )
 
     # Calculate state ranks within each (state_code, age_group, gender) cohort
-    # This is done by sorting by power_score_final descending and assigning ranks
+    # Only Active teams get state ranks — consistent with v53e and state_rankings_view
     if 'state_code' in df.columns and 'power_score_final' in df.columns:
         # Use ML score if available, otherwise fall back to power_score_final
         score_col = 'powerscore_ml' if 'powerscore_ml' in df.columns and df['powerscore_ml'].notna().any() else 'power_score_final'
 
-        # Calculate rank within state for each cohort
-        df['rank_in_state'] = df.groupby(['state_code', 'age_group', 'gender'])[score_col].rank(
-            method='min', ascending=False, na_option='bottom'
-        ).astype('Int64')  # Use nullable integer type
+        # Initialize all state ranks as NULL
+        df['rank_in_state'] = pd.array([pd.NA] * len(df), dtype='Int64')
 
-        state_count = df['state_code'].notna().sum()
-        logger.info(f"📍 Calculated state ranks for {state_count:,} teams across {df['state_code'].nunique()} states")
+        # Only rank Active teams (8+ games) to match ranking engine behavior
+        active_mask = df['status'] == 'Active' if 'status' in df.columns else pd.Series(True, index=df.index)
+        if active_mask.any():
+            active_ranks = df.loc[active_mask].groupby(['state_code', 'age_group', 'gender'])[score_col].rank(
+                method='min', ascending=False, na_option='bottom'
+            ).astype('Int64')
+            df.loc[active_mask, 'rank_in_state'] = active_ranks
+
+        state_count = df.loc[active_mask, 'state_code'].notna().sum() if active_mask.any() else 0
+        logger.info(f"📍 Calculated state ranks for {state_count:,} Active teams across {df['state_code'].nunique()} states")
     else:
         df['rank_in_state'] = None
         logger.warning("⚠️ state_code or power_score_final not available - state ranks will be NULL")
@@ -425,10 +431,14 @@ async def calculate_rank_changes(
         # Use ML score if available, otherwise fall back to power_score_final
         score_col = 'powerscore_ml' if 'powerscore_ml' in df.columns and df['powerscore_ml'].notna().any() else 'power_score_final'
 
-        # Calculate current rank within state for each cohort
-        current_rankings_df['current_state_rank'] = df.groupby(['state_code', 'age_group', 'gender'])[score_col].rank(
-            method='min', ascending=False, na_option='bottom'
-        ).astype('Int64')
+        # Calculate current rank within state for each cohort — Active teams only
+        current_rankings_df['current_state_rank'] = pd.array([pd.NA] * len(current_rankings_df), dtype='Int64')
+        active_mask = df['status'] == 'Active' if 'status' in df.columns else pd.Series(True, index=df.index)
+        if active_mask.any():
+            active_ranks = df.loc[active_mask].groupby(['state_code', 'age_group', 'gender'])[score_col].rank(
+                method='min', ascending=False, na_option='bottom'
+            ).astype('Int64')
+            current_rankings_df.loc[active_mask, 'current_state_rank'] = active_ranks
     else:
         current_rankings_df['current_state_rank'] = None
 

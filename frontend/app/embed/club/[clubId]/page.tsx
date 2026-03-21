@@ -201,7 +201,7 @@ export default async function ClubEmbedPage({ params }: ClubEmbedPageProps) {
                   {team.power_score_final.toFixed(1)}
                 </td>
                 <td className="rank-text">
-                  #{team.rank_in_cohort_final} National
+                  {team.rank_in_cohort_final != null ? `#${team.rank_in_cohort_final} National` : '—'}
                   {team.rank_in_state_final && team.state && (
                     <span className="meta-text"> / #{team.rank_in_state_final} {team.state}</span>
                   )}
