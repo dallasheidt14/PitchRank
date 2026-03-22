@@ -447,7 +447,8 @@ async def calculate_rank_changes(
         team_id = row["team_id"]
 
         # Use ML rank if available, otherwise use cohort rank
-        current_national_rank = row.get("rank_in_cohort_ml") or row.get("rank_in_cohort")
+        ml_rank = row.get("rank_in_cohort_ml")
+        current_national_rank = ml_rank if not pd.isna(ml_rank) else row.get("rank_in_cohort")
         current_state_rank = row.get("current_state_rank")
 
         # National rank changes
