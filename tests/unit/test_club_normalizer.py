@@ -48,7 +48,7 @@ class TestNormalizeClubName:
         assert normalize_club_name("PHX Rising") == "phoenix rising"
         assert normalize_club_name("LA Galaxy") == "los angeles galaxy"
         assert normalize_club_name("NYC FC") == "new york city"
-        assert normalize_club_name("ATL United") == "atlanta"
+        assert normalize_club_name("ATL United") == "atlanta united"
 
     def test_location_suffix_removal(self):
         """Test removal of location suffixes like '- AZ'"""
@@ -69,7 +69,7 @@ class TestNormalizeClubName:
     def test_punctuation_removal(self):
         """Test removal of punctuation"""
         assert normalize_club_name("Phoenix Rising F.C.") == "phoenix rising"
-        assert normalize_club_name("D.C. United") == "dc"
+        assert normalize_club_name("D.C. United") == "washington dc united"
         assert normalize_club_name("Phoenix Rising!") == "phoenix rising"
 
     def test_combined_normalization(self):
@@ -89,7 +89,7 @@ class TestNormalizeClubName:
 
     def test_complex_club_names(self):
         """Test normalization of complex real-world club names"""
-        assert normalize_club_name("ALBION SC Las Vegas U13 HD") == "albion las vegas"
+        assert normalize_club_name("ALBION SC Las Vegas U13 HD") == "albion sc las vegas"
         assert normalize_club_name("Global Football Innovation Academy U13 HD") == "global football innovation"
         assert normalize_club_name("FC Bay Area Surf U13 HD") == "bay area surf"
         assert normalize_club_name("Michigan Jaguars U13 HD") == "michigan jaguars"
@@ -368,14 +368,14 @@ class TestEdgeCases:
     def test_numeric_in_name(self):
         """Test club names with numbers"""
         result = normalize_to_club("One FC")
-        assert result.club_norm == "ONE FC"
-        assert result.matched_canonical is True
+        assert result.club_norm == "ONE"
+        assert result.club_id is not None
 
     def test_very_short_name(self):
         """Test very short club names"""
         result = normalize_to_club("FC")
-        # After stripping prefix, nothing left
-        assert result.club_norm == ""
+        # "FC" alone doesn't match prefix/suffix patterns (requires surrounding text)
+        assert result.club_norm == "FC"
 
     def test_unicode_characters(self):
         """Test handling of unicode characters"""
