@@ -1,0 +1,3 @@
+# Ignore generated profile data (created by profiling tools and tests)
+*
+!.gitignore
