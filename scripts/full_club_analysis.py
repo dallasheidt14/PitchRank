@@ -110,6 +110,11 @@ CLUB_CANONICAL_OVERRIDES = [
     # Oklahoma (from full merge history - 4x prefers short form)
     ("OK", "exact", "Oklahoma Celtic Football Club", "Oklahoma Celtic"),
     ("OK", "exact", "West Side Alliance", "West Side Alliance SC"),
+    ("OK", "exact", "NEOFC", "NE Oklahoma FC"),
+    ("OK", "exact", "Neofc Bartlesville", "NE Oklahoma FC"),
+    ("OK", "exact", "North Oklahoma City", "North OKC SC"),
+    ("OK", "exact", "NorthWest Optimist Club", "Northwest Optimist SC"),
+    ("OK", "exact", "NW Oklahoma SA", "Northwest Soccer Club"),
     # North Carolina
     ("NC", "exact", "CESA", "Carolina Elite Soccer Academy"),
     ("NC", "regex", r"Charlotte Soccer Academy\s*\(CSA\)\s*$", "Charlotte Soccer Academy"),
@@ -200,6 +205,9 @@ CLUB_CANONICAL_OVERRIDES = [
     ("OR", "exact", "Oregon Surf", "Oregon Surf SC"),
     ("OR", "exact", "FC Portland", "FC Portland Academy"),
     ("OR", "exact", "Saints Soccer Academy", "Saints Academy"),
+    ("OR", "exact", "Lincoln Youth Soccer Association", "Lincoln Youth Soccer"),
+    ("OR", "exact", "Portland City United", "Portland City United SC"),
+    ("OR", "exact", "Portland Thorns FC", "Portland Thorns Academy"),
     # Utah
     ("UT", "exact", "Sparta United", "Sparta United Soccer Club"),
     ("UT", "exact", "La Roca", "La Roca FC"),
@@ -210,6 +218,18 @@ CLUB_CANONICAL_OVERRIDES = [
     ("SC", "exact", "Coast Futbol Alliance", "Coast FA"),
     # Tennessee
     ("TN", "exact", "FC Alliance", "FC Alliance TN"),
+    ("TN", "exact", "All-in fc", "All-In FC TN"),
+    ("TN", "exact", "All in Futbol Club Tennessee", "All-In FC TN"),
+    ("TN", "exact", "Ayso Alliance", "AYSO Alliance Knoxville"),
+    ("TN", "exact", "Chattanooga Football Club", "Chattanooga Football Club Academy"),
+    ("TN", "exact", "Chattanooga Red Wolves Academy", "Chattanooga Red Wolves SC"),
+    ("TN", "exact", "Kings Hammer Murfreesboro", "Kings Hammer Soccer Club"),
+    ("TN", "exact", "Midsouth Bartlett", "Midsouth FC"),
+    ("TN", "exact", "Music City F.C. Girls Soccer Club", "Music City SC"),
+    ("TN", "exact", "One Knoxville SC", "One Knoxville Youth Club"),
+    ("TN", "exact", "TENNESSEE SA", "Tennessee SC"),
+    ("TN", "exact", "TENNESSEE SOCCER ACADEMY", "Tennessee SC"),
+    ("TN", "exact", "Tennessee United", "Tennessee United SC"),
     # Minnesota (4x each direction - pick St. Croix as canonical)
     ("MN", "exact", "St Croix Soccer Club", "St. Croix"),
     # Michigan
