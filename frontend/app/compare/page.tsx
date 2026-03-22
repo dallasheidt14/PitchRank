@@ -1,8 +1,12 @@
 import { Suspense } from 'react';
-import { PageHeader } from '@/components/PageHeader';
-import { ComparePanel } from '@/components/ComparePanel';
+import dynamic from 'next/dynamic';
 import { CardSkeleton } from '@/components/ui/skeletons';
 import type { Metadata } from 'next';
+
+const ComparePanel = dynamic(
+  () => import('@/components/ComparePanel').then(mod => ({ default: mod.ComparePanel })),
+  { loading: () => <CardSkeleton /> }
+);
 
 const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
 

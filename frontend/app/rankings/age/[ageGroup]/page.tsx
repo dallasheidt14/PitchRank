@@ -74,7 +74,8 @@ export async function generateMetadata({ params }: AgeGroupPageProps): Promise<M
  * Generate static params for all age groups
  */
 export async function generateStaticParams() {
-  return VALID_AGE_GROUPS.map(ageGroup => ({ ageGroup }));
+  const popular = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16'];
+  return popular.map(ageGroup => ({ ageGroup }));
 }
 
 export default async function AgeGroupPage({ params }: AgeGroupPageProps) {
@@ -95,15 +96,17 @@ export default async function AgeGroupPage({ params }: AgeGroupPageProps) {
   let totalGirls = 0;
 
   try {
-    const [boysData, girlsData] = await Promise.all([
-      api.getRankings(null, validAge, 'M'),
-      api.getRankings(null, validAge, 'F'),
+    const [boysData, girlsData, boysCount, girlsCount] = await Promise.all([
+      api.getRankings(null, validAge, 'M', { limit: 25 }),
+      api.getRankings(null, validAge, 'F', { limit: 25 }),
+      api.getRankingsCount(null, validAge, 'M'),
+      api.getRankingsCount(null, validAge, 'F'),
     ]);
-    
-    totalBoys = boysData.length;
-    totalGirls = girlsData.length;
-    
-    topBoys = boysData.slice(0, 25).map(t => ({
+
+    totalBoys = boysCount;
+    totalGirls = girlsCount;
+
+    topBoys = boysData.map(t => ({
       team_id_master: t.team_id_master,
       team_name: t.team_name,
       club_name: t.club_name,
@@ -111,8 +114,8 @@ export default async function AgeGroupPage({ params }: AgeGroupPageProps) {
       power_score_final: t.power_score_final,
       rank_in_cohort_final: t.rank_in_cohort_final,
     }));
-    
-    topGirls = girlsData.slice(0, 25).map(t => ({
+
+    topGirls = girlsData.map(t => ({
       team_id_master: t.team_id_master,
       team_name: t.team_name,
       club_name: t.club_name,

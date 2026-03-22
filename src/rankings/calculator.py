@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import pandas as pd
-from typing import Optional, Dict
+from typing import Optional, Dict, TYPE_CHECKING
+from contextlib import nullcontext
 from datetime import datetime
 import hashlib
 import asyncio
@@ -19,7 +20,17 @@ from src.rankings.ranking_history import (
     save_ranking_snapshot
 )
 
+if TYPE_CHECKING:
+    from src.profiling.timer import TimingReport
+
 logger = logging.getLogger(__name__)
+
+
+def _section(timing_report: Optional["TimingReport"], name: str, **metadata):
+    """Return a timing section context manager, or a no-op if profiling is off."""
+    if timing_report is not None:
+        return timing_report.section(name, **metadata)
+    return nullcontext()
 
 
 async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame) -> None:
@@ -93,6 +104,7 @@ async def compute_rankings_with_ml(
     global_strength_map: Optional[Dict] = None,  # For cross-age SOS lookups
     merge_version: Optional[str] = None,  # For cache invalidation when merges change
     team_state_map: Optional[Dict[str, str]] = None,  # For SCF regional bubble detection
+    timing_report: Optional["TimingReport"] = None,
 ) -> Dict[str, pd.DataFrame]:
     """
     Runs your deterministic v53E engine, then applies the Supabase-aware ML adjustment.
@@ -121,12 +133,13 @@ async def compute_rankings_with_ml(
     if games_df is None or games_df.empty:
         if fetch_from_supabase:
             logger.info("🔍 Fetching games from Supabase...")
-            games_df = await fetch_games_for_rankings(
-                supabase_client=supabase_client,
-                lookback_days=lookback_days,
-                provider_filter=provider_filter,
-                today=today
-            )
+            with _section(timing_report, "fetch_games"):
+                games_df = await fetch_games_for_rankings(
+                    supabase_client=supabase_client,
+                    lookback_days=lookback_days,
+                    provider_filter=provider_filter,
+                    today=today
+                )
         else:
             raise ValueError("games_df is required if fetch_from_supabase is False")
 
@@ -179,13 +192,14 @@ async def compute_rankings_with_ml(
     # 2) Run v53e rankings engine (if not cached)
     if base is None:
         logger.info(f"🔁 Rebuilding v53e rankings from raw data... (force_rebuild={force_rebuild})")
-        base = compute_rankings(
-            games_df=games_df,
-            today=today,
-            cfg=v53_cfg,
-            global_strength_map=global_strength_map,
-            team_state_map=team_state_map,  # For SCF regional bubble detection
-        )
+        with _section(timing_report, "v53e_computation"):
+            base = compute_rankings(
+                games_df=games_df,
+                today=today,
+                cfg=v53_cfg,
+                global_strength_map=global_strength_map,
+                team_state_map=team_state_map,  # For SCF regional bubble detection
+            )
         logger.info(f"✅ v53e engine completed: {len(base['teams']):,} teams ranked")
 
         # Save to cache (both teams and games_used DataFrames)
@@ -247,23 +261,25 @@ async def compute_rankings_with_ml(
         provider_filter=provider_filter,
     )
 
-    teams_with_ml, game_residuals = await apply_predictive_adjustment(
-        supabase_client=supabase_client,
-        teams_df=teams_base,
-        games_used_df=games_df,  # Use original games with full columns (id, home_team_master_id)
-        cfg=ml_cfg,
-        return_game_residuals=True,  # Request per-game residuals
-    )
+    with _section(timing_report, "ml_layer_13"):
+        teams_with_ml, game_residuals = await apply_predictive_adjustment(
+            supabase_client=supabase_client,
+            teams_df=teams_base,
+            games_used_df=games_df,  # Use original games with full columns (id, home_team_master_id)
+            cfg=ml_cfg,
+            return_game_residuals=True,  # Request per-game residuals
+        )
     logger.info(f"✅ ML adjustment completed: {len(teams_with_ml):,} teams processed")
 
     # Persist game residuals to database
-    if not game_residuals.empty:
-        logger.info(f"💾 Persisting {len(game_residuals):,} game residuals to database...")
-        await _persist_game_residuals(supabase_client, game_residuals)
-        logger.info("✅ Game residuals persisted successfully")
-    else:
-        logger.warning("⚠️ No game residuals to persist - check DEBUG output above to see why extraction failed")
-        logger.warning("   Common causes: missing columns (id, home_team_master_id), empty feats, or filter issues")
+    with _section(timing_report, "persist_game_residuals"):
+        if not game_residuals.empty:
+            logger.info(f"💾 Persisting {len(game_residuals):,} game residuals to database...")
+            await _persist_game_residuals(supabase_client, game_residuals)
+            logger.info("✅ Game residuals persisted successfully")
+        else:
+            logger.warning("⚠️ No game residuals to persist - check DEBUG output above to see why extraction failed")
+            logger.warning("   Common causes: missing columns (id, home_team_master_id), empty feats, or filter issues")
 
     # Diagnostic: Log PowerScore max after ML layer
     if not teams_with_ml.empty and "powerscore_ml" in teams_with_ml.columns:
@@ -286,19 +302,21 @@ async def compute_rankings_with_ml(
 
     # Calculate rank changes using historical snapshots (7d and 30d)
     logger.info("📊 Calculating rank changes from historical data...")
-    teams_with_ml = await calculate_rank_changes(
-        supabase_client=supabase_client,
-        current_rankings_df=teams_with_ml
-    )
+    with _section(timing_report, "rank_changes"):
+        teams_with_ml = await calculate_rank_changes(
+            supabase_client=supabase_client,
+            current_rankings_df=teams_with_ml
+        )
 
     # Save current rankings as a snapshot for future rank change calculations
     # (Skip if save_snapshot=False, e.g., when called from compute_all_cohorts)
     if save_snapshot and not teams_with_ml.empty:
         logger.info("💾 Saving ranking snapshot for future comparisons...")
-        await save_ranking_snapshot(
-            supabase_client=supabase_client,
-            rankings_df=teams_with_ml
-        )
+        with _section(timing_report, "save_ranking_snapshot"):
+            await save_ranking_snapshot(
+                supabase_client=supabase_client,
+                rankings_df=teams_with_ml
+            )
 
     return {
         "teams": teams_with_ml,
@@ -317,6 +335,7 @@ async def compute_rankings_v53e_only(
     force_rebuild: bool = False,
     team_state_map: Optional[Dict[str, str]] = None,  # For SCF regional bubble detection
     merge_resolver=None,  # Optional MergeResolver for team merge resolution
+    timing_report: Optional["TimingReport"] = None,
 ) -> Dict[str, pd.DataFrame]:
     """
     Run v53e rankings engine only (without ML layer).
@@ -330,13 +349,14 @@ async def compute_rankings_v53e_only(
     if games_df is None or games_df.empty:
         if fetch_from_supabase:
             logger.info("🔍 Fetching games from Supabase...")
-            games_df = await fetch_games_for_rankings(
-                supabase_client=supabase_client,
-                lookback_days=lookback_days,
-                provider_filter=provider_filter,
-                today=today,
-                merge_resolver=merge_resolver,
-            )
+            with _section(timing_report, "fetch_games"):
+                games_df = await fetch_games_for_rankings(
+                    supabase_client=supabase_client,
+                    lookback_days=lookback_days,
+                    provider_filter=provider_filter,
+                    today=today,
+                    merge_resolver=merge_resolver,
+                )
         else:
             raise ValueError("games_df is required if fetch_from_supabase is False")
 
@@ -351,12 +371,13 @@ async def compute_rankings_v53e_only(
 
     # Run v53e rankings engine
     logger.info("⚙️  Running v53e rankings engine...")
-    result = compute_rankings(
-        games_df=games_df,
-        today=today,
-        cfg=v53_cfg,
-        team_state_map=team_state_map,  # For SCF regional bubble detection
-    )
+    with _section(timing_report, "v53e_computation"):
+        result = compute_rankings(
+            games_df=games_df,
+            today=today,
+            cfg=v53_cfg,
+            team_state_map=team_state_map,  # For SCF regional bubble detection
+        )
     logger.info(f"✅ v53e engine completed: {len(result['teams']):,} teams ranked")
 
     return result
@@ -373,6 +394,7 @@ async def compute_all_cohorts(
     provider_filter: Optional[str] = None,
     force_rebuild: bool = False,
     merge_resolver=None,  # Optional MergeResolver for team merge resolution
+    timing_report: Optional["TimingReport"] = None,
 ) -> Dict[str, pd.DataFrame]:
     """
     Compute rankings for all cohorts using two-pass architecture.
@@ -394,13 +416,14 @@ async def compute_all_cohorts(
     # Get games data if not provided
     if games_df is None or games_df.empty:
         if fetch_from_supabase:
-            games_df = await fetch_games_for_rankings(
-                supabase_client=supabase_client,
-                lookback_days=lookback_days,
-                provider_filter=provider_filter,
-                today=today,
-                merge_resolver=merge_resolver,  # Apply merge resolution
-            )
+            with _section(timing_report, "fetch_games"):
+                games_df = await fetch_games_for_rankings(
+                    supabase_client=supabase_client,
+                    lookback_days=lookback_days,
+                    provider_filter=provider_filter,
+                    today=today,
+                    merge_resolver=merge_resolver,  # Apply merge resolution
+                )
         else:
             raise ValueError("games_df is required if fetch_from_supabase is False")
 
@@ -418,35 +441,36 @@ async def compute_all_cohorts(
     team_ids.update(games_df['opp_id'].dropna().astype(str).tolist())
 
     team_state_map = {}
-    if team_ids:
-        logger.info(f"🗺️  Fetching state metadata for {len(team_ids):,} teams (for SCF)...")
-        team_ids_list = list(team_ids)
-        batch_size = 100
+    with _section(timing_report, "team_state_map"):
+        if team_ids:
+            logger.info(f"🗺️  Fetching state metadata for {len(team_ids):,} teams (for SCF)...")
+            team_ids_list = list(team_ids)
+            batch_size = 100
 
-        for i in range(0, len(team_ids_list), batch_size):
-            batch = team_ids_list[i:i + batch_size]
-            try:
-                result = supabase_client.table('teams').select(
-                    'team_id_master, state_code'
-                ).in_('team_id_master', batch).execute()
-                if result.data:
-                    for row in result.data:
-                        team_id = str(row.get('team_id_master', ''))
-                        state_code = row.get('state_code', 'UNKNOWN')
-                        if team_id:
-                            team_state_map[team_id] = state_code if state_code else 'UNKNOWN'
-            except Exception as e:
-                logger.warning(f"⚠️ Failed to fetch state metadata batch {i}: {str(e)[:100]}")
-                continue
+            for i in range(0, len(team_ids_list), batch_size):
+                batch = team_ids_list[i:i + batch_size]
+                try:
+                    result = supabase_client.table('teams').select(
+                        'team_id_master, state_code'
+                    ).in_('team_id_master', batch).execute()
+                    if result.data:
+                        for row in result.data:
+                            team_id = str(row.get('team_id_master', ''))
+                            state_code = row.get('state_code', 'UNKNOWN')
+                            if team_id:
+                                team_state_map[team_id] = state_code if state_code else 'UNKNOWN'
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to fetch state metadata batch {i}: {str(e)[:100]}")
+                    continue
 
-        # Count states for logging
-        state_counts = {}
-        for state in team_state_map.values():
-            state_counts[state] = state_counts.get(state, 0) + 1
-        top_states = sorted(state_counts.items(), key=lambda x: -x[1])[:5]
-        logger.info(f"✅ Fetched state_code for {len(team_state_map):,} teams. Top states: {dict(top_states)}")
-    else:
-        logger.warning("⚠️ No team IDs found for state metadata fetch - SCF will be disabled")
+            # Count states for logging
+            state_counts = {}
+            for state in team_state_map.values():
+                state_counts[state] = state_counts.get(state, 0) + 1
+            top_states = sorted(state_counts.items(), key=lambda x: -x[1])[:5]
+            logger.info(f"✅ Fetched state_code for {len(team_state_map):,} teams. Top states: {dict(top_states)}")
+        else:
+            logger.warning("⚠️ No team IDs found for state metadata fetch - SCF will be disabled")
 
     # Group by (age, gender) cohorts
     cohorts = list(games_df.groupby(["age", "gender"]))
@@ -473,7 +497,8 @@ async def compute_all_cohorts(
         )
         pass1_tasks.append(task)
 
-    pass1_results = await asyncio.gather(*pass1_tasks)
+    with _section(timing_report, "pass1_all_cohorts"):
+        pass1_results = await asyncio.gather(*pass1_tasks)
 
     # Build global strength map from Pass 1 results
     global_strength_map = {}
@@ -508,21 +533,23 @@ async def compute_all_cohorts(
         )
         pass2_tasks.append(task)
 
-    pass2_results = await asyncio.gather(*pass2_tasks)
+    with _section(timing_report, "pass2_all_cohorts"):
+        pass2_results = await asyncio.gather(*pass2_tasks)
 
     # Merge results from Pass 2
-    all_teams = []
-    all_games_used = []
+    with _section(timing_report, "merge_and_filter"):
+        all_teams = []
+        all_games_used = []
 
-    for result in pass2_results:
-        if not result["teams"].empty:
-            all_teams.append(result["teams"])
-        if not result.get("games_used", pd.DataFrame()).empty:
-            all_games_used.append(result["games_used"])
+        for result in pass2_results:
+            if not result["teams"].empty:
+                all_teams.append(result["teams"])
+            if not result.get("games_used", pd.DataFrame()).empty:
+                all_games_used.append(result["games_used"])
 
-    # Combine results
-    teams_combined = pd.concat(all_teams, ignore_index=True) if all_teams else pd.DataFrame()
-    games_used_combined = pd.concat(all_games_used, ignore_index=True) if all_games_used else pd.DataFrame()
+        # Combine results
+        teams_combined = pd.concat(all_teams, ignore_index=True) if all_teams else pd.DataFrame()
+        games_used_combined = pd.concat(all_games_used, ignore_index=True) if all_games_used else pd.DataFrame()
 
     # ========== Filter deprecated teams ==========
     # Remove any deprecated teams that slipped through game-level merge resolution.

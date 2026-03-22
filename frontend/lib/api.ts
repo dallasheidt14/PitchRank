@@ -28,9 +28,9 @@ export const api = {
   async getRankings(
     region?: string | null,
     ageGroup?: string,
-    gender?: 'M' | 'F' | 'B' | 'G' | null
+    gender?: 'M' | 'F' | 'B' | 'G' | null,
+    options?: { limit?: number }
   ): Promise<RankingWithTeam[]> {
-    // Paginate to get all results (Supabase default limit is 1000)
     const BATCH_SIZE = 1000;
     const allResults: RankingWithTeam[] = [];
     let offset = 0;
@@ -44,9 +44,13 @@ export const api = {
       normalizedAge = normalizeAgeGroup(ageGroup);
     }
 
+    const fetchLimit = options?.limit;
+
     while (hasMore) {
+      const batchSize = fetchLimit ? Math.min(fetchLimit - allResults.length, BATCH_SIZE) : BATCH_SIZE;
+
       let query = supabase.from(table).select('*')
-        .in('status', ['Active', 'Not Enough Ranked Games']); // Include Active and teams with not enough games, exclude Inactive (>180 days since last game)
+        .in('status', ['Active', 'Not Enough Ranked Games']);
 
       if (normalizedAge !== null) {
         query = query.eq('age', normalizedAge);
@@ -60,10 +64,9 @@ export const api = {
         query = query.eq('state', normalizedRegion);
       }
 
-      // Sort by ML-adjusted score and paginate
       query = query
         .order('power_score_final', { ascending: false })
-        .range(offset, offset + BATCH_SIZE - 1);
+        .range(offset, offset + batchSize - 1);
 
       const { data, error } = await query;
 
@@ -76,15 +79,55 @@ export const api = {
         hasMore = false;
       } else {
         allResults.push(...(data as RankingWithTeam[]));
-        if (data.length < BATCH_SIZE) {
+        if (data.length < batchSize) {
+          hasMore = false;
+        } else if (fetchLimit && allResults.length >= fetchLimit) {
           hasMore = false;
         } else {
-          offset += BATCH_SIZE;
+          offset += batchSize;
         }
       }
     }
 
     return allResults;
+  },
+
+  /**
+   * Fast count query — uses Supabase head:true/count to avoid transferring rows.
+   */
+  async getRankingsCount(
+    region?: string | null,
+    ageGroup?: string,
+    gender?: 'M' | 'F' | 'B' | 'G' | null
+  ): Promise<number> {
+    const table = region ? 'state_rankings_view' : 'rankings_view';
+    const normalizedRegion = region?.toUpperCase();
+    let normalizedAge: number | null = null;
+
+    if (ageGroup) {
+      normalizedAge = normalizeAgeGroup(ageGroup);
+    }
+
+    let query = supabase.from(table).select('*', { count: 'exact', head: true })
+      .in('status', ['Active', 'Not Enough Ranked Games']);
+
+    if (normalizedAge !== null) {
+      query = query.eq('age', normalizedAge);
+    }
+    if (gender) {
+      query = query.eq('gender', gender);
+    }
+    if (region) {
+      query = query.eq('state', normalizedRegion);
+    }
+
+    const { count, error } = await query;
+
+    if (error) {
+      console.error(`Error fetching rankings count from ${table}:`, error);
+      return 0;
+    }
+    return count ?? 0;
   },
 
   /**

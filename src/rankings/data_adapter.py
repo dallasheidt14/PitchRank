@@ -10,6 +10,7 @@ import time
 
 if TYPE_CHECKING:
     from src.utils.merge_resolver import MergeResolver
+    from src.profiling.db_profiler import QueryProfiler
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +100,8 @@ async def fetch_games_for_rankings(
     lookback_days: int = 365,
     provider_filter: Optional[str] = None,
     today: Optional[pd.Timestamp] = None,
-    merge_resolver: Optional['MergeResolver'] = None
+    merge_resolver: Optional['MergeResolver'] = None,
+    query_profiler: Optional['QueryProfiler'] = None,
 ) -> pd.DataFrame:
     """
     Fetch games from Supabase and convert to v53e format
@@ -110,6 +112,8 @@ async def fetch_games_for_rankings(
         provider_filter: Optional provider code filter
         today: Reference date (defaults to today)
         merge_resolver: Optional MergeResolver for resolving deprecated team IDs
+        query_profiler: Optional QueryProfiler to track DB query patterns.
+            Pass this OR a pre-wrapped client, not both (avoids double-counting).
 
     Returns:
         DataFrame in v53e format with columns:
@@ -117,6 +121,8 @@ async def fetch_games_for_rankings(
     """
     if today is None:
         today = pd.Timestamp.utcnow().normalize()
+
+    db = query_profiler.wrap(supabase_client) if query_profiler else supabase_client
     
     cutoff = today - pd.Timedelta(days=lookback_days)
     cutoff_date_str = cutoff.strftime('%Y-%m-%d')
@@ -126,7 +132,7 @@ async def fetch_games_for_rankings(
     # partial-match games that would be discarded during v53e conversion anyway.
     # These NULL-FK games corrupt SOS by creating phantom opponents.
     today_date_str = today.strftime('%Y-%m-%d')
-    base_query = supabase_client.table('games').select(
+    base_query = db.table('games').select(
         'id, game_uid, game_date, home_team_master_id, away_team_master_id, '
         'home_score, away_score, provider_id'
     ).gte('game_date', cutoff_date_str).lte(
@@ -147,7 +153,7 @@ async def fetch_games_for_rankings(
         # Get provider ID with retry logic
         try:
             provider_result = retry_supabase_query(
-                lambda: supabase_client.table('providers').select('id').eq(
+                lambda: db.table('providers').select('id').eq(
                     'code', provider_filter
                 ).single().execute(),
                 max_retries=4,
@@ -254,7 +260,7 @@ async def fetch_games_for_rankings(
             # Use retry wrapper for team metadata fetching
             # Include is_deprecated to filter out deprecated teams
             teams_result = retry_supabase_query(
-                lambda b=batch: supabase_client.table('teams').select(
+                lambda b=batch: db.table('teams').select(
                     'team_id_master, age_group, gender, is_deprecated'
                 ).in_('team_id_master', b).execute(),
                 max_retries=4,
