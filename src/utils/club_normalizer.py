@@ -723,9 +723,9 @@ def _generate_club_id(normalized_name: str) -> str:
 def normalize_club_name(
     name: str,
     remove_age_group: bool = True,
-    remove_location: bool = False,
-    strip_suffixes: bool = False,
-    strip_prefixes: bool = False,
+    remove_location: bool = True,
+    strip_suffixes: bool = True,
+    strip_prefixes: bool = True,
 ) -> str:
     """
     Normalize a club name to a canonical form.
@@ -733,11 +733,11 @@ def normalize_club_name(
     Pipeline:
     1. Basic cleaning (lowercase, strip, normalize whitespace)
     2. Remove age group suffixes (U13, 2012 Boys, etc.)
-    3. Remove location suffixes (- AZ, - California, etc.) - DISABLED by default
+    3. Remove location suffixes (- AZ, - California, etc.)
     4. Remove punctuation
     5. Expand city abbreviations (PHX -> Phoenix)
-    6. Strip common suffixes (FC, SC, Soccer Club, etc.) - DISABLED by default
-    7. Strip common prefixes (FC, SC, etc.) - DISABLED by default
+    6. Strip common suffixes (FC, SC, Soccer Club, etc.)
+    7. Strip common prefixes (FC, SC, etc.)
     8. Final whitespace normalization
 
     Returns the normalized name in lowercase.
@@ -1026,13 +1026,20 @@ def add_canonical_club(canonical: str, variations: List[str]) -> None:
     canonical_upper = canonical.upper()
     variations_lower = [v.lower() for v in variations]
 
+    # Also store normalized forms so lookups work after suffix/prefix stripping
+    variations_normalized = set(variations_lower)
+    for v in variations_lower:
+        norm = normalize_club_name(v)
+        if norm:
+            variations_normalized.add(norm)
+
     # Add to main registry
     if canonical_upper not in CANONICAL_CLUBS:
         CANONICAL_CLUBS[canonical_upper] = []
-    CANONICAL_CLUBS[canonical_upper].extend(variations_lower)
+    CANONICAL_CLUBS[canonical_upper].extend(list(variations_normalized))
 
     # Update reverse lookup
-    for var in variations_lower:
+    for var in variations_normalized:
         _VARIATION_TO_CANONICAL[var] = canonical_upper
 
 

@@ -770,7 +770,7 @@ def compute_rankings(
     g = games_df.copy()
     g["date"] = pd.to_datetime(g["date"], errors="coerce")
     if today is None:
-        today = pd.Timestamp(pd.Timestamp.utcnow().date())
+        today = pd.Timestamp(pd.Timestamp.now('UTC').date())
 
     # -------------------------
     # Layer 1: window filter
@@ -1821,7 +1821,7 @@ def compute_rankings(
     teams["defense_norm"] = teams["def_norm"]
 
     # For data freshness
-    teams["last_calculated"] = pd.Timestamp.utcnow()
+    teams["last_calculated"] = pd.Timestamp.now('UTC')
 
     # Games played summary for the frontend
     teams["games_played"] = teams["gp"]
