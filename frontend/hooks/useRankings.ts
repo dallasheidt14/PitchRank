@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
 import { normalizeAgeGroup } from '@/lib/utils';
+import { apiTimer } from '@/lib/performance';
 import type { RankingRow } from '@/types/RankingRow';
 
 /**
@@ -18,8 +19,7 @@ export function useRankings(
   return useQuery<RankingRow[]>({
     queryKey: ['rankings', region, ageGroup, gender],
     enabled: true,
-    queryFn: async () => {
-      // Paginate to get all results (Supabase default limit is 1000)
+    queryFn: () => apiTimer('rankings:list', async () => {
       const BATCH_SIZE = 1000;
       const allResults: RankingRow[] = [];
       let offset = 0;
@@ -75,8 +75,8 @@ export function useRankings(
       }
 
       return allResults;
-    },
-    staleTime: 2 * 60 * 1000, // 2 minutes – refresh fairly often when switching filters
-    gcTime: 10 * 60 * 1000, // 10 minutes – matches global default, don't hold stale state data too long
+    }, { region, ageGroup, gender }),
+    staleTime: 2 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
   });
 }

@@ -5,6 +5,7 @@ Calculate team rankings using v53e engine with optional ML layer
 import asyncio
 import argparse
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 from datetime import datetime
 
@@ -407,6 +408,11 @@ async def main():
         action='store_true',
         help='Ignore cached v53e rankings and rebuild from raw data'
     )
+    parser.add_argument(
+        '--profile',
+        action='store_true',
+        help='Enable performance profiling (prints timing report at the end)'
+    )
     
     args = parser.parse_args()
     
@@ -430,6 +436,13 @@ async def main():
         console.print(f"[yellow]⚠️  No team merges loaded (version: {merge_resolver.version})[/yellow]")
         console.print(f"[yellow]   If team_merge_map has entries, check Supabase connectivity and permissions.[/yellow]")
 
+    # Set up optional profiling
+    timing_report = None
+    if args.profile:
+        from src.profiling.timer import TimingReport
+        timing_report = TimingReport("Calculate Rankings")
+        console.print("[dim]Profiling enabled — timing report will print at the end[/dim]")
+
     # Run rankings calculation
     try:
         mode_text = "ML-Enhanced" if args.ml else "v53e Only"
@@ -451,6 +464,7 @@ async def main():
                 provider_filter=args.provider,
                 force_rebuild=args.force_rebuild,
                 merge_resolver=merge_resolver,
+                timing_report=timing_report,
             )
         else:
             result = await compute_rankings_v53e_only(
@@ -461,6 +475,7 @@ async def main():
                 provider_filter=args.provider,
                 force_rebuild=args.force_rebuild,
                 merge_resolver=merge_resolver,
+                timing_report=timing_report,
             )
         
         teams_df = result["teams"]
@@ -662,11 +677,22 @@ async def main():
         
         # Save to database
         saved_count = 0
-        if not args.dry_run:
-            saved_count = await save_rankings_to_supabase(supabase, teams_df, merge_resolver=merge_resolver)
-        else:
-            console.print("\n[yellow]Dry run - rankings not saved to database[/yellow]")
-            saved_count = filtered_teams  # Would-be saved count
+        with (timing_report.section("save_rankings") if timing_report else nullcontext()):
+            if not args.dry_run:
+                saved_count = await save_rankings_to_supabase(supabase, teams_df, merge_resolver=merge_resolver)
+            else:
+                console.print("\n[yellow]Dry run - rankings not saved to database[/yellow]")
+                saved_count = filtered_teams  # Would-be saved count
+
+        # Refresh precomputed total game stats used by rankings_view
+        if not args.dry_run and saved_count > 0:
+            with (timing_report.section("backfill_total_game_stats") if timing_report else nullcontext()):
+                try:
+                    result = supabase.rpc('backfill_total_game_stats').execute()
+                    backfill_count = result.data if result.data else 0
+                    console.print(f"[dim]Backfilled total game stats for {backfill_count:,} teams[/dim]")
+                except Exception as e:
+                    console.print(f"[yellow]Warning: backfill_total_game_stats failed: {e}[/yellow]")
         
         # ----------------------------------------------------------------
         #  Summary Banner
@@ -682,6 +708,9 @@ async def main():
         )
         console.print("\n")
         console.print(Panel(summary_text, title="📊 Run Summary", border_style="bright_blue"))
+
+        if timing_report:
+            timing_report.print_summary()
         
     except Exception as e:
         console.print(f"\n[red]Rankings calculation failed: {e}[/red]")

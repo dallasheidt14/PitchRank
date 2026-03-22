@@ -136,7 +136,7 @@ async def run_profiled_ranking(args):
             from src.utils.merge_resolver import MergeResolver
 
             merge_resolver = MergeResolver(client)
-            games_df = fetch_games_for_rankings(
+            games_df = await fetch_games_for_rankings(
                 client,
                 lookback_days=args.lookback_days,
                 merge_resolver=merge_resolver,
@@ -154,9 +154,10 @@ async def run_profiled_ranking(args):
         with timing.section("v53e_computation"):
             try:
                 from src.etl.v53e import compute_rankings, V53EConfig
-                config = V53EConfig()
-                rankings = compute_rankings(games_df, config=config)
-                team_count = len(rankings) if rankings is not None else 0
+                cfg = V53EConfig()
+                rankings = compute_rankings(games_df, cfg=cfg)
+                teams_df = rankings["teams"] if rankings else None
+                team_count = len(teams_df) if teams_df is not None else 0
                 console.print(f"  Computed rankings for {team_count:,} teams")
                 report.add_custom("team_count", team_count)
             except Exception as e:
@@ -164,7 +165,7 @@ async def run_profiled_ranking(args):
                 return
 
     # ── Step 4: ML Layer 13 ────────────────────────────────────────
-    if use_ml and rankings is not None:
+    if use_ml and teams_df is not None and not teams_df.empty:
         console.print("\n[bold]Applying ML Layer 13...[/bold]")
         with timing.section("ml_layer_13"):
             try:
@@ -172,8 +173,11 @@ async def run_profiled_ranking(args):
                     apply_predictive_adjustment, Layer13Config,
                 )
                 ml_config = Layer13Config()
-                ml_result = apply_predictive_adjustment(
-                    rankings, games_df, config=ml_config
+                ml_result = await apply_predictive_adjustment(
+                    supabase_client=client,
+                    teams_df=teams_df,
+                    games_used_df=games_df,
+                    cfg=ml_config,
                 )
                 console.print("  ML Layer 13 applied")
             except Exception as e:
@@ -238,12 +242,13 @@ async def run_synthetic_profile(args, timing, cpu, memory, report):
         with timing.section("v53e_computation"):
             try:
                 from src.etl.v53e import compute_rankings, V53EConfig
-                config = V53EConfig()
-                rankings = compute_rankings(games_df, config=config)
-                console.print(f"  Computed rankings for {len(rankings) if rankings is not None else 0} teams")
+                cfg = V53EConfig()
+                rankings = compute_rankings(games_df, cfg=cfg)
+                teams_df = rankings["teams"] if rankings else None
+                team_count = len(teams_df) if teams_df is not None else 0
+                console.print(f"  Computed rankings for {team_count:,} teams")
             except Exception as e:
                 console.print(f"[yellow]v53e computation error (expected without full env): {e}[/yellow]")
-                # Still capture timing data
                 console.print("  Profiling timing data captured")
 
     report.add_timing(timing)

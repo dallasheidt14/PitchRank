@@ -99,33 +99,40 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
   let topGirls: Array<{ age: string; teams: Array<{ team_id_master: string; team_name: string; club_name: string | null; power_score_final: number }> }> = [];
 
   try {
-    // Get total counts and top teams for U12, U13, U14 (most popular)
     const previewAges = ['u12', 'u13', 'u14'];
-    
-    for (const age of previewAges) {
-      const [boysData, girlsData] = await Promise.all([
-        api.getRankings(isNational ? null : region, age, 'M'),
-        api.getRankings(isNational ? null : region, age, 'F'),
-      ]);
-      
-      if (age === 'u12') {
-        boysTeamCount = boysData.length;
-        girlsTeamCount = girlsData.length;
-      }
-      
+    const regionParam = isNational ? null : region;
+
+    // Fetch top-3 teams per age/gender AND counts for U12 in parallel
+    const [boysCount, girlsCount, ...previews] = await Promise.all([
+      api.getRankingsCount(regionParam, 'u12', 'M'),
+      api.getRankingsCount(regionParam, 'u12', 'F'),
+      ...previewAges.flatMap(age => [
+        api.getRankings(regionParam, age, 'M', { limit: 3 }),
+        api.getRankings(regionParam, age, 'F', { limit: 3 }),
+      ]),
+    ]);
+
+    boysTeamCount = boysCount;
+    girlsTeamCount = girlsCount;
+
+    for (let i = 0; i < previewAges.length; i++) {
+      const boysData = previews[i * 2];
+      const girlsData = previews[i * 2 + 1];
+      const age = previewAges[i].toUpperCase();
+
       topBoys.push({
-        age: age.toUpperCase(),
-        teams: boysData.slice(0, 3).map(t => ({
+        age,
+        teams: boysData.map(t => ({
           team_id_master: t.team_id_master,
           team_name: t.team_name,
           club_name: t.club_name,
           power_score_final: t.power_score_final,
         })),
       });
-      
+
       topGirls.push({
-        age: age.toUpperCase(),
-        teams: girlsData.slice(0, 3).map(t => ({
+        age,
+        teams: girlsData.map(t => ({
           team_id_master: t.team_id_master,
           team_name: t.team_name,
           club_name: t.club_name,

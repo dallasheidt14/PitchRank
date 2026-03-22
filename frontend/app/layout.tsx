@@ -7,6 +7,7 @@ import { Toaster } from "@/components/ui/Toaster";
 import { StructuredData } from "@/components/StructuredData";
 import { Footer } from "@/components/Footer";
 import { GoogleAnalytics } from "@/components/GoogleAnalytics";
+import { WebVitalsReporter } from "@/components/WebVitalsReporter";
 
 // Athletic Editorial Typography
 const oswald = Oswald({
@@ -138,6 +139,7 @@ export default function RootLayout({
         className={`${oswald.variable} ${dmSans.variable} ${jetbrainsMono.variable} antialiased flex flex-col min-h-screen`}
       >
         <Providers>
+          <WebVitalsReporter />
           <Navigation />
           <main className="flex-1 bg-background text-foreground">
             {children}
