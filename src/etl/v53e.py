@@ -45,7 +45,7 @@ class V53EConfig:
     # Layer 5 (Adaptive K + team-level outlier guard)
     ADAPTIVE_K_ALPHA: float = 0.5
     ADAPTIVE_K_BETA: float = 0.6
-    TEAM_OUTLIER_GUARD_ZSCORE: float = 2.5  # clip aggregated OFF/DEF extremes
+    TEAM_OUTLIER_GUARD_ZSCORE: float = 3.5  # clip aggregated OFF/DEF extremes (widened from 2.5 to reduce top-of-distribution compression)
 
     # Layer 6 (Performance)
     PERFORMANCE_K: float = 0.15  # Legacy: kept for backward compatibility, use PERF_* instead
@@ -282,9 +282,22 @@ def _recency_weights(n: int, k: int, recent_share: float,
     return weights
 
 
-def _percentile_norm(x: pd.Series) -> pd.Series:
+def _percentile_norm(x: pd.Series, tiebreaker: pd.Series = None) -> pd.Series:
+    """Percentile normalization with optional tie-breaking.
+
+    When ``tiebreaker`` is provided (e.g. pre-clip raw values), ties in ``x``
+    are broken by the tiebreaker so that teams clipped to the same ceiling
+    still receive distinct percentile ranks.
+    """
     if len(x) == 0:
         return x
+    if tiebreaker is not None and len(tiebreaker) == len(x) and len(x) > 1:
+        # Build a composite key: primary = clipped value, secondary = pre-clip value
+        # Small epsilon ensures tiebreaker only matters when primary values are equal
+        x_std = x.std(ddof=0)
+        eps = x_std * 1e-10 if x_std > 0 else 1e-15
+        composite = x + eps * tiebreaker.rank(method="average", pct=True)
+        return composite.rank(method="average", pct=True).astype(float)
     return x.rank(method="average", pct=True).astype(float)
 
 
@@ -348,9 +361,16 @@ def _hybrid_sos_norm(x: pd.Series, zscore_blend: float = 0.30) -> pd.Series:
 
 def _normalize_by_cohort(df: pd.DataFrame, value_col: str, out_col: str, mode: str) -> pd.DataFrame:
     parts = []
+    # Determine tiebreaker column (pre-clip raw values) if it exists
+    tiebreaker_col = f"{value_col}_preclip"
+    has_tiebreaker = tiebreaker_col in df.columns
     for (age, gender), grp in df.groupby(["age", "gender"], dropna=False):
         s = grp[value_col]
-        n = _zscore_norm(s) if mode == "zscore" else _percentile_norm(s)
+        if mode == "zscore":
+            n = _zscore_norm(s)
+        else:
+            tb = grp[tiebreaker_col] if has_tiebreaker else None
+            n = _percentile_norm(s, tiebreaker=tb)
         sub = grp.copy()
         sub[out_col] = n
         parts.append(sub)
@@ -921,6 +941,8 @@ def compute_rankings(
             s = out[col]
             if len(s) >= 3 and s.std(ddof=0) > 0:
                 mu, sd = s.mean(), s.std(ddof=0)
+                # Save pre-clip values for tie-breaking in normalization
+                out[f"{col}_preclip"] = s
                 out[col] = s.clip(mu - cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd,
                                   mu + cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd)
         return out
