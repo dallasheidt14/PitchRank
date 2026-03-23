@@ -55,7 +55,7 @@ jobs:
             exit 1
           fi
 
-      - name: Update missing club names
+      - name: "Step 1: Backfill from GotSport"
         run: |
           LIMIT_FLAG=""
           if [ -n "${{ github.event.inputs.limit }}" ]; then
@@ -68,9 +68,39 @@ jobs:
 
           python scripts/backfill_missing_club_names.py --workers 10 $DRY_FLAG $LIMIT_FLAG
 
+      - name: "Step 2: Extract conservative in-state club matches"
+        run: |
+          LIMIT_FLAG=""
+          if [ -n "${{ github.event.inputs.limit }}" ]; then
+            LIMIT_FLAG="--limit ${{ github.event.inputs.limit }}"
+          fi
+          DRY_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            DRY_FLAG="--dry-run"
+          fi
+
+          python scripts/extract_missing_club_names.py $DRY_FLAG $LIMIT_FLAG
+
+      - name: "Step 3: Match missing state codes"
+        run: |
+          LIMIT_FLAG=""
+          if [ -n "${{ github.event.inputs.limit }}" ]; then
+            LIMIT_FLAG="--limit ${{ github.event.inputs.limit }}"
+          fi
+          DRY_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            DRY_FLAG="--dry-run"
+          fi
+
+          python scripts/match_missing_state_codes.py $DRY_FLAG $LIMIT_FLAG
+
       - name: Workflow summary
         if: always()
         run: |
           echo "## Update Missing Club Names" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Runs every Monday at 10am Pacific. Backfills club names from GotSport API for teams with missing club_name." >> "$GITHUB_STEP_SUMMARY"
+          echo "Runs every Monday at 10am Pacific." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "1. Backfills missing club names from the GotSport API when a GotSport team ID exists." >> "$GITHUB_STEP_SUMMARY"
+          echo "2. Then conservatively extracts club names from team_name, but only applies safe-only in-state matches and skips riskier branch/program/acronym cases." >> "$GITHUB_STEP_SUMMARY"
+          echo "3. Then fills missing state codes only from safe single-state club matches, skipping acronym, extracted, and normalized/parens-based riskier cases." >> "$GITHUB_STEP_SUMMARY"
