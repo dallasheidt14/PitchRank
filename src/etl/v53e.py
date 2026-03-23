@@ -45,7 +45,7 @@ class V53EConfig:
     # Layer 5 (Adaptive K + team-level outlier guard)
     ADAPTIVE_K_ALPHA: float = 0.5
     ADAPTIVE_K_BETA: float = 0.6
-    TEAM_OUTLIER_GUARD_ZSCORE: float = 3.5  # clip aggregated OFF/DEF extremes (widened from 2.5 to reduce top-of-distribution compression)
+    TEAM_OUTLIER_GUARD_ZSCORE: float = 3.0  # clip aggregated OFF/DEF extremes (tightened from 3.5 — fewer teams hit ceiling, reducing tie compression)
 
     # Layer 6 (Performance)
     PERFORMANCE_K: float = 0.15  # Legacy: kept for backward compatibility, use PERF_* instead
@@ -114,7 +114,7 @@ class V53EConfig:
     # (preserves natural gaps at the tails). Pure percentile compresses the top teams
     # into a narrow band, wasting the 60% SOS weight. Hybrid re-introduces
     # differentiation where raw SOS actually differs.
-    SOS_NORM_HYBRID_ENABLED: bool = False  # off by default — opt-in
+    SOS_NORM_HYBRID_ENABLED: bool = True  # blend percentile + sigmoid z-score to preserve natural SOS gaps at the tails
     SOS_NORM_HYBRID_ZSCORE_BLEND: float = 0.30  # fraction of z-score in the blend (0=pure percentile, 1=pure zscore)
 
     # =========================
@@ -292,11 +292,21 @@ def _percentile_norm(x: pd.Series, tiebreaker: pd.Series = None) -> pd.Series:
     if len(x) == 0:
         return x
     if tiebreaker is not None and len(tiebreaker) == len(x) and len(x) > 1:
-        # Build a composite key: primary = clipped value, secondary = pre-clip value
-        # Small epsilon ensures tiebreaker only matters when primary values are equal
-        x_std = x.std(ddof=0)
-        eps = x_std * 1e-10 if x_std > 0 else 1e-15
-        composite = x + eps * tiebreaker.rank(method="average", pct=True)
+        # Build a composite key: primary = clipped value, secondary = pre-clip value.
+        # The epsilon must be large enough that tiebreaker differences produce
+        # distinct composite values, but small enough that non-tied primary values
+        # are never re-ordered.  We use half the minimum gap between distinct
+        # primary values — this guarantees tiebreaker adjustments stay within the
+        # gap and cannot swap the ordering of non-tied teams.
+        sorted_unique = np.sort(x.unique())
+        if len(sorted_unique) > 1:
+            diffs = np.diff(sorted_unique)
+            min_gap = diffs[diffs > 0].min() if (diffs > 0).any() else 1e-12
+            eps = min_gap * 0.5
+        else:
+            # All values identical — tiebreaker IS the ranking
+            eps = 1.0
+        composite = x + eps * tiebreaker.rank(method="dense", pct=True)
         return composite.rank(method="average", pct=True).astype(float)
     return x.rank(method="average", pct=True).astype(float)
 
