@@ -115,6 +115,8 @@ CLUB_CANONICAL_OVERRIDES = [
     ("OK", "exact", "North Oklahoma City", "North OKC SC"),
     ("OK", "exact", "NorthWest Optimist Club", "Northwest Optimist SC"),
     ("OK", "exact", "NW Oklahoma SA", "Northwest Soccer Club"),
+    # Arkansas
+    ("AR", "exact", "Ozark United FC Academy AD", "Ozark United FC Academy"),
     # North Carolina
     ("NC", "exact", "CESA", "Carolina Elite Soccer Academy"),
     ("NC", "regex", r"Charlotte Soccer Academy\s*\(CSA\)\s*$", "Charlotte Soccer Academy"),
@@ -199,8 +201,31 @@ CLUB_CANONICAL_OVERRIDES = [
     ("WI", "exact", "FC WISCONSIN GIRLS", "FC WISCONSIN"),
     ("WI", "exact", "Jefferson County Soccer Association", "Jefferson United SC"),
     ("WI", "exact", "WI United", "Wisconsin United FC"),
+    # Missouri
+    ("MO", "exact", "Alliance FC", "Alliance Futbol Club (MO)"),
+    ("MO", "exact", "Lou Fusz", "Lou Fusz Athletic"),
+    ("MO", "exact", "Lou Fusz Athletic 2", "Lou Fusz Athletic"),
+    ("MO", "exact", "Slsg", "St. Louis Scott Gallagher"),
+    ("MO", "exact", "Sporting Kansas City U16", "Sporting Kansas City"),
+    ("MO", "exact", "St. Louis Scott Gallagher St. Charles (M", "St. Louis Scott Gallagher"),
+    ("MO", "exact", "St. Louis Stars", "St. Louis Stars SC"),
+    # Kansas
+    ("KS", "exact", "Kansas City Athletics Lax", "Kansas City Athletics"),
+    ("KS", "exact", "KC Athletics", "Kansas City Athletics"),
+    ("KS", "exact", "Overland Park Soccer Club", "OP Soccer Club"),
+    ("KS", "exact", "Union KC Soccer Club", "Union KC"),
     # Idaho
     ("ID", "exact", "Boise Timbers | Thorns", "Boise Timbers | Thorns FC"),
+    ("ID", "exact", "Sting Soccer Club", "Sting Soccer Club Idaho"),
+    # Iowa
+    ("IA", "exact", "FC United (Iowa)", "FC United Iowa"),
+    ("IA", "exact", "Iowa Rush Soccer Club - South", "Iowa Rush Soccer Club"),
+    ("IA", "exact", "Iowa United", "Iowa United FC"),
+    ("IA", "exact", "Sporting Iowa Central", "Sporting Iowa"),
+    ("IA", "exact", "Sporting Iowa East", "Sporting Iowa"),
+    ("IA", "exact", "United Futbol Academy", "United Futbol Academy (UFA)"),
+    ("IA", "exact", "UFA Soccer Academy", "United Futbol Academy (UFA)"),
+    ("IA", "exact", "VSA Rush", "Vision Soccer Academy"),
     # Oregon
     ("OR", "exact", "Oregon Surf", "Oregon Surf SC"),
     ("OR", "exact", "FC Portland", "FC Portland Academy"),
@@ -253,6 +278,12 @@ CLUB_CANONICAL_OVERRIDES = [
     ("TN", "exact", "Tennessee United", "Tennessee United SC"),
     # Minnesota (4x each direction - pick St. Croix as canonical)
     ("MN", "exact", "St Croix Soccer Club", "St. Croix"),
+    ("MN", "exact", "Minnesota Thunder Academy", "MN Thunder Academy"),
+    ("MN", "exact", "New Ulm Area Youth Soccer", "New Ulm United"),
+    ("MN", "exact", "North Suburban", "North Suburban SA"),
+    ("MN", "exact", "Shakopee Soccer Association", "Shakopee SA"),
+    ("MN", "exact", "ST Paul Blackhawks", "St. Paul Blackhawks"),
+    ("MN", "exact", "Tonka United", "Tonka United SA"),
     # Michigan
     ("MI", "exact", "Nationals SC", "Nationals"),
     ("MI", "exact", "Legends fc", "Legends FC Michigan"),
