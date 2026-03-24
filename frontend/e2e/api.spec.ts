@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type APIRequestContext } from '@playwright/test';
 
 /**
  * API E2E Tests
@@ -8,6 +8,26 @@ import { test, expect } from '@playwright/test';
  *
  * Run with: npx playwright test --project=api
  */
+
+/**
+ * Retry a GET request up to `maxRetries` times with exponential backoff.
+ * Live Supabase endpoints can transiently 500 under concurrent load.
+ */
+async function fetchWithRetry(
+  request: APIRequestContext,
+  url: string,
+  maxRetries = 2
+) {
+  let lastResponse;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    lastResponse = await request.get(url);
+    if (lastResponse.status() < 500) return lastResponse;
+    if (attempt < maxRetries) {
+      await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+    }
+  }
+  return lastResponse!;
+}
 
 test.describe('Team Search API @api', () => {
   test('returns empty array for short query (< 2 chars)', async ({ request }) => {
@@ -27,7 +47,7 @@ test.describe('Team Search API @api', () => {
   });
 
   test('returns teams for valid search query @smoke', async ({ request }) => {
-    const response = await request.get('/api/teams/search?q=FC Dallas');
+    const response = await fetchWithRetry(request, '/api/teams/search?q=FC Dallas');
     expect(response.status()).toBe(200);
 
     const body = await response.json();
@@ -36,7 +56,7 @@ test.describe('Team Search API @api', () => {
   });
 
   test('returns teams with expected fields', async ({ request }) => {
-    const response = await request.get('/api/teams/search?q=Real Salt Lake');
+    const response = await fetchWithRetry(request, '/api/teams/search?q=Real Salt Lake');
     expect(response.status()).toBe(200);
 
     const body = await response.json();
@@ -48,7 +68,7 @@ test.describe('Team Search API @api', () => {
   });
 
   test('respects limit parameter', async ({ request }) => {
-    const response = await request.get('/api/teams/search?q=FC&limit=5');
+    const response = await fetchWithRetry(request, '/api/teams/search?q=FC&limit=5');
     expect(response.status()).toBe(200);
 
     const body = await response.json();
@@ -57,7 +77,7 @@ test.describe('Team Search API @api', () => {
 
   test('sanitizes PostgREST injection characters', async ({ request }) => {
     // These characters should be stripped: %_(),.*\
-    const response = await request.get('/api/teams/search?q=%25_().*\\test');
+    const response = await fetchWithRetry(request, '/api/teams/search?q=%25_().*\\test');
     expect(response.status()).toBe(200);
 
     const body = await response.json();
@@ -75,13 +95,16 @@ test.describe('Team Search API @api', () => {
     ];
 
     for (const q of queries) {
-      const response = await request.get(`/api/teams/search?q=${encodeURIComponent(q)}`);
+      const response = await fetchWithRetry(
+        request,
+        `/api/teams/search?q=${encodeURIComponent(q)}`
+      );
       expect(response.status()).toBeLessThan(500);
     }
   });
 
   test('max limit is enforced at 100', async ({ request }) => {
-    const response = await request.get('/api/teams/search?q=FC&limit=500');
+    const response = await fetchWithRetry(request, '/api/teams/search?q=FC&limit=500');
     expect(response.status()).toBe(200);
 
     const body = await response.json();
@@ -89,7 +112,7 @@ test.describe('Team Search API @api', () => {
   });
 
   test('filters by gender parameter', async ({ request }) => {
-    const response = await request.get('/api/teams/search?q=FC&gender=M');
+    const response = await fetchWithRetry(request, '/api/teams/search?q=FC&gender=M');
     expect(response.status()).toBe(200);
 
     const body = await response.json();
