@@ -1244,11 +1244,11 @@ def compute_rankings(
         f"found={cross_age_found}, missing={cross_age_missing}"
     )
 
-    direct = (
-        g_sos.groupby("team_id", group_keys=False).apply(
-            lambda d: _avg_weighted(d, "opp_strength", "w_sos")
-        ).rename("sos_direct").reset_index()
-    )
+    # Vectorized weighted mean — avoids groupby.apply returning scalar (deprecated pandas pattern)
+    _ws = g_sos["opp_strength"] * g_sos["w_sos"]
+    _wsum = g_sos.groupby("team_id")["w_sos"].sum()
+    _vsum = g_sos.assign(_ws=_ws).groupby("team_id")["_ws"].sum()
+    direct = (_vsum / _wsum.replace(0, np.nan)).fillna(0.5).rename("sos_direct").reset_index()
     sos_curr = direct.rename(columns={"sos_direct": "sos"}).copy()
 
     # PageRank-style dampening on initial SOS (Pass 1)
@@ -1293,11 +1293,11 @@ def compute_rankings(
             return cfg.UNRANKED_SOS_BASE
 
         g_sos["opp_sos"] = g_sos["opp_id"].map(get_opponent_sos)
-        trans = (
-            g_sos.groupby("team_id", group_keys=False).apply(
-                lambda d: _avg_weighted(d, "opp_sos", "w_sos")
-            ).rename("sos_trans").reset_index()
-        )
+        # Vectorized weighted mean for transitive SOS (avoids deprecated groupby.apply scalar pattern)
+        _ws_t = g_sos["opp_sos"] * g_sos["w_sos"]
+        _wsum_t = g_sos.groupby("team_id")["w_sos"].sum()
+        _vsum_t = g_sos.assign(_ws_t=_ws_t).groupby("team_id")["_ws_t"].sum()
+        trans = (_vsum_t / _wsum_t.replace(0, np.nan)).fillna(0.5).rename("sos_trans").reset_index()
 
         # Blend direct (opponent OFF/DEF - fixed) and transitive (opponent SOS - iterates)
         # Direct stays fixed to prevent upward drift, transitive propagates schedule info
@@ -1516,6 +1516,25 @@ def compute_rankings(
             )
         else:
             logger.info(f"✅ GP-SOS correlation check passed: {gp_sos_corr:.3f} (within ±0.10)")
+
+        # Per-age-bucket GP-SOS correlation breakdown (ages 15-18 are highest concern)
+        if "age" in team.columns:
+            age_col = pd.to_numeric(team["age"], errors="coerce")
+            for age_val in sorted(age_col.dropna().unique()):
+                age_mask = age_col == age_val
+                age_subset = team.loc[age_mask, ["gp", "sos_norm"]].dropna()
+                if len(age_subset) < 10:
+                    continue
+                age_corr = age_subset.corr().iloc[0, 1]
+                if pd.isna(age_corr):
+                    continue
+                level = "WARNING" if abs(age_corr) > 0.10 else "OK"
+                flag = "⚠️" if level == "WARNING" else "✅"
+                median_gp = age_subset["gp"].median()
+                logger.info(
+                    f"  {flag} Age {int(age_val)}: GP-SOS corr={age_corr:.3f} "
+                    f"(n={len(age_subset)}, median_gp={median_gp:.0f}) [{level}]"
+                )
 
     # -------------------------
     # Layer 6: Performance
