@@ -472,6 +472,42 @@ async def compute_all_cohorts(
         else:
             logger.warning("⚠️ No team IDs found for state metadata fetch - SCF will be disabled")
 
+    # ========== AGE-BUCKET VALIDATION ==========
+    # Reject/quarantine ages outside PitchRank's supported range (U10–U18).
+    # Ages outside this range are data quality issues (u0, u3–u7) or
+    # unsupported age groups (u9, u19–u21). Based on production data:
+    #   u0: 3 teams, u3–u7: 54 teams, u8–u9: 2,373 teams, u20–u21: 39 teams
+    VALID_AGE_MIN = 10
+    VALID_AGE_MAX = 18
+    games_df["_age_num"] = pd.to_numeric(games_df["age"], errors="coerce")
+    invalid_age_mask = (
+        games_df["_age_num"].isna()
+        | (games_df["_age_num"] < VALID_AGE_MIN)
+        | (games_df["_age_num"] > VALID_AGE_MAX)
+    )
+    if invalid_age_mask.any():
+        invalid_games = games_df.loc[invalid_age_mask]
+        invalid_age_counts = invalid_games["age"].value_counts().to_dict()
+        logger.warning(
+            f"🚫 Quarantining {invalid_age_mask.sum():,} game rows with ages outside {VALID_AGE_MIN}–{VALID_AGE_MAX}: {invalid_age_counts}"
+        )
+        for bad_age, count in sorted(invalid_age_counts.items(), key=lambda x: -x[1]):
+            sample = invalid_games[invalid_games["age"] == bad_age].head(3)
+            for _, row in sample.iterrows():
+                logger.warning(
+                    f"   Age {bad_age}: team={str(row.get('team_id', ''))[:12]}... "
+                    f"opp={str(row.get('opp_id', ''))[:12]}... "
+                    f"date={row.get('game_date', 'N/A')}, "
+                    f"provider={row.get('provider', 'N/A')}"
+                )
+        games_df = games_df.loc[~invalid_age_mask].copy()
+        logger.info(f"✅ After age validation: {len(games_df):,} game rows remain")
+    games_df.drop(columns=["_age_num"], inplace=True, errors="ignore")
+
+    if games_df.empty:
+        logger.error("❌ No valid games remain after age validation")
+        return {"teams": pd.DataFrame(), "games_used": pd.DataFrame()}
+
     # Group by (age, gender) cohorts
     cohorts = list(games_df.groupby(["age", "gender"]))
     logger.info(f"🔄 Two-pass SOS: Processing {len(cohorts)} cohorts")
