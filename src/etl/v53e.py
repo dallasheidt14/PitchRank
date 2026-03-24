@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class V53EConfig:
     # Layer 1
     WINDOW_DAYS: int = 365
-    INACTIVE_HIDE_DAYS: int = 180
+    INACTIVE_HIDE_DAYS: int = 365
 
     # Layer 2
     MAX_GAMES_FOR_RANK: int = 30
@@ -917,12 +917,12 @@ def compute_rankings(
     )
     team = team.merge(wld_counts, on=["team_id", "age", "gender"], how="left")
 
-    # Calculate games in last 180 days for activity filter
+    # Calculate games in activity window (INACTIVE_HIDE_DAYS) for status filtering
     inactive_cutoff = today - pd.Timedelta(days=cfg.INACTIVE_HIDE_DAYS)
     g_recent = g[g["date"] >= inactive_cutoff].copy()
-    gp_recent_counts = g_recent.groupby(["team_id", "age", "gender"], as_index=False).size().rename(columns={"size": "gp_last_180"})
+    gp_recent_counts = g_recent.groupby(["team_id", "age", "gender"], as_index=False).size().rename(columns={"size": "gp_last_window"})
     team = team.merge(gp_recent_counts, on=["team_id", "age", "gender"], how="left")
-    team["gp_last_180"] = team["gp_last_180"].fillna(0).astype(int)
+    team["gp_last_window"] = team["gp_last_window"].fillna(0).astype(int)
 
     # Drop intermediate columns
     team = team.drop(columns=["gf_weighted", "ga_weighted", "w_game"])
@@ -1751,19 +1751,19 @@ def compute_rankings(
         pd.Timestamp(today) - pd.to_datetime(team["last_game"], errors='coerce')
     ).dt.days
     
-    # Filter teams based on games in last 180 days
+    # Filter teams based on games in activity window (INACTIVE_HIDE_DAYS, aligned with WINDOW_DAYS=365)
     # Status priority:
-    # 1. "Inactive" - No games in last 180 days (gp_last_180 == 0) OR last_game is NULL OR days_since_last >= 180
-    #    Note: Use >= to match the gp_last_180 calculation which uses >= cutoff (includes games exactly 180 days ago)
-    # 2. "Not Enough Ranked Games" - Has games in last 180 days but < MIN_GAMES_PROVISIONAL (8 games)
-    # 3. "Active" - Has >= MIN_GAMES_PROVISIONAL games in last 180 days
+    # 1. "Inactive" - No games in activity window (gp_last_window == 0) OR last_game is NULL OR days_since_last >= INACTIVE_HIDE_DAYS
+    #    Note: Use >= to match the gp_last_window calculation which uses >= cutoff (includes games exactly at boundary)
+    # 2. "Not Enough Ranked Games" - Has games in activity window but < MIN_GAMES_PROVISIONAL (8 games)
+    # 3. "Active" - Has >= MIN_GAMES_PROVISIONAL games in activity window
     team["status"] = np.where(
-        (team["gp_last_180"] == 0) | 
-        (team["last_game"].isna()) | 
+        (team["gp_last_window"] == 0) |
+        (team["last_game"].isna()) |
         (team["days_since_last"].fillna(999) >= cfg.INACTIVE_HIDE_DAYS),
         "Inactive",
         np.where(
-            team["gp_last_180"] < cfg.MIN_GAMES_PROVISIONAL,
+            team["gp_last_window"] < cfg.MIN_GAMES_PROVISIONAL,
             "Not Enough Ranked Games",
             "Active"
         )
@@ -1807,7 +1807,7 @@ def compute_rankings(
     games_used = g_sos[[c for c in games_used_cols if c in g_sos.columns]].copy()
 
     keep_cols = [
-        "team_id", "age", "gender", "gp", "gp_last_180", "last_game", "status", "rank_in_cohort",
+        "team_id", "age", "gender", "gp", "gp_last_window", "last_game", "status", "rank_in_cohort",
         "wins", "losses", "draws",
         "off_raw", "sad_raw", "off_shrunk", "sad_shrunk", "def_shrunk",
         "off_norm", "def_norm",
