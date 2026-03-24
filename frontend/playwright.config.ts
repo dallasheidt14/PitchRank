@@ -41,10 +41,12 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
+      testIgnore: /api\.spec\.ts/,
       use: { ...devices['Desktop Chrome'] },
     },
     {
       name: 'mobile-chrome',
+      testIgnore: /api\.spec\.ts/,
       use: { ...devices['Pixel 5'] },
     },
     // API tests don't need a browser
