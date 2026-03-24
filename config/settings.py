@@ -95,7 +95,7 @@ AGE_GROUPS = {
 RANKING_CONFIG = {
     # Layer 1
     'window_days': int(os.getenv("RANKING_WINDOW_DAYS", 365)),  # V53EConfig.WINDOW_DAYS
-    'inactive_hide_days': int(os.getenv("INACTIVE_HIDE_DAYS", 180)),  # V53EConfig.INACTIVE_HIDE_DAYS
+    'inactive_hide_days': int(os.getenv("INACTIVE_HIDE_DAYS", 365)),  # V53EConfig.INACTIVE_HIDE_DAYS
     
     # Layer 2
     'max_games': int(os.getenv("MAX_GAMES_PER_TEAM", 30)),  # V53EConfig.MAX_GAMES_FOR_RANK
