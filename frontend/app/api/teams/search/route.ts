@@ -27,8 +27,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ teams: [] });
     }
 
-    // Sanitize query: strip PostgREST filter-injection characters
-    const sanitizedQuery = query.replace(/[%_(),.*\\]/g, '');
+    // Sanitize query: whitelist alphanumeric, spaces, hyphens, apostrophes
+    const sanitizedQuery = query
+      .replace(/[^a-zA-Z0-9\s\-']/g, '')
+      .replace(/'/g, "''")  // Escape apostrophes for PostgREST
+      .trim();
     if (sanitizedQuery.length < 2) {
       return NextResponse.json({ teams: [] });
     }
@@ -57,7 +60,13 @@ export async function GET(request: NextRequest) {
     const { data: teams, error } = await teamsQuery;
 
     if (error) {
-      console.error('[teams/search] Error:', error);
+      console.error('[teams/search] Supabase query error:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+        query: sanitizedQuery,
+      });
       return NextResponse.json(
         { error: 'Failed to search teams' },
         { status: 500 }

@@ -3,12 +3,12 @@ import { test, expect, type Page } from '@playwright/test';
 const RANKINGS_LOAD_TIMEOUT = 30_000;
 
 // Live rankings pages depend on external API responses that can be transiently slow.
-test.describe.configure({ timeout: 90_000, retries: 1 });
+test.describe.configure({ timeout: 90_000, retries: 2 });
 
 async function waitForRankingsTable(page: Page) {
   let lastError: unknown;
 
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const tableCard = page.locator('[data-testid="rankings-table-card"]');
       await expect(tableCard).toBeVisible({ timeout: RANKINGS_LOAD_TIMEOUT });
@@ -18,7 +18,8 @@ async function waitForRankingsTable(page: Page) {
       return tableCard;
     } catch (error) {
       lastError = error;
-      if (attempt === 0) {
+      if (attempt < 2) {
+        await page.waitForTimeout(2_000);
         await page.reload({ waitUntil: 'domcontentloaded' });
       }
     }
@@ -102,7 +103,7 @@ test.describe('Rankings Page', () => {
 
   test('page has correct metadata title', async ({ page }) => {
     await page.goto('/rankings');
-    await expect(page).toHaveTitle(/Rankings.*PitchRank|PitchRank.*Rankings/i);
+    await expect(page).toHaveTitle(/Ranks.*PitchRank|Youth Soccer Teams.*PitchRank/i);
   });
 });
 

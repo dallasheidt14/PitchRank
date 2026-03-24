@@ -10,13 +10,13 @@ const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
  * NOTE: Uses absolute URLs for canonical/OG to avoid Google indexing issues
  */
 export const metadata: Metadata = {
-  title: 'See Where Your Team Ranks: 101,000+ Youth Soccer Teams | PitchRank',
+  title: 'See Where Your Team Ranks: 101,000+ Youth Soccer Teams',
   description: 'Find your team among 101,354 youth soccer teams nationwide. Compare rankings by state, age, and gender. Updated daily from 726,730+ real game results. No fluff, just data.',
   alternates: {
     canonical: `${baseUrl}/rankings`,
   },
   openGraph: {
-    title: 'See Where Your Team Ranks: 101,000+ Youth Soccer Teams | PitchRank',
+    title: 'See Where Your Team Ranks: 101,000+ Youth Soccer Teams',
     description: 'Find your team among 101,354 youth soccer teams nationwide. Compare rankings by state, age, and gender. Updated daily from real game results.',
     url: `${baseUrl}/rankings`,
     siteName: 'PitchRank',
