@@ -68,7 +68,11 @@ async def save_ranking_snapshot(
         df['rank_in_state'] = pd.array([pd.NA] * len(df), dtype='Int64')
 
         # Only rank Active teams (8+ games) to match ranking engine behavior
-        active_mask = df['status'] == 'Active' if 'status' in df.columns else pd.Series(True, index=df.index)
+        if 'status' in df.columns:
+            active_mask = df['status'] == 'Active'
+        else:
+            logger.warning("⚠️ 'status' column missing in snapshot — all teams treated as Active for state ranking")
+            active_mask = pd.Series(True, index=df.index)
         if active_mask.any():
             active_ranks = df.loc[active_mask].groupby(['state_code', 'age_group', 'gender'])[score_col].rank(
                 method='min', ascending=False, na_option='bottom'
@@ -236,7 +240,7 @@ async def get_historical_ranks(
                 continue
 
         if not all_records:
-            logger.debug(f"No historical rankings found for {len(team_ids)} teams around {target_date}")
+            logger.info(f"📍 No historical national rankings found for {len(team_ids)} teams around {target_date} ({days_ago}d ago)")
             return {team_id: None for team_id in team_ids}
 
         # Build mapping of team_id -> rank (prefer ML rank, fallback to cohort rank)
@@ -337,7 +341,7 @@ async def get_historical_state_ranks(
                 continue
 
         if not all_records:
-            logger.debug(f"No historical state rankings found for {len(team_ids)} teams around {target_date}")
+            logger.info(f"📍 No historical state rankings found for {len(team_ids)} teams around {target_date} ({days_ago}d ago)")
             return {team_id: None for team_id in team_ids}
 
         # Build mapping of team_id -> state rank
@@ -459,7 +463,11 @@ async def calculate_rank_changes(
 
         # Calculate current rank within state for each cohort — Active teams only
         current_rankings_df['current_state_rank'] = pd.array([pd.NA] * len(current_rankings_df), dtype='Int64')
-        active_mask = df['status'] == 'Active' if 'status' in df.columns else pd.Series(True, index=df.index)
+        if 'status' in df.columns:
+            active_mask = df['status'] == 'Active'
+        else:
+            logger.warning("⚠️ 'status' column missing — all teams treated as Active for state rank changes")
+            active_mask = pd.Series(True, index=df.index)
         if active_mask.any():
             active_ranks = df.loc[active_mask].groupby(['state_code', 'age_group', 'gender'])[score_col].rank(
                 method='min', ascending=False, na_option='bottom'
@@ -521,13 +529,12 @@ async def calculate_rank_changes(
     teams_with_state_7d = current_rankings_df["rank_change_state_7d"].notna().sum()
     teams_with_state_30d = current_rankings_df["rank_change_state_30d"].notna().sum()
 
-    logger.info(f"✅ Rank changes calculated:")
-    logger.info(f"   National:")
-    logger.info(f"   - Teams with 7-day data: {teams_with_7d:,}/{total_teams:,} ({teams_with_7d/total_teams*100:.1f}%)")
-    logger.info(f"   - Teams with 30-day data: {teams_with_30d:,}/{total_teams:,} ({teams_with_30d/total_teams*100:.1f}%)")
-    logger.info(f"   State:")
-    logger.info(f"   - Teams with 7-day data: {teams_with_state_7d:,}/{total_teams:,} ({teams_with_state_7d/total_teams*100:.1f}%)")
-    logger.info(f"   - Teams with 30-day data: {teams_with_state_30d:,}/{total_teams:,} ({teams_with_state_30d/total_teams*100:.1f}%)")
+    logger.info(
+        f"✅ Rank changes: national 7d={teams_with_7d:,}/{total_teams:,} ({teams_with_7d/total_teams*100:.0f}%), "
+        f"30d={teams_with_30d:,}/{total_teams:,} ({teams_with_30d/total_teams*100:.0f}%) | "
+        f"state 7d={teams_with_state_7d:,}/{total_teams:,} ({teams_with_state_7d/total_teams*100:.0f}%), "
+        f"30d={teams_with_state_30d:,}/{total_teams:,} ({teams_with_state_30d/total_teams*100:.0f}%)"
+    )
 
     # Show examples of big movers (only if we have data)
     if teams_with_7d > 0:

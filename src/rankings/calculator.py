@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import pandas as pd
-from typing import Optional, Dict, TYPE_CHECKING
+from typing import Optional, Dict, Tuple, TYPE_CHECKING
 from contextlib import nullcontext
 from datetime import datetime
 import hashlib
@@ -33,7 +33,7 @@ def _section(timing_report: Optional["TimingReport"], name: str, **metadata):
     return nullcontext()
 
 
-async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame) -> None:
+async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame) -> Tuple[int, int]:
     """
     Persist per-game ML residuals to the games table using batch RPC.
 
@@ -42,9 +42,12 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
     Args:
         supabase_client: Supabase client instance
         game_residuals: DataFrame with columns [game_id, ml_overperformance]
+
+    Returns:
+        Tuple of (total_updated, failed_count)
     """
     if game_residuals.empty:
-        return
+        return (0, 0)
 
     # Use moderate batch size to avoid statement timeouts
     batch_size = 1000
@@ -84,10 +87,14 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
         if (i // batch_size) % 10 == 0 and i > 0:
             logger.info(f"  Progress: {total_updated:,} / {len(game_residuals):,} games updated...")
 
-    if failed_count > 0:
-        logger.warning(f"⚠️ Failed to update {failed_count} games")
+    if failed_count > 0 and total_updated == 0:
+        logger.error(f"❌ Residual persistence failed: 0/{len(game_residuals):,} games updated, {failed_count:,} failed")
+    elif failed_count > 0:
+        logger.warning(f"⚠️ Residual persistence partial: {total_updated:,} updated, {failed_count:,} failed out of {len(game_residuals):,}")
+    else:
+        logger.info(f"✅ Successfully updated {total_updated:,} games with ML residuals")
 
-    logger.info(f"✅ Successfully updated {total_updated:,} games with ML residuals")
+    return (total_updated, failed_count)
 
 
 async def compute_rankings_with_ml(
@@ -105,6 +112,7 @@ async def compute_rankings_with_ml(
     merge_version: Optional[str] = None,  # For cache invalidation when merges change
     team_state_map: Optional[Dict[str, str]] = None,  # For SCF regional bubble detection
     timing_report: Optional["TimingReport"] = None,
+    pass_label: Optional[str] = None,  # "Pass1" or "Pass2" for log disambiguation
 ) -> Dict[str, pd.DataFrame]:
     """
     Runs your deterministic v53E engine, then applies the Supabase-aware ML adjustment.
@@ -199,6 +207,7 @@ async def compute_rankings_with_ml(
                 cfg=v53_cfg,
                 global_strength_map=global_strength_map,
                 team_state_map=team_state_map,  # For SCF regional bubble detection
+                pass_label=pass_label,
             )
         logger.info(f"✅ v53e engine completed: {len(base['teams']):,} teams ranked")
 
@@ -226,30 +235,14 @@ async def compute_rankings_with_ml(
             "games_used": games_used if not getattr(games_used, "empty", True) else pd.DataFrame()
         }
 
-    # Diagnostic: Log PowerScore max before ML layer
+    # Log PowerScore summary before ML layer
     if not teams_base.empty and "powerscore_adj" in teams_base.columns:
-        logger.info("📊 PowerScore max BEFORE ML layer (per age/gender):")
-        ps_max_before = teams_base.groupby(["age", "gender"])["powerscore_adj"].max().round(3)
-        for (age, gender), ps_max in ps_max_before.items():
-            logger.info(f"    {age} {gender}: max_powerscore_adj={ps_max:.3f}")
-
-        # Log team counts per cohort for completeness
-        team_counts = teams_base.groupby(["age", "gender"]).size()
-        logger.info("  Team counts per cohort: %s", team_counts.to_dict())
+        ps_stats = teams_base["powerscore_adj"]
+        logger.info(f"📊 Pre-ML PowerScore: min={ps_stats.min():.3f}, max={ps_stats.max():.3f}, mean={ps_stats.mean():.3f}, n={len(teams_base)}")
 
     # 3) Apply ML predictive adjustment
     logger.info("🤖 Applying ML predictive adjustment layer...")
-
-    # DIAGNOSTIC: Check if required columns for game residuals exist
-    logger.info(f"[DIAG] games_df columns: {list(games_df.columns)}")
-    logger.info(f"[DIAG] games_df has 'id': {'id' in games_df.columns}")
-    logger.info(f"[DIAG] games_df has 'home_team_master_id': {'home_team_master_id' in games_df.columns}")
-    if 'id' in games_df.columns:
-        logger.info(f"[DIAG] Sample 'id' values: {games_df['id'].head(3).tolist()}")
-    if 'home_team_master_id' in games_df.columns:
-        logger.info(f"[DIAG] Sample 'home_team_master_id' values: {games_df['home_team_master_id'].head(3).tolist()}")
-    if 'team_id' in games_df.columns:
-        logger.info(f"[DIAG] Sample 'team_id' values: {games_df['team_id'].head(3).tolist()}")
+    logger.debug(f"games_df: {len(games_df)} rows, has_id={'id' in games_df.columns}, has_home_master={'home_team_master_id' in games_df.columns}")
 
     ml_cfg = layer13_cfg or Layer13Config(
         lookback_days=v53_cfg.WINDOW_DAYS,
@@ -275,30 +268,30 @@ async def compute_rankings_with_ml(
     with _section(timing_report, "persist_game_residuals"):
         if not game_residuals.empty:
             logger.info(f"💾 Persisting {len(game_residuals):,} game residuals to database...")
-            await _persist_game_residuals(supabase_client, game_residuals)
-            logger.info("✅ Game residuals persisted successfully")
+            updated, failed = await _persist_game_residuals(supabase_client, game_residuals)
+            if failed > 0:
+                logger.warning(f"⚠️ Game residuals: {updated:,} persisted, {failed:,} failed")
+            elif updated == 0:
+                logger.warning("⚠️ Game residuals: 0 records persisted despite non-empty input")
+            else:
+                logger.info(f"✅ Game residuals persisted: {updated:,} records")
         else:
-            logger.warning("⚠️ No game residuals to persist - check DEBUG output above to see why extraction failed")
+            logger.warning("⚠️ No game residuals to persist — check extraction logs above")
             logger.warning("   Common causes: missing columns (id, home_team_master_id), empty feats, or filter issues")
 
-    # Diagnostic: Log PowerScore max after ML layer
+    # Log PowerScore summary after ML layer
     if not teams_with_ml.empty and "powerscore_ml" in teams_with_ml.columns:
-        logger.info("📊 PowerScore max AFTER ML layer (per age/gender):")
-        ps_max_after = teams_with_ml.groupby(["age", "gender"])["powerscore_ml"].max().round(3)
-        for (age, gender), ps_max in ps_max_after.items():
-            logger.info(f"    {age} {gender}: max_powerscore_ml={ps_max:.3f}")
+        ps_ml = teams_with_ml["powerscore_ml"]
+        logger.info(f"📊 Post-ML PowerScore: min={ps_ml.min():.3f}, max={ps_ml.max():.3f}, mean={ps_ml.mean():.3f}")
 
-        # Compare before/after to detect flattening
+        # Per-cohort detail at DEBUG
         if "powerscore_adj" in teams_with_ml.columns:
-            logger.info("📈 Anchor scaling preservation check:")
             ps_max_before_ml = teams_with_ml.groupby(["age", "gender"])["powerscore_adj"].max().round(3)
             ps_max_after_ml = teams_with_ml.groupby(["age", "gender"])["powerscore_ml"].max().round(3)
-
             for (age, gender) in ps_max_before_ml.index:
                 before = ps_max_before_ml[(age, gender)]
                 after = ps_max_after_ml.get((age, gender), 0)
-                diff = after - before
-                logger.info(f"    {age} {gender}: before={before:.3f}, after={after:.3f}, diff={diff:+.3f}")
+                logger.debug(f"  {age} {gender}: pre-ML={before:.3f}, post-ML={after:.3f}, diff={after - before:+.3f}")
 
     # Calculate rank changes using historical snapshots (7d and 30d)
     logger.info("📊 Calculating rank changes from historical data...")
@@ -530,6 +523,7 @@ async def compute_all_cohorts(
             global_strength_map=None,  # No global map yet
             merge_version=merge_version,  # For cache invalidation
             team_state_map=team_state_map,  # For SCF regional bubble detection
+            pass_label="Pass1",
         )
         pass1_tasks.append(task)
 
@@ -566,6 +560,7 @@ async def compute_all_cohorts(
             global_strength_map=global_strength_map,  # Now with cross-age strengths
             merge_version=merge_version,  # For cache invalidation
             team_state_map=team_state_map,  # For SCF regional bubble detection
+            pass_label="Pass2",
         )
         pass2_tasks.append(task)
 
