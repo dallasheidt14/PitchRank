@@ -36,20 +36,52 @@ export const api = {
     let offset = 0;
     let hasMore = true;
 
-    const table = region ? 'state_rankings_view' : 'rankings_view';
-    const normalizedRegion = region?.toUpperCase();
     let normalizedAge: number | null = null;
-
     if (ageGroup) {
       normalizedAge = normalizeAgeGroup(ageGroup);
     }
 
     const fetchLimit = options?.limit;
 
+    // State rankings: use get_state_rankings RPC (filters before ROW_NUMBER — no timeout)
+    if (region) {
+      while (hasMore) {
+        const batchSize = fetchLimit ? Math.min(fetchLimit - allResults.length, BATCH_SIZE) : BATCH_SIZE;
+
+        const { data, error } = await supabase.rpc('get_state_rankings', {
+          p_state: region.toUpperCase(),
+          p_age: normalizedAge !== null ? String(normalizedAge) : '',
+          p_gender: gender || '',
+          p_limit: batchSize,
+          p_offset: offset,
+        });
+
+        if (error) {
+          console.error('Error fetching state rankings via RPC:', error);
+          throw error;
+        }
+
+        if (!data || data.length === 0) {
+          hasMore = false;
+        } else {
+          allResults.push(...(data as RankingWithTeam[]));
+          if (data.length < batchSize) {
+            hasMore = false;
+          } else if (fetchLimit && allResults.length >= fetchLimit) {
+            hasMore = false;
+          } else {
+            offset += batchSize;
+          }
+        }
+      }
+      return allResults;
+    }
+
+    // National rankings: use rankings_view directly (no ROW_NUMBER — fast)
     while (hasMore) {
       const batchSize = fetchLimit ? Math.min(fetchLimit - allResults.length, BATCH_SIZE) : BATCH_SIZE;
 
-      let query = supabase.from(table).select('*')
+      let query = supabase.from('rankings_view').select('*')
         .in('status', ['Active', 'Not Enough Ranked Games']);
 
       if (normalizedAge !== null) {
@@ -60,10 +92,6 @@ export const api = {
         query = query.eq('gender', gender);
       }
 
-      if (region) {
-        query = query.eq('state', normalizedRegion);
-      }
-
       query = query
         .order('power_score_final', { ascending: false })
         .range(offset, offset + batchSize - 1);
@@ -71,7 +99,7 @@ export const api = {
       const { data, error } = await query;
 
       if (error) {
-        console.error(`Error fetching rankings from ${table}:`, error);
+        console.error('Error fetching rankings from rankings_view:', error);
         throw error;
       }
 
@@ -100,15 +128,28 @@ export const api = {
     ageGroup?: string,
     gender?: 'M' | 'F' | 'B' | 'G' | null
   ): Promise<number> {
-    const table = region ? 'state_rankings_view' : 'rankings_view';
-    const normalizedRegion = region?.toUpperCase();
     let normalizedAge: number | null = null;
-
     if (ageGroup) {
       normalizedAge = normalizeAgeGroup(ageGroup);
     }
 
-    let query = supabase.from(table).select('*', { count: 'exact', head: true })
+    // State rankings: use get_state_rankings_count RPC (avoids state_rankings_view timeout)
+    if (region) {
+      const { data, error } = await supabase.rpc('get_state_rankings_count', {
+        p_state: region.toUpperCase(),
+        p_age: normalizedAge !== null ? String(normalizedAge) : '',
+        p_gender: gender || '',
+      });
+
+      if (error) {
+        console.error('Error fetching state rankings count via RPC:', error);
+        return 0;
+      }
+      return (data as number) ?? 0;
+    }
+
+    // National rankings: use rankings_view directly
+    let query = supabase.from('rankings_view').select('*', { count: 'exact', head: true })
       .in('status', ['Active', 'Not Enough Ranked Games']);
 
     if (normalizedAge !== null) {
@@ -117,14 +158,11 @@ export const api = {
     if (gender) {
       query = query.eq('gender', gender);
     }
-    if (region) {
-      query = query.eq('state', normalizedRegion);
-    }
 
     const { count, error } = await query;
 
     if (error) {
-      console.error(`Error fetching rankings count from ${table}:`, error);
+      console.error('Error fetching rankings count from rankings_view:', error);
       return 0;
     }
     return count ?? 0;
