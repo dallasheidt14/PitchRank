@@ -121,7 +121,8 @@ test.describe('Rankings - Dynamic Routes', () => {
 test.describe('Rankings - Sort', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/rankings/national/u12/male');
-    await waitForRankingsTable(page);
+    // Wait for row 0 + team link so the table is fully interactive before sorting
+    await waitForFirstRankingsRow(page);
   });
 
   test('clicking Rank sort button toggles direction', async ({ page }) => {
@@ -129,7 +130,7 @@ test.describe('Rankings - Sort', () => {
     await rankSortBtn.click();
 
     // After clicking once (was asc), should be desc — first row should not be #1
-    // We just verify the click doesn't error
+    // We just verify the click doesn't error and rows re-render
     await expect(page.locator('[data-testid="rankings-row-0"]')).toBeVisible({ timeout: 15_000 });
   });
 
