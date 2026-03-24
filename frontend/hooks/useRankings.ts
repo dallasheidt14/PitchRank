@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabaseClient';
 import { normalizeAgeGroup } from '@/lib/utils';
 import { apiTimer } from '@/lib/performance';
 import type { RankingRow } from '@/types/RankingRow';
@@ -55,7 +54,8 @@ async function fetchStateRankings(
 }
 
 /**
- * Fetch national rankings directly from Supabase rankings_view.
+ * Fetch national rankings via the /api/rankings/national route, which queries
+ * rankings_view server-side with edge caching (no browser-side Supabase load).
  */
 async function fetchNationalRankings(
   ageGroup: string | undefined,
@@ -66,40 +66,30 @@ async function fetchNationalRankings(
   let offset = 0;
   let hasMore = true;
 
-  let normalizedAge: number | null = null;
-  if (ageGroup) {
-    normalizedAge = normalizeAgeGroup(ageGroup);
-  }
+  const normalizedAge = ageGroup ? normalizeAgeGroup(ageGroup) : null;
 
   while (hasMore) {
-    let query = supabase
-      .from('rankings_view')
-      .select('*')
-      .in('status', ['Active', 'Not Enough Ranked Games']);
+    const params = new URLSearchParams({
+      ...(normalizedAge !== null && { age: String(normalizedAge) }),
+      ...(gender && { gender }),
+      limit: String(BATCH_SIZE),
+      offset: String(offset),
+    });
 
-    if (normalizedAge !== null) {
-      query = query.eq('age', normalizedAge);
+    const res = await fetch(`/api/rankings/national?${params.toString()}`);
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      console.error('[useRankings] National rankings API error:', body.error || res.statusText);
+      throw new Error(body.error || `National rankings request failed: ${res.status}`);
     }
 
-    if (gender) {
-      query = query.eq('gender', gender);
-    }
-
-    query = query
-      .order('power_score_final', { ascending: false })
-      .range(offset, offset + BATCH_SIZE - 1);
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error('[useRankings] Error fetching national rankings:', error.message);
-      throw error;
-    }
+    const data: RankingRow[] = await res.json();
 
     if (!data || data.length === 0) {
       hasMore = false;
     } else {
-      allResults.push(...(data as RankingRow[]));
+      allResults.push(...data);
       if (data.length < BATCH_SIZE) {
         hasMore = false;
       } else {

@@ -1,21 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createServerSupabase } from '@/lib/supabase/server';
 
 /**
  * Search teams by name, club, age group, gender, or state
  */
 export async function GET(request: NextRequest) {
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
-    }
-
     const { searchParams } = new URL(request.url);
     const query = searchParams.get('q') || '';
     const ageGroup = searchParams.get('ageGroup');
@@ -28,15 +18,16 @@ export async function GET(request: NextRequest) {
     }
 
     // Sanitize query: whitelist alphanumeric, spaces, hyphens, apostrophes
+    // The Supabase JS client handles escaping for PostgREST internally —
+    // do NOT double apostrophes here as that breaks literal matches (e.g. O'Brien)
     const sanitizedQuery = query
       .replace(/[^a-zA-Z0-9\s\-']/g, '')
-      .replace(/'/g, "''")  // Escape apostrophes for PostgREST
       .trim();
     if (sanitizedQuery.length < 2) {
       return NextResponse.json({ teams: [] });
     }
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    const supabase = await createServerSupabase();
 
     // Build query using sanitized input to prevent PostgREST filter injection
     let teamsQuery = supabase
@@ -73,7 +64,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ teams: teams || [] });
+    return NextResponse.json({ teams: teams || [] }, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120',
+      },
+    });
   } catch (error) {
     console.error('[teams/search] Unexpected error:', error);
     return NextResponse.json(
