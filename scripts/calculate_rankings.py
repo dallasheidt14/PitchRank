@@ -47,7 +47,7 @@ else:
     load_dotenv()
 
 
-async def save_rankings_to_supabase(supabase_client, teams_df, use_rankings_full=True, maintain_backward_compat=True, merge_resolver=None):
+async def save_rankings_to_supabase(supabase_client, teams_df, use_rankings_full=True, maintain_backward_compat=True, merge_resolver=None, verbose=False):
     """Save rankings to rankings_full table (and optionally current_rankings for backward compatibility)
 
     Args:
@@ -144,13 +144,14 @@ async def save_rankings_to_supabase(supabase_client, teams_df, use_rankings_full
                             age_samples[ag] = rec
                         if len(age_samples) >= 5:
                             break
-                    console.print(f"[bold]🔍 DIAG: Verifying power_score_final vs national_power_score in records (pre-upsert):[/bold]")
-                    for ag, rec in sorted(age_samples.items()):
-                        psf = rec.get('power_score_final')
-                        nps = rec.get('national_power_score')
-                        ps_adj = rec.get('powerscore_adj')
-                        match = "⚠️  IDENTICAL" if psf is not None and nps is not None and abs(psf - nps) < 0.001 else "✅ different"
-                        console.print(f"  {ag}: psf={psf}, nps={nps}, ps_adj={ps_adj} → {match}")
+                    if verbose:
+                        console.print(f"[bold]🔍 DIAG: Verifying power_score_final vs national_power_score in records (pre-upsert):[/bold]")
+                        for ag, rec in sorted(age_samples.items()):
+                            psf = rec.get('power_score_final')
+                            nps = rec.get('national_power_score')
+                            ps_adj = rec.get('powerscore_adj')
+                            match = "⚠️  IDENTICAL" if psf is not None and nps is not None and abs(psf - nps) < 0.001 else "✅ different"
+                            console.print(f"  {ag}: psf={psf}, nps={nps}, ps_adj={ps_adj} → {match}")
 
                 # Clean up records: convert numpy types to Python native types
                 for record in records_full:
@@ -388,7 +389,10 @@ async def _save_batch_with_retry(supabase_client, table_name, records, table_nam
             console.print(f"[yellow]Warning: stale row cleanup failed for {table_display}: {e}[/yellow]")
             console.print(f"[yellow]Old rankings for removed teams may persist until next run[/yellow]")
 
-        console.print(f"[green]Saved {total_inserted} rankings to {table_display} table[/green]")
+        if total_inserted > 0:
+            console.print(f"[green]Saved {total_inserted} rankings to {table_display} table[/green]")
+        else:
+            console.print(f"[yellow]⚠️ Saved 0 rankings to {table_display} table — check for errors above[/yellow]")
         return total_inserted
     except Exception as e:
         console.print(f"[red]Error saving rankings to {table_display}: {e}[/red]")
@@ -413,7 +417,12 @@ async def main():
         action='store_true',
         help='Enable performance profiling (prints timing report at the end)'
     )
-    
+    parser.add_argument(
+        '--verbose',
+        action='store_true',
+        help='Enable verbose diagnostic output (PowerScore distribution, DIAG blocks)'
+    )
+
     args = parser.parse_args()
     
     # Initialize Supabase client
@@ -577,34 +586,28 @@ async def main():
                 else:
                     console.print(f"  [red]✗ {out_of_bounds_count} PowerScores out of bounds[/red]")
                 
-                # PowerScore Distribution Analysis
-                unique_scores = teams_df[power_col].nunique()
-                duplicate_count = len(teams_df) - unique_scores
-                value_counts = teams_df[power_col].value_counts()
-                
-                console.print(f"\n[bold]PowerScore Distribution:[/bold]")
-                console.print(f"  Unique PowerScores: {unique_scores:,}")
-                console.print(f"  Teams with duplicate scores: {duplicate_count:,}")
-                console.print(f"  Percentage with unique scores: {unique_scores / len(teams_df) * 100:.2f}%")
-                console.print(f"  Mean teams per unique score: {value_counts.mean():.2f}")
-                console.print(f"  Max teams with same score: {value_counts.max()}")
-                
-                if value_counts.max() > 10:
-                    console.print(f"\n  [yellow]Top 5 most common PowerScore values:[/yellow]")
-                    for score, count in value_counts.head(5).items():
-                        console.print(f"    {score:.6f}: {count} teams")
+                # PowerScore Distribution Analysis (verbose only)
+                if args.verbose:
+                    unique_scores = teams_df[power_col].nunique()
+                    duplicate_count = len(teams_df) - unique_scores
+                    value_counts = teams_df[power_col].value_counts()
+                    console.print(f"\n[bold]PowerScore Distribution:[/bold]")
+                    console.print(f"  Unique: {unique_scores:,}, Duplicates: {duplicate_count:,}, Max same score: {value_counts.max()}")
+                    if value_counts.max() > 10:
+                        for score, count in value_counts.head(5).items():
+                            console.print(f"    {score:.6f}: {count} teams")
         elif 'powerscore_adj' in teams_df.columns:
             console.print(f"  Using adjusted PowerScore")
             power_col = 'powerscore_adj'
             rank_col = 'rank_in_cohort'
-            
+
             # Validate PowerScore bounds
             if not teams_df.empty:
                 min_score = teams_df[power_col].min()
                 max_score = teams_df[power_col].max()
                 violations = teams_df[~teams_df[power_col].between(0.0, 1.0, inclusive="both")]
                 out_of_bounds_count = len(violations)
-                
+
                 console.print(f"\n[bold]PowerScore Validation:[/bold]")
                 console.print(f"  Min: {min_score:.6f}")
                 console.print(f"  Max: {max_score:.6f}")
@@ -612,18 +615,14 @@ async def main():
                     console.print(f"  [green]✓ All PowerScores within [0.0, 1.0] bounds[/green]")
                 else:
                     console.print(f"  [red]✗ {out_of_bounds_count} PowerScores out of bounds[/red]")
-                
-                # PowerScore Distribution Analysis
-                unique_scores = teams_df[power_col].nunique()
-                duplicate_count = len(teams_df) - unique_scores
-                value_counts = teams_df[power_col].value_counts()
-                
-                console.print(f"\n[bold]PowerScore Distribution:[/bold]")
-                console.print(f"  Unique PowerScores: {unique_scores:,}")
-                console.print(f"  Teams with duplicate scores: {duplicate_count:,}")
-                console.print(f"  Percentage with unique scores: {unique_scores / len(teams_df) * 100:.2f}%")
-                console.print(f"  Mean teams per unique score: {value_counts.mean():.2f}")
-                console.print(f"  Max teams with same score: {value_counts.max()}")
+
+                # PowerScore Distribution Analysis (verbose only)
+                if args.verbose:
+                    unique_scores = teams_df[power_col].nunique()
+                    duplicate_count = len(teams_df) - unique_scores
+                    value_counts = teams_df[power_col].value_counts()
+                    console.print(f"\n[bold]PowerScore Distribution:[/bold]")
+                    console.print(f"  Unique: {unique_scores:,}, Duplicates: {duplicate_count:,}, Max same score: {value_counts.max()}")
                 
                 if value_counts.max() > 10:
                     console.print(f"\n  [yellow]Top 5 most common PowerScore values:[/yellow]")
@@ -679,7 +678,7 @@ async def main():
         saved_count = 0
         with (timing_report.section("save_rankings") if timing_report else nullcontext()):
             if not args.dry_run:
-                saved_count = await save_rankings_to_supabase(supabase, teams_df, merge_resolver=merge_resolver)
+                saved_count = await save_rankings_to_supabase(supabase, teams_df, merge_resolver=merge_resolver, verbose=getattr(args, 'verbose', False))
             else:
                 console.print("\n[yellow]Dry run - rankings not saved to database[/yellow]")
                 saved_count = filtered_teams  # Would-be saved count

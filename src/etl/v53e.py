@@ -771,6 +771,7 @@ def compute_rankings(
     cfg: Optional[V53EConfig] = None,
     global_strength_map: Optional[Dict[str, float]] = None,
     team_state_map: Optional[Dict[str, str]] = None,
+    pass_label: Optional[str] = None,
 ) -> Dict[str, pd.DataFrame]:
     """
     Returns:
@@ -1151,15 +1152,12 @@ def compute_rankings(
         n_components = team["component_id"].nunique()
         component_sizes = team.groupby("component_id")["team_id"].count()
         if n_components > 1:
+            top5 = sorted(component_sizes.values, reverse=True)[:5]
             logger.info(
-                f"🔗 Connected components detected: {n_components} components. "
-                f"Sizes: {sorted(component_sizes.values, reverse=True)[:10]}"
+                f"🔗 {n_components} connected components (top 5 sizes: {top5})"
             )
         else:
-            logger.info(
-                f"🔗 Game graph is fully connected (1 component, {len(team)} teams). "
-                f"Component-based SOS normalization is a no-op."
-            )
+            logger.debug(f"🔗 Fully connected graph ({len(team)} teams, 1 component)")
     else:
         # Disabled: all teams in one pseudo-component
         team["component_id"] = 0
@@ -1239,8 +1237,9 @@ def compute_rankings(
     g_sos["opp_strength"] = g_sos["opp_id"].map(get_opponent_strength)
 
     # Log cross-age lookup stats
+    _pass_tag = f"[{pass_label}] " if pass_label else ""
     logger.info(
-        f"🔍 Cross-age SOS lookups: global_map_size={len(global_strength_map) if global_strength_map else 0}, "
+        f"🔍 {_pass_tag}Cross-age SOS lookups: global_map_size={len(global_strength_map) if global_strength_map else 0}, "
         f"found={cross_age_found}, missing={cross_age_missing}"
     )
 
@@ -1459,13 +1458,13 @@ def compute_rankings(
                 f"small component(s) (< {min_size} teams)"
             )
 
-    # Log SOS norms by cohort to verify full range
-    logger.info("📊 SOS norms by cohort (should show ~0.0-1.0 range in each):")
+    # Log SOS norms summary (per-cohort detail at DEBUG)
+    logger.info(f"📊 SOS norms: overall min={team['sos_norm'].min():.3f}, max={team['sos_norm'].max():.3f}, mean={team['sos_norm'].mean():.3f}")
     for (age, gender), grp in team.groupby(['age', 'gender']):
         if len(grp) >= 5:
-            logger.info(f"    {age} {gender}: min={grp['sos_norm'].min():.3f}, "
-                       f"max={grp['sos_norm'].max():.3f}, "
-                       f"mean={grp['sos_norm'].mean():.3f}, n={len(grp)}")
+            logger.debug(f"  SOS {age} {gender}: min={grp['sos_norm'].min():.3f}, "
+                        f"max={grp['sos_norm'].max():.3f}, "
+                        f"mean={grp['sos_norm'].mean():.3f}, n={len(grp)}")
 
     # Low sample handling: smooth shrink toward 0.5 for teams with insufficient games
     # This prevents teams with few games from having extreme SOS values (high or low)
@@ -1517,7 +1516,7 @@ def compute_rankings(
         else:
             logger.info(f"✅ GP-SOS correlation check passed: {gp_sos_corr:.3f} (within ±0.10)")
 
-        # Per-age-bucket GP-SOS correlation breakdown (ages 15-18 are highest concern)
+        # Per-age-bucket GP-SOS correlation breakdown (only log warnings at INFO)
         if "age" in team.columns:
             age_col = pd.to_numeric(team["age"], errors="coerce")
             for age_val in sorted(age_col.dropna().unique()):
@@ -1528,13 +1527,17 @@ def compute_rankings(
                 age_corr = age_subset.corr().iloc[0, 1]
                 if pd.isna(age_corr):
                     continue
-                level = "WARNING" if abs(age_corr) > 0.10 else "OK"
-                flag = "⚠️" if level == "WARNING" else "✅"
                 median_gp = age_subset["gp"].median()
-                logger.info(
-                    f"  {flag} Age {int(age_val)}: GP-SOS corr={age_corr:.3f} "
-                    f"(n={len(age_subset)}, median_gp={median_gp:.0f}) [{level}]"
-                )
+                if abs(age_corr) > 0.10:
+                    logger.warning(
+                        f"  ⚠️ Age {int(age_val)}: GP-SOS corr={age_corr:.3f} "
+                        f"(n={len(age_subset)}, median_gp={median_gp:.0f})"
+                    )
+                else:
+                    logger.debug(
+                        f"  Age {int(age_val)}: GP-SOS corr={age_corr:.3f} "
+                        f"(n={len(age_subset)}, median_gp={median_gp:.0f})"
+                    )
 
     # -------------------------
     # Layer 6: Performance
@@ -1723,8 +1726,9 @@ def compute_rankings(
             sos_change = np.abs(team["sos"].values - prev_sos).mean()
             power_change = np.abs(team["powerscore_adj"].values - prev_power).mean()
 
-            logger.info(
-                f"  📊 Power-SOS iteration {power_iter + 1}/{cfg.SOS_POWER_ITERATIONS}: "
+            _iter_log = logger.info if power_iter == cfg.SOS_POWER_ITERATIONS - 1 else logger.debug
+            _iter_log(
+                f"  Power-SOS iter {power_iter + 1}/{cfg.SOS_POWER_ITERATIONS}: "
                 f"sos_change={sos_change:.6f}, power_change={power_change:.6f}, "
                 f"sos_range=[{team['sos'].min():.4f}, {team['sos'].max():.4f}]"
             )
@@ -1768,6 +1772,13 @@ def compute_rankings(
             "Active"
         )
     )
+
+    # Log status distribution summary
+    status_counts = team["status"].value_counts().to_dict()
+    logger.info(f"📊 Team status distribution: {status_counts}")
+    nan_ps = team["powerscore_adj"].isna().sum()
+    if nan_ps > 0:
+        logger.warning(f"⚠️ {nan_ps} teams have NaN powerscore_adj")
 
     # Initialize rank_in_cohort as NULL for all teams
     team["rank_in_cohort"] = None
