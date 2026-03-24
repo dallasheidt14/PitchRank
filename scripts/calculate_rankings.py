@@ -685,14 +685,21 @@ async def main():
                 saved_count = filtered_teams  # Would-be saved count
 
         # Refresh precomputed total game stats used by rankings_view
+        backfill_status = "skipped"
         if not args.dry_run and saved_count > 0:
             with (timing_report.section("backfill_total_game_stats") if timing_report else nullcontext()):
                 try:
                     result = supabase.rpc('backfill_total_game_stats').execute()
                     backfill_count = result.data if result.data else 0
                     console.print(f"[dim]Backfilled total game stats for {backfill_count:,} teams[/dim]")
+                    backfill_status = "complete"
                 except Exception as e:
-                    console.print(f"[yellow]Warning: backfill_total_game_stats failed: {e}[/yellow]")
+                    backfill_status = "failed"
+                    console.print(f"[red]ERROR: backfill_total_game_stats failed: {e}[/red]")
+                    console.print("[red]Run status: PARTIAL — rankings saved but game stats stale[/red]")
+                    # Exit with code 2 to signal partial completion to CI
+                    # Rankings are saved, but downstream views may be stale
+                    sys.exit(2)
         
         # ----------------------------------------------------------------
         #  Summary Banner
@@ -704,7 +711,8 @@ async def main():
             f"• PowerScores out of bounds: [cyan]{out_of_bounds_count}[/cyan]\n"
             f"• Saved to Supabase: [green]{saved_count:,}[/green]\n"
             f"• Dry run mode: [yellow]{args.dry_run}[/yellow]\n"
-            f"• ML Layer: [yellow]{args.ml}[/yellow]"
+            f"• ML Layer: [yellow]{args.ml}[/yellow]\n"
+            f"• Backfill status: [{'green' if backfill_status == 'complete' else 'yellow'}]{backfill_status}[/{'green' if backfill_status == 'complete' else 'yellow'}]"
         )
         console.print("\n")
         console.print(Panel(summary_text, title="📊 Run Summary", border_style="bright_blue"))

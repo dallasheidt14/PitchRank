@@ -119,7 +119,8 @@ async def save_ranking_snapshot(
         # Batch size: 2000 records per batch (safe for Supabase upsert operations)
         batch_size = 2000
         saved_count = 0
-        
+        failed_batches = []
+
         for i in range(0, total_records, batch_size):
             batch = snapshot_records[i:i + batch_size]
             batch_num = (i // batch_size) + 1
@@ -139,10 +140,35 @@ async def save_ranking_snapshot(
                     logger.info(f"   Batch {batch_num}/{total_batches}: Saved {batch_saved:,} snapshots ({saved_count:,}/{total_records:,} total)")
                 
             except Exception as batch_error:
-                logger.error(f"❌ Error saving batch {batch_num}/{total_batches}: {batch_error}")
-                # Continue with next batch instead of failing completely
-                continue
-        
+                logger.error(f"❌ Error saving snapshot batch {batch_num}/{total_batches}: {batch_error}")
+                failed_batches.append(batch_num)
+                # Retry this batch once with backoff
+                import time
+                time.sleep(2)
+                try:
+                    response = supabase_client.table("ranking_history").upsert(
+                        batch,
+                        on_conflict="team_id,snapshot_date"
+                    ).execute()
+                    batch_saved = len(response.data) if response.data else len(batch)
+                    saved_count += batch_saved
+                    failed_batches.pop()  # Remove from failed list on success
+                    logger.info(f"   Batch {batch_num} succeeded on retry ({batch_saved:,} snapshots)")
+                except Exception as retry_error:
+                    logger.error(f"❌ Batch {batch_num} failed on retry: {retry_error}")
+
+        # Verify saved count matches expected count
+        if failed_batches:
+            raise RuntimeError(
+                f"Snapshot save incomplete: {len(failed_batches)} batch(es) failed "
+                f"(batches {failed_batches}). Saved {saved_count:,}/{total_records:,} records."
+            )
+
+        if saved_count < total_records:
+            logger.warning(
+                f"⚠️ Snapshot count mismatch: saved {saved_count:,} vs expected {total_records:,}"
+            )
+
         logger.info(f"✅ Saved {saved_count:,}/{total_records:,} ranking snapshots")
         return saved_count
 
