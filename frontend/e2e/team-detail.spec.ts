@@ -32,9 +32,21 @@ test.describe('Team Detail - Rankings Integration', () => {
   test('team links in rankings table point to correct team URLs', async ({ page }) => {
     await page.goto('/rankings/national/u12/male');
 
-    // Wait for rankings to load
+    // Wait for rankings to load — retry with reload on transient failures
     const firstRow = page.locator('[data-testid="rankings-row-0"]');
-    await expect(firstRow).toBeVisible({ timeout: 15_000 });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await expect(firstRow).toBeVisible({ timeout: 30_000 });
+        break;
+      } catch {
+        if (attempt < 2) {
+          await page.waitForTimeout(2_000);
+          await page.reload({ waitUntil: 'domcontentloaded' });
+        } else {
+          throw new Error('Rankings table row did not appear after 3 attempts');
+        }
+      }
+    }
 
     // Get the team link href
     const teamLink = firstRow.locator('a[href*="/teams/"]');

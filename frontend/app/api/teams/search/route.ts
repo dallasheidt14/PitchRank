@@ -1,5 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabase } from '@/lib/supabase/server';
+import { createClient } from '@supabase/supabase-js';
+
+// Module-level singleton — reused across requests within the same serverless
+// function instance, avoiding per-request client creation overhead.
+// This endpoint serves public data (no auth needed), so cookies are unnecessary.
+let _supabase: ReturnType<typeof createClient> | null = null;
+
+function getSupabase() {
+  if (!_supabase) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!url || !key) {
+      throw new Error('Missing Supabase environment variables');
+    }
+    _supabase = createClient(url, key);
+  }
+  return _supabase;
+}
 
 /**
  * Search teams by name, club, age group, gender, or state
@@ -27,7 +44,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ teams: [] });
     }
 
-    const supabase = await createServerSupabase();
+    const supabase = getSupabase();
 
     // Build query using sanitized input to prevent PostgREST filter injection
     let teamsQuery = supabase
@@ -77,4 +94,3 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-

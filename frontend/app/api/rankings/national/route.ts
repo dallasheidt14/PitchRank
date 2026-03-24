@@ -1,6 +1,22 @@
-import { createServerSupabase } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeAgeGroup } from "@/lib/utils";
+
+// Module-level singleton — reused across requests within the same serverless
+// function instance. National rankings are public data (no auth needed).
+let _supabase: ReturnType<typeof createClient> | null = null;
+
+function getSupabase() {
+  if (!_supabase) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!url || !key) {
+      throw new Error("Missing Supabase environment variables");
+    }
+    _supabase = createClient(url, key);
+  }
+  return _supabase;
+}
 
 /**
  * GET /api/rankings/national?age=u12&gender=M&limit=1000&offset=0
@@ -50,7 +66,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const supabase = await createServerSupabase();
+    const supabase = getSupabase();
 
     const { data, error } = await supabase
       .from("rankings_view")
