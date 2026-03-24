@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 // Module-level singleton — reused across requests within the same serverless
 // function instance, avoiding per-request client creation overhead.
@@ -17,6 +17,38 @@ function getSupabase() {
   }
   return _supabase;
 }
+
+/**
+ * Build a fresh Supabase search query. Must be called on every retry attempt
+ * because Supabase query builders are consumed after execution.
+ */
+function buildSearchQuery(
+  supabase: SupabaseClient,
+  sanitizedQuery: string,
+  limit: number,
+  filters: { ageGroup: string | null; gender: string | null; stateCode: string | null }
+) {
+  let query = supabase
+    .from('teams')
+    .select('team_id_master, team_name, club_name, age_group, gender, state_code, state')
+    .eq('is_deprecated', false)
+    .or(`team_name.ilike.%${sanitizedQuery}%,club_name.ilike.%${sanitizedQuery}%`)
+    .limit(limit);
+
+  if (filters.ageGroup) {
+    query = query.eq('age_group', filters.ageGroup);
+  }
+  if (filters.gender) {
+    query = query.eq('gender', filters.gender);
+  }
+  if (filters.stateCode) {
+    query = query.eq('state_code', filters.stateCode);
+  }
+
+  return query;
+}
+
+const MAX_RETRIES = 3;
 
 /**
  * Search teams by name, club, age group, gender, or state
@@ -45,47 +77,61 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = getSupabase();
+    const filters = { ageGroup, gender, stateCode };
+    const startTime = Date.now();
 
-    // Build query using sanitized input to prevent PostgREST filter injection
-    let teamsQuery = supabase
-      .from('teams')
-      .select('team_id_master, team_name, club_name, age_group, gender, state_code, state')
-      .eq('is_deprecated', false) // Only show active teams
-      .or(`team_name.ilike.%${sanitizedQuery}%,club_name.ilike.%${sanitizedQuery}%`)
-      .limit(limit);
+    // Retry with backoff to absorb transient Supabase connection issues
+    let lastError: { message?: string; code?: string; details?: string; hint?: string } | null = null;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      const teamsQuery = buildSearchQuery(supabase, sanitizedQuery, limit, filters);
+      const { data: teams, error } = await teamsQuery;
 
-    // Add filters if provided
-    if (ageGroup) {
-      teamsQuery = teamsQuery.eq('age_group', ageGroup);
-    }
-    if (gender) {
-      teamsQuery = teamsQuery.eq('gender', gender);
-    }
-    if (stateCode) {
-      teamsQuery = teamsQuery.eq('state_code', stateCode);
-    }
+      if (!error) {
+        const duration = Date.now() - startTime;
+        if (duration > 2000) {
+          console.warn('[teams/search] Slow query:', {
+            query: sanitizedQuery,
+            duration: `${duration}ms`,
+            attempt: attempt + 1,
+            resultCount: teams?.length ?? 0,
+          });
+        }
 
-    const { data: teams, error } = await teamsQuery;
+        return NextResponse.json({ teams: teams || [] }, {
+          headers: {
+            'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120',
+          },
+        });
+      }
 
-    if (error) {
-      console.error('[teams/search] Supabase query error:', {
+      lastError = error;
+      console.warn(`[teams/search] Supabase attempt ${attempt + 1}/${MAX_RETRIES} failed:`, {
         message: error.message,
         code: error.code,
         details: error.details,
         hint: error.hint,
         query: sanitizedQuery,
       });
-      return NextResponse.json(
-        { error: 'Failed to search teams' },
-        { status: 500 }
-      );
+
+      if (attempt < MAX_RETRIES - 1) {
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+      }
     }
 
-    return NextResponse.json({ teams: teams || [] }, {
-      headers: {
-        'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120',
-      },
+    // All retries exhausted
+    const duration = Date.now() - startTime;
+    console.error('[teams/search] All retries failed:', {
+      message: lastError?.message,
+      code: lastError?.code,
+      details: lastError?.details,
+      hint: lastError?.hint,
+      query: sanitizedQuery,
+      duration: `${duration}ms`,
     });
+    return NextResponse.json(
+      { error: 'Failed to search teams' },
+      { status: 500 }
+    );
   } catch (error) {
     console.error('[teams/search] Unexpected error:', error);
     return NextResponse.json(

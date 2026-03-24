@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { waitForFirstRankingsRow } from './helpers';
 
 test.describe('Team Detail Page - Access Control', () => {
   test('redirects unauthenticated users to /upgrade', async ({ page }) => {
@@ -29,24 +30,12 @@ test.describe('Team Detail Page - Response Codes', () => {
 });
 
 test.describe('Team Detail - Rankings Integration', () => {
+  test.describe.configure({ timeout: 90_000, retries: 2 });
+
   test('team links in rankings table point to correct team URLs', async ({ page }) => {
     await page.goto('/rankings/national/u12/male');
 
-    // Wait for rankings to load — retry with reload on transient failures
-    const firstRow = page.locator('[data-testid="rankings-row-0"]');
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        await expect(firstRow).toBeVisible({ timeout: 30_000 });
-        break;
-      } catch {
-        if (attempt < 2) {
-          await page.waitForTimeout(2_000);
-          await page.reload({ waitUntil: 'domcontentloaded' });
-        } else {
-          throw new Error('Rankings table row did not appear after 3 attempts');
-        }
-      }
-    }
+    const firstRow = await waitForFirstRankingsRow(page);
 
     // Get the team link href
     const teamLink = firstRow.locator('a[href*="/teams/"]');

@@ -1,32 +1,8 @@
-import { test, expect, type Page } from '@playwright/test';
-
-const RANKINGS_LOAD_TIMEOUT = 30_000;
+import { test, expect } from '@playwright/test';
+import { waitForRankingsTable, waitForFirstRankingsRow } from './helpers';
 
 // Live rankings pages depend on external API responses that can be transiently slow.
 test.describe.configure({ timeout: 90_000, retries: 2 });
-
-async function waitForRankingsTable(page: Page) {
-  let lastError: unknown;
-
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const tableCard = page.locator('[data-testid="rankings-table-card"]');
-      await expect(tableCard).toBeVisible({ timeout: RANKINGS_LOAD_TIMEOUT });
-      await expect(page.locator('[data-testid="rankings-table-header"]')).toBeVisible({
-        timeout: 10_000,
-      });
-      return tableCard;
-    } catch (error) {
-      lastError = error;
-      if (attempt < 2) {
-        await page.waitForTimeout(2_000);
-        await page.reload({ waitUntil: 'domcontentloaded' });
-      }
-    }
-  }
-
-  throw lastError;
-}
 
 test.describe('Rankings Page', () => {
   test('loads rankings page with filter and table @smoke', async ({ page }) => {
@@ -65,11 +41,8 @@ test.describe('Rankings Page', () => {
 
   test('rankings rows are clickable and link to team pages', async ({ page }) => {
     await page.goto('/rankings/national/u12/male');
-    await waitForRankingsTable(page);
 
-    // Wait for at least one row to appear
-    const firstRow = page.locator('[data-testid="rankings-row-0"]');
-    await expect(firstRow).toBeVisible({ timeout: 10_000 });
+    const firstRow = await waitForFirstRankingsRow(page);
 
     // Row should contain a link to team detail
     const teamLink = firstRow.locator('a[href*="/teams/"]');
@@ -78,10 +51,8 @@ test.describe('Rankings Page', () => {
 
   test('rankings display rank numbers starting from #1', async ({ page }) => {
     await page.goto('/rankings/national/u12/male');
-    await waitForRankingsTable(page);
 
-    const firstRow = page.locator('[data-testid="rankings-row-0"]');
-    await expect(firstRow).toBeVisible({ timeout: 10_000 });
+    const firstRow = await waitForFirstRankingsRow(page);
 
     // First row should show #1
     await expect(firstRow).toContainText('#1');
@@ -159,7 +130,7 @@ test.describe('Rankings - Sort', () => {
 
     // After clicking once (was asc), should be desc — first row should not be #1
     // We just verify the click doesn't error
-    await expect(page.locator('[data-testid="rankings-row-0"]')).toBeVisible();
+    await expect(page.locator('[data-testid="rankings-row-0"]')).toBeVisible({ timeout: 15_000 });
   });
 
   test('clicking Team sort button sorts alphabetically', async ({ page }) => {
@@ -167,7 +138,7 @@ test.describe('Rankings - Sort', () => {
     await teamSortBtn.click();
 
     // Verify rows are still visible after sort
-    await expect(page.locator('[data-testid="rankings-row-0"]')).toBeVisible();
+    await expect(page.locator('[data-testid="rankings-row-0"]')).toBeVisible({ timeout: 15_000 });
   });
 });
 
