@@ -107,7 +107,8 @@ section = st.sidebar.radio(
         "🔎 Team Discovery Review",
         "🛡️ Due Diligence Review",
         "📸 Instagram Review",
-        "⚖️ Weight Simulator"
+        "⚖️ Weight Simulator",
+        "🚫 Game Exclusion Manager"
     ]
 )
 
@@ -6056,6 +6057,366 @@ elif section == "⚖️ Weight Simulator":
                 use_container_width=True,
                 height=400,
             )
+
+elif section == "🚫 Game Exclusion Manager":
+    st.header("🚫 Game Exclusion Manager")
+    st.markdown(
+        "**Exclude games from rankings** — find and exclude games for a team within a date range. "
+        "The DB propagation trigger automatically excludes perspective duplicates (same game scraped "
+        "from different sources)."
+    )
+
+    db = get_database()
+
+    if not db:
+        st.error("Database connection not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your .env file.")
+    else:
+        excl_tab1, excl_tab2 = st.tabs(["🔍 Exclude by Team + Date", "📋 Recently Excluded Games"])
+
+        # ==================================================
+        # TAB 1: Exclude by Team + Date Range
+        # ==================================================
+        with excl_tab1:
+            st.subheader("Step 1: Find Games to Exclude")
+
+            excl_col1, excl_col2, excl_col3 = st.columns([3, 2, 2])
+
+            with excl_col1:
+                excl_team_search = st.text_input(
+                    "🔍 Team Name or Team ID",
+                    placeholder="e.g., team name or c2f8e0aa-2f96-4c23-b5ae-...",
+                    key="excl_team_search"
+                )
+            with excl_col2:
+                excl_start_date = st.date_input(
+                    "Start Date",
+                    value=datetime.now().date() - timedelta(days=30),
+                    key="excl_start_date"
+                )
+            with excl_col3:
+                excl_end_date = st.date_input(
+                    "End Date",
+                    value=datetime.now().date(),
+                    key="excl_end_date"
+                )
+
+            # Initialize session state
+            if 'excl_resolved_team_id' not in st.session_state:
+                st.session_state.excl_resolved_team_id = None
+            if 'excl_games_found' not in st.session_state:
+                st.session_state.excl_games_found = None
+            if 'excl_team_name' not in st.session_state:
+                st.session_state.excl_team_name = None
+
+            if st.button("🔍 Search Games", type="primary", key="excl_search_btn"):
+                if not excl_team_search:
+                    st.warning("Please enter a team name or team ID.")
+                else:
+                    st.session_state.excl_games_found = None
+                    st.session_state.excl_resolved_team_id = None
+                    st.session_state.excl_team_name = None
+
+                    with st.spinner("Searching..."):
+                        try:
+                            team_id = None
+                            team_display_name = None
+
+                            # Check if input looks like a UUID
+                            search_val = excl_team_search.strip()
+                            if len(search_val) >= 32 and '-' in search_val:
+                                # Treat as team ID
+                                team_result = execute_with_retry(
+                                    lambda: db.table('teams').select(
+                                        'team_id_master, team_name, club_name, age_group, gender'
+                                    ).eq('team_id_master', search_val)
+                                )
+                                if team_result.data:
+                                    team_id = team_result.data[0]['team_id_master']
+                                    team_display_name = team_result.data[0].get('team_name', search_val)
+                                else:
+                                    st.error(f"No team found with ID: {search_val}")
+                            else:
+                                # Search by name
+                                team_result = execute_with_retry(
+                                    lambda: db.table('teams').select(
+                                        'team_id_master, team_name, club_name, age_group, gender, state_code'
+                                    ).ilike('team_name', f'%{search_val}%').limit(20)
+                                )
+                                if team_result.data and len(team_result.data) == 1:
+                                    team_id = team_result.data[0]['team_id_master']
+                                    team_display_name = team_result.data[0].get('team_name', '')
+                                elif team_result.data and len(team_result.data) > 1:
+                                    # Multiple matches — let user pick
+                                    st.session_state._excl_team_options = team_result.data
+                                elif not team_result.data:
+                                    st.error(f"No teams found matching: {search_val}")
+
+                            if team_id:
+                                st.session_state.excl_resolved_team_id = team_id
+                                st.session_state.excl_team_name = team_display_name
+
+                                # Fetch games
+                                start_str = excl_start_date.isoformat()
+                                end_str = excl_end_date.isoformat()
+                                or_filter = (
+                                    f'home_team_master_id.eq.{team_id},'
+                                    f'away_team_master_id.eq.{team_id}'
+                                )
+                                games_result = execute_with_retry(
+                                    lambda: db.table('games').select(
+                                        'id, game_date, game_uid, home_team_master_id, '
+                                        'away_team_master_id, home_score, away_score, '
+                                        'competition, event_name, is_excluded'
+                                    ).or_(or_filter).gte(
+                                        'game_date', start_str
+                                    ).lte(
+                                        'game_date', end_str
+                                    ).not_.is_(
+                                        'home_score', 'null'
+                                    ).not_.is_(
+                                        'away_score', 'null'
+                                    ).order('game_date', desc=True)
+                                )
+
+                                if games_result.data:
+                                    # Resolve team names for display
+                                    master_ids = set()
+                                    for g in games_result.data:
+                                        if g.get('home_team_master_id'):
+                                            master_ids.add(g['home_team_master_id'])
+                                        if g.get('away_team_master_id'):
+                                            master_ids.add(g['away_team_master_id'])
+
+                                    team_names = {}
+                                    for i in range(0, len(list(master_ids)), 100):
+                                        batch = list(master_ids)[i:i + 100]
+                                        names_result = execute_with_retry(
+                                            lambda b=batch: db.table('teams').select(
+                                                'team_id_master, team_name'
+                                            ).in_('team_id_master', b)
+                                        )
+                                        if names_result.data:
+                                            for row in names_result.data:
+                                                team_names[row['team_id_master']] = row['team_name']
+
+                                    # Enrich games with display names
+                                    enriched = []
+                                    for g in games_result.data:
+                                        home_name = team_names.get(g.get('home_team_master_id'), '?')
+                                        away_name = team_names.get(g.get('away_team_master_id'), '?')
+                                        enriched.append({
+                                            'id': g['id'],
+                                            'date': g['game_date'],
+                                            'home_team': home_name,
+                                            'score': f"{g.get('home_score', '?')}-{g.get('away_score', '?')}",
+                                            'away_team': away_name,
+                                            'competition': g.get('competition') or g.get('event_name') or '',
+                                            'excluded': g.get('is_excluded', False),
+                                            'game_uid': g.get('game_uid', ''),
+                                        })
+
+                                    st.session_state.excl_games_found = enriched
+                                else:
+                                    st.info("No games found for this team in the selected date range.")
+
+                        except Exception as e:
+                            st.error(f"Search failed: {e}")
+                            import traceback
+                            with st.expander("View Error Details"):
+                                st.code(traceback.format_exc())
+
+            # Show team selector if multiple matches
+            if hasattr(st.session_state, '_excl_team_options') and st.session_state._excl_team_options:
+                st.markdown("**Multiple teams found — select one:**")
+                options = st.session_state._excl_team_options
+                for i, team in enumerate(options):
+                    label = (
+                        f"{team.get('team_name', '?')} | "
+                        f"{team.get('club_name', '')} | "
+                        f"{team.get('age_group', '')} {team.get('gender', '')} | "
+                        f"{team.get('state_code', '')}"
+                    )
+                    if st.button(label, key=f"excl_pick_team_{i}"):
+                        st.session_state.excl_resolved_team_id = team['team_id_master']
+                        st.session_state.excl_team_name = team.get('team_name', '')
+                        st.session_state._excl_team_options = None
+                        st.rerun()
+
+            # Display found games
+            if st.session_state.excl_games_found:
+                games = st.session_state.excl_games_found
+                team_name = st.session_state.excl_team_name or ''
+
+                active_games = [g for g in games if not g['excluded']]
+                excluded_games = [g for g in games if g['excluded']]
+
+                st.markdown(f"### Games for **{team_name}**")
+
+                mcol1, mcol2, mcol3 = st.columns(3)
+                mcol1.metric("Total Games", len(games))
+                mcol2.metric("Active (in rankings)", len(active_games))
+                mcol3.metric("Already Excluded", len(excluded_games))
+
+                if active_games:
+                    st.markdown("#### Step 2: Select Games to Exclude")
+                    st.caption("Check the games you want to exclude from rankings.")
+
+                    # Build dataframe for selection
+                    df = pd.DataFrame(active_games)
+                    df = df[['date', 'home_team', 'score', 'away_team', 'competition', 'id']]
+                    df.columns = ['Date', 'Home Team', 'Score', 'Away Team', 'Competition', 'Game ID']
+
+                    # Use data_editor for checkbox selection
+                    df.insert(0, 'Exclude', False)
+                    edited_df = st.data_editor(
+                        df,
+                        column_config={
+                            "Exclude": st.column_config.CheckboxColumn("Exclude?", default=False),
+                            "Game ID": st.column_config.TextColumn("Game ID", width="small"),
+                        },
+                        disabled=['Date', 'Home Team', 'Score', 'Away Team', 'Competition', 'Game ID'],
+                        use_container_width=True,
+                        hide_index=True,
+                        key="excl_game_editor"
+                    )
+
+                    selected_ids = edited_df[edited_df['Exclude'] == True]['Game ID'].tolist()
+
+                    if selected_ids:
+                        st.warning(f"**{len(selected_ids)} game(s) selected for exclusion.**")
+                        st.caption(
+                            "The DB propagation trigger will automatically exclude "
+                            "any perspective duplicates (same game from different scrape sources)."
+                        )
+
+                        if st.button(
+                            f"🚫 Exclude {len(selected_ids)} Game(s)",
+                            type="primary",
+                            key="excl_confirm_btn"
+                        ):
+                            with st.spinner("Excluding games..."):
+                                success_count = 0
+                                errors = []
+                                for game_id in selected_ids:
+                                    try:
+                                        execute_with_retry(
+                                            lambda gid=game_id: db.table('games').update(
+                                                {'is_excluded': True}
+                                            ).eq('id', gid).eq('is_excluded', False)
+                                        )
+                                        success_count += 1
+                                    except Exception as e:
+                                        errors.append(f"Game {game_id[:12]}...: {e}")
+
+                                if success_count > 0:
+                                    st.success(
+                                        f"Excluded {success_count} game(s). "
+                                        f"The propagation trigger will handle perspective duplicates."
+                                    )
+                                if errors:
+                                    st.error(f"Failed to exclude {len(errors)} game(s):")
+                                    for err in errors:
+                                        st.text(err)
+
+                                # Clear cache to refresh
+                                st.session_state.excl_games_found = None
+                                st.rerun()
+                    else:
+                        st.info("Check the 'Exclude?' column to select games for exclusion.")
+
+                if excluded_games:
+                    with st.expander(f"Already Excluded Games ({len(excluded_games)})", expanded=False):
+                        ex_df = pd.DataFrame(excluded_games)
+                        ex_df = ex_df[['date', 'home_team', 'score', 'away_team', 'competition']]
+                        ex_df.columns = ['Date', 'Home Team', 'Score', 'Away Team', 'Competition']
+                        st.dataframe(ex_df, use_container_width=True, hide_index=True)
+
+                        # Un-exclude option
+                        st.caption("Need to restore a game? Enter the game ID below.")
+                        restore_id = st.text_input("Game ID to restore", key="excl_restore_id")
+                        if restore_id and st.button("✅ Restore Game", key="excl_restore_btn"):
+                            try:
+                                execute_with_retry(
+                                    lambda: db.table('games').update(
+                                        {'is_excluded': False}
+                                    ).eq('id', restore_id)
+                                )
+                                st.success(f"Restored game {restore_id[:12]}...")
+                                st.session_state.excl_games_found = None
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Failed to restore: {e}")
+
+        # ==================================================
+        # TAB 2: Recently Excluded Games
+        # ==================================================
+        with excl_tab2:
+            st.subheader("Recently Excluded Games")
+            st.caption("Games that have been excluded from rankings (most recent first).")
+
+            excl_limit = st.selectbox("Show", [25, 50, 100], key="excl_recent_limit")
+
+            if st.button("🔄 Load Recently Excluded", key="excl_load_recent"):
+                with st.spinner("Loading..."):
+                    try:
+                        result = execute_with_retry(
+                            lambda: db.table('games').select(
+                                'id, game_date, game_uid, home_team_master_id, '
+                                'away_team_master_id, home_score, away_score, '
+                                'competition, event_name'
+                            ).eq('is_excluded', True).not_.is_(
+                                'home_score', 'null'
+                            ).not_.is_(
+                                'away_score', 'null'
+                            ).order('game_date', desc=True).limit(excl_limit)
+                        )
+
+                        if result.data:
+                            # Resolve team names
+                            master_ids = set()
+                            for g in result.data:
+                                if g.get('home_team_master_id'):
+                                    master_ids.add(g['home_team_master_id'])
+                                if g.get('away_team_master_id'):
+                                    master_ids.add(g['away_team_master_id'])
+
+                            team_names = {}
+                            for i in range(0, len(list(master_ids)), 100):
+                                batch = list(master_ids)[i:i + 100]
+                                names_result = execute_with_retry(
+                                    lambda b=batch: db.table('teams').select(
+                                        'team_id_master, team_name'
+                                    ).in_('team_id_master', b)
+                                )
+                                if names_result.data:
+                                    for row in names_result.data:
+                                        team_names[row['team_id_master']] = row['team_name']
+
+                            rows = []
+                            for g in result.data:
+                                rows.append({
+                                    'Date': g['game_date'],
+                                    'Home Team': team_names.get(g.get('home_team_master_id'), '?'),
+                                    'Score': f"{g.get('home_score', '?')}-{g.get('away_score', '?')}",
+                                    'Away Team': team_names.get(g.get('away_team_master_id'), '?'),
+                                    'Competition': g.get('competition') or g.get('event_name') or '',
+                                    'Game ID': g['id'][:12] + '...',
+                                })
+
+                            st.dataframe(
+                                pd.DataFrame(rows),
+                                use_container_width=True,
+                                hide_index=True
+                            )
+                            st.caption(f"Showing {len(rows)} excluded game(s).")
+                        else:
+                            st.info("No excluded games found.")
+
+                    except Exception as e:
+                        st.error(f"Failed to load: {e}")
+                        import traceback
+                        with st.expander("View Error Details"):
+                            st.code(traceback.format_exc())
 
 # Footer
 st.divider()
