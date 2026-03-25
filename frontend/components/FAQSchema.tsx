@@ -84,7 +84,7 @@ export function FAQSchema() {
         name: 'What age groups does PitchRank cover?',
         acceptedAnswer: {
           '@type': 'Answer',
-          text: 'PitchRank covers all youth soccer age groups from U10 through U18 for both boys and girls teams. Teams are ranked within their specific age group and gender for fair comparisons.',
+          text: 'PitchRank covers all youth soccer age groups from U10 through U19 for both boys and girls teams. Teams are ranked within their specific age group and gender for fair comparisons.',
         },
       },
       {

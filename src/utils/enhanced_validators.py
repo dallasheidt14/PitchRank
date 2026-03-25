@@ -46,7 +46,7 @@ class EnhancedDataValidator:
     
     def __init__(self):
         # Get valid age groups from config (convert keys to uppercase for compatibility)
-        # Only U10-U18 are tracked (birth years 2008-2016 for 2025 season)
+        # Only U10-U19 are tracked (birth years 2007-2016 for 2026 season)
         _age_groups_lower = [age.lower() for age in AGE_GROUPS.keys()]
         self.valid_age_groups = frozenset(
             _age_groups_lower + [age.upper() for age in _age_groups_lower]

@@ -83,7 +83,7 @@ PowerScore is a single number from 0 to 1 that tells you how strong a youth socc
 - **Who you played** — strength of schedule (about 50% of the number)  
 - **When you played** — recent games count more than old ones  
 
-Higher is better. No votes, no evaluator input—just game data and one transparent method for every team from U10 to U18, boys and girls.
+Higher is better. No votes, no evaluator input—just game data and one transparent method for every team from U10 to U19, boys and girls.
 
 ---
 

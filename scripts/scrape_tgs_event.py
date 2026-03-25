@@ -95,13 +95,13 @@ def extract_year(division_name: str) -> Optional[int]:
     """Extract birth year from division name (e.g., 'B2012' -> 2012).
 
     Only returns years in the valid range for tracked age groups:
-    - U10-U18 corresponds to birth years 2008-2016 (for 2026 season)
+    - U10-U19 corresponds to birth years 2007-2016 (for 2026 season)
     """
     match = re.search(r'(\d{4})', division_name)
     if match:
         year = int(match.group(1))
-        # Only accept birth years 2008-2016 (U18-U10 for 2026 season)
-        if 2008 <= year <= 2016:
+        # Only accept birth years 2007-2016 (U19-U10 for 2026 season)
+        if 2007 <= year <= 2016:
             return year
     return None
 
@@ -500,10 +500,10 @@ def process_single_flight(
     records = []
 
     # EARLY FILTER: Check division name from parent structure first
-    # This avoids making API calls for divisions outside U10-U18 range
+    # This avoids making API calls for divisions outside U10-U19 range
     age_year_early = extract_year(parent_division_name)
     if not age_year_early:
-        return [], f"⏭️  {parent_division_name} - {flight_name}: skipped (not U10-U18)"
+        return [], f"⏭️  {parent_division_name} - {flight_name}: skipped (not U10-U19)"
 
     # Step 1: Get division info (age_year, gender)
     flight_division = get_flight_division(flight_id)
@@ -515,7 +515,7 @@ def process_single_flight(
     # SECOND FILTER: Check API-returned division name
     age_year = extract_year(division_name_from_api)
     if not age_year:
-        return [], f"⏭️  {division_name_from_api} - {flight_name}: skipped (not U10-U18)"
+        return [], f"⏭️  {division_name_from_api} - {flight_name}: skipped (not U10-U19)"
 
     # Step 2: Get games for this flight (THE MONEY ENDPOINT)
     games = get_games_for_flight(event_id, flight_id)
@@ -767,7 +767,7 @@ def main():
         print(f"{'='*60}")
         print(f"  📅 Events scraped: {total_events}")
         print(f"  ⏱️  Total time: {scrape_duration:.1f}s")
-        print(f"  💡 Possible reasons: no active flights, all divisions outside U10-U18,")
+        print(f"  💡 Possible reasons: no active flights, all divisions outside U10-U19,")
         print(f"     all games are future-dated, or event IDs don't exist")
         print(f"{'='*60}")
         return

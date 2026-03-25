@@ -61,7 +61,7 @@ const AGE_GROUPS = [
   { value: 'u15', label: 'U15' },
   { value: 'u16', label: 'U16' },
   { value: 'u17', label: 'U17' },
-  { value: 'u18', label: 'U18' },
+  { value: 'u19', label: 'U19' },
 ];
 
 const GENDERS = [

@@ -369,7 +369,7 @@ import { ShareButtons } from '@/components/ShareButtons';
 - Static pages: 4 URLs (/, /rankings, /compare, /methodology)
 - Dynamic ranking pages: 918 URLs
   - 51 regions (national + 50 states)
-  - 9 age groups (U10-U18)
+  - 9 age groups (U10-U19)
   - 2 genders (male, female)
   - Formula: 51 × 9 × 2 = 918 URLs
 

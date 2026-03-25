@@ -55,7 +55,7 @@ jobs:
           fi
           echo "Schedule guard passed."
 
-      - name: Scrape WA Affinity games (U10-U18, male+female, last N days)
+      - name: Scrape WA Affinity games (U10-U19, male+female, last N days)
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |

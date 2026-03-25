@@ -5,7 +5,7 @@
 
 ## Business Context
 
-- Offer: Most accurate youth soccer team rankings (U10-U18, national + state), powered by 13-layer V53E algorithm + ML
+- Offer: Most accurate youth soccer team rankings (U10-U19, national + state), powered by 13-layer V53E algorithm + ML
 - Audience: Parents of youth soccer players, club coaches, directors, data-minded families
 - Goal: Build audience, create content system, drive traffic to pitchrank.io
 - Positioning: The Accuracy Angle — most accurate rankings, powered by data not opinions

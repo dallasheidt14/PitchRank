@@ -49,7 +49,7 @@ function BackToRankingsButtonContent() {
   const gender = searchParams.get('gender') || 'male';
 
   // Validate and sanitize parameters
-  const validAgeGroups = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18'];
+  const validAgeGroups = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'u19'];
   const validGenders = ['male', 'female'];
   
   const sanitizedAgeGroup = validAgeGroups.includes(ageGroup.toLowerCase()) 

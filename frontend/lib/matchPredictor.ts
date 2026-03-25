@@ -14,7 +14,7 @@
  * v2.1 Improvements:
  * - Per-bucket probability calibration (fixes 50-55% and 60-65% bias)
  * - Draw threshold for close matchups (captures ~16% draw rate)
- * - Age-specific margin calibration for all age groups (U10-U18)
+ * - Age-specific margin calibration for all age groups (U10-U19)
  *
  * v2.2 Improvements:
  * - Lowered skill gap thresholds: 8%/5% (was 15%/10%) - fixes "close match" misclassification

@@ -20,7 +20,7 @@ We track **25,000+ teams across all 50 states** using one consistent methodology
 
 ## Quick Answer: Youth Soccer Rankings by State
 
-**Youth soccer rankings by state** show where your team stands among clubs in your state — and how your state compares nationally. PitchRank is the only platform with comprehensive 50-state club rankings using a single algorithm (our 13-layer V53E engine). Rankings update weekly. Coverage: U10 through U18, boys and girls, every competitive level.
+**Youth soccer rankings by state** show where your team stands among clubs in your state — and how your state compares nationally. PitchRank is the only platform with comprehensive 50-state club rankings using a single algorithm (our 13-layer V53E engine). Rankings update weekly. Coverage: U10 through U19, boys and girls, every competitive level.
 
 [Find your team's state rank →](/rankings)
 

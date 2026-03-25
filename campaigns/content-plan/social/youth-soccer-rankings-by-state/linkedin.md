@@ -22,7 +22,7 @@ We built the answer.
 
 PitchRank now tracks 25,000+ youth soccer teams across all 50 states using one consistent 13-layer algorithm. No politics. No tournament-only bias. No subjective evaluation.
 
-The result: comprehensive state-level rankings for U10 through U18, boys and girls, every competitive level.
+The result: comprehensive state-level rankings for U10 through U19, boys and girls, every competitive level.
 
 Why this matters for coaches and clubs:
 

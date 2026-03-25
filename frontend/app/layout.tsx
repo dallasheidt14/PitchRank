@@ -40,7 +40,7 @@ export const metadata: Metadata = {
     default: "PitchRank — Youth Soccer Rankings",
     template: "%s | PitchRank",
   },
-  description: "Data-powered youth soccer team rankings and performance analytics. Compare U10-U18 boys and girls teams nationally and across all 50 states.",
+  description: "Data-powered youth soccer team rankings and performance analytics. Compare U10-U19 boys and girls teams nationally and across all 50 states.",
   keywords: [
     "youth soccer rankings",
     "soccer team rankings",
@@ -81,7 +81,7 @@ export const metadata: Metadata = {
     url: "/",
     siteName: "PitchRank",
     title: "PitchRank — Youth Soccer Rankings",
-    description: "Data-powered youth soccer team rankings and performance analytics. Compare U10-U18 boys and girls teams nationally and across all 50 states.",
+    description: "Data-powered youth soccer team rankings and performance analytics. Compare U10-U19 boys and girls teams nationally and across all 50 states.",
     images: [
       {
         url: "/opengraph-image.png",
@@ -94,7 +94,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "PitchRank — Youth Soccer Rankings",
-    description: "Data-powered youth soccer team rankings and performance analytics. Compare U10-U18 boys and girls teams nationally and across all 50 states.",
+    description: "Data-powered youth soccer team rankings and performance analytics. Compare U10-U19 boys and girls teams nationally and across all 50 states.",
     images: ["/opengraph-image.png"],
     creator: "@pitchrank",
     site: "@pitchrank",

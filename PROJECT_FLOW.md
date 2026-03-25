@@ -756,7 +756,7 @@ LIMIT 20;
 - **v53e Engine**: 11-layer deterministic ranking system
 - **ML Layer (Optional)**: XGBoost/RandomForest predictive adjustment
 - **Supabase Integration**: Automatic data fetching and conversion
-- **Age Group Support**: U10-U18 with cross-age normalization
+- **Age Group Support**: U10-U19 with cross-age normalization
 - **State Rankings**: (Future) State-level ranking derivation
 
 ### Data Quality

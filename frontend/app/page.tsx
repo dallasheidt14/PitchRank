@@ -27,7 +27,7 @@ export default function Home() {
               <span className="text-gradient-athletic">Youth Soccer Rankings</span>
             </h1>
             <p className="text-lg sm:text-xl md:text-2xl font-light tracking-wide mb-8">
-              Data-driven performance analytics for U10-U18 boys and girls nationwide
+              Data-driven performance analytics for U10-U19 boys and girls nationwide
             </p>
 
             {/* Stats Row - Client component for reliable data fetching */}

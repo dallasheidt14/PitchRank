@@ -731,10 +731,10 @@ def _adjust_for_opponent_strength(
     if baseline is None:
         baseline = cfg.OPPONENT_ADJUST_BASELINE
 
-    # Get opponent strength for each game
+    # Get opponent strength for each game, floor at UNRANKED_SOS_BASE to prevent division by zero
     g["opp_strength"] = g["opp_id"].map(
         lambda o: strength_map.get(o, cfg.UNRANKED_SOS_BASE)
-    )
+    ).clip(lower=cfg.UNRANKED_SOS_BASE)
 
     # Calculate adjustment multipliers
     # Offense: score against strong opponent = more credit
@@ -802,6 +802,17 @@ def compute_rankings(
     g["date"] = pd.to_datetime(g["date"], errors="coerce")
     if today is None:
         today = pd.Timestamp(pd.Timestamp.now('UTC').date())
+
+    # Defensive check: NaN age/gender would silently bypass cohort groupby operations
+    # (groupby defaults to dropna=True). The import filter in data_adapter.py should
+    # prevent this, but if it fails, catch it early rather than producing wrong rankings.
+    for col in ("age", "gender"):
+        nan_count = g[col].isna().sum() if col in g.columns else 0
+        if nan_count > 0:
+            logger.warning(
+                f"⚠️ {nan_count:,} games have NaN '{col}' — these will be excluded from "
+                f"cohort-level normalization. Check import pipeline for missing metadata."
+            )
 
     # -------------------------
     # Layer 1: window filter
@@ -981,7 +992,7 @@ def compute_rankings(
         + 0.5 * team["def_norm"]
     )
 
-    # Static age → anchor mapping for U10–U18
+    # Static age → anchor mapping for U10–U19
     # This ensures consistent scaling across ages regardless of cohort splitting
     # Younger teams have lower max PowerScore, older teams can reach 1.0
     AGE_TO_ANCHOR = {
@@ -993,17 +1004,22 @@ def compute_rankings(
         15: 0.775,
         16: 0.850,
         17: 0.925,
-        18: 1.000,
-        19: 1.000,  # U19 same as U18
+        18: 1.000,  # Legacy: kept for safety if u18 data reaches v53e unremappe
+        19: 1.000,  # U19 encompasses birth years 2007+2008 (formerly U18+U19)
     }
 
     def compute_anchor(age_val):
         """Map age to static anchor value"""
         try:
             age_numeric = int(float(age_val))
-            return AGE_TO_ANCHOR.get(age_numeric, 0.70)  # Default to median if out of range
+            anchor = AGE_TO_ANCHOR.get(age_numeric)
+            if anchor is None:
+                logger.warning(f"⚠️ Age {age_numeric} outside supported range (10-19) — using fallback anchor 0.70")
+                return 0.70
+            return anchor
         except (ValueError, TypeError):
-            return 0.70  # Default for invalid age
+            logger.warning(f"⚠️ Invalid age value '{age_val}' — using fallback anchor 0.70")
+            return 0.70
 
     team["anchor"] = team["age"].apply(compute_anchor)
 
@@ -1021,8 +1037,9 @@ def compute_rankings(
         logger.info("🔄 Applying opponent-adjusted offense/defense to fix double-counting...")
 
         # Calculate the actual mean strength to use as baseline (instead of hardcoded 0.5)
+        # Floor at UNRANKED_SOS_BASE to prevent division by zero in opponent adjustment
         strength_values = list(strength_map.values())
-        actual_mean_strength = np.mean(strength_values) if strength_values else 0.5
+        actual_mean_strength = max(np.mean(strength_values) if strength_values else 0.5, cfg.UNRANKED_SOS_BASE)
         logger.info(f"📊 Strength distribution: mean={actual_mean_strength:.3f}, "
                    f"min={min(strength_values):.3f}, max={max(strength_values):.3f}")
 
@@ -1357,7 +1374,7 @@ def compute_rankings(
         # Pass base_strength_map so quality override can detect elite schedules
         # (e.g., MLS NEXT teams in regional conferences are NOT bubbles)
         scf_data = compute_schedule_connectivity(
-            games_df=g,  # Use the filtered games DataFrame
+            games_df=g_sos,  # Use full 365-day SOS window (not 30-game recency window)
             team_state_map=team_state_map,
             cfg=cfg,
             strength_map=base_strength_map,
@@ -1701,6 +1718,8 @@ def compute_rankings(
                 team['sos_norm'] = 0.5 + comp_shrink * (sos_norm_values - 0.5)
 
             # Step 6: Apply low-sample shrinkage (vectorized) - LINEAR toward anchor
+            # NOTE: This is NOT compounding — each iteration recalculates sos_norm fresh
+            # from scratch (step 5 above), so this shrinks a fresh value each time.
             low_sample_mask = gps < cfg.MIN_GAMES_FOR_TOP_SOS
             shrink_factor = np.clip(gps / cfg.MIN_GAMES_FOR_TOP_SOS, 0.0, 1.0)
             sos_norm_values = team['sos_norm'].values.copy()
@@ -1833,6 +1852,11 @@ def compute_rankings(
         if col in team.columns:
             keep_cols.append(col)
     teams = team[keep_cols].copy()
+
+    # === Clamp PowerScore to [0.0, 1.0] (spec requirement) ===
+    teams["powerscore_adj"] = teams["powerscore_adj"].clip(0.0, 1.0)
+    if "powerscore_core" in teams.columns:
+        teams["powerscore_core"] = teams["powerscore_core"].clip(0.0, 1.0)
 
     # === Restore legacy frontend fields ===
     # Map powerscore_adj to power_score_final

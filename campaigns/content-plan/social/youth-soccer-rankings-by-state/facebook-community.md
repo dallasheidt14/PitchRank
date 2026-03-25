@@ -28,7 +28,7 @@ A question we see constantly in these groups:
 Not nationally. Just against other [state] clubs.
 
 We built state-level rankings for all 50 states.
-Covers U10 through U18, boys and girls, every level.
+Covers U10 through U19, boys and girls, every level.
 
 The data surprised us in a few ways:
 • [State] teams in the top 10% nationally cluster around [region]

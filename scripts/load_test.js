@@ -95,7 +95,7 @@ export const options = {
 
 // ─── Test Data ───────────────────────────────────────────────────────
 
-const AGE_GROUPS = ['U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U18']
+const AGE_GROUPS = ['U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U19']
 const GENDERS = ['Male', 'Female']
 const REGIONS = ['national', 'west', 'east', 'south', 'midwest']
 const SEARCH_TERMS = [

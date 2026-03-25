@@ -108,7 +108,7 @@ PitchRank v53e is a **12-layer ranking engine**. Here's what each layer does:
 
 ### Layer 9: Normalization Within Cohort
 - **What it does:** Converts raw scores to 0-1 scale within each age/gender group
-- **Why:** U10 girls and U18 boys shouldn't compete for same ranking
+- **Why:** U10 girls and U19 boys shouldn't compete for same ranking
 - **Method:** Z-score normalization (converts to bell curve, then sigmoid to 0-1)
 
 ### Layer 10: PowerScore Calculation
@@ -127,8 +127,8 @@ PowerScore = (0.25 * Offense + 0.25 * Defense + 0.50 * SOS + 0.15 * Performance)
 
 ### Layer 11: Age Anchoring (Cross-Age Scaling)
 - **What it does:** Scales PowerScore by age group
-- **Why:** Younger teams have lower max scores; prevents U10s from outranking U18s
-- **Scale:** U10 = 0.40 max, U11 = 0.475, ..., U18 = 1.00
+- **Why:** Younger teams have lower max scores; prevents U10s from outranking U19s
+- **Scale:** U10 = 0.40 max, U11 = 0.475, ..., U19 = 1.00
 
 ### Layer 12: Final Ranking & Status
 - **Active:** 5+ games in last 180 days
@@ -510,7 +510,7 @@ Raw Game Data (Supabase)
         ↓
 [Cohort Processor] → Two-pass with global_strength_map
         ↓
-[Age Anchoring] → Cross-age scaling (U10=0.40, U18=1.00)
+[Age Anchoring] → Cross-age scaling (U10=0.40 → U19=1.00)
         ↓
 Final Rankings (rankings_full table)
 ```
@@ -693,7 +693,7 @@ PitchRank tested on 10K head-to-head matchups (2024 season):
 
 **Provisional:** Team with < 5 games (gets 85% PowerScore multiplier)
 
-**Cross-age scaling:** Anchor adjustment that ensures U10s can't outrank U18s
+**Cross-age scaling:** Anchor adjustment that ensures U10s can't outrank U19s
 
 **Recency decay:** Exponential weighting that favors recent games
 
@@ -783,7 +783,7 @@ Hook: "The secret? I played the hardest schedule in the country."
 
 3. **Regional bubble threshold:** SCF_MIN_UNIQUE_STATES = 2. Should West Coast (where more travel happens) have different threshold than Southeast?
 
-4. **Age anchors:** Static mapping (U10=0.40, U18=1.00). Have you considered dynamic anchors based on actual cohort strength distributions?
+4. **Age anchors:** Static mapping (U10=0.40 → U19=1.00). Have you considered dynamic anchors based on actual cohort strength distributions?
 
 5. **Performance layer:** PERF_BLEND_WEIGHT = 0.15. Should this be higher in playoff/tournament contexts (where momentum matters more)?
 

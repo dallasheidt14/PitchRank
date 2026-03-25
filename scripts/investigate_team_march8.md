@@ -31,7 +31,7 @@ March 8, 2026 was a **Sunday**. Four automated workflows were scheduled to run S
 
 ### 4. Affinity WA Scraper (`wa-scraper.yml`)
 - **Schedule:** Sunday 11:00 PM Pacific (Monday 6:00 AM UTC)
-- **What it does:** Scrapes Washington state tournaments (U10-U18)
+- **What it does:** Scrapes Washington state tournaments (U10-U19)
 - **Script:** `scripts/scrape_affinity_wa_tournament.py`
 - **Likely source?** POSSIBLE — if this is a Washington state team
 

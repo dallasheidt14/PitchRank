@@ -692,7 +692,7 @@ Evidence from agent-runs.md (Feb 19 08:44):
 
 **What happened:**
 1. Scraper (TGS or auto) now pulling U19 events
-2. Age group validation rejects U19: "must be one of ['U10'...'U18']"
+2. Age group validation rejects U19: "must be one of ['U10'...'U19']"
 3. Quarantine jumped 39 → 777 (738 new games)
 4. This is **not a bug** — it's a policy decision
 

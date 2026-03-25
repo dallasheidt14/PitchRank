@@ -4,7 +4,7 @@ A comprehensive ranking system for youth soccer teams with cross-age and cross-s
 
 ## 🎯 Features
 
-- **National Rankings**: Rankings by age group (U10-U18) and gender
+- **National Rankings**: Rankings by age group (U10-U19) and gender
 - **State-Level Rankings**: See how teams rank within their state
 - **Cross-Age Support**: Unified power scoring system handles cross-age games fairly
 - **Smart Matching**: Automated team matching using provider IDs and fuzzy logic
@@ -296,7 +296,7 @@ python scripts/review_aliases.py
 Configuration is managed in `config/settings.py`:
 
 - **Providers**: GotSport, TGS, US Club Soccer
-- **Age Groups**: U10-U18 with anchor scores
+- **Age Groups**: U10-U19 with anchor scores
 - **Ranking Config**: Window days, max games, weights
 - **Matching Config**: Fuzzy thresholds, auto-approve settings
 - **ETL Config**: Batch sizes, retry settings

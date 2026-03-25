@@ -17,7 +17,7 @@ test.describe('Homepage', () => {
 
   test('renders hero subtitle with age range', async ({ page }) => {
     await expect(
-      page.getByText('Data-driven performance analytics for U10-U18')
+      page.getByText('Data-driven performance analytics for U10-U19')
     ).toBeVisible();
   });
 

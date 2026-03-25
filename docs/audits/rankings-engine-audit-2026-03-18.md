@@ -342,7 +342,7 @@ With only 5 features and the target being goal margin, XGBoost is essentially fi
 
 Place #1 is for internal SOS calculations only — it scales `power_presos` (50% OFF + 50% DEF, no SOS) to create cross-age comparable strengths. This is correct and necessary.
 
-Place #2 applies anchor scaling to the final `power_score_final` column. This takes the ML-blended score and multiplies by the age anchor (U10=0.40, U18=1.00).
+Place #2 applies anchor scaling to the final `power_score_final` column. This takes the ML-blended score and multiplies by the age anchor (U10=0.40, U19=1.00).
 
 Place #3 is described as a "defensive measure" because "values were not persisting to the DB." It re-applies the SAME scaling formula. If place #2 already ran, the value coming in is already scaled, and scaling again would square the anchor.
 

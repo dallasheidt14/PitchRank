@@ -712,7 +712,7 @@ PATTERN: Feb 16 8am Watchy alert shows:
   - 738 new games added overnight (7:35-47am)
   - 726 games = U19 age group rejections
 TRIGGER: Scraper (TGS or auto-scraper) now pulling U19 games
-  - Age group validation rejects: "U19 must be one of ['U10'...'U18']"
+  - Age group validation rejects: "U19 must be one of ['U10'...'U19']"
   - This is intentional validation, not a bug
 BUSINESS_DECISION: Does PitchRank support U19 (high school age)?
 OPTIONS:
