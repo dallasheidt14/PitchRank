@@ -39,7 +39,7 @@ jobs:
       # 1. CHECKOUT THE MAIN BRANCH
       # ---------------------------------------------------------------
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: main  # Explicitly checkout main branch
           fetch-depth: 0
@@ -67,7 +67,7 @@ jobs:
       # 4. SET UP PYTHON ENVIRONMENT
       # ---------------------------------------------------------------
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 

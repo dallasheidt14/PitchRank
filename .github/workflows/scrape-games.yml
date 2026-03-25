@@ -58,10 +58,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: 'pip'  # Cache pip dependencies for faster subsequent runs
@@ -136,7 +136,7 @@ jobs:
 
       - name: Upload scraped data
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: scraped-games-${{ github.run_number }}
           path: data/raw/scraped_games_*.jsonl
@@ -145,7 +145,7 @@ jobs:
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: scrape-logs-${{ github.run_number }}
           path: |

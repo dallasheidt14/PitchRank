@@ -1,0 +1,76 @@
+name: Update Missing State Codes
+
+on:
+  schedule:
+    # Weekly on Monday at 10am Pacific (17:00 UTC PDT)
+    - cron: '0 17 * * 1'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run only (no DB writes)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      limit:
+        description: "Max teams to process (blank = all)"
+        required: false
+        default: ""
+        type: string
+
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  update-state-codes:
+    name: Update Missing State Codes
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install supabase python-dotenv requests
+
+      - name: Validate secrets
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::error::Missing SUPABASE_URL or SUPABASE_SERVICE_KEY secret."
+            exit 1
+          fi
+
+      - name: Update missing state codes
+        run: |
+          LIMIT_FLAG=""
+          if [ -n "${{ github.event.inputs.limit }}" ]; then
+            LIMIT_FLAG="--limit ${{ github.event.inputs.limit }}"
+          fi
+          DRY_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            DRY_FLAG="--dry-run"
+          fi
+
+          python scripts/backfill_missing_state_codes.py --workers 10 $DRY_FLAG $LIMIT_FLAG
+
+      - name: Workflow summary
+        if: always()
+        run: |
+          echo "## Update Missing State Codes" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Runs every Monday at 10am Pacific. Backfills state_code from GotSport API for teams with missing state_code." >> "$GITHUB_STEP_SUMMARY"

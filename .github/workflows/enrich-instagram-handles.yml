@@ -1,0 +1,154 @@
+name: Enrich Instagram Handles
+
+# Manual dispatch only — no automatic schedule.
+# Run targeted sweeps first (--min-power-score, --state) before a full pass.
+#
+# Recommended first runs:
+#   1. dry_run=true, limit=50              → validate scoring output
+#   2. dry_run=false, min_power_score=0.80 → enrich top ~500 ranked teams
+#   3. dry_run=false, min_power_score=0.60 → broader sweep ~2,000 teams
+#   4. dry_run=false (no filter)           → full 25K team sweep (~375K queries)
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run only (no DB writes) — always start here"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      limit:
+        description: "Max teams to process (blank = all eligible)"
+        required: false
+        default: ""
+        type: string
+      min_power_score:
+        description: "Min power_score_final filter (0.0 = all teams, 0.70 = top ranked only)"
+        required: false
+        default: "0.70"
+        type: string
+      state:
+        description: "Filter to a single state code (e.g. TX, CA — blank = all states)"
+        required: false
+        default: ""
+        type: string
+      age_group:
+        description: "Filter to a single age group (e.g. u14 — blank = all)"
+        required: false
+        default: ""
+        type: string
+      gender:
+        description: "Filter by gender (Male / Female — blank = both)"
+        required: false
+        default: ""
+        type: string
+      re_check:
+        description: "Re-check teams that already have needs_review results"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      workers:
+        description: "Concurrent workers (default: 3 — keep low for Serper rate limits)"
+        required: false
+        default: "3"
+        type: string
+
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  enrich-instagram:
+    name: Enrich Instagram Handles
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install supabase python-dotenv requests
+
+      - name: Validate secrets
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::error::Missing SUPABASE_URL or SUPABASE_SERVICE_KEY secret."
+            exit 1
+          fi
+          if [ -z "$SERPER_API_KEY" ]; then
+            echo "::error::Missing SERPER_API_KEY secret. Add it at Settings > Secrets > Actions."
+            exit 1
+          fi
+
+      - name: Build CLI flags
+        id: flags
+        run: |
+          FLAGS=""
+
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            FLAGS="$FLAGS --dry-run"
+          fi
+
+          if [ -n "${{ github.event.inputs.limit }}" ]; then
+            FLAGS="$FLAGS --limit ${{ github.event.inputs.limit }}"
+          fi
+
+          if [ -n "${{ github.event.inputs.min_power_score }}" ] && [ "${{ github.event.inputs.min_power_score }}" != "0" ]; then
+            FLAGS="$FLAGS --min-power-score ${{ github.event.inputs.min_power_score }}"
+          fi
+
+          if [ -n "${{ github.event.inputs.state }}" ]; then
+            FLAGS="$FLAGS --state ${{ github.event.inputs.state }}"
+          fi
+
+          if [ -n "${{ github.event.inputs.age_group }}" ]; then
+            FLAGS="$FLAGS --age-group ${{ github.event.inputs.age_group }}"
+          fi
+
+          if [ -n "${{ github.event.inputs.gender }}" ]; then
+            FLAGS="$FLAGS --gender ${{ github.event.inputs.gender }}"
+          fi
+
+          if [ "${{ github.event.inputs.re_check }}" = "true" ]; then
+            FLAGS="$FLAGS --re-check"
+          fi
+
+          WORKERS="${{ github.event.inputs.workers }}"
+          FLAGS="$FLAGS --workers ${WORKERS:-3}"
+
+          echo "flags=$FLAGS" >> "$GITHUB_OUTPUT"
+          echo "Built flags: $FLAGS"
+
+      - name: Enrich Instagram handles
+        run: |
+          python scripts/enrich_instagram_handles.py ${{ steps.flags.outputs.flags }}
+
+      - name: Workflow summary
+        if: always()
+        run: |
+          echo "## Enrich Instagram Handles" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Mode:** ${{ github.event.inputs.dry_run == 'true' && 'DRY-RUN' || 'LIVE' }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Filters:** limit=${{ github.event.inputs.limit || 'all' }} | power_score>=${{ github.event.inputs.min_power_score || '0' }} | state=${{ github.event.inputs.state || 'all' }} | age=${{ github.event.inputs.age_group || 'all' }} | gender=${{ github.event.inputs.gender || 'all' }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Results stored in \`team_social_profiles\` table." >> "$GITHUB_STEP_SUMMARY"
+          echo "Review queue: \`team_instagram_review_queue\` view." >> "$GITHUB_STEP_SUMMARY"
