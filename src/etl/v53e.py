@@ -1012,9 +1012,14 @@ def compute_rankings(
         """Map age to static anchor value"""
         try:
             age_numeric = int(float(age_val))
-            return AGE_TO_ANCHOR.get(age_numeric, 0.70)  # Default to median if out of range
+            anchor = AGE_TO_ANCHOR.get(age_numeric)
+            if anchor is None:
+                logger.warning(f"⚠️ Age {age_numeric} outside supported range (10-19) — using fallback anchor 0.70")
+                return 0.70
+            return anchor
         except (ValueError, TypeError):
-            return 0.70  # Default for invalid age
+            logger.warning(f"⚠️ Invalid age value '{age_val}' — using fallback anchor 0.70")
+            return 0.70
 
     team["anchor"] = team["age"].apply(compute_anchor)
 
@@ -1369,7 +1374,7 @@ def compute_rankings(
         # Pass base_strength_map so quality override can detect elite schedules
         # (e.g., MLS NEXT teams in regional conferences are NOT bubbles)
         scf_data = compute_schedule_connectivity(
-            games_df=g,  # Use the filtered games DataFrame
+            games_df=g_sos,  # Use full 365-day SOS window (not 30-game recency window)
             team_state_map=team_state_map,
             cfg=cfg,
             strength_map=base_strength_map,
