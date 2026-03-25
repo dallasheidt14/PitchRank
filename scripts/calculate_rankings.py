@@ -694,11 +694,11 @@ async def main():
                     backfill_status = "complete"
                 except Exception as e:
                     backfill_status = "failed"
-                    console.print(f"[red]ERROR: backfill_total_game_stats failed: {e}[/red]")
-                    console.print("[red]Run status: PARTIAL — rankings saved but game stats stale[/red]")
-                    # Exit with code 2 to signal partial completion to CI
-                    # Rankings are saved, but downstream views may be stale
-                    sys.exit(2)
+                    console.print(f"[yellow]WARNING: backfill_total_game_stats failed: {e}[/yellow]")
+                    console.print("[yellow]Run status: PARTIAL — rankings saved but game stats stale[/yellow]")
+                    console.print("[dim]Game stats will be refreshed on next successful run.[/dim]")
+                    # Don't exit — rankings are fully saved, game stats are non-critical
+                    # and will be refreshed on the next successful invocation.
         
         # ----------------------------------------------------------------
         #  Summary Banner
