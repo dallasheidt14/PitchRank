@@ -470,7 +470,7 @@ def generate_pipeline_map():
                      C_DB, fontsize=6,
                      text_lines=[
                          'Cross-Age Global Scores',
-                         'U10=0.40 \u2192 U18=1.00 anchors',
+                         'U10=0.40 \u2192 U19=1.00 anchors',
                          'Enables cross-age SOS'
                      ])
 

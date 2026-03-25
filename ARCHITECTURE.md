@@ -698,7 +698,7 @@ npm run analyze         # Bundle analysis
 | **ML Layer 13** | Machine learning enhancement layer using XGBoost to adjust PowerScores via residual prediction |
 | **PowerScore** | Composite ranking metric (0.0–1.0); higher = better. Blend of offense, defense, and SOS |
 | **SOS** | Strength of Schedule — iterative measure of opponent quality (3 passes, unranked base = 0.35) |
-| **Age Anchor** | Scaling factor applied per age group (U10 = 0.40 → U18 = 1.00) to normalize cross-age comparisons |
+| **Age Anchor** | Scaling factor applied per age group (U10 = 0.40 → U19 = 1.00) to normalize cross-age comparisons |
 | **MergeResolver** | Utility that maps deprecated team IDs to their canonical counterparts, supporting cascade merges |
 | **ECNL** | Elite Clubs National League — top-tier competitive youth soccer league |
 | **ECNL-RL** | ECNL Regional League — second-tier ECNL competition (distinct from ECNL proper) |

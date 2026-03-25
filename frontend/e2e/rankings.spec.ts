@@ -108,8 +108,8 @@ test.describe('Rankings - Dynamic Routes', () => {
     await expect(tableCard).toContainText('CA');
   });
 
-  test('various age groups render (U10 through U18)', async ({ page }) => {
-    const ageGroups = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18'];
+  test('various age groups render (U10 through U19)', async ({ page }) => {
+    const ageGroups = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u19'];
 
     for (const age of ageGroups) {
       const response = await page.goto(`/rankings/national/${age}/male`);

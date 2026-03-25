@@ -992,7 +992,7 @@ def compute_rankings(
         + 0.5 * team["def_norm"]
     )
 
-    # Static age → anchor mapping for U10–U18
+    # Static age → anchor mapping for U10–U19
     # This ensures consistent scaling across ages regardless of cohort splitting
     # Younger teams have lower max PowerScore, older teams can reach 1.0
     AGE_TO_ANCHOR = {

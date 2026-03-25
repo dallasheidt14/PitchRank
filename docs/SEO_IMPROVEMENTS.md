@@ -64,13 +64,13 @@ return {
 // frontend/app/rankings/page.tsx
 export const metadata: Metadata = {
   title: 'Youth Soccer Rankings',
-  description: 'Browse comprehensive youth soccer team rankings for U10-U18 boys and girls teams. Filter by region, age group, and gender to find top teams.',
+  description: 'Browse comprehensive youth soccer team rankings for U10-U19 boys and girls teams. Filter by region, age group, and gender to find top teams.',
   alternates: {
     canonical: '/rankings',
   },
   openGraph: {
     title: 'Youth Soccer Rankings | PitchRank',
-    description: 'Browse comprehensive youth soccer team rankings for U10-U18 boys and girls teams.',
+    description: 'Browse comprehensive youth soccer team rankings for U10-U19 boys and girls teams.',
     url: '/rankings',
     siteName: 'PitchRank',
     type: 'website',

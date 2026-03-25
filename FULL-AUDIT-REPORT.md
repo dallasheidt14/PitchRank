@@ -150,11 +150,11 @@ Missing headers:
 - Blog posts get individual titles
 
 ### Meta Descriptions ✅ Good
-- Root: "Data-powered youth soccer team rankings and performance analytics. Compare U10-U18 boys and girls teams nationally and across all 50 states."
+- Root: "Data-powered youth soccer team rankings and performance analytics. Compare U10-U19 boys and girls teams nationally and across all 50 states."
 - Dynamic per-page descriptions for rankings, teams, blog posts
 
 ### Keywords Meta Tag ✅ Present
-- 13 keywords including "youth soccer rankings", "soccer power rankings", "U10-U18 soccer", "soccer analytics"
+- 13 keywords including "youth soccer rankings", "soccer power rankings", "U10-U19 soccer", "soccer analytics"
 - Note: Google ignores meta keywords, but doesn't hurt
 
 ### Heading Structure ⚠️ Minor Issues

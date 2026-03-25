@@ -466,7 +466,7 @@ async def compute_all_cohorts(
             logger.warning("⚠️ No team IDs found for state metadata fetch - SCF will be disabled")
 
     # ========== AGE-BUCKET VALIDATION ==========
-    # Reject/quarantine ages outside PitchRank's supported range (U10–U18).
+    # Reject/quarantine ages outside PitchRank's supported range (U10–U19).
     # Ages outside this range are data quality issues (u0, u3–u7) or
     # unsupported age groups (u9, u19–u21). Based on production data:
     #   u0: 3 teams, u3–u7: 54 teams, u8–u9: 2,373 teams, u20–u21: 39 teams

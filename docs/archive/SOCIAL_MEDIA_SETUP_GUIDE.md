@@ -88,7 +88,7 @@ Located in: `/frontend/public/logos/`
 - **Bio**:
   ```
   ⚽ Data-powered youth soccer rankings
-  📊 U10-U18 | Boys & Girls | All 50 States
+  📊 U10-U19 | Boys & Girls | All 50 States
   🏆 Compare teams, track performance
   🔗 Check your team's ranking ⬇️
   ```
@@ -107,7 +107,7 @@ Located in: `/frontend/public/logos/`
 
 **First Posts (Launch Sequence):**
 1. **Announcement Post**: Introduce PitchRank
-   - Caption: "🚀 Welcome to PitchRank! We're bringing data-powered rankings to youth soccer teams across the nation. U10-U18 | Boys & Girls | All 50 States. Check your team's ranking at pitchrank.io 🔗 #YouthSoccer #PitchRank"
+   - Caption: "🚀 Welcome to PitchRank! We're bringing data-powered rankings to youth soccer teams across the nation. U10-U19 | Boys & Girls | All 50 States. Check your team's ranking at pitchrank.io 🔗 #YouthSoccer #PitchRank"
 
 2. **Methodology Post**: How rankings work
    - Caption: "Ever wonder how youth soccer rankings are calculated? 📊 We use cross-age game support and power scoring to create the most comprehensive rankings system. Learn more at pitchrank.io/methodology #SoccerRankings"
@@ -146,7 +146,7 @@ Located in: `/frontend/public/logos/`
 - **Handle**: @pitchrank
 - **Bio**:
   ```
-  Data-powered youth soccer rankings | U10-U18 boys & girls | National & state rankings | Check your team at pitchrank.io ⚽📊
+  Data-powered youth soccer rankings | U10-U19 boys & girls | National & state rankings | Check your team at pitchrank.io ⚽📊
   ```
 - **Website**: https://pitchrank.io
 - **Location**: United States
@@ -164,7 +164,7 @@ Located in: `/frontend/public/logos/`
    ```
    🚀 Introducing PitchRank: Data-powered youth soccer rankings for teams across all 50 states.
 
-   ⚽ U10-U18 boys & girls
+   ⚽ U10-U19 boys & girls
    📊 Cross-age power scoring
    🏆 National & state rankings
 
@@ -177,7 +177,7 @@ Located in: `/frontend/public/logos/`
    Tweet 1: "What is PitchRank? 🧵 A thread on how we're revolutionizing youth soccer rankings..."
    Tweet 2: "1/ Traditional rankings only compare teams in the same age group. But what if your U13 team plays a U14 team?"
    Tweet 3: "2/ PitchRank uses cross-age scoring to accurately rank teams regardless of age group matchups."
-   Tweet 4: "3/ We track teams from U10-U18, boys and girls, across all 50 states. Over [X] teams ranked!"
+   Tweet 4: "3/ We track teams from U10-U19, boys and girls, across all 50 states. Over [X] teams ranked!"
    Tweet 5: "4/ Check out the full methodology: pitchrank.io/methodology"
 
 **Tweet Types & Frequency:**
@@ -221,7 +221,7 @@ Located in: `/frontend/public/logos/`
 - **Category**: Sports & Recreation > Youth Sports
 - **About**:
   ```
-  Data-powered youth soccer team rankings and performance analytics. Compare U10-U18 boys and girls teams nationally and across all 50 states.
+  Data-powered youth soccer team rankings and performance analytics. Compare U10-U19 boys and girls teams nationally and across all 50 states.
 
   Features:
   ⚽ National and state rankings
@@ -257,7 +257,7 @@ Located in: `/frontend/public/logos/`
    We're excited to bring you data-powered youth soccer rankings for teams across all 50 states. Whether you're coaching a U10 team or managing a U18 squad, PitchRank provides comprehensive rankings and performance analytics.
 
    ✅ National and state rankings
-   ✅ U10-U18 boys and girls
+   ✅ U10-U19 boys and girls
    ✅ Cross-age game support
    ✅ Weekly updates
 
@@ -317,7 +317,7 @@ Consider creating:
 
 **About Section**:
 ```
-PitchRank provides comprehensive, data-powered rankings for youth soccer teams across the United States. Our platform serves coaches, club directors, tournament organizers, and parents by offering transparent, accurate team rankings from U10-U18 for both boys and girls.
+PitchRank provides comprehensive, data-powered rankings for youth soccer teams across the United States. Our platform serves coaches, club directors, tournament organizers, and parents by offering transparent, accurate team rankings from U10-U19 for both boys and girls.
 
 Our innovative cross-age scoring system allows fair comparisons even when teams play outside their age bracket, making our rankings the most comprehensive in youth soccer.
 
@@ -369,7 +369,7 @@ Visit pitchrank.io to see where your team ranks.
 - **Bio**:
   ```
   ⚽ Youth soccer rankings
-  📊 U10-U18 | All 50 states
+  📊 U10-U19 | All 50 states
   🏆 See your team's rank ⬇️
   ```
 - **Website**: pitchrank.io

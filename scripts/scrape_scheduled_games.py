@@ -324,7 +324,7 @@ def extract_future_games(matches: List[Dict], team_info: Dict) -> List[Dict]:
             continue
         
         try:
-            # Filter out U19 games (PitchRank only supports U10-U18)
+            # Filter out U19 games (PitchRank only supports U10-U19)
             # Check if either team is U19 based on age_group or birth_year
             home_team = match.get('homeTeam', {})
             away_team = match.get('awayTeam', {})

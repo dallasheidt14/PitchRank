@@ -190,8 +190,8 @@ async def run_validation_queries(supabase_client):
             unique_ages = sorted(df['age_group'].dropna().str.lower().unique())
             console.print(f"  Found {len(unique_ages)} unique age groups in rankings: {', '.join(unique_ages)}")
             
-            # Expected age groups (U10 through U18)
-            expected_ages = [f"u{i}" for i in range(10, 19)]
+            # Expected age groups (U10 through U17, then U19 — no U18, it's merged into U19)
+            expected_ages = [f"u{i}" for i in range(10, 18)] + ["u19"]
             missing_ages = [age for age in expected_ages if age not in unique_ages]
             if missing_ages:
                 console.print(f"  [yellow]⚠ Missing expected age groups: {', '.join(missing_ages)}[/yellow]")

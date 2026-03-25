@@ -71,14 +71,14 @@ async redirects() {
 ```
 [State] Youth Soccer Rankings | Updated [Frequency] | PitchRank
 
-Official [State] youth soccer team rankings for boys and girls (U10-U18). See how your team ranks against [#] teams statewide. Updated [weekly/daily] with live game results.
+Official [State] youth soccer team rankings for boys and girls (U10-U19). See how your team ranks against [#] teams statewide. Updated [weekly/daily] with live game results.
 ```
 
 **Example for Louisiana:**
 ```
 Louisiana Youth Soccer Rankings | Updated Weekly | PitchRank
 
-Official Louisiana youth soccer team rankings for boys and girls (U10-U18). See how your team ranks against 247 teams statewide. Updated weekly with live game results.
+Official Louisiana youth soccer team rankings for boys and girls (U10-U19). See how your team ranks against 247 teams statewide. Updated weekly with live game results.
 ```
 
 **Codey's Implementation:**
@@ -278,7 +278,7 @@ Brief explanation + link to methodology
 ```
 Hi [Name],
 
-I'm reaching out from PitchRank.io, a live youth soccer ranking platform covering [State]. We provide real-time rankings for U10-U18 teams based on game results.
+I'm reaching out from PitchRank.io, a live youth soccer ranking platform covering [State]. We provide real-time rankings for U10-U19 teams based on game results.
 
 Would you be open to adding us to your resources page? We'd be happy to link back to [your site] as well.
 
@@ -355,7 +355,7 @@ Best,
 8. ✅ Implement Schema.org markup for teams
 
 ### Week 3
-9. ✅ Create age group landing pages (U10-U18)
+9. ✅ Create age group landing pages (U10-U19)
 10. ✅ Build "Related Rankings" sidebar component
 11. ✅ Write 2 blog posts (California + Florida focus)
 

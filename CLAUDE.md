@@ -75,7 +75,8 @@ PitchRank/
 | 2015 | U11 | | 2011 | U15 |
 | 2014 | U12 | | 2010 | U16 |
 | 2013 | U13 | | 2009 | U17 |
-| | | | 2008 | U18 |
+| | | | 2008 | U19 |
+| | | | 2007 | U19 |
 
 - `14B` = 2014 birth year, Boys = **U12 Male** (NOT U14!)
 - `U14B` = U14 age group, Boys = **U14 Male**
@@ -114,7 +115,7 @@ Games (Supabase, 365-day window)
   → v53e Base Calculation (10 layers)
   → ML Layer 13 (XGBoost residual adjustment, alpha=0.15)
   → Two-Pass SOS Normalization (cross-age, national, state)
-  → Age Anchor Scaling (U10=0.40 → U18+=1.00)
+  → Age Anchor Scaling (U10=0.40 → U19=1.00)
   → Save to rankings_full + current_rankings
 ```
 

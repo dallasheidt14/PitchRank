@@ -33,7 +33,7 @@ Cleany can:
 ### Phase 1: Ingestion Validation (Immediate)
 - [ ] Add validation at scrape time — reject/quarantine bad data early
 - [ ] Standardize provider data — each source (TGS, GotSport, ECNL) has quirks
-- [ ] Age range enforcement — U10-U18 only, filter at source
+- [ ] Age range enforcement — U10-U19 only, filter at source
 - [ ] Required fields check — no team without club_name, state_code
 
 ### Phase 2: Pattern Learning (Short-term)

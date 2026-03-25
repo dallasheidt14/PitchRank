@@ -1362,7 +1362,7 @@ export const blogPosts: BlogPost[] = [
             California isn't just the biggest state for youth soccer — it's the <strong>epicenter</strong>. With MLS Next academies, ECNL powerhouses, and hundreds of competitive clubs from San Diego to Sacramento, navigating the California youth soccer landscape can feel overwhelming.
           </p>
           <p className="text-muted-foreground leading-relaxed mb-4">
-            We're tracking <strong>15,693 California teams</strong> — more than any other ranking system. That's every age group from U10 to U18, every region, every level of play. Whether you're in Orange County wondering if your club is competitive with LA's best, or in the Bay Area comparing San Jose to Peninsula clubs, this guide gives you the clarity you need.
+            We're tracking <strong>15,693 California teams</strong> — more than any other ranking system. That's every age group from U10 to U19, every region, every level of play. Whether you're in Orange County wondering if your club is competitive with LA's best, or in the Bay Area comparing San Jose to Peninsula clubs, this guide gives you the clarity you need.
           </p>
           <p className="text-muted-foreground leading-relaxed">
             Here's everything California soccer parents need to know about youth soccer rankings in 2026 — backed by real data, not hype.
@@ -1537,7 +1537,7 @@ export const blogPosts: BlogPost[] = [
             </div>
             <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
               <Calendar className="size-5 text-primary shrink-0 mt-0.5" />
-              <p className="text-sm text-muted-foreground"><strong>9 age groups</strong> from U10 through U18</p>
+              <p className="text-sm text-muted-foreground"><strong>9 age groups</strong> from U10 through U19</p>
             </div>
             <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
               <Shield className="size-5 text-primary shrink-0 mt-0.5" />
@@ -1923,7 +1923,7 @@ export const blogPosts: BlogPost[] = [
             </div>
             <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
               <Calendar className="size-5 text-primary shrink-0 mt-0.5" />
-              <p className="text-sm text-muted-foreground"><strong>9 age groups</strong> from U10 through U18</p>
+              <p className="text-sm text-muted-foreground"><strong>9 age groups</strong> from U10 through U19</p>
             </div>
             <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
               <Shield className="size-5 text-primary shrink-0 mt-0.5" />
@@ -2770,7 +2770,7 @@ export const blogPosts: BlogPost[] = [
             </div>
             <div className="p-3 rounded-lg bg-muted/50 border">
               <p className="font-semibold text-sm mb-1">PitchRank PowerScore</p>
-              <p className="text-xs text-muted-foreground">Every game counted. 13 algorithmic layers. 0.0–1.0 scale. No subjective input. State and national rankings. All age groups U10–U18.</p>
+              <p className="text-xs text-muted-foreground">Every game counted. 13 algorithmic layers. 0.0–1.0 scale. No subjective input. State and national rankings. All age groups U10–U19.</p>
             </div>
           </div>
         </section>
@@ -3061,7 +3061,7 @@ export const blogPosts: BlogPost[] = [
             <li><strong>When you played</strong> — recent games count more than old ones</li>
           </ul>
           <p className="text-muted-foreground leading-relaxed">
-            Higher is better. No votes, no evaluator input—just game data and one transparent method for every team from U10 to U18, boys and girls.
+            Higher is better. No votes, no evaluator input—just game data and one transparent method for every team from U10 to U19, boys and girls.
           </p>
         </section>
 
