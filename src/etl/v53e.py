@@ -803,6 +803,17 @@ def compute_rankings(
     if today is None:
         today = pd.Timestamp(pd.Timestamp.now('UTC').date())
 
+    # Defensive check: NaN age/gender would silently bypass cohort groupby operations
+    # (groupby defaults to dropna=True). The import filter in data_adapter.py should
+    # prevent this, but if it fails, catch it early rather than producing wrong rankings.
+    for col in ("age", "gender"):
+        nan_count = g[col].isna().sum() if col in g.columns else 0
+        if nan_count > 0:
+            logger.warning(
+                f"⚠️ {nan_count:,} games have NaN '{col}' — these will be excluded from "
+                f"cohort-level normalization. Check import pipeline for missing metadata."
+            )
+
     # -------------------------
     # Layer 1: window filter
     # -------------------------
