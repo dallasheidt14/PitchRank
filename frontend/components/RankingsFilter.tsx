@@ -165,7 +165,7 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
               <SelectItem value="u15">U15</SelectItem>
               <SelectItem value="u16">U16</SelectItem>
               <SelectItem value="u17">U17</SelectItem>
-              <SelectItem value="u18">U18</SelectItem>
+              <SelectItem value="u19">U19</SelectItem>
             </SelectContent>
           </Select>
         </div>

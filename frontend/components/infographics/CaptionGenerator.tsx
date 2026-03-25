@@ -216,7 +216,7 @@ const GENDER_HASHTAGS: Record<string, string[]> = {
 const AGE_HASHTAGS: Record<string, string> = {
   u10: 'U10Soccer', u11: 'U11Soccer', u12: 'U12Soccer',
   u13: 'U13Soccer', u14: 'U14Soccer', u15: 'U15Soccer',
-  u16: 'U16Soccer', u17: 'U17Soccer', u18: 'U18Soccer',
+  u16: 'U16Soccer', u17: 'U17Soccer', u19: 'U19Soccer',
 };
 const ROTATING_HASHTAGS = [
   'SoccerParents', 'FutureStars', 'SoccerFamily', 'SoccerLife',
