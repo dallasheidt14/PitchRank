@@ -20,16 +20,25 @@ import pandas as pd
 import numpy as np
 from supabase import create_client
 import os
+import shutil
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from datetime import datetime, timedelta
+import json
+from collections import deque
 
 sys.path.append(str(Path(__file__).parent.parent))
 from src.etl.v53e import V53EConfig
 
-console = Console()
+# Make Rich tables render as wide as your terminal allows.
+# You can override width by setting env var: RICH_WIDTH (e.g. 300).
+_rich_width = int(os.getenv("RICH_WIDTH", "0") or "0")
+if _rich_width <= 0:
+    _rich_width = shutil.get_terminal_size(fallback=(300, 20)).columns
+_rich_width = max(_rich_width, 300)
+console = Console(width=_rich_width, force_terminal=True)
 
 # Load environment variables
 env_local = Path('.env.local')
@@ -47,11 +56,26 @@ TEAM_IDS = [
 async def get_merged_team_ids(supabase, canonical_id: str) -> list:
     """Get all deprecated team IDs that were merged into this canonical team."""
     try:
-        result = supabase.table('team_merge_map').select(
-            'deprecated_team_id'
-        ).eq('canonical_team_id', canonical_id).execute()
-        deprecated_ids = [r['deprecated_team_id'] for r in (result.data or [])]
-        return [canonical_id] + deprecated_ids
+        # team_merge_map stores edges: canonical_team_id -> deprecated_team_id.
+        # Merges can be chained, so traverse recursively to collect all reachable IDs.
+        visited = set()
+        q = deque([canonical_id])
+        visited.add(canonical_id)
+
+        while q:
+            current = q.popleft()
+            result = supabase.table('team_merge_map').select('deprecated_team_id').eq(
+                'canonical_team_id', current
+            ).execute()
+            deprecated_ids = [r['deprecated_team_id'] for r in (result.data or [])]
+            for dep in deprecated_ids:
+                if dep not in visited:
+                    visited.add(dep)
+                    q.append(dep)
+
+        # Keep canonical first for readability in output/exports.
+        rest = sorted([tid for tid in visited if tid != canonical_id])
+        return [canonical_id] + rest
     except Exception as e:
         console.print(f"[yellow]Warning: Could not fetch merge map: {e}[/yellow]")
         return [canonical_id]
@@ -70,6 +94,23 @@ async def run_audit():
     today = pd.Timestamp.now()
     cutoff = today - pd.Timedelta(days=365)
     cutoff_str = cutoff.strftime('%Y-%m-%d')
+
+    reports_dir = Path('reports')
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    run_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    games_csv_path = reports_dir / f"audit_two_teams_sos_{run_ts}_games.csv"
+    opponents_csv_path = reports_dir / f"audit_two_teams_sos_{run_ts}_opponents.csv"
+    summary_json_path = reports_dir / f"audit_two_teams_sos_{run_ts}_summary.json"
+
+    audit_summary: dict = {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "cutoff_days": 365,
+        "cutoff_date": cutoff_str,
+        "team_ids": TEAM_IDS,
+        "teams": [],
+    }
+    games_rows: list[dict] = []
+    opponents_rows: list[dict] = []
 
     # 1) Load strength map from rankings_full (all teams)
     console.print("[yellow]Loading rankings data from database...[/yellow]")
@@ -230,26 +271,55 @@ async def run_audit():
         total_weight = g_sos['w_sos'].sum()
         manual_sos = (g_sos['opp_strength'] * g_sos['w_sos']).sum() / total_weight if total_weight > 0 else 0
 
+        team_audit: dict = {
+            "team_id": team_id,
+            "team_name": team_name,
+            "club_name": team_info.get('club_name', '?'),
+            "age_group": team_info.get('age_group', '?'),
+            "gender": team_info.get('gender', '?'),
+            "state_code": team_info.get('state_code', '?'),
+            "merged_team_ids": all_team_ids,
+            "games_total": int(len(g)),
+            "games_in_sos_calc": int(len(g_sos)),
+            "games_repeat_capped_out": int(len(g) - len(g_sos)),
+            "unique_opponents": int(g['opp_id'].nunique()) if len(g) else 0,
+            "manual_sos": float(manual_sos),
+            "database_sos": None,
+            "sos_difference": None,
+            "opponents": [],
+        }
+
         # Display game table sorted by date (most recent first)
         console.print(f"\n[bold]Game-by-Game SOS Breakdown ({len(g)} games, {g_sos.shape[0]} in SOS calc):[/bold]\n")
 
-        games_table = Table(show_header=True, header_style="bold cyan", show_lines=False)
+        # Compute an opponent column width that uses the terminal space.
+        # This avoids rich's default truncation ("…") when names are long.
+        other_cols_total = 3 + 10 + 5 + 7 + 6 + 14 + 10 + 14 + 6
+        opponent_width = max(120, _rich_width - other_cols_total - 6)
+
+        games_table = Table(
+            show_header=True,
+            header_style="bold cyan",
+            show_lines=False,
+            expand=True,
+        )
         games_table.add_column("#", width=3)
         games_table.add_column("Date", width=10)
-        games_table.add_column("Opponent", width=38)
+        games_table.add_column("Opponent", width=opponent_width, overflow="fold")
         games_table.add_column("Age", width=5)
         games_table.add_column("Score", justify="center", width=7)
         games_table.add_column("Result", justify="center", width=6)
-        games_table.add_column("Opp Strength", justify="right", width=12)
-        games_table.add_column("Weight", justify="right", width=8)
-        games_table.add_column("SOS Contrib", justify="right", width=11)
+        games_table.add_column("Opp Strength", justify="right", width=14)
+        games_table.add_column("Weight", justify="right", width=10)
+        games_table.add_column("SOS Contrib", justify="right", width=14)
         games_table.add_column("In SOS", justify="center", width=6)
 
         g_display = g.sort_values('date', ascending=False).reset_index(drop=True)
 
         for idx, row in g_display.iterrows():
             opp_info = opp_names.get(row['opp_id'], {'name': row['opp_id'][:12] + '...', 'age_group': '?'})
-            opp_name = opp_info['name'][:38]
+            # Do not truncate opponent name here; rely on the wide column + overflow folding.
+            opp_name = opp_info['name']
             opp_age = opp_info.get('age_group', '?')
 
             gf, ga = int(row['gf']), int(row['ga'])
@@ -306,6 +376,8 @@ async def run_audit():
             color = "green" if diff < 0.01 else "yellow" if diff < 0.03 else "red"
             summary.add_row("Difference:", f"[{color}]{diff:.6f}[/{color}]")
             summary.add_row("", f"[dim](Diff expected due to Power-SOS co-calc, SCF, PageRank dampening)[/dim]")
+            team_audit["database_sos"] = float(actual_sos)
+            team_audit["sos_difference"] = float(diff)
 
         summary.add_row("", "")
         summary.add_row("Total Games:", str(len(g)))
@@ -314,6 +386,8 @@ async def run_audit():
             merged_count = (g['source_team_id'] != team_id).sum()
             summary.add_row("  → From canonical ID:", str(canonical_count))
             summary.add_row("  → From merged IDs:", str(merged_count))
+            team_audit["canonical_games_count"] = int(canonical_count)
+            team_audit["merged_games_count"] = int(merged_count)
         summary.add_row("Games in SOS Calc:", str(len(g_sos)))
         summary.add_row("Games Repeat-Capped:", str(len(g) - len(g_sos)))
         summary.add_row("Unique Opponents:", str(g['opp_id'].nunique()))
@@ -339,6 +413,85 @@ async def run_audit():
 
         console.print(summary)
         console.print()
+
+        # Export: per-game rows
+        if total_weight > 0 and len(g_sos) > 0:
+            # Per-game contribution share that sums to manual_sos across g_sos.
+            g_sos = g_sos.assign(_game_contrib=(g_sos["opp_strength"] * g_sos["w_sos"]) / total_weight)
+            contrib_by_idx = dict(zip(g_sos.index.tolist(), g_sos["_game_contrib"].tolist()))
+        else:
+            contrib_by_idx = {}
+
+        for _, row in g.sort_values("date", ascending=False).iterrows():
+            gf = int(row["gf"])
+            ga = int(row["ga"])
+            if gf > ga:
+                result_plain = "W"
+            elif gf < ga:
+                result_plain = "L"
+            else:
+                result_plain = "D"
+
+            sos_contrib_value = None
+            if bool(row.get("in_sos")):
+                sos_contrib_value = float(contrib_by_idx.get(row.name)) if row.name in contrib_by_idx else None
+
+            games_rows.append({
+                "team_id": team_id,
+                "team_name": team_name,
+                "team_age_group": team_info.get("age_group", "?"),
+                "team_gender": team_info.get("gender", "?"),
+                "team_state_code": team_info.get("state_code", "?"),
+                "game_date": str(row["date"])[:10],
+                "source_team_id": row.get("source_team_id"),
+                "opp_id": row["opp_id"],
+                "opp_name": opp_names.get(row["opp_id"], {}).get("name"),
+                "score_for": gf,
+                "score_against": ga,
+                "result": result_plain,
+                "repeat_rank": int(row["repeat_rank"]) if pd.notna(row.get("repeat_rank")) else None,
+                "in_sos": bool(row.get("in_sos")),
+                "opp_strength": float(row.get("opp_strength", cfg.UNRANKED_SOS_BASE)),
+                "w_sos": float(row.get("w_sos", 0.0)),
+                "sos_contrib": sos_contrib_value,
+            })
+
+        # Export: per-opponent rollup (only games included in SOS calc)
+        if len(g_sos) > 0 and total_weight > 0:
+            opp_rollup_df = (
+                g_sos.assign(_game_contrib=(g_sos["opp_strength"] * g_sos["w_sos"]) / total_weight)
+                .groupby("opp_id")
+                .agg(
+                    opp_strength=("opp_strength", "first"),
+                    games_in_sos=("opp_id", "size"),
+                    total_weight=("w_sos", "sum"),
+                    sos_contrib_sum=("_game_contrib", "sum"),
+                )
+                .reset_index()
+            )
+            opp_rollup_df["opp_name"] = opp_rollup_df["opp_id"].map(
+                lambda o: (opp_names.get(o, {}).get("name") or str(o))
+            )
+            opp_rollup_df["opp_age_group"] = opp_rollup_df["opp_id"].map(
+                lambda o: opp_names.get(o, {}).get("age_group", "?")
+            )
+            opp_rollup_df["sos_contrib_share_of_manual_sos"] = opp_rollup_df["sos_contrib_sum"].apply(
+                lambda x: (float(x) / float(manual_sos)) if manual_sos and manual_sos != 0 else None
+            )
+            opp_rollup_df = opp_rollup_df.sort_values("sos_contrib_sum", ascending=False)
+
+            team_audit["opponents"] = opp_rollup_df.to_dict(orient="records")
+            opponents_rows.extend(opp_rollup_df.assign(team_id=team_id).to_dict(orient="records"))
+
+        audit_summary["teams"].append(team_audit)
+
+    # Write export files once after processing both teams
+    if games_rows:
+        pd.DataFrame(games_rows).to_csv(games_csv_path, index=False, encoding="utf-8")
+    if opponents_rows:
+        pd.DataFrame(opponents_rows).to_csv(opponents_csv_path, index=False, encoding="utf-8")
+    summary_json_path.write_text(json.dumps(audit_summary, indent=2), encoding="utf-8")
+    console.print(f"\n[green]Exported audit files:[/green]\n- {games_csv_path}\n- {opponents_csv_path}\n- {summary_json_path}\n")
 
 
 if __name__ == '__main__':

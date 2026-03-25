@@ -40,22 +40,32 @@ jobs:
           pip install -r requirements.txt
           mkdir -p data/raw/affinity_wa
 
-      - name: Schedule guard (Sunday 11 PM Pacific)
+      - name: Schedule guard (skip the DST-wrong cron)
+        id: guard
         if: ${{ github.event_name == 'schedule' }}
         env:
           TZ: America/Los_Angeles
         run: |
           set -euo pipefail
-          LOCAL_DOW="$(date +%u)"   # 1..7 (Mon..Sun)
-          LOCAL_HOUR="$(date +%H)"  # 00..23
-          echo "Local Pacific time: $(date)"
-          if [ "${LOCAL_DOW}" != "7" ] || [ "${LOCAL_HOUR}" != "23" ]; then
-            echo "Not Sunday 11 PM Pacific; skipping scheduled run."
-            exit 1
-          fi
-          echo "Schedule guard passed."
+          CRON="${{ github.event.schedule }}"
+          ZONE="$(date +%Z)"   # PDT or PST
+          echo "Trigger cron: ${CRON}  |  Current TZ: ${ZONE}  |  Local: $(date)"
 
-      - name: Scrape WA Affinity games (U10-U19, male+female, last N days)
+          # PDT (spring-forward): Sunday 23:00 PDT = Monday 06:00 UTC
+          # PST (fall-back):      Sunday 23:00 PST = Monday 07:00 UTC
+          # Skip the cron that doesn't match the current DST phase.
+          SHOULD_RUN=true
+          if [ "${ZONE}" = "PDT" ] && [ "${CRON}" = "0 7 * * 1" ]; then
+            echo "PDT active — the 07:00 UTC cron is redundant. Skipping."
+            SHOULD_RUN=false
+          elif [ "${ZONE}" = "PST" ] && [ "${CRON}" = "0 6 * * 1" ]; then
+            echo "PST active — the 06:00 UTC cron is redundant. Skipping."
+            SHOULD_RUN=false
+          fi
+          echo "should_run=${SHOULD_RUN}" >> "${GITHUB_OUTPUT}"
+
+      - name: Scrape WA Affinity games (ranked source divisions, male+female, last N days)
+        if: ${{ steps.guard.outputs.should_run != 'false' }}
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
@@ -64,11 +74,13 @@ jobs:
           DAYS_BACK="${{ github.event.inputs.days_back || '7' }}"
           TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
           OUT_DIR="data/raw/affinity_wa"
-          MERGED="${OUT_DIR}/affinity_wa_all_u10_u18_last${DAYS_BACK}d_${TIMESTAMP}.csv"
+          MERGED="${OUT_DIR}/affinity_wa_all_ranked_ages_last${DAYS_BACK}d_${TIMESTAMP}.csv"
 
           tmp_files=()
 
-          for age in 10 11 12 13 14 15 16 17 18; do
+          # Keep both source U18 and U19 divisions in scope; downstream cohorting
+          # treats former U18 teams as part of the merged U19 bucket.
+          for age in 10 11 12 13 14 15 16 17 18 19; do
             for gender in male female; do
               out_file="${OUT_DIR}/affinity_wa_u${age}_${gender}_${TIMESTAMP}.csv"
               echo "Scraping u${age} ${gender}, last ${DAYS_BACK} days -> ${out_file}"
@@ -106,18 +118,18 @@ jobs:
           echo "ROW_COUNT=${ROW_COUNT}" >> "${GITHUB_ENV}"
 
       - name: Upload WA scraper output
-        if: always()
+        if: ${{ always() && steps.guard.outputs.should_run != 'false' }}
         uses: actions/upload-artifact@v4
         with:
           name: wa-scraper-${{ github.run_number }}
           path: |
             data/raw/affinity_wa/affinity_wa_u*_*.csv
-            ${{ env.MERGED_FILE }}
+            data/raw/affinity_wa/affinity_wa_all_*.csv
           retention-days: 30
-          if-no-files-found: error
+          if-no-files-found: warn
 
       - name: Import scraped WA games
-        if: ${{ github.event.inputs.dry_run != 'true' }}
+        if: ${{ steps.guard.outputs.should_run != 'false' && github.event.inputs.dry_run != 'true' }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -137,7 +149,11 @@ jobs:
         if: always()
         run: |
           echo "===================="
-          echo "Affinity WA Scraper completed"
+          if [ "${{ steps.guard.outputs.should_run }}" = "false" ]; then
+            echo "Affinity WA Scraper SKIPPED (redundant DST cron)"
+          else
+            echo "Affinity WA Scraper completed"
+          fi
           echo "===================="
           echo "Days back: ${{ github.event.inputs.days_back || '7' }}"
           echo "Dry run: ${{ github.event.inputs.dry_run || 'false' }}"

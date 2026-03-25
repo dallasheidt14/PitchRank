@@ -28,8 +28,38 @@ ALL_STATES = ['AK', 'AL', 'AR', 'AZ', 'CA', 'CO', 'CT', 'DC', 'DE', 'FL', 'GA', 
               'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VA', 'VT', 'WA', 
               'WI', 'WV', 'WY']
 
-ALL_AGE_GROUPS = ['U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U18', 'U19']
+ALL_AGE_GROUPS = ['U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U19']
 ALL_GENDERS = ['Male', 'Female']
+
+
+def normalize_cohort_age_group(age_group: str) -> str:
+    """Map legacy U18 requests into the merged U19 scan cohort."""
+    age_num = re.sub(r'[^0-9]', '', age_group or '')
+    if not age_num:
+        raise ValueError('age_group must contain digits')
+    if age_num in {'18', '19'}:
+        return 'U19'
+    return f'U{int(age_num)}'
+
+
+def build_age_group_filter(age_group: str) -> str:
+    """Build a Supabase OR clause for cohort fetching."""
+    normalized_age = normalize_cohort_age_group(age_group)
+    if normalized_age == 'U19':
+        values = ('U18', 'u18', 'U19', 'u19')
+    else:
+        values = (normalized_age, normalized_age.lower())
+    return ','.join(f'age_group.eq.{value}' for value in values)
+
+
+def normalize_stored_age_group(age_group: str | None) -> str | None:
+    """Normalize a stored team age_group without merging cohorts."""
+    if not age_group:
+        return None
+    digits = re.sub(r'[^0-9]', '', age_group)
+    if not digits:
+        return None
+    return f'u{int(digits)}'
 
 
 def get_team_division(team_id: str, provider_team_id: str = None) -> str:
@@ -77,13 +107,13 @@ def pick_canonical(teams: list) -> tuple:
 
 def find_duplicates_for_cohort(state: str, gender: str, age_group: str):
     """Find duplicates for a specific cohort."""
-    age_num = age_group.lower().replace('u', '')
+    age_group = normalize_cohort_age_group(age_group)
     
     try:
         teams = supabase.table('teams').select(
-            'team_id_master, team_name, club_name, provider_team_id'
+            'team_id_master, team_name, club_name, provider_team_id, age_group'
         ).eq('state_code', state).eq('gender', gender).eq('is_deprecated', False).or_(
-            f'age_group.eq.{age_num},age_group.eq.u{age_num},age_group.eq.U{age_num}'
+            build_age_group_filter(age_group)
         ).execute()
     except Exception as e:
         return [], 0
@@ -95,12 +125,14 @@ def find_duplicates_for_cohort(state: str, gender: str, age_group: str):
     groups = defaultdict(list)
     for t in teams.data:
         parsed = parse_team_name(t['team_name'], t['club_name'])
-        key = parsed['normalized'] or 'UNPARSED'
+        stored_age = normalize_stored_age_group(t.get('age_group')) or 'unknown_age'
+        key = (parsed['normalized'] or 'UNPARSED', stored_age)
         groups[key].append({
             'id': t['team_id_master'],
             'name': t['team_name'],
             'club': t['club_name'],
-            'provider_team_id': t.get('provider_team_id')
+            'provider_team_id': t.get('provider_team_id'),
+            'age_group': t.get('age_group')
         })
     
     # Find duplicates

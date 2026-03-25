@@ -112,6 +112,36 @@ def _tokens(text: str) -> Set[str]:
     return set(_normalize_text(text).split())
 
 
+def _normalize_cohort_age_group(age_group: Optional[str]) -> Optional[str]:
+    """Map legacy U18/U19 requests into the merged U19 cohort."""
+    if not age_group:
+        return None
+    digits = re.sub(r"[^0-9]", "", str(age_group))
+    if not digits:
+        return None
+    if digits in {"18", "19"}:
+        return "u19"
+    return f"u{int(digits)}"
+
+
+def _age_group_filter_values(age_group: Optional[str]) -> List[str]:
+    """Return exact age_group values that should be included for a filter."""
+    normalized = _normalize_cohort_age_group(age_group)
+    if not normalized:
+        return []
+    if normalized == "u19":
+        return ["u18", "U18", "u19", "U19"]
+    return [normalized, normalized.upper()]
+
+
+def _apply_age_group_filter(query, age_group: Optional[str]):
+    """Apply exact cohort age filtering, including the merged U19 cohort."""
+    values = _age_group_filter_values(age_group)
+    if not values:
+        return query
+    return query.or_(",".join(f"age_group.eq.{value}" for value in values))
+
+
 def _token_coverage(club_name: str, candidate: str) -> float:
     """
     Fraction of meaningful club name tokens that appear in candidate.
@@ -814,9 +844,7 @@ def fetch_teams_to_enrich(
             )
             query = query.eq("gender", g)
         if args.age_group:
-            ag = re.sub(r"[^0-9]", "", args.age_group)
-            if ag:
-                query = query.ilike("age_group", f"%{ag}%")
+            query = _apply_age_group_filter(query, args.age_group)
 
         batch = query.range(offset, offset + page_size - 1).execute().data or []
         if not batch:
@@ -882,8 +910,7 @@ def fetch_top_n_per_cohort_ids(
         if state_filter:
             query = query.eq("state_code", state_filter.upper())
         if age_filter:
-            norm = age_filter.lower().replace("u", "")
-            query = query.eq("age_group", f"u{norm}")
+            query = _apply_age_group_filter(query, age_filter)
         if gender_filter:
             query = query.eq("gender", gender_filter)
         rows = query.range(offset, offset + page_size - 1).execute().data or []
@@ -898,7 +925,7 @@ def fetch_top_n_per_cohort_ids(
         tid = r.get("team_id")
         if not tid or tid in already_done:
             continue
-        age = (r.get("age_group") or "").strip().lower()
+        age = _normalize_cohort_age_group(r.get("age_group"))
         gender = (r.get("gender") or "").strip()
         if not age or not gender:
             continue

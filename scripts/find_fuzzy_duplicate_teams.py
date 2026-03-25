@@ -377,11 +377,39 @@ def pick_canonical_pair(team_a: dict, team_b: dict) -> tuple[dict, dict]:
     return team_b, team_a
 
 
+def _normalize_cohort_age_group(age_group: str) -> str:
+    """Map legacy U18 requests into the merged U19 cohort."""
+    age_num = re.sub(r"[^0-9]", "", age_group or "")
+    if not age_num:
+        raise ValueError("age_group must contain digits")
+    if age_num in {"18", "19"}:
+        return "U19"
+    return f"U{int(age_num)}"
+
+
+def _build_age_group_or_filter(age_group: str) -> str:
+    """Build a Supabase OR filter for a cohort age query."""
+    normalized_age = _normalize_cohort_age_group(age_group)
+    if normalized_age == "U19":
+        values = ("U18", "u18", "U19", "u19")
+    else:
+        values = (normalized_age, normalized_age.lower())
+    return ",".join(f"age_group.eq.{value}" for value in values)
+
+
+def _normalize_stored_age_group(age_group: str | None) -> str | None:
+    """Normalize a stored team age_group without merging cohorts."""
+    if not age_group:
+        return None
+    digits = re.sub(r"[^0-9]", "", age_group)
+    if not digits:
+        return None
+    return f"u{int(digits)}"
+
+
 def fetch_teams(supabase, age_group: str, gender: str, state: str | None = None):
     """Fetch non-deprecated teams for cohort (paginated). age_group: u16/U16, gender: male/female/Male/Female."""
-    age = age_group.strip().upper()
-    if not age.startswith("U"):
-        age = f"U{age}"
+    age = _normalize_cohort_age_group(age_group)
     g = gender.strip().capitalize()
     if g not in ("Male", "Female"):
         raise ValueError("gender must be male or female")
@@ -395,7 +423,7 @@ def fetch_teams(supabase, age_group: str, gender: str, state: str | None = None)
             .select("team_id_master, team_name, club_name, state_code, age_group, gender")
             .eq("is_deprecated", False)
             .ilike("gender", g)
-            .or_(f"age_group.eq.{age},age_group.eq.{age.lower()},age_group.eq.{age.upper()}")
+            .or_(_build_age_group_or_filter(age))
         )
         if state:
             q = q.eq("state_code", state.upper())
@@ -418,6 +446,7 @@ def run_fuzzy_duplicates(
     dry_run: bool = True,
     auto_merge: bool = False,
 ):
+    age_group = _normalize_cohort_age_group(age_group).lower()
     supabase = get_supabase()
     teams = fetch_teams(supabase, age_group, gender, state)
     if not teams:
@@ -438,6 +467,10 @@ def run_fuzzy_duplicates(
         for i in range(n):
             for j in range(i + 1, n):
                 ta, tb = state_teams[i], state_teams[j]
+                # U19 is the umbrella filter, but never merge stored U18 teams
+                # with stored U19 teams.
+                if _normalize_stored_age_group(ta.get("age_group")) != _normalize_stored_age_group(tb.get("age_group")):
+                    continue
                 score = score_team_pair(ta, tb)
                 if score is None or score < min_score:
                     continue

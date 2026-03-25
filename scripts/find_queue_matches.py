@@ -37,6 +37,26 @@ def get_supabase():
     
     return create_client(supabase_url, supabase_key)
 
+
+def normalize_filter_age_group(age_group):
+    """Normalize an age group value without merging U18/U19."""
+    if not age_group:
+        return None
+    digits = re.sub(r'[^0-9]', '', str(age_group))
+    if not digits:
+        return None
+    return f"u{int(digits)}"
+
+
+def build_age_group_filter_clause(age_group):
+    """Build a Supabase OR clause for exact age-group matches."""
+    normalized = normalize_filter_age_group(age_group)
+    if not normalized:
+        return None
+    values = (normalized, normalized.upper())
+    return ','.join(f"age_group.eq.{value}" for value in values)
+
+
 def normalize_team_name(name):
     """Normalize team name for matching."""
     if not name:
@@ -300,7 +320,7 @@ def extract_age_group(name, details):
     # Priority 1: U-age format (U13, U14, etc)
     match = re.search(r'\bu(\d+)\b', name_lower)
     if match:
-        return f"u{match.group(1)}"
+        return normalize_filter_age_group(match.group(1))
 
     # Priority 2: Birth year with gender prefix (G13, B2014, 2013G, etc)
     # G13/B13 = 2013 birth year, G2014/B2014 = 2014 birth year
@@ -309,24 +329,24 @@ def extract_age_group(name, details):
         short_year = int(match.group(1))
         year = 2000 + short_year if short_year < 50 else 1900 + short_year
         age = season_year - year
-        return f"u{age}"
+        return normalize_filter_age_group(age)
 
     match = re.search(r'[bg](20\d{2})', name_lower)  # G2013, B2014 (4-digit)
     if match:
         year = int(match.group(1))
         age = season_year - year
-        return f"u{age}"
+        return normalize_filter_age_group(age)
 
     # Priority 3: Standalone 4-digit birth year
     match = re.search(r'\b(20\d{2})\b', name)
     if match:
         year = int(match.group(1))
         age = season_year - year
-        return f"u{age}"
+        return normalize_filter_age_group(age)
 
     # Fallback: use metadata only if nothing found in name
     if details and details.get('age_group'):
-        return details['age_group'].lower()
+        return normalize_filter_age_group(details['age_group'])
 
     return None
 
@@ -461,7 +481,9 @@ def find_best_match(queue_entry, supabase, teams_cache):
         query = query.ilike('gender', gender)
     
     if age_group:
-        query = query.ilike('age_group', age_group)
+        age_clause = build_age_group_filter_clause(age_group)
+        if age_clause:
+            query = query.or_(age_clause)
     
     # Search by club name first if available
     state_code = None
