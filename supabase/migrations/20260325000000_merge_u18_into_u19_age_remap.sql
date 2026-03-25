@@ -350,17 +350,25 @@ LANGUAGE sql STABLE AS $$
         CROSS JOIN gender_norm gn
         WHERE rf.state_code = UPPER(p_state)
           AND (
+              -- Extract numeric age, remap 18→19 (U18 merged into U19), then compare
               CASE
-                  WHEN rf.age_group ~ '^[0-9]+$' THEN rf.age_group::INTEGER
-                  WHEN rf.age_group ~ '^[uU][0-9]+$' THEN (regexp_replace(rf.age_group, '^[uU]', ''))::INTEGER
-                  WHEN rf.age_group ~ '[0-9]+' THEN (regexp_replace(rf.age_group, '[^0-9]', '', 'g'))::INTEGER
-                  ELSE NULL
+                  WHEN (
+                      CASE
+                          WHEN rf.age_group ~ '^[0-9]+$' THEN rf.age_group::INTEGER
+                          WHEN rf.age_group ~ '^[uU][0-9]+$' THEN (regexp_replace(rf.age_group, '^[uU]', ''))::INTEGER
+                          WHEN rf.age_group ~ '[0-9]+' THEN (regexp_replace(rf.age_group, '[^0-9]', '', 'g'))::INTEGER
+                          ELSE NULL
+                      END
+                  ) = 18 THEN 19
+                  ELSE
+                      CASE
+                          WHEN rf.age_group ~ '^[0-9]+$' THEN rf.age_group::INTEGER
+                          WHEN rf.age_group ~ '^[uU][0-9]+$' THEN (regexp_replace(rf.age_group, '^[uU]', ''))::INTEGER
+                          WHEN rf.age_group ~ '[0-9]+' THEN (regexp_replace(rf.age_group, '[^0-9]', '', 'g'))::INTEGER
+                          ELSE NULL
+                      END
               END
-          ) IN (
-              -- Match both 18 and 19 when target is 19 (U18 merged into U19)
-              SELECT CASE WHEN at.target_age = 19 THEN unnest(ARRAY[18, 19]) ELSE at.target_age END
-              FROM age_target at
-          )
+          ) = (SELECT at.target_age FROM age_target at)
           AND rf.gender = gn.gender_val
           AND rf.status IN ('Active', 'Not Enough Ranked Games')
           AND t.is_deprecated IS NOT TRUE
@@ -434,19 +442,25 @@ RETURNS BIGINT LANGUAGE sql STABLE AS $$
     JOIN teams t ON t.team_id_master = rf.team_id
     WHERE rf.state_code = UPPER(p_state)
       AND (
+          -- Extract numeric age, remap 18→19 (U18 merged into U19), then compare
           CASE
-              WHEN rf.age_group ~ '^[0-9]+$' THEN rf.age_group::INTEGER
-              WHEN rf.age_group ~ '^[uU][0-9]+$' THEN (regexp_replace(rf.age_group, '^[uU]', ''))::INTEGER
-              WHEN rf.age_group ~ '[0-9]+' THEN (regexp_replace(rf.age_group, '[^0-9]', '', 'g'))::INTEGER
-              ELSE NULL
+              WHEN (
+                  CASE
+                      WHEN rf.age_group ~ '^[0-9]+$' THEN rf.age_group::INTEGER
+                      WHEN rf.age_group ~ '^[uU][0-9]+$' THEN (regexp_replace(rf.age_group, '^[uU]', ''))::INTEGER
+                      WHEN rf.age_group ~ '[0-9]+' THEN (regexp_replace(rf.age_group, '[^0-9]', '', 'g'))::INTEGER
+                      ELSE NULL
+                  END
+              ) = 18 THEN 19
+              ELSE
+                  CASE
+                      WHEN rf.age_group ~ '^[0-9]+$' THEN rf.age_group::INTEGER
+                      WHEN rf.age_group ~ '^[uU][0-9]+$' THEN (regexp_replace(rf.age_group, '^[uU]', ''))::INTEGER
+                      WHEN rf.age_group ~ '[0-9]+' THEN (regexp_replace(rf.age_group, '[^0-9]', '', 'g'))::INTEGER
+                      ELSE NULL
+                  END
           END
-      ) IN (
-          -- Match both 18 and 19 when target is 19 (U18 merged into U19)
-          CASE WHEN p_age::INTEGER IN (18, 19) THEN 18
-               ELSE p_age::INTEGER END,
-          CASE WHEN p_age::INTEGER IN (18, 19) THEN 19
-               ELSE p_age::INTEGER END
-      )
+      ) = CASE WHEN p_age::INTEGER = 18 THEN 19 ELSE p_age::INTEGER END
       AND rf.gender = CASE
           WHEN p_gender IN ('M', 'B') THEN 'Male'
           WHEN p_gender IN ('F', 'G') THEN 'Female'
