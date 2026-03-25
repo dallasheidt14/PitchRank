@@ -99,31 +99,34 @@ export function extractAgeFromTeamName(teamName: string | null | undefined): num
  */
 export function normalizeAgeGroup(ageGroup: string | number | null | undefined): number | null {
   if (ageGroup == null) return null;
-  
-  // If already a number, return it
+
+  let age: number | null = null;
+
+  // If already a number, use it directly
   if (typeof ageGroup === 'number') {
-    return ageGroup > 0 && ageGroup < 100 ? ageGroup : null;
+    age = ageGroup > 0 && ageGroup < 100 ? ageGroup : null;
   }
-  
   // Handle "u11" format
-  if (ageGroup.startsWith('u') || ageGroup.startsWith('U')) {
-    const age = parseInt(ageGroup.slice(1), 10);
-    return age > 0 && age < 100 ? age : null;
+  else if (ageGroup.startsWith('u') || ageGroup.startsWith('U')) {
+    const parsed = parseInt(ageGroup.slice(1), 10);
+    age = parsed > 0 && parsed < 100 ? parsed : null;
   }
-  
   // Handle birth year (e.g., "2014")
-  const birthYear = parseInt(ageGroup, 10);
-  if (birthYear > 1900 && birthYear <= new Date().getFullYear()) {
-    const currentYear = new Date().getFullYear();
-    const age = currentYear - birthYear;
-    return age > 0 && age < 100 ? age : null;
+  else {
+    const birthYear = parseInt(ageGroup, 10);
+    if (birthYear > 1900 && birthYear <= new Date().getFullYear()) {
+      const currentYear = new Date().getFullYear();
+      const computed = currentYear - birthYear;
+      age = computed > 0 && computed < 100 ? computed : null;
+    } else {
+      // Try parsing as direct number
+      const directAge = parseInt(ageGroup, 10);
+      age = directAge > 0 && directAge < 100 ? directAge : null;
+    }
   }
-  
-  // Try parsing as direct number
-  const directAge = parseInt(ageGroup, 10);
-  if (directAge > 0 && directAge < 100) {
-    return directAge;
-  }
-  
-  return null;
+
+  // U18 → U19 remap: U19 encompasses both birth years 2007 and 2008
+  if (age === 18) age = 19;
+
+  return age;
 }
