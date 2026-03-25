@@ -8,13 +8,12 @@
 -- What changes:
 --   - rankings_view: age column returns 19 instead of 18 for u18 age_group
 --   - state_rankings_view: inherits from rankings_view (no direct change needed)
---   - get_state_rankings RPC: WHERE clause remaps 18 → 19 for age comparison
+--   - get_state_rankings RPC: WHERE clause matches both 18 and 19 when p_age=19
 --   - get_state_rankings_count RPC: same remap
 --
 -- What does NOT change:
---   - All other columns in the views (power scores, ranks, game counts, etc.)
+--   - All other columns, joins, filters, return types, function signatures
 --   - The rankings_full table itself (age_group column stays 'u18' until next ranking run)
---   - The teams table (age_group stays 'u18' for birth year 2008 teams)
 
 -- =====================================================
 -- Step 1: Drop existing views (state depends on rankings)
@@ -242,13 +241,16 @@ WHERE rv.state IS NOT NULL
 COMMENT ON VIEW state_rankings_view IS 'State rankings view with rank_in_state_final computed among Active/Not Enough Ranked Games teams only. Inherits age 18→19 remap and deprecated team exclusion from rankings_view.';
 
 -- =====================================================
--- Step 4: Update get_state_rankings RPC with age 18→19 remap
+-- Step 4: Update get_state_rankings RPC
+-- Copied from 20260324100000 exactly, only change is WHERE clause age comparison
 -- =====================================================
 
 CREATE OR REPLACE FUNCTION get_state_rankings(
     p_state TEXT,
     p_age TEXT,
-    p_gender TEXT
+    p_gender TEXT,
+    p_limit INT DEFAULT 1000,
+    p_offset INT DEFAULT 0
 )
 RETURNS TABLE (
     team_id_master UUID,
@@ -261,21 +263,21 @@ RETURNS TABLE (
     wins INT,
     losses INT,
     draws INT,
-    total_games_played BIGINT,
-    total_wins BIGINT,
-    total_losses BIGINT,
-    total_draws BIGINT,
+    total_games_played INT,
+    total_wins INT,
+    total_losses INT,
+    total_draws INT,
     win_percentage NUMERIC,
-    power_score_final DOUBLE PRECISION,
-    sos_norm DOUBLE PRECISION,
-    sos_norm_state DOUBLE PRECISION,
-    offense_norm DOUBLE PRECISION,
-    defense_norm DOUBLE PRECISION,
-    perf_centered DOUBLE PRECISION,
-    rank_in_cohort_final BIGINT,
-    rank_in_state INT,
-    sos_rank_national BIGINT,
-    sos_rank_state BIGINT,
+    power_score_final FLOAT8,
+    sos_norm FLOAT8,
+    sos_norm_state FLOAT8,
+    offense_norm FLOAT8,
+    defense_norm FLOAT8,
+    perf_centered FLOAT8,
+    rank_in_cohort_final INT,
+    rank_in_state_final BIGINT,
+    sos_rank_national INT,
+    sos_rank_state INT,
     rank_change_7d INT,
     rank_change_30d INT,
     rank_change_state_7d INT,
@@ -283,56 +285,36 @@ RETURNS TABLE (
     status TEXT,
     last_game TIMESTAMPTZ,
     last_calculated TIMESTAMPTZ
-)
-LANGUAGE sql STABLE AS $$
-    WITH gender_norm AS (
+) LANGUAGE sql STABLE AS $$
+    WITH
+    gender_norm AS (
         SELECT CASE
-            WHEN p_gender IN ('M', 'B', 'male', 'Male', 'boys', 'Boys') THEN 'Male'
-            WHEN p_gender IN ('F', 'G', 'female', 'Female', 'girls', 'Girls') THEN 'Female'
+            WHEN p_gender IN ('M', 'B') THEN 'Male'
+            WHEN p_gender IN ('F', 'G') THEN 'Female'
             ELSE p_gender
         END AS gender_val
-    ),
-    -- Remap age: if caller asks for 19, match both 18 and 19 in the data
-    -- If caller asks for 18, also remap to 19 (U18 no longer exists as standalone)
-    age_target AS (
-        SELECT CASE
-            WHEN p_age::INTEGER IN (18, 19) THEN 19
-            ELSE p_age::INTEGER
-        END AS target_age
     ),
     cohort AS (
         SELECT
             t.team_id_master,
             t.team_name,
             t.club_name,
-            t.state_code,
-            CASE
-                WHEN (
-                    CASE
-                        WHEN rf.age_group ~ '^[0-9]+$' THEN rf.age_group::INTEGER
-                        WHEN rf.age_group ~ '^[uU][0-9]+$' THEN (regexp_replace(rf.age_group, '^[uU]', ''))::INTEGER
-                        WHEN rf.age_group ~ '[0-9]+' THEN (regexp_replace(rf.age_group, '[^0-9]', '', 'g'))::INTEGER
-                        ELSE NULL
-                    END
-                ) = 18 THEN 19
-                ELSE
-                    CASE
-                        WHEN rf.age_group ~ '^[0-9]+$' THEN rf.age_group::INTEGER
-                        WHEN rf.age_group ~ '^[uU][0-9]+$' THEN (regexp_replace(rf.age_group, '^[uU]', ''))::INTEGER
-                        WHEN rf.age_group ~ '[0-9]+' THEN (regexp_replace(rf.age_group, '[^0-9]', '', 'g'))::INTEGER
-                        ELSE NULL
-                    END
-            END AS age,
-            gn.gender_val AS gender,
+            rf.state_code,
+            rf.age_group,
+            rf.gender AS raw_gender,
             COALESCE(rf.games_played, cr.games_played) AS games_played,
             COALESCE(rf.wins, cr.wins) AS wins,
             COALESCE(rf.losses, cr.losses) AS losses,
             COALESCE(rf.draws, cr.draws) AS draws,
+            COALESCE(rf.total_games_played, 0) AS total_games_played,
+            COALESCE(rf.total_wins, 0) AS total_wins,
+            COALESCE(rf.total_losses, 0) AS total_losses,
+            COALESCE(rf.total_draws, 0) AS total_draws,
             rf.power_score_final,
             rf.sos_norm,
             rf.sos_norm_state,
-            rf.off_norm AS offense_norm,
-            rf.def_norm AS defense_norm,
+            rf.off_norm,
+            rf.def_norm,
             rf.perf_centered,
             COALESCE(rf.rank_in_cohort_ml, rf.rank_in_cohort) AS rank_in_cohort_final,
             rf.sos_rank_national,
@@ -344,8 +326,8 @@ LANGUAGE sql STABLE AS $$
             rf.status,
             rf.last_game,
             rf.last_calculated
-        FROM rankings_full rf
-        JOIN teams t ON t.team_id_master = rf.team_id
+        FROM teams t
+        JOIN rankings_full rf ON t.team_id_master = rf.team_id
         LEFT JOIN current_rankings cr ON t.team_id_master = cr.team_id
         CROSS JOIN gender_norm gn
         WHERE rf.state_code = UPPER(p_state)
@@ -368,7 +350,7 @@ LANGUAGE sql STABLE AS $$
                           ELSE NULL
                       END
               END
-          ) = (SELECT at.target_age FROM age_target at)
+          ) = CASE WHEN p_age::INTEGER = 18 THEN 19 ELSE p_age::INTEGER END
           AND rf.gender = gn.gender_val
           AND rf.status IN ('Active', 'Not Enough Ranked Games')
           AND t.is_deprecated IS NOT TRUE
@@ -386,49 +368,62 @@ LANGUAGE sql STABLE AS $$
         c.team_name,
         c.club_name,
         c.state_code AS state,
-        (SELECT at.target_age FROM age_target at)::INT AS age,
-        c.gender::TEXT,
+        CASE WHEN p_age::INTEGER = 18 THEN 19 ELSE p_age::INTEGER END AS age,
+        CASE
+            WHEN c.raw_gender = 'Male' THEN 'M'
+            WHEN c.raw_gender = 'Female' THEN 'F'
+            WHEN c.raw_gender = 'Boys' THEN 'M'
+            WHEN c.raw_gender = 'Girls' THEN 'F'
+            WHEN c.raw_gender = 'M' THEN 'M'
+            WHEN c.raw_gender = 'F' THEN 'F'
+            ELSE c.raw_gender
+        END AS gender,
         c.games_played,
         c.wins,
         c.losses,
         c.draws,
-        -- Total game stats from precomputed columns
-        COALESCE(tgs.total_games_played, 0)::BIGINT AS total_games_played,
-        COALESCE(tgs.total_wins, 0)::BIGINT AS total_wins,
-        COALESCE(tgs.total_losses, 0)::BIGINT AS total_losses,
-        COALESCE(tgs.total_draws, 0)::BIGINT AS total_draws,
-        COALESCE(tgs.win_percentage, 0)::NUMERIC AS win_percentage,
+        c.total_games_played,
+        c.total_wins,
+        c.total_losses,
+        c.total_draws,
+        CASE
+            WHEN c.total_games_played > 0
+            THEN ((c.total_wins::NUMERIC + c.total_draws::NUMERIC * 0.5)
+                  / c.total_games_played::NUMERIC) * 100
+            ELSE NULL
+        END AS win_percentage,
         c.power_score_final,
         c.sos_norm,
         c.sos_norm_state,
-        c.offense_norm,
-        c.defense_norm,
+        c.off_norm AS offense_norm,
+        c.def_norm AS defense_norm,
         c.perf_centered,
-        c.rank_in_cohort_final::BIGINT,
-        COALESCE(ar.rank_in_state, 0)::INT AS rank_in_state,
-        c.sos_rank_national::BIGINT,
-        c.sos_rank_state::BIGINT,
-        c.rank_change_7d::INT,
-        c.rank_change_30d::INT,
-        c.rank_change_state_7d::INT,
-        c.rank_change_state_30d::INT,
-        c.status::TEXT,
+        c.rank_in_cohort_final,
+        ar.rank_in_state AS rank_in_state_final,
+        c.sos_rank_national,
+        c.sos_rank_state,
+        c.rank_change_7d,
+        c.rank_change_30d,
+        c.rank_change_state_7d,
+        c.rank_change_state_30d,
+        c.status,
         c.last_game,
         c.last_calculated
     FROM cohort c
     LEFT JOIN active_ranked ar ON c.team_id_master = ar.team_id_master
-    LEFT JOIN teams tgs ON c.team_id_master = tgs.team_id_master
-    ORDER BY c.power_score_final DESC;
+    ORDER BY c.power_score_final DESC
+    LIMIT p_limit
+    OFFSET p_offset;
 $$;
 
 COMMENT ON FUNCTION get_state_rankings IS
   'State rankings RPC with age 18→19 remap (U19 encompasses birth years 2007+2008). '
   'Returns teams in a (state, age, gender) cohort with rank_in_state. '
   'Age normalization handles 12, u12, U12 formats via regex. '
-  'Matches both age 18 and 19 when queried for U19.';
+  'Copied from 20260324100000 with only the age WHERE clause changed.';
 
 -- =====================================================
--- Step 5: Update get_state_rankings_count RPC with same remap
+-- Step 5: Update get_state_rankings_count RPC
 -- =====================================================
 
 CREATE OR REPLACE FUNCTION get_state_rankings_count(
@@ -472,12 +467,15 @@ RETURNS BIGINT LANGUAGE sql STABLE AS $$
 $$;
 
 COMMENT ON FUNCTION get_state_rankings_count IS
-  'Fast count of teams in a (state, age, gender) cohort with age 18→19 remap. '
-  'Matches both age 18 and 19 when queried for U19.';
+  'Fast count with age 18→19 remap. Matches get_state_rankings filters.';
 
 -- =====================================================
--- Step 6: Grant SELECT permissions
+-- Step 6: Grant permissions
 -- =====================================================
 
 GRANT SELECT ON rankings_view TO anon, authenticated;
 GRANT SELECT ON state_rankings_view TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION get_state_rankings(TEXT, TEXT, TEXT, INT, INT) TO anon;
+GRANT EXECUTE ON FUNCTION get_state_rankings(TEXT, TEXT, TEXT, INT, INT) TO authenticated;
+GRANT EXECUTE ON FUNCTION get_state_rankings_count(TEXT, TEXT, TEXT) TO anon;
+GRANT EXECUTE ON FUNCTION get_state_rankings_count(TEXT, TEXT, TEXT) TO authenticated;
