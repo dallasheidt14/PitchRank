@@ -731,10 +731,10 @@ def _adjust_for_opponent_strength(
     if baseline is None:
         baseline = cfg.OPPONENT_ADJUST_BASELINE
 
-    # Get opponent strength for each game
+    # Get opponent strength for each game, floor at UNRANKED_SOS_BASE to prevent division by zero
     g["opp_strength"] = g["opp_id"].map(
         lambda o: strength_map.get(o, cfg.UNRANKED_SOS_BASE)
-    )
+    ).clip(lower=cfg.UNRANKED_SOS_BASE)
 
     # Calculate adjustment multipliers
     # Offense: score against strong opponent = more credit
@@ -1021,8 +1021,9 @@ def compute_rankings(
         logger.info("🔄 Applying opponent-adjusted offense/defense to fix double-counting...")
 
         # Calculate the actual mean strength to use as baseline (instead of hardcoded 0.5)
+        # Floor at UNRANKED_SOS_BASE to prevent division by zero in opponent adjustment
         strength_values = list(strength_map.values())
-        actual_mean_strength = np.mean(strength_values) if strength_values else 0.5
+        actual_mean_strength = max(np.mean(strength_values) if strength_values else 0.5, cfg.UNRANKED_SOS_BASE)
         logger.info(f"📊 Strength distribution: mean={actual_mean_strength:.3f}, "
                    f"min={min(strength_values):.3f}, max={max(strength_values):.3f}")
 
@@ -1700,15 +1701,10 @@ def compute_rankings(
                 sos_norm_values = team['sos_norm'].values
                 team['sos_norm'] = 0.5 + comp_shrink * (sos_norm_values - 0.5)
 
-            # Step 6: Apply low-sample shrinkage (vectorized) - LINEAR toward anchor
-            low_sample_mask = gps < cfg.MIN_GAMES_FOR_TOP_SOS
-            shrink_factor = np.clip(gps / cfg.MIN_GAMES_FOR_TOP_SOS, 0.0, 1.0)
-            sos_norm_values = team['sos_norm'].values.copy()
-            anchor = cfg.SOS_SHRINKAGE_ANCHOR
-            sos_norm_values[low_sample_mask] = (
-                anchor + shrink_factor[low_sample_mask] * (sos_norm_values[low_sample_mask] - anchor)
-            )
-            team['sos_norm'] = sos_norm_values
+            # Step 6: Low-sample shrinkage is intentionally NOT re-applied here.
+            # It was already applied once during initial SOS normalization (lines ~1487-1495).
+            # Re-applying would compound the shrinkage factor exponentially per iteration,
+            # e.g., shrink_factor^(k+1) instead of shrink_factor^1 after k iterations.
 
             # Step 7: Recalculate power score with new SOS (vectorized)
             sos_norm_arr = team['sos_norm'].values
@@ -1833,6 +1829,11 @@ def compute_rankings(
         if col in team.columns:
             keep_cols.append(col)
     teams = team[keep_cols].copy()
+
+    # === Clamp PowerScore to [0.0, 1.0] (spec requirement) ===
+    teams["powerscore_adj"] = teams["powerscore_adj"].clip(0.0, 1.0)
+    if "powerscore_core" in teams.columns:
+        teams["powerscore_core"] = teams["powerscore_core"].clip(0.0, 1.0)
 
     # === Restore legacy frontend fields ===
     # Map powerscore_adj to power_score_final

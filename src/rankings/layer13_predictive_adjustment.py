@@ -39,7 +39,7 @@ class Layer13Config:
     min_training_rows: int = 30            # Minimum rows to enable ML (prevents leakage)
     
     # blend into PowerScore
-    alpha: float = 0.10                    # Reduced from 0.18 to let v53e SOS weighting drive rankings (0.05–0.25 range)
+    alpha: float = 0.10                    # Default 0.10; calculator.py overrides to 0.15 in production
     norm_mode: str = "percentile"          # or "zscore"
     
     # supabase
@@ -416,22 +416,20 @@ async def apply_predictive_adjustment(
     out["ml_overperf"] = out["ml_overperf"].fillna(0.0).clip(
         lower=-cfg.residual_clip_goals, upper=cfg.residual_clip_goals
     )
-    out["ml_norm"] = _normalize_by_cohort(
+    normalized = _normalize_by_cohort(
         out, value_col="ml_overperf", out_col="__tmp__", mode=cfg.norm_mode,
         cohort_cols=list(cfg.cohort_key_cols)
-    )["__tmp__"].values - 0.5
+    )
+    # Use .reindex() to align by index, not positional order (groupby may reorder rows)
+    out["ml_norm"] = normalized["__tmp__"].reindex(out.index).values - 0.5
     
     # 6) Blend into PowerScore and rerank
     #
-    # IMPORTANT: ml_norm ranges [-0.5, +0.5], so the theoretical max addition is
-    # alpha * 0.5 = 0.075 (with default alpha=0.15). To prevent ceiling clipping
-    # that would cluster top teams at 1.0, we normalize the blended score.
-    #
-    # Max theoretical = 1.0 + 0.5 * alpha = 1.075 (with alpha=0.15)
-    MAX_ML_THEORETICAL = 1.0 + 0.5 * cfg.alpha
-
-    out["powerscore_ml"] = (out[base_power_col] + cfg.alpha * out["ml_norm"]) / MAX_ML_THEORETICAL
-    # Safety clamp (shouldn't trigger after normalization, but keeps bounds valid)
+    # Formula: powerscore_ml = powerscore_adj + α * ml_norm
+    # ml_norm ranges [-0.5, +0.5], so max adjustment is ±(alpha * 0.5).
+    # With alpha=0.15 this means ±0.075 — well within [0, 1] for valid base scores.
+    # We clamp afterward to guarantee bounds without compressing the score range.
+    out["powerscore_ml"] = out[base_power_col] + cfg.alpha * out["ml_norm"]
     out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
     out["rank_in_cohort_ml"] = _rank_active_only(out, cfg.cohort_key_cols, "powerscore_ml")
 
@@ -602,7 +600,10 @@ def _fit_and_residualize(feats: pd.DataFrame, train_feats: pd.DataFrame, cfg: La
     out = feats.copy()
     out["pred_margin"] = y_pred.astype(float)
     out["residual"] = (out["goal_margin"] - out["pred_margin"]).astype(float)
-    
+    # Clip per-game residuals before aggregation to prevent blowout games
+    # from dominating the team-level weighted average
+    out["residual"] = out["residual"].clip(lower=-cfg.residual_clip_goals, upper=cfg.residual_clip_goals)
+
     return out
 
 
@@ -625,7 +626,7 @@ def _aggregate_team_residuals(feats: pd.DataFrame, cfg: Layer13Config) -> pd.Dat
         return float(np.average(group_df["residual"].values, weights=w))
 
     # Use pd.concat + list comprehension (pandas 3.0 compat: groupby().apply() drops group keys)
-    agg = pd.concat([
+    parts = [
         pd.DataFrame({
             team_id_col: [grp[team_id_col].iloc[0]],
             age_col: [grp[age_col].iloc[0]],
@@ -633,7 +634,10 @@ def _aggregate_team_residuals(feats: pd.DataFrame, cfg: Layer13Config) -> pd.Dat
             "ml_overperf": [compute_group_wavg(grp)]
         })
         for _, grp in df.groupby([team_id_col, age_col, gender_col])
-    ]).reset_index(drop=True)
+    ]
+    if not parts:
+        return pd.DataFrame(columns=["team_id", "age", "gender", "ml_overperf"])
+    agg = pd.concat(parts).reset_index(drop=True)
     
     # require a minimum number of games to avoid yo-yo
     counts = df.groupby([team_id_col, age_col, gender_col], as_index=False)["residual"].count() \
@@ -669,7 +673,11 @@ def _normalize_by_cohort(
                 z = (s - s.mean()) / sd
                 g[out_col] = 1.0 / (1.0 + np.exp(-z))  # sigmoid
         else:
-            g[out_col] = s.rank(method="average", pct=True).astype(float) if len(s) else 0.5
+            # Singleton cohort: no meaningful percentile rank, use neutral 0.5
+            if len(s) < 2:
+                g[out_col] = 0.5
+            else:
+                g[out_col] = s.rank(method="average", pct=True).astype(float)
         parts.append(g)
     return pd.concat(parts, axis=0)
 
