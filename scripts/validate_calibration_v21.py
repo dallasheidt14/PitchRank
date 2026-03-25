@@ -180,7 +180,7 @@ def test_margin_calibration():
     print("-" * 45)
 
     all_aligned = True
-    for age in ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18']:
+    for age in ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u19']:
         margin_v2 = margin_params['age_groups'].get(age, {}).get('margin_mult', 'N/A')
         age_param = age_params.get(age, {}).get('margin_mult', 'N/A')
 

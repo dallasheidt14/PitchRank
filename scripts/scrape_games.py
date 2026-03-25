@@ -381,7 +381,7 @@ async def scrape_games(
         teams = teams[:limit_teams]
         console.print(f"[cyan]Limiting to {limit_teams} teams[/cyan]")
 
-    console.print(f"[bold cyan]Scraping games for {len(teams)} teams (of {total_eligible} eligible, {skipped_count} U8/U9/U19 filtered)[/bold cyan]")
+    console.print(f"[bold cyan]Scraping games for {len(teams)} teams (of {total_eligible} eligible, {skipped_count} out-of-range filtered)[/bold cyan]")
     console.print(f"[cyan]Concurrency: {concurrency} teams at once[/cyan]")
     if since_date:
         console.print(f"[cyan]Using override since_date: {since_date}[/cyan]\n")
