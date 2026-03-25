@@ -804,7 +804,18 @@ class EnhancedETLPipeline:
                         f"(batch accepted: {inserted_count})"
                     )
                 
-                # Step 5b: Update last_scraped_at for teams based on imported games
+                # Step 5b: Propagate exclusions — auto-exclude newly inserted games
+                # that match previously excluded games (same date + master teams + scores).
+                # This prevents excluded tournament games from reappearing when re-scraped
+                # from a different perspective (event scraper vs team scraper).
+                excluded_count = await self._propagate_exclusions_to_new_games(valid_game_records)
+                if excluded_count > 0:
+                    logger.info(
+                        f"[Pipeline] Auto-excluded {excluded_count} newly inserted game(s) "
+                        f"matching previously excluded games"
+                    )
+
+                # Step 5c: Update last_scraped_at for teams based on imported games
                 await self._update_team_scrape_dates(valid_game_records)
             elif self.dry_run:
                 batch_metrics.games_accepted = len(valid_game_records)
@@ -1469,7 +1480,127 @@ class EnhancedETLPipeline:
                 continue
         
         return updated_count
-    
+
+    async def _propagate_exclusions_to_new_games(self, game_records: List[Dict]) -> int:
+        """
+        Auto-exclude newly inserted games that match previously excluded games.
+
+        After bulk insert, check if any of the newly inserted games have a
+        matching excluded game in the DB (same date, same sorted master team
+        pair, same scores). If so, mark the new game as excluded too.
+
+        This prevents excluded tournament games from reappearing when
+        re-scraped from a different perspective (event scraper vs team scraper).
+
+        Returns:
+            Number of newly inserted games that were auto-excluded.
+        """
+        if not game_records:
+            return 0
+
+        def _safe_int(val):
+            if val is None:
+                return None
+            try:
+                return int(float(val))
+            except (ValueError, TypeError):
+                return None
+
+        excluded_count = 0
+
+        # Group by date for efficient querying
+        games_by_date: Dict[str, List[Dict]] = {}
+        for game in game_records:
+            game_date = game.get('game_date', '')
+            home_master = game.get('home_team_master_id')
+            away_master = game.get('away_team_master_id')
+            if not game_date or not home_master or not away_master:
+                continue
+            if game_date not in games_by_date:
+                games_by_date[game_date] = []
+            games_by_date[game_date].append(game)
+
+        if not games_by_date:
+            return 0
+
+        for game_date, incoming_games in games_by_date.items():
+            try:
+                # Query for excluded games on this date involving any of these teams
+                master_ids = set()
+                for g in incoming_games:
+                    master_ids.add(g['home_team_master_id'])
+                    master_ids.add(g['away_team_master_id'])
+
+                or_filter = ','.join(
+                    f'home_team_master_id.eq.{mid},away_team_master_id.eq.{mid}'
+                    for mid in master_ids
+                )
+
+                result = self.supabase.table('games').select(
+                    'home_team_master_id, away_team_master_id, home_score, away_score'
+                ).eq('game_date', game_date).eq(
+                    'is_excluded', True
+                ).or_(or_filter).execute()
+
+                if not result.data:
+                    continue
+
+                # Build set of excluded master-level keys
+                excluded_keys = set()
+                for row in result.data:
+                    h = row.get('home_team_master_id')
+                    a = row.get('away_team_master_id')
+                    hs = _safe_int(row.get('home_score'))
+                    as_ = _safe_int(row.get('away_score'))
+                    if h and a:
+                        sorted_ids = tuple(sorted([h, a]))
+                        if sorted_ids[0] == h:
+                            excluded_keys.add((sorted_ids[0], sorted_ids[1], hs, as_))
+                        else:
+                            excluded_keys.add((sorted_ids[0], sorted_ids[1], as_, hs))
+
+                if not excluded_keys:
+                    continue
+
+                # Check each incoming game against excluded keys
+                for game in incoming_games:
+                    h = game.get('home_team_master_id')
+                    a = game.get('away_team_master_id')
+                    hs = _safe_int(game.get('home_score'))
+                    as_ = _safe_int(game.get('away_score'))
+
+                    sorted_ids = tuple(sorted([h, a]))
+                    if sorted_ids[0] == h:
+                        key = (sorted_ids[0], sorted_ids[1], hs, as_)
+                    else:
+                        key = (sorted_ids[0], sorted_ids[1], as_, hs)
+
+                    if key in excluded_keys:
+                        game_uid = game.get('game_uid', 'N/A')
+                        try:
+                            self.supabase.table('games').update(
+                                {'is_excluded': True}
+                            ).eq('game_uid', game_uid).eq(
+                                'is_excluded', False
+                            ).execute()
+                            excluded_count += 1
+                            logger.info(
+                                f"[Pipeline] Auto-excluded game {game_uid} on {game_date}: "
+                                f"matches previously excluded game "
+                                f"({h[:8]}.. vs {a[:8]}.. score {hs}-{as_})"
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"[Pipeline] Failed to auto-exclude game {game_uid}: {e}"
+                            )
+
+            except Exception as e:
+                logger.warning(
+                    f"[Pipeline] Error in exclusion propagation for date {game_date}: {e}"
+                )
+
+        return excluded_count
+
     async def _bulk_insert_games(self, game_records: List[Dict]) -> int:
         """Bulk insert games using Supabase batch operations"""
         if not game_records:
