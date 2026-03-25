@@ -1701,10 +1701,17 @@ def compute_rankings(
                 sos_norm_values = team['sos_norm'].values
                 team['sos_norm'] = 0.5 + comp_shrink * (sos_norm_values - 0.5)
 
-            # Step 6: Low-sample shrinkage is intentionally NOT re-applied here.
-            # It was already applied once during initial SOS normalization (lines ~1487-1495).
-            # Re-applying would compound the shrinkage factor exponentially per iteration,
-            # e.g., shrink_factor^(k+1) instead of shrink_factor^1 after k iterations.
+            # Step 6: Apply low-sample shrinkage (vectorized) - LINEAR toward anchor
+            # NOTE: This is NOT compounding — each iteration recalculates sos_norm fresh
+            # from scratch (step 5 above), so this shrinks a fresh value each time.
+            low_sample_mask = gps < cfg.MIN_GAMES_FOR_TOP_SOS
+            shrink_factor = np.clip(gps / cfg.MIN_GAMES_FOR_TOP_SOS, 0.0, 1.0)
+            sos_norm_values = team['sos_norm'].values.copy()
+            anchor = cfg.SOS_SHRINKAGE_ANCHOR
+            sos_norm_values[low_sample_mask] = (
+                anchor + shrink_factor[low_sample_mask] * (sos_norm_values[low_sample_mask] - anchor)
+            )
+            team['sos_norm'] = sos_norm_values
 
             # Step 7: Recalculate power score with new SOS (vectorized)
             sos_norm_arr = team['sos_norm'].values

@@ -675,7 +675,7 @@ def v53e_to_rankings_full_format(
     # ALWAYS derive age_group from the actual 'age' field used in ranking calculation
     # This ensures teams are ranked in the age group they actually played in, not their registration
     if 'age' in rankings_df.columns:
-        rankings_df['age_group'] = rankings_df['age'].apply(lambda x: f"U{int(float(x))}" if pd.notna(x) and str(x).strip() else None)
+        rankings_df['age_group'] = rankings_df['age'].apply(lambda x: f"u{int(float(x))}" if pd.notna(x) and str(x).strip() else None)
         # Create numeric age column for anchor scaling
         rankings_df['age_num'] = pd.to_numeric(rankings_df['age'], errors='coerce').fillna(0).astype(int)
     

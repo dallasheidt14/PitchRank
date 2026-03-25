@@ -55,7 +55,7 @@ async def save_ranking_snapshot(
     if 'age_group' not in df.columns or df['age_group'].isna().all():
         if 'age' in df.columns:
             df['age_group'] = df['age'].apply(
-                lambda x: f"U{int(float(x))}" if pd.notna(x) else ""
+                lambda x: f"u{int(float(x))}" if pd.notna(x) else ""
             )
 
     # Calculate state ranks within each (state_code, age_group, gender) cohort
@@ -93,7 +93,7 @@ async def save_ranking_snapshot(
         if not age_group:
             age_val = row.get("age")
             if pd.notna(age_val):
-                age_group = f"U{int(float(age_val))}"
+                age_group = f"u{int(float(age_val))}"
 
         record = {
             "snapshot_date": snapshot_date.isoformat(),
@@ -455,7 +455,7 @@ async def calculate_rank_changes(
         if 'age_group' not in df.columns or df['age_group'].isna().all():
             if 'age' in df.columns:
                 df['age_group'] = df['age'].apply(
-                    lambda x: f"U{int(float(x))}" if pd.notna(x) else ""
+                    lambda x: f"u{int(float(x))}" if pd.notna(x) else ""
                 )
 
         # Use ML score if available, otherwise fall back to power_score_final
