@@ -1004,8 +1004,8 @@ def compute_rankings(
         15: 0.775,
         16: 0.850,
         17: 0.925,
-        18: 1.000,
-        19: 1.000,  # U19 same as U18
+        18: 1.000,  # Legacy: kept for safety if u18 data reaches v53e unremappe
+        19: 1.000,  # U19 encompasses birth years 2007+2008 (formerly U18+U19)
     }
 
     def compute_anchor(age_val):

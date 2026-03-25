@@ -53,7 +53,7 @@ export function Footer() {
   ];
 
   // Age groups for internal linking
-  const ageGroups = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'u19'];
+  const ageGroups = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u19'];
 
   const footerLinks = {
     Rankings: [

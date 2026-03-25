@@ -87,12 +87,21 @@ def safe_int(val):
 #  Normalize Age Group -> Age
 # --------------------------------------------------------------------
 def age_group_to_age(age_group: str) -> str:
-    """Normalize 'U12', 'u11', '11.0' → '12', '11'"""
+    """Normalize 'U12', 'u11', '11.0' → '12', '11'
+
+    Note: U18 is remapped to 19 — U19 encompasses both birth years 2007 and 2008.
+    """
     if not age_group:
         return ""
     s = str(age_group).strip().lower().lstrip("u")
     match = re.search(r"\d+", s)
-    return str(int(float(match.group()))) if match else ""
+    if not match:
+        return ""
+    age = int(float(match.group()))
+    # U18 → U19: U19 encompasses both birth years 2007 and 2008
+    if age == 18:
+        age = 19
+    return str(age)
 
 
 async def fetch_games_for_rankings(
