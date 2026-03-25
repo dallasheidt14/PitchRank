@@ -20,7 +20,7 @@ const methodologyPoints: MethodologyPoint[] = [
   {
     icon: <Layers className="h-6 w-6" />,
     title: 'Cross-Age Intelligence',
-    description: 'Unified rankings across U10-U18',
+    description: 'Unified rankings across U10-U19',
     detail: 'Age-anchored power scaling lets us fairly evaluate cross-age matchups. When U13 plays U14, both teams get proper credit.',
   },
   {

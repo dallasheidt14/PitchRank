@@ -7,7 +7,7 @@ interface RelatedRankingsProps {
   currentGender: string;
 }
 
-const AGE_GROUPS = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18'];
+const AGE_GROUPS = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'u19'];
 
 /**
  * Internal linking component for SEO

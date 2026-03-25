@@ -2,7 +2,7 @@
 > Data-powered youth soccer team rankings and performance analytics
 
 ## About
-PitchRank provides the most accurate youth soccer rankings in the United States, covering U10-U18 boys and girls teams across all 50 states.
+PitchRank provides the most accurate youth soccer rankings in the United States, covering U10-U19 boys and girls teams across all 50 states.
 
 ## Key Pages
 - [Rankings](https://pitchrank.io/rankings): Browse national and state-level rankings
@@ -12,5 +12,5 @@ PitchRank provides the most accurate youth soccer rankings in the United States,
 ## Data
 - Rankings updated daily
 - Covers 50 states + national rankings
-- Age groups: U10 through U18
+- Age groups: U10 through U19
 - Both boys and girls divisions

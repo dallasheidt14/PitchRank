@@ -471,7 +471,7 @@ async def compute_all_cohorts(
     # unsupported age groups (u9, u19–u21). Based on production data:
     #   u0: 3 teams, u3–u7: 54 teams, u8–u9: 2,373 teams, u20–u21: 39 teams
     VALID_AGE_MIN = 10
-    VALID_AGE_MAX = 18
+    VALID_AGE_MAX = 19
     games_df["_age_num"] = pd.to_numeric(games_df["age"], errors="coerce")
     invalid_age_mask = (
         games_df["_age_num"].isna()

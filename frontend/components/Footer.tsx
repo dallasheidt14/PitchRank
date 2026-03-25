@@ -53,7 +53,7 @@ export function Footer() {
   ];
 
   // Age groups for internal linking
-  const ageGroups = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18'];
+  const ageGroups = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'u19'];
 
   const footerLinks = {
     Rankings: [
@@ -82,7 +82,7 @@ export function Footer() {
             </Link>
             <p className="text-sm text-muted-foreground mb-4 max-w-md">
               Data-powered youth soccer team rankings and performance analytics.
-              Compare U10-U18 boys and girls teams nationally and across all 50 states.
+              Compare U10-U19 boys and girls teams nationally and across all 50 states.
             </p>
 
             {/* Social Media Links */}

@@ -136,9 +136,9 @@ def get_top_teams(conn, limit: int = 2000, state: Optional[str] = None,
     """
     cur = conn.cursor()
     
-    # Valid age groups: U10-U18 only (no U8, U9, U19+)
-    valid_age_groups = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18',
-                        'U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U18']
+    # Valid age groups: U10-U19 only (no U8, U9, U20+)
+    valid_age_groups = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'u19',
+                        'U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U18', 'U19']
     
     params = []
     
@@ -177,7 +177,7 @@ def get_top_teams(conn, limit: int = 2000, state: Optional[str] = None,
                 AND cr.national_rank IS NOT NULL
                 AND t.state_code IS NOT NULL
                 {state_filter}
-                AND t.age_group IN ('u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U18')
+                AND t.age_group IN ('u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'u19', 'U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U18', 'U19')
                 ORDER BY cr.team_id, cr.national_rank
             ),
             ranked_by_state_group AS (
@@ -219,7 +219,7 @@ def get_top_teams(conn, limit: int = 2000, state: Optional[str] = None,
                 WHERE g.home_provider_id IS NOT NULL
                 AND LENGTH(g.home_provider_id) <= 10
                 AND cr.national_rank IS NOT NULL
-                AND t.age_group IN ('u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U18')
+                AND t.age_group IN ('u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'u19', 'U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U18', 'U19')
         '''
         
         if state:

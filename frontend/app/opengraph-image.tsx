@@ -61,7 +61,7 @@ export default async function Image() {
             }}
           >
             Data-powered team rankings and performance analytics.
-            U10–U18 Boys & Girls across all 50 states.
+            U10–U19 Boys & Girls across all 50 states.
           </div>
         </div>
         <div

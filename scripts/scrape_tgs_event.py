@@ -95,13 +95,13 @@ def extract_year(division_name: str) -> Optional[int]:
     """Extract birth year from division name (e.g., 'B2012' -> 2012).
 
     Only returns years in the valid range for tracked age groups:
-    - U10-U18 corresponds to birth years 2008-2016 (for 2026 season)
+    - U10-U19 corresponds to birth years 2007-2016 (for 2026 season)
     """
     match = re.search(r'(\d{4})', division_name)
     if match:
         year = int(match.group(1))
-        # Only accept birth years 2008-2016 (U18-U10 for 2026 season)
-        if 2008 <= year <= 2016:
+        # Only accept birth years 2007-2016 (U19-U10 for 2026 season)
+        if 2007 <= year <= 2016:
             return year
     return None
 

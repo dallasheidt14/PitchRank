@@ -103,7 +103,7 @@ export default async function Image() {
               lineHeight: 1.5,
             }}
           >
-            U10–U18 Boys & Girls · National & State Rankings · Updated Weekly
+            U10–U19 Boys & Girls · National & State Rankings · Updated Weekly
           </div>
         </div>
         <div
