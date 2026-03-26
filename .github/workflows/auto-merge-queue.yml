@@ -81,14 +81,15 @@ jobs:
           # Run the script and capture output
           python3 find_queue_matches.py --limit "$LIMIT" $EXECUTE_FLAG 2>&1 | tee ../auto-merge-output.log
           
-          # Extract merge count from output
-          EXACT=$(grep "EXACT (95%+):" ../auto-merge-output.log | grep -oP '\d+(?=\s*-)' || echo "0")
-          HIGH=$(grep "HIGH (90-94%):" ../auto-merge-output.log | grep -oP '\d+(?=\s*-)' || echo "0")
-          MERGED=$(grep "Approved:" ../auto-merge-output.log | grep -oP '\d+(?=,)' || echo "0")
-          
-          echo "exact_matches=$EXACT" >> $GITHUB_OUTPUT
-          echo "high_matches=$HIGH" >> $GITHUB_OUTPUT
-          echo "teams_merged=$MERGED" >> $GITHUB_OUTPUT
+          # Extract merge count from output (ensure clean integers for GITHUB_OUTPUT)
+          EXACT=$(grep "EXACT (95%+):" ../auto-merge-output.log | grep -oP '\d+(?=\s*-)' | head -1 || true)
+          HIGH=$(grep "HIGH (90-94%):" ../auto-merge-output.log | grep -oP '\d+(?=\s*-)' | head -1 || true)
+          MERGED=$(grep "Approved:" ../auto-merge-output.log | grep -oP '\d+(?=,)' | head -1 || true)
+
+          # Default to 0 if empty and write as proper key=value
+          echo "exact_matches=${EXACT:-0}" >> "$GITHUB_OUTPUT"
+          echo "high_matches=${HIGH:-0}" >> "$GITHUB_OUTPUT"
+          echo "teams_merged=${MERGED:-0}" >> "$GITHUB_OUTPUT"
 
       - name: Upload logs
         if: always()
