@@ -1125,12 +1125,11 @@ def compute_rankings(
     # than over-represented in a 30-game window.
     #
     # Pipeline for g_365:
-    #   recency weights → context multipliers → w_game → adaptive K → w_sos
+    #   recency weights → w_game → adaptive K → w_sos
     g_365 = pd.concat(
         [apply_recency(grp) for _, grp in g_365.groupby("team_id")]
     ).reset_index(drop=True)
-    g_365["w_context"] = g_365.apply(context_mult, axis=1)
-    g_365["w_game"] = g_365["w_base"] * g_365["w_context"]
+    g_365["w_game"] = g_365["w_base"]
     g_365["k_adapt"] = g_365.apply(adaptive_k, axis=1)
     g_365["w_sos"] = g_365["w_game"] * g_365["k_adapt"]
 
