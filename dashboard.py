@@ -425,16 +425,6 @@ if section == "🎯 Ranking Engine & ML":
             "games"
         )
         param_info(
-            "TOURNAMENT_KO_MULT",
-            RANKING_CONFIG['tournament_ko_mult'],
-            "Multiplier for knockout tournament games"
-        )
-        param_info(
-            "SEMIS_FINALS_MULT",
-            RANKING_CONFIG['semis_finals_mult'],
-            "Multiplier for semifinals and finals"
-        )
-        param_info(
             "ANCHOR_PERCENTILE",
             RANKING_CONFIG['anchor_percentile'],
             "Percentile for cross-age group anchoring"

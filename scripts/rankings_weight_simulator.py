@@ -89,7 +89,7 @@ TEAMS = [
     },
 ]
 
-MIN_GAMES_PROVISIONAL = 8
+MIN_GAMES_PROVISIONAL = 6
 
 
 def provisional_mult(gp: int) -> float:
@@ -115,8 +115,8 @@ def simulate(off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_perf=False, per
     since perf_centered is already [-0.5, +0.5]). Lower values like 0.25 clip
     outlier overperformers while leaving mid-range teams unaffected.
     """
+    # Matches v53e.py: MAX_POWERSCORE_THEORETICAL = 1.0 + PERF_CAP * PERF_BLEND_WEIGHT
     max_ps_theoretical = 1.0 + perf_cap * perf_w
-    max_ml_theoretical = 1.0 + perf_cap * ml_alpha
 
     results = []
     for t in TEAMS:
@@ -129,6 +129,7 @@ def simulate(off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_perf=False, per
         # Apply perf cap — clips outliers symmetrically
         perf = max(-perf_cap, min(perf_cap, perf))
 
+        # Matches v53e.py powerscore_core formula
         ps_core = (
             off_w * t["off_norm"]
             + def_w * t["def_norm"]
@@ -138,8 +139,9 @@ def simulate(off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_perf=False, per
 
         ps_adj = ps_core * provisional_mult(t["games_played"])
 
-        ps_ml = (ps_adj + ml_alpha * t["ml_norm"]) / max_ml_theoretical
-        ps_ml = max(0.0, min(1.0, ps_ml))
+        # Matches layer13: powerscore_ml = (powerscore_adj + alpha * ml_norm).clip(0, 1)
+        # No normalization — just additive blend + clip
+        ps_ml = max(0.0, min(1.0, ps_adj + ml_alpha * t["ml_norm"]))
 
         display = round(ps_ml * 55, 2)
 
@@ -263,7 +265,7 @@ if __name__ == "__main__":
     PROD_PERF = 0.00
     PROD_ML = 0.08
     print_results(
-        "CURRENT PRODUCTION (60/20/20, PERF=0, ML=0.18)",
+        "CURRENT PRODUCTION (60/20/20, PERF=0, ML=0.08)",
         off_w=PROD_OFF, def_w=PROD_DEF, sos_w=PROD_SOS, perf_w=PROD_PERF, ml_alpha=PROD_ML,
     )
     baseline_results = simulate(PROD_OFF, PROD_DEF, PROD_SOS, PROD_PERF, PROD_ML)

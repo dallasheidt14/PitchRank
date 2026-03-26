@@ -26,9 +26,10 @@ class V53EConfig:
 
     # Layer 3 (recency)
     # Exponential decay: weight = exp(-RECENCY_DECAY_RATE * (rank - 1))
-    # 0.05 = gentle decay (game 30 keeps ~22% weight)
-    # 0.10 = steeper decay (game 30 keeps ~5% weight)
-    RECENCY_DECAY_RATE: float = 0.05
+    # 0.05 = gentle decay (game 30 keeps ~23% weight)
+    # 0.08 = moderate decay (game 30 keeps ~10% weight)  [default]
+    # 0.10 = steeper decay (game 30 keeps ~6% weight)
+    RECENCY_DECAY_RATE: float = 0.08
     # Legacy parameters below are kept for backward compatibility but
     # no longer drive behavior. Recency is now purely exponential decay
     # controlled by RECENCY_DECAY_RATE above.
@@ -105,11 +106,7 @@ class V53EConfig:
     SOS_WEIGHT: float = 0.60  # was 0.50
 
     # Provisional
-    MIN_GAMES_PROVISIONAL: int = 8
-
-    # Context multipliers
-    TOURNAMENT_KO_MULT: float = 1.10
-    SEMIS_FINALS_MULT: float = 1.05
+    MIN_GAMES_PROVISIONAL: int = 6
 
     # Cross-age anchors (national unification)
     ANCHOR_PERCENTILE: float = 0.98
@@ -271,8 +268,9 @@ def _recency_weights(n: int, k: int, recent_share: float,
         decay_rate: Controls how quickly weight drops off. Configurable via
                     V53EConfig.RECENCY_DECAY_RATE. Examples:
                     - 0.03 = very gentle (game 30 keeps ~41% weight)
-                    - 0.05 = gentle (game 30 keeps ~22% weight)  [default]
-                    - 0.10 = steep (game 30 keeps ~5% weight)
+                    - 0.05 = gentle (game 30 keeps ~23% weight)
+                    - 0.08 = moderate (game 30 keeps ~10% weight)  [default]
+                    - 0.10 = steep (game 30 keeps ~6% weight)
         k, recent_share, tail_start, tail_end, w_start, w_end: Legacy parameters
             kept for backward compatibility but no longer used.
     """
@@ -890,21 +888,7 @@ def compute_rankings(
 
     g = pd.concat([apply_recency(grp) for _, grp in g.groupby("team_id")]).reset_index(drop=True)
 
-    # -------------------------
-    # Context multipliers (tournament/KO)
-    # -------------------------
-    def context_mult(row) -> float:
-        mult = 1.0
-        it = str(row.get("is_tournament", "")).lower()
-        ko = str(row.get("is_knockout", "")).lower()
-        if it in ("1", "true", "yes"):
-            mult *= cfg.TOURNAMENT_KO_MULT
-        if ko in ("1", "true", "yes"):
-            mult *= cfg.SEMIS_FINALS_MULT
-        return mult
-
-    g["w_context"] = g.apply(context_mult, axis=1)
-    g["w_game"] = g["w_base"] * g["w_context"]
+    g["w_game"] = g["w_base"]
 
     # -------------------------
     # OFF/SAD aggregation (vectorized)
@@ -1862,7 +1846,7 @@ def compute_rankings(
     # Status priority:
     # 1. "Inactive" - No games in activity window (gp_last_window == 0) OR last_game is NULL OR days_since_last >= INACTIVE_HIDE_DAYS
     #    Note: Use >= to match the gp_last_window calculation which uses >= cutoff (includes games exactly at boundary)
-    # 2. "Not Enough Ranked Games" - Has games in activity window but < MIN_GAMES_PROVISIONAL (8 games)
+    # 2. "Not Enough Ranked Games" - Has games in activity window but < MIN_GAMES_PROVISIONAL (6 games)
     # 3. "Active" - Has >= MIN_GAMES_PROVISIONAL games in activity window
     team["status"] = np.where(
         (team["gp_last_window"] == 0) |

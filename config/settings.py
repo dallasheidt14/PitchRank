@@ -149,12 +149,8 @@ RANKING_CONFIG = {
     'sos_weight': float(os.getenv("SOS_WEIGHT", 0.60)),  # V53EConfig.SOS_WEIGHT (was 0.50)
     
     # Provisional
-    'min_games_for_ranking': int(os.getenv("MIN_GAMES_FOR_RANKING", 8)),  # V53EConfig.MIN_GAMES_PROVISIONAL
-    
-    # Context multipliers
-    'tournament_ko_mult': float(os.getenv("TOURNAMENT_KO_MULT", 1.10)),  # V53EConfig.TOURNAMENT_KO_MULT
-    'semis_finals_mult': float(os.getenv("SEMIS_FINALS_MULT", 1.05)),  # V53EConfig.SEMIS_FINALS_MULT
-    
+    'min_games_for_ranking': int(os.getenv("MIN_GAMES_FOR_RANKING", 6)),  # V53EConfig.MIN_GAMES_PROVISIONAL
+
     # Cross-age anchors
     'anchor_percentile': float(os.getenv("ANCHOR_PERCENTILE", 0.98)),  # V53EConfig.ANCHOR_PERCENTILE
     

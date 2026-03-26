@@ -1,7 +1,7 @@
 """
 Comprehensive tests for Active-only ranking enforcement.
 
-Validates that teams with fewer than MIN_GAMES_PROVISIONAL (8) games
+Validates that teams with fewer than MIN_GAMES_PROVISIONAL (6) games
 do NOT receive ranks (rank_in_cohort, rank_in_cohort_ml, SOS ranks),
 and that the full pipeline correctly handles status-based filtering.
 
