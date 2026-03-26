@@ -1,16 +1,17 @@
 """Data adapter to convert between Supabase format and v53e format"""
 from __future__ import annotations
 
-import pandas as pd
-import re
-from typing import Dict, Optional, List, TYPE_CHECKING
-from datetime import datetime, timedelta
 import logging
+import re
 import time
+from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Dict, List, Optional
+
+import pandas as pd
 
 if TYPE_CHECKING:
-    from src.utils.merge_resolver import MergeResolver
     from src.profiling.db_profiler import QueryProfiler
+    from src.utils.merge_resolver import MergeResolver
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +130,7 @@ async def fetch_games_for_rankings(
         - game_id, date, team_id, opp_id, age, gender, opp_age, opp_gender, gf, ga
     """
     if today is None:
-        today = pd.Timestamp.utcnow().normalize()
+        today = pd.Timestamp.now("UTC").normalize()
 
     db = query_profiler.wrap(supabase_client) if query_profiler else supabase_client
     
@@ -425,7 +426,7 @@ async def fetch_games_for_rankings(
                 f"{dep_home_after:,} with deprecated home_team_master_id"
             )
         else:
-            logger.info(f"  [MERGE-DIAG] Post-merge: All deprecated IDs resolved (team_id, opp_id, home_team_master_id)")
+            logger.info("  [MERGE-DIAG] Post-merge: All deprecated IDs resolved (team_id, opp_id, home_team_master_id)")
 
         # After merge resolution, team_id/opp_id point to canonical teams but
         # age/gender still reflect the deprecated team's metadata.  Re-map them
@@ -616,10 +617,10 @@ def v53e_to_supabase_format(teams_df: pd.DataFrame) -> pd.DataFrame:
     elif 'rank_in_cohort' in rankings_df.columns:
         rankings_df['national_rank'] = rankings_df['rank_in_cohort']
     else:
-        rankings_df['national_rank'] = 0
+        rankings_df['national_rank'] = pd.NA
     
-    # Ensure rank is int and fill nulls
-    rankings_df['national_rank'] = rankings_df['national_rank'].fillna(0).astype(int)
+    # Use nullable Int64 to preserve NULL for unranked teams (rank 0 is semantically incorrect)
+    rankings_df['national_rank'] = rankings_df['national_rank'].astype("Int64")
     
     logger.info(f"🧾 Prepared {len(rankings_df):,} records for Supabase upload.")
     

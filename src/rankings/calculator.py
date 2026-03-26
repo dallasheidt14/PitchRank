@@ -1,24 +1,20 @@
 """Integrated Rankings Calculator (v53e + ML Layer)"""
 from __future__ import annotations
 
-import pandas as pd
-from typing import Optional, Dict, Tuple, TYPE_CHECKING
+import asyncio
+import hashlib
+import logging
 from contextlib import nullcontext
 from datetime import datetime
-import hashlib
-import asyncio
 from pathlib import Path
-import logging
+from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
-from src.etl.v53e import compute_rankings, V53EConfig
-from src.rankings.layer13_predictive_adjustment import (
-    apply_predictive_adjustment, Layer13Config
-)
+import pandas as pd
+
+from src.etl.v53e import V53EConfig, compute_rankings
 from src.rankings.data_adapter import fetch_games_for_rankings
-from src.rankings.ranking_history import (
-    calculate_rank_changes,
-    save_ranking_snapshot
-)
+from src.rankings.layer13_predictive_adjustment import Layer13Config, apply_predictive_adjustment
+from src.rankings.ranking_history import calculate_rank_changes, save_ranking_snapshot
 
 if TYPE_CHECKING:
     from src.profiling.timer import TimingReport
@@ -713,45 +709,14 @@ async def compute_all_cohorts(
         # Create sos_raw from the post-shrinkage SOS value
         teams_combined['sos_raw'] = teams_combined['sos'].astype(float)
 
-        # Fetch teams metadata to get state_code
-        team_ids = teams_combined['team_id'].astype(str).tolist()
-        teams_metadata = []
-        batch_size = 100
-
-        logger.info(f"👥 Fetching state metadata for {len(team_ids):,} teams...")
-        for i in range(0, len(team_ids), batch_size):
-            batch = team_ids[i:i + batch_size]
-            try:
-                result = supabase_client.table('teams').select(
-                    'team_id_master, state_code'
-                ).in_('team_id_master', batch).execute()
-                if result.data:
-                    teams_metadata.extend(result.data)
-            except Exception as e:
-                logger.warning(f"⚠️ Failed to fetch state metadata batch {i}: {str(e)[:100]}")
-                continue
-
-        # Merge state_code into teams_combined
-        if teams_metadata:
-            metadata_df = pd.DataFrame(teams_metadata)
-            metadata_df['team_id_master'] = metadata_df['team_id_master'].astype(str)
-            # Drop duplicates to prevent row multiplication during merge
-            metadata_df = metadata_df.drop_duplicates(subset=['team_id_master'])
-            teams_combined = teams_combined.merge(
-                metadata_df[['team_id_master', 'state_code']],
-                left_on='team_id',
-                right_on='team_id_master',
-                how='left'
-            )
-            if 'team_id_master' in teams_combined.columns:
-                teams_combined = teams_combined.drop(columns=['team_id_master'])
-
-            # Fill missing state_code with 'UNKNOWN'
-            teams_combined['state_code'] = teams_combined['state_code'].fillna('UNKNOWN')
-            logger.info(f"✅ Merged state_code for {len(teams_metadata):,} teams")
+        # Reuse team_state_map from SCF fetch (line ~520) instead of re-querying Supabase
+        if team_state_map:
+            teams_combined['state_code'] = teams_combined['team_id'].astype(str).map(team_state_map).fillna('UNKNOWN')
+            mapped_count = (teams_combined['state_code'] != 'UNKNOWN').sum()
+            logger.info(f"✅ Mapped state_code for {mapped_count:,} teams (reused SCF metadata)")
         else:
             teams_combined['state_code'] = 'UNKNOWN'
-            logger.warning("⚠️ No state metadata found - using 'UNKNOWN' for all teams")
+            logger.warning("⚠️ No state metadata available - using 'UNKNOWN' for all teams")
 
         # Initialize new SOS columns
         teams_combined['sos_norm_national'] = 0.0

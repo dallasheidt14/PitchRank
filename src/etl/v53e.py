@@ -1,9 +1,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict, Optional, List
 import logging
+from dataclasses import dataclass
+from typing import Dict, List, Optional
+
 import numpy as np
 import pandas as pd
 
@@ -30,15 +31,6 @@ class V53EConfig:
     # 0.08 = moderate decay (game 30 keeps ~10% weight)  [default]
     # 0.10 = steeper decay (game 30 keeps ~6% weight)
     RECENCY_DECAY_RATE: float = 0.08
-    # Legacy parameters below are kept for backward compatibility but
-    # no longer drive behavior. Recency is now purely exponential decay
-    # controlled by RECENCY_DECAY_RATE above.
-    RECENT_K: int = 15
-    RECENT_SHARE: float = 0.65
-    DAMPEN_TAIL_START: int = 26
-    DAMPEN_TAIL_END: int = 30
-    DAMPEN_TAIL_START_WEIGHT: float = 0.8
-    DAMPEN_TAIL_END_WEIGHT: float = 0.4
 
     # Layer 4 (defense ridge)
     RIDGE_GA: float = 0.25
@@ -254,10 +246,7 @@ def _clip_outliers_series(s: pd.Series, z: float) -> pd.Series:
     return s.clip(mu - z * sd, mu + z * sd)
 
 
-def _recency_weights(n: int, k: int, recent_share: float,
-                     tail_start: int, tail_end: int,
-                     w_start: float, w_end: float,
-                     decay_rate: float = 0.05) -> List[float]:
+def _recency_weights(n: int, decay_rate: float = 0.05) -> List[float]:
     """
     Compute recency weights using exponential decay.
 
@@ -269,11 +258,9 @@ def _recency_weights(n: int, k: int, recent_share: float,
         decay_rate: Controls how quickly weight drops off. Configurable via
                     V53EConfig.RECENCY_DECAY_RATE. Examples:
                     - 0.03 = very gentle (game 30 keeps ~41% weight)
-                    - 0.05 = gentle (game 30 keeps ~23% weight)
-                    - 0.08 = moderate (game 30 keeps ~10% weight)  [default]
+                    - 0.05 = gentle (game 30 keeps ~23% weight)  [function default]
+                    - 0.08 = moderate (game 30 keeps ~10% weight)  [V53EConfig default]
                     - 0.10 = steep (game 30 keeps ~6% weight)
-        k, recent_share, tail_start, tail_end, w_start, w_end: Legacy parameters
-            kept for backward compatibility but no longer used.
     """
     if n <= 0:
         return []
@@ -395,12 +382,11 @@ def _normalize_by_cohort(df: pd.DataFrame, value_col: str, out_col: str, mode: s
 
 
 def _provisional_multiplier(gp: int, min_games: int) -> float:
-    """Smooth sigmoid ramp from 0.85 to 1.0 between 1 game and max_games.
+    """Linear ramp from 0.85 to 1.0 between 0 games and max_games (15).
 
     Replaces the old step function (0.85 → 0.95 → 1.0) which created
     artificial rank jumps at exactly min_games and 15 games.
-    Now: linear ramp from 0.85 at 0 games to 1.0 at max_games (15),
-    so each additional game provides a proportional boost.
+    Each additional game provides a proportional boost.
     """
     max_games = 15
     if gp >= max_games:
@@ -877,12 +863,7 @@ def compute_rankings(
     # -------------------------
     def apply_recency(df: pd.DataFrame) -> pd.DataFrame:
         n = len(df)
-        w = _recency_weights(
-            n, cfg.RECENT_K, cfg.RECENT_SHARE,
-            cfg.DAMPEN_TAIL_START, cfg.DAMPEN_TAIL_END,
-            cfg.DAMPEN_TAIL_START_WEIGHT, cfg.DAMPEN_TAIL_END_WEIGHT,
-            decay_rate=cfg.RECENCY_DECAY_RATE,
-        )
+        w = _recency_weights(n, decay_rate=cfg.RECENCY_DECAY_RATE)
         out = df.copy()
         out["w_base"] = w
         return out
@@ -1915,7 +1896,7 @@ def compute_rankings(
         "game_id", "date", "team_id", "opp_id",
         "age", "gender", "opp_age", "opp_gender",
         "gf", "ga", "gd",
-        "w_base", "w_context", "k_adapt", "w_game", "w_sos", "rank_recency"
+        "w_base", "k_adapt", "w_game", "w_sos", "rank_recency"
     ]
     # Return the 365-day SOS games (after repeat-cap) that actually fed SOS.
     games_used = g_sos[[c for c in games_used_cols if c in g_sos.columns]].copy()

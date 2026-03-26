@@ -1,10 +1,14 @@
 """Layer 13: ML Predictive Adjustment for Rankings"""
 from __future__ import annotations
 
+import logging
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
 import pandas as pd
-from dataclasses import dataclass
-from typing import Optional, Dict, List, Tuple
+
+logger = logging.getLogger(__name__)
 
 # Prefer XGBoost; fall back to RandomForest
 try:
@@ -175,7 +179,7 @@ def _rank_active_only(
 # ----------------------------
 # Game residual extraction
 # ----------------------------
-def _extract_game_residuals(feats: pd.DataFrame, games_df: pd.DataFrame, cfg: Layer13Config) -> pd.DataFrame:
+def _extract_game_residuals(feats: pd.DataFrame, cfg: Layer13Config) -> pd.DataFrame:
     """
     Extract per-game residuals from feats DataFrame and map to original game IDs.
 
@@ -191,8 +195,7 @@ def _extract_game_residuals(feats: pd.DataFrame, games_df: pd.DataFrame, cfg: La
 
     Returns DataFrame with columns: game_id (UUID), ml_overperformance (float)
     """
-    import logging
-    logger = logging.getLogger(__name__)
+    feats = feats.copy()
 
     logger.debug(f"_extract_game_residuals: {len(feats)} rows, columns: {list(feats.columns)}")
 
@@ -310,8 +313,6 @@ async def apply_predictive_adjustment(
             missing.append(f"{v53e_name}/{config_name}")
 
     if missing:
-        import logging
-        logger = logging.getLogger(__name__)
         logger.warning(f"⚠️ Missing required columns: {missing}. Cannot train ML model.")
         # If we can't train, return pass-through
         out["ml_overperf"] = 0.0
@@ -349,16 +350,12 @@ async def apply_predictive_adjustment(
         missing_pct = (missing_count / len(games_df)) * 100 if len(games_df) > 0 else 0
 
         if missing_pct > 1.0:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.warning(
                 f"⚠️  {missing_pct:.1f}% of games ({missing_count:,}) involve teams with missing PowerScores. "
                 f"Using cohort mean as fallback. ML accuracy may be degraded."
             )
     
     if feats.empty:
-        import logging
-        logger = logging.getLogger(__name__)
         logger.warning(f"⚠️ feats DataFrame is empty after _build_features. Input games_df had {len(games_df)} rows.")
         out["ml_overperf"] = 0.0
         out["ml_norm"] = 0.0
@@ -378,8 +375,6 @@ async def apply_predictive_adjustment(
 
         # Disable ML if insufficient training data (prevents leakage)
         if len(train_feats) < cfg.min_training_rows:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.warning(
                 f"⚠️  Layer 13 disabled: only {len(train_feats)} training rows "
                 f"(need ≥{cfg.min_training_rows}). Passing through base v53E scores."
@@ -394,8 +389,6 @@ async def apply_predictive_adjustment(
             return out
     else:
         # No date column or empty feats - disable ML
-        import logging
-        logger = logging.getLogger(__name__)
         logger.warning("⚠️  Layer 13 disabled: no date column in feats. Passing through base v53E scores.")
         out["ml_overperf"] = 0.0
         out["ml_norm"] = 0.0
@@ -435,10 +428,8 @@ async def apply_predictive_adjustment(
 
     # 7) Extract per-game residuals if requested
     if return_game_residuals:
-        import logging
-        logger = logging.getLogger(__name__)
         logger.debug(f"Extracting game residuals from feats: {feats.shape}, has_residual={'residual' in feats.columns}")
-        game_residuals = _extract_game_residuals(feats, games_df, cfg)
+        game_residuals = _extract_game_residuals(feats, cfg)
         logger.debug(f"Game residuals extracted: {game_residuals.shape}, empty={game_residuals.empty}")
         return out, game_residuals
 
@@ -567,8 +558,6 @@ def _build_features(
         if col in f.columns:
             needed.append(col)
 
-    import logging
-    logger = logging.getLogger(__name__)
     logger.debug(f"_build_features: {len(f)} rows, needed_cols={len(needed)}, has_id={'id' in f.columns}")
 
     # Only keep columns that exist
