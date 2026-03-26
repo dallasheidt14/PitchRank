@@ -8,7 +8,6 @@ from .club_normalizer import (
     similarity_score,
     group_by_club,
     get_matches_needing_review,
-    get_confident_matches,
     ClubNormResult,
 )
 
