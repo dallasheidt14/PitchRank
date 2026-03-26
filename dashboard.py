@@ -5901,7 +5901,7 @@ elif section == "⚖️ Weight Simulator":
         sim_perf_w = st.slider("PERF Weight", 0.0, 0.25, 0.00, 0.01, key="sim_perf")
         sim_perf_cap = st.slider("PERF Cap (±)", 0.05, 0.50, 0.15, 0.05, key="sim_cap")
     with ctrl_cols[3]:
-        sim_ml_alpha = st.slider("ML Alpha", 0.0, 0.30, 0.18, 0.01, key="sim_ml")
+        sim_ml_alpha = st.slider("ML Alpha", 0.0, 0.30, 0.08, 0.01, key="sim_ml")
         sim_sos_perf = st.checkbox("SOS-weighted PERF", value=False, key="sim_sos_perf",
                                    help="Multiply perf_centered by sos_norm before blending")
 

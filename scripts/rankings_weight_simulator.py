@@ -93,9 +93,14 @@ MIN_GAMES_PROVISIONAL = 8
 
 
 def provisional_mult(gp: int) -> float:
-    if gp >= MIN_GAMES_PROVISIONAL:
+    """Smooth linear ramp from 0.85 (0 games) to 1.0 (15 games).
+    Mirrors _provisional_multiplier in src/etl/v53e.py."""
+    max_games = 15
+    if gp >= max_games:
         return 1.0
-    return 0.6 + 0.4 * (gp / MIN_GAMES_PROVISIONAL)
+    if gp <= 0:
+        return 0.85
+    return 0.85 + (gp / max_games) * 0.15
 
 
 def simulate(off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_perf=False, perf_cap=0.50):
@@ -256,7 +261,7 @@ if __name__ == "__main__":
     PROD_DEF = 0.20
     PROD_SOS = 0.60
     PROD_PERF = 0.00
-    PROD_ML = 0.18
+    PROD_ML = 0.08
     print_results(
         "CURRENT PRODUCTION (60/20/20, PERF=0, ML=0.18)",
         off_w=PROD_OFF, def_w=PROD_DEF, sos_w=PROD_SOS, perf_w=PROD_PERF, ml_alpha=PROD_ML,

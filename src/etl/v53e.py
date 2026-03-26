@@ -61,7 +61,7 @@ class V53EConfig:
 
     # Layer 8 (SOS)
     UNRANKED_SOS_BASE: float = 0.35
-    SOS_REPEAT_CAP: int = 2  # Reduced from 4 to prevent regional rivals from dominating SOS
+    SOS_REPEAT_CAP: int = 4  # Restored to 4 — league teams playing same opponent 3-4x need full SOS credit
     SOS_ITERATIONS: int = 1  # Single-pass SOS (no transitive propagation)
     SOS_TRANSITIVITY_LAMBDA: float = 0.0  # Transitivity disabled (pure direct SOS)
 
@@ -81,6 +81,14 @@ class V53EConfig:
     # NOTE: SOS_TOP_CAP_FOR_LOW_SAMPLE is DEPRECATED - hard caps were replaced with soft shrinkage
     SOS_TOP_CAP_FOR_LOW_SAMPLE: float = 0.70  # DEPRECATED: no longer used
 
+    # GP-SOS decorrelation: removes games-played bias from sos_norm for ranked teams
+    # in age buckets where GP correlates with SOS (typically U16/U17).
+    # When enabled, for any per-age-bucket where GP-SOS correlation exceeds the
+    # threshold among ranked teams (>= MIN_GAMES_PROVISIONAL), sos_norm is
+    # residualized against GP via OLS to remove the linear relationship.
+    GP_SOS_DECORRELATION_ENABLED: bool = True
+    GP_SOS_DECORRELATION_THRESHOLD: float = 0.15  # Correlation threshold to trigger (above 0.10 guardrail, conservative)
+
     # NOTE: MIN_GAMES_FOR_SOS_RANK was removed — SOS rank eligibility is now
     # derived from team status ("Active"), which itself uses MIN_GAMES_PROVISIONAL.
     # This prevents the two gates from drifting apart.
@@ -88,8 +96,8 @@ class V53EConfig:
     # Opponent-adjusted offense/defense (fixes double-counting)
     OPPONENT_ADJUST_ENABLED: bool = True
     OPPONENT_ADJUST_BASELINE: float = 0.5  # Reference strength for adjustment
-    OPPONENT_ADJUST_CLIP_MIN: float = 0.4  # Min multiplier (avoid extreme adjustments)
-    OPPONENT_ADJUST_CLIP_MAX: float = 1.6  # Max multiplier (conservative bounds)
+    OPPONENT_ADJUST_CLIP_MIN: float = 0.25  # Min multiplier (widened to preserve signal from elite matchups)
+    OPPONENT_ADJUST_CLIP_MAX: float = 2.0   # Max multiplier (widened — old 1.6 clipped wins vs top-10 opponents)
 
     # Layer 10 weights (tuned via weight simulator — SOS boosted for schedule-strength emphasis)
     OFF_WEIGHT: float = 0.20  # was 0.25
@@ -388,11 +396,20 @@ def _normalize_by_cohort(df: pd.DataFrame, value_col: str, out_col: str, mode: s
 
 
 def _provisional_multiplier(gp: int, min_games: int) -> float:
-    if gp < min_games:
+    """Smooth sigmoid ramp from 0.85 to 1.0 between 1 game and max_games.
+
+    Replaces the old step function (0.85 → 0.95 → 1.0) which created
+    artificial rank jumps at exactly min_games and 15 games.
+    Now: linear ramp from 0.85 at 0 games to 1.0 at max_games (15),
+    so each additional game provides a proportional boost.
+    """
+    max_games = 15
+    if gp >= max_games:
+        return 1.0
+    if gp <= 0:
         return 0.85
-    if gp < 15:
-        return 0.95
-    return 1.0
+    # Linear ramp: 0.85 at gp=0, 1.0 at gp=max_games
+    return 0.85 + (gp / max_games) * 0.15
 
 
 def find_connected_components(
@@ -1516,9 +1533,9 @@ def compute_rankings(
             f"🏷️  Low sample handling: {low_sample_count} teams with soft SOS shrinkage toward {anchor}"
         )
 
-    # Correlation guardrail: detect if games-played is leaking into sos_norm
-    # This check ensures the pre-percentile shrinkage bug doesn't silently return.
-    # A correlation > 0.10 indicates systematic bias where more games → higher sos_norm.
+    # Correlation guardrail + GP-SOS decorrelation
+    # Detects if games-played is leaking into sos_norm, and for age buckets
+    # where it is, residualizes out the GP effect among ranked teams.
     if len(team) < 3:
         logger.info(f"✅ GP-SOS correlation check skipped: only {len(team)} team(s)")
     else:
@@ -1533,11 +1550,12 @@ def compute_rankings(
         else:
             logger.info(f"✅ GP-SOS correlation check passed: {gp_sos_corr:.3f} (within ±0.10)")
 
-        # Per-age-bucket GP-SOS correlation breakdown (only log warnings at INFO)
+        # Per-age-bucket GP-SOS correlation breakdown + decorrelation
+        decorrelation_applied = 0
         if "age" in team.columns:
-            age_col = pd.to_numeric(team["age"], errors="coerce")
-            for age_val in sorted(age_col.dropna().unique()):
-                age_mask = age_col == age_val
+            age_col_numeric = pd.to_numeric(team["age"], errors="coerce")
+            for age_val in sorted(age_col_numeric.dropna().unique()):
+                age_mask = age_col_numeric == age_val
                 age_subset = team.loc[age_mask, ["gp", "sos_norm"]].dropna()
                 if len(age_subset) < 10:
                     continue
@@ -1545,6 +1563,7 @@ def compute_rankings(
                 if pd.isna(age_corr):
                     continue
                 median_gp = age_subset["gp"].median()
+
                 if abs(age_corr) > 0.10:
                     logger.warning(
                         f"  ⚠️ Age {int(age_val)}: GP-SOS corr={age_corr:.3f} "
@@ -1555,6 +1574,48 @@ def compute_rankings(
                         f"  Age {int(age_val)}: GP-SOS corr={age_corr:.3f} "
                         f"(n={len(age_subset)}, median_gp={median_gp:.0f})"
                     )
+
+                # GP-SOS decorrelation: only for ranked teams in biased age buckets
+                # We only fix the problem for teams that actually get ranked (>= MIN_GAMES_PROVISIONAL)
+                # since unranked teams' SOS doesn't affect displayed rankings.
+                if (cfg.GP_SOS_DECORRELATION_ENABLED
+                        and abs(age_corr) > cfg.GP_SOS_DECORRELATION_THRESHOLD):
+                    # Target: ranked teams in this age bucket
+                    ranked_mask = age_mask & (team["gp"] >= cfg.MIN_GAMES_PROVISIONAL)
+                    ranked_idx = team.index[ranked_mask]
+                    if len(ranked_idx) < 10:
+                        continue
+
+                    # Residualize sos_norm against GP via OLS within ranked teams
+                    # sos_norm_adj = sos_norm - beta * (gp - gp_mean)
+                    # This removes the linear GP→SOS relationship while preserving
+                    # the mean sos_norm and all non-GP-related variation.
+                    gp_ranked = team.loc[ranked_idx, "gp"].astype(float).values
+                    sos_ranked = team.loc[ranked_idx, "sos_norm"].astype(float).values
+                    gp_mean = gp_ranked.mean()
+                    gp_centered = gp_ranked - gp_mean
+
+                    # OLS slope: beta = cov(gp, sos) / var(gp)
+                    gp_var = np.var(gp_centered)
+                    if gp_var > 0:
+                        beta = np.cov(gp_centered, sos_ranked)[0, 1] / gp_var
+                        sos_adjusted = sos_ranked - beta * gp_centered
+                        # Re-clip to [0, 1] since residualization can push outside bounds
+                        sos_adjusted = np.clip(sos_adjusted, 0.0, 1.0)
+                        team.loc[ranked_idx, "sos_norm"] = sos_adjusted
+
+                        # Verify the fix worked
+                        new_corr = np.corrcoef(gp_ranked, sos_adjusted)[0, 1]
+                        decorrelation_applied += 1
+                        logger.info(
+                            f"  ✅ Age {int(age_val)}: GP-SOS decorrelated for {len(ranked_idx)} ranked teams "
+                            f"(beta={beta:.4f}, corr {age_corr:.3f} → {new_corr:.3f})"
+                        )
+
+        if decorrelation_applied > 0:
+            logger.info(
+                f"📊 GP-SOS decorrelation applied to {decorrelation_applied} age bucket(s)"
+            )
 
     # -------------------------
     # Layer 6: Performance
@@ -1728,6 +1789,29 @@ def compute_rankings(
                 anchor + shrink_factor[low_sample_mask] * (sos_norm_values[low_sample_mask] - anchor)
             )
             team['sos_norm'] = sos_norm_values
+
+            # Step 6b: GP-SOS decorrelation (same as initial pass)
+            # Re-apply per iteration since sos_norm is recalculated fresh each time.
+            if cfg.GP_SOS_DECORRELATION_ENABLED and "age" in team.columns:
+                age_col_iter = pd.to_numeric(team["age"], errors="coerce")
+                for age_val in age_col_iter.dropna().unique():
+                    age_mask = age_col_iter == age_val
+                    ranked_mask = age_mask & (team["gp"] >= cfg.MIN_GAMES_PROVISIONAL)
+                    ranked_idx = team.index[ranked_mask]
+                    if len(ranked_idx) < 10:
+                        continue
+                    gp_r = team.loc[ranked_idx, "gp"].astype(float).values
+                    sos_r = team.loc[ranked_idx, "sos_norm"].astype(float).values
+                    age_corr = np.corrcoef(gp_r, sos_r)[0, 1]
+                    if pd.isna(age_corr) or abs(age_corr) <= cfg.GP_SOS_DECORRELATION_THRESHOLD:
+                        continue
+                    gp_c = gp_r - gp_r.mean()
+                    gp_var = np.var(gp_c)
+                    if gp_var > 0:
+                        beta = np.cov(gp_c, sos_r)[0, 1] / gp_var
+                        team.loc[ranked_idx, "sos_norm"] = np.clip(
+                            sos_r - beta * gp_c, 0.0, 1.0
+                        )
 
             # Step 7: Recalculate power score with new SOS (vectorized)
             sos_norm_arr = team['sos_norm'].values

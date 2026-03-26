@@ -38,6 +38,7 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
     Persist per-game ML residuals to the games table using batch RPC.
 
     Uses a PostgreSQL function for fast batch updates (~100x faster than individual queries).
+    Includes retry logic with exponential backoff for network/timeout errors.
 
     Args:
         supabase_client: Supabase client instance
@@ -46,16 +47,27 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
     Returns:
         Tuple of (total_updated, failed_count)
     """
+    import time
+
     if game_residuals.empty:
         return (0, 0)
 
-    # Use moderate batch size to avoid statement timeouts
-    batch_size = 1000
+    # Smaller batch size to reduce statement timeout probability
+    batch_size = 500
+    max_retries = 3
+    retry_delay = 2  # seconds (exponential: 2s, 4s, 8s)
     total_updated = 0
     failed_count = 0
+    failed_batches = []  # Collect for end-of-run retry
 
     for i in range(0, len(game_residuals), batch_size):
         batch = game_residuals.iloc[i:i+batch_size]
+        batch_num = (i // batch_size) + 1
+        total_batches = (len(game_residuals) + batch_size - 1) // batch_size
+
+        # Small delay between batches to avoid overwhelming the server
+        if batch_num > 1:
+            time.sleep(0.3)
 
         # Prepare batch data for RPC (Supabase client handles JSON conversion)
         batch_data = [
@@ -66,26 +78,106 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
             for _, row in batch.iterrows()
         ]
 
-        try:
-            # Call RPC function for batch update
-            result = supabase_client.rpc(
-                'batch_update_ml_overperformance',
-                {'updates': batch_data}  # Pass list directly, not JSON string
-            ).execute()
+        # Retry logic with exponential backoff
+        batch_retry_delay = retry_delay
+        batch_saved = False
 
-            # RPC returns the count of updated rows
-            if result.data is not None:
-                total_updated += result.data
-            else:
-                total_updated += len(batch_data)
+        for attempt in range(max_retries):
+            try:
+                # Call RPC function for batch update
+                result = supabase_client.rpc(
+                    'batch_update_ml_overperformance',
+                    {'updates': batch_data}  # Pass list directly, not JSON string
+                ).execute()
 
-        except Exception as e:
+                # RPC returns the count of updated rows
+                if result.data is not None:
+                    total_updated += result.data
+                else:
+                    total_updated += len(batch_data)
+
+                batch_saved = True
+                break  # Success, exit retry loop
+
+            except Exception as e:
+                error_msg = str(e)
+                # Detect network/timeout errors specifically
+                is_retriable = (
+                    'SSL' in error_msg or
+                    'bad record' in error_msg.lower() or
+                    'ReadError' in error_msg or
+                    'WinError 10054' in error_msg or
+                    'timeout' in error_msg.lower() or
+                    'statement timeout' in error_msg.lower() or
+                    'connection' in error_msg.lower() and (
+                        'closed' in error_msg.lower() or
+                        'reset' in error_msg.lower() or
+                        'forcibly' in error_msg.lower()
+                    ) or
+                    'forcibly closed' in error_msg.lower() or
+                    'remote host' in error_msg.lower()
+                )
+
+                if attempt < max_retries - 1 and is_retriable:
+                    logger.warning(
+                        f"Retriable error on batch {batch_num}/{total_batches}, "
+                        f"attempt {attempt + 1}/{max_retries}. "
+                        f"Retrying in {batch_retry_delay}s... Error: {error_msg[:100]}"
+                    )
+                    time.sleep(batch_retry_delay)
+                    batch_retry_delay *= 2  # Exponential backoff
+                elif attempt < max_retries - 1:
+                    # Non-network error, still retry
+                    logger.warning(
+                        f"Error on batch {batch_num}/{total_batches}, "
+                        f"attempt {attempt + 1}/{max_retries}. "
+                        f"Retrying in {batch_retry_delay}s... Error: {error_msg[:100]}"
+                    )
+                    time.sleep(batch_retry_delay)
+                    batch_retry_delay *= 2
+                else:
+                    # Last attempt failed
+                    logger.warning(
+                        f"Batch {batch_num}/{total_batches} failed after {max_retries} attempts: {error_msg[:100]}"
+                    )
+                    failed_batches.append((batch_num, batch_data))
+                    break
+
+        if not batch_saved:
             failed_count += len(batch_data)
-            logger.warning(f"Batch RPC failed at offset {i}: {str(e)[:100]}")
 
         # Progress logging every 10 batches
-        if (i // batch_size) % 10 == 0 and i > 0:
+        if batch_num % 10 == 0:
             logger.info(f"  Progress: {total_updated:,} / {len(game_residuals):,} games updated...")
+
+    # Retry failed batches once more at the end
+    if failed_batches:
+        logger.info(f"Retrying {len(failed_batches)} failed batch(es)...")
+        for batch_num, batch_data in failed_batches:
+            batch_retry_delay = retry_delay
+            for attempt in range(max_retries):
+                try:
+                    result = supabase_client.rpc(
+                        'batch_update_ml_overperformance',
+                        {'updates': batch_data}
+                    ).execute()
+
+                    if result.data is not None:
+                        total_updated += result.data
+                    else:
+                        total_updated += len(batch_data)
+
+                    failed_count -= len(batch_data)
+                    logger.info(f"Batch {batch_num} saved on retry")
+                    break  # Success
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        time.sleep(batch_retry_delay)
+                        batch_retry_delay *= 2
+                    else:
+                        logger.error(
+                            f"Batch {batch_num} failed after all retries: {str(e)[:100]}"
+                        )
 
     if failed_count > 0 and total_updated == 0:
         logger.error(f"❌ Residual persistence failed: 0/{len(game_residuals):,} games updated, {failed_count:,} failed")
@@ -246,7 +338,7 @@ async def compute_rankings_with_ml(
 
     ml_cfg = layer13_cfg or Layer13Config(
         lookback_days=v53_cfg.WINDOW_DAYS,
-        alpha=0.15,  # Unified default: 0.15 is sweet spot between conservative (0.12) and aggressive (0.20)
+        alpha=0.08,  # Tuned via weight simulator grid search: 0.08 optimal (quality 14→19/23)
         norm_mode="zscore",
         min_team_games_for_residual=6,
         recency_decay_lambda=0.06,  # Short-term form focus; tune later after stability verified
@@ -782,7 +874,7 @@ async def compute_all_cohorts(
         ).clip(0.0, 1.0)
 
         if 'powerscore_ml' in teams_combined.columns and 'ml_norm' in teams_combined.columns:
-            ml_alpha = layer13_cfg.alpha if layer13_cfg else 0.15
+            ml_alpha = layer13_cfg.alpha if layer13_cfg else 0.08
             teams_combined["powerscore_ml"] = (
                 teams_combined["powerscore_adj"] + ml_alpha * teams_combined["ml_norm"]
             ).clip(0.0, 1.0)

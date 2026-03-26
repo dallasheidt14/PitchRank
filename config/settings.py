@@ -209,7 +209,7 @@ ETL_CONFIG = {
 # ML Layer Configuration (Layer 13)
 ML_CONFIG = {
     'enabled': os.getenv("ML_LAYER_ENABLED", "true").lower() == "true",
-    'alpha': float(os.getenv("ML_ALPHA", 0.10)),  # Blend weight for ML adjustment (was 0.18, reduced to prevent ML from overriding SOS-driven rankings)
+    'alpha': float(os.getenv("ML_ALPHA", 0.08)),  # Blend weight for ML adjustment (tuned via weight simulator: 0.08 optimal)
     'recency_decay_lambda': float(os.getenv("ML_RECENCY_DECAY_LAMBDA", 0.06)),
     'min_team_games_for_residual': int(os.getenv("ML_MIN_TEAM_GAMES", 6)),
     'residual_clip_goals': float(os.getenv("ML_RESIDUAL_CLIP", 3.5)),

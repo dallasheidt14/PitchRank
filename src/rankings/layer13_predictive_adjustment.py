@@ -39,7 +39,7 @@ class Layer13Config:
     min_training_rows: int = 30            # Minimum rows to enable ML (prevents leakage)
     
     # blend into PowerScore
-    alpha: float = 0.10                    # Default 0.10; calculator.py overrides to 0.15 in production
+    alpha: float = 0.08                    # Tuned via weight simulator: 0.08 optimal (quality 14→19/23)
     norm_mode: str = "percentile"          # or "zscore"
     
     # supabase
@@ -427,7 +427,7 @@ async def apply_predictive_adjustment(
     #
     # Formula: powerscore_ml = powerscore_adj + α * ml_norm
     # ml_norm ranges [-0.5, +0.5], so max adjustment is ±(alpha * 0.5).
-    # With alpha=0.15 this means ±0.075 — well within [0, 1] for valid base scores.
+    # With alpha=0.08 this means ±0.04 — well within [0, 1] for valid base scores.
     # We clamp afterward to guarantee bounds without compressing the score range.
     out["powerscore_ml"] = out[base_power_col] + cfg.alpha * out["ml_norm"]
     out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)

@@ -688,9 +688,10 @@ async def main():
         if not args.dry_run and saved_count > 0:
             with (timing_report.section("backfill_total_game_stats") if timing_report else nullcontext()):
                 try:
+                    console.print("[dim]Backfilling total game stats (batched, up to 300s timeout)...[/dim]")
                     result = supabase.rpc('backfill_total_game_stats').execute()
                     backfill_count = result.data if result.data else 0
-                    console.print(f"[dim]Backfilled total game stats for {backfill_count:,} teams[/dim]")
+                    console.print(f"[dim]Backfilled total game stats for {backfill_count:,} teams (10K batch updates)[/dim]")
                     backfill_status = "complete"
                 except Exception as e:
                     backfill_status = "failed"
