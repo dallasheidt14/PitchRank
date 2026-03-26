@@ -20,6 +20,7 @@ except ImportError:
 
 from src.scrapers.base import BaseScraper
 from src.base import GameData
+from src.utils.team_utils import CURRENT_YEAR
 
 logger = logging.getLogger(__name__)
 
@@ -356,7 +357,7 @@ class GotSportScraper(BaseScraper):
                 if birth_year and isinstance(birth_year, (int, str)):
                     try:
                         birth_year_int = int(birth_year)
-                        if birth_year_int <= 2006:
+                        if birth_year_int <= (CURRENT_YEAR - 19):
                             logger.debug(f"Skipping U20+ game (birth_year={birth_year_int})")
                             return None
                     except (ValueError, TypeError):

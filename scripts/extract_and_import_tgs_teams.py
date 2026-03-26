@@ -46,12 +46,14 @@ else:
     load_dotenv()
 
 
-def calculate_age_group_from_birth_year(birth_year: int, reference_year: int = 2026) -> str:
+def calculate_age_group_from_birth_year(birth_year: int) -> str:
     """
-    Calculate age group (U##) from birth year.
-    Example: 2014 → U12 (in 2026)
+    Calculate age group (U##) from birth year using soccer season year.
+    Formula: CURRENT_YEAR - birth_year + 1 (season rolls over Aug 1).
+    Example: 2014 → U12 (2025-26 season)
     """
-    age = reference_year - birth_year
+    from src.utils.team_utils import CURRENT_YEAR
+    age = CURRENT_YEAR - birth_year + 1
     return f"u{age}"
 
 

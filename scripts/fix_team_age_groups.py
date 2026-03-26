@@ -30,16 +30,14 @@ else:
     load_dotenv()
 
 from supabase import create_client
-
-# Current year for age calculation
-CURRENT_YEAR = 2025
+from src.utils.team_utils import CURRENT_YEAR
 
 
 def calculate_age_group(birth_year: int) -> str:
     """Calculate age group from birth year.
 
-    Formula: age_group = current_year - birth_year + 1
-    Example: 2025 - 2014 + 1 = 12 → U12
+    Formula: age_group = CURRENT_YEAR - birth_year + 1
+    Season year rolls over on Aug 1.
     """
     age = CURRENT_YEAR - birth_year + 1
     if 7 <= age <= 19:

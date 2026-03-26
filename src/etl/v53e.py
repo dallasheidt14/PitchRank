@@ -70,7 +70,8 @@ class V53EConfig:
     # This ensures that playing teams with tough schedules properly boosts your SOS
     # Set to 0 to disable (use old off/def-only approach), 2-3 iterations recommended
     SOS_POWER_ITERATIONS: int = 3  # Number of power-SOS refinement cycles (0 = disabled)
-    SOS_POWER_DAMPING: float = 0.7  # Damping factor to prevent oscillation (0.5-0.9 recommended)
+    SOS_POWER_DAMPING: float = 0.5  # Damping factor: weight on new vs previous SOS (lower = more conservative)
+    SOS_POWER_MAX_BOOST: float = 0.03  # Max SOS increase from iteration vs pre-iteration baseline
 
     # SOS sample size weighting
     # NOTE: SOS_SAMPLE_SIZE_THRESHOLD is DEPRECATED - pre-percentile shrinkage was removed
@@ -1705,6 +1706,9 @@ def compute_rankings(
         team_ids_sos = g_sos["team_id"].values
         w_sos_array = g_sos["w_sos"].values
 
+        # Capture pre-iteration SOS baseline for boost capping
+        sos_baseline = team["sos"].values.copy()
+
         for power_iter in range(cfg.SOS_POWER_ITERATIONS):
             # Store previous values for convergence tracking
             prev_sos = team["sos"].values.copy()
@@ -1747,6 +1751,19 @@ def compute_rankings(
             sos_map = dict(zip(sos_full["team_id"], sos_full["sos"]))
             new_sos = team["team_id"].map(sos_map).fillna(0.5)
             team["sos"] = cfg.SOS_POWER_DAMPING * new_sos + (1 - cfg.SOS_POWER_DAMPING) * prev_sos
+
+            # Step 4b: Cap iteration boost relative to pre-iteration baseline
+            # Prevents regional bubbles where tight clusters inflate each other's SOS
+            if cfg.SOS_POWER_MAX_BOOST > 0:
+                sos_values = team["sos"].values
+                max_allowed = sos_baseline + cfg.SOS_POWER_MAX_BOOST
+                capped_count = int((sos_values > max_allowed).sum())
+                team["sos"] = np.minimum(sos_values, max_allowed)
+                if capped_count > 0:
+                    logger.debug(
+                        f"  Power-SOS iter {power_iter + 1}: capped {capped_count} teams "
+                        f"at +{cfg.SOS_POWER_MAX_BOOST:.3f} boost"
+                    )
 
             # Step 5: Re-normalize SOS within connected components (or cohort if disabled)
             # Uses the same groupby columns and normalization function as the initial

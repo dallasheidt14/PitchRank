@@ -23,6 +23,7 @@ except ImportError:
 
 from src.scrapers.gotsport import GotSportScraper
 from src.base import GameData
+from src.utils.team_utils import CURRENT_YEAR
 
 logger = logging.getLogger(__name__)
 
@@ -465,7 +466,7 @@ class GotSportEventScraper:
                             birth_year = int(birth_year_match.group(1))
                             # Calculate age group: U11 = 2015, U12 = 2014, etc.
                             # Age group is the year they turn that age, not current age
-                            current_year = 2025
+                            current_year = CURRENT_YEAR
                             # For 2025: U11 = 2015 birth year, U12 = 2014 birth year
                             # Formula: age_group = current_year - birth_year + 1
                             age_group_number = current_year - birth_year + 1
@@ -550,7 +551,7 @@ class GotSportEventScraper:
                                         birth_year_match = re.search(r'\b(20\d{2})\b', team_name)
                                         if birth_year_match:
                                             birth_year = int(birth_year_match.group(1))
-                                            current_year = 2025
+                                            current_year = CURRENT_YEAR
                                             age_group_number = current_year - birth_year + 1
                                             if 7 <= age_group_number <= 19:
                                                 age_group = f"U{age_group_number}"
@@ -612,7 +613,7 @@ class GotSportEventScraper:
                             birth_year_match = re.search(r'\b(20\d{2})\b', team_name)
                             if birth_year_match:
                                 birth_year = int(birth_year_match.group(1))
-                                current_year = 2025
+                                current_year = CURRENT_YEAR
                                 age_group_number = current_year - birth_year + 1
                                 if 7 <= age_group_number <= 19:
                                     age_group = f"U{age_group_number}"

@@ -28,13 +28,23 @@ export function formatSOSIndex(sosNorm?: number | null): string {
 }
 
 /**
+ * Soccer season year: rolls over on Aug 1.
+ * Before Aug 1, season year = previous calendar year.
+ * On/after Aug 1, season year = current calendar year.
+ */
+function soccerSeasonYear(): number {
+  const now = new Date();
+  return now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
+}
+
+/**
  * Extract age GROUP from team name (fallback when age field is missing/wrong)
  *
  * IMPORTANT: In youth soccer, "14B" means BIRTH YEAR 2014, NOT age 14!
- * Age GROUP = age player turns this year + 1 (U12 means "Under 12" = 11-year-olds)
+ * Formula: seasonYear - birthYear + 1 (season rolls over Aug 1)
  *
- * - "14B Engilman" → birth year 2014 → turns 11 in 2025 → U12
- * - "08G Excel" → birth year 2008 → turns 17 in 2025 → U18
+ * - "14B Engilman" → birth year 2014 → U12 (2025-26 season)
+ * - "08G Excel" → birth year 2008 → U18 (2025-26 season)
  * - "U14 Phoenix" → directly specified as U14 → 14
  *
  * Birth year format: 2-digit year (08-19) followed by B (boys) or G (girls)
@@ -56,6 +66,8 @@ export function extractAgeFromTeamName(teamName: string | null | undefined): num
     }
   }
 
+  const seasonYear = soccerSeasonYear();
+
   // Pattern 2: "14B", "14G" format - this is BIRTH YEAR, not age!
   // Valid birth years: 08-19 (2008-2019) for youth soccer
   const birthYearPattern = /\b(0[89]|1[0-9])[BG]\b/i;
@@ -63,11 +75,7 @@ export function extractAgeFromTeamName(teamName: string | null | undefined): num
   if (birthYearMatch) {
     const birthYearSuffix = parseInt(birthYearMatch[1], 10);
     const birthYear = 2000 + birthYearSuffix;
-    const currentYear = new Date().getFullYear();
-    // Calculate age player turns this year, then +1 for age GROUP
-    // e.g., 2014 birth in 2025 = turns 11 = U12 (under 12)
-    const ageTurning = currentYear - birthYear;
-    const ageGroup = ageTurning + 1; // U-age is always +1 from actual age
+    const ageGroup = seasonYear - birthYear + 1;
     if (ageGroup >= 6 && ageGroup <= 19) {
       return ageGroup;
     }
@@ -80,9 +88,7 @@ export function extractAgeFromTeamName(teamName: string | null | undefined): num
   if (standaloneMatch) {
     const birthYearSuffix = parseInt(standaloneMatch[1], 10);
     const birthYear = 2000 + birthYearSuffix;
-    const currentYear = new Date().getFullYear();
-    const ageTurning = currentYear - birthYear;
-    const ageGroup = ageTurning + 1;
+    const ageGroup = seasonYear - birthYear + 1;
     if (ageGroup >= 6 && ageGroup <= 19) {
       return ageGroup;
     }
@@ -115,8 +121,8 @@ export function normalizeAgeGroup(ageGroup: string | number | null | undefined):
   else {
     const birthYear = parseInt(ageGroup, 10);
     if (birthYear > 1900 && birthYear <= new Date().getFullYear()) {
-      const currentYear = new Date().getFullYear();
-      const computed = currentYear - birthYear;
+      const seasonYear = soccerSeasonYear();
+      const computed = seasonYear - birthYear + 1;
       age = computed > 0 && computed < 100 ? computed : null;
     } else {
       // Try parsing as direct number

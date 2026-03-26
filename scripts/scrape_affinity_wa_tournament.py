@@ -133,8 +133,9 @@ def _gender_label_to_canonical(label: str) -> str:
 
 
 def _age_u_to_birth_year(age_u: int) -> int:
-    """Derive birth year from U-age for the 2025-26 season."""
-    return 2026 - age_u
+    """Derive birth year from U-age. Season year rolls over Aug 1."""
+    from src.utils.team_utils import CURRENT_YEAR
+    return CURRENT_YEAR - age_u + 1
 
 
 # ── Network ────────────────────────────────────────────────────────────────────
