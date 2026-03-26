@@ -133,6 +133,23 @@ async def run_audit():
     strength_map = dict(zip(rankings_df['team_id'], rankings_df['abs_strength']))
     console.print(f"[green]Loaded {len(rankings_df):,} teams with strength values[/green]\n")
 
+    # Load merge map so opponent IDs are resolved to canonical (matches engine behavior)
+    merge_map = {}
+    merge_offset = 0
+    while True:
+        mr = supabase.table('team_merge_map').select(
+            'deprecated_team_id, canonical_team_id'
+        ).range(merge_offset, merge_offset + 999).execute()
+        if not mr.data:
+            break
+        for entry in mr.data:
+            merge_map[entry['deprecated_team_id']] = entry['canonical_team_id']
+        if len(mr.data) < 1000:
+            break
+        merge_offset += 1000
+    if merge_map:
+        console.print(f"[green]Loaded {len(merge_map):,} merge mappings for opponent resolution[/green]\n")
+
     for team_id in TEAM_IDS:
         console.print(f"\n{'='*80}")
 
@@ -200,7 +217,8 @@ async def run_audit():
 
             for game in (home_games.data or []):
                 # Resolve opponent to canonical ID if it's a deprecated team
-                opp_id = game['away_team_master_id']
+                raw_opp = game['away_team_master_id']
+                opp_id = merge_map.get(raw_opp, raw_opp)
                 games.append({
                     'date': game['game_date'],
                     'opp_id': opp_id,
@@ -209,7 +227,8 @@ async def run_audit():
                     'source_team_id': tid,
                 })
             for game in (away_games.data or []):
-                opp_id = game['home_team_master_id']
+                raw_opp = game['home_team_master_id']
+                opp_id = merge_map.get(raw_opp, raw_opp)
                 games.append({
                     'date': game['game_date'],
                     'opp_id': opp_id,

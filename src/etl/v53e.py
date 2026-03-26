@@ -1026,7 +1026,7 @@ def compute_rankings(
 
     logger.info("✅ Static anchor mapping applied (U10=0.40 → U18=1.00)")
 
-    team["abs_strength"] = (team["power_presos"] * team["anchor"]).clip(0.0, 1.0)
+    team["abs_strength"] = (team["power_presos"] * team["anchor"]).clip(cfg.UNRANKED_SOS_BASE, 1.0)
 
     strength_map = dict(zip(team["team_id"], team["abs_strength"]))
     power_map = dict(zip(team["team_id"], team["power_presos"]))
@@ -1101,7 +1101,7 @@ def compute_rankings(
         )
 
         # Update strength_map and power_map with adjusted power
-        team["abs_strength"] = (team["power_presos"] * team["anchor"]).clip(0.0, 1.0)
+        team["abs_strength"] = (team["power_presos"] * team["anchor"]).clip(cfg.UNRANKED_SOS_BASE, 1.0)
         strength_map = dict(zip(team["team_id"], team["abs_strength"]))
         power_map = dict(zip(team["team_id"], team["power_presos"]))
 
