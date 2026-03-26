@@ -212,6 +212,9 @@ python scripts/import_games_enhanced.py --file <path>
 
 # Run tests
 python -m pytest tests/
+
+# Diagnose ranking for specific teams (validates algorithm + simulates path to #1)
+python scripts/diagnose_ranking.py <team_uuid> [<team_uuid> ...]
 ```
 
 ### Frontend (Next.js)
