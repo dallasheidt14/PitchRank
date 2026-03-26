@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabaseClient';
+import { requireAdmin } from '@/lib/supabase/admin';
 
 interface AgentMessage {
   id: string;
@@ -71,6 +72,9 @@ export async function GET() {
 // POST - add new agent activity (called by webhook or agents)
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAdmin();
+    if (auth.error) return auth.error;
+
     const body = await request.json();
     const { 
       session_key, 

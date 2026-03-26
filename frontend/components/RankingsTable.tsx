@@ -90,7 +90,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
         total_teams: rankings.length,
       });
     }
-  }, [rankings?.length, region, ageGroup, gender]);
+  }, [rankings, region, ageGroup, gender]);
 
   // Use pre-calculated SOS ranks from database
   // sos_rank_national for national view, sos_rank_state for state view

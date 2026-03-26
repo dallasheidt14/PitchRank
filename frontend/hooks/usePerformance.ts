@@ -47,7 +47,7 @@ export function useWebVitals() {
  * @param componentName - Name for the measurement
  * @returns Render duration in ms (0 until mount completes)
  */
-export function useRenderTime(componentName: string) {
+function useRenderTime(componentName: string) {
   const durationRef = useRef(0)
 
   useEffect(() => {
@@ -68,7 +68,7 @@ export function useRenderTime(componentName: string) {
  *
  * @param componentName - Name for logging
  */
-export function useRenderCount(componentName: string) {
+function useRenderCount(componentName: string) {
   const count = useRef(0)
   const lastRender = useRef(Date.now())
 

@@ -265,7 +265,7 @@ class SurfSportsScraper(BaseScraper):
                 if response.status_code == 200:
                     data = response.json()
                     event_name = data.get('eventName', event_name)
-            except:
+            except Exception:
                 pass
             
             logger.info(f"Scraping event: {event_name}")

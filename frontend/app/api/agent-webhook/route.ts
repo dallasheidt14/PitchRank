@@ -44,13 +44,13 @@ function getAgentEmoji(agentName: string): string {
 
 // Simple auth check - can be enhanced with a shared secret
 function validateRequest(request: NextRequest): boolean {
-  // For now, allow localhost requests and check for optional webhook secret
   const webhookSecret = process.env.AGENT_WEBHOOK_SECRET;
   if (!webhookSecret) {
-    // No secret configured, allow all requests (local dev)
-    return true;
+    // No secret configured — deny all requests for safety
+    console.warn('[AgentWebhook] AGENT_WEBHOOK_SECRET not set — rejecting request');
+    return false;
   }
-  
+
   const authHeader = request.headers.get('authorization');
   return authHeader === `Bearer ${webhookSecret}`;
 }

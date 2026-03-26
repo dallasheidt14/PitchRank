@@ -130,40 +130,30 @@ export default async function Page({ params }: TeamPageProps) {
       } else if (!team) {
         // Team doesn't exist - show 404 page
         notFound();
-      } else if (team.is_deprecated) {
-        // Team is deprecated - check for canonical redirect
-        const { data: mergeInfo } = await supabase
-          .from('team_merge_map')
-          .select('canonical_team_id')
-          .eq('deprecated_team_id', resolvedParams.id)
-          .maybeSingle();
-
-        if (mergeInfo?.canonical_team_id) {
-          // Redirect to the canonical team page
-          redirect(`/teams/${mergeInfo.canonical_team_id}`);
-        }
-        // If no merge info found but team is deprecated, show 404
-        notFound();
       } else {
-        // Check if team has any non-excluded games - prevent soft 404s for teams with no data
-        // Must also check games from merged/deprecated teams (redirect merge architecture:
-        // game records keep deprecated team IDs, resolved at query time via team_merge_map)
-        const teamIdsToCheck = [resolvedParams.id];
-
-        const { data: mergedTeams } = await supabase
+        // Single query for all merge relationships involving this team
+        const { data: mergeRows } = await supabase
           .from('team_merge_map')
-          .select('deprecated_team_id')
-          .eq('canonical_team_id', resolvedParams.id);
+          .select('deprecated_team_id, canonical_team_id')
+          .or(`deprecated_team_id.eq.${resolvedParams.id},canonical_team_id.eq.${resolvedParams.id}`);
 
-        if (mergedTeams && mergedTeams.length > 0) {
-          mergedTeams.forEach((merge: { deprecated_team_id: string }) => {
-            if (merge.deprecated_team_id) {
-              teamIdsToCheck.push(merge.deprecated_team_id);
-            }
-          });
+        if (team.is_deprecated) {
+          // Team is deprecated - find canonical redirect
+          const canonicalRow = mergeRows?.find(r => r.deprecated_team_id === resolvedParams.id);
+          if (canonicalRow?.canonical_team_id) {
+            redirect(`/teams/${canonicalRow.canonical_team_id}`);
+          }
+          notFound();
         }
 
-        // Build OR conditions for all team IDs (canonical + merged)
+        // Check if team has any non-excluded games (include merged team games)
+        const teamIdsToCheck = [resolvedParams.id];
+        mergeRows?.forEach((merge) => {
+          if (merge.deprecated_team_id && merge.deprecated_team_id !== resolvedParams.id) {
+            teamIdsToCheck.push(merge.deprecated_team_id);
+          }
+        });
+
         const orConditions = teamIdsToCheck
           .map((tid) => `home_team_master_id.eq.${tid},away_team_master_id.eq.${tid}`)
           .join(',');
@@ -175,7 +165,6 @@ export default async function Page({ params }: TeamPageProps) {
           .eq('is_excluded', false);
 
         if (!gameError && gameCount === 0) {
-          // Team exists but has no non-excluded games - return 404 to prevent soft 404
           notFound();
         }
       }

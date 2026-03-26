@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabaseClient';
+import { requireAdmin } from '@/lib/supabase/admin';
 
 export interface Announcement {
   id: string;
@@ -35,6 +36,9 @@ export async function GET(request: NextRequest) {
 // POST /api/announcements - Create a new announcement
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAdmin();
+    if (auth.error) return auth.error;
+
     const body = await request.json();
     const { message, author } = body;
 

@@ -414,11 +414,11 @@ async def main():
 
     # Check environment
     url = os.getenv('SUPABASE_URL')
-    key = os.getenv('SUPABASE_SERVICE_KEY')
+    key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
 
     if not url or not key:
         print("ERROR: Missing environment variables")
-        print("Required: SUPABASE_URL and SUPABASE_SERVICE_KEY")
+        print("Required: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY")
         sys.exit(1)
 
     # Create client

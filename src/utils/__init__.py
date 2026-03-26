@@ -15,13 +15,9 @@ from .club_normalizer import (
 # Conditional imports for pandas-dependent modules
 try:
     from .merge_resolver import MergeResolver
-    from .merge_suggester import MergeSuggester, MergeSuggestion, suggest_merges_for_cohort
     _HAVE_PANDAS_DEPS = True
 except ImportError:
     MergeResolver = None
-    MergeSuggester = None
-    MergeSuggestion = None
-    suggest_merges_for_cohort = None
     _HAVE_PANDAS_DEPS = False
 
 __all__ = [
@@ -32,11 +28,7 @@ __all__ = [
     'similarity_score',
     'group_by_club',
     'get_matches_needing_review',
-    'get_confident_matches',
     'ClubNormResult',
     # Merge utilities (require pandas)
     'MergeResolver',
-    'MergeSuggester',
-    'MergeSuggestion',
-    'suggest_merges_for_cohort',
 ]

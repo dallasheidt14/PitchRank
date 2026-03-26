@@ -993,23 +993,6 @@ def get_matches_needing_review(
     return [r for r in results if r.needs_review]
 
 
-def get_confident_matches(
-    names: List[str],
-    fuzzy_threshold: float = 0.85
-) -> List[ClubNormResult]:
-    """
-    Get all matches that are 100% confident (exact canonical matches).
-
-    Args:
-        names: List of raw club name strings
-        fuzzy_threshold: Minimum similarity for fuzzy matching
-
-    Returns:
-        List of ClubNormResult objects that are confident
-    """
-    results = normalize_club_names_batch(names, fuzzy_threshold)
-    return [r for r in results if not r.needs_review]
-
 
 # =============================================================================
 # REGISTRY MANAGEMENT

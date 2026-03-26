@@ -116,7 +116,7 @@ def analyze_team_divisions(db):
                 all_games.extend(games_result.data)
             else:
                 break
-        except:
+        except Exception:
             break
     
     print(f"📊 Found {len(all_games)} Modular11 games")

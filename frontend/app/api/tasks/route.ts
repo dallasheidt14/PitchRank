@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabaseClient';
+import { requireAdmin } from '@/lib/supabase/admin';
 
 export interface AgentTask {
   id: string;
@@ -36,8 +37,10 @@ export async function GET() {
 // POST /api/tasks - Create a new task
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAdmin();
+    if (auth.error) return auth.error;
+
     const body = await request.json();
-    console.log('[Tasks API] POST body:', body);
     
     const { title, description, assigned_agent, created_by, priority } = body;
 

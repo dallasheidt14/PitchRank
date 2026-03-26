@@ -94,7 +94,7 @@ export function MergeTeamsDialog({
     } finally {
       setIsSearching(false);
     }
-  }, [currentTeamAgeGroup, currentTeamGender, currentTeamStateCode]);
+  }, [currentTeamId, currentTeamAgeGroup, currentTeamGender, currentTeamStateCode]);
 
   // Debounced search
   useEffect(() => {

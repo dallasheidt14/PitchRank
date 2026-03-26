@@ -307,19 +307,3 @@ export function trackPaywallUpgradeClicked(payload: PaywallImpressionPayload): v
 // Navigation Events
 // ============================================================================
 
-/**
- * Track when user clicks back to rankings button
- */
-export function trackBackToRankingsClicked(payload: {
-  from_team_id?: string;
-  to_region: string;
-  to_age_group: string;
-  to_gender: string;
-}): void {
-  gtagEvent('back_to_rankings_clicked', {
-    from_team_id: payload.from_team_id,
-    to_region: payload.to_region,
-    to_age_group: payload.to_age_group,
-    to_gender: payload.to_gender,
-  });
-}

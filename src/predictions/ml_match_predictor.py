@@ -15,19 +15,23 @@ from __future__ import annotations
 
 import os
 import pickle
+import hashlib
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 try:
     from xgboost import XGBClassifier, XGBRegressor
     _HAS_XGB = True
 except ImportError:
     _HAS_XGB = False
-    print("WARNING: XGBoost not available. Install with: pip install xgboost")
+    logger.warning("XGBoost not available. Install with: pip install xgboost")
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, mean_absolute_error, mean_squared_error, log_loss
@@ -335,7 +339,9 @@ class MLMatchPredictor:
             raise ValueError(f"Insufficient data: only {len(features_df)} games with features. Need at least 10 games.")
         
         # Prepare targets
-        y_winner = features_df['actual_winner'].map({'home': 1, 'away': 0, 'draw': 0.5})
+        # Map draws to 0 (away/not-home-win) for binary classifier.
+        # This is a binary home-win-vs-not model, so draws are correctly "not a home win".
+        y_winner = features_df['actual_winner'].map({'home': 1, 'away': 0, 'draw': 0})
         y_margin = features_df['actual_margin'].astype(float)
         y_home_score = features_df['actual_home_score'].astype(float)
         y_away_score = features_df['actual_away_score'].astype(float)
@@ -344,7 +350,7 @@ class MLMatchPredictor:
         min_train_size = 10
         if len(features_df) < min_train_size / (1 - test_size):
             test_size = max(0.1, 1 - (min_train_size / len(features_df)))
-            print(f"Adjusted test_size to {test_size:.2f} to ensure minimum training samples")
+            logger.info(f"Adjusted test_size to {test_size:.2f} to ensure minimum training samples")
         
         # Split data
         X_train, X_test, y_winner_train, y_winner_test, y_margin_train, y_margin_test, \
@@ -353,11 +359,11 @@ class MLMatchPredictor:
             test_size=test_size, random_state=random_state
         )
         
-        print(f"Training on {len(X_train)} games, testing on {len(X_test)} games")
-        print(f"Features: {len(feature_cols)}")
+        logger.info(f"Training on {len(X_train)} games, testing on {len(X_test)} games")
+        logger.info(f"Features: {len(feature_cols)}")
         
         # Check for class balance in training set
-        y_winner_binary = (y_winner_train > 0.5).astype(int)
+        y_winner_binary = y_winner_train.astype(int)
         unique_classes = np.unique(y_winner_binary)
         
         if len(unique_classes) < 2:
@@ -368,7 +374,7 @@ class MLMatchPredictor:
             )
         
         # Train win probability model (binary classification: home win vs not)
-        print("\nTraining win probability model...")
+        logger.info("Training win probability model...")
         self.win_probability_model = XGBClassifier(
             n_estimators=300,  # Increased from 200
             max_depth=7,  # Increased from 6
@@ -653,21 +659,28 @@ class MLMatchPredictor:
         metadata_path = os.path.join(self.model_dir, f"{model_name}_metadata.json")
         
         # Save models
+        model_data = pickle.dumps({
+            'win_probability_model': self.win_probability_model,
+            'score_margin_model': self.score_margin_model,
+            'team_a_score_model': self.team_a_score_model,
+            'team_b_score_model': self.team_b_score_model,
+            'feature_names': self.feature_names,
+        })
         with open(model_path, 'wb') as f:
-            pickle.dump({
-                'win_probability_model': self.win_probability_model,
-                'score_margin_model': self.score_margin_model,
-                'team_a_score_model': self.team_a_score_model,
-                'team_b_score_model': self.team_b_score_model,
-                'feature_names': self.feature_names,
-            }, f)
-        
+            f.write(model_data)
+
+        # Save checksum for integrity verification on load
+        checksum = hashlib.sha256(model_data).hexdigest()
+        checksum_path = model_path + '.sha256'
+        with open(checksum_path, 'w') as f:
+            f.write(checksum)
+
         # Save metadata
         with open(metadata_path, 'w') as f:
             json.dump(self.training_metadata, f, indent=2)
-        
-        print(f"Models saved to {model_path}")
-        print(f"Metadata saved to {metadata_path}")
+
+        logger.info(f"Models saved to {model_path}")
+        logger.info(f"Metadata saved to {metadata_path}")
     
     def load(self, model_name: str = "match_predictor"):
         """Load trained models from disk"""
@@ -677,20 +690,35 @@ class MLMatchPredictor:
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Model file not found: {model_path}")
         
-        # Load models
+        # Load models with integrity check
         with open(model_path, 'rb') as f:
-            models = pickle.load(f)
-            self.win_probability_model = models['win_probability_model']
-            self.score_margin_model = models['score_margin_model']
-            self.team_a_score_model = models['team_a_score_model']
-            self.team_b_score_model = models['team_b_score_model']
-            self.feature_names = models['feature_names']
-        
+            model_data = f.read()
+
+        # Verify checksum if available
+        checksum_path = model_path + '.sha256'
+        if os.path.exists(checksum_path):
+            with open(checksum_path, 'r') as f:
+                expected_checksum = f.read().strip()
+            actual_checksum = hashlib.sha256(model_data).hexdigest()
+            if actual_checksum != expected_checksum:
+                raise ValueError(
+                    f"Model file integrity check failed for {model_path}. "
+                    f"Expected SHA-256 {expected_checksum[:16]}..., got {actual_checksum[:16]}... "
+                    f"The file may have been tampered with or corrupted."
+                )
+
+        models = pickle.loads(model_data)
+        self.win_probability_model = models['win_probability_model']
+        self.score_margin_model = models['score_margin_model']
+        self.team_a_score_model = models['team_a_score_model']
+        self.team_b_score_model = models['team_b_score_model']
+        self.feature_names = models['feature_names']
+
         # Load metadata
         if os.path.exists(metadata_path):
             with open(metadata_path, 'r') as f:
                 self.training_metadata = json.load(f)
-        
-        print(f"Models loaded from {model_path}")
+
+        logger.info(f"Models loaded from {model_path}")
         return True
 

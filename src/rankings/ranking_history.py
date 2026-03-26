@@ -559,33 +559,3 @@ async def calculate_rank_changes(
     return current_rankings_df
 
 
-async def cleanup_old_snapshots(
-    supabase_client,
-    days_to_keep: int = 90
-) -> int:
-    """
-    Delete ranking snapshots older than specified days.
-
-    Args:
-        supabase_client: Supabase client instance
-        days_to_keep: Number of days to retain (default: 90)
-
-    Returns:
-        Number of snapshots deleted
-    """
-    cutoff_date = date.today() - timedelta(days=days_to_keep)
-
-    try:
-        logger.info(f"🧹 Cleaning up ranking snapshots older than {cutoff_date}...")
-
-        response = supabase_client.table("ranking_history").delete().lt(
-            "snapshot_date", cutoff_date.isoformat()
-        ).execute()
-
-        deleted_count = len(response.data) if response.data else 0
-        logger.info(f"✅ Deleted {deleted_count:,} old ranking snapshots")
-        return deleted_count
-
-    except Exception as e:
-        logger.error(f"❌ Error cleaning up old snapshots: {e}")
-        return 0

@@ -14,7 +14,7 @@ export interface InstagramHandle {
  */
 export function useInstagramHandles(teamIds: string[]) {
   return useQuery<Map<string, { clubHandle: string | null; teamHandle: string | null }>>({
-    queryKey: ['instagram-handles', teamIds.slice(0, 25).join(',')],
+    queryKey: ['instagram-handles', teamIds.join(',')],
     enabled: teamIds.length > 0,
     queryFn: async () => {
       // Batch to 100 IDs max per query (Supabase URI limit)

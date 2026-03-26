@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from '@/lib/supabase/admin';
 
 /**
  * Unlink an incorrectly linked opponent from a game
@@ -7,6 +8,9 @@ import { createClient } from '@supabase/supabase-js';
  */
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAdmin();
+    if (auth.error) return auth.error;
+
     const serviceKey = process.env.SUPABASE_SERVICE_KEY;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 

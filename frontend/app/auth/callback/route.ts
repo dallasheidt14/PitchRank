@@ -9,7 +9,9 @@ export async function GET(request: Request) {
   const type = searchParams.get("type");
   const code = searchParams.get("code");
   // Default to /rankings instead of /watchlist to avoid redirecting free users to premium route
-  const next = searchParams.get("next") ?? "/rankings";
+  const rawNext = searchParams.get("next") ?? "/rankings";
+  // Prevent open redirect: only allow paths starting with / (not //)
+  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/rankings";
   const error = searchParams.get("error");
   const errorDescription = searchParams.get("error_description");
 

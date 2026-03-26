@@ -124,9 +124,18 @@ export function MissingGamesForm({ teamId, teamName }: MissingGamesFormProps) {
     }
   };
 
-  const timeUntilCanSubmit = lastSubmission
-    ? Math.ceil((60000 - (new Date().getTime() - lastSubmission.getTime())) / 1000)
-    : 0;
+  const [timeUntilCanSubmit, setTimeUntilCanSubmit] = useState(0);
+
+  useEffect(() => {
+    if (!lastSubmission) { setTimeUntilCanSubmit(0); return; }
+    const update = () => {
+      const remaining = Math.ceil((60000 - (Date.now() - lastSubmission.getTime())) / 1000);
+      setTimeUntilCanSubmit(Math.max(0, remaining));
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [lastSubmission]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>

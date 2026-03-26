@@ -56,7 +56,7 @@ const DEFAULT_CONFIG: PerfConfig = {
 
 let config: PerfConfig = { ...DEFAULT_CONFIG }
 
-export function configurePerfMonitoring(overrides: Partial<PerfConfig>) {
+function configurePerfMonitoring(overrides: Partial<PerfConfig>) {
   config = { ...config, ...overrides }
 }
 
@@ -276,7 +276,7 @@ export function measureRender(componentName: string) {
  * Track resource loading performance (JS bundles, images, fonts).
  * Call after page load to get resource timing data.
  */
-export function getResourceTimings(): {
+function getResourceTimings(): {
   scripts: { name: string; size: number; duration: number }[]
   totalJsSize: number
   totalLoadTime: number

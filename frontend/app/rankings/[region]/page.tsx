@@ -161,9 +161,9 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, '\\u003c') }}
       />
-      
+
       <div className="container mx-auto py-8 px-4">
         <Breadcrumbs />
 

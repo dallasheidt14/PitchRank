@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
+import { requireAdmin } from '@/lib/supabase/admin';
 
 /**
  * Create a new team and link it to an unknown opponent
@@ -8,6 +9,9 @@ import { randomUUID } from 'crypto';
  */
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAdmin();
+    if (auth.error) return auth.error;
+
     const serviceKey = process.env.SUPABASE_SERVICE_KEY;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 

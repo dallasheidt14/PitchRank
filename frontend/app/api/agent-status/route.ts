@@ -77,65 +77,47 @@ function calculateNextRun(agentId: string, schedule: string): string | null {
 
 export async function GET() {
   try {
-    const agents: AgentStatusResponse[] = [];
-    
-    // Get all known agent IDs
     const agentIds = Object.keys(AGENT_SCHEDULES);
-    
-    for (const agentId of agentIds) {
-      // Query for in-progress tasks assigned to this agent
-      const { data: activeTasks, error: activeError } = await supabase
+
+    // Batch: 2 queries instead of 18
+    const [activeResult, completedResult] = await Promise.all([
+      supabase
         .from('agent_tasks')
-        .select('*')
-        .eq('assigned_agent', agentId)
+        .select('assigned_agent, title, created_at')
+        .in('assigned_agent', agentIds)
         .eq('status', 'in_progress')
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      if (activeError) {
-        console.error(`Error querying active tasks for ${agentId}:`, activeError);
-        agents.push({
-          id: agentId,
-          status: 'error',
-          currentTask: null,
-          lastRun: null,
-          nextRun: null,
-        });
-        continue;
-      }
-
-      // Check if agent has an active task
-      const isActive = activeTasks && activeTasks.length > 0;
-      const currentTask = isActive ? activeTasks[0].title : null;
-
-      // Query for last completed task (review or done status)
-      const { data: completedTasks, error: completedError } = await supabase
+        .order('created_at', { ascending: false }),
+      supabase
         .from('agent_tasks')
-        .select('*')
-        .eq('assigned_agent', agentId)
+        .select('assigned_agent, updated_at')
+        .in('assigned_agent', agentIds)
         .in('status', ['done', 'review'])
-        .order('updated_at', { ascending: false })
-        .limit(1);
+        .order('updated_at', { ascending: false }),
+    ]);
 
-      if (completedError) {
-        console.error(`Error querying completed tasks for ${agentId}:`, completedError);
-      }
+    if (activeResult.error) {
+      console.error('Error querying active tasks:', activeResult.error);
+    }
+    if (completedResult.error) {
+      console.error('Error querying completed tasks:', completedResult.error);
+    }
 
-      const lastRun = completedTasks && completedTasks.length > 0
-        ? formatRelativeTime(new Date(completedTasks[0].updated_at))
-        : null;
+    const activeTasks = activeResult.data ?? [];
+    const completedTasks = completedResult.data ?? [];
+
+    const agents: AgentStatusResponse[] = agentIds.map(agentId => {
+      const activeTask = activeTasks.find(t => t.assigned_agent === agentId);
+      const lastCompleted = completedTasks.find(t => t.assigned_agent === agentId);
 
       const schedule = AGENT_SCHEDULES[agentId] || 'Unknown';
-      const nextRun = calculateNextRun(agentId, schedule);
-
-      agents.push({
+      return {
         id: agentId,
-        status: isActive ? 'active' : 'idle',
-        currentTask,
-        lastRun,
-        nextRun,
-      });
-    }
+        status: activeTask ? 'active' as const : 'idle' as const,
+        currentTask: activeTask?.title ?? null,
+        lastRun: lastCompleted ? formatRelativeTime(new Date(lastCompleted.updated_at)) : null,
+        nextRun: calculateNextRun(agentId, schedule),
+      };
+    });
 
     return NextResponse.json({
       agents,

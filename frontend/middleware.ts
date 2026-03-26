@@ -1,11 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-// Routes that require authentication
+// Routes that require authentication (currently all are also premium-gated)
 const PROTECTED_ROUTES = ["/watchlist", "/compare", "/teams"];
 
 // Routes that require premium subscription (subset of protected routes)
-const PREMIUM_ROUTES = ["/watchlist", "/compare", "/teams"];
+// NOTE: Currently identical to PROTECTED_ROUTES. To add auth-only (non-premium)
+// routes, add them to PROTECTED_ROUTES only.
+const PREMIUM_ROUTES: string[] = PROTECTED_ROUTES;
 
 // Auth routes (login/signup pages)
 const AUTH_ROUTES = ["/login", "/signup"];

@@ -306,6 +306,20 @@ Required variables are documented in `.env.example`. Key groups:
 - `/blog/[slug]` — Blog posts
 - `/mission-control` — Admin dashboard
 
+### Admin Auth for API Routes
+
+Admin-only API routes use `requireAdmin()` from `frontend/lib/supabase/admin.ts`. This verifies the caller is an authenticated user with `user_profiles.plan === 'admin'`. All routes under `/api` are excluded from middleware auth (middleware.ts line 128), so each route must self-enforce authentication.
+
+```typescript
+import { requireAdmin } from '@/lib/supabase/admin';
+
+export async function POST(request: NextRequest) {
+  const auth = await requireAdmin();
+  if (auth.error) return auth.error;
+  // ... route logic
+}
+```
+
 ### Design System
 
 - **Display font**: Oswald (athletic headlines)

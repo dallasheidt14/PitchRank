@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { api } from '@/lib/api';
+import { createClient } from '@supabase/supabase-js';
 
 // Revalidate every hour
 export const revalidate = 3600;
@@ -43,30 +43,22 @@ export default async function ClubEmbedPage({ params }: ClubEmbedPageProps) {
   }> = [];
 
   try {
-    // Get all rankings and filter by club name
-    // We need to fetch across all age groups and genders
-    const allRankings = await api.getRankings(null, undefined, null);
-    teams = allRankings
-      .filter(t => t.club_name?.toLowerCase() === clubName.toLowerCase())
-      .map(t => ({
-        team_id_master: t.team_id_master,
-        team_name: t.team_name,
-        age: t.age,
-        gender: t.gender,
-        state: t.state,
-        power_score_final: t.power_score_final,
-        rank_in_cohort_final: t.rank_in_cohort_final,
-        rank_in_state_final: t.rank_in_state_final,
-        wins: t.wins,
-        losses: t.losses,
-        draws: t.draws,
-      }))
-      .sort((a, b) => {
-        // Sort by age then gender
-        if (a.age !== b.age) return a.age - b.age;
-        if (a.gender !== b.gender) return a.gender.localeCompare(b.gender);
-        return b.power_score_final - a.power_score_final;
-      });
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (supabaseUrl && supabaseAnonKey) {
+      const supabase = createClient(supabaseUrl, supabaseAnonKey);
+      const { data, error: dbError } = await supabase
+        .from('current_rankings')
+        .select('team_id_master, team_name, age, gender, state, power_score_final, rank_in_cohort_final, rank_in_state_final, wins, losses, draws')
+        .ilike('club_name', clubName)
+        .order('age', { ascending: true })
+        .order('gender', { ascending: true })
+        .order('power_score_final', { ascending: false });
+
+      if (!dbError && data) {
+        teams = data as typeof teams;
+      }
+    }
   } catch (error) {
     console.error('Error fetching club teams:', error);
   }

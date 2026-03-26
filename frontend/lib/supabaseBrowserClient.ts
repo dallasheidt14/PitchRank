@@ -25,10 +25,3 @@ export function createSupabaseBrowserClient(): SupabaseClient {
   return supabaseBrowserInstance;
 }
 
-/**
- * Hook to get Supabase browser client.
- * Safe to call multiple times - returns same instance.
- */
-export function useSupabaseBrowser(): SupabaseClient {
-  return createSupabaseBrowserClient();
-}

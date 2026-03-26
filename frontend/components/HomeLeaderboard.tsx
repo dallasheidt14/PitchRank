@@ -48,7 +48,7 @@ export function HomeLeaderboard() {
     const watchedTeams = getWatchedTeams();
     const topTeam = rankings[0];
     
-    if (topTeam && topTeam.rank_in_cohort_final === 1 && watchedTeams.includes(topTeam.team_id_master)) {
+    if (topTeam && computedNationalRanks.get(topTeam.team_id_master) === 1 && watchedTeams.includes(topTeam.team_id_master)) {
       // Check if we've already triggered confetti for this team in this session
       const sessionKey = `confetti_${topTeam.team_id_master}`;
       const lastConfettiTeamId = sessionStorage.getItem('lastConfettiTeamId');

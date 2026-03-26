@@ -494,9 +494,9 @@ class EnhancedETLPipeline:
             batch_metrics.partial_games_count = partial_count
             batch_metrics.failed_games_count = failed_count
             # Also update shared metrics
-            self.metrics.matched_games_count = matched_count
-            self.metrics.partial_games_count = partial_count
-            self.metrics.failed_games_count = failed_count
+            self.metrics.matched_games_count += matched_count
+            self.metrics.partial_games_count += partial_count
+            self.metrics.failed_games_count += failed_count
             
             logger.info(f"Matched {len(game_records)} games (matched: {matched_count}, partial: {partial_count}, failed: {failed_count})")
             

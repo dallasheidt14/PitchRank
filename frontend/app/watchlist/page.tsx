@@ -61,16 +61,6 @@ export default function WatchlistPage() {
 
   const isPremium = hasPremiumAccess(profile);
 
-  // Debug logging - remove after fixing
-  console.log("[Watchlist Page] State:", {
-    userLoading,
-    hasUser: !!user,
-    userId: user?.id,
-    profile: profile ? { plan: profile.plan } : null,
-    isPremium,
-    queryEnabled: !userLoading && isPremium && !!user,
-  });
-
   // Initialize watchlist on mount for premium users
   // Only run when loading is complete to avoid race conditions
   useEffect(() => {
@@ -101,16 +91,6 @@ export default function WatchlistPage() {
 
 
   // Debug query status
-  console.log("[Watchlist Page] Query:", {
-    queryStatus,
-    fetchStatus,
-    watchlistLoading,
-    watchlistFetching,
-    hasData: !!watchlistData,
-    teamsCount: watchlistData?.teams?.length ?? 0,
-    error: watchlistError?.message,
-  });
-
   const teams = useMemo(() => watchlistData?.teams ?? [], [watchlistData?.teams]);
 
   // Filter and sort teams

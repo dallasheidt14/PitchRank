@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { execSync } from 'child_process';
 import { supabase } from '@/lib/supabaseClient';
+import { requireAdmin } from '@/lib/supabase/admin';
 
 interface AgentStatus {
   id: string;
@@ -239,6 +240,9 @@ function getRecentCommits(): { message: string; time: string; author: string }[]
 }
 
 export async function GET() {
+  const auth = await requireAdmin();
+  if (auth.error) return auth.error;
+
   const agents: AgentStatus[] = [];
 
   // Fetch live status for each agent from database

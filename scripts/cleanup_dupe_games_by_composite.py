@@ -124,6 +124,10 @@ def main():
     print(f"\n  Total records to delete: {len(ids_to_delete)}")
 
     if not dry_run:
+        confirm = input(f"\n  ⚠️  About to delete {len(ids_to_delete)} records. Continue? (y/N): ")
+        if confirm.lower() != 'y':
+            print("  Aborted.")
+            return
         print("\n  Deleting...")
         deleted = 0
         failed = 0

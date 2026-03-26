@@ -47,8 +47,6 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
     Returns:
         Tuple of (total_updated, failed_count)
     """
-    import time
-
     if game_residuals.empty:
         return (0, 0)
 
@@ -67,7 +65,7 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
 
         # Small delay between batches to avoid overwhelming the server
         if batch_num > 1:
-            time.sleep(0.3)
+            await asyncio.sleep(0.3)
 
         # Prepare batch data for RPC (Supabase client handles JSON conversion)
         batch_data = [
@@ -109,11 +107,11 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
                     'WinError 10054' in error_msg or
                     'timeout' in error_msg.lower() or
                     'statement timeout' in error_msg.lower() or
-                    'connection' in error_msg.lower() and (
+                    ('connection' in error_msg.lower() and (
                         'closed' in error_msg.lower() or
                         'reset' in error_msg.lower() or
                         'forcibly' in error_msg.lower()
-                    ) or
+                    )) or
                     'forcibly closed' in error_msg.lower() or
                     'remote host' in error_msg.lower()
                 )
@@ -124,7 +122,7 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
                         f"attempt {attempt + 1}/{max_retries}. "
                         f"Retrying in {batch_retry_delay}s... Error: {error_msg[:100]}"
                     )
-                    time.sleep(batch_retry_delay)
+                    await asyncio.sleep(batch_retry_delay)
                     batch_retry_delay *= 2  # Exponential backoff
                 elif attempt < max_retries - 1:
                     # Non-network error, still retry
@@ -133,7 +131,7 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
                         f"attempt {attempt + 1}/{max_retries}. "
                         f"Retrying in {batch_retry_delay}s... Error: {error_msg[:100]}"
                     )
-                    time.sleep(batch_retry_delay)
+                    await asyncio.sleep(batch_retry_delay)
                     batch_retry_delay *= 2
                 else:
                     # Last attempt failed
@@ -172,7 +170,7 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
                     break  # Success
                 except Exception as e:
                     if attempt < max_retries - 1:
-                        time.sleep(batch_retry_delay)
+                        await asyncio.sleep(batch_retry_delay)
                         batch_retry_delay *= 2
                     else:
                         logger.error(

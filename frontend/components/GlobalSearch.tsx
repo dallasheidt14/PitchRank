@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect, useDeferredValue, useTransition, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import type Fuse from 'fuse.js';
+
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { InlineLoader } from '@/components/ui/LoadingStates';
@@ -55,7 +55,6 @@ export function GlobalSearch() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [FuseClass, setFuseClass] = useState<typeof Fuse | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -67,37 +66,6 @@ export function GlobalSearch() {
   const isSearchPending = searchQuery !== deferredSearchQuery;
 
   const { data: allTeams, isLoading, isError, error, refetch } = useTeamSearch();
-
-  // Dynamically load Fuse.js only when needed
-  useEffect(() => {
-    if (!FuseClass) {
-      import('fuse.js').then((module) => {
-        setFuseClass(() => module.default);
-      });
-    }
-  }, [FuseClass]);
-
-  // Configure Fuse.js for fuzzy search with optimized settings
-  const fuse = useMemo(() => {
-    if (!allTeams || !FuseClass) return null;
-
-    return new FuseClass(allTeams, {
-      keys: [
-        { name: 'searchable_name', weight: 0.5 },
-        { name: 'club_name', weight: 0.4 },
-        { name: 'state', weight: 0.1 },
-      ],
-      threshold: 0.4, // Tighter threshold for faster, more accurate results
-      ignoreLocation: true,
-      findAllMatches: false, // Stop at first match for better performance
-      includeScore: true,
-      minMatchCharLength: 2,
-      shouldSort: true,
-      // Performance optimizations
-      useExtendedSearch: false,
-      isCaseSensitive: false,
-    });
-  }, [allTeams, FuseClass]);
 
   // Perform search using word-based matching for better multi-word queries
   // "rebels san diego romero" will match if ALL words appear in searchable_name or club_name
@@ -157,10 +125,9 @@ export function GlobalSearch() {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!isOpen || searchResults.length === 0) {
       if (e.key === 'Enter' && searchQuery.length >= 2) {
-        // If Enter pressed with query but no results open, try to navigate to first result
-        const results = fuse?.search(searchQuery);
-        if (results && results.length > 0) {
-          handleSelect(results[0].item);
+        // If Enter pressed with query but no results open, navigate to first result
+        if (searchResults.length > 0) {
+          handleSelect(searchResults[0]);
         }
       }
       return;

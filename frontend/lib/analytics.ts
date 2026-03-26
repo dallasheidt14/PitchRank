@@ -53,26 +53,4 @@ export function gtagEvent(
  * Track a page view in Google Analytics 4
  * Note: This is typically handled automatically by the GoogleAnalytics component,
  * but can be called manually for SPAs or custom page tracking.
- *
- * @param url - The URL/path to track
- * @param title - Optional page title
- *
- * @example
- * gtagPageView('/teams/123', 'Team Details - Rangers');
  */
-export function gtagPageView(url: string, title?: string): void {
-  if (!isAnalyticsEnabled()) {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[Analytics PageView]', url, title);
-    }
-    return;
-  }
-
-  const measurementId = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID;
-  if (!measurementId) return;
-
-  window.gtag!('config', measurementId, {
-    page_path: url,
-    ...(title && { page_title: title }),
-  });
-}

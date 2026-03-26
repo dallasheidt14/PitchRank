@@ -126,7 +126,9 @@ def extract_team_variant(name: str) -> Optional[str]:
             return word_clean
 
     # Check for roman numerals or letter variants (I, II, III, A, B)
-    roman_match = re.search(r'\b(i{1,3}|iv|v|vi{0,3})\b', name_lower)
+    # Match roman numerals II+ and letter variants (A, B) but NOT single "i" or "v"
+    # which are too common as English words in team names
+    roman_match = re.search(r'\b(ii|iii|iv|vi{1,3})\b', name_lower)
     if roman_match:
         return roman_match.group(1)
 

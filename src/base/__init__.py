@@ -5,18 +5,6 @@ from dataclasses import dataclass
 from datetime import datetime
 
 @dataclass
-class TeamData:
-    """Standardized team data structure"""
-    provider_id: str
-    provider_team_id: str
-    name: str
-    club: Optional[str]
-    state: Optional[str]
-    age_group: str
-    gender: str
-    meta: Dict = None
-
-@dataclass
 class GameData:
     """Standardized game data structure"""
     provider_id: str
@@ -57,15 +45,3 @@ class BaseValidator(ABC):
         """Validate data, return (is_valid, error_message)"""
         pass
 
-class BaseRankingEngine(ABC):
-    """Base class for ranking engines"""
-    
-    @abstractmethod
-    def calculate_power_score(self, team_data: Dict) -> float:
-        """Calculate team's power score"""
-        pass
-        
-    @abstractmethod
-    def calculate_sos(self, team_data: Dict, opponents: List[Dict]) -> float:
-        """Calculate strength of schedule"""
-        pass

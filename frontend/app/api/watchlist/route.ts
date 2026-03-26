@@ -51,7 +51,6 @@ export interface WatchlistResponse {
  * Includes ranking deltas, recent games count, and insight previews.
  */
 export async function GET() {
-  console.log("[Watchlist API] GET request received");
   try {
     const supabase = await createServerSupabase();
 
@@ -61,14 +60,7 @@ export async function GET() {
       error: authError,
     } = await supabase.auth.getUser();
 
-    console.log("[Watchlist API] Auth check:", {
-      hasUser: !!user,
-      userId: user?.id,
-      error: authError?.message,
-    });
-
     if (!user) {
-      console.log("[Watchlist API] No user, returning 401");
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
@@ -79,13 +71,7 @@ export async function GET() {
       .eq("id", user.id)
       .single();
 
-    console.log("[Watchlist API] Profile check:", {
-      plan: profile?.plan,
-      error: profileError?.message,
-    });
-
     if (profileError) {
-      console.error("[Watchlist API] Error fetching profile:", profileError);
       return NextResponse.json(
         { error: "Failed to fetch user profile" },
         { status: 500 }
@@ -94,13 +80,11 @@ export async function GET() {
 
     // Check if profile exists (user may not have a profile row yet)
     if (!profile) {
-      console.log("[Watchlist API] No profile found for user");
       return NextResponse.json({ error: "Profile not found" }, { status: 404 });
     }
 
     // Enforce premium access
     if (profile.plan !== "premium" && profile.plan !== "admin") {
-      console.log("[Watchlist API] Not premium, returning 403");
       return NextResponse.json({ error: "Premium required" }, { status: 403 });
     }
 
@@ -116,7 +100,6 @@ export async function GET() {
     // If no default watchlist found, get the most recent watchlist (fallback)
     // This handles cases where watchlists exist but is_default flag is missing
     if (!watchlist && watchlistError?.code === "PGRST116") {
-      console.log("[Watchlist API] No default watchlist found, trying most recent watchlist");
       const { data: watchlists, error: listError } = await supabase
         .from("watchlists")
         .select("*")
@@ -128,17 +111,8 @@ export async function GET() {
         watchlistError = listError;
       } else if (watchlists && watchlists.length > 0) {
         watchlist = watchlists[0];
-        console.log("[Watchlist API] Using most recent watchlist as fallback:", watchlist.id);
       }
     }
-
-    console.log("[Watchlist API] Watchlist lookup:", {
-      userId: user.id,
-      hasWatchlist: !!watchlist,
-      watchlistId: watchlist?.id,
-      error: watchlistError?.code,
-      errorMessage: watchlistError?.message,
-    });
 
     if (watchlistError && watchlistError.code !== "PGRST116") {
       console.error("Error fetching watchlist:", watchlistError);
@@ -150,20 +124,12 @@ export async function GET() {
 
     // No watchlist exists - return empty response with proper structure
     if (!watchlist) {
-      console.log("[Watchlist API] No watchlist found for user, returning empty");
       // Try to find ANY watchlist for this user (not just default) for debugging
       const { data: anyWatchlist, error: anyError } = await supabase
         .from("watchlists")
         .select("*")
         .eq("user_id", user.id)
         .limit(5);
-      
-      console.log("[Watchlist API] Debug - Any watchlists for user:", {
-        userId: user.id,
-        count: anyWatchlist?.length ?? 0,
-        watchlists: anyWatchlist?.map(w => ({ id: w.id, name: w.name, is_default: w.is_default })) ?? [],
-        error: anyError?.message,
-      });
       
       return NextResponse.json({
         watchlist: {
@@ -174,16 +140,9 @@ export async function GET() {
           updated_at: "",
         },
         teams: [],
-        debug: {
-          userId: user.id,
-          watchlistNotFound: true,
-          anyWatchlistsFound: anyWatchlist?.length ?? 0,
-          watchlistIds: anyWatchlist?.map(w => w.id) ?? [],
-        },
       });
     }
 
-    console.log("[Watchlist API] Found watchlist:", watchlist.id);
 
     // Get watchlist items for the found watchlist
     const { data: items, error: itemsError } = await supabase
@@ -198,61 +157,6 @@ export async function GET() {
         { status: 500 }
       );
     }
-
-    // Also check ALL watchlist_items for this user to see if items are in different watchlists
-    // Get all watchlists for user first (to check items across all watchlists)
-    const { data: userWatchlists, error: watchlistsError } = await supabase
-      .from("watchlists")
-      .select("id")
-      .eq("user_id", user.id);
-    
-    if (watchlistsError) {
-      console.error("[Watchlist API] Error fetching user watchlists:", watchlistsError);
-      // Continue without the debug info - not critical
-    }
-    
-    const watchlistIds = userWatchlists?.map(w => w.id) ?? [];
-    
-    // Only query all items if we have watchlist IDs
-    let allUserItems = null;
-    if (watchlistIds.length > 0) {
-      const { data: allItems, error: allItemsError } = await supabase
-        .from("watchlist_items")
-        .select("watchlist_id, team_id_master, created_at")
-        .in("watchlist_id", watchlistIds);
-      
-      if (allItemsError) {
-        console.error("[Watchlist API] Error fetching all user items:", allItemsError);
-        // Continue without the debug info - not critical
-      } else {
-        allUserItems = allItems;
-      }
-    }
-    
-    // Safe logging with null checks
-    try {
-      const itemsByWatchlist = allUserItems?.reduce((acc, item) => {
-        acc[item.watchlist_id] = (acc[item.watchlist_id] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>) ?? {};
-      
-      console.log("[Watchlist API] All watchlist items for user:", {
-        currentWatchlistId: watchlist.id,
-        totalItems: allUserItems?.length ?? 0,
-        itemsByWatchlist,
-        teamIds: allUserItems?.map(i => i.team_id_master) ?? [],
-        itemsInCurrentWatchlist: items?.length ?? 0,
-      });
-    } catch (logError) {
-      console.error("[Watchlist API] Error logging watchlist items:", logError);
-      // Continue - logging error shouldn't break the request
-    }
-
-    console.log("[Watchlist API] Watchlist items:", {
-      watchlistId: watchlist.id,
-      count: items?.length ?? 0,
-      items: items?.map(i => i.team_id_master) ?? [],
-    });
 
     // Define types for database responses
     type WatchlistItem = {
@@ -286,7 +190,6 @@ export async function GET() {
     };
 
     if (!items || items.length === 0) {
-      console.log("[Watchlist API] No items found, returning empty teams array");
       return NextResponse.json({
         watchlist: {
           id: watchlist.id,
@@ -299,11 +202,6 @@ export async function GET() {
       });
     }
 
-    console.log("[Watchlist API] Found items, proceeding to fetch team data:", {
-      itemCount: items.length,
-      teamIds: items.map(i => i.team_id_master),
-    });
-
     // Get team IDs
     const typedItems = items as WatchlistItem[];
     const teamIds = typedItems.map((item: WatchlistItem) => item.team_id_master);
@@ -311,15 +209,8 @@ export async function GET() {
       typedItems.map((item: WatchlistItem) => [item.team_id_master, item.created_at])
     );
 
-    console.log("[Watchlist API] About to fetch teams:", {
-      teamIdsCount: teamIds.length,
-      teamIds: teamIds.slice(0, 5), // Log first 5 for debugging
-      teamIdsArray: teamIds,
-    });
-
     // Guard against empty teamIds array
     if (teamIds.length === 0) {
-      console.log("[Watchlist API] No team IDs to fetch, returning empty teams");
       return NextResponse.json({
         watchlist: {
           id: watchlist.id,
@@ -334,39 +225,19 @@ export async function GET() {
 
     // First fetch basic team data from teams table (this has ALL teams)
     // This ensures we return all watched teams, even those without rankings
-    console.log("[Watchlist API] Executing teams query with", teamIds.length, "team IDs");
     const { data: teamsData, error: teamsError } = await supabase
       .from("teams")
       .select("team_id_master, team_name, club_name, state, age_group, gender")
       .in("team_id_master", teamIds);
 
-    console.log("[Watchlist API] Teams query result:", {
-      teamsDataCount: teamsData?.length ?? 0,
-      teamsError: teamsError ? {
-        message: teamsError.message,
-        code: teamsError.code,
-        details: teamsError.details,
-        hint: teamsError.hint,
-      } : null,
-    });
-
     if (teamsError) {
-      console.error("[Watchlist API] Error fetching teams:", {
-        error: teamsError,
-        message: teamsError.message,
-        code: teamsError.code,
-        details: teamsError.details,
-        hint: teamsError.hint,
-        teamIdsCount: teamIds.length,
-        teamIds: teamIds,
-      });
+      console.error("Error fetching teams:", teamsError.message);
       return NextResponse.json(
         { error: "Failed to fetch team data", details: teamsError.message },
         { status: 500 }
       );
     }
 
-    console.log("[Watchlist API] Teams found:", teamsData?.length ?? 0, "of", teamIds.length);
 
     // Fetch ranking data from rankings_view (may not have all teams)
     // Filter by status to match rankings pages (only active teams)
@@ -547,12 +418,6 @@ export async function GET() {
       };
     });
 
-    console.log("[Watchlist API] Final response:", {
-      watchlistId: watchlist.id,
-      teamsCount: teams.length,
-      teamIds: teams.map(t => t.team_id_master),
-    });
-
     return NextResponse.json({
       watchlist: {
         id: watchlist.id,
@@ -562,24 +427,12 @@ export async function GET() {
         updated_at: watchlist.updated_at,
       },
       teams,
-      debug: {
-        itemsCount: items?.length ?? 0,
-        itemTeamIds: items?.map(i => i.team_id_master) ?? [],
-        finalTeamsCount: teams.length,
-        finalTeamIds: teams.map(t => t.team_id_master),
-      },
-    } satisfies WatchlistResponse & { debug?: any });
+    } satisfies WatchlistResponse);
   } catch (error) {
     console.error("Watchlist GET error:", error);
     const errorMessage = error instanceof Error ? error.message : String(error);
-    const errorStack = error instanceof Error ? error.stack : undefined;
-    console.error("Watchlist GET error details:", {
-      message: errorMessage,
-      stack: errorStack,
-      error: error,
-    });
     return NextResponse.json(
-      { error: "Failed to fetch watchlist", details: errorMessage },
+      { error: "Failed to fetch watchlist" },
       { status: 500 }
     );
   }

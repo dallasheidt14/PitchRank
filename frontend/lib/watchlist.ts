@@ -218,7 +218,7 @@ export async function removeFromSupabaseWatchlist(
  * @param watchlistTeams - Array of teams from fetchWatchlist
  * @returns Whether the team is in the watchlist
  */
-export function isInSupabaseWatchlist(
+function isInSupabaseWatchlist(
   teamIdMaster: string,
   watchlistTeams: WatchlistTeam[]
 ): boolean {

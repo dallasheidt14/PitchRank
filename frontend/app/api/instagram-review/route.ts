@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from '@/lib/supabase/admin';
 
 /**
  * Instagram Handle Review Queue API
@@ -27,6 +28,9 @@ function extractClubName(queryUsed: string | null): string {
 
 export async function GET() {
   try {
+    const auth = await requireAdmin();
+    if (auth.error) return auth.error;
+
     const supabase = getServiceClient();
 
     const allRows: Array<{
@@ -93,6 +97,9 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAdmin();
+    if (auth.error) return auth.error;
+
     const supabase = getServiceClient();
 
     let body: { handle?: string; action?: string };

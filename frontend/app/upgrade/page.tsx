@@ -499,7 +499,7 @@ function UpgradePageContent() {
             className="px-8"
           >
             <Crown className="w-4 h-4 mr-2" />
-            {selectedPlan === "yearly" ? "Start Free 7-Day Trial" : "Start Free 7-Day Trial"}
+            Start Free 7-Day Trial
             <ArrowRight className="w-4 h-4 ml-2" />
           </Button>
           <p className="text-xs text-muted-foreground mt-3">
