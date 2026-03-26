@@ -12,6 +12,7 @@ from datetime import datetime
 sys.path.append(str(Path(__file__).parent.parent))
 
 from supabase import create_client
+from supabase.lib.client_options import SyncClientOptions
 import os
 import pandas as pd
 from dotenv import load_dotenv
@@ -399,6 +400,112 @@ async def _save_batch_with_retry(supabase_client, table_name, records, table_nam
         raise
 
 
+async def _backfill_game_stats_python(supabase_client, console) -> int:
+    """
+    Python-side fallback for backfill_total_game_stats RPC.
+
+    Fetches all non-excluded games from Supabase, aggregates total
+    wins/losses/draws per team in pandas, then batch-updates rankings_full.
+    Used when the SQL RPC times out (e.g., migration not deployed or
+    PostgREST statement_timeout too low).
+    """
+    import time
+
+    # Step 1: Fetch all non-excluded games (paginated)
+    console.print("[dim]  Fetching all games for aggregation...[/dim]")
+    all_games = []
+    page_size = 5000
+    offset = 0
+    while True:
+        page = supabase_client.table('games').select(
+            'home_team_master_id, away_team_master_id, home_score, away_score'
+        ).eq(
+            'is_excluded', False
+        ).not_.is_(
+            'home_score', 'null'
+        ).not_.is_(
+            'away_score', 'null'
+        ).range(offset, offset + page_size - 1).execute()
+
+        rows = page.data or []
+        all_games.extend(rows)
+        if len(rows) < page_size:
+            break
+        offset += page_size
+
+    if not all_games:
+        console.print("[yellow]  No games found for backfill[/yellow]")
+        return 0
+
+    console.print(f"[dim]  Fetched {len(all_games):,} games, computing aggregates...[/dim]")
+
+    # Step 2: Compute home + away aggregates in pandas
+    gdf = pd.DataFrame(all_games)
+    gdf['home_score'] = pd.to_numeric(gdf['home_score'], errors='coerce')
+    gdf['away_score'] = pd.to_numeric(gdf['away_score'], errors='coerce')
+
+    # Home perspective
+    home = gdf[['home_team_master_id', 'home_score', 'away_score']].copy()
+    home.columns = ['team_id', 'gf', 'ga']
+
+    # Away perspective
+    away = gdf[['away_team_master_id', 'away_score', 'home_score']].copy()
+    away.columns = ['team_id', 'gf', 'ga']
+
+    perspectives = pd.concat([home, away], ignore_index=True)
+    perspectives['is_win'] = perspectives['gf'] > perspectives['ga']
+    perspectives['is_loss'] = perspectives['gf'] < perspectives['ga']
+    perspectives['is_draw'] = perspectives['gf'] == perspectives['ga']
+
+    agg = perspectives.groupby('team_id').agg(
+        total_games=('gf', 'count'),
+        total_wins=('is_win', 'sum'),
+        total_losses=('is_loss', 'sum'),
+        total_draws=('is_draw', 'sum'),
+    ).reset_index()
+
+    agg['total_wins'] = agg['total_wins'].astype(int)
+    agg['total_losses'] = agg['total_losses'].astype(int)
+    agg['total_draws'] = agg['total_draws'].astype(int)
+    agg['total_games'] = agg['total_games'].astype(int)
+
+    # Step 3: Batch update rankings_full
+    console.print(f"[dim]  Updating {len(agg):,} teams in rankings_full...[/dim]")
+    batch_size = 500
+    updated = 0
+
+    for i in range(0, len(agg), batch_size):
+        batch = agg.iloc[i:i + batch_size]
+        records = [
+            {
+                'team_id': str(row['team_id']),
+                'total_games_played': int(row['total_games']),
+                'total_wins': int(row['total_wins']),
+                'total_losses': int(row['total_losses']),
+                'total_draws': int(row['total_draws']),
+            }
+            for _, row in batch.iterrows()
+        ]
+        try:
+            supabase_client.table('rankings_full').upsert(
+                records, on_conflict='team_id'
+            ).execute()
+            updated += len(records)
+        except Exception as e:
+            logger.warning(f"Backfill batch {i // batch_size + 1} failed: {e}")
+            time.sleep(1)
+            # Retry once
+            try:
+                supabase_client.table('rankings_full').upsert(
+                    records, on_conflict='team_id'
+                ).execute()
+                updated += len(records)
+            except Exception:
+                pass  # Skip this batch, continue with the rest
+
+    return updated
+
+
 async def main():
     parser = argparse.ArgumentParser(description='Calculate team rankings')
     parser.add_argument('--ml', action='store_true', help='Enable ML predictive adjustment layer')
@@ -688,18 +795,29 @@ async def main():
         if not args.dry_run and saved_count > 0:
             with (timing_report.section("backfill_total_game_stats") if timing_report else nullcontext()):
                 try:
-                    console.print("[dim]Backfilling total game stats (batched, up to 300s timeout)...[/dim]")
-                    result = supabase.rpc('backfill_total_game_stats').execute()
+                    console.print("[dim]Backfilling total game stats via RPC...[/dim]")
+                    # The batched SQL function needs up to 300s. The default
+                    # Supabase PostgREST client timeout is 120s, which causes
+                    # the RPC to be killed mid-flight. Use a dedicated client
+                    # with a 360s timeout (300s SQL + 60s overhead).
+                    backfill_client = create_client(
+                        supabase_url, supabase_key,
+                        options=SyncClientOptions(postgrest_client_timeout=360),
+                    )
+                    result = backfill_client.rpc('backfill_total_game_stats').execute()
                     backfill_count = result.data if result.data else 0
                     console.print(f"[dim]Backfilled total game stats for {backfill_count:,} teams (10K batch updates)[/dim]")
                     backfill_status = "complete"
                 except Exception as e:
-                    backfill_status = "failed"
-                    console.print(f"[yellow]WARNING: backfill_total_game_stats failed: {e}[/yellow]")
-                    console.print("[yellow]Run status: PARTIAL — rankings saved but game stats stale[/yellow]")
-                    console.print("[dim]Game stats will be refreshed on next successful run.[/dim]")
-                    # Don't exit — rankings are fully saved, game stats are non-critical
-                    # and will be refreshed on the next successful invocation.
+                    console.print(f"[yellow]RPC backfill failed ({e}), falling back to Python-side computation...[/yellow]")
+                    try:
+                        backfill_count = await _backfill_game_stats_python(supabase, console)
+                        console.print(f"[dim]Python backfill complete: {backfill_count:,} teams updated[/dim]")
+                        backfill_status = "complete"
+                    except Exception as fallback_err:
+                        backfill_status = "failed"
+                        console.print(f"[yellow]WARNING: Python backfill also failed: {fallback_err}[/yellow]")
+                        console.print("[yellow]Run status: PARTIAL — rankings saved but game stats stale[/yellow]")
         
         # ----------------------------------------------------------------
         #  Summary Banner

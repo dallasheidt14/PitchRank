@@ -251,7 +251,8 @@ async def get_historical_ranks(
         for record in all_records:
             team_id = record["team_id"]
             snapshot_date = date.fromisoformat(record["snapshot_date"])
-            rank = record.get("rank_in_cohort_ml") or record.get("rank_in_cohort")
+            ml_rank = record.get("rank_in_cohort_ml")
+            rank = ml_rank if ml_rank is not None else record.get("rank_in_cohort")
 
             # Calculate date distance
             distance = abs((snapshot_date - target_date).days)
@@ -548,7 +549,8 @@ async def calculate_rank_changes(
         logger.info("📈 Top 3 biggest improvers (7-day national):")
         for _, team in big_movers_7d.iterrows():
             team_name = team.get("team_name", team.get("team_id", "Unknown"))
-            current = team.get("rank_in_cohort_ml") or team.get("rank_in_cohort")
+            ml_rank_val = team.get("rank_in_cohort_ml")
+            current = ml_rank_val if pd.notna(ml_rank_val) else team.get("rank_in_cohort")
             change = team.get("rank_change_7d")
             state_change = team.get("rank_change_state_7d")
             state_info = f", state: +{state_change:.0f}" if pd.notna(state_change) and state_change > 0 else ""
