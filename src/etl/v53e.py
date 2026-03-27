@@ -1458,13 +1458,11 @@ def compute_rankings(
     # had sos_norm ranges like [0.3, 0.5] instead of [0, 1], effectively reducing
     # SOS contribution to ~10% instead of 50%.
 
-    # Determine groupby columns based on whether component normalization is enabled
-    sos_group_cols = ["age", "gender"]
-    if cfg.COMPONENT_SOS_ENABLED:
-        sos_group_cols = ["age", "gender", "component_id"]
-        logger.info("🔄 Computing SOS normalization (percentile within connected components)")
-    else:
-        logger.info("🔄 Computing per-cohort SOS normalization (percentile within age+gender)")
+    # Groupby columns for normalization
+    global_group_cols = ["age", "gender"]
+    component_group_cols = ["age", "gender", "component_id"] if cfg.COMPONENT_SOS_ENABLED else global_group_cols
+    # Keep sos_group_cols pointing to component-level for backward compat with downstream code
+    sos_group_cols = component_group_cols
 
     # Percentile rank within each group - ensures full [0, 1] range per group
     def percentile_within_group(x):
@@ -1486,29 +1484,44 @@ def compute_rankings(
     else:
         _sos_norm_fn = percentile_within_group
 
-    team["sos_norm"] = team.groupby(sos_group_cols)["sos"].transform(_sos_norm_fn)
+    def _apply_hybrid_norm(team_df, sos_col="sos", target_col="sos_norm"):
+        """Apply hybrid global+component normalization to a SOS column.
 
-    # Handle edge cases (NaN from single-team cohorts/components)
-    team["sos_norm"] = team["sos_norm"].fillna(0.5)
+        Computes both global (age+gender) and component-level normalization,
+        then blends using alpha = clip(log10(component_size) / 2, 0.35, 1.0).
+        Alpha represents trust in global normalization. Large components lean
+        on global; tiny components still get a 35% global floor.
+        """
+        # Global normalization: within [age, gender]
+        norm_global = team_df.groupby(global_group_cols)[sos_col].transform(_sos_norm_fn)
+        norm_global = norm_global.fillna(0.5).clip(0.0, 1.0)
 
-    # Ensure values are clipped to [0, 1]
-    team["sos_norm"] = team["sos_norm"].clip(0.0, 1.0)
+        if cfg.COMPONENT_SOS_ENABLED and "component_size" in team_df.columns:
+            # Component normalization: within [age, gender, component_id]
+            norm_component = team_df.groupby(component_group_cols)[sos_col].transform(_sos_norm_fn)
+            norm_component = norm_component.fillna(0.5).clip(0.0, 1.0)
 
-    # Component-size shrinkage: small disconnected components get their sos_norm
-    # shrunk toward 0.5 because percentile normalization over a handful of teams
-    # is unreliable.  A 4-team component would have sos_norm spread across
-    # {0.0, 0.33, 0.67, 1.0} — too coarse.  Shrinkage dampens this.
-    if cfg.COMPONENT_SOS_ENABLED:
-        min_size = cfg.MIN_COMPONENT_SIZE_FOR_FULL_SOS
-        component_shrink = (team["component_size"] / min_size).clip(0.0, 1.0)
-        team["sos_norm"] = 0.5 + component_shrink * (team["sos_norm"] - 0.5)
+            # Alpha: trust in global, log-scaled with floor
+            alpha = np.clip(np.log10(team_df["component_size"].clip(lower=2).values) / 2.0, 0.35, 1.0)
 
-        # Log shrinkage impact
-        shrunk_components = team[team["component_size"] < min_size]["component_id"].nunique()
-        if shrunk_components > 0:
-            logger.info(
-                f"📉 Component-size shrinkage applied to {shrunk_components} small component(s) (< {min_size} teams)"
-            )
+            # Blend
+            team_df[target_col] = alpha * norm_global.values + (1 - alpha) * norm_component.values
+        else:
+            norm_component = norm_global
+            alpha = np.ones(len(team_df))
+            team_df[target_col] = norm_global
+
+        team_df[target_col] = team_df[target_col].fillna(0.5).clip(0.0, 1.0)
+        return norm_global, norm_component, alpha
+
+    # Apply hybrid normalization
+    logger.info("🔄 Computing hybrid global+component SOS normalization")
+    norm_global, norm_component, alpha = _apply_hybrid_norm(team)
+
+    # Keep diagnostic columns for this testing cycle
+    team["sos_norm_global"] = norm_global
+    team["sos_norm_component"] = norm_component
+    team["_sos_alpha"] = alpha
 
     # Log SOS norms summary (per-cohort detail at DEBUG)
     logger.info(
@@ -1521,6 +1534,51 @@ def compute_rankings(
                 f"max={grp['sos_norm'].max():.3f}, "
                 f"mean={grp['sos_norm'].mean():.3f}, n={len(grp)}"
             )
+
+    # ── Three-way normalization comparison diagnostic ──
+    if "sos_norm_global" in team.columns and "sos_norm_component" in team.columns:
+        from collections import defaultdict
+
+        logger.info("📊 Normalization method comparison (global vs component vs hybrid):")
+
+        # Alpha distribution
+        alpha_vals = team["_sos_alpha"]
+        logger.info(
+            f"  Alpha distribution: p10={alpha_vals.quantile(0.1):.2f}, "
+            f"p25={alpha_vals.quantile(0.25):.2f}, p50={alpha_vals.quantile(0.5):.2f}, "
+            f"p75={alpha_vals.quantile(0.75):.2f}, p90={alpha_vals.quantile(0.9):.2f}"
+        )
+
+        # Per-cohort cross-component variance for all three methods
+        for (age_val, gender_val), grp in team.groupby(["age", "gender"]):
+            if len(grp) < 50:
+                continue
+            methods = {
+                "global": grp["sos_norm_global"],
+                "component": grp["sos_norm_component"],
+                "hybrid": grp["sos_norm"],
+            }
+            # Bin by raw SOS (0.01 bins), compute sos_norm range within each bin
+            sos_bins = (grp["sos"] * 100).round() / 100
+            result_parts = []
+            for method_name, norm_col in methods.items():
+                bins_dict = defaultdict(list)
+                for s_bin, n_val in zip(sos_bins.values, norm_col.values):
+                    if not (np.isnan(s_bin) or np.isnan(n_val)):
+                        bins_dict[s_bin].append(n_val)
+                ranges = [max(v) - min(v) for v in bins_dict.values() if len(v) >= 5]
+                if ranges:
+                    result_parts.append(f"{method_name}: mean={np.mean(ranges):.3f}, max={max(ranges):.3f}")
+            if result_parts:
+                logger.info(f"  {age_val} {gender_val} (n={len(grp)}): {' | '.join(result_parts)}")
+
+        # Pairwise correlation
+        corr_gc = team[["sos_norm_global", "sos_norm_component"]].corr().iloc[0, 1]
+        corr_gh = team[["sos_norm_global", "sos_norm"]].corr().iloc[0, 1]
+        corr_ch = team[["sos_norm_component", "sos_norm"]].corr().iloc[0, 1]
+        logger.info(
+            f"  Correlations: global-component={corr_gc:.3f}, global-hybrid={corr_gh:.3f}, component-hybrid={corr_ch:.3f}"
+        )
 
     # Low sample handling: smooth shrink toward 0.5 for teams with insufficient games
     # This prevents teams with few games from having extreme SOS values (high or low)
@@ -1677,11 +1735,8 @@ def compute_rankings(
         sos_shift = team["sos"] - team["sos_orig"]
         teams_trimmed = (sos_shift.abs() > 1e-6).sum()
 
-        # Normalize sos_orig through the same normalization for downstream comparison
-        sos_group_cols_diag = ["age", "gender"]
-        if "component_id" in team.columns and cfg.COMPONENT_SOS_ENABLED:
-            sos_group_cols_diag = ["age", "gender", "component_id"]
-        team["sos_norm_orig"] = team.groupby(sos_group_cols_diag)["sos_orig"].transform(_sos_norm_fn)
+        # Normalize sos_orig through the same hybrid normalization for downstream comparison
+        _apply_hybrid_norm(team, sos_col="sos_orig", target_col="sos_norm_orig")
 
         # Hybrid metric for comparison (not used in scoring)
         team["sos_hybrid"] = 0.7 * team["sos"] + 0.3 * team["sos_orig"]
@@ -1884,18 +1939,9 @@ def compute_rankings(
                         f"at +{cfg.SOS_POWER_MAX_BOOST:.3f} boost"
                     )
 
-            # Step 5: Re-normalize SOS within connected components (or cohort if disabled)
-            # Uses the same groupby columns and normalization function as the initial
-            # normalization to ensure disconnected ecosystems are normalized independently.
-            team["sos_norm"] = team.groupby(sos_group_cols)["sos"].transform(_sos_norm_fn)
-            team["sos_norm"] = team["sos_norm"].fillna(0.5).clip(0.0, 1.0)
-
-            # Step 5b: Apply component-size shrinkage (same as initial normalization)
-            if cfg.COMPONENT_SOS_ENABLED:
-                min_size = cfg.MIN_COMPONENT_SIZE_FOR_FULL_SOS
-                comp_shrink = (team["component_size"].values / min_size).clip(0.0, 1.0)
-                sos_norm_values = team["sos_norm"].values
-                team["sos_norm"] = 0.5 + comp_shrink * (sos_norm_values - 0.5)
+            # Step 5: Re-normalize SOS using hybrid global+component blend
+            # Same approach as initial normalization to maintain consistency.
+            _apply_hybrid_norm(team)
 
             # Step 6: Apply low-sample shrinkage (vectorized) - LINEAR toward anchor
             # NOTE: This is NOT compounding — each iteration recalculates sos_norm fresh
