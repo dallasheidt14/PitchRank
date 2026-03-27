@@ -254,7 +254,7 @@ async def compute_rankings_with_ml(
     # This ensures cache key stays identical when no merges are configured
     if merge_version and merge_version != "no_merges":
         hash_input += f"_merge_{merge_version}"
-    cache_key = hashlib.md5(hash_input.encode()).hexdigest()
+    cache_key = hashlib.md5(hash_input.encode()).hexdigest()  # MD5 for cache key only (not security)
     cache_file_teams = cache_dir / f"rankings_{cache_key}_teams.parquet"
     cache_file_games = cache_dir / f"rankings_{cache_key}_games.parquet"
 

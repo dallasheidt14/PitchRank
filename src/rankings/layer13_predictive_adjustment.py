@@ -480,31 +480,27 @@ def _build_features(
 
     f["goal_margin"] = (f[gf_col] - f[ga_col]).astype(float)
 
-    # Use cohort mean as fallback for missing PowerScores (not hardcoded 0.5)
-    def get_team_power(row):
-        team_id = str(row[team_id_col])
-        if team_id in power_map:
-            return power_map[team_id]
-        # Fallback to cohort mean, then global mean
-        if cohort_power_means:
-            cohort_key = (str(row[age_col]), str(row[gender_col]).lower())
-            if cohort_key in cohort_power_means:
-                return cohort_power_means[cohort_key]
-        return global_power_mean
+    # Vectorized power lookup: direct map → cohort mean fallback → global mean fallback
+    team_cohort = pd.Series(
+        list(zip(f[age_col].astype(str), f[gender_col].astype(str).str.lower())),
+        index=f.index,
+    )
+    opp_cohort = pd.Series(
+        list(zip(f[opp_age_col].astype(str), f[opp_gender_col].astype(str).str.lower())),
+        index=f.index,
+    )
 
-    def get_opp_power(row):
-        opp_id = str(row[opp_id_col])
-        if opp_id in power_map:
-            return power_map[opp_id]
-        # Fallback to opponent's cohort mean, then global mean
-        if cohort_power_means:
-            cohort_key = (str(row[opp_age_col]), str(row[opp_gender_col]).lower())
-            if cohort_key in cohort_power_means:
-                return cohort_power_means[cohort_key]
-        return global_power_mean
+    # Cohort fallback Series (empty when no cohort means available)
+    _no_fill = pd.Series(dtype=float)
+    team_cohort_fill = team_cohort.map(cohort_power_means) if cohort_power_means else _no_fill
+    opp_cohort_fill = opp_cohort.map(cohort_power_means) if cohort_power_means else _no_fill
 
-    f["team_power"] = f.apply(get_team_power, axis=1).astype(float)
-    f["opp_power"] = f.apply(get_opp_power, axis=1).astype(float)
+    f["team_power"] = (
+        f[team_id_col].astype(str).map(power_map).fillna(team_cohort_fill).fillna(global_power_mean).astype(float)
+    )
+    f["opp_power"] = (
+        f[opp_id_col].astype(str).map(power_map).fillna(opp_cohort_fill).fillna(global_power_mean).astype(float)
+    )
     f["power_diff"] = f["team_power"] - f["opp_power"]
 
     # age gap
