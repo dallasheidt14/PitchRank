@@ -11,71 +11,104 @@ Usage:
 Example:
     python scripts/diagnose_ranking.py 691eb36d-95b2-4a08-bd59-13c1b0e830bb
 """
-import sys
-import os
+
 import argparse
-from pathlib import Path
+import os
+import sys
 from datetime import datetime
+from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 
 from dotenv import load_dotenv
-from supabase import create_client
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
 from rich import box
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+
+from src.rankings.constants import AGE_TO_ANCHOR, SOS_ML_THRESHOLD_HIGH, SOS_ML_THRESHOLD_LOW
+from src.rankings.shared import sos_ml_blend
+from supabase import create_client
 
 load_dotenv()
 console = Console()
 
 # ─── Algorithm constants (from V53EConfig + Layer13Config) ───────────────────
-# These must match the actual config. If they drift, the validation is wrong.
+# Shared constants imported from src.rankings.constants; local values are
+# script-specific and not duplicated elsewhere.
 ALGORITHM = {
     "OFF_WEIGHT": 0.20,
     "DEF_WEIGHT": 0.20,
     "SOS_WEIGHT": 0.60,
     "GOAL_DIFF_CAP": 6,
     "ML_ALPHA": 0.08,
-    "SOS_ML_THRESHOLD_LOW": 0.45,
-    "SOS_ML_THRESHOLD_HIGH": 0.60,
+    "SOS_ML_THRESHOLD_LOW": SOS_ML_THRESHOLD_LOW,
+    "SOS_ML_THRESHOLD_HIGH": SOS_ML_THRESHOLD_HIGH,
     "MIN_GAMES_PROVISIONAL": 6,
     "PERF_BLEND_WEIGHT": 0.00,  # Performance layer disabled in final score
     "SHRINK_TAU": 8.0,
     "RECENCY_DECAY_RATE": 0.08,
     "UNRANKED_SOS_BASE": 0.35,
-    "ANCHORS": {
-        10: 0.400, 11: 0.475, 12: 0.550, 13: 0.625, 14: 0.700,
-        15: 0.775, 16: 0.850, 17: 0.925, 18: 1.000, 19: 1.000,
-    },
+    "ANCHORS": AGE_TO_ANCHOR,
 }
 
 # Metric columns to fetch from rankings_full
 METRIC_COLS = [
-    "team_id", "age_group", "gender", "state_code", "status",
-    "games_played", "wins", "losses", "draws",
-    "goals_for", "goals_against", "win_percentage",
-    "games_last_180_days", "last_game", "sample_flag",
+    "team_id",
+    "age_group",
+    "gender",
+    "state_code",
+    "status",
+    "games_played",
+    "wins",
+    "losses",
+    "draws",
+    "goals_for",
+    "goals_against",
+    "win_percentage",
+    "games_last_180_days",
+    "last_game",
+    "sample_flag",
     # Offense/Defense
-    "off_raw", "sad_raw", "off_shrunk", "sad_shrunk", "def_shrunk",
-    "off_norm", "def_norm",
+    "off_raw",
+    "sad_raw",
+    "off_shrunk",
+    "sad_shrunk",
+    "def_shrunk",
+    "off_norm",
+    "def_norm",
     # SOS
-    "sos", "sos_norm", "sos_raw",
-    "sos_norm_national", "sos_norm_state",
-    "sos_rank_national", "sos_rank_state",
+    "sos",
+    "sos_norm",
+    "sos_raw",
+    "sos_norm_national",
+    "sos_norm_state",
+    "sos_rank_national",
+    "sos_rank_state",
     # Performance
-    "perf_raw", "perf_centered",
+    "perf_raw",
+    "perf_centered",
     # Power scores (layer by layer)
-    "power_presos", "powerscore_core", "provisional_mult",
-    "powerscore_adj", "anchor", "abs_strength",
+    "power_presos",
+    "powerscore_core",
+    "provisional_mult",
+    "powerscore_adj",
+    "anchor",
+    "abs_strength",
     # ML Layer
-    "ml_overperf", "ml_norm", "powerscore_ml",
+    "ml_overperf",
+    "ml_norm",
+    "powerscore_ml",
     # Final scores
-    "national_power_score", "power_score_final",
+    "national_power_score",
+    "power_score_final",
     # Ranks
-    "rank_in_cohort", "rank_in_cohort_ml",
-    "national_rank", "state_rank",
-    "rank_change_7d", "rank_change_30d",
+    "rank_in_cohort",
+    "rank_in_cohort_ml",
+    "national_rank",
+    "state_rank",
+    "rank_change_7d",
+    "rank_change_30d",
     "last_calculated",
 ]
 
@@ -101,9 +134,12 @@ def get_supabase():
 
 
 def fetch_team_name(supabase, team_id: str) -> str:
-    result = supabase.table("teams").select(
-        "team_name, club_name, age_group, gender, state_code"
-    ).eq("team_id_master", team_id).execute()
+    result = (
+        supabase.table("teams")
+        .select("team_name, club_name, age_group, gender, state_code")
+        .eq("team_id_master", team_id)
+        .execute()
+    )
     if result.data:
         r = result.data[0]
         return f"{r.get('team_name', '?')} ({r.get('club_name', '')}) — {r.get('age_group', '?')} {r.get('gender', '?')}, {r.get('state_code', '?')}"
@@ -118,19 +154,29 @@ def fetch_team_ranking(supabase, team_id: str) -> dict | None:
 
 def fetch_cohort_top(supabase, age_group: str, gender: str, limit: int = 10) -> list:
     cols = ", ".join(METRIC_COLS)
-    result = supabase.table("rankings_full").select(cols).eq(
-        "age_group", age_group
-    ).eq("gender", gender).eq("status", "Active").order(
-        "power_score_final", desc=True
-    ).limit(limit).execute()
+    result = (
+        supabase.table("rankings_full")
+        .select(cols)
+        .eq("age_group", age_group)
+        .eq("gender", gender)
+        .eq("status", "Active")
+        .order("power_score_final", desc=True)
+        .limit(limit)
+        .execute()
+    )
     return result.data or []
 
 
 def fetch_cohort_stats(supabase, age_group: str, gender: str) -> dict:
     """Fetch cohort-wide stats for context (total teams, score ranges)."""
-    result = supabase.table("rankings_full").select(
-        "team_id, power_score_final, powerscore_adj, sos_norm, status"
-    ).eq("age_group", age_group).eq("gender", gender).eq("status", "Active").execute()
+    result = (
+        supabase.table("rankings_full")
+        .select("team_id, power_score_final, powerscore_adj, sos_norm, status")
+        .eq("age_group", age_group)
+        .eq("gender", gender)
+        .eq("status", "Active")
+        .execute()
+    )
     rows = result.data or []
     if not rows:
         return {}
@@ -146,11 +192,14 @@ def fetch_cohort_stats(supabase, age_group: str, gender: str) -> dict:
 
 
 def fetch_team_games(supabase, team_id: str, limit: int = 15) -> list:
-    result = supabase.table("games").select(
-        "game_date, home_team_master_id, away_team_master_id, home_score, away_score"
-    ).or_(
-        f"home_team_master_id.eq.{team_id},away_team_master_id.eq.{team_id}"
-    ).order("game_date", desc=True).limit(limit).execute()
+    result = (
+        supabase.table("games")
+        .select("game_date, home_team_master_id, away_team_master_id, home_score, away_score")
+        .or_(f"home_team_master_id.eq.{team_id},away_team_master_id.eq.{team_id}")
+        .order("game_date", desc=True)
+        .limit(limit)
+        .execute()
+    )
     return result.data or []
 
 
@@ -161,11 +210,14 @@ def fetch_opponent_rankings(supabase, opponent_ids: list) -> dict:
     rankings = {}
     batch_size = 100
     for i in range(0, len(opponent_ids), batch_size):
-        batch = opponent_ids[i:i + batch_size]
-        result = supabase.table("rankings_full").select(
-            "team_id, power_score_final, powerscore_adj, status, national_rank, age_group, gender"
-        ).in_("team_id", batch).execute()
-        for r in (result.data or []):
+        batch = opponent_ids[i : i + batch_size]
+        result = (
+            supabase.table("rankings_full")
+            .select("team_id, power_score_final, powerscore_adj, status, national_rank, age_group, gender")
+            .in_("team_id", batch)
+            .execute()
+        )
+        for r in result.data or []:
             rankings[r["team_id"]] = r
     return rankings
 
@@ -191,6 +243,7 @@ def arrow(team_val, top_val) -> str:
 
 
 # ─── Algorithm Validation ────────────────────────────────────────────────────
+
 
 def validate_algorithm(team: dict, cohort_stats: dict) -> list:
     """
@@ -228,16 +281,18 @@ def validate_algorithm(team: dict, cohort_stats: dict) -> list:
     ps_core = team.get("powerscore_core")
     if all(v is not None for v in [off_n, def_n, sos_n, ps_core]):
         expected_core = (
-            off_n * ALGORITHM["OFF_WEIGHT"]
-            + def_n * ALGORITHM["DEF_WEIGHT"]
-            + sos_n * ALGORITHM["SOS_WEIGHT"]
+            off_n * ALGORITHM["OFF_WEIGHT"] + def_n * ALGORITHM["DEF_WEIGHT"] + sos_n * ALGORITHM["SOS_WEIGHT"]
         )
         diff = abs(ps_core - expected_core)
         if diff > 0.05:
-            checks.append(("WARN",
-                f"powerscore_core ({ps_core:.4f}) differs from expected "
-                f"OFF*0.20 + DEF*0.20 + SOS*0.60 = {expected_core:.4f} by {diff:.4f}. "
-                f"May indicate hybrid SOS norm or rounding."))
+            checks.append(
+                (
+                    "WARN",
+                    f"powerscore_core ({ps_core:.4f}) differs from expected "
+                    f"OFF*0.20 + DEF*0.20 + SOS*0.60 = {expected_core:.4f} by {diff:.4f}. "
+                    f"May indicate hybrid SOS norm or rounding.",
+                )
+            )
         else:
             checks.append(("OK", f"PowerScore blend verified: {ps_core:.4f} ≈ {expected_core:.4f} (diff {diff:.4f})"))
 
@@ -260,29 +315,35 @@ def validate_algorithm(team: dict, cohort_stats: dict) -> list:
         expected_ml = min(1.0, max(0.0, ps_adj + ALGORITHM["ML_ALPHA"] * ml_norm))
         diff = abs(ps_ml - expected_ml)
         if diff > 0.02:
-            checks.append(("WARN",
-                f"powerscore_ml ({ps_ml:.4f}) differs from expected "
-                f"adj + 0.08 * ml_norm = {expected_ml:.4f} by {diff:.4f}. "
-                f"May be SOS-conditioned scaling (weak SOS dampens ML authority)."))
+            checks.append(
+                (
+                    "WARN",
+                    f"powerscore_ml ({ps_ml:.4f}) differs from expected "
+                    f"adj + 0.08 * ml_norm = {expected_ml:.4f} by {diff:.4f}. "
+                    f"May be SOS-conditioned scaling (weak SOS dampens ML authority).",
+                )
+            )
         else:
             checks.append(("OK", f"ML blend verified: {ps_ml:.4f} ≈ {expected_ml:.4f}"))
 
     # --- SOS-conditioned ML scaling ---
     if sos_n is not None and ml_norm is not None and ps_adj is not None and ps_ml is not None:
-        if sos_n < ALGORITHM["SOS_ML_THRESHOLD_LOW"]:
+        if sos_n < SOS_ML_THRESHOLD_LOW:
             # ML should have NO authority — powerscore_ml should equal powerscore_adj
             if abs(ps_ml - ps_adj) > 0.005:
-                checks.append(("WARN",
-                    f"SOS={sos_n:.3f} is below {ALGORITHM['SOS_ML_THRESHOLD_LOW']} threshold — "
-                    f"ML should have no authority, but ps_ml ({ps_ml:.4f}) ≠ ps_adj ({ps_adj:.4f})"))
+                checks.append(
+                    (
+                        "WARN",
+                        f"SOS={sos_n:.3f} is below {SOS_ML_THRESHOLD_LOW} threshold — "
+                        f"ML should have no authority, but ps_ml ({ps_ml:.4f}) ≠ ps_adj ({ps_adj:.4f})",
+                    )
+                )
             else:
                 checks.append(("OK", f"ML correctly suppressed for weak SOS ({sos_n:.3f})"))
-        elif sos_n >= ALGORITHM["SOS_ML_THRESHOLD_HIGH"]:
+        elif sos_n >= SOS_ML_THRESHOLD_HIGH:
             checks.append(("OK", f"ML has full authority — SOS ({sos_n:.3f}) above threshold"))
         else:
-            scale = (sos_n - ALGORITHM["SOS_ML_THRESHOLD_LOW"]) / (
-                ALGORITHM["SOS_ML_THRESHOLD_HIGH"] - ALGORITHM["SOS_ML_THRESHOLD_LOW"]
-            )
+            scale = (sos_n - SOS_ML_THRESHOLD_LOW) / (SOS_ML_THRESHOLD_HIGH - SOS_ML_THRESHOLD_LOW)
             checks.append(("OK", f"ML partial authority ({scale:.0%}) — SOS ({sos_n:.3f}) in transition zone"))
 
     # --- Age anchor scaling ---
@@ -295,17 +356,20 @@ def validate_algorithm(team: dict, cohort_stats: dict) -> list:
         expected_anchor = ALGORITHM["ANCHORS"][age_num]
         ps_final = team.get("power_score_final")
         if ps_final is not None and ps_final > expected_anchor + 0.001:
-            checks.append(("FAIL",
-                f"power_score_final ({ps_final:.4f}) exceeds age anchor ceiling "
-                f"({expected_anchor:.3f} for {age_str})"))
+            checks.append(
+                (
+                    "FAIL",
+                    f"power_score_final ({ps_final:.4f}) exceeds age anchor ceiling "
+                    f"({expected_anchor:.3f} for {age_str})",
+                )
+            )
         elif ps_final is not None:
             checks.append(("OK", f"Final score ({ps_final:.4f}) within anchor ceiling ({expected_anchor:.3f})"))
 
     # --- Performance layer should be disabled (PERF_BLEND_WEIGHT = 0.00) ---
     perf = team.get("perf_centered")
     if perf is not None and abs(perf) > 0.001:
-        checks.append(("OK",
-            f"perf_centered = {perf:.4f} (computed but NOT blended — PERF_BLEND_WEIGHT=0.00)"))
+        checks.append(("OK", f"perf_centered = {perf:.4f} (computed but NOT blended — PERF_BLEND_WEIGHT=0.00)"))
 
     # --- Bayesian shrinkage: low-sample teams should have shrunk offense/defense ---
     if gp is not None and gp < ALGORITHM["SHRINK_TAU"]:
@@ -313,13 +377,21 @@ def validate_algorithm(team: dict, cohort_stats: dict) -> list:
         off_shrunk = team.get("off_shrunk")
         if off_raw is not None and off_shrunk is not None:
             if abs(off_raw - off_shrunk) < 0.001:
-                checks.append(("WARN",
-                    f"Team has only {gp} games but off_raw ≈ off_shrunk — "
-                    f"Bayesian shrinkage may not be applying (tau={ALGORITHM['SHRINK_TAU']})"))
+                checks.append(
+                    (
+                        "WARN",
+                        f"Team has only {gp} games but off_raw ≈ off_shrunk — "
+                        f"Bayesian shrinkage may not be applying (tau={ALGORITHM['SHRINK_TAU']})",
+                    )
+                )
             else:
-                checks.append(("OK",
-                    f"Bayesian shrinkage active: off_raw={off_raw:.3f} → off_shrunk={off_shrunk:.3f} "
-                    f"({gp} games, tau={ALGORITHM['SHRINK_TAU']})"))
+                checks.append(
+                    (
+                        "OK",
+                        f"Bayesian shrinkage active: off_raw={off_raw:.3f} → off_shrunk={off_shrunk:.3f} "
+                        f"({gp} games, tau={ALGORITHM['SHRINK_TAU']})",
+                    )
+                )
 
     # --- Win percentage sanity ---
     wins = team.get("wins") or 0
@@ -334,15 +406,19 @@ def validate_algorithm(team: dict, cohort_stats: dict) -> list:
     # --- Status consistency ---
     if status := team.get("status"):
         if status == "Active" and gp < ALGORITHM["MIN_GAMES_PROVISIONAL"]:
-            checks.append(("WARN", f"Status is 'Active' but only {gp} games (threshold={ALGORITHM['MIN_GAMES_PROVISIONAL']})"))
+            checks.append(
+                ("WARN", f"Status is 'Active' but only {gp} games (threshold={ALGORITHM['MIN_GAMES_PROVISIONAL']})")
+            )
 
     return checks
 
 
 # ─── Accurate Simulator (mirrors v53e + Layer 13 exactly) ────────────────────
 
-def simulate_powerscore(off_norm: float, def_norm: float, sos_norm: float,
-                        games_played: int, ml_norm: float, age_num: int) -> dict:
+
+def simulate_powerscore(
+    off_norm: float, def_norm: float, sos_norm: float, games_played: int, ml_norm: float, age_num: int
+) -> dict:
     """
     Reproduce the full v53e → ML → anchor pipeline from normalized components.
     This matches the actual engine — no shortcuts, no display multipliers.
@@ -352,9 +428,7 @@ def simulate_powerscore(off_norm: float, def_norm: float, sos_norm: float,
     # Layer 10: PowerScore blend (OFF:0.20, DEF:0.20, SOS:0.60)
     # Note: PERF_BLEND_WEIGHT = 0.00, so performance is NOT in the blend
     ps_core = (
-        off_norm * ALGORITHM["OFF_WEIGHT"]
-        + def_norm * ALGORITHM["DEF_WEIGHT"]
-        + sos_norm * ALGORITHM["SOS_WEIGHT"]
+        off_norm * ALGORITHM["OFF_WEIGHT"] + def_norm * ALGORITHM["DEF_WEIGHT"] + sos_norm * ALGORITHM["SOS_WEIGHT"]
     )
 
     # Provisional multiplier: linear ramp 0.85 → 1.0 over 0-15 games
@@ -369,20 +443,13 @@ def simulate_powerscore(off_norm: float, def_norm: float, sos_norm: float,
     ps_adj = min(1.0, max(0.0, ps_core * prov))
 
     # ML Layer 13: additive blend with SOS-conditioned scaling
-    # Step 1: compute ML delta
     ml_delta = ALGORITHM["ML_ALPHA"] * ml_norm
-
-    # Step 2: scale by SOS authority
-    if sos_norm < ALGORITHM["SOS_ML_THRESHOLD_LOW"]:
-        ml_scale = 0.0
-    elif sos_norm >= ALGORITHM["SOS_ML_THRESHOLD_HIGH"]:
-        ml_scale = 1.0
-    else:
-        ml_scale = (sos_norm - ALGORITHM["SOS_ML_THRESHOLD_LOW"]) / (
-            ALGORITHM["SOS_ML_THRESHOLD_HIGH"] - ALGORITHM["SOS_ML_THRESHOLD_LOW"]
-        )
-
-    ps_ml = min(1.0, max(0.0, ps_adj + ml_delta * ml_scale))
+    ps_ml_raw = ps_adj + ml_delta
+    ps_ml = sos_ml_blend(ps_adj, ps_ml_raw, sos_norm)
+    ml_scale = max(
+        0.0,
+        min(1.0, (sos_norm - SOS_ML_THRESHOLD_LOW) / (SOS_ML_THRESHOLD_HIGH - SOS_ML_THRESHOLD_LOW)),
+    )
 
     # Age anchor scaling: final = ps_ml * anchor, capped at anchor
     anchor = ALGORITHM["ANCHORS"].get(age_num, 1.0)
@@ -439,31 +506,25 @@ def simulate_what_if(team: dict, top1: dict, cohort_top: list) -> list:
 
     # Scenario 1: Current (baseline)
     current = simulate_powerscore(team_off, team_def, team_sos, team_gp, team_ml, age_num)
-    scenarios.append((
-        "Current", "No changes",
-        current["ps_final"], sim_rank(current["ps_final"])
-    ))
+    scenarios.append(("Current", "No changes", current["ps_final"], sim_rank(current["ps_final"])))
 
     # Scenario 2: Max out SOS (play the toughest schedule possible)
     s = simulate_powerscore(team_off, team_def, 1.0, team_gp, team_ml, age_num)
-    scenarios.append((
-        "Max SOS", "sos_norm → 1.000 (hardest schedule in cohort)",
-        s["ps_final"], sim_rank(s["ps_final"])
-    ))
+    scenarios.append(
+        ("Max SOS", "sos_norm → 1.000 (hardest schedule in cohort)", s["ps_final"], sim_rank(s["ps_final"]))
+    )
 
     # Scenario 3: Max out offense
     s = simulate_powerscore(1.0, team_def, team_sos, team_gp, team_ml, age_num)
-    scenarios.append((
-        "Max Offense", "off_norm → 1.000 (best scoring in cohort)",
-        s["ps_final"], sim_rank(s["ps_final"])
-    ))
+    scenarios.append(
+        ("Max Offense", "off_norm → 1.000 (best scoring in cohort)", s["ps_final"], sim_rank(s["ps_final"]))
+    )
 
     # Scenario 4: Max out defense
     s = simulate_powerscore(team_off, 1.0, team_sos, team_gp, team_ml, age_num)
-    scenarios.append((
-        "Max Defense", "def_norm → 1.000 (best defense in cohort)",
-        s["ps_final"], sim_rank(s["ps_final"])
-    ))
+    scenarios.append(
+        ("Max Defense", "def_norm → 1.000 (best defense in cohort)", s["ps_final"], sim_rank(s["ps_final"]))
+    )
 
     # Scenario 5: Match #1's exact metrics
     top_off = top1.get("off_norm") or 0.5
@@ -472,49 +533,55 @@ def simulate_what_if(team: dict, top1: dict, cohort_top: list) -> list:
     top_gp = top1.get("games_played") or 30
     top_ml = top1.get("ml_norm") or 0.0
     s = simulate_powerscore(top_off, top_def, top_sos, top_gp, top_ml, age_num)
-    scenarios.append((
-        "Clone #1's metrics", f"Copy all normalized values from #1",
-        s["ps_final"], sim_rank(s["ps_final"])
-    ))
+    scenarios.append(
+        ("Clone #1's metrics", f"Copy all normalized values from #1", s["ps_final"], sim_rank(s["ps_final"]))
+    )
 
     # Scenario 6: Improve SOS to match #1's SOS only
     s = simulate_powerscore(team_off, team_def, top_sos, team_gp, team_ml, age_num)
-    scenarios.append((
-        "Match #1's SOS", f"sos_norm → {top_sos:.3f} (keep everything else)",
-        s["ps_final"], sim_rank(s["ps_final"])
-    ))
+    scenarios.append(
+        ("Match #1's SOS", f"sos_norm → {top_sos:.3f} (keep everything else)", s["ps_final"], sim_rank(s["ps_final"]))
+    )
 
     # Scenario 7: Best realistic improvement (+10% on weakest metric)
-    weakest_metric = min(
-        [("off", team_off), ("def", team_def), ("sos", team_sos)],
-        key=lambda x: x[1]
-    )
+    weakest_metric = min([("off", team_off), ("def", team_def), ("sos", team_sos)], key=lambda x: x[1])
     boosted = min(1.0, weakest_metric[1] + 0.10)
     off_b = boosted if weakest_metric[0] == "off" else team_off
     def_b = boosted if weakest_metric[0] == "def" else team_def
     sos_b = boosted if weakest_metric[0] == "sos" else team_sos
     s = simulate_powerscore(off_b, def_b, sos_b, team_gp, team_ml, age_num)
-    scenarios.append((
-        f"Boost weakest ({weakest_metric[0]})",
-        f"{weakest_metric[0]}_norm {weakest_metric[1]:.3f} → {boosted:.3f} (+0.100)",
-        s["ps_final"], sim_rank(s["ps_final"])
-    ))
+    scenarios.append(
+        (
+            f"Boost weakest ({weakest_metric[0]})",
+            f"{weakest_metric[0]}_norm {weakest_metric[1]:.3f} → {boosted:.3f} (+0.100)",
+            s["ps_final"],
+            sim_rank(s["ps_final"]),
+        )
+    )
 
     # Scenario 8: More games (if provisional penalty applies)
     if team_gp < 15:
         s = simulate_powerscore(team_off, team_def, team_sos, 30, team_ml, age_num)
-        scenarios.append((
-            "Full season (30 GP)", f"games_played {team_gp} → 30 (removes provisional penalty)",
-            s["ps_final"], sim_rank(s["ps_final"])
-        ))
+        scenarios.append(
+            (
+                "Full season (30 GP)",
+                f"games_played {team_gp} → 30 (removes provisional penalty)",
+                s["ps_final"],
+                sim_rank(s["ps_final"]),
+            )
+        )
 
     # Scenario 9: ML boost (strong recent form)
     better_ml = min(0.5, team_ml + 0.20)
     s = simulate_powerscore(team_off, team_def, team_sos, team_gp, better_ml, age_num)
-    scenarios.append((
-        "Strong ML form", f"ml_norm {team_ml:+.3f} → {better_ml:+.3f} (beat expectations recently)",
-        s["ps_final"], sim_rank(s["ps_final"])
-    ))
+    scenarios.append(
+        (
+            "Strong ML form",
+            f"ml_norm {team_ml:+.3f} → {better_ml:+.3f} (beat expectations recently)",
+            s["ps_final"],
+            sim_rank(s["ps_final"]),
+        )
+    )
 
     # Scenario 10: Find minimum SOS needed to reach #1
     # Binary search for the SOS that makes ps_final >= target
@@ -530,16 +597,24 @@ def simulate_what_if(team: dict, top1: dict, cohort_top: list) -> list:
             lo = mid
     if needed_sos is not None and needed_sos <= 1.0:
         s = simulate_powerscore(team_off, team_def, needed_sos, team_gp, team_ml, age_num)
-        scenarios.append((
-            "Min SOS for #1", f"sos_norm needs to reach {needed_sos:.3f} (currently {team_sos:.3f})",
-            s["ps_final"], sim_rank(s["ps_final"])
-        ))
+        scenarios.append(
+            (
+                "Min SOS for #1",
+                f"sos_norm needs to reach {needed_sos:.3f} (currently {team_sos:.3f})",
+                s["ps_final"],
+                sim_rank(s["ps_final"]),
+            )
+        )
     else:
         # SOS alone can't do it — find combo
-        scenarios.append((
-            "Min SOS for #1", "SOS alone cannot close the gap — need offense/defense improvement too",
-            current["ps_final"], sim_rank(current["ps_final"])
-        ))
+        scenarios.append(
+            (
+                "Min SOS for #1",
+                "SOS alone cannot close the gap — need offense/defense improvement too",
+                current["ps_final"],
+                sim_rank(current["ps_final"]),
+            )
+        )
 
     return scenarios
 
@@ -605,8 +680,8 @@ def explain_ranking_position(team: dict, top1: dict, cohort_stats: dict) -> list
     prov_top = top1.get("provisional_mult") or 1.0
     if prov_team < prov_top:
         explanations.append(
-            f"  Provisional penalty: your mult={prov_team:.3f} vs #1={prov_top:.3f} "
-            f"(you have fewer games)")
+            f"  Provisional penalty: your mult={prov_team:.3f} vs #1={prov_top:.3f} (you have fewer games)"
+        )
 
     # The biggest factor
     explanations.append("")
@@ -621,17 +696,19 @@ def explain_ranking_position(team: dict, top1: dict, cohort_stats: dict) -> list
     if sos_contrib > 0.01:
         explanations.append(
             "💡 INSIGHT: SOS is the biggest drag. The algorithm weights schedule strength at 60%. "
-            "Playing stronger opponents (tournament teams, out-of-state competition) would help.")
+            "Playing stronger opponents (tournament teams, out-of-state competition) would help."
+        )
     elif off_contrib > 0.01:
         explanations.append(
-            "💡 INSIGHT: Offense is the gap. More decisive wins (larger margins) against similar opponents.")
+            "💡 INSIGHT: Offense is the gap. More decisive wins (larger margins) against similar opponents."
+        )
     elif def_contrib > 0.01:
-        explanations.append(
-            "💡 INSIGHT: Defense is the gap. Allowing fewer goals would improve the ranking.")
+        explanations.append("💡 INSIGHT: Defense is the gap. Allowing fewer goals would improve the ranking.")
     elif ml_gap > 0.005:
         explanations.append(
             "💡 INSIGHT: The ML model favors #1 based on patterns in game features (power diff, recency). "
-            "Recent form and beating higher-ranked opponents matter here.")
+            "Recent form and beating higher-ranked opponents matter here."
+        )
 
     return explanations
 
@@ -651,10 +728,12 @@ def diagnose_team(supabase, team_id: str):
     status = team.get("status", "Unknown")
     current_rank = team.get("national_rank") or team.get("rank_in_cohort_ml") or "?"
 
-    console.print(f"  Cohort: [cyan]{age_group} {gender}[/cyan]  |  "
-                  f"Status: [cyan]{status}[/cyan]  |  "
-                  f"Rank: [bold yellow]#{current_rank}[/bold yellow]  |  "
-                  f"State: [cyan]{team.get('state_code', '?')}[/cyan]")
+    console.print(
+        f"  Cohort: [cyan]{age_group} {gender}[/cyan]  |  "
+        f"Status: [cyan]{status}[/cyan]  |  "
+        f"Rank: [bold yellow]#{current_rank}[/bold yellow]  |  "
+        f"State: [cyan]{team.get('state_code', '?')}[/cyan]"
+    )
     console.print(f"  Last calculated: {team.get('last_calculated', '?')}")
     console.print()
 
@@ -673,9 +752,11 @@ def diagnose_team(supabase, team_id: str):
     console.print()
 
     if cohort_stats:
-        console.print(f"  Cohort: {cohort_stats.get('total_active', '?')} active teams  |  "
-                      f"Score range: [{fmt(cohort_stats.get('score_min'), 4)} – {fmt(cohort_stats.get('score_max'), 4)}]  |  "
-                      f"Mean: {fmt(cohort_stats.get('score_mean'), 4)}")
+        console.print(
+            f"  Cohort: {cohort_stats.get('total_active', '?')} active teams  |  "
+            f"Score range: [{fmt(cohort_stats.get('score_min'), 4)} – {fmt(cohort_stats.get('score_max'), 4)}]  |  "
+            f"Mean: {fmt(cohort_stats.get('score_mean'), 4)}"
+        )
         console.print()
 
     # ── Cohort Top 10 ────────────────────────────────────────────────────
@@ -755,8 +836,11 @@ def diagnose_team(supabase, team_id: str):
 
         wld = f"{t.get('wins', 0)}-{t.get('losses', 0)}-{t.get('draws', 0)}"
         lb.add_row(
-            str(i), name, t.get("state_code", "?"),
-            str(t.get("games_played", 0)), wld,
+            str(i),
+            name,
+            t.get("state_code", "?"),
+            str(t.get("games_played", 0)),
+            wld,
             fmt(t.get("sos_norm"), 3),
             fmt(t.get("powerscore_adj"), 4),
             fmt(t.get("powerscore_ml"), 4),
@@ -791,12 +875,16 @@ def diagnose_team(supabase, team_id: str):
         actual_final = team.get("power_score_final") or 0
         sim_diff = abs(current_sim["ps_final"] - actual_final)
         if sim_diff > 0.01:
-            console.print(f"  [yellow]⚠ Simulator drift: simulated {current_sim['ps_final']:.4f} vs "
-                         f"actual {actual_final:.4f} (diff {sim_diff:.4f}). "
-                         f"Hybrid SOS norm or rounding may cause small differences.[/yellow]")
+            console.print(
+                f"  [yellow]⚠ Simulator drift: simulated {current_sim['ps_final']:.4f} vs "
+                f"actual {actual_final:.4f} (diff {sim_diff:.4f}). "
+                f"Hybrid SOS norm or rounding may cause small differences.[/yellow]"
+            )
         else:
-            console.print(f"  [green]✓ Simulator accuracy: {current_sim['ps_final']:.4f} vs actual "
-                         f"{actual_final:.4f} (diff {sim_diff:.4f})[/green]")
+            console.print(
+                f"  [green]✓ Simulator accuracy: {current_sim['ps_final']:.4f} vs actual "
+                f"{actual_final:.4f} (diff {sim_diff:.4f})[/green]"
+            )
         console.print()
 
         scenarios = simulate_what_if(team, top1, top)
@@ -836,9 +924,12 @@ def diagnose_team(supabase, team_id: str):
         console.print("[bold underline]Biggest Gaps vs #1[/bold underline]")
         gaps = []
         key_metrics = [
-            ("off_norm", "Offense"), ("def_norm", "Defense"),
-            ("sos_norm", "SOS"), ("perf_centered", "Performance"),
-            ("ml_norm", "ML Adjustment"), ("powerscore_adj", "PowerScore (pre-ML)"),
+            ("off_norm", "Offense"),
+            ("def_norm", "Defense"),
+            ("sos_norm", "SOS"),
+            ("perf_centered", "Performance"),
+            ("ml_norm", "ML Adjustment"),
+            ("powerscore_adj", "PowerScore (pre-ML)"),
             ("power_score_final", "Final Score"),
         ]
         for col, label in key_metrics:
@@ -852,8 +943,9 @@ def diagnose_team(supabase, team_id: str):
         for label, col, diff, tv, cv in gaps:
             color = "green" if diff > 0 else "red"
             direction = "ahead" if diff > 0 else "behind"
-            console.print(f"  [{color}]{label}: {diff:+.4f} ({direction})[/{color}]  "
-                         f"(you: {fmt(tv, 4)}, #1: {fmt(cv, 4)})")
+            console.print(
+                f"  [{color}]{label}: {diff:+.4f} ({direction})[/{color}]  (you: {fmt(tv, 4)}, #1: {fmt(cv, 4)})"
+            )
         console.print()
 
     # ── Recent Games with Opponent Strength ───────────────────────────────
@@ -911,12 +1003,16 @@ def diagnose_team(supabase, team_id: str):
         console.print(gt)
 
         # Schedule quality summary
-        ranked_opps = [opp_rankings[oid] for oid in opp_ids if oid in opp_rankings and opp_rankings[oid].get("power_score_final")]
+        ranked_opps = [
+            opp_rankings[oid] for oid in opp_ids if oid in opp_rankings and opp_rankings[oid].get("power_score_final")
+        ]
         if ranked_opps:
             avg_opp = sum(r["power_score_final"] for r in ranked_opps) / len(ranked_opps)
             top_opps = sum(1 for r in ranked_opps if (r.get("national_rank") or 999) <= 20)
-            console.print(f"\n  Schedule quality: avg opponent score = {avg_opp:.3f} | "
-                         f"top-20 opponents: {top_opps}/{len(ranked_opps)}")
+            console.print(
+                f"\n  Schedule quality: avg opponent score = {avg_opp:.3f} | "
+                f"top-20 opponents: {top_opps}/{len(ranked_opps)}"
+            )
     else:
         console.print("  No recent games found.")
 
@@ -928,22 +1024,24 @@ def diagnose_team(supabase, team_id: str):
 def main():
     parser = argparse.ArgumentParser(
         description="Diagnose why a team is or isn't #1 in their cohort. "
-                    "Cross-references ranking output against v53e algorithm design."
+        "Cross-references ranking output against v53e algorithm design."
     )
     parser.add_argument("team_ids", nargs="+", help="One or more team UUIDs to diagnose")
     args = parser.parse_args()
 
     supabase = get_supabase()
 
-    console.print(Panel(
-        f"[bold]PitchRank Ranking Diagnostic[/bold]\n"
-        f"Teams: {len(args.team_ids)}  |  "
-        f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
-        f"[dim]Algorithm: v53e (OFF:20% DEF:20% SOS:60%) + ML Layer 13 (α=0.08)\n"
-        f"SOS-conditioned ML: suppressed below SOS 0.45, full above 0.60\n"
-        f"Age anchors: U10=0.40 → U19=1.00[/dim]",
-        title="🔍 Ranking Diagnostic",
-    ))
+    console.print(
+        Panel(
+            f"[bold]PitchRank Ranking Diagnostic[/bold]\n"
+            f"Teams: {len(args.team_ids)}  |  "
+            f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+            f"[dim]Algorithm: v53e (OFF:20% DEF:20% SOS:60%) + ML Layer 13 (α=0.08)\n"
+            f"SOS-conditioned ML: suppressed below SOS 0.45, full above 0.60\n"
+            f"Age anchors: U10=0.40 → U19=1.00[/dim]",
+            title="🔍 Ranking Diagnostic",
+        )
+    )
     console.print()
 
     for team_id in args.team_ids:

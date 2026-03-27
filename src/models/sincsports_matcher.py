@@ -12,6 +12,7 @@ SincSports naming patterns:
   - Parenthesised age prefixes: "14 (12U) CSA UM Elite"
   - Dash-separated suffixes: "FCC 2014 Boys Gold - BA"
 """
+
 import logging
 import re
 import uuid
@@ -24,6 +25,7 @@ from src.models.game_matcher import GameHistoryMatcher, MATCHING_CONFIG
 # Import rapidfuzz for similarity scoring
 try:
     from rapidfuzz import fuzz as rapidfuzz_fuzz
+
     HAVE_RAPIDFUZZ = True
 except ImportError:
     HAVE_RAPIDFUZZ = False
@@ -37,6 +39,7 @@ try:
         has_ecnl_rl,
         has_ecnl_only,
     )
+
     HAVE_TEAM_NAME_UTILS = True
 except ImportError:
     HAVE_TEAM_NAME_UTILS = False
@@ -47,6 +50,7 @@ try:
         normalize_to_club,
         similarity_score as club_similarity_score,
     )
+
     HAVE_CLUB_NORMALIZER = True
 except ImportError:
     HAVE_CLUB_NORMALIZER = False
@@ -56,23 +60,23 @@ logger = logging.getLogger(__name__)
 # Regex patterns for stripping leading age/gender tokens that SincSports
 # places at the front of team names (e.g. "U12 PRE ECNL BOYS RED").
 _SINCSPORTS_AGE_PREFIX_RE = re.compile(
-    r'^'
-    r'(?:'
-    r'U-?\d{1,2}'               # U12, U-12
-    r'|\d{1,2}\s*\(?\d{1,2}U\)?' # "14 (12U)" or "14 12U"
-    r'|\d{4}'                    # Birth year: 2014
-    r')'
-    r'\s*',
+    r"^"
+    r"(?:"
+    r"U-?\d{1,2}"  # U12, U-12
+    r"|\d{1,2}\s*\(?\d{1,2}U\)?"  # "14 (12U)" or "14 12U"
+    r"|\d{4}"  # Birth year: 2014
+    r")"
+    r"\s*",
     re.IGNORECASE,
 )
 
 _SINCSPORTS_GENDER_TOKEN_RE = re.compile(
-    r'\b(?:boys?|girls?|men|women|male|female|coed)\b',
+    r"\b(?:boys?|girls?|men|women|male|female|coed)\b",
     re.IGNORECASE,
 )
 
 # Parenthesised age like "(12U)" that appears mid-name
-_PAREN_AGE_RE = re.compile(r'\(\d{1,2}U\)', re.IGNORECASE)
+_PAREN_AGE_RE = re.compile(r"\(\d{1,2}U\)", re.IGNORECASE)
 
 
 class SincSportsGameMatcher(GameHistoryMatcher):
@@ -122,36 +126,36 @@ class SincSportsGameMatcher(GameHistoryMatcher):
         name_lower = name.lower()
 
         # U + number
-        for m in re.findall(r'\b(u\d{1,2})\b', name_lower):
+        for m in re.findall(r"\b(u\d{1,2})\b", name_lower):
             tokens.add(m)
-            num = re.search(r'\d+', m)
+            num = re.search(r"\d+", m)
             if num:
                 tokens.add(num.group())
 
         # age + letter (14b, 13a)
-        for m in re.findall(r'\b(\d{1,2}[a-z])\b', name_lower):
+        for m in re.findall(r"\b(\d{1,2}[a-z])\b", name_lower):
             tokens.add(m)
-            num = re.search(r'\d+', m)
+            num = re.search(r"\d+", m)
             if num:
                 tokens.add(num.group())
 
         # B/G + number
-        for m in re.findall(r'\b([bg]\d{1,2})\b', name_lower):
+        for m in re.findall(r"\b([bg]\d{1,2})\b", name_lower):
             tokens.add(m)
-            num = re.search(r'\d+', m)
+            num = re.search(r"\d+", m)
             if num:
                 tokens.add(num.group())
 
         # B/G + birth year
-        for m in re.findall(r'\b([bg]20[01]\d)\b', name_lower):
+        for m in re.findall(r"\b([bg]20[01]\d)\b", name_lower):
             tokens.add(m)
-            year = re.search(r'20[01]\d', m).group()
+            year = re.search(r"20[01]\d", m).group()
             tokens.add(year)
             tokens.add(year[2:])
             tokens.add(m[0] + year[2:])
 
         # Birth year standalone
-        for m in re.findall(r'\b(20[01]\d)\b', name_lower):
+        for m in re.findall(r"\b(20[01]\d)\b", name_lower):
             tokens.add(m)
             tokens.add(m[2:])
 
@@ -173,23 +177,23 @@ class SincSportsGameMatcher(GameHistoryMatcher):
         which in turn uses the shared ``normalize_name_for_matching()``.
         """
         if not name:
-            return ''
+            return ""
 
         # Step 1: Strip parenthesised age like "(12U)"
-        name = _PAREN_AGE_RE.sub('', name).strip()
+        name = _PAREN_AGE_RE.sub("", name).strip()
 
         # Step 2: Strip leading age token (U12, 14, 2014, etc.)
-        name = _SINCSPORTS_AGE_PREFIX_RE.sub('', name).strip()
+        name = _SINCSPORTS_AGE_PREFIX_RE.sub("", name).strip()
 
         # Step 3: Strip remaining leading numeric-only prefix left over
         # e.g. "14 CSA UM Elite" after paren removal -> "CSA UM Elite"
-        name = re.sub(r'^\d{1,4}\s+', '', name).strip()
+        name = re.sub(r"^\d{1,4}\s+", "", name).strip()
 
         # Step 4: Strip gender tokens (BOYS, GIRLS, etc.)
-        name = _SINCSPORTS_GENDER_TOKEN_RE.sub('', name).strip()
+        name = _SINCSPORTS_GENDER_TOKEN_RE.sub("", name).strip()
 
         # Step 5: Collapse multiple spaces
-        name = re.sub(r'\s{2,}', ' ', name).strip()
+        name = re.sub(r"\s{2,}", " ", name).strip()
 
         # Delegate to base (shared normalize_name_for_matching)
         return super()._normalize_team_name(name)
@@ -202,10 +206,10 @@ class SincSportsGameMatcher(GameHistoryMatcher):
         Enhanced match scoring with canonical club comparison and age-token
         overlap boost (mirrors TGS).
         """
-        provider_name_raw = provider_team.get('team_name', '')
-        candidate_name_raw = candidate.get('team_name', '')
-        provider_club = (provider_team.get('club_name') or '').strip() or None
-        candidate_club = (candidate.get('club_name') or '').strip() or None
+        provider_name_raw = provider_team.get("team_name", "")
+        candidate_name_raw = candidate.get("team_name", "")
+        provider_club = (provider_team.get("club_name") or "").strip() or None
+        candidate_club = (candidate.get("club_name") or "").strip() or None
 
         # Normalise names (SincSports preprocessing + shared normalisation)
         provider_name_normalized = self._normalize_team_name(provider_name_raw, provider_club)
@@ -213,10 +217,10 @@ class SincSportsGameMatcher(GameHistoryMatcher):
         # Strip club prefix from candidate name before normalisation
         candidate_name_for_norm = candidate_name_raw
         if candidate_club:
-            club_core = re.sub(r'\b(sc|fc|sa)\b', '', candidate_club.lower()).strip()
+            club_core = re.sub(r"\b(sc|fc|sa)\b", "", candidate_club.lower()).strip()
             cand_lower = candidate_name_raw.lower()
             if club_core and cand_lower.startswith(club_core):
-                remaining = candidate_name_raw[len(club_core):].strip().lstrip('-\u2013\u2014').strip()
+                remaining = candidate_name_raw[len(club_core) :].strip().lstrip("-\u2013\u2014").strip()
                 if remaining:
                     candidate_name_for_norm = remaining
 
@@ -224,9 +228,9 @@ class SincSportsGameMatcher(GameHistoryMatcher):
 
         # Build normalised dicts for base scoring
         provider_team_normalized = provider_team.copy()
-        provider_team_normalized['team_name'] = provider_name_normalized
+        provider_team_normalized["team_name"] = provider_name_normalized
         candidate_normalized = candidate.copy()
-        candidate_normalized['team_name'] = candidate_name_normalized
+        candidate_normalized["team_name"] = candidate_name_normalized
 
         base_score = super()._calculate_match_score(provider_team_normalized, candidate_normalized)
 
@@ -264,7 +268,7 @@ class SincSportsGameMatcher(GameHistoryMatcher):
             prov_variant = extract_variant_shared(provider_name_raw) if HAVE_TEAM_NAME_UTILS else None
             cand_variant = extract_variant_shared(candidate_name_raw) if HAVE_TEAM_NAME_UTILS else None
             if prov_variant and cand_variant and prov_variant == cand_variant:
-                cv_boost = MATCHING_CONFIG.get('club_variant_match_boost', 0.15)
+                cv_boost = MATCHING_CONFIG.get("club_variant_match_boost", 0.15)
                 base_score = min(1.0, base_score + cv_boost)
 
         return base_score
@@ -306,33 +310,42 @@ class SincSportsGameMatcher(GameHistoryMatcher):
             club_filtered = False
             result = None
             if club_name:
-                result = self.db.table('teams').select(
-                    'team_id_master, team_name, club_name, age_group, gender, state_code'
-                ).eq('age_group', age_group_normalized).eq('gender', gender).ilike(
-                    'club_name', club_name
-                ).limit(100).execute()
+                result = (
+                    self.db.table("teams")
+                    .select("team_id_master, team_name, club_name, age_group, gender, state_code")
+                    .eq("age_group", age_group_normalized)
+                    .eq("gender", gender)
+                    .ilike("club_name", club_name)
+                    .limit(100)
+                    .execute()
+                )
                 if result and result.data:
                     club_filtered = True
 
             # Broad fallback only when club extraction failed
             if not club_filtered:
-                result = self.db.table('teams').select(
-                    'team_id_master, team_name, club_name, age_group, gender, state_code'
-                ).eq('age_group', age_group_normalized).eq('gender', gender).limit(2000).execute()
+                result = (
+                    self.db.table("teams")
+                    .select("team_id_master, team_name, club_name, age_group, gender, state_code")
+                    .eq("age_group", age_group_normalized)
+                    .eq("gender", gender)
+                    .limit(2000)
+                    .execute()
+                )
 
             best_match = None
             best_score = 0.0
             best_tiebreak = (False, 0.0)
 
             provider_team = {
-                'team_name': team_name,
-                'club_name': club_name,
-                'age_group': age_group,
-                'state_code': None,
+                "team_name": team_name,
+                "club_name": club_name,
+                "age_group": age_group,
+                "state_code": None,
             }
 
-            for team in (result.data if result else []):
-                cand_name = team.get('team_name', '')
+            for team in result.data if result else []:
+                cand_name = team.get("team_name", "")
 
                 # --- Gate: distinction-based hard rejection ---
                 if HAVE_TEAM_NAME_UTILS and provider_distinctions is not None:
@@ -361,21 +374,19 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                     cand_variant = None
 
                 candidate = {
-                    'team_name': cand_name,
-                    'club_name': team.get('club_name'),
-                    'age_group': team.get('age_group', ''),
-                    'state_code': team.get('state_code'),
+                    "team_name": cand_name,
+                    "club_name": team.get("club_name"),
+                    "age_group": team.get("age_group", ""),
+                    "state_code": team.get("state_code"),
                 }
 
                 score = self._calculate_match_score(provider_team, candidate)
 
                 # --- Deterministic tie-breaking ---
                 variant_match = (
-                    provider_variant is not None
-                    and cand_variant is not None
-                    and provider_variant == cand_variant
+                    provider_variant is not None and cand_variant is not None and provider_variant == cand_variant
                 )
-                cand_club = team.get('club_name', '')
+                cand_club = team.get("club_name", "")
                 club_sim = 0.0
                 if club_name and cand_club:
                     if HAVE_CLUB_NORMALIZER:
@@ -386,16 +397,13 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                 tiebreak = (variant_match, club_sim)
 
                 if score >= self.fuzzy_threshold:
-                    if (
-                        score > best_score + 0.001
-                        or (abs(score - best_score) <= 0.001 and tiebreak > best_tiebreak)
-                    ):
+                    if score > best_score + 0.001 or (abs(score - best_score) <= 0.001 and tiebreak > best_tiebreak):
                         best_score = score
                         best_tiebreak = tiebreak
                         best_match = {
-                            'team_id': team['team_id_master'],
-                            'team_name': team['team_name'],
-                            'confidence': round(score, 3),
+                            "team_id": team["team_id_master"],
+                            "team_name": team["team_name"],
+                            "confidence": round(score, 3),
                         }
 
             if best_match:
@@ -435,27 +443,30 @@ class SincSportsGameMatcher(GameHistoryMatcher):
         # Check cache first
         if self.alias_cache and team_id_str in self.alias_cache:
             cached = self.alias_cache[team_id_str]
-            if cached.get('match_method') == 'direct_id':
+            if cached.get("match_method") == "direct_id":
                 return {
-                    'team_id_master': cached['team_id_master'],
-                    'review_status': cached.get('review_status', 'approved'),
-                    'match_method': 'direct_id',
+                    "team_id_master": cached["team_id_master"],
+                    "review_status": cached.get("review_status", "approved"),
+                    "match_method": "direct_id",
                 }
             return {
-                'team_id_master': cached['team_id_master'],
-                'review_status': cached.get('review_status', 'approved'),
-                'match_method': cached.get('match_method'),
+                "team_id_master": cached["team_id_master"],
+                "review_status": cached.get("review_status", "approved"),
+                "match_method": cached.get("match_method"),
             }
 
         # Tier 1: Direct ID match — exact match
         try:
-            result = self.db.table('team_alias_map').select(
-                'team_id_master, review_status, match_method'
-            ).eq('provider_id', provider_id).eq(
-                'provider_team_id', team_id_str
-            ).eq('match_method', 'direct_id').eq(
-                'review_status', 'approved'
-            ).limit(1).execute()
+            result = (
+                self.db.table("team_alias_map")
+                .select("team_id_master, review_status, match_method")
+                .eq("provider_id", provider_id)
+                .eq("provider_team_id", team_id_str)
+                .eq("match_method", "direct_id")
+                .eq("review_status", "approved")
+                .limit(1)
+                .execute()
+            )
 
             if result.data:
                 return result.data[0]
@@ -464,11 +475,15 @@ class SincSportsGameMatcher(GameHistoryMatcher):
 
         # Tier 2: Any approved alias map entry — exact match (fallback)
         try:
-            result = self.db.table('team_alias_map').select(
-                'team_id_master, review_status, match_method'
-            ).eq('provider_id', provider_id).eq(
-                'provider_team_id', team_id_str
-            ).eq('review_status', 'approved').limit(1).execute()
+            result = (
+                self.db.table("team_alias_map")
+                .select("team_id_master, review_status, match_method")
+                .eq("provider_id", provider_id)
+                .eq("provider_team_id", team_id_str)
+                .eq("review_status", "approved")
+                .limit(1)
+                .execute()
+            )
 
             if result.data:
                 return result.data[0]
@@ -494,19 +509,14 @@ class SincSportsGameMatcher(GameHistoryMatcher):
         (same strategy as TGS).
         """
         # First, try base matching (direct ID, alias, fuzzy)
-        base_result = super()._match_team(
-            provider_id, provider_team_id, team_name, age_group, gender, club_name
-        )
+        base_result = super()._match_team(provider_id, provider_team_id, team_name, age_group, gender, club_name)
 
-        if base_result.get('matched'):
+        if base_result.get("matched"):
             return base_result
 
         # No match found — create new team
         if team_name and age_group and gender:
-            logger.info(
-                f"[SincSports] No match found for '{team_name}' ({age_group}, {gender}), "
-                f"creating new team"
-            )
+            logger.info(f"[SincSports] No match found for '{team_name}' ({age_group}, {gender}), creating new team")
             try:
                 new_team_id = self._create_new_sincsports_team(
                     team_name=team_name,
@@ -517,7 +527,7 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                     provider_team_id=provider_team_id,
                 )
 
-                match_method = 'direct_id' if provider_team_id else 'import'
+                match_method = "direct_id" if provider_team_id else "import"
 
                 self._create_alias(
                     provider_id=provider_id,
@@ -528,19 +538,16 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                     confidence=1.0,
                     age_group=age_group,
                     gender=gender,
-                    review_status='approved',
+                    review_status="approved",
                 )
 
-                logger.info(
-                    f"[SincSports] Created new team: {team_name} ({age_group}, {gender}) "
-                    f"-> {new_team_id}"
-                )
+                logger.info(f"[SincSports] Created new team: {team_name} ({age_group}, {gender}) -> {new_team_id}")
 
                 return {
-                    'matched': True,
-                    'team_id': new_team_id,
-                    'method': match_method,
-                    'confidence': 1.0,
+                    "matched": True,
+                    "team_id": new_team_id,
+                    "method": match_method,
+                    "confidence": 1.0,
                 }
             except Exception as e:
                 logger.error(f"[SincSports] Error creating new team for {team_name}: {e}")
@@ -574,16 +581,21 @@ class SincSportsGameMatcher(GameHistoryMatcher):
             # provider_team_id is REQUIRED (NOT NULL constraint)
             if not provider_team_id:
                 import hashlib
-                provider_team_id = hashlib.md5(
-                    f"{team_name}_{age_group}_{gender}".encode()
-                ).hexdigest()[:16]
+
+                # MD5 for deterministic ID generation (not security)
+                provider_team_id = hashlib.md5(f"{team_name}_{age_group}_{gender}".encode()).hexdigest()[:16]
 
             # Check if team with this provider_id + provider_team_id already exists
             if provider_id:
                 try:
-                    existing = self.db.table('teams').select('team_id_master').eq(
-                        'provider_id', provider_id
-                    ).eq('provider_team_id', provider_team_id).single().execute()
+                    existing = (
+                        self.db.table("teams")
+                        .select("team_id_master")
+                        .eq("provider_id", provider_id)
+                        .eq("provider_team_id", provider_team_id)
+                        .single()
+                        .execute()
+                    )
 
                     if existing.data:
                         logger.debug(
@@ -591,52 +603,56 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                             f"already exists, using existing team "
                             f"{existing.data['team_id_master']}"
                         )
-                        return existing.data['team_id_master']
+                        return existing.data["team_id_master"]
                 except Exception:
                     pass  # No existing team found
 
             team_id_master = str(uuid.uuid4())
             age_group_normalized = age_group.lower() if age_group else age_group
-            gender_normalized = 'Male' if gender.upper() in ('M', 'MALE', 'BOYS', 'B') else 'Female'
+            gender_normalized = "Male" if gender.upper() in ("M", "MALE", "BOYS", "B") else "Female"
 
             # Clean team name — strip club name prefix if present
             clean_team_name = team_name
             if club_name and team_name.lower().startswith(club_name.lower()):
-                remaining = team_name[len(club_name):].strip()
-                if remaining and remaining[0] in '-\u2013\u2014':
+                remaining = team_name[len(club_name) :].strip()
+                if remaining and remaining[0] in "-\u2013\u2014":
                     remaining = remaining[1:].strip()
                 if remaining:
                     clean_team_name = remaining
 
             team_data = {
-                'team_id_master': team_id_master,
-                'team_name': clean_team_name,
-                'club_name': club_name or clean_team_name,
-                'age_group': age_group_normalized,
-                'gender': gender_normalized,
-                'provider_id': provider_id,
-                'provider_team_id': provider_team_id,
-                'created_at': datetime.utcnow().isoformat() + 'Z',
+                "team_id_master": team_id_master,
+                "team_name": clean_team_name,
+                "club_name": club_name or clean_team_name,
+                "age_group": age_group_normalized,
+                "gender": gender_normalized,
+                "provider_id": provider_id,
+                "provider_team_id": provider_team_id,
+                "created_at": datetime.utcnow().isoformat() + "Z",
             }
 
-            self.db.table('teams').insert(team_data).execute()
+            self.db.table("teams").insert(team_data).execute()
 
             logger.info(
-                f"[SincSports] Created new team: {clean_team_name} "
-                f"({age_group_normalized}, {gender_normalized})"
+                f"[SincSports] Created new team: {clean_team_name} ({age_group_normalized}, {gender_normalized})"
             )
 
             return team_id_master
 
         except Exception as e:
             # Handle duplicate key errors gracefully
-            if 'duplicate key' in str(e).lower() or '23505' in str(e):
+            if "duplicate key" in str(e).lower() or "23505" in str(e):
                 logger.debug(f"[SincSports] Duplicate key error, looking up existing team: {e}")
                 if provider_id and provider_team_id:
                     try:
-                        existing = self.db.table('teams').select('team_id_master').eq(
-                            'provider_id', provider_id
-                        ).eq('provider_team_id', provider_team_id).single().execute()
+                        existing = (
+                            self.db.table("teams")
+                            .select("team_id_master")
+                            .eq("provider_id", provider_id)
+                            .eq("provider_team_id", provider_team_id)
+                            .single()
+                            .execute()
+                        )
 
                         if existing.data:
                             logger.info(
@@ -644,11 +660,9 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                                 f"provider_team_id {provider_team_id}, "
                                 f"using {existing.data['team_id_master']}"
                             )
-                            return existing.data['team_id_master']
+                            return existing.data["team_id_master"]
                     except Exception as lookup_error:
-                        logger.error(
-                            f"[SincSports] Error looking up existing team: {lookup_error}"
-                        )
+                        logger.error(f"[SincSports] Error looking up existing team: {lookup_error}")
 
             logger.error(f"[SincSports] Error creating new team: {e}")
             raise
