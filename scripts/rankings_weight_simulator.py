@@ -10,13 +10,22 @@ Also simulates an SOS-weighted performance layer where overperformance
 against strong opponents counts more than stat-padding against weak ones.
 
 Usage:
-    python scripts/rankings_weight_simulator.py
+    python scripts/rankings_weight_simulator.py <team_uuid1> <team_uuid2> ...
+    python scripts/rankings_weight_simulator.py --demo  # hardcoded fallback data
 
 Edit the SCENARIOS list at the bottom to try different weight combos.
 """
 
+import argparse
+import os
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).parent.parent))
+
+# ─── Hardcoded demo data ─────────────────────────────────────────────────────
 # AZ U12 Male top teams — fresh from rankings_full (2026-03-17)
-TEAMS = [
+DEMO_TEAMS = [
     {
         "name": "FC Tucson 2014 Pre-MLSN",
         "team_id": "ffa679df",
@@ -89,8 +98,117 @@ TEAMS = [
     },
 ]
 
+# Module-level teams list — populated by load_teams_from_supabase() or set to DEMO_TEAMS
+TEAMS: list[dict] = []
+
+# Columns needed from rankings_full to populate each team dict
+SIMULATOR_COLS = [
+    "team_id",
+    "off_norm",
+    "def_norm",
+    "sos_norm",
+    "perf_centered",
+    "perf_raw",
+    "ml_norm",
+    "ml_overperf",
+    "games_played",
+]
+
 MIN_GAMES_PROVISIONAL = 6
 
+
+# ─── Supabase helpers (mirrors diagnose_ranking.py) ──────────────────────────
+
+def get_supabase():
+    """Create a Supabase client from .env.local credentials."""
+    from dotenv import load_dotenv
+    from supabase import create_client
+
+    load_dotenv(Path(__file__).parent.parent / ".env.local")
+
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY")
+    if not url or not key:
+        print("ERROR: Missing SUPABASE_URL or SUPABASE_KEY in .env.local")
+        sys.exit(1)
+    return create_client(url, key)
+
+
+def fetch_team_names(supabase, team_ids: list[str]) -> dict[str, str]:
+    """Batch-fetch display names for teams from the teams table."""
+    names = {}
+    batch_size = 100
+    for i in range(0, len(team_ids), batch_size):
+        batch = team_ids[i : i + batch_size]
+        result = (
+            supabase.table("teams")
+            .select("team_id_master, team_name, club_name")
+            .in_("team_id_master", batch)
+            .execute()
+        )
+        for r in result.data or []:
+            tid = r["team_id_master"]
+            names[tid] = f"{r.get('team_name', '?')} ({r.get('club_name', '')})"
+    return names
+
+
+def load_teams_from_supabase(team_ids: list[str]) -> list[dict]:
+    """Fetch team data from rankings_full and return list of team dicts.
+
+    Mirrors the fetch pattern from diagnose_ranking.py but selects only
+    the columns needed for the weight simulator.
+    """
+    supabase = get_supabase()
+
+    # Batch .in_() queries to <= 100 IDs per call (Supabase URI length limit)
+    cols = ", ".join(SIMULATOR_COLS)
+    all_rows = []
+    batch_size = 100
+    for i in range(0, len(team_ids), batch_size):
+        batch = team_ids[i : i + batch_size]
+        result = (
+            supabase.table("rankings_full")
+            .select(cols)
+            .in_("team_id", batch)
+            .execute()
+        )
+        all_rows.extend(result.data or [])
+
+    if not all_rows:
+        print(f"ERROR: No rankings data found for team IDs: {team_ids}")
+        sys.exit(1)
+
+    # Batch-fetch display names
+    found_ids = [row["team_id"] for row in all_rows]
+    name_map = fetch_team_names(supabase, found_ids)
+
+    # Build team dicts
+    teams = []
+    for row in all_rows:
+        name = name_map.get(row["team_id"], f"Unknown ({row['team_id'][:8]}...)")
+        teams.append({
+            "name": name,
+            "team_id": row["team_id"],
+            "off_norm": row.get("off_norm", 0.0) or 0.0,
+            "def_norm": row.get("def_norm", 0.0) or 0.0,
+            "sos_norm": row.get("sos_norm", 0.0) or 0.0,
+            "perf_centered": row.get("perf_centered", 0.0) or 0.0,
+            "perf_raw": row.get("perf_raw"),
+            "ml_norm": row.get("ml_norm", 0.0) or 0.0,
+            "ml_overperf": row.get("ml_overperf", 0.0) or 0.0,
+            "games_played": row.get("games_played", 0) or 0,
+        })
+
+    found_ids = {t["team_id"] for t in teams}
+    missing = [tid for tid in team_ids if tid not in found_ids]
+    if missing:
+        print(f"WARNING: No rankings data for {len(missing)} team(s): {missing}")
+
+    print(f"  Loaded {len(teams)} team(s) from Supabase rankings_full")
+    return teams
+
+
+# ─── Simulation engine ───────────────────────────────────────────────────────
 
 def provisional_mult(gp: int) -> float:
     """Smooth linear ramp from 0.85 (0 games) to 1.0 (15 games).
@@ -181,8 +299,10 @@ def print_results(label, off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_per
         )
 
 
+# ─── Quality scoring ─────────────────────────────────────────────────────────
+
 def find_elite_rank(off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_perf=False, perf_cap=0.50):
-    """Return the rank of Phoenix United Elite for a given config."""
+    """Return the rank of Phoenix United Elite for a given config (demo mode only)."""
     results = simulate(off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_perf, perf_cap)
     for i, r in enumerate(results, 1):
         if "Elite" in r["name"]:
@@ -190,8 +310,8 @@ def find_elite_rank(off_w, def_w, sos_w, perf_w, ml_alpha, sos_weighted_perf=Fal
     return 99
 
 
-def score_ranking_quality(results):
-    """Score how 'correct' a ranking feels based on domain knowledge.
+def score_ranking_quality_demo(results):
+    """Score how 'correct' a ranking feels based on domain knowledge (demo mode).
 
     Heuristics (higher = better):
     - Elite #1 = ideal (SOS king with best defense should lead)
@@ -250,9 +370,82 @@ def score_ranking_quality(results):
     return round(score, 1)
 
 
+def score_ranking_quality_live(results):
+    """Generic quality metric for live data (no domain-specific team name matching).
+
+    Measures:
+    - Spread: top 3 should have visible gaps (not all bunched at same score)
+    - Monotonicity: scores should decrease smoothly (no large inversions)
+    - Range: reasonable spread between #1 and last place
+    """
+    score = 0.0
+
+    # Spread: top 3 should have visible gaps
+    if len(results) >= 3:
+        top3_scores = [results[i]["ps_ml"] for i in range(3)]
+        gap_1_2 = top3_scores[0] - top3_scores[1]
+        gap_2_3 = top3_scores[1] - top3_scores[2]
+        if gap_1_2 > 0.005: score += 2  # meaningful #1 vs #2 gap
+        if gap_2_3 > 0.005: score += 2  # meaningful #2 vs #3 gap
+
+    # Score uniqueness: bonus if all teams have distinct scores (no ties)
+    if len(results) >= 2:
+        distinct_scores = len(set(r["ps_ml"] for r in results))
+        if distinct_scores == len(results):
+            score += 2  # all teams have unique scores
+
+    # Range: top vs bottom spread
+    if len(results) >= 2:
+        total_range = results[0]["ps_ml"] - results[-1]["ps_ml"]
+        if total_range > 0.05: score += 2  # meaningful separation
+        if total_range > 0.10: score += 2  # strong separation
+
+    return round(score, 1)
+
+
+# ─── CLI argument parsing ────────────────────────────────────────────────────
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Replay the PowerScore blend with different weights using live or demo data.",
+    )
+    parser.add_argument(
+        "team_ids",
+        nargs="*",
+        help="Team UUIDs to fetch from Supabase rankings_full",
+    )
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="Use hardcoded demo data instead of fetching from Supabase",
+    )
+    return parser.parse_args()
+
+
+# ─── Main ─────────────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
+    args = parse_args()
+
+    # Determine data source
+    if not args.demo and not args.team_ids:
+        print("No team IDs provided. Use --demo for hardcoded data or pass team UUIDs.")
+        print("Usage:")
+        print("  python scripts/rankings_weight_simulator.py <uuid1> <uuid2> ...")
+        print("  python scripts/rankings_weight_simulator.py --demo")
+        sys.exit(1)
+
+    if args.demo:
+        TEAMS = DEMO_TEAMS
+        score_ranking_quality = score_ranking_quality_demo
+        data_label = "Demo Data (AZ U12 Male Top 10)"
+    else:
+        TEAMS = load_teams_from_supabase(args.team_ids)
+        score_ranking_quality = score_ranking_quality_live
+        data_label = f"Live Data ({len(TEAMS)} teams from Supabase)"
+
     print("\n" + "=" * 90)
-    print("  PitchRank Weight Simulator — AZ U12 Male Top 10")
+    print(f"  PitchRank Weight Simulator — {data_label}")
     print("  EXHAUSTIVE GRID SEARCH: All Levers")
     print("=" * 90)
 
@@ -270,7 +463,8 @@ if __name__ == "__main__":
     )
     baseline_results = simulate(PROD_OFF, PROD_DEF, PROD_SOS, PROD_PERF, PROD_ML)
     baseline_score = score_ranking_quality(baseline_results)
-    print(f"\n  Quality Score: {baseline_score}/23")
+    max_quality = 23 if is_demo else 10
+    print(f"\n  Quality Score: {baseline_score}/{max_quality}")
 
     # =====================================================================
     # SECTION 2: EXHAUSTIVE GRID SEARCH
@@ -308,13 +502,10 @@ if __name__ == "__main__":
                             results = simulate(off_w, def_w, sos_w, perf_w, ml_a,
                                                sos_weighted_perf=sos_perf, perf_cap=cap)
                             quality = score_ranking_quality(results)
-                            elite_rank = 99
-                            elite_score = 0
-                            for i, r in enumerate(results, 1):
-                                if "Elite" in r["name"]:
-                                    elite_rank = i
-                                    elite_score = r["ps_ml"]
-                                    break
+
+                            # In demo mode, track Elite rank; in live mode, track #1
+                            top_rank_name = results[0]["name"] if results else "?"
+                            top_score = results[0]["ps_ml"] if results else 0
 
                             all_results.append({
                                 "off_w": round(off_w, 3),
@@ -324,14 +515,14 @@ if __name__ == "__main__":
                                 "perf_cap": cap,
                                 "ml_alpha": ml_a,
                                 "sos_perf": sos_perf,
-                                "elite_rank": elite_rank,
-                                "elite_score": elite_score,
+                                "top_name": top_rank_name,
+                                "top_score": top_score,
                                 "quality": quality,
                                 "results": results,
                             })
 
-    # Sort by quality score descending, then by elite rank ascending
-    all_results.sort(key=lambda x: (-x["quality"], x["elite_rank"]))
+    # Sort by quality score descending
+    all_results.sort(key=lambda x: -x["quality"])
 
     # =====================================================================
     # SECTION 3: TOP 30 COMBINATIONS BY QUALITY SCORE
@@ -339,7 +530,7 @@ if __name__ == "__main__":
     print("=" * 110)
     print("  TOP 30 COMBINATIONS (sorted by quality score)")
     print("=" * 110)
-    print(f"  {'#':>3} {'Q':>4} {'E#':>3} {'SOS_W':>6} {'OFF':>6} {'DEF':>6} {'PERF_W':>7} {'CAP':>5} "
+    print(f"  {'#':>3} {'Q':>4} {'#1':>3} {'SOS_W':>6} {'OFF':>6} {'DEF':>6} {'PERF_W':>7} {'CAP':>5} "
           f"{'ML_A':>6} {'SOS-P':>5}  {'Top 3 teams':<50}")
     print(f"  {'-'*3} {'-'*4} {'-'*3} {'-'*6} {'-'*6} {'-'*6} {'-'*7} {'-'*5} "
           f"{'-'*6} {'-'*5}  {'-'*50}")
@@ -353,15 +544,12 @@ if __name__ == "__main__":
             continue
         seen.add(order_key)
 
-        top3 = ", ".join(
-            f"{'*' if 'Elite' in r['name'] else ''}{r['name'][:20]}{'*' if 'Elite' in r['name'] else ''}"
-            for r in entry["results"][:3]
-        )
+        top3 = ", ".join(r["name"][:20] for r in entry["results"][:3])
         sp = "Y" if entry["sos_perf"] else "N"
         print(
-            f"  {shown+1:>3} {entry['quality']:>4.0f} {entry['elite_rank']:>3} "
+            f"  {shown+1:>3} {entry['quality']:>4.0f} {'1':>3} "
             f"{entry['sos_w']:>6.2f} {entry['off_w']:>6.3f} {entry['def_w']:>6.3f} "
-            f"{entry['perf_w']:>7.2f} {entry['perf_cap']:>5.2f} {entry['ml_alpha']:>6.2f} "
+            f"{entry['perf_w']:>7.02f} {entry['perf_cap']:>5.2f} {entry['ml_alpha']:>6.2f} "
             f"{sp:>5}  {top3:<50}"
         )
         shown += 1
@@ -369,63 +557,49 @@ if __name__ == "__main__":
             break
 
     # =====================================================================
-    # SECTION 4: ELITE #1 ONLY — all combos where Elite ranks first
+    # SECTION 4: #1 STABILITY — all combos where the same team leads
     # =====================================================================
-    elite_first = [e for e in all_results if e["elite_rank"] == 1]
+    # Find the most common #1 team across all configs
+    from collections import Counter
+    top1_counts = Counter(e["top_name"] for e in all_results)
+    most_common_top1, _ = top1_counts.most_common(1)[0]
+
+    top1_stable = [e for e in all_results if e["top_name"] == most_common_top1]
     print(f"\n{'=' * 110}")
-    print(f"  ALL COMBINATIONS WHERE ELITE = #1  ({len(elite_first)} found)")
+    print(f"  COMBINATIONS WHERE '{most_common_top1[:30]}' = #1  ({len(top1_stable)} of {len(all_results)})")
     print(f"{'=' * 110}")
 
-    if elite_first:
+    if top1_stable:
         print(f"  {'Q':>4} {'SOS_W':>6} {'OFF':>6} {'DEF':>6} {'PERF_W':>7} {'CAP':>5} "
               f"{'ML_A':>6} {'SOS-P':>5}  {'#2 team':<25} {'Gap':>6}")
         print(f"  {'-'*4} {'-'*6} {'-'*6} {'-'*6} {'-'*7} {'-'*5} "
               f"{'-'*6} {'-'*5}  {'-'*25} {'-'*6}")
 
-        seen_e1 = set()
-        for entry in elite_first:
+        seen_s = set()
+        shown_s = 0
+        for entry in top1_stable:
             order_key = tuple(r["name"] for r in entry["results"][:3])
-            if order_key in seen_e1:
+            if order_key in seen_s:
                 continue
-            seen_e1.add(order_key)
+            seen_s.add(order_key)
 
-            r2 = entry["results"][1]
+            r2 = entry["results"][1] if len(entry["results"]) > 1 else {"name": "?", "ps_ml": 0}
             gap = entry["results"][0]["ps_ml"] - r2["ps_ml"]
             sp = "Y" if entry["sos_perf"] else "N"
             print(
                 f"  {entry['quality']:>4.0f} {entry['sos_w']:>6.2f} {entry['off_w']:>6.3f} "
-                f"{entry['def_w']:>6.3f} {entry['perf_w']:>7.2f} {entry['perf_cap']:>5.2f} "
+                f"{entry['def_w']:>6.3f} {entry['perf_w']:>7.02f} {entry['perf_cap']:>5.2f} "
                 f"{entry['ml_alpha']:>6.2f} {sp:>5}  {r2['name'][:25]:<25} {gap:>6.4f}"
             )
-    else:
-        print("\n  No combinations produce Elite at #1.")
-        print("  Closest (Elite #2):")
-        elite_second = [e for e in all_results if e["elite_rank"] == 2]
-        if elite_second:
-            seen_e2 = set()
-            print(f"  {'Q':>4} {'SOS_W':>6} {'OFF':>6} {'DEF':>6} {'PERF_W':>7} {'CAP':>5} "
-                  f"{'ML_A':>6} {'SOS-P':>5}  {'#1 team':<25} {'Gap':>6}")
-            print(f"  {'-'*4} {'-'*6} {'-'*6} {'-'*6} {'-'*7} {'-'*5} "
-                  f"{'-'*6} {'-'*5}  {'-'*25} {'-'*6}")
-            for entry in elite_second[:20]:
-                order_key = tuple(r["name"] for r in entry["results"][:3])
-                if order_key in seen_e2:
-                    continue
-                seen_e2.add(order_key)
-                r1 = entry["results"][0]
-                gap = r1["ps_ml"] - entry["results"][1]["ps_ml"]
-                sp = "Y" if entry["sos_perf"] else "N"
-                print(
-                    f"  {entry['quality']:>4.0f} {entry['sos_w']:>6.2f} {entry['off_w']:>6.3f} "
-                    f"{entry['def_w']:>6.3f} {entry['perf_w']:>7.2f} {entry['perf_cap']:>5.2f} "
-                    f"{entry['ml_alpha']:>6.2f} {sp:>5}  {r1['name'][:25]:<25} {gap:>6.4f}"
-                )
+            shown_s += 1
+            if shown_s >= 30:
+                break
 
     # =====================================================================
     # SECTION 5: BEST OVERALL PICK — print full rankings for top candidates
     # =====================================================================
     print(f"\n{'=' * 90}")
-    print("  DETAILED VIEW: Top 5 unique ranking orders by quality score")
+    print(f"  DETAILED VIEW: Top 5 unique ranking orders by quality score")
     print(f"{'=' * 90}")
 
     seen_detail = set()
@@ -438,12 +612,12 @@ if __name__ == "__main__":
 
         sp_label = "SOS-weighted" if entry["sos_perf"] else "raw"
         cap_label = f"cap=+/-{entry['perf_cap']}" if entry["perf_cap"] < 0.50 else "no cap"
-        label = (f"CANDIDATE #{detail_count+1} (Quality={entry['quality']}/23): "
+        label = (f"CANDIDATE #{detail_count+1} (Quality={entry['quality']}/{max_quality}): "
                  f"SOS={entry['sos_w']}, PERF={entry['perf_w']} ({sp_label}, {cap_label}), "
                  f"ML={entry['ml_alpha']}")
         print_results(label, entry["off_w"], entry["def_w"], entry["sos_w"],
                       entry["perf_w"], entry["ml_alpha"], entry["sos_perf"], entry["perf_cap"])
-        print(f"  Quality: {entry['quality']}/23 | Elite: #{entry['elite_rank']}")
+        print(f"  Quality: {entry['quality']}/{max_quality} | #1: {entry['top_name'][:30]}")
 
         detail_count += 1
         if detail_count >= 5:
@@ -462,7 +636,7 @@ if __name__ == "__main__":
     print(f"  {'SOS_WEIGHT':<20} {PROD_SOS:>10.2f} {best['sos_w']:>10.2f} {best['sos_w'] - PROD_SOS:>+10.2f}")
     print(f"  {'OFF_WEIGHT':<20} {PROD_OFF:>10.3f} {best['off_w']:>10.3f} {best['off_w'] - PROD_OFF:>+10.3f}")
     print(f"  {'DEF_WEIGHT':<20} {PROD_DEF:>10.3f} {best['def_w']:>10.3f} {best['def_w'] - PROD_DEF:>+10.3f}")
-    print(f"  {'PERF_BLEND_WEIGHT':<20} {PROD_PERF:>10.2f} {best['perf_w']:>10.2f} {best['perf_w'] - PROD_PERF:>+10.2f}")
+    print(f"  {'PERF_BLEND_WEIGHT':<20} {PROD_PERF:>10.02f} {best['perf_w']:>10.02f} {best['perf_w'] - PROD_PERF:>+10.02f}")
     print(f"  {'PERF_CAP':<20} {'0.15':>10} {best['perf_cap']:>10.2f} {best['perf_cap'] - 0.15:>+10.2f}")
     print(f"  {'ML_ALPHA':<20} {PROD_ML:>10.2f} {best['ml_alpha']:>10.2f} {best['ml_alpha'] - PROD_ML:>+10.2f}")
     sp_cur = "No"
@@ -476,9 +650,9 @@ if __name__ == "__main__":
                     and abs(e['perf_w'] - PROD_PERF) < 0.01
                     and abs(e['ml_alpha'] - PROD_ML) < 0.01]
     prod_grid_score = prod_in_grid[0]['quality'] if prod_in_grid else baseline_score
-    prod_elite = prod_in_grid[0]['elite_rank'] if prod_in_grid else "?"
+    prod_top1 = prod_in_grid[0]['top_name'] if prod_in_grid else "?"
 
-    print(f"\n  Quality: {prod_grid_score}/23 -> {best['quality']}/23")
-    print(f"  Elite rank: #{prod_elite} -> #{best['elite_rank']}")
+    print(f"\n  Quality: {prod_grid_score}/{max_quality} -> {best['quality']}/{max_quality}")
+    print(f"  #1 team: {prod_top1[:30]} -> {best['top_name'][:30]}")
 
     print("\n")

@@ -83,8 +83,11 @@ class V53EConfig:
     # GP-SOS decorrelation: removes games-played bias from sos_norm for ranked teams
     # in age buckets where GP correlates with SOS (typically U16/U17).
     # When enabled, for any per-age-bucket where GP-SOS correlation exceeds the
-    # threshold among ranked teams (>= MIN_GAMES_PROVISIONAL), sos_norm is
+    # threshold among unshrunk teams (>= MIN_GAMES_FOR_TOP_SOS), sos_norm is
     # residualized against GP via OLS to remove the linear relationship.
+    # NOTE: Only teams with GP >= MIN_GAMES_FOR_TOP_SOS participate in both the
+    # correlation measurement and OLS fit, to avoid measuring artificial correlation
+    # introduced by low-sample shrinkage (which pulls GP < 10 teams toward 0.35).
     GP_SOS_DECORRELATION_ENABLED: bool = True
     GP_SOS_DECORRELATION_THRESHOLD: float = (
         0.15  # Correlation threshold to trigger (above 0.10 guardrail, conservative)
@@ -1489,7 +1492,8 @@ def compute_rankings(
             age_col_numeric = pd.to_numeric(team["age"], errors="coerce")
             for age_val in sorted(age_col_numeric.dropna().unique()):
                 age_mask = age_col_numeric == age_val
-                age_subset = team.loc[age_mask, ["gp", "sos_norm"]].dropna()
+                unshrunk_mask = age_mask & (team["gp"] >= cfg.MIN_GAMES_FOR_TOP_SOS)
+                age_subset = team.loc[unshrunk_mask, ["gp", "sos_norm"]].dropna()
                 if len(age_subset) < 10:
                     continue
                 age_corr = age_subset.corr().iloc[0, 1]
@@ -1508,12 +1512,12 @@ def compute_rankings(
                         f"(n={len(age_subset)}, median_gp={median_gp:.0f})"
                     )
 
-                # GP-SOS decorrelation: only for ranked teams in biased age buckets
-                # We only fix the problem for teams that actually get ranked (>= MIN_GAMES_PROVISIONAL)
-                # since unranked teams' SOS doesn't affect displayed rankings.
+                # GP-SOS decorrelation: only for unshrunk teams in biased age buckets
+                # Uses MIN_GAMES_FOR_TOP_SOS (not MIN_GAMES_PROVISIONAL) to exclude
+                # teams whose sos_norm was altered by low-sample shrinkage.
                 if cfg.GP_SOS_DECORRELATION_ENABLED and abs(age_corr) > cfg.GP_SOS_DECORRELATION_THRESHOLD:
-                    # Target: ranked teams in this age bucket
-                    ranked_mask = age_mask & (team["gp"] >= cfg.MIN_GAMES_PROVISIONAL)
+                    # Target: unshrunk teams in this age bucket
+                    ranked_mask = age_mask & (team["gp"] >= cfg.MIN_GAMES_FOR_TOP_SOS)
                     ranked_idx = team.index[ranked_mask]
                     if len(ranked_idx) < 10:
                         continue
@@ -1736,7 +1740,7 @@ def compute_rankings(
                 age_col_iter = pd.to_numeric(team["age"], errors="coerce")
                 for age_val in age_col_iter.dropna().unique():
                     age_mask = age_col_iter == age_val
-                    ranked_mask = age_mask & (team["gp"] >= cfg.MIN_GAMES_PROVISIONAL)
+                    ranked_mask = age_mask & (team["gp"] >= cfg.MIN_GAMES_FOR_TOP_SOS)
                     ranked_idx = team.index[ranked_mask]
                     if len(ranked_idx) < 10:
                         continue

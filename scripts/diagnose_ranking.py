@@ -30,7 +30,7 @@ from src.rankings.constants import AGE_TO_ANCHOR, SOS_ML_THRESHOLD_HIGH, SOS_ML_
 from src.rankings.shared import sos_ml_blend
 from supabase import create_client
 
-load_dotenv()
+load_dotenv(Path(__file__).parent.parent / ".env.local")
 console = Console()
 
 # ─── Algorithm constants (from V53EConfig + Layer13Config) ───────────────────
@@ -204,7 +204,12 @@ def fetch_team_games(supabase, team_id: str, limit: int = 15) -> list:
 
 
 def fetch_opponent_rankings(supabase, opponent_ids: list) -> dict:
-    """Fetch power_score_final for a batch of opponents to show schedule quality."""
+    """Fetch power_score_final + national_rank for a batch of opponents.
+
+    Uses rankings_view (not rankings_full) so that national_rank is populated
+    via the view's ROW_NUMBER() window function.  The view exposes
+    team_id_master instead of team_id.
+    """
     if not opponent_ids:
         return {}
     rankings = {}
@@ -212,12 +217,15 @@ def fetch_opponent_rankings(supabase, opponent_ids: list) -> dict:
     for i in range(0, len(opponent_ids), batch_size):
         batch = opponent_ids[i : i + batch_size]
         result = (
-            supabase.table("rankings_full")
-            .select("team_id, power_score_final, powerscore_adj, status, national_rank, age_group, gender")
-            .in_("team_id", batch)
+            supabase.table("rankings_view")
+            .select("team_id_master, power_score_final, status, rank_in_cohort_final, age, gender")
+            .in_("team_id_master", batch)
             .execute()
         )
         for r in result.data or []:
+            # Re-key for compatibility with the rest of the script
+            r["team_id"] = r.pop("team_id_master")
+            r["national_rank"] = r.pop("rank_in_cohort_final", None)
             rankings[r["team_id"]] = r
     return rankings
 
