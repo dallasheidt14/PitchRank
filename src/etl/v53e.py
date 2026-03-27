@@ -60,6 +60,16 @@ class V53EConfig:
     # Layer 8 (SOS)
     UNRANKED_SOS_BASE: float = 0.35
     SOS_REPEAT_CAP: int = 4  # Restored to 4 — league teams playing same opponent 3-4x need full SOS credit
+
+    # SOS trimming: reduce filler-game dilution by downweighting weakest opponents
+    # Teams with many mandatory league games against weak opponents get penalized under
+    # a pure weighted mean. Trimming reduces that dilution while protecting small samples.
+    SOS_TRIM_BOTTOM_PCT: float = 0.25   # Fraction of weakest opponents to trim (0.0 = disabled)
+    SOS_TRIM_MIN_GAMES: int = 8         # Don't trim teams with fewer games than this
+    SOS_TRIM_MAX_GAMES: int = 6         # Cap: never trim more than this many games per team
+    SOS_TRIM_MODE: str = "soft"         # "hard" = zero weight, "soft" = reduce weight
+    SOS_TRIM_SOFT_WEIGHT: float = 0.15  # In soft mode, trimmed games keep this fraction of original weight
+
     SOS_ITERATIONS: int = 1  # Single-pass SOS (no transitive propagation)
     SOS_TRANSITIVITY_LAMBDA: float = 0.0  # Transitivity disabled (pure direct SOS)
 
@@ -700,6 +710,10 @@ def apply_scf_to_sos(team_df: pd.DataFrame, scf_data: Dict[str, Dict], cfg: V53E
     neutral = cfg.SCF_NEUTRAL_SOS
     team_df["sos"] = neutral + team_df["scf"] * (team_df["sos"] - neutral)
 
+    # Apply same SCF dampening to sos_orig for apples-to-apples diagnostic comparison
+    if "sos_orig" in team_df.columns:
+        team_df["sos_orig"] = neutral + team_df["scf"] * (team_df["sos_orig"] - neutral)
+
     # Track quality-boosted teams
     team_df["quality_boosted"] = team_df["team_id"].map(
         lambda tid: scf_data.get(str(tid), {}).get("quality_boosted", False)
@@ -1160,6 +1174,43 @@ def compute_rankings(
             return 0.5
         return float(np.average(df[col].values, weights=w))
 
+    def _apply_sos_trim(g_sos: pd.DataFrame, strength_col: str) -> int:
+        """Downweight each team's weakest opponents for SOS calculation.
+
+        Supports hard mode (zero weight) and soft mode (reduced weight).
+        Respects SOS_TRIM_MIN_GAMES and SOS_TRIM_MAX_GAMES guards.
+        Returns the number of games trimmed.
+        """
+        if cfg.SOS_TRIM_BOTTOM_PCT <= 0:
+            return 0
+
+        team_counts = g_sos.groupby("team_id")[strength_col].transform("count")
+        # Skip teams below minimum games threshold
+        eligible = team_counts >= cfg.SOS_TRIM_MIN_GAMES
+
+        # Rank opponents by strength ascending within each team (weakest = rank 1)
+        g_sos["_str_rank"] = g_sos.groupby("team_id")[strength_col].rank(
+            method="first", ascending=True
+        )
+
+        # Compute per-team trim count: min(floor(count * pct), max_games)
+        n_trim_raw = np.floor(team_counts * cfg.SOS_TRIM_BOTTOM_PCT).astype(int)
+        n_trim = np.minimum(n_trim_raw, cfg.SOS_TRIM_MAX_GAMES)
+
+        # Build trim mask: eligible teams, rank within trim cutoff
+        trim_mask = eligible & (g_sos["_str_rank"] <= n_trim)
+        n_trimmed = int(trim_mask.sum())
+
+        if n_trimmed > 0:
+            if cfg.SOS_TRIM_MODE == "hard":
+                g_sos.loc[trim_mask, "w_sos"] = 0.0
+            else:
+                # Soft mode: reduce weight to a fraction of original
+                g_sos.loc[trim_mask, "w_sos"] *= cfg.SOS_TRIM_SOFT_WEIGHT
+
+        g_sos.drop(columns=["_str_rank"], inplace=True)
+        return n_trimmed
+
     # Create lookup maps for base strength calculation (OFF/DEF only, no SOS component)
     # This avoids feedback loops in the iterative algorithm
     team_off_norm_map = dict(zip(team["team_id"], team["off_norm"]))
@@ -1227,16 +1278,39 @@ def compute_rankings(
     )
 
     # Vectorized weighted mean — avoids groupby.apply returning scalar (deprecated pandas pattern)
+    # Step A: Compute original (untrimmed) SOS for diagnostic comparison
+    # NOTE: w_sos is still untrimmed at this point — trim happens in Step B
+    _ws_orig = g_sos["opp_strength"] * g_sos["w_sos"]
+    _wsum_orig = g_sos.groupby("team_id")["w_sos"].sum()
+    _vsum_orig = g_sos.assign(_ws=_ws_orig).groupby("team_id")["_ws"].sum()
+    sos_orig_series = (_vsum_orig / _wsum_orig.replace(0, np.nan)).fillna(0.5).rename("sos_orig")
+
+    # Step B: Apply SOS trim and compute trimmed SOS
+    g_sos["w_sos_orig"] = g_sos["w_sos"].copy()
+    n_trimmed = _apply_sos_trim(g_sos, "opp_strength")
+    if n_trimmed > 0:
+        logger.info(
+            f"✂️  SOS trim (Pass 1): {n_trimmed} games downweighted "
+            f"(mode={cfg.SOS_TRIM_MODE}, bottom {cfg.SOS_TRIM_BOTTOM_PCT:.0%}, "
+            f"min_games={cfg.SOS_TRIM_MIN_GAMES}, max_trim={cfg.SOS_TRIM_MAX_GAMES})"
+        )
+
     _ws = g_sos["opp_strength"] * g_sos["w_sos"]
     _wsum = g_sos.groupby("team_id")["w_sos"].sum()
     _vsum = g_sos.assign(_ws=_ws).groupby("team_id")["_ws"].sum()
     direct = (_vsum / _wsum.replace(0, np.nan)).fillna(0.5).rename("sos_direct").reset_index()
     sos_curr = direct.rename(columns={"sos_direct": "sos"}).copy()
 
+    # Merge sos_orig into sos_curr for diagnostic tracking
+    sos_curr = sos_curr.merge(sos_orig_series.reset_index(), on="team_id", how="left")
+
     # PageRank-style dampening on initial SOS (Pass 1)
     # This anchors even the first pass toward baseline, preventing inflated bubbles
     if cfg.PAGERANK_DAMPENING_ENABLED:
         sos_curr["sos"] = (1 - cfg.PAGERANK_ALPHA) * cfg.PAGERANK_BASELINE + cfg.PAGERANK_ALPHA * sos_curr["sos"]
+        # Apply same dampening to sos_orig for apples-to-apples diagnostic comparison
+        if "sos_orig" in sos_curr.columns:
+            sos_curr["sos_orig"] = (1 - cfg.PAGERANK_ALPHA) * cfg.PAGERANK_BASELINE + cfg.PAGERANK_ALPHA * sos_curr["sos_orig"]
         logger.info(f"📌 PageRank dampening applied: alpha={cfg.PAGERANK_ALPHA}, baseline={cfg.PAGERANK_BASELINE}")
 
     # Log initial SOS (Pass 1: Direct)
@@ -1246,6 +1320,9 @@ def compute_rankings(
         f"min={sos_curr['sos'].min():.4f}, "
         f"max={sos_curr['sos'].max():.4f}"
     )
+
+    # Preserve sos_orig before iterative loop (which may reassign sos_curr without it)
+    _sos_orig_map = dict(zip(sos_curr["team_id"], sos_curr.get("sos_orig", sos_curr["sos"])))
 
     # True iterative SOS: Propagate schedule difficulty through opponent SOS
     # Direct component (opponent OFF/DEF) stays FIXED to prevent convergence drift
@@ -1320,6 +1397,9 @@ def compute_rankings(
     )
 
     team = team.merge(sos_curr, on="team_id", how="left").fillna({"sos": 0.5})
+    # Restore sos_orig from preserved map (survives iterative loop reassignment of sos_curr)
+    if cfg.SOS_TRIM_BOTTOM_PCT > 0:
+        team["sos_orig"] = team["team_id"].map(_sos_orig_map).fillna(team["sos"])
 
     # -------------------------
     # Layer 8b: Schedule Connectivity Factor (SCF) - Regional Bubble Detection
@@ -1591,6 +1671,95 @@ def compute_rankings(
     team["perf_centered"] = team["perf_centered"].clip(-cfg.PERF_CAP, cfg.PERF_CAP)
 
     # -------------------------
+    # SOS Trim Diagnostics
+    # -------------------------
+    if cfg.SOS_TRIM_BOTTOM_PCT > 0 and "sos_orig" in team.columns:
+        sos_shift = team["sos"] - team["sos_orig"]
+        teams_trimmed = (sos_shift.abs() > 1e-6).sum()
+
+        # Normalize sos_orig through the same normalization for downstream comparison
+        sos_group_cols_diag = ["age", "gender"]
+        if "component_id" in team.columns and cfg.COMPONENT_SOS_ENABLED:
+            sos_group_cols_diag = ["age", "gender", "component_id"]
+        team["sos_norm_orig"] = team.groupby(sos_group_cols_diag)["sos_orig"].transform(_sos_norm_fn)
+
+        # Hybrid metric for comparison (not used in scoring)
+        team["sos_hybrid"] = 0.7 * team["sos"] + 0.3 * team["sos_orig"]
+
+        # 1. Cohort-level before/after
+        logger.info(
+            f"📊 SOS Trim Diagnostics: {teams_trimmed}/{len(team)} teams affected, "
+            f"raw shift: mean={sos_shift.mean():+.4f}, median={sos_shift.median():+.4f}"
+        )
+
+        # 2. GP-SOS correlation before/after
+        gp_sos_corr_orig = team[["gp", "sos_orig"]].corr().iloc[0, 1]
+        gp_sos_corr_trim = team[["gp", "sos"]].corr().iloc[0, 1]
+        logger.info(
+            f"  GP-SOS correlation: orig={gp_sos_corr_orig:.3f} -> trimmed={gp_sos_corr_trim:.3f}"
+        )
+
+        # 3. GP bucket analysis
+        gp_buckets = pd.cut(team["gp"], bins=[0, 9, 14, 19, 29, 999], labels=["1-9", "10-14", "15-19", "20-29", "30+"])
+        bucket_shifts = sos_shift.groupby(gp_buckets, observed=True)
+        for bucket, grp in bucket_shifts:
+            if len(grp) > 0:
+                logger.info(f"  GP {bucket}: n={len(grp)}, avg_shift={grp.mean():+.4f}")
+
+        # 4. Trim count distribution (how many games trimmed per team)
+        if "w_sos_orig" in g_sos.columns:
+            is_trimmed = (
+                (g_sos["w_sos"] < g_sos["w_sos_orig"] - 1e-9)
+                .groupby(g_sos["team_id"]).sum()
+            )
+            trimmed_nonzero = is_trimmed[is_trimmed > 0]
+            if len(trimmed_nonzero) > 0:
+                pcts = trimmed_nonzero.quantile([0.25, 0.50, 0.75, 0.90])
+                logger.info(
+                    f"  Trim distribution (n={len(trimmed_nonzero)} teams): "
+                    f"p25={pcts[0.25]:.0f}, p50={pcts[0.50]:.0f}, "
+                    f"p75={pcts[0.75]:.0f}, p90={pcts[0.90]:.0f}, "
+                    f"max_cap_hits={int((is_trimmed >= cfg.SOS_TRIM_MAX_GAMES).sum())}"
+                )
+
+        # 5. Top opponent exposure (avg top-5 and top-10 opp strength)
+        if "opp_strength" in g_sos.columns:
+            # Rank opponents by strength descending within each team (vectorized, no groupby.apply)
+            _opp_desc_rank = g_sos.groupby("team_id")["opp_strength"].rank(
+                method="first", ascending=False
+            )
+            top_n_stats = []
+            for n in [5, 10]:
+                top_n_mask = _opp_desc_rank <= n
+                top_n_avg = g_sos.loc[top_n_mask].groupby("team_id")["opp_strength"].mean()
+                top_n_stats.append(f"top-{n} avg={top_n_avg.mean():.3f}")
+            logger.info(f"  Top opponent exposure: {', '.join(top_n_stats)}")
+
+        # 6. Biggest movers (top 10 up, top 10 down)
+        team_shifts = pd.DataFrame({
+            "team_id": team["team_id"],
+            "shift": sos_shift,
+            "sos": team["sos"],
+            "sos_orig": team["sos_orig"],
+            "gp": team["gp"],
+        })
+        top_up = team_shifts.nlargest(10, "shift")
+        top_down = team_shifts.nsmallest(10, "shift")
+        logger.info("  Top 10 SOS gainers:")
+        for _, r in top_up.iterrows():
+            logger.info(f"    {r['team_id'][:12]} | GP:{r['gp']:>2.0f} | {r['sos_orig']:.4f} -> {r['sos']:.4f} ({r['shift']:+.4f})")
+        logger.info("  Top 10 SOS losers:")
+        for _, r in top_down.iterrows():
+            logger.info(f"    {r['team_id'][:12]} | GP:{r['gp']:>2.0f} | {r['sos_orig']:.4f} -> {r['sos']:.4f} ({r['shift']:+.4f})")
+
+        # 7. sos_norm before/after comparison
+        norm_shift = team["sos_norm"] - team["sos_norm_orig"]
+        logger.info(
+            f"  sos_norm shift: mean={norm_shift.mean():+.4f}, std={norm_shift.std():.4f}, "
+            f"range=[{norm_shift.min():+.4f}, {norm_shift.max():+.4f}]"
+        )
+
+    # -------------------------
     # Layer 10: Core PowerScore + Provisional
     # -------------------------
     # Uses PERF_BLEND_WEIGHT to control how much performance adjustment affects final score.
@@ -1681,6 +1850,12 @@ def compute_rankings(
             # Use numpy vectorize for faster lookup (still has overhead but cleaner)
             opp_strengths = np.array([lookup_strength(oid) for oid in opp_ids_array])
             g_sos["opp_full_strength"] = opp_strengths
+
+            # Step 2b: Restore original weights and re-trim with updated strengths
+            # Safety invariant: always start from w_sos_orig to prevent double-trimming
+            if cfg.SOS_TRIM_BOTTOM_PCT > 0 and "w_sos_orig" in g_sos.columns:
+                g_sos["w_sos"] = g_sos["w_sos_orig"].copy()
+                _apply_sos_trim(g_sos, "opp_full_strength")
 
             # Step 3: Recalculate SOS using full opponent strength (vectorized groupby)
             sos_full = (
