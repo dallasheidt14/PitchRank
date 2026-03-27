@@ -1,11 +1,11 @@
 """Integrated Rankings Calculator (v53e + ML Layer)"""
+
 from __future__ import annotations
 
 import asyncio
 import hashlib
 import logging
 from contextlib import nullcontext
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
@@ -55,7 +55,7 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
     failed_batches = []  # Collect for end-of-run retry
 
     for i in range(0, len(game_residuals), batch_size):
-        batch = game_residuals.iloc[i:i+batch_size]
+        batch = game_residuals.iloc[i : i + batch_size]
         batch_num = (i // batch_size) + 1
         total_batches = (len(game_residuals) + batch_size - 1) // batch_size
 
@@ -65,10 +65,7 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
 
         # Prepare batch data for RPC (Supabase client handles JSON conversion)
         batch_data = [
-            {
-                'id': str(row['game_id']),
-                'ml_overperformance': float(row['ml_overperformance'])
-            }
+            {"id": str(row["game_id"]), "ml_overperformance": float(row["ml_overperformance"])}
             for _, row in batch.iterrows()
         ]
 
@@ -80,8 +77,8 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
             try:
                 # Call RPC function for batch update
                 result = supabase_client.rpc(
-                    'batch_update_ml_overperformance',
-                    {'updates': batch_data}  # Pass list directly, not JSON string
+                    "batch_update_ml_overperformance",
+                    {"updates": batch_data},  # Pass list directly, not JSON string
                 ).execute()
 
                 # RPC returns the count of updated rows
@@ -97,19 +94,22 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
                 error_msg = str(e)
                 # Detect network/timeout errors specifically
                 is_retriable = (
-                    'SSL' in error_msg or
-                    'bad record' in error_msg.lower() or
-                    'ReadError' in error_msg or
-                    'WinError 10054' in error_msg or
-                    'timeout' in error_msg.lower() or
-                    'statement timeout' in error_msg.lower() or
-                    ('connection' in error_msg.lower() and (
-                        'closed' in error_msg.lower() or
-                        'reset' in error_msg.lower() or
-                        'forcibly' in error_msg.lower()
-                    )) or
-                    'forcibly closed' in error_msg.lower() or
-                    'remote host' in error_msg.lower()
+                    "SSL" in error_msg
+                    or "bad record" in error_msg.lower()
+                    or "ReadError" in error_msg
+                    or "WinError 10054" in error_msg
+                    or "timeout" in error_msg.lower()
+                    or "statement timeout" in error_msg.lower()
+                    or (
+                        "connection" in error_msg.lower()
+                        and (
+                            "closed" in error_msg.lower()
+                            or "reset" in error_msg.lower()
+                            or "forcibly" in error_msg.lower()
+                        )
+                    )
+                    or "forcibly closed" in error_msg.lower()
+                    or "remote host" in error_msg.lower()
                 )
 
                 if attempt < max_retries - 1 and is_retriable:
@@ -151,10 +151,7 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
             batch_retry_delay = retry_delay
             for attempt in range(max_retries):
                 try:
-                    result = supabase_client.rpc(
-                        'batch_update_ml_overperformance',
-                        {'updates': batch_data}
-                    ).execute()
+                    result = supabase_client.rpc("batch_update_ml_overperformance", {"updates": batch_data}).execute()
 
                     if result.data is not None:
                         total_updated += result.data
@@ -169,14 +166,16 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
                         await asyncio.sleep(batch_retry_delay)
                         batch_retry_delay *= 2
                     else:
-                        logger.error(
-                            f"Batch {batch_num} failed after all retries: {str(e)[:100]}"
-                        )
+                        logger.error(f"Batch {batch_num} failed after all retries: {str(e)[:100]}")
 
     if failed_count > 0 and total_updated == 0:
-        logger.error(f"❌ Residual persistence failed: 0/{len(game_residuals):,} games updated, {failed_count:,} failed")
+        logger.error(
+            f"❌ Residual persistence failed: 0/{len(game_residuals):,} games updated, {failed_count:,} failed"
+        )
     elif failed_count > 0:
-        logger.warning(f"⚠️ Residual persistence partial: {total_updated:,} updated, {failed_count:,} failed out of {len(game_residuals):,}")
+        logger.warning(
+            f"⚠️ Residual persistence partial: {total_updated:,} updated, {failed_count:,} failed out of {len(game_residuals):,}"
+        )
     else:
         logger.info(f"✅ Successfully updated {total_updated:,} games with ML residuals")
 
@@ -232,17 +231,14 @@ async def compute_rankings_with_ml(
                     supabase_client=supabase_client,
                     lookback_days=lookback_days,
                     provider_filter=provider_filter,
-                    today=today
+                    today=today,
                 )
         else:
             raise ValueError("games_df is required if fetch_from_supabase is False")
 
     if games_df.empty:
         logger.warning("⚠️  No games found - returning empty results")
-        return {
-            "teams": pd.DataFrame(),
-            "games_used": pd.DataFrame()
-        }
+        return {"teams": pd.DataFrame(), "games_used": pd.DataFrame()}
 
     logger.info(f"📊 Computing rankings for {len(games_df):,} game perspectives...")
 
@@ -275,10 +271,7 @@ async def compute_rankings_with_ml(
                         cached_games_used = pd.read_parquet(cache_file_games)
                     except Exception:
                         pass  # games_used cache failed, use empty
-                base = {
-                    "teams": cached_teams,
-                    "games_used": cached_games_used
-                }
+                base = {"teams": cached_teams, "games_used": cached_games_used}
         except Exception:
             # Cache load failed - continue with computation
             pass
@@ -318,17 +311,21 @@ async def compute_rankings_with_ml(
     if teams_base.empty:
         return {
             "teams": teams_base,
-            "games_used": games_used if not getattr(games_used, "empty", True) else pd.DataFrame()
+            "games_used": games_used if not getattr(games_used, "empty", True) else pd.DataFrame(),
         }
 
     # Log PowerScore summary before ML layer
     if not teams_base.empty and "powerscore_adj" in teams_base.columns:
         ps_stats = teams_base["powerscore_adj"]
-        logger.info(f"📊 Pre-ML PowerScore: min={ps_stats.min():.3f}, max={ps_stats.max():.3f}, mean={ps_stats.mean():.3f}, n={len(teams_base)}")
+        logger.info(
+            f"📊 Pre-ML PowerScore: min={ps_stats.min():.3f}, max={ps_stats.max():.3f}, mean={ps_stats.mean():.3f}, n={len(teams_base)}"
+        )
 
     # 3) Apply ML predictive adjustment
     logger.info("🤖 Applying ML predictive adjustment layer...")
-    logger.debug(f"games_df: {len(games_df)} rows, has_id={'id' in games_df.columns}, has_home_master={'home_team_master_id' in games_df.columns}")
+    logger.debug(
+        f"games_df: {len(games_df)} rows, has_id={'id' in games_df.columns}, has_home_master={'home_team_master_id' in games_df.columns}"
+    )
 
     ml_cfg = layer13_cfg or Layer13Config(
         lookback_days=v53_cfg.WINDOW_DAYS,
@@ -374,7 +371,7 @@ async def compute_rankings_with_ml(
         if "powerscore_adj" in teams_with_ml.columns:
             ps_max_before_ml = teams_with_ml.groupby(["age", "gender"])["powerscore_adj"].max().round(3)
             ps_max_after_ml = teams_with_ml.groupby(["age", "gender"])["powerscore_ml"].max().round(3)
-            for (age, gender) in ps_max_before_ml.index:
+            for age, gender in ps_max_before_ml.index:
                 before = ps_max_before_ml[(age, gender)]
                 after = ps_max_after_ml.get((age, gender), 0)
                 logger.debug(f"  {age} {gender}: pre-ML={before:.3f}, post-ML={after:.3f}, diff={after - before:+.3f}")
@@ -382,24 +379,18 @@ async def compute_rankings_with_ml(
     # Calculate rank changes using historical snapshots (7d and 30d)
     logger.info("📊 Calculating rank changes from historical data...")
     with _section(timing_report, "rank_changes"):
-        teams_with_ml = await calculate_rank_changes(
-            supabase_client=supabase_client,
-            current_rankings_df=teams_with_ml
-        )
+        teams_with_ml = await calculate_rank_changes(supabase_client=supabase_client, current_rankings_df=teams_with_ml)
 
     # Save current rankings as a snapshot for future rank change calculations
     # (Skip if save_snapshot=False, e.g., when called from compute_all_cohorts)
     if save_snapshot and not teams_with_ml.empty:
         logger.info("💾 Saving ranking snapshot for future comparisons...")
         with _section(timing_report, "save_ranking_snapshot"):
-            await save_ranking_snapshot(
-                supabase_client=supabase_client,
-                rankings_df=teams_with_ml
-            )
+            await save_ranking_snapshot(supabase_client=supabase_client, rankings_df=teams_with_ml)
 
     return {
         "teams": teams_with_ml,
-        "games_used": games_used if not getattr(games_used, "empty", True) else pd.DataFrame()
+        "games_used": games_used if not getattr(games_used, "empty", True) else pd.DataFrame(),
     }
 
 
@@ -441,10 +432,7 @@ async def compute_rankings_v53e_only(
 
     if games_df.empty:
         logger.warning("⚠️  No games found - returning empty results")
-        return {
-            "teams": pd.DataFrame(),
-            "games_used": pd.DataFrame()
-        }
+        return {"teams": pd.DataFrame(), "games_used": pd.DataFrame()}
 
     logger.info(f"📊 Computing v53e rankings for {len(games_df):,} game perspectives...")
 
@@ -507,17 +495,14 @@ async def compute_all_cohorts(
             raise ValueError("games_df is required if fetch_from_supabase is False")
 
     if games_df.empty:
-        return {
-            "teams": pd.DataFrame(),
-            "games_used": pd.DataFrame()
-        }
+        return {"teams": pd.DataFrame(), "games_used": pd.DataFrame()}
 
     # ========== FETCH TEAM STATE METADATA FOR SCF ==========
     # Fetch state_code for all teams to enable Schedule Connectivity Factor (SCF)
     # which detects and dampens regional bubbles (e.g., Idaho teams only playing each other)
     team_ids = set()
-    team_ids.update(games_df['team_id'].dropna().astype(str).tolist())
-    team_ids.update(games_df['opp_id'].dropna().astype(str).tolist())
+    team_ids.update(games_df["team_id"].dropna().astype(str).tolist())
+    team_ids.update(games_df["opp_id"].dropna().astype(str).tolist())
 
     team_state_map = {}
     with _section(timing_report, "team_state_map"):
@@ -527,17 +512,20 @@ async def compute_all_cohorts(
             batch_size = 100
 
             for i in range(0, len(team_ids_list), batch_size):
-                batch = team_ids_list[i:i + batch_size]
+                batch = team_ids_list[i : i + batch_size]
                 try:
-                    result = supabase_client.table('teams').select(
-                        'team_id_master, state_code'
-                    ).in_('team_id_master', batch).execute()
+                    result = (
+                        supabase_client.table("teams")
+                        .select("team_id_master, state_code")
+                        .in_("team_id_master", batch)
+                        .execute()
+                    )
                     if result.data:
                         for row in result.data:
-                            team_id = str(row.get('team_id_master', ''))
-                            state_code = row.get('state_code', 'UNKNOWN')
+                            team_id = str(row.get("team_id_master", ""))
+                            state_code = row.get("state_code", "UNKNOWN")
                             if team_id:
-                                team_state_map[team_id] = state_code if state_code else 'UNKNOWN'
+                                team_state_map[team_id] = state_code if state_code else "UNKNOWN"
                 except Exception as e:
                     logger.warning(f"⚠️ Failed to fetch state metadata batch {i}: {str(e)[:100]}")
                     continue
@@ -560,9 +548,7 @@ async def compute_all_cohorts(
     VALID_AGE_MAX = 19
     games_df["_age_num"] = pd.to_numeric(games_df["age"], errors="coerce")
     invalid_age_mask = (
-        games_df["_age_num"].isna()
-        | (games_df["_age_num"] < VALID_AGE_MIN)
-        | (games_df["_age_num"] > VALID_AGE_MAX)
+        games_df["_age_num"].isna() | (games_df["_age_num"] < VALID_AGE_MIN) | (games_df["_age_num"] > VALID_AGE_MAX)
     )
     if invalid_age_mask.any():
         invalid_games = games_df.loc[invalid_age_mask]
@@ -680,68 +666,72 @@ async def compute_all_cohorts(
             deprecated_ids.update(merge_resolver.get_deprecated_teams())
 
         # Source 2: teams.is_deprecated field (canonical source of truth)
-        ranked_team_ids = teams_combined['team_id'].astype(str).unique().tolist()
+        ranked_team_ids = teams_combined["team_id"].astype(str).unique().tolist()
         batch_size = 100
         for i in range(0, len(ranked_team_ids), batch_size):
-            batch = ranked_team_ids[i:i + batch_size]
+            batch = ranked_team_ids[i : i + batch_size]
             try:
-                result = supabase_client.table('teams').select(
-                    'team_id_master'
-                ).in_('team_id_master', batch).eq('is_deprecated', True).execute()
+                result = (
+                    supabase_client.table("teams")
+                    .select("team_id_master")
+                    .in_("team_id_master", batch)
+                    .eq("is_deprecated", True)
+                    .execute()
+                )
                 if result.data:
-                    deprecated_ids.update(str(row['team_id_master']) for row in result.data)
+                    deprecated_ids.update(str(row["team_id_master"]) for row in result.data)
             except Exception as e:
                 logger.warning(f"⚠️ Failed to check is_deprecated for batch {i}: {str(e)[:100]}")
                 continue
 
         if deprecated_ids:
             before_count = len(teams_combined)
-            teams_combined = teams_combined[~teams_combined['team_id'].astype(str).isin(deprecated_ids)].copy()
+            teams_combined = teams_combined[~teams_combined["team_id"].astype(str).isin(deprecated_ids)].copy()
             filtered_count = before_count - len(teams_combined)
             if filtered_count > 0:
                 logger.info(f"🚫 Filtered {filtered_count} deprecated teams from ranking output")
 
     # ========== PASS 3: National/State SOS Normalization ==========
     # After all cohorts are combined, compute national and state-level SOS rankings
-    if not teams_combined.empty and 'sos' in teams_combined.columns:
+    if not teams_combined.empty and "sos" in teams_combined.columns:
         logger.info("📊 Pass 3: Computing national/state SOS normalization...")
 
         # Create sos_raw from the post-shrinkage SOS value
-        teams_combined['sos_raw'] = teams_combined['sos'].astype(float)
+        teams_combined["sos_raw"] = teams_combined["sos"].astype(float)
 
         # Reuse team_state_map from SCF fetch (line ~520) instead of re-querying Supabase
         if team_state_map:
-            teams_combined['state_code'] = teams_combined['team_id'].astype(str).map(team_state_map).fillna('UNKNOWN')
-            mapped_count = (teams_combined['state_code'] != 'UNKNOWN').sum()
+            teams_combined["state_code"] = teams_combined["team_id"].astype(str).map(team_state_map).fillna("UNKNOWN")
+            mapped_count = (teams_combined["state_code"] != "UNKNOWN").sum()
             logger.info(f"✅ Mapped state_code for {mapped_count:,} teams (reused SCF metadata)")
         else:
-            teams_combined['state_code'] = 'UNKNOWN'
+            teams_combined["state_code"] = "UNKNOWN"
             logger.warning("⚠️ No state metadata available - using 'UNKNOWN' for all teams")
 
         # Initialize new SOS columns
-        teams_combined['sos_norm_national'] = 0.0
-        teams_combined['sos_norm_state'] = 0.0
+        teams_combined["sos_norm_national"] = 0.0
+        teams_combined["sos_norm_state"] = 0.0
         # Use nullable Int64 type for ranks to support NULL values for ineligible teams
-        teams_combined['sos_rank_national'] = pd.array([pd.NA] * len(teams_combined), dtype="Int64")
-        teams_combined['sos_rank_state'] = pd.array([pd.NA] * len(teams_combined), dtype="Int64")
+        teams_combined["sos_rank_national"] = pd.array([pd.NA] * len(teams_combined), dtype="Int64")
+        teams_combined["sos_rank_state"] = pd.array([pd.NA] * len(teams_combined), dtype="Int64")
 
         # SOS rank eligibility is derived from Active status (which uses MIN_GAMES_PROVISIONAL)
         # so the ranking gate and SOS gate can never drift apart.
-        if 'status' in teams_combined.columns:
-            sos_rank_eligible = teams_combined['status'] == 'Active'
+        if "status" in teams_combined.columns:
+            sos_rank_eligible = teams_combined["status"] == "Active"
         else:
             logger.warning("⚠️ 'status' column not found - all teams will be eligible for SOS ranking")
             sos_rank_eligible = pd.Series([True] * len(teams_combined), index=teams_combined.index)
 
         # Compute national and state SOS rankings per cohort (age, gender)
-        for (age, gender), cohort_df in teams_combined.groupby(['age', 'gender']):
+        for (age, gender), cohort_df in teams_combined.groupby(["age", "gender"]):
             cohort_idx = cohort_df.index
 
             # National normalization: percentile rank across all states in this cohort
             # rank(pct=True) gives values from 0 to 1
             # NOTE: ALL teams get sos_norm values (for PowerScore), regardless of games played
-            teams_combined.loc[cohort_idx, 'sos_norm_national'] = (
-                cohort_df['sos_raw'].rank(method='average', pct=True).fillna(0.5)
+            teams_combined.loc[cohort_idx, "sos_norm_national"] = (
+                cohort_df["sos_raw"].rank(method="average", pct=True).fillna(0.5)
             )
 
             # National rank: only for Active teams
@@ -749,31 +739,31 @@ async def compute_all_cohorts(
             eligible_mask = sos_rank_eligible.loc[cohort_idx]
             eligible_idx = cohort_df[eligible_mask].index
             if len(eligible_idx) > 0:
-                eligible_sos_values = teams_combined.loc[eligible_idx, 'sos_raw']
-                ranks = eligible_sos_values.rank(method='min', ascending=False).astype("Int64")
-                teams_combined.loc[eligible_idx, 'sos_rank_national'] = ranks
+                eligible_sos_values = teams_combined.loc[eligible_idx, "sos_raw"]
+                ranks = eligible_sos_values.rank(method="min", ascending=False).astype("Int64")
+                teams_combined.loc[eligible_idx, "sos_rank_national"] = ranks
 
             # State-level normalization and ranking within this cohort
-            for state, state_df in cohort_df.groupby('state_code'):
+            for state, state_df in cohort_df.groupby("state_code"):
                 state_idx = state_df.index
 
                 # State normalization: percentile rank within state (ALL teams)
-                teams_combined.loc[state_idx, 'sos_norm_state'] = (
-                    state_df['sos_raw'].rank(method='average', pct=True).fillna(0.5)
+                teams_combined.loc[state_idx, "sos_norm_state"] = (
+                    state_df["sos_raw"].rank(method="average", pct=True).fillna(0.5)
                 )
 
                 # State rank: only for eligible teams within state
                 state_eligible_mask = sos_rank_eligible.loc[state_idx]
                 state_eligible_idx = state_df[state_eligible_mask].index
                 if len(state_eligible_idx) > 0:
-                    state_eligible_sos = teams_combined.loc[state_eligible_idx, 'sos_raw']
-                    state_ranks = state_eligible_sos.rank(method='min', ascending=False).astype("Int64")
-                    teams_combined.loc[state_eligible_idx, 'sos_rank_state'] = state_ranks
+                    state_eligible_sos = teams_combined.loc[state_eligible_idx, "sos_raw"]
+                    state_ranks = state_eligible_sos.rank(method="min", ascending=False).astype("Int64")
+                    teams_combined.loc[state_eligible_idx, "sos_rank_state"] = state_ranks
 
         # Log SOS normalization results
         excluded_count = (~sos_rank_eligible).sum()
         total_count = len(teams_combined)
-        ranked_national = teams_combined['sos_rank_national'].notna().sum()
+        ranked_national = teams_combined["sos_rank_national"].notna().sum()
         logger.info(
             f"✅ National/State SOS normalization complete: "
             f"sos_norm_national range=[{teams_combined['sos_norm_national'].min():.3f}, {teams_combined['sos_norm_national'].max():.3f}], "
@@ -782,16 +772,16 @@ async def compute_all_cohorts(
         )
 
         # Sample state distribution for diagnostics
-        state_counts = teams_combined['state_code'].value_counts()
+        state_counts = teams_combined["state_code"].value_counts()
         top_states = state_counts.head(5).to_dict()
         logger.info(f"📍 Top states by team count: {top_states}")
 
     # Ensure age_num exists after metadata merge (fallback safety check)
-    if 'age_num' not in teams_combined.columns and 'age' in teams_combined.columns:
+    if "age_num" not in teams_combined.columns and "age" in teams_combined.columns:
         try:
             # Convert age to numeric, coercing errors to NaN
-            age_numeric = pd.to_numeric(teams_combined['age'], errors='coerce')
-            teams_combined['age_num'] = age_numeric.fillna(0).astype(int)
+            age_numeric = pd.to_numeric(teams_combined["age"], errors="coerce")
+            teams_combined["age_num"] = age_numeric.fillna(0).astype(int)
 
             # Log any teams with invalid ages
             invalid_count = age_numeric.isna().sum()
@@ -801,7 +791,7 @@ async def compute_all_cohorts(
             logger.info("✅ Recreated age_num from age column after metadata merge")
         except Exception as e:
             logger.error(f"❌ Failed to create age_num column: {e}")
-            teams_combined['age_num'] = 0  # Default to 0, will get no anchor scaling
+            teams_combined["age_num"] = 0  # Default to 0, will get no anchor scaling
 
     # ========== National SOS Metrics (for display only) ==========
     # NOTE: PowerScore uses cohort-level sos_norm from v53e.compute_rankings().
@@ -855,55 +845,46 @@ async def compute_all_cohorts(
     # Diagnostic: Log distribution stats for sos_norm and powerscore_adj per cohort
     if not teams_combined.empty:
         logger.info("📊 Distribution diagnostics per age/gender cohort:")
-        for (age, gender), cohort_df in teams_combined.groupby(['age', 'gender']):
-            if 'sos_norm' in cohort_df.columns:
-                sos_stats = cohort_df['sos_norm']
-                logger.info(f"    {age} {gender}: sos_norm min={sos_stats.min():.3f}, "
-                           f"max={sos_stats.max():.3f}, mean={sos_stats.mean():.3f}")
-            if 'powerscore_adj' in cohort_df.columns:
-                ps_stats = cohort_df['powerscore_adj']
-                logger.info(f"    {age} {gender}: powerscore_adj min={ps_stats.min():.3f}, "
-                           f"max={ps_stats.max():.3f}, mean={ps_stats.mean():.3f}")
+        for (age, gender), cohort_df in teams_combined.groupby(["age", "gender"]):
+            if "sos_norm" in cohort_df.columns:
+                sos_stats = cohort_df["sos_norm"]
+                logger.info(
+                    f"    {age} {gender}: sos_norm min={sos_stats.min():.3f}, "
+                    f"max={sos_stats.max():.3f}, mean={sos_stats.mean():.3f}"
+                )
+            if "powerscore_adj" in cohort_df.columns:
+                ps_stats = cohort_df["powerscore_adj"]
+                logger.info(
+                    f"    {age} {gender}: powerscore_adj min={ps_stats.min():.3f}, "
+                    f"max={ps_stats.max():.3f}, mean={ps_stats.mean():.3f}"
+                )
 
     # ---- Final age-anchor scaling for PowerScore ----
     if not teams_combined.empty:
-        ANCHORS = {
-            10: 0.400,
-            11: 0.475,
-            12: 0.550,
-            13: 0.625,
-            14: 0.700,
-            15: 0.775,
-            16: 0.850,
-            17: 0.925,
-            18: 1.000,
-            19: 1.000,
-        }
-        
-        if 'age_num' not in teams_combined.columns:
+        from src.rankings.constants import AGE_TO_ANCHOR, SOS_ML_THRESHOLD_HIGH, SOS_ML_THRESHOLD_LOW
+        from src.rankings.shared import sos_ml_blend
+
+        if "age_num" not in teams_combined.columns:
             logger.warning("⚠️ compute_all_cohorts: 'age_num' column missing; skipping anchor scaling")
         else:
             # age_num is already integer from data adapter
-            age_nums = teams_combined['age_num']
-            
+            age_nums = teams_combined["age_num"]
+
             # Log age distribution
-            logger.info(
-                "📊 Applying anchor scaling by age. Age distribution: %s",
-                age_nums.value_counts().to_dict()
-            )
-            
+            logger.info("📊 Applying anchor scaling by age. Age distribution: %s", age_nums.value_counts().to_dict())
+
             # Initialize power_score_final column if it doesn't exist
-            if 'power_score_final' not in teams_combined.columns:
-                teams_combined['power_score_final'] = None
-            
+            if "power_score_final" not in teams_combined.columns:
+                teams_combined["power_score_final"] = None
+
             # Process each age group separately
-            for age, anchor_val in ANCHORS.items():
+            for age, anchor_val in AGE_TO_ANCHOR.items():
                 mask = age_nums == age
                 if not mask.any():
                     continue
-                
+
                 teams_age = teams_combined.loc[mask].copy()
-                
+
                 # =================================================================
                 # SOS-CONDITIONED ML SCALING
                 # =================================================================
@@ -911,30 +892,30 @@ async def compute_all_cohorts(
                 # ML can only adjust if schedule is strong enough.
                 # ml_scale = 0 when sos_norm < 0.45, scales to 1 when sos_norm >= 0.60
                 # =================================================================
-                SOS_ML_THRESHOLD_LOW = 0.45   # Below this, ML has no authority
-                SOS_ML_THRESHOLD_HIGH = 0.60  # Above this, ML has full authority
 
                 # Step 1: Get baseline (powerscore_adj is REQUIRED)
-                if 'powerscore_adj' not in teams_age.columns or not teams_age['powerscore_adj'].notna().any():
+                if "powerscore_adj" not in teams_age.columns or not teams_age["powerscore_adj"].notna().any():
                     logger.warning(f"⚠️  Age {age}: powerscore_adj not available, skipping")
                     continue
 
-                ps_adj = teams_age['powerscore_adj'].clip(0.0, 1.0)
+                ps_adj = teams_age["powerscore_adj"].clip(0.0, 1.0)
 
                 # Step 2: Calculate ML delta (if ML available)
-                has_ml = 'powerscore_ml' in teams_age.columns and teams_age['powerscore_ml'].notna().any()
-                has_sos = 'sos_norm' in teams_age.columns and teams_age['sos_norm'].notna().any()
+                has_ml = "powerscore_ml" in teams_age.columns and teams_age["powerscore_ml"].notna().any()
+                has_sos = "sos_norm" in teams_age.columns and teams_age["sos_norm"].notna().any()
 
                 if has_ml and has_sos:
-                    # ML delta = how much ML wants to adjust from baseline
-                    ps_ml = teams_age['powerscore_ml'].clip(0.0, 1.0)
+                    # Vectorized form of sos_ml_blend() (shared.py) for Series performance
+                    ps_ml = teams_age["powerscore_ml"].clip(0.0, 1.0)
                     ml_delta = ps_ml - ps_adj
 
                     # Step 3: Scale ML authority by schedule strength
                     # Weak schedule (sos_norm < 0.45) → ML has no authority
                     # Strong schedule (sos_norm >= 0.60) → ML has full authority
-                    sos_norm = teams_age['sos_norm'].fillna(0.5)
-                    ml_scale = ((sos_norm - SOS_ML_THRESHOLD_LOW) / (SOS_ML_THRESHOLD_HIGH - SOS_ML_THRESHOLD_LOW)).clip(0.0, 1.0)
+                    sos_norm = teams_age["sos_norm"].fillna(0.5)
+                    ml_scale = (
+                        (sos_norm - SOS_ML_THRESHOLD_LOW) / (SOS_ML_THRESHOLD_HIGH - SOS_ML_THRESHOLD_LOW)
+                    ).clip(0.0, 1.0)
 
                     # Step 4: Final score = baseline + SOS-scaled ML adjustment
                     base = (ps_adj + ml_delta * ml_scale).clip(0.0, 1.0)
@@ -953,58 +934,57 @@ async def compute_all_cohorts(
                         logger.info(f"  📊 Age {age}: No ML data, using powerscore_adj directly")
                     elif not has_sos:
                         logger.info(f"  📊 Age {age}: No SOS data, using powerscore_adj directly")
-                
+
                 # Scale by anchor and clip to [0, anchor_val]
                 ps_scaled = (base * anchor_val).clip(0.0, anchor_val)
-                
+
                 logger.info(
                     "📊 Age %s: anchor %.3f, base max %.4f -> scaled max %.4f",
-                    age, anchor_val, base.max(), ps_scaled.max()
+                    age,
+                    anchor_val,
+                    base.max(),
+                    ps_scaled.max(),
                 )
-                
+
                 # Update power_score_final for this age group (index-aligned to avoid misalignment)
-                teams_combined.loc[ps_scaled.index, 'power_score_final'] = ps_scaled
+                teams_combined.loc[ps_scaled.index, "power_score_final"] = ps_scaled
 
             # Check for teams that didn't get anchor scaling (ages outside 10-19 range)
-            if 'power_score_final' in teams_combined.columns:
-                unscaled_mask = teams_combined['power_score_final'].isna()
+            if "power_score_final" in teams_combined.columns:
+                unscaled_mask = teams_combined["power_score_final"].isna()
                 unscaled_count = unscaled_mask.sum()
                 if unscaled_count > 0:
                     logger.warning(f"⚠️ {unscaled_count} teams didn't match any anchor age - applying fallback scaling")
                     # For teams outside age range, use median anchor (0.70) and apply scaling
                     # Also apply SOS-conditioned ML scaling (same thresholds as main loop)
                     fallback_anchor = 0.70
-                    SOS_ML_THRESHOLD_LOW = 0.45
-                    SOS_ML_THRESHOLD_HIGH = 0.60
 
                     for idx in teams_combined[unscaled_mask].index:
                         row = teams_combined.loc[idx]
 
                         # powerscore_adj is REQUIRED - skip if not available
-                        if 'powerscore_adj' not in teams_combined.columns or pd.isna(row.get('powerscore_adj')):
+                        if "powerscore_adj" not in teams_combined.columns or pd.isna(row.get("powerscore_adj")):
                             logger.warning(f"⚠️ Team {idx}: powerscore_adj not available, skipping fallback")
                             continue
 
-                        ps_adj = float(row['powerscore_adj'])
+                        ps_adj = float(row["powerscore_adj"])
 
                         # Apply SOS-conditioned ML scaling (same logic as main loop)
-                        has_ml = 'powerscore_ml' in teams_combined.columns and pd.notna(row.get('powerscore_ml'))
-                        has_sos = 'sos_norm' in teams_combined.columns and pd.notna(row.get('sos_norm'))
+                        has_ml = "powerscore_ml" in teams_combined.columns and pd.notna(row.get("powerscore_ml"))
+                        has_sos = "sos_norm" in teams_combined.columns and pd.notna(row.get("sos_norm"))
 
                         if has_ml and has_sos:
-                            ps_ml = float(row['powerscore_ml'])
-                            sos_norm = float(row['sos_norm'])
-                            ml_scale = max(0.0, min(1.0, (sos_norm - SOS_ML_THRESHOLD_LOW) / (SOS_ML_THRESHOLD_HIGH - SOS_ML_THRESHOLD_LOW)))
-                            ml_delta = ps_ml - ps_adj
-                            base_score = ps_adj + ml_delta * ml_scale
+                            base_score = sos_ml_blend(ps_adj, float(row["powerscore_ml"]), float(row["sos_norm"]))
                         else:
                             base_score = ps_adj
 
                         base_score = max(0.0, min(1.0, base_score))
-                        teams_combined.loc[idx, 'power_score_final'] = min(base_score * fallback_anchor, fallback_anchor)
+                        teams_combined.loc[idx, "power_score_final"] = min(
+                            base_score * fallback_anchor, fallback_anchor
+                        )
 
                 # Verify all teams have anchor-scaled power_score_final
-                still_null = teams_combined['power_score_final'].isna().sum()
+                still_null = teams_combined["power_score_final"].isna().sum()
                 if still_null > 0:
                     logger.error(f"❌ {still_null} teams still have NULL power_score_final after anchor scaling!")
 
@@ -1019,19 +999,15 @@ async def compute_all_cohorts(
                 after_min = teams_combined[col].min()
                 after_max = teams_combined[col].max()
                 if before_min < 0.0 or before_max > 1.0:
-                    logger.info(f"  🔒 Clipped {col}: [{before_min:.4f}, {before_max:.4f}] → [{after_min:.4f}, {after_max:.4f}]")
+                    logger.info(
+                        f"  🔒 Clipped {col}: [{before_min:.4f}, {before_max:.4f}] → [{after_min:.4f}, {after_max:.4f}]"
+                    )
 
     # Save one combined snapshot for all cohorts
     if not teams_combined.empty:
         logger.info("💾 Saving combined ranking snapshot for all cohorts...")
-        await save_ranking_snapshot(
-            supabase_client=supabase_client,
-            rankings_df=teams_combined
-        )
+        await save_ranking_snapshot(supabase_client=supabase_client, rankings_df=teams_combined)
 
     logger.info(f"✅ Two-pass SOS complete: {len(teams_combined):,} teams ranked")
 
-    return {
-        "teams": teams_combined,
-        "games_used": games_used_combined
-    }
+    return {"teams": teams_combined, "games_used": games_used_combined}

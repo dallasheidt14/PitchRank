@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import logging
@@ -38,16 +37,22 @@ class V53EConfig:
     # Layer 5 (Adaptive K + team-level outlier guard)
     ADAPTIVE_K_ALPHA: float = 0.5
     ADAPTIVE_K_BETA: float = 0.6
-    TEAM_OUTLIER_GUARD_ZSCORE: float = 3.0  # clip aggregated OFF/DEF extremes (tightened from 3.5 — fewer teams hit ceiling, reducing tie compression)
+    TEAM_OUTLIER_GUARD_ZSCORE: float = (
+        3.0  # clip aggregated OFF/DEF extremes (tightened from 3.5 — fewer teams hit ceiling, reducing tie compression)
+    )
 
     # Layer 6 (Performance)
     PERFORMANCE_K: float = 0.15  # Legacy: kept for backward compatibility, use PERF_* instead
     PERF_GAME_SCALE: float = 0.15  # Scales per-game performance residual
-    PERF_BLEND_WEIGHT: float = 0.00  # Weight of perf_centered in final powerscore (was 0.15, set to 0.00 — stat-padding bias fix)
+    PERF_BLEND_WEIGHT: float = (
+        0.00  # Weight of perf_centered in final powerscore (was 0.15, set to 0.00 — stat-padding bias fix)
+    )
     PERF_CAP: float = 0.15  # Symmetric cap on perf_centered [-cap, +cap] before blending (clips outlier overperformers)
-    PERFORMANCE_DECAY_RATE: float = 0.08   # decay per recency index step
-    PERFORMANCE_THRESHOLD: float = 0.5     # goals – lowered from 2.0 to fix asymmetric filtering bias against defensive teams
-    PERFORMANCE_GOAL_SCALE: float = 5.0    # goals per 1.0 power diff
+    PERFORMANCE_DECAY_RATE: float = 0.08  # decay per recency index step
+    PERFORMANCE_THRESHOLD: float = (
+        0.5  # goals – lowered from 2.0 to fix asymmetric filtering bias against defensive teams
+    )
+    PERFORMANCE_GOAL_SCALE: float = 5.0  # goals per 1.0 power diff
 
     # Layer 7 (Bayesian shrink)
     SHRINK_TAU: float = 8.0
@@ -81,7 +86,9 @@ class V53EConfig:
     # threshold among ranked teams (>= MIN_GAMES_PROVISIONAL), sos_norm is
     # residualized against GP via OLS to remove the linear relationship.
     GP_SOS_DECORRELATION_ENABLED: bool = True
-    GP_SOS_DECORRELATION_THRESHOLD: float = 0.15  # Correlation threshold to trigger (above 0.10 guardrail, conservative)
+    GP_SOS_DECORRELATION_THRESHOLD: float = (
+        0.15  # Correlation threshold to trigger (above 0.10 guardrail, conservative)
+    )
 
     # NOTE: MIN_GAMES_FOR_SOS_RANK was removed — SOS rank eligibility is now
     # derived from team status ("Active"), which itself uses MIN_GAMES_PROVISIONAL.
@@ -91,7 +98,7 @@ class V53EConfig:
     OPPONENT_ADJUST_ENABLED: bool = True
     OPPONENT_ADJUST_BASELINE: float = 0.5  # Reference strength for adjustment
     OPPONENT_ADJUST_CLIP_MIN: float = 0.25  # Min multiplier (widened to preserve signal from elite matchups)
-    OPPONENT_ADJUST_CLIP_MAX: float = 2.0   # Max multiplier (widened — old 1.6 clipped wins vs top-10 opponents)
+    OPPONENT_ADJUST_CLIP_MAX: float = 2.0  # Max multiplier (widened — old 1.6 clipped wins vs top-10 opponents)
 
     # Layer 10 weights (tuned via weight simulator — SOS boosted for schedule-strength emphasis)
     OFF_WEIGHT: float = 0.20  # was 0.25
@@ -141,7 +148,7 @@ class V53EConfig:
     # play in regional conferences but face elite competition — NOT a bubble.
     SCF_QUALITY_OVERRIDE_ENABLED: bool = True
     SCF_QUALITY_PERCENTILE: float = 0.65  # Opponents avg power above this percentile → boost SCF
-    SCF_QUALITY_BOOST_MIN: float = 0.85   # Minimum SCF after quality boost (overrides geographic calc)
+    SCF_QUALITY_BOOST_MIN: float = 0.85  # Minimum SCF after quality boost (overrides geographic calc)
 
     # Isolation Penalty via Bridge Games
     # Bridge games = games against teams from outside your state cluster
@@ -191,38 +198,80 @@ class V53EConfig:
 # =========================
 STATE_TO_REGION = {
     # Pacific
-    'CA': 'pacific', 'OR': 'pacific', 'WA': 'pacific', 'AK': 'pacific', 'HI': 'pacific',
+    "CA": "pacific",
+    "OR": "pacific",
+    "WA": "pacific",
+    "AK": "pacific",
+    "HI": "pacific",
     # Mountain
-    'MT': 'mountain', 'ID': 'mountain', 'WY': 'mountain', 'NV': 'mountain',
-    'UT': 'mountain', 'CO': 'mountain', 'AZ': 'mountain', 'NM': 'mountain',
+    "MT": "mountain",
+    "ID": "mountain",
+    "WY": "mountain",
+    "NV": "mountain",
+    "UT": "mountain",
+    "CO": "mountain",
+    "AZ": "mountain",
+    "NM": "mountain",
     # West North Central
-    'ND': 'west_north_central', 'SD': 'west_north_central', 'NE': 'west_north_central',
-    'KS': 'west_north_central', 'MN': 'west_north_central', 'IA': 'west_north_central', 'MO': 'west_north_central',
+    "ND": "west_north_central",
+    "SD": "west_north_central",
+    "NE": "west_north_central",
+    "KS": "west_north_central",
+    "MN": "west_north_central",
+    "IA": "west_north_central",
+    "MO": "west_north_central",
     # West South Central
-    'TX': 'west_south_central', 'OK': 'west_south_central', 'AR': 'west_south_central', 'LA': 'west_south_central',
+    "TX": "west_south_central",
+    "OK": "west_south_central",
+    "AR": "west_south_central",
+    "LA": "west_south_central",
     # East North Central
-    'WI': 'east_north_central', 'MI': 'east_north_central', 'IL': 'east_north_central',
-    'IN': 'east_north_central', 'OH': 'east_north_central',
+    "WI": "east_north_central",
+    "MI": "east_north_central",
+    "IL": "east_north_central",
+    "IN": "east_north_central",
+    "OH": "east_north_central",
     # East South Central
-    'KY': 'east_south_central', 'TN': 'east_south_central', 'MS': 'east_south_central', 'AL': 'east_south_central',
+    "KY": "east_south_central",
+    "TN": "east_south_central",
+    "MS": "east_south_central",
+    "AL": "east_south_central",
     # South Atlantic
-    'WV': 'south_atlantic', 'VA': 'south_atlantic', 'MD': 'south_atlantic', 'DE': 'south_atlantic',
-    'DC': 'south_atlantic', 'NC': 'south_atlantic', 'SC': 'south_atlantic', 'GA': 'south_atlantic', 'FL': 'south_atlantic',
+    "WV": "south_atlantic",
+    "VA": "south_atlantic",
+    "MD": "south_atlantic",
+    "DE": "south_atlantic",
+    "DC": "south_atlantic",
+    "NC": "south_atlantic",
+    "SC": "south_atlantic",
+    "GA": "south_atlantic",
+    "FL": "south_atlantic",
     # Middle Atlantic
-    'NY': 'middle_atlantic', 'PA': 'middle_atlantic', 'NJ': 'middle_atlantic',
+    "NY": "middle_atlantic",
+    "PA": "middle_atlantic",
+    "NJ": "middle_atlantic",
     # New England
-    'CT': 'new_england', 'RI': 'new_england', 'MA': 'new_england',
-    'VT': 'new_england', 'NH': 'new_england', 'ME': 'new_england',
+    "CT": "new_england",
+    "RI": "new_england",
+    "MA": "new_england",
+    "VT": "new_england",
+    "NH": "new_england",
+    "ME": "new_england",
 }
 
 
 # Required team-centric columns (one row per team per game)
 REQUIRED_COLUMNS = [
-    "game_id", "date",
-    "team_id", "opp_id",
-    "age", "gender",
-    "opp_age", "opp_gender",
-    "gf", "ga",
+    "game_id",
+    "date",
+    "team_id",
+    "opp_id",
+    "age",
+    "gender",
+    "opp_age",
+    "opp_gender",
+    "gf",
+    "ga",
 ]
 
 
@@ -339,7 +388,7 @@ def _hybrid_sos_norm(x: pd.Series, zscore_blend: float = 0.30) -> pd.Series:
 
     # Percentile component (same as existing)
     x_rounded = x.round(10)
-    ranks = x_rounded.rank(method='average')
+    ranks = x_rounded.rank(method="average")
     pct = (ranks - 1) / (len(x) - 1)
 
     # Sigmoid z-score component (use rounded values to match percentile noise suppression)
@@ -509,15 +558,15 @@ def compute_schedule_connectivity(
 
     if not cfg.SCF_ENABLED:
         # If disabled, return SCF=1.0 for all teams (no dampening)
-        for team_id in games_df['team_id'].unique():
+        for team_id in games_df["team_id"].unique():
             result[team_id] = {
-                'scf': 1.0,
-                'unique_states': 0,
-                'unique_regions': 0,
-                'bridge_games': 0,
-                'home_state': team_state_map.get(str(team_id), 'UNKNOWN'),
-                'is_isolated': False,
-                'quality_boosted': False,
+                "scf": 1.0,
+                "unique_states": 0,
+                "unique_regions": 0,
+                "bridge_games": 0,
+                "home_state": team_state_map.get(str(team_id), "UNKNOWN"),
+                "is_isolated": False,
+                "quality_boosted": False,
             }
         return result
 
@@ -529,37 +578,37 @@ def compute_schedule_connectivity(
             quality_threshold = float(np.percentile(all_strengths, cfg.SCF_QUALITY_PERCENTILE * 100))
             logger.info(
                 f"🔗 SCF quality override: threshold={quality_threshold:.4f} "
-                f"(p{cfg.SCF_QUALITY_PERCENTILE*100:.0f} of {len(all_strengths)} teams)"
+                f"(p{cfg.SCF_QUALITY_PERCENTILE * 100:.0f} of {len(all_strengths)} teams)"
             )
 
     quality_boosted_count = 0
 
     # Group games by team to analyze each team's schedule
-    for team_id, team_games in games_df.groupby('team_id'):
+    for team_id, team_games in games_df.groupby("team_id"):
         team_id_str = str(team_id)
-        home_state = team_state_map.get(team_id_str, 'UNKNOWN')
-        home_region = STATE_TO_REGION.get(home_state, 'unknown')
+        home_state = team_state_map.get(team_id_str, "UNKNOWN")
+        home_region = STATE_TO_REGION.get(home_state, "unknown")
 
         # Get all opponent states
-        opp_ids = team_games['opp_id'].unique()
+        opp_ids = team_games["opp_id"].unique()
         opp_states = set()
         opp_regions = set()
         bridge_games = 0
 
         for opp_id in opp_ids:
-            opp_state = team_state_map.get(str(opp_id), 'UNKNOWN')
-            opp_region = STATE_TO_REGION.get(opp_state, 'unknown')
+            opp_state = team_state_map.get(str(opp_id), "UNKNOWN")
+            opp_region = STATE_TO_REGION.get(opp_state, "unknown")
 
-            if opp_state != 'UNKNOWN':
+            if opp_state != "UNKNOWN":
                 opp_states.add(opp_state)
 
-            if opp_region != 'unknown':
+            if opp_region != "unknown":
                 opp_regions.add(opp_region)
 
             # Count bridge games (games vs teams from different states)
-            if opp_state != home_state and opp_state != 'UNKNOWN':
+            if opp_state != home_state and opp_state != "UNKNOWN":
                 # Count how many games against this out-of-state opponent
-                games_vs_opp = len(team_games[team_games['opp_id'] == opp_id])
+                games_vs_opp = len(team_games[team_games["opp_id"] == opp_id])
                 bridge_games += games_vs_opp
 
         # Calculate SCF based on schedule diversity
@@ -584,10 +633,7 @@ def compute_schedule_connectivity(
         # Geographic isolation ≠ quality isolation.
         quality_boosted = False
         if quality_threshold is not None and strength_map and len(opp_ids) >= 3:
-            opp_strengths = [
-                strength_map.get(str(oid), 0.0) for oid in opp_ids
-                if str(oid) in strength_map
-            ]
+            opp_strengths = [strength_map.get(str(oid), 0.0) for oid in opp_ids if str(oid) in strength_map]
             if opp_strengths:
                 avg_opp_strength = float(np.mean(opp_strengths))
                 if avg_opp_strength >= quality_threshold:
@@ -597,37 +643,30 @@ def compute_schedule_connectivity(
 
         # Determine if team is isolated (no bridge games or very few unique states)
         # Quality-boosted teams are NOT considered isolated
-        is_isolated = (
-            not quality_boosted and (
-                bridge_games < cfg.MIN_BRIDGE_GAMES or
-                unique_states < cfg.SCF_MIN_UNIQUE_STATES
-            )
+        is_isolated = not quality_boosted and (
+            bridge_games < cfg.MIN_BRIDGE_GAMES or unique_states < cfg.SCF_MIN_UNIQUE_STATES
         )
 
         result[team_id_str] = {
-            'scf': scf,
-            'unique_states': unique_states,
-            'unique_regions': unique_regions,
-            'bridge_games': bridge_games,
-            'home_state': home_state,
-            'is_isolated': is_isolated,
-            'quality_boosted': quality_boosted,
+            "scf": scf,
+            "unique_states": unique_states,
+            "unique_regions": unique_regions,
+            "bridge_games": bridge_games,
+            "home_state": home_state,
+            "is_isolated": is_isolated,
+            "quality_boosted": quality_boosted,
         }
 
     if quality_boosted_count > 0:
         logger.info(
             f"🔗 SCF quality override applied to {quality_boosted_count} teams "
-            f"(opponents avg power >= p{cfg.SCF_QUALITY_PERCENTILE*100:.0f})"
+            f"(opponents avg power >= p{cfg.SCF_QUALITY_PERCENTILE * 100:.0f})"
         )
 
     return result
 
 
-def apply_scf_to_sos(
-    team_df: pd.DataFrame,
-    scf_data: Dict[str, Dict],
-    cfg: V53EConfig
-) -> pd.DataFrame:
+def apply_scf_to_sos(team_df: pd.DataFrame, scf_data: Dict[str, Dict], cfg: V53EConfig) -> pd.DataFrame:
     """
     Apply Schedule Connectivity Factor to dampen SOS for isolated teams.
 
@@ -643,49 +682,38 @@ def apply_scf_to_sos(
     team_df = team_df.copy()
 
     # Add SCF columns
-    team_df['scf'] = team_df['team_id'].map(
-        lambda tid: scf_data.get(str(tid), {}).get('scf', 1.0)
-    )
-    team_df['bridge_games'] = team_df['team_id'].map(
-        lambda tid: scf_data.get(str(tid), {}).get('bridge_games', 0)
-    )
-    team_df['is_isolated'] = team_df['team_id'].map(
-        lambda tid: scf_data.get(str(tid), {}).get('is_isolated', False)
-    )
-    team_df['unique_opp_states'] = team_df['team_id'].map(
-        lambda tid: scf_data.get(str(tid), {}).get('unique_states', 0)
+    team_df["scf"] = team_df["team_id"].map(lambda tid: scf_data.get(str(tid), {}).get("scf", 1.0))
+    team_df["bridge_games"] = team_df["team_id"].map(lambda tid: scf_data.get(str(tid), {}).get("bridge_games", 0))
+    team_df["is_isolated"] = team_df["team_id"].map(lambda tid: scf_data.get(str(tid), {}).get("is_isolated", False))
+    team_df["unique_opp_states"] = team_df["team_id"].map(
+        lambda tid: scf_data.get(str(tid), {}).get("unique_states", 0)
     )
 
     # Store original SOS before adjustment
-    team_df['sos_raw_before_scf'] = team_df['sos'].copy()
+    team_df["sos_raw_before_scf"] = team_df["sos"].copy()
 
     # Apply SCF dampening to raw SOS
     # Formula: sos_adjusted = neutral + SCF * (sos_raw - neutral)
     neutral = cfg.SCF_NEUTRAL_SOS
-    team_df['sos'] = neutral + team_df['scf'] * (team_df['sos'] - neutral)
+    team_df["sos"] = neutral + team_df["scf"] * (team_df["sos"] - neutral)
 
     # Track quality-boosted teams
-    team_df['quality_boosted'] = team_df['team_id'].map(
-        lambda tid: scf_data.get(str(tid), {}).get('quality_boosted', False)
+    team_df["quality_boosted"] = team_df["team_id"].map(
+        lambda tid: scf_data.get(str(tid), {}).get("quality_boosted", False)
     )
 
     # Apply isolation penalty cap if enabled — but NOT for quality-boosted teams
     if cfg.ISOLATION_PENALTY_ENABLED:
         # Teams with insufficient bridge games get SOS capped
         # Quality-boosted teams are exempt (they play elite opponents, not a bubble)
-        isolation_mask = (
-            (team_df['bridge_games'] < cfg.MIN_BRIDGE_GAMES) &
-            (~team_df['quality_boosted'])
-        )
-        team_df.loc[isolation_mask, 'sos'] = team_df.loc[isolation_mask, 'sos'].clip(
-            upper=cfg.ISOLATION_SOS_CAP
-        )
+        isolation_mask = (team_df["bridge_games"] < cfg.MIN_BRIDGE_GAMES) & (~team_df["quality_boosted"])
+        team_df.loc[isolation_mask, "sos"] = team_df.loc[isolation_mask, "sos"].clip(upper=cfg.ISOLATION_SOS_CAP)
 
     # Log statistics
-    isolated_count = team_df['is_isolated'].sum()
-    avg_scf = team_df['scf'].mean()
-    low_scf_count = (team_df['scf'] < 0.7).sum()
-    quality_boosted_count = team_df['quality_boosted'].sum()
+    isolated_count = team_df["is_isolated"].sum()
+    avg_scf = team_df["scf"].mean()
+    low_scf_count = (team_df["scf"] < 0.7).sum()
+    quality_boosted_count = team_df["quality_boosted"].sum()
 
     logger.info(
         f"🔗 Schedule Connectivity Factor applied: "
@@ -695,7 +723,7 @@ def apply_scf_to_sos(
 
     # Log some examples of isolated teams (for debugging)
     if isolated_count > 0 and isolated_count <= 10:
-        isolated_teams = team_df[team_df['is_isolated']].head(5)
+        isolated_teams = team_df[team_df["is_isolated"]].head(5)
         for _, row in isolated_teams.iterrows():
             logger.info(
                 f"  📍 Isolated: team={row['team_id'][:8]}... "
@@ -707,10 +735,7 @@ def apply_scf_to_sos(
 
 
 def _adjust_for_opponent_strength(
-    games: pd.DataFrame,
-    strength_map: Dict[str, float],
-    cfg: V53EConfig,
-    baseline: Optional[float] = None
+    games: pd.DataFrame, strength_map: Dict[str, float], cfg: V53EConfig, baseline: Optional[float] = None
 ) -> pd.DataFrame:
     """
     Adjust goals for/against based on opponent strength to fix double-counting problem.
@@ -734,9 +759,9 @@ def _adjust_for_opponent_strength(
         baseline = cfg.OPPONENT_ADJUST_BASELINE
 
     # Get opponent strength for each game, floor at UNRANKED_SOS_BASE to prevent division by zero
-    g["opp_strength"] = g["opp_id"].map(
-        lambda o: strength_map.get(o, cfg.UNRANKED_SOS_BASE)
-    ).clip(lower=cfg.UNRANKED_SOS_BASE)
+    g["opp_strength"] = (
+        g["opp_id"].map(lambda o: strength_map.get(o, cfg.UNRANKED_SOS_BASE)).clip(lower=cfg.UNRANKED_SOS_BASE)
+    )
 
     # Calculate adjustment multipliers
     # Offense: score against strong opponent = more credit
@@ -744,8 +769,7 @@ def _adjust_for_opponent_strength(
     # Example: opp_strength=0.8, baseline=0.7 → multiplier=1.14 (14% more credit)
     #          opp_strength=0.6, baseline=0.7 → multiplier=0.86 (14% less credit)
     g["off_multiplier"] = (g["opp_strength"] / baseline).clip(
-        cfg.OPPONENT_ADJUST_CLIP_MIN,
-        cfg.OPPONENT_ADJUST_CLIP_MAX
+        cfg.OPPONENT_ADJUST_CLIP_MIN, cfg.OPPONENT_ADJUST_CLIP_MAX
     )
 
     # Defense: allow goals to strong opponent = less penalty
@@ -753,8 +777,7 @@ def _adjust_for_opponent_strength(
     # Example: opp_strength=0.8, baseline=0.7 → multiplier=0.875 (12.5% less penalty)
     #          opp_strength=0.6, baseline=0.7 → multiplier=1.17 (17% more penalty)
     g["def_multiplier"] = (baseline / g["opp_strength"]).clip(
-        cfg.OPPONENT_ADJUST_CLIP_MIN,
-        cfg.OPPONENT_ADJUST_CLIP_MAX
+        cfg.OPPONENT_ADJUST_CLIP_MIN, cfg.OPPONENT_ADJUST_CLIP_MAX
     )
 
     # Apply adjustments
@@ -792,7 +815,7 @@ def compute_rankings(
                        Factor (SCF) calculation. If not provided, SCF is disabled.
     """
     cfg = cfg or V53EConfig()
-    
+
     # Error handling: check for required columns
     try:
         _require_columns(games_df, REQUIRED_COLUMNS)
@@ -803,7 +826,7 @@ def compute_rankings(
     g = games_df.copy()
     g["date"] = pd.to_datetime(g["date"], errors="coerce")
     if today is None:
-        today = pd.Timestamp(pd.Timestamp.now('UTC').date())
+        today = pd.Timestamp(pd.Timestamp.now("UTC").date())
 
     # Defensive check: NaN age/gender would silently bypass cohort groupby operations
     # (groupby defaults to dropna=True). The import filter in data_adapter.py should
@@ -878,28 +901,26 @@ def compute_rankings(
     # Vectorized aggregation: compute weighted averages and simple aggregations
     g["gf_weighted"] = g["gf"] * g["w_game"]
     g["ga_weighted"] = g["ga"] * g["w_game"]
-    
+
     # Aggregate using vectorized operations
-    team = g.groupby(["team_id", "age", "gender"], as_index=False).agg({
-        "gf_weighted": "sum",
-        "ga_weighted": "sum",
-        "w_game": "sum",  # w_sum for weighted average calculation
-        "date": "max",    # last_game
-    }).rename(columns={"date": "last_game"})
-    
+    team = (
+        g.groupby(["team_id", "age", "gender"], as_index=False)
+        .agg(
+            {
+                "gf_weighted": "sum",
+                "ga_weighted": "sum",
+                "w_game": "sum",  # w_sum for weighted average calculation
+                "date": "max",  # last_game
+            }
+        )
+        .rename(columns={"date": "last_game"})
+    )
+
     # Calculate weighted averages (vectorized)
     w_sum = team["w_game"]
-    team["off_raw"] = np.where(
-        w_sum > 0,
-        team["gf_weighted"] / w_sum,
-        0.0
-    ).astype(float)
-    team["sad_raw"] = np.where(
-        w_sum > 0,
-        team["ga_weighted"] / w_sum,
-        0.0
-    ).astype(float)
-    
+    team["off_raw"] = np.where(w_sum > 0, team["gf_weighted"] / w_sum, 0.0).astype(float)
+    team["sad_raw"] = np.where(w_sum > 0, team["ga_weighted"] / w_sum, 0.0).astype(float)
+
     # Add gp (game count) using vectorized count
     gp_counts = g.groupby(["team_id", "age", "gender"], as_index=False).size().rename(columns={"size": "gp"})
     team = team.merge(gp_counts, on=["team_id", "age", "gender"], how="left")
@@ -915,7 +936,9 @@ def compute_rankings(
     # Calculate games in activity window (INACTIVE_HIDE_DAYS) for status filtering
     inactive_cutoff = today - pd.Timedelta(days=cfg.INACTIVE_HIDE_DAYS)
     g_recent = g[g["date"] >= inactive_cutoff].copy()
-    gp_recent_counts = g_recent.groupby(["team_id", "age", "gender"], as_index=False).size().rename(columns={"size": "gp_last_window"})
+    gp_recent_counts = (
+        g_recent.groupby(["team_id", "age", "gender"], as_index=False).size().rename(columns={"size": "gp_last_window"})
+    )
     team = team.merge(gp_recent_counts, on=["team_id", "age", "gender"], how="left")
     team["gp_last_window"] = team["gp_last_window"].fillna(0).astype(int)
 
@@ -948,8 +971,7 @@ def compute_rankings(
                 mu, sd = s.mean(), s.std(ddof=0)
                 # Save pre-clip values for tie-breaking in normalization
                 out[f"{col}_preclip"] = s
-                out[col] = s.clip(mu - cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd,
-                                  mu + cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd)
+                out[col] = s.clip(mu - cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd, mu + cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd)
         return out
 
     team = pd.concat([_shrink_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
@@ -970,26 +992,9 @@ def compute_rankings(
     # -------------------------
     # power_presos uses only OFF/DEF (50% each) to avoid circular dependency with SOS.
     # This provides a stable base strength for opponent adjustment and cross-age SOS lookups.
-    team["power_presos"] = (
-        0.5 * team["off_norm"]
-        + 0.5 * team["def_norm"]
-    )
+    team["power_presos"] = 0.5 * team["off_norm"] + 0.5 * team["def_norm"]
 
-    # Static age → anchor mapping for U10–U19
-    # This ensures consistent scaling across ages regardless of cohort splitting
-    # Younger teams have lower max PowerScore, older teams can reach 1.0
-    AGE_TO_ANCHOR = {
-        10: 0.400,
-        11: 0.475,
-        12: 0.550,
-        13: 0.625,
-        14: 0.700,
-        15: 0.775,
-        16: 0.850,
-        17: 0.925,
-        18: 1.000,  # Legacy: kept for safety if u18 data reaches v53e unremappe
-        19: 1.000,  # U19 encompasses birth years 2007+2008 (formerly U18+U19)
-    }
+    from src.rankings.constants import AGE_TO_ANCHOR
 
     def compute_anchor(age_val):
         """Map age to static anchor value"""
@@ -1023,8 +1028,10 @@ def compute_rankings(
         # Floor at UNRANKED_SOS_BASE to prevent division by zero in opponent adjustment
         strength_values = list(strength_map.values())
         actual_mean_strength = max(np.mean(strength_values) if strength_values else 0.5, cfg.UNRANKED_SOS_BASE)
-        logger.info(f"📊 Strength distribution: mean={actual_mean_strength:.3f}, "
-                   f"min={min(strength_values):.3f}, max={max(strength_values):.3f}")
+        logger.info(
+            f"📊 Strength distribution: mean={actual_mean_strength:.3f}, "
+            f"min={min(strength_values):.3f}, max={max(strength_values):.3f}"
+        )
 
         # Use actual mean as baseline for opponent adjustment
         baseline = actual_mean_strength
@@ -1036,31 +1043,23 @@ def compute_rankings(
         g_adjusted["gf_weighted_adj"] = g_adjusted["gf_adjusted"] * g_adjusted["w_game"]
         g_adjusted["ga_weighted_adj"] = g_adjusted["ga_adjusted"] * g_adjusted["w_game"]
 
-        team_adj = g_adjusted.groupby(["team_id", "age", "gender"], as_index=False).agg({
-            "gf_weighted_adj": "sum",
-            "ga_weighted_adj": "sum",
-            "w_game": "sum",
-        })
+        team_adj = g_adjusted.groupby(["team_id", "age", "gender"], as_index=False).agg(
+            {
+                "gf_weighted_adj": "sum",
+                "ga_weighted_adj": "sum",
+                "w_game": "sum",
+            }
+        )
 
         # Calculate adjusted weighted averages
         w_sum = team_adj["w_game"]
-        team_adj["off_raw"] = np.where(
-            w_sum > 0,
-            team_adj["gf_weighted_adj"] / w_sum,
-            0.0
-        ).astype(float)
-        team_adj["sad_raw"] = np.where(
-            w_sum > 0,
-            team_adj["ga_weighted_adj"] / w_sum,
-            0.0
-        ).astype(float)
+        team_adj["off_raw"] = np.where(w_sum > 0, team_adj["gf_weighted_adj"] / w_sum, 0.0).astype(float)
+        team_adj["sad_raw"] = np.where(w_sum > 0, team_adj["ga_weighted_adj"] / w_sum, 0.0).astype(float)
 
         # Merge back to team DataFrame (replace old off_raw, sad_raw)
         team = team.drop(columns=["off_raw", "sad_raw"])
         team = team.merge(
-            team_adj[["team_id", "age", "gender", "off_raw", "sad_raw"]],
-            on=["team_id", "age", "gender"],
-            how="left"
+            team_adj[["team_id", "age", "gender", "off_raw", "sad_raw"]], on=["team_id", "age", "gender"], how="left"
         )
 
         # Re-apply defense ridge
@@ -1077,10 +1076,7 @@ def compute_rankings(
         team = _normalize_by_cohort(team, "def_shrunk", "def_norm", cfg.NORM_MODE)
 
         # Recalculate power_presos with adjusted OFF/DEF (50% each, no SOS to avoid circularity)
-        team["power_presos"] = (
-            0.5 * team["off_norm"]
-            + 0.5 * team["def_norm"]
-        )
+        team["power_presos"] = 0.5 * team["off_norm"] + 0.5 * team["def_norm"]
 
         # Update strength_map and power_map with adjusted power
         team["abs_strength"] = (team["power_presos"] * team["anchor"]).clip(cfg.UNRANKED_SOS_BASE, 1.0)
@@ -1108,17 +1104,12 @@ def compute_rankings(
     #
     # Pipeline for g_365:
     #   recency weights → w_game → adaptive K → w_sos
-    g_365 = pd.concat(
-        [apply_recency(grp) for _, grp in g_365.groupby("team_id")]
-    ).reset_index(drop=True)
+    g_365 = pd.concat([apply_recency(grp) for _, grp in g_365.groupby("team_id")]).reset_index(drop=True)
     g_365["w_game"] = g_365["w_base"]
     g_365["k_adapt"] = g_365.apply(adaptive_k, axis=1)
     g_365["w_sos"] = g_365["w_game"] * g_365["k_adapt"]
 
-    logger.info(
-        f"📊 SOS 365-day window: {len(g_365)} game-rows "
-        f"(vs {len(g)} in 30-game OFF/DEF window)"
-    )
+    logger.info(f"📊 SOS 365-day window: {len(g_365)} game-rows (vs {len(g)} in 30-game OFF/DEF window)")
 
     g_365 = g_365.sort_values(["team_id", "opp_id", "w_sos"], ascending=[True, True, False])
     g_365["repeat_rank"] = g_365.groupby(["team_id", "opp_id"])["w_sos"].rank(ascending=False, method="first")
@@ -1143,18 +1134,14 @@ def compute_rankings(
         team["component_id"] = team["team_id"].map(component_map).fillna(-1).astype(int)
 
         # Compute component size WITHIN this cohort (for shrinkage decisions)
-        team["component_size"] = team.groupby(
-            ["age", "gender", "component_id"]
-        )["team_id"].transform("count")
+        team["component_size"] = team.groupby(["age", "gender", "component_id"])["team_id"].transform("count")
 
         # Log component statistics
         n_components = team["component_id"].nunique()
         component_sizes = team.groupby("component_id")["team_id"].count()
         if n_components > 1:
             top5 = sorted(component_sizes.values, reverse=True)[:5]
-            logger.info(
-                f"🔗 {n_components} connected components (top 5 sizes: {top5})"
-            )
+            logger.info(f"🔗 {n_components} connected components (top 5 sizes: {top5})")
         else:
             logger.debug(f"🔗 Fully connected graph ({len(team)} teams, 1 component)")
     else:
@@ -1188,10 +1175,7 @@ def compute_rankings(
         cohort_avg_strength[(age, gender)] = float((grp_base_power * grp_anchor).mean())
 
     # Map team_id to cohort for quick lookup
-    team_cohort_map = dict(zip(
-        team["team_id"],
-        list(zip(team["age"], team["gender"]))
-    ))
+    team_cohort_map = dict(zip(team["team_id"], list(zip(team["age"], team["gender"]))))
 
     # Calculate BASE strength for each team (OFF/DEF only, normalized to avoid drift)
     # This represents opponent quality independent of their schedule
@@ -1201,10 +1185,7 @@ def compute_rankings(
     base_strength_map = {}
     for tid in team["team_id"]:
         # Base power uses only OFF and DEF (50% each of the non-SOS weight)
-        base_power = (
-            0.5 * team_off_norm_map.get(tid, 0.5) +
-            0.5 * team_def_norm_map.get(tid, 0.5)
-        )
+        base_power = 0.5 * team_off_norm_map.get(tid, 0.5) + 0.5 * team_def_norm_map.get(tid, 0.5)
         # Apply anchor to match global_strength_map scale
         # Raw strength is already anchored and bounded [0, 1]
         anchor = team_anchor_map.get(tid, 0.7)
@@ -1252,13 +1233,8 @@ def compute_rankings(
     # PageRank-style dampening on initial SOS (Pass 1)
     # This anchors even the first pass toward baseline, preventing inflated bubbles
     if cfg.PAGERANK_DAMPENING_ENABLED:
-        sos_curr["sos"] = (
-            (1 - cfg.PAGERANK_ALPHA) * cfg.PAGERANK_BASELINE
-            + cfg.PAGERANK_ALPHA * sos_curr["sos"]
-        )
-        logger.info(
-            f"📌 PageRank dampening applied: alpha={cfg.PAGERANK_ALPHA}, baseline={cfg.PAGERANK_BASELINE}"
-        )
+        sos_curr["sos"] = (1 - cfg.PAGERANK_ALPHA) * cfg.PAGERANK_BASELINE + cfg.PAGERANK_ALPHA * sos_curr["sos"]
+        logger.info(f"📌 PageRank dampening applied: alpha={cfg.PAGERANK_ALPHA}, baseline={cfg.PAGERANK_BASELINE}")
 
     # Log initial SOS (Pass 1: Direct)
     logger.info(
@@ -1300,27 +1276,26 @@ def compute_rankings(
         # Blend direct (opponent OFF/DEF - fixed) and transitive (opponent SOS - iterates)
         # Direct stays fixed to prevent upward drift, transitive propagates schedule info
         merged = direct.merge(trans, on="team_id", how="outer").fillna(0.5)
-        merged["sos"] = (
-            (1 - cfg.SOS_TRANSITIVITY_LAMBDA) * merged["sos_direct"]
-            + cfg.SOS_TRANSITIVITY_LAMBDA * merged["sos_trans"]
-        )
+        merged["sos"] = (1 - cfg.SOS_TRANSITIVITY_LAMBDA) * merged["sos_direct"] + cfg.SOS_TRANSITIVITY_LAMBDA * merged[
+            "sos_trans"
+        ]
 
         # PageRank-style dampening: anchor SOS toward baseline to prevent infinite drift
         # Formula: SOS_final = (1 - alpha) * baseline + alpha * SOS_calculated
         # This ensures isolated clusters can't inflate SOS beyond a certain point
         if cfg.PAGERANK_DAMPENING_ENABLED:
-            merged["sos"] = (
-                (1 - cfg.PAGERANK_ALPHA) * cfg.PAGERANK_BASELINE
-                + cfg.PAGERANK_ALPHA * merged["sos"]
-            )
+            merged["sos"] = (1 - cfg.PAGERANK_ALPHA) * cfg.PAGERANK_BASELINE + cfg.PAGERANK_ALPHA * merged["sos"]
 
         # SOS stability guard: clip values between 0.0 and 1.0
         merged["sos"] = merged["sos"].clip(0.0, 1.0)
         sos_curr = merged[["team_id", "sos"]]
 
         # Calculate convergence: mean absolute change from previous iteration
-        sos_changes = [abs(sos_curr[sos_curr["team_id"] == tid]["sos"].iloc[0] - prev_sos_map.get(tid, 0.5))
-                      for tid in sos_curr["team_id"] if tid in prev_sos_map]
+        sos_changes = [
+            abs(sos_curr[sos_curr["team_id"] == tid]["sos"].iloc[0] - prev_sos_map.get(tid, 0.5))
+            for tid in sos_curr["team_id"]
+            if tid in prev_sos_map
+        ]
         mean_change = np.mean(sos_changes) if sos_changes else 0.0
 
         # Log convergence metrics with change tracking
@@ -1374,8 +1349,7 @@ def compute_rankings(
         )
     elif cfg.SCF_ENABLED and team_state_map is None:
         logger.warning(
-            "⚠️  SCF enabled but team_state_map not provided. "
-            "Regional bubble detection disabled for this run."
+            "⚠️  SCF enabled but team_state_map not provided. Regional bubble detection disabled for this run."
         )
 
     # NOTE: Pre-percentile SOS shrinkage was REMOVED (was buggy)
@@ -1402,9 +1376,9 @@ def compute_rankings(
     # SOS contribution to ~10% instead of 50%.
 
     # Determine groupby columns based on whether component normalization is enabled
-    sos_group_cols = ['age', 'gender']
+    sos_group_cols = ["age", "gender"]
     if cfg.COMPONENT_SOS_ENABLED:
-        sos_group_cols = ['age', 'gender', 'component_id']
+        sos_group_cols = ["age", "gender", "component_id"]
         logger.info("🔄 Computing SOS normalization (percentile within connected components)")
     else:
         logger.info("🔄 Computing per-cohort SOS normalization (percentile within age+gender)")
@@ -1419,26 +1393,23 @@ def compute_rankings(
         # epsilon) get spread across the full [0, 1] range, creating up to 0.40
         # PowerScore gaps from pure noise.
         x_rounded = x.round(10)
-        ranks = x_rounded.rank(method='average')
+        ranks = x_rounded.rank(method="average")
         return (ranks - 1) / (len(x) - 1) if len(x) > 1 else pd.Series([0.5], index=x.index)
 
     # Select normalization function: hybrid (percentile+zscore blend) or pure percentile
     if cfg.SOS_NORM_HYBRID_ENABLED:
         _sos_norm_fn = lambda x: _hybrid_sos_norm(x, zscore_blend=cfg.SOS_NORM_HYBRID_ZSCORE_BLEND)
-        logger.info(
-            f"🔀 Using HYBRID SOS normalization "
-            f"(zscore_blend={cfg.SOS_NORM_HYBRID_ZSCORE_BLEND:.0%})"
-        )
+        logger.info(f"🔀 Using HYBRID SOS normalization (zscore_blend={cfg.SOS_NORM_HYBRID_ZSCORE_BLEND:.0%})")
     else:
         _sos_norm_fn = percentile_within_group
 
-    team['sos_norm'] = team.groupby(sos_group_cols)['sos'].transform(_sos_norm_fn)
+    team["sos_norm"] = team.groupby(sos_group_cols)["sos"].transform(_sos_norm_fn)
 
     # Handle edge cases (NaN from single-team cohorts/components)
-    team['sos_norm'] = team['sos_norm'].fillna(0.5)
+    team["sos_norm"] = team["sos_norm"].fillna(0.5)
 
     # Ensure values are clipped to [0, 1]
-    team['sos_norm'] = team['sos_norm'].clip(0.0, 1.0)
+    team["sos_norm"] = team["sos_norm"].clip(0.0, 1.0)
 
     # Component-size shrinkage: small disconnected components get their sos_norm
     # shrunk toward 0.5 because percentile normalization over a handful of teams
@@ -1453,26 +1424,25 @@ def compute_rankings(
         shrunk_components = team[team["component_size"] < min_size]["component_id"].nunique()
         if shrunk_components > 0:
             logger.info(
-                f"📉 Component-size shrinkage applied to {shrunk_components} "
-                f"small component(s) (< {min_size} teams)"
+                f"📉 Component-size shrinkage applied to {shrunk_components} small component(s) (< {min_size} teams)"
             )
 
     # Log SOS norms summary (per-cohort detail at DEBUG)
-    logger.info(f"📊 SOS norms: overall min={team['sos_norm'].min():.3f}, max={team['sos_norm'].max():.3f}, mean={team['sos_norm'].mean():.3f}")
-    for (age, gender), grp in team.groupby(['age', 'gender']):
+    logger.info(
+        f"📊 SOS norms: overall min={team['sos_norm'].min():.3f}, max={team['sos_norm'].max():.3f}, mean={team['sos_norm'].mean():.3f}"
+    )
+    for (age, gender), grp in team.groupby(["age", "gender"]):
         if len(grp) >= 5:
-            logger.debug(f"  SOS {age} {gender}: min={grp['sos_norm'].min():.3f}, "
-                        f"max={grp['sos_norm'].max():.3f}, "
-                        f"mean={grp['sos_norm'].mean():.3f}, n={len(grp)}")
+            logger.debug(
+                f"  SOS {age} {gender}: min={grp['sos_norm'].min():.3f}, "
+                f"max={grp['sos_norm'].max():.3f}, "
+                f"mean={grp['sos_norm'].mean():.3f}, n={len(grp)}"
+            )
 
     # Low sample handling: smooth shrink toward 0.5 for teams with insufficient games
     # This prevents teams with few games from having extreme SOS values (high or low)
     # while avoiding hard caps that create discontinuities.
-    team["sample_flag"] = np.where(
-        team["gp"] < cfg.MIN_GAMES_FOR_TOP_SOS,
-        "LOW_SAMPLE",
-        "OK"
-    )
+    team["sample_flag"] = np.where(team["gp"] < cfg.MIN_GAMES_FOR_TOP_SOS, "LOW_SAMPLE", "OK")
 
     # Soft shrinkage: blend toward anchor based on sample size
     # Using LINEAR shrinkage for proportional dampening of low-sample teams:
@@ -1488,15 +1458,13 @@ def compute_rankings(
     anchor = cfg.SOS_SHRINKAGE_ANCHOR
 
     # Apply shrinkage: sos_norm = anchor + shrink_factor * (sos_norm - anchor)
-    team.loc[low_sample_mask, "sos_norm"] = (
-        anchor + shrink_factor[low_sample_mask] * (team.loc[low_sample_mask, "sos_norm"] - anchor)
+    team.loc[low_sample_mask, "sos_norm"] = anchor + shrink_factor[low_sample_mask] * (
+        team.loc[low_sample_mask, "sos_norm"] - anchor
     )
 
     low_sample_count = low_sample_mask.sum()
     if low_sample_count > 0:
-        logger.info(
-            f"🏷️  Low sample handling: {low_sample_count} teams with soft SOS shrinkage toward {anchor}"
-        )
+        logger.info(f"🏷️  Low sample handling: {low_sample_count} teams with soft SOS shrinkage toward {anchor}")
 
     # Correlation guardrail + GP-SOS decorrelation
     # Detects if games-played is leaking into sos_norm, and for age buckets
@@ -1543,8 +1511,7 @@ def compute_rankings(
                 # GP-SOS decorrelation: only for ranked teams in biased age buckets
                 # We only fix the problem for teams that actually get ranked (>= MIN_GAMES_PROVISIONAL)
                 # since unranked teams' SOS doesn't affect displayed rankings.
-                if (cfg.GP_SOS_DECORRELATION_ENABLED
-                        and abs(age_corr) > cfg.GP_SOS_DECORRELATION_THRESHOLD):
+                if cfg.GP_SOS_DECORRELATION_ENABLED and abs(age_corr) > cfg.GP_SOS_DECORRELATION_THRESHOLD:
                     # Target: ranked teams in this age bucket
                     ranked_mask = age_mask & (team["gp"] >= cfg.MIN_GAMES_PROVISIONAL)
                     ranked_idx = team.index[ranked_mask]
@@ -1578,16 +1545,14 @@ def compute_rankings(
                         )
 
         if decorrelation_applied > 0:
-            logger.info(
-                f"📊 GP-SOS decorrelation applied to {decorrelation_applied} age bucket(s)"
-            )
+            logger.info(f"📊 GP-SOS decorrelation applied to {decorrelation_applied} age bucket(s)")
 
     # -------------------------
     # Layer 6: Performance
     # -------------------------
     g_perf = g.copy()
     g_perf["team_power"] = g_perf["team_id"].map(lambda t: power_map.get(t, 0.5))
-    g_perf["opp_power"]  = g_perf["opp_id"].map(lambda t: power_map.get(t, 0.5))
+    g_perf["opp_power"] = g_perf["opp_id"].map(lambda t: power_map.get(t, 0.5))
     g_perf["exp_margin"] = cfg.PERFORMANCE_GOAL_SCALE * (g_perf["team_power"] - g_perf["opp_power"])
     g_perf["perf_delta"] = (g_perf["gd"] - g_perf["exp_margin"]).astype(float)
 
@@ -1601,11 +1566,7 @@ def compute_rankings(
     # per-game performance contribution (symmetric)
     # Uses PERF_GAME_SCALE to scale individual game residuals
     g_perf["perf_contrib"] = (
-        cfg.PERF_GAME_SCALE
-        * g_perf["perf_delta"]
-        * g_perf["recency_decay"]
-        * g_perf["k_adapt"]
-        * g_perf["w_game"]
+        cfg.PERF_GAME_SCALE * g_perf["perf_delta"] * g_perf["recency_decay"] * g_perf["k_adapt"] * g_perf["w_game"]
     )
 
     perf_team = (
@@ -1644,9 +1605,7 @@ def compute_rankings(
         + team["perf_centered"] * cfg.PERF_BLEND_WEIGHT
     ) / MAX_POWERSCORE_THEORETICAL
 
-    team["provisional_mult"] = team["gp"].apply(
-        lambda gp: _provisional_multiplier(int(gp), cfg.MIN_GAMES_PROVISIONAL)
-    )
+    team["provisional_mult"] = team["gp"].apply(lambda gp: _provisional_multiplier(int(gp), cfg.MIN_GAMES_PROVISIONAL))
     team["powerscore_adj"] = team["powerscore_core"] * team["provisional_mult"]
 
     # -------------------------
@@ -1749,27 +1708,27 @@ def compute_rankings(
             # Step 5: Re-normalize SOS within connected components (or cohort if disabled)
             # Uses the same groupby columns and normalization function as the initial
             # normalization to ensure disconnected ecosystems are normalized independently.
-            team['sos_norm'] = team.groupby(sos_group_cols)['sos'].transform(_sos_norm_fn)
-            team['sos_norm'] = team['sos_norm'].fillna(0.5).clip(0.0, 1.0)
+            team["sos_norm"] = team.groupby(sos_group_cols)["sos"].transform(_sos_norm_fn)
+            team["sos_norm"] = team["sos_norm"].fillna(0.5).clip(0.0, 1.0)
 
             # Step 5b: Apply component-size shrinkage (same as initial normalization)
             if cfg.COMPONENT_SOS_ENABLED:
                 min_size = cfg.MIN_COMPONENT_SIZE_FOR_FULL_SOS
                 comp_shrink = (team["component_size"].values / min_size).clip(0.0, 1.0)
-                sos_norm_values = team['sos_norm'].values
-                team['sos_norm'] = 0.5 + comp_shrink * (sos_norm_values - 0.5)
+                sos_norm_values = team["sos_norm"].values
+                team["sos_norm"] = 0.5 + comp_shrink * (sos_norm_values - 0.5)
 
             # Step 6: Apply low-sample shrinkage (vectorized) - LINEAR toward anchor
             # NOTE: This is NOT compounding — each iteration recalculates sos_norm fresh
             # from scratch (step 5 above), so this shrinks a fresh value each time.
             low_sample_mask = gps < cfg.MIN_GAMES_FOR_TOP_SOS
             shrink_factor = np.clip(gps / cfg.MIN_GAMES_FOR_TOP_SOS, 0.0, 1.0)
-            sos_norm_values = team['sos_norm'].values.copy()
+            sos_norm_values = team["sos_norm"].values.copy()
             anchor = cfg.SOS_SHRINKAGE_ANCHOR
-            sos_norm_values[low_sample_mask] = (
-                anchor + shrink_factor[low_sample_mask] * (sos_norm_values[low_sample_mask] - anchor)
+            sos_norm_values[low_sample_mask] = anchor + shrink_factor[low_sample_mask] * (
+                sos_norm_values[low_sample_mask] - anchor
             )
-            team['sos_norm'] = sos_norm_values
+            team["sos_norm"] = sos_norm_values
 
             # Step 6b: GP-SOS decorrelation (same as initial pass)
             # Re-apply per iteration since sos_norm is recalculated fresh each time.
@@ -1790,17 +1749,12 @@ def compute_rankings(
                     gp_var = np.var(gp_c)
                     if gp_var > 0:
                         beta = np.cov(gp_c, sos_r)[0, 1] / gp_var
-                        team.loc[ranked_idx, "sos_norm"] = np.clip(
-                            sos_r - beta * gp_c, 0.0, 1.0
-                        )
+                        team.loc[ranked_idx, "sos_norm"] = np.clip(sos_r - beta * gp_c, 0.0, 1.0)
 
             # Step 7: Recalculate power score with new SOS (vectorized)
-            sos_norm_arr = team['sos_norm'].values
+            sos_norm_arr = team["sos_norm"].values
             powerscore_core = (
-                w_off * off_norms
-                + w_def * def_norms
-                + w_sos * sos_norm_arr
-                + perf_centereds * w_perf
+                w_off * off_norms + w_def * def_norms + w_sos * sos_norm_arr + perf_centereds * w_perf
             ) / MAX_POWERSCORE_THEORETICAL
 
             team["powerscore_core"] = powerscore_core
@@ -1835,10 +1789,8 @@ def compute_rankings(
     # Layer 11: Rank & status
     # -------------------------
     # Calculate days since last game (handle NULL last_game)
-    team["days_since_last"] = (
-        pd.Timestamp(today) - pd.to_datetime(team["last_game"], errors='coerce')
-    ).dt.days
-    
+    team["days_since_last"] = (pd.Timestamp(today) - pd.to_datetime(team["last_game"], errors="coerce")).dt.days
+
     # Filter teams based on games in activity window (INACTIVE_HIDE_DAYS, aligned with WINDOW_DAYS=365)
     # Status priority:
     # 1. "Inactive" - No games in activity window (gp_last_window == 0) OR last_game is NULL OR days_since_last >= INACTIVE_HIDE_DAYS
@@ -1846,15 +1798,11 @@ def compute_rankings(
     # 2. "Not Enough Ranked Games" - Has games in activity window but < MIN_GAMES_PROVISIONAL (6 games)
     # 3. "Active" - Has >= MIN_GAMES_PROVISIONAL games in activity window
     team["status"] = np.where(
-        (team["gp_last_window"] == 0) |
-        (team["last_game"].isna()) |
-        (team["days_since_last"].fillna(999) >= cfg.INACTIVE_HIDE_DAYS),
+        (team["gp_last_window"] == 0)
+        | (team["last_game"].isna())
+        | (team["days_since_last"].fillna(999) >= cfg.INACTIVE_HIDE_DAYS),
         "Inactive",
-        np.where(
-            team["gp_last_window"] < cfg.MIN_GAMES_PROVISIONAL,
-            "Not Enough Ranked Games",
-            "Active"
-        )
+        np.where(team["gp_last_window"] < cfg.MIN_GAMES_PROVISIONAL, "Not Enough Ranked Games", "Active"),
     )
 
     # Log status distribution summary
@@ -1876,8 +1824,7 @@ def compute_rankings(
         # Sort active teams for ranking: powerscore DESC, then SOS DESC (tiebreaker)
         # This ensures teams with same PowerScore are differentiated by schedule strength
         active_teams = active_teams.sort_values(
-            ["gender", "age", "powerscore_adj", "sos"],
-            ascending=[True, True, False, False]
+            ["gender", "age", "powerscore_adj", "sos"], ascending=[True, True, False, False]
         ).reset_index(drop=True)
 
         # Calculate unique ranks based on sort order (no ties)
@@ -1889,27 +1836,62 @@ def compute_rankings(
         team.loc[active_mask, "rank_in_cohort"] = team.loc[active_mask, "team_id"].map(rank_map)
 
     # Sort full team DataFrame for consistent output order (with SOS tiebreaker)
-    team = team.sort_values(["gender", "age", "powerscore_adj", "sos"], ascending=[True, True, False, False]).reset_index(drop=True)
+    team = team.sort_values(
+        ["gender", "age", "powerscore_adj", "sos"], ascending=[True, True, False, False]
+    ).reset_index(drop=True)
 
     # outputs
     games_used_cols = [
-        "game_id", "date", "team_id", "opp_id",
-        "age", "gender", "opp_age", "opp_gender",
-        "gf", "ga", "gd",
-        "w_base", "k_adapt", "w_game", "w_sos", "rank_recency"
+        "game_id",
+        "date",
+        "team_id",
+        "opp_id",
+        "age",
+        "gender",
+        "opp_age",
+        "opp_gender",
+        "gf",
+        "ga",
+        "gd",
+        "w_base",
+        "k_adapt",
+        "w_game",
+        "w_sos",
+        "rank_recency",
     ]
     # Return the 365-day SOS games (after repeat-cap) that actually fed SOS.
     games_used = g_sos[[c for c in games_used_cols if c in g_sos.columns]].copy()
 
     keep_cols = [
-        "team_id", "age", "gender", "gp", "gp_last_window", "last_game", "status", "rank_in_cohort",
-        "wins", "losses", "draws",
-        "off_raw", "sad_raw", "off_shrunk", "sad_shrunk", "def_shrunk",
-        "off_norm", "def_norm",
-        "sos", "sos_norm", "sample_flag",
-        "power_presos", "anchor", "abs_strength",
-        "perf_raw", "perf_centered",
-        "powerscore_core", "provisional_mult", "powerscore_adj"
+        "team_id",
+        "age",
+        "gender",
+        "gp",
+        "gp_last_window",
+        "last_game",
+        "status",
+        "rank_in_cohort",
+        "wins",
+        "losses",
+        "draws",
+        "off_raw",
+        "sad_raw",
+        "off_shrunk",
+        "sad_shrunk",
+        "def_shrunk",
+        "off_norm",
+        "def_norm",
+        "sos",
+        "sos_norm",
+        "sample_flag",
+        "power_presos",
+        "anchor",
+        "abs_strength",
+        "perf_raw",
+        "perf_centered",
+        "powerscore_core",
+        "provisional_mult",
+        "powerscore_adj",
     ]
     # Add SCF columns if they exist (from regional bubble detection)
     scf_cols = ["scf", "bridge_games", "is_isolated", "unique_opp_states", "quality_boosted"]
@@ -1929,7 +1911,7 @@ def compute_rankings(
 
     # Map rank_in_cohort to rank_in_cohort_final (convert to float, handle None)
     # Use pd.to_numeric to handle None values properly (converts None to NaN, which becomes NULL in DB)
-    teams["rank_in_cohort_final"] = pd.to_numeric(teams["rank_in_cohort"], errors='coerce')
+    teams["rank_in_cohort_final"] = pd.to_numeric(teams["rank_in_cohort"], errors="coerce")
 
     # State rank must be computed — fallback to cohort rank for now
     # (State information is not available in v53e output, will be computed later in pipeline)
@@ -1972,7 +1954,7 @@ def compute_rankings(
     teams["defense_norm"] = teams["def_norm"]
 
     # For data freshness
-    teams["last_calculated"] = pd.Timestamp.now('UTC')
+    teams["last_calculated"] = pd.Timestamp.now("UTC")
 
     # Games played summary for the frontend
     teams["games_played"] = teams["gp"]

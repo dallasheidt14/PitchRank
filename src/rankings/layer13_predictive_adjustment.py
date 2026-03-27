@@ -1,4 +1,5 @@
 """Layer 13: ML Predictive Adjustment for Rankings"""
+
 from __future__ import annotations
 
 import logging
@@ -13,9 +14,11 @@ logger = logging.getLogger(__name__)
 # Prefer XGBoost; fall back to RandomForest
 try:
     from xgboost import XGBRegressor  # type: ignore
+
     _HAS_XGB = True
 except Exception:
     from sklearn.ensemble import RandomForestRegressor  # type: ignore
+
     _HAS_XGB = False
 
 # Import ML_CONFIG if available (may not exist in older configs)
@@ -31,25 +34,25 @@ except ImportError:
 @dataclass
 class Layer13Config:
     enabled: bool = True
-    
+
     # data window and cohorting
     lookback_days: int = 365
     cohort_key_cols: Tuple[str, str] = ("age", "gender")
-    
+
     # residual aggregation
-    recency_decay_lambda: float = 0.06     # exp(-lambda * (recency-1)); short-term form focus
+    recency_decay_lambda: float = 0.06  # exp(-lambda * (recency-1)); short-term form focus
     min_team_games_for_residual: int = 6
-    residual_clip_goals: float = 3.5       # guardrail on residual outliers
-    min_training_rows: int = 30            # Minimum rows to enable ML (prevents leakage)
-    
+    residual_clip_goals: float = 3.5  # guardrail on residual outliers
+    min_training_rows: int = 30  # Minimum rows to enable ML (prevents leakage)
+
     # blend into PowerScore
-    alpha: float = 0.08                    # Tuned via weight simulator: 0.08 optimal (quality 14→19/23)
-    norm_mode: str = "percentile"          # or "zscore"
-    
+    alpha: float = 0.08  # Tuned via weight simulator: 0.08 optimal (quality 14→19/23)
+    norm_mode: str = "percentile"  # or "zscore"
+
     # supabase
-    table_name: str = "games"              # Supabase games table
-    provider_filter: Optional[str] = None   # e.g., "gotsport"
-    
+    table_name: str = "games"  # Supabase games table
+    provider_filter: Optional[str] = None  # e.g., "gotsport"
+
     # core column names (Supabase format)
     date_col: str = "game_date"
     team_id_col: str = "team_id_master"
@@ -60,21 +63,23 @@ class Layer13Config:
     gender_col: str = "gender"
     opp_age_col: str = "opp_age"
     opp_gender_col: str = "opp_gender"
-    
+
     # model params
     xgb_params: Optional[Dict] = None
     rf_params: Optional[Dict] = None
-    
+
     def __post_init__(self):
         # Load from ML_CONFIG if available
         if ML_CONFIG:
-            self.enabled = ML_CONFIG.get('enabled', self.enabled)
-            self.alpha = ML_CONFIG.get('alpha', self.alpha)
-            self.recency_decay_lambda = ML_CONFIG.get('recency_decay_lambda', self.recency_decay_lambda)
-            self.min_team_games_for_residual = ML_CONFIG.get('min_team_games_for_residual', self.min_team_games_for_residual)
-            self.residual_clip_goals = ML_CONFIG.get('residual_clip_goals', self.residual_clip_goals)
-            self.norm_mode = ML_CONFIG.get('norm_mode', self.norm_mode)
-        
+            self.enabled = ML_CONFIG.get("enabled", self.enabled)
+            self.alpha = ML_CONFIG.get("alpha", self.alpha)
+            self.recency_decay_lambda = ML_CONFIG.get("recency_decay_lambda", self.recency_decay_lambda)
+            self.min_team_games_for_residual = ML_CONFIG.get(
+                "min_team_games_for_residual", self.min_team_games_for_residual
+            )
+            self.residual_clip_goals = ML_CONFIG.get("residual_clip_goals", self.residual_clip_goals)
+            self.norm_mode = ML_CONFIG.get("norm_mode", self.norm_mode)
+
         if self.xgb_params is None:
             self.xgb_params = dict(
                 n_estimators=220,
@@ -88,7 +93,7 @@ class Layer13Config:
                 tree_method="hist",
                 random_state=42,
             )
-        
+
         if self.rf_params is None:
             self.rf_params = dict(
                 n_estimators=240,
@@ -103,10 +108,7 @@ class Layer13Config:
 # Ranking helper with SOS tiebreaker
 # ----------------------------
 def _rank_with_sos_tiebreaker(
-    df: pd.DataFrame,
-    cohort_cols: List[str],
-    score_col: str,
-    sos_col: str = "sos"
+    df: pd.DataFrame, cohort_cols: List[str], score_col: str, sos_col: str = "sos"
 ) -> pd.Series:
     """
     Calculate ranks with SOS as tiebreaker for teams with same score.
@@ -125,9 +127,7 @@ def _rank_with_sos_tiebreaker(
 
     # If SOS column doesn't exist, fall back to original ranking
     if sos_col not in df.columns:
-        return df.groupby(list(cohort_cols))[score_col].rank(
-            ascending=False, method="min"
-        ).astype(int)
+        return df.groupby(list(cohort_cols))[score_col].rank(ascending=False, method="min").astype(int)
 
     # Sort by cohort, then score DESC, then SOS DESC (tiebreaker)
     sort_cols = list(cohort_cols) + [score_col, sos_col]
@@ -168,9 +168,7 @@ def _rank_active_only(
 
     if active_mask.any():
         active_df = df.loc[active_mask]
-        active_ranks = _rank_with_sos_tiebreaker(
-            active_df, cohort_cols, score_col, sos_col
-        )
+        active_ranks = _rank_with_sos_tiebreaker(active_df, cohort_cols, score_col, sos_col)
         result.loc[active_mask] = active_ranks.astype("Int64")
 
     return result
@@ -199,50 +197,67 @@ def _extract_game_residuals(feats: pd.DataFrame, cfg: Layer13Config) -> pd.DataF
 
     logger.debug(f"_extract_game_residuals: {len(feats)} rows, columns: {list(feats.columns)}")
 
-    if feats.empty or 'residual' not in feats.columns:
+    if feats.empty or "residual" not in feats.columns:
         logger.warning("_extract_game_residuals: feats empty or missing 'residual' column")
-        return pd.DataFrame(columns=['game_id', 'ml_overperformance'])
+        return pd.DataFrame(columns=["game_id", "ml_overperformance"])
 
     # Check if v53e format has the required fields (id, team_id, home_team_master_id)
-    required_cols = {'id', 'team_id', 'home_team_master_id', 'residual'}
+    required_cols = {"id", "team_id", "home_team_master_id", "residual"}
     if not required_cols.issubset(feats.columns):
         missing = required_cols - set(feats.columns)
         logger.warning(f"_extract_game_residuals: missing required columns: {missing}")
-        return pd.DataFrame(columns=['game_id', 'ml_overperformance'])
+        return pd.DataFrame(columns=["game_id", "ml_overperformance"])
 
     # Filter to home team perspective only (where team_id == home_team_master_id)
     # Convert to string and normalize for comparison to handle UUID/string mismatches
-    feats['team_id_str'] = feats['team_id'].astype(str).str.strip().str.lower()
-    feats['home_team_master_id_str'] = feats['home_team_master_id'].astype(str).str.strip().str.lower()
-    home_perspective = feats[feats['team_id_str'] == feats['home_team_master_id_str']].copy()
+    feats["team_id_str"] = feats["team_id"].astype(str).str.strip().str.lower()
+    feats["home_team_master_id_str"] = feats["home_team_master_id"].astype(str).str.strip().str.lower()
+    home_perspective = feats[feats["team_id_str"] == feats["home_team_master_id_str"]].copy()
     logger.debug(f"_extract_game_residuals: home perspective={len(home_perspective)} rows from {len(feats)} total")
 
     # Warn if home perspective filter eliminates all rows (likely a merge resolution issue)
     if len(home_perspective) == 0 and len(feats) > 0:
-        match_count = (feats['team_id_str'] == feats['home_team_master_id_str']).sum()
+        match_count = (feats["team_id_str"] == feats["home_team_master_id_str"]).sum()
         logger.warning(
             f"_extract_game_residuals: all {len(feats)} rows filtered out (0 home perspective matches). "
             f"This likely means home_team_master_id was not resolved through MergeResolver."
         )
-        logger.debug(f"  Sample team_id: {feats['team_id_str'].head(3).tolist()}, home_master: {feats['home_team_master_id_str'].head(3).tolist()}")
+        logger.debug(
+            f"  Sample team_id: {feats['team_id_str'].head(3).tolist()}, home_master: {feats['home_team_master_id_str'].head(3).tolist()}"
+        )
 
     if home_perspective.empty:
-        return pd.DataFrame(columns=['game_id', 'ml_overperformance'])
+        return pd.DataFrame(columns=["game_id", "ml_overperformance"])
 
     # Extract game_id (UUID) and residual
-    result_df = home_perspective[['id', 'residual']].copy()
-    result_df = result_df.rename(columns={'id': 'game_id', 'residual': 'ml_overperformance'})
+    result_df = home_perspective[["id", "residual"]].copy()
+    result_df = result_df.rename(columns={"id": "game_id", "residual": "ml_overperformance"})
 
     # Ensure game_id is string UUID
-    result_df['game_id'] = result_df['game_id'].astype(str)
-    result_df['ml_overperformance'] = result_df['ml_overperformance'].astype(float)
+    result_df["game_id"] = result_df["game_id"].astype(str)
+    result_df["ml_overperformance"] = result_df["ml_overperformance"].astype(float)
 
     # Remove duplicates (shouldn't happen, but safety check)
-    result_df = result_df.drop_duplicates(subset=['game_id'], keep='first')
+    result_df = result_df.drop_duplicates(subset=["game_id"], keep="first")
 
     logger.info(f"✅ Extracted {len(result_df):,} game residuals from {len(feats):,} feature rows")
 
     return result_df
+
+
+def _passthrough_ml(out, cfg, return_game_residuals, base_power_col=None):
+    """Return *out* unchanged except for zeroed ML columns and a fresh rank."""
+    out["ml_overperf"] = 0.0
+    out["ml_norm"] = 0.0
+    if base_power_col:
+        out["powerscore_ml"] = out[base_power_col]
+    else:
+        out["powerscore_ml"] = out.get("powerscore_adj", out.get("powerscore_core", 0.0))
+    out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
+    out["rank_in_cohort_ml"] = _rank_active_only(out, cfg.cohort_key_cols, "powerscore_ml")
+    if return_game_residuals:
+        return out, pd.DataFrame(columns=["game_id", "ml_overperformance"])
+    return out
 
 
 # ----------------------------
@@ -250,10 +265,10 @@ def _extract_game_residuals(feats: pd.DataFrame, cfg: Layer13Config) -> pd.DataF
 # ----------------------------
 async def apply_predictive_adjustment(
     supabase_client,
-    teams_df: pd.DataFrame,                # output["teams"] from compute_rankings()
+    teams_df: pd.DataFrame,  # output["teams"] from compute_rankings()
     games_used_df: Optional[pd.DataFrame] = None,  # optional; if None, fetched from Supabase
     cfg: Optional[Layer13Config] = None,
-    return_game_residuals: bool = False,   # If True, also return per-game residuals
+    return_game_residuals: bool = False,  # If True, also return per-game residuals
 ) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]:
     """
     Returns a copy of teams_df with:
@@ -269,16 +284,7 @@ async def apply_predictive_adjustment(
     out = teams_df.copy()
 
     if not cfg.enabled or out.empty:
-        # ensure columns exist for downstream consumers
-        out["ml_overperf"] = 0.0
-        out["ml_norm"] = 0.0
-        out["powerscore_ml"] = out.get("powerscore_adj", out.get("powerscore_core", 0.0))
-        # Clamp PowerScore within [0.0, 1.0] to preserve normalization bounds
-        out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
-        out["rank_in_cohort_ml"] = _rank_active_only(out, cfg.cohort_key_cols, "powerscore_ml")
-        if return_game_residuals:
-            return out, pd.DataFrame(columns=['game_id', 'residual'])
-        return out
+        return _passthrough_ml(out, cfg, return_game_residuals)
 
     # 1) Acquire training data
     if games_used_df is None or games_used_df.empty:
@@ -296,15 +302,15 @@ async def apply_predictive_adjustment(
     # v53e format: date, team_id, opp_id, gf, ga, age, gender, opp_age, opp_gender
     # config format: game_date, team_id_master, opp_id_master, etc.
     required_pairs = [
-        ('date', cfg.date_col),
-        ('team_id', cfg.team_id_col),
-        ('opp_id', cfg.opp_id_col),
-        ('gf', cfg.gf_col),
-        ('ga', cfg.ga_col),
-        ('age', cfg.age_col),
-        ('gender', cfg.gender_col),
-        ('opp_age', cfg.opp_age_col),
-        ('opp_gender', cfg.opp_gender_col),
+        ("date", cfg.date_col),
+        ("team_id", cfg.team_id_col),
+        ("opp_id", cfg.opp_id_col),
+        ("gf", cfg.gf_col),
+        ("ga", cfg.ga_col),
+        ("age", cfg.age_col),
+        ("gender", cfg.gender_col),
+        ("opp_age", cfg.opp_age_col),
+        ("opp_gender", cfg.opp_gender_col),
     ]
 
     missing = []
@@ -314,16 +320,7 @@ async def apply_predictive_adjustment(
 
     if missing:
         logger.warning(f"⚠️ Missing required columns: {missing}. Cannot train ML model.")
-        # If we can't train, return pass-through
-        out["ml_overperf"] = 0.0
-        out["ml_norm"] = 0.0
-        out["powerscore_ml"] = out.get("powerscore_adj", out.get("powerscore_core", 0.0))
-        # Clamp PowerScore within [0.0, 1.0] to preserve normalization bounds
-        out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
-        out["rank_in_cohort_ml"] = _rank_active_only(out, cfg.cohort_key_cols, "powerscore_ml")
-        if return_game_residuals:
-            return out, pd.DataFrame(columns=['game_id', 'residual'])
-        return out
+        return _passthrough_ml(out, cfg, return_game_residuals)
 
     # 2) Build feature matrix from games + current powers
     base_power_col = "powerscore_adj" if "powerscore_adj" in out.columns else "powerscore_core"
@@ -342,8 +339,8 @@ async def apply_predictive_adjustment(
     if not feats.empty and "team_power" in feats.columns:
         # Count games where team or opp had to use fallback
         teams_in_power_map = set(power_map.keys())
-        team_id_col = 'team_id' if 'team_id' in games_df.columns else cfg.team_id_col
-        opp_id_col = 'opp_id' if 'opp_id' in games_df.columns else cfg.opp_id_col
+        team_id_col = "team_id" if "team_id" in games_df.columns else cfg.team_id_col
+        opp_id_col = "opp_id" if "opp_id" in games_df.columns else cfg.opp_id_col
         missing_team = ~games_df[team_id_col].astype(str).isin(teams_in_power_map)
         missing_opp = ~games_df[opp_id_col].astype(str).isin(teams_in_power_map)
         missing_count = (missing_team | missing_opp).sum()
@@ -354,18 +351,10 @@ async def apply_predictive_adjustment(
                 f"⚠️  {missing_pct:.1f}% of games ({missing_count:,}) involve teams with missing PowerScores. "
                 f"Using cohort mean as fallback. ML accuracy may be degraded."
             )
-    
+
     if feats.empty:
         logger.warning(f"⚠️ feats DataFrame is empty after _build_features. Input games_df had {len(games_df)} rows.")
-        out["ml_overperf"] = 0.0
-        out["ml_norm"] = 0.0
-        out["powerscore_ml"] = out[base_power_col]
-        # Clamp PowerScore within [0.0, 1.0] to preserve normalization bounds
-        out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
-        out["rank_in_cohort_ml"] = _rank_active_only(out, cfg.cohort_key_cols, "powerscore_ml")
-        if return_game_residuals:
-            return out, pd.DataFrame(columns=['game_id', 'ml_overperformance'])
-        return out
+        return _passthrough_ml(out, cfg, return_game_residuals, base_power_col=base_power_col)
 
     # 3) Fit model and compute residuals (with ML leakage protection)
     # 30-day time-based split to prevent leakage
@@ -379,43 +368,28 @@ async def apply_predictive_adjustment(
                 f"⚠️  Layer 13 disabled: only {len(train_feats)} training rows "
                 f"(need ≥{cfg.min_training_rows}). Passing through base v53E scores."
             )
-            out["ml_overperf"] = 0.0
-            out["ml_norm"] = 0.0
-            out["powerscore_ml"] = out.get("powerscore_adj", out.get("powerscore_core", 0.0))
-            out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
-            out["rank_in_cohort_ml"] = _rank_active_only(out, cfg.cohort_key_cols, "powerscore_ml")
-            if return_game_residuals:
-                return out, pd.DataFrame(columns=['game_id', 'ml_overperformance'])
-            return out
+            return _passthrough_ml(out, cfg, return_game_residuals)
     else:
         # No date column or empty feats - disable ML
         logger.warning("⚠️  Layer 13 disabled: no date column in feats. Passing through base v53E scores.")
-        out["ml_overperf"] = 0.0
-        out["ml_norm"] = 0.0
-        out["powerscore_ml"] = out.get("powerscore_adj", out.get("powerscore_core", 0.0))
-        out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
-        out["rank_in_cohort_ml"] = _rank_active_only(out, cfg.cohort_key_cols, "powerscore_ml")
-        if return_game_residuals:
-            return out, pd.DataFrame(columns=['game_id', 'ml_overperformance'])
-        return out
-    
+        return _passthrough_ml(out, cfg, return_game_residuals)
+
     feats = _fit_and_residualize(feats, train_feats, cfg)
-    
+
     # 4) Aggregate residuals by (team, age, gender) with recency decay
     team_resid = _aggregate_team_residuals(feats, cfg)
-    
+
     # 5) Merge & normalize within cohort
     out = out.merge(team_resid, on=["team_id", "age", "gender"], how="left")
-    out["ml_overperf"] = out["ml_overperf"].fillna(0.0).clip(
-        lower=-cfg.residual_clip_goals, upper=cfg.residual_clip_goals
+    out["ml_overperf"] = (
+        out["ml_overperf"].fillna(0.0).clip(lower=-cfg.residual_clip_goals, upper=cfg.residual_clip_goals)
     )
     normalized = _normalize_by_cohort(
-        out, value_col="ml_overperf", out_col="__tmp__", mode=cfg.norm_mode,
-        cohort_cols=list(cfg.cohort_key_cols)
+        out, value_col="ml_overperf", out_col="__tmp__", mode=cfg.norm_mode, cohort_cols=list(cfg.cohort_key_cols)
     )
     # Use .reindex() to align by index, not positional order (groupby may reorder rows)
     out["ml_norm"] = normalized["__tmp__"].reindex(out.index).values - 0.5
-    
+
     # 6) Blend into PowerScore and rerank
     #
     # Formula: powerscore_ml = powerscore_adj + α * ml_norm
@@ -449,23 +423,21 @@ async def _fetch_games_from_supabase(
 ) -> pd.DataFrame:
     """Fetch games from Supabase and convert to v53e format for ML"""
     from src.rankings.data_adapter import fetch_games_for_rankings
-    
+
     # Use data adapter to fetch and convert
     games_df = await fetch_games_for_rankings(
-        supabase_client=supabase_client,
-        lookback_days=lookback_days,
-        provider_filter=provider_filter
+        supabase_client=supabase_client, lookback_days=lookback_days, provider_filter=provider_filter
     )
-    
+
     if games_df.empty:
         return pd.DataFrame()
-    
+
     # v53e format already has: date, team_id, opp_id, gf, ga, age, gender, opp_age, opp_gender
     # ML layer expects these column names, so we're good
     # Just ensure date column matches
-    if date_col != 'date' and 'date' in games_df.columns:
-        games_df = games_df.rename(columns={'date': date_col})
-    
+    if date_col != "date" and "date" in games_df.columns:
+        games_df = games_df.rename(columns={"date": date_col})
+
     return games_df
 
 
@@ -477,7 +449,7 @@ def _build_features(
     power_map: Dict[str, float],
     cfg: Layer13Config,
     cohort_power_means: Optional[Dict[Tuple[str, str], float]] = None,
-    global_power_mean: float = 0.5
+    global_power_mean: float = 0.5,
 ) -> pd.DataFrame:
     """Build feature matrix for ML model
 
@@ -489,19 +461,23 @@ def _build_features(
         global_power_mean: Fallback mean if cohort mean not available
     """
     f = games.copy()
-    
+
     # v53e format uses: team_id, opp_id, gf, ga, age, gender, opp_age, opp_gender, date
     # Map to expected column names (v53e format is already correct)
-    team_id_col = 'team_id' if 'team_id' in f.columns else (cfg.team_id_col if cfg.team_id_col in f.columns else 'team_id_master')
-    opp_id_col = 'opp_id' if 'opp_id' in f.columns else (cfg.opp_id_col if cfg.opp_id_col in f.columns else 'opp_id_master')
-    gf_col = 'gf' if 'gf' in f.columns else cfg.gf_col
-    ga_col = 'ga' if 'ga' in f.columns else cfg.ga_col
-    age_col = 'age' if 'age' in f.columns else cfg.age_col
-    gender_col = 'gender' if 'gender' in f.columns else cfg.gender_col
-    opp_age_col = 'opp_age' if 'opp_age' in f.columns else cfg.opp_age_col
-    opp_gender_col = 'opp_gender' if 'opp_gender' in f.columns else cfg.opp_gender_col
-    date_col = 'date' if 'date' in f.columns else cfg.date_col
-    
+    team_id_col = (
+        "team_id" if "team_id" in f.columns else (cfg.team_id_col if cfg.team_id_col in f.columns else "team_id_master")
+    )
+    opp_id_col = (
+        "opp_id" if "opp_id" in f.columns else (cfg.opp_id_col if cfg.opp_id_col in f.columns else "opp_id_master")
+    )
+    gf_col = "gf" if "gf" in f.columns else cfg.gf_col
+    ga_col = "ga" if "ga" in f.columns else cfg.ga_col
+    age_col = "age" if "age" in f.columns else cfg.age_col
+    gender_col = "gender" if "gender" in f.columns else cfg.gender_col
+    opp_age_col = "opp_age" if "opp_age" in f.columns else cfg.opp_age_col
+    opp_gender_col = "opp_gender" if "opp_gender" in f.columns else cfg.opp_gender_col
+    date_col = "date" if "date" in f.columns else cfg.date_col
+
     f["goal_margin"] = (f[gf_col] - f[ga_col]).astype(float)
 
     # Use cohort mean as fallback for missing PowerScores (not hardcoded 0.5)
@@ -530,31 +506,40 @@ def _build_features(
     f["team_power"] = f.apply(get_team_power, axis=1).astype(float)
     f["opp_power"] = f.apply(get_opp_power, axis=1).astype(float)
     f["power_diff"] = f["team_power"] - f["opp_power"]
-    
+
     # age gap
     def _gap(a, b):
         try:
             return abs(int(float(a)) - int(float(b)))
         except Exception:
             return 0
-    
+
     f["age_gap"] = f.apply(lambda r: _gap(r[age_col], r[opp_age_col]), axis=1)
-    
+
     # basic cross-gender flag
-    f["cross_gender"] = (f[gender_col].astype(str).str.lower()
-                         != f[opp_gender_col].astype(str).str.lower()).astype(int)
-    
+    f["cross_gender"] = (f[gender_col].astype(str).str.lower() != f[opp_gender_col].astype(str).str.lower()).astype(int)
+
     # recency rank per team to allow decay
     f = f.sort_values([team_id_col, date_col], ascending=[True, False])
     f["rank_recency"] = f.groupby(team_id_col)[date_col].rank(ascending=False, method="first")
-    
+
     needed = [
-        date_col, team_id_col, opp_id_col, age_col, gender_col,
-        "goal_margin", "team_power", "opp_power", "power_diff", "age_gap", "cross_gender", "rank_recency"
+        date_col,
+        team_id_col,
+        opp_id_col,
+        age_col,
+        gender_col,
+        "goal_margin",
+        "team_power",
+        "opp_power",
+        "power_diff",
+        "age_gap",
+        "cross_gender",
+        "rank_recency",
     ]
 
     # Include additional columns if present (needed for extracting per-game residuals)
-    for col in ['game_id', 'id', 'home_team_master_id']:
+    for col in ["game_id", "id", "home_team_master_id"]:
         if col in f.columns:
             needed.append(col)
 
@@ -574,18 +559,18 @@ def _fit_and_residualize(feats: pd.DataFrame, train_feats: pd.DataFrame, cfg: La
     # Fit model on training data only (to prevent leakage)
     X_train = train_feats[["team_power", "opp_power", "power_diff", "age_gap", "cross_gender"]].astype(float).values
     y_train = train_feats["goal_margin"].astype(float).values
-    
+
     if _HAS_XGB:
         model = XGBRegressor(**cfg.xgb_params)
         model.fit(X_train, y_train)
     else:
         model = RandomForestRegressor(**cfg.rf_params)
         model.fit(X_train, y_train)
-    
+
     # Compute residuals on full feats DataFrame (for all games)
     X_full = feats[["team_power", "opp_power", "power_diff", "age_gap", "cross_gender"]].astype(float).values
     y_pred = model.predict(X_full)
-    
+
     out = feats.copy()
     out["pred_margin"] = y_pred.astype(float)
     out["residual"] = (out["goal_margin"] - out["pred_margin"]).astype(float)
@@ -602,9 +587,13 @@ def _aggregate_team_residuals(feats: pd.DataFrame, cfg: Layer13Config) -> pd.Dat
     df["recency_w"] = np.exp(-cfg.recency_decay_lambda * (df["rank_recency"].astype(float) - 1.0))
 
     # Get team_id and age/gender columns (v53e format uses team_id, age, gender)
-    team_id_col = 'team_id' if 'team_id' in df.columns else ('team_id_master' if 'team_id_master' in df.columns else cfg.team_id_col)
-    age_col = 'age' if 'age' in df.columns else cfg.age_col
-    gender_col = 'gender' if 'gender' in df.columns else cfg.gender_col
+    team_id_col = (
+        "team_id"
+        if "team_id" in df.columns
+        else ("team_id_master" if "team_id_master" in df.columns else cfg.team_id_col)
+    )
+    age_col = "age" if "age" in df.columns else cfg.age_col
+    gender_col = "gender" if "gender" in df.columns else cfg.gender_col
 
     # Compute weighted average per group (avoiding deprecated .apply pattern)
     def compute_group_wavg(group_df):
@@ -616,28 +605,33 @@ def _aggregate_team_residuals(feats: pd.DataFrame, cfg: Layer13Config) -> pd.Dat
 
     # Use pd.concat + list comprehension (pandas 3.0 compat: groupby().apply() drops group keys)
     parts = [
-        pd.DataFrame({
-            team_id_col: [grp[team_id_col].iloc[0]],
-            age_col: [grp[age_col].iloc[0]],
-            gender_col: [grp[gender_col].iloc[0]],
-            "ml_overperf": [compute_group_wavg(grp)]
-        })
+        pd.DataFrame(
+            {
+                team_id_col: [grp[team_id_col].iloc[0]],
+                age_col: [grp[age_col].iloc[0]],
+                gender_col: [grp[gender_col].iloc[0]],
+                "ml_overperf": [compute_group_wavg(grp)],
+            }
+        )
         for _, grp in df.groupby([team_id_col, age_col, gender_col])
     ]
     if not parts:
         return pd.DataFrame(columns=["team_id", "age", "gender", "ml_overperf"])
     agg = pd.concat(parts).reset_index(drop=True)
-    
+
     # require a minimum number of games to avoid yo-yo
-    counts = df.groupby([team_id_col, age_col, gender_col], as_index=False)["residual"].count() \
-               .rename(columns={"residual": "game_count"})
+    counts = (
+        df.groupby([team_id_col, age_col, gender_col], as_index=False)["residual"]
+        .count()
+        .rename(columns={"residual": "game_count"})
+    )
     merged = agg.merge(counts, on=[team_id_col, age_col, gender_col], how="left")
     merged.loc[merged["game_count"] < cfg.min_team_games_for_residual, "ml_overperf"] = 0.0
-    
+
     # Ensure team_id column name for merging (v53e uses 'team_id')
-    if team_id_col != 'team_id':
-        merged = merged.rename(columns={team_id_col: 'team_id'})
-    
+    if team_id_col != "team_id":
+        merged = merged.rename(columns={team_id_col: "team_id"})
+
     return merged[["team_id", "age", "gender", "ml_overperf"]]
 
 
@@ -669,4 +663,3 @@ def _normalize_by_cohort(
                 g[out_col] = s.rank(method="average", pct=True).astype(float)
         parts.append(g)
     return pd.concat(parts, axis=0)
-
