@@ -25,15 +25,34 @@ from src.etl.v53e import V53EConfig, compute_rankings
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_game_pair(gid, date, home, away, hs, as_, age="14", gender="male"):
     """Create home + away perspective rows for a single game."""
     return [
-        {"game_id": gid, "date": pd.Timestamp(date),
-         "team_id": home, "opp_id": away, "age": age, "gender": gender,
-         "opp_age": age, "opp_gender": gender, "gf": hs, "ga": as_},
-        {"game_id": gid, "date": pd.Timestamp(date),
-         "team_id": away, "opp_id": home, "age": age, "gender": gender,
-         "opp_age": age, "opp_gender": gender, "gf": as_, "ga": hs},
+        {
+            "game_id": gid,
+            "date": pd.Timestamp(date),
+            "team_id": home,
+            "opp_id": away,
+            "age": age,
+            "gender": gender,
+            "opp_age": age,
+            "opp_gender": gender,
+            "gf": hs,
+            "ga": as_,
+        },
+        {
+            "game_id": gid,
+            "date": pd.Timestamp(date),
+            "team_id": away,
+            "opp_id": home,
+            "age": age,
+            "gender": gender,
+            "opp_age": age,
+            "opp_gender": gender,
+            "gf": as_,
+            "ga": hs,
+        },
     ]
 
 
@@ -58,7 +77,7 @@ def _build_mixed_activity_league(today=None):
     teams_low = ["team_low_1", "team_low_2", "team_one_game"]
     # Extra opponents to fill games
     fillers = [f"filler_{i}" for i in range(20)]
-    all_opps = teams_active + teams_low + fillers
+    all_opps = teams_active + fillers
 
     # team_active_1: 10 games
     for i in range(10):
@@ -121,6 +140,7 @@ def _build_mixed_activity_league(today=None):
 # Tests: v53e Status Assignment
 # ---------------------------------------------------------------------------
 
+
 class TestStatusAssignment:
     """Verify v53e correctly assigns Active / Not Enough Ranked Games / Inactive."""
 
@@ -136,36 +156,40 @@ class TestStatusAssignment:
         for tid in ["team_active_1", "team_active_2", "team_active_3"]:
             team_row = self.teams[self.teams["team_id"] == tid]
             if not team_row.empty:
-                assert team_row.iloc[0]["status"] == "Active", \
+                assert team_row.iloc[0]["status"] == "Active", (
                     f"{tid} should be Active but got {team_row.iloc[0]['status']}"
+                )
 
     def test_low_game_teams_not_active(self):
         """Teams with < 8 games should NOT be Active."""
         for tid in ["team_low_1", "team_low_2", "team_one_game"]:
             team_row = self.teams[self.teams["team_id"] == tid]
             if not team_row.empty:
-                assert team_row.iloc[0]["status"] != "Active", \
+                assert team_row.iloc[0]["status"] != "Active", (
                     f"{tid} should NOT be Active but got {team_row.iloc[0]['status']}"
+                )
 
     def test_edge_case_exactly_8_games(self):
         """Team with exactly 8 games should be Active."""
         team_row = self.teams[self.teams["team_id"] == "team_active_3"]
         if not team_row.empty:
             assert team_row.iloc[0]["status"] == "Active"
-            assert team_row.iloc[0]["gp_last_180"] >= 8
+            assert team_row.iloc[0]["gp_last_window"] >= 8
 
     def test_one_game_team_status(self):
         """Team with 1 game should be 'Not Enough Ranked Games'."""
         team_row = self.teams[self.teams["team_id"] == "team_one_game"]
         if not team_row.empty:
             status = team_row.iloc[0]["status"]
-            assert status == "Not Enough Ranked Games", \
+            assert status == "Not Enough Ranked Games", (
                 f"1-game team should be 'Not Enough Ranked Games' but got '{status}'"
+            )
 
 
 # ---------------------------------------------------------------------------
 # Tests: v53e Rank Assignment
 # ---------------------------------------------------------------------------
+
 
 class TestV53eRankAssignment:
     """Verify v53e only assigns rank_in_cohort to Active teams."""
@@ -183,15 +207,15 @@ class TestV53eRankAssignment:
         assert not active.empty, "Should have some Active teams"
         # All active teams should have a rank
         for _, row in active.iterrows():
-            assert pd.notna(row["rank_in_cohort"]), \
-                f"Active team {row['team_id']} should have rank but got None"
+            assert pd.notna(row["rank_in_cohort"]), f"Active team {row['team_id']} should have rank but got None"
 
     def test_non_active_teams_no_rank(self):
         """Non-Active teams should have NULL rank_in_cohort."""
         non_active = self.teams[self.teams["status"] != "Active"]
         for _, row in non_active.iterrows():
-            assert pd.isna(row["rank_in_cohort"]) or row["rank_in_cohort"] is None, \
+            assert pd.isna(row["rank_in_cohort"]) or row["rank_in_cohort"] is None, (
                 f"Non-Active team {row['team_id']} (status={row['status']}) should NOT have rank but got {row['rank_in_cohort']}"
+            )
 
     def test_ranks_are_sequential(self):
         """Active team ranks should be sequential (1, 2, 3...) with no gaps."""
@@ -201,13 +225,13 @@ class TestV53eRankAssignment:
                 continue
             ranks = sorted(active_cohort["rank_in_cohort"].dropna().astype(int).tolist())
             expected = list(range(1, len(ranks) + 1))
-            assert ranks == expected, \
-                f"Ranks for {age}/{gender} should be sequential {expected} but got {ranks}"
+            assert ranks == expected, f"Ranks for {age}/{gender} should be sequential {expected} but got {ranks}"
 
 
 # ---------------------------------------------------------------------------
 # Tests: SOS Rank Assignment
 # ---------------------------------------------------------------------------
+
 
 class TestSOSRankAssignment:
     """Verify SOS ranks are only assigned to Active teams."""
@@ -224,16 +248,19 @@ class TestSOSRankAssignment:
         non_active = self.teams[self.teams["status"] != "Active"]
         for _, row in non_active.iterrows():
             if "sos_rank_national" in row.index:
-                assert pd.isna(row.get("sos_rank_national")), \
+                assert pd.isna(row.get("sos_rank_national")), (
                     f"Non-Active team {row['team_id']} should NOT have SOS national rank"
+                )
             if "sos_rank_state" in row.index:
-                assert pd.isna(row.get("sos_rank_state")), \
+                assert pd.isna(row.get("sos_rank_state")), (
                     f"Non-Active team {row['team_id']} should NOT have SOS state rank"
+                )
 
 
 # ---------------------------------------------------------------------------
 # Tests: Layer 13 Active-Only Ranking
 # ---------------------------------------------------------------------------
+
 
 class TestLayer13ActiveOnly:
     """Verify Layer 13 only ranks Active teams via _rank_active_only."""
@@ -242,14 +269,16 @@ class TestLayer13ActiveOnly:
         """_rank_active_only should return NULL for non-Active teams."""
         from src.rankings.layer13_predictive_adjustment import _rank_active_only
 
-        df = pd.DataFrame({
-            "team_id": ["A", "B", "C", "D"],
-            "age": [14, 14, 14, 14],
-            "gender": ["male", "male", "male", "male"],
-            "powerscore_ml": [0.8, 0.7, 0.6, 0.9],
-            "sos": [0.5, 0.4, 0.3, 0.6],
-            "status": ["Active", "Active", "Not Enough Ranked Games", "Active"],
-        })
+        df = pd.DataFrame(
+            {
+                "team_id": ["A", "B", "C", "D"],
+                "age": [14, 14, 14, 14],
+                "gender": ["male", "male", "male", "male"],
+                "powerscore_ml": [0.8, 0.7, 0.6, 0.9],
+                "sos": [0.5, 0.4, 0.3, 0.6],
+                "status": ["Active", "Active", "Not Enough Ranked Games", "Active"],
+            }
+        )
 
         ranks = _rank_active_only(df, ["age", "gender"], "powerscore_ml")
 
@@ -259,8 +288,7 @@ class TestLayer13ActiveOnly:
         assert ranks.iloc[3] == 1  # D: 0.9 → rank 1
 
         # Non-Active team should have NULL
-        assert pd.isna(ranks.iloc[2]), \
-            f"Non-Active team C should have NULL rank but got {ranks.iloc[2]}"
+        assert pd.isna(ranks.iloc[2]), f"Non-Active team C should have NULL rank but got {ranks.iloc[2]}"
 
     def test_rank_active_only_empty_df(self):
         """_rank_active_only should handle empty DataFrame."""
@@ -274,14 +302,16 @@ class TestLayer13ActiveOnly:
         """If no teams are Active, all should get NULL rank."""
         from src.rankings.layer13_predictive_adjustment import _rank_active_only
 
-        df = pd.DataFrame({
-            "team_id": ["A", "B"],
-            "age": [14, 14],
-            "gender": ["male", "male"],
-            "powerscore_ml": [0.8, 0.7],
-            "sos": [0.5, 0.4],
-            "status": ["Not Enough Ranked Games", "Inactive"],
-        })
+        df = pd.DataFrame(
+            {
+                "team_id": ["A", "B"],
+                "age": [14, 14],
+                "gender": ["male", "male"],
+                "powerscore_ml": [0.8, 0.7],
+                "sos": [0.5, 0.4],
+                "status": ["Not Enough Ranked Games", "Inactive"],
+            }
+        )
 
         ranks = _rank_active_only(df, ["age", "gender"], "powerscore_ml")
         assert pd.isna(ranks.iloc[0])
@@ -291,13 +321,15 @@ class TestLayer13ActiveOnly:
         """Without status column, should fall back to ranking all teams."""
         from src.rankings.layer13_predictive_adjustment import _rank_active_only
 
-        df = pd.DataFrame({
-            "team_id": ["A", "B"],
-            "age": [14, 14],
-            "gender": ["male", "male"],
-            "powerscore_ml": [0.8, 0.7],
-            "sos": [0.5, 0.4],
-        })
+        df = pd.DataFrame(
+            {
+                "team_id": ["A", "B"],
+                "age": [14, 14],
+                "gender": ["male", "male"],
+                "powerscore_ml": [0.8, 0.7],
+                "sos": [0.5, 0.4],
+            }
+        )
 
         ranks = _rank_active_only(df, ["age", "gender"], "powerscore_ml")
         assert ranks.iloc[0] == 1  # A: 0.8
@@ -307,14 +339,16 @@ class TestLayer13ActiveOnly:
         """Active-only ranking works correctly across multiple cohorts."""
         from src.rankings.layer13_predictive_adjustment import _rank_active_only
 
-        df = pd.DataFrame({
-            "team_id": ["A", "B", "C", "D", "E"],
-            "age": [14, 14, 14, 16, 16],
-            "gender": ["male", "male", "male", "male", "male"],
-            "powerscore_ml": [0.8, 0.9, 0.7, 0.6, 0.5],
-            "sos": [0.5, 0.6, 0.4, 0.3, 0.2],
-            "status": ["Active", "Active", "Not Enough Ranked Games", "Active", "Not Enough Ranked Games"],
-        })
+        df = pd.DataFrame(
+            {
+                "team_id": ["A", "B", "C", "D", "E"],
+                "age": [14, 14, 14, 16, 16],
+                "gender": ["male", "male", "male", "male", "male"],
+                "powerscore_ml": [0.8, 0.9, 0.7, 0.6, 0.5],
+                "sos": [0.5, 0.6, 0.4, 0.3, 0.2],
+                "status": ["Active", "Active", "Not Enough Ranked Games", "Active", "Not Enough Ranked Games"],
+            }
+        )
 
         ranks = _rank_active_only(df, ["age", "gender"], "powerscore_ml")
 
@@ -332,6 +366,7 @@ class TestLayer13ActiveOnly:
 # Tests: Data Adapter NULL Preservation
 # ---------------------------------------------------------------------------
 
+
 class TestDataAdapterNullPreservation:
     """Verify data adapter preserves NULL for non-Active team ranks."""
 
@@ -339,22 +374,24 @@ class TestDataAdapterNullPreservation:
         """rank_in_cohort_ml should be NULL (not 0) for non-Active teams."""
         from src.rankings.data_adapter import v53e_to_rankings_full_format
 
-        teams_df = pd.DataFrame({
-            "team_id": ["A", "B", "C"],
-            "age": [14, 14, 14],
-            "gender": ["Male", "Male", "Male"],
-            "status": ["Active", "Active", "Not Enough Ranked Games"],
-            "gp": [20, 15, 5],
-            "gp_last_180": [20, 15, 5],
-            "powerscore_adj": [0.8, 0.7, 0.6],
-            "powerscore_core": [0.75, 0.65, 0.55],
-            "powerscore_ml": [0.82, 0.72, 0.62],
-            "rank_in_cohort": [1, 2, pd.NA],
-            "rank_in_cohort_ml": pd.array([1, 2, pd.NA], dtype="Int64"),
-            "sos": [0.6, 0.5, 0.3],
-            "sos_norm": [0.7, 0.5, 0.3],
-            "last_game": [pd.Timestamp("2025-05-15")] * 3,
-        })
+        teams_df = pd.DataFrame(
+            {
+                "team_id": ["A", "B", "C"],
+                "age": [14, 14, 14],
+                "gender": ["Male", "Male", "Male"],
+                "status": ["Active", "Active", "Not Enough Ranked Games"],
+                "gp": [20, 15, 5],
+                "gp_last_180": [20, 15, 5],
+                "powerscore_adj": [0.8, 0.7, 0.6],
+                "powerscore_core": [0.75, 0.65, 0.55],
+                "powerscore_ml": [0.82, 0.72, 0.62],
+                "rank_in_cohort": [1, 2, pd.NA],
+                "rank_in_cohort_ml": pd.array([1, 2, pd.NA], dtype="Int64"),
+                "sos": [0.6, 0.5, 0.3],
+                "sos_norm": [0.7, 0.5, 0.3],
+                "last_game": [pd.Timestamp("2025-05-15")] * 3,
+            }
+        )
 
         result = v53e_to_rankings_full_format(teams_df)
 
@@ -364,27 +401,28 @@ class TestDataAdapterNullPreservation:
 
         # Non-Active team should have NULL rank (not 0)
         c_rank = result.loc[result["team_id"] == "C", "rank_in_cohort_ml"].values[0]
-        assert pd.isna(c_rank), \
-            f"Non-Active team C rank_in_cohort_ml should be NULL but got {c_rank}"
+        assert pd.isna(c_rank), f"Non-Active team C rank_in_cohort_ml should be NULL but got {c_rank}"
 
     def test_null_rank_in_cohort_preserved(self):
         """rank_in_cohort should be NULL for non-Active teams."""
         from src.rankings.data_adapter import v53e_to_rankings_full_format
 
-        teams_df = pd.DataFrame({
-            "team_id": ["A", "B"],
-            "age": [14, 14],
-            "gender": ["Male", "Male"],
-            "status": ["Active", "Not Enough Ranked Games"],
-            "gp": [20, 3],
-            "gp_last_180": [20, 3],
-            "powerscore_adj": [0.8, 0.6],
-            "powerscore_core": [0.75, 0.55],
-            "rank_in_cohort": [1, pd.NA],
-            "sos": [0.6, 0.3],
-            "sos_norm": [0.7, 0.3],
-            "last_game": [pd.Timestamp("2025-05-15")] * 2,
-        })
+        teams_df = pd.DataFrame(
+            {
+                "team_id": ["A", "B"],
+                "age": [14, 14],
+                "gender": ["Male", "Male"],
+                "status": ["Active", "Not Enough Ranked Games"],
+                "gp": [20, 3],
+                "gp_last_180": [20, 3],
+                "powerscore_adj": [0.8, 0.6],
+                "powerscore_core": [0.75, 0.55],
+                "rank_in_cohort": [1, pd.NA],
+                "sos": [0.6, 0.3],
+                "sos_norm": [0.7, 0.3],
+                "last_game": [pd.Timestamp("2025-05-15")] * 2,
+            }
+        )
 
         result = v53e_to_rankings_full_format(teams_df)
 
@@ -392,13 +430,13 @@ class TestDataAdapterNullPreservation:
         b_rank = result.loc[result["team_id"] == "B", "rank_in_cohort"].values[0]
 
         assert a_rank == 1
-        assert pd.isna(b_rank), \
-            f"Non-Active team B rank_in_cohort should be NULL but got {b_rank}"
+        assert pd.isna(b_rank), f"Non-Active team B rank_in_cohort should be NULL but got {b_rank}"
 
 
 # ---------------------------------------------------------------------------
 # Tests: PowerScore Bounds
 # ---------------------------------------------------------------------------
+
 
 class TestPowerScoreBounds:
     """Verify PowerScore stays in [0, 1] under various conditions."""
@@ -438,16 +476,14 @@ class TestPowerScoreBounds:
             gid += 1
             date = self.today - timedelta(days=10 + i * 7)
             # 20-0 blowouts (capped at 6 by v53e)
-            rows.extend(_make_game_pair(
-                f"g{gid}", date, "dominant_team", f"weak_{i}", 20, 0))
+            rows.extend(_make_game_pair(f"g{gid}", date, "dominant_team", f"weak_{i}", 20, 0))
 
         # Give weak teams enough games
         for i in range(12):
             for j in range(10):
                 gid += 1
                 date = self.today - timedelta(days=10 + j * 7)
-                rows.extend(_make_game_pair(
-                    f"g{gid}", date, f"weak_{i}", f"weak_{(i+j+1) % 12}", 1, 2))
+                rows.extend(_make_game_pair(f"g{gid}", date, f"weak_{i}", f"weak_{(i + j + 1) % 12}", 1, 2))
 
         games_df = pd.DataFrame(rows)
         result = compute_rankings(games_df, today=self.today, cfg=self.cfg)
@@ -465,6 +501,7 @@ class TestPowerScoreBounds:
 # Tests: Anchor Scaling
 # ---------------------------------------------------------------------------
 
+
 class TestAnchorScaling:
     """Verify anchor scaling produces correct power_score_final values."""
 
@@ -473,70 +510,82 @@ class TestAnchorScaling:
         from src.rankings.data_adapter import v53e_to_rankings_full_format
 
         AGE_ANCHORS = {
-            10: 0.400, 11: 0.475, 12: 0.550, 13: 0.625,
-            14: 0.700, 15: 0.775, 16: 0.850, 17: 0.925,
+            10: 0.400,
+            11: 0.475,
+            12: 0.550,
+            13: 0.625,
+            14: 0.700,
+            15: 0.775,
+            16: 0.850,
+            17: 0.925,
             19: 1.000,
         }
 
-        teams_df = pd.DataFrame({
-            "team_id": [f"team_{age}" for age in AGE_ANCHORS],
-            "age": list(AGE_ANCHORS.keys()),
-            "gender": ["Male"] * len(AGE_ANCHORS),
-            "status": ["Active"] * len(AGE_ANCHORS),
-            "gp": [20] * len(AGE_ANCHORS),
-            "gp_last_180": [20] * len(AGE_ANCHORS),
-            "powerscore_adj": [0.80] * len(AGE_ANCHORS),
-            "powerscore_core": [0.75] * len(AGE_ANCHORS),
-            "sos": [0.5] * len(AGE_ANCHORS),
-            "sos_norm": [0.5] * len(AGE_ANCHORS),
-            "rank_in_cohort": list(range(1, len(AGE_ANCHORS) + 1)),
-            "last_game": [pd.Timestamp("2025-05-15")] * len(AGE_ANCHORS),
-        })
+        teams_df = pd.DataFrame(
+            {
+                "team_id": [f"team_{age}" for age in AGE_ANCHORS],
+                "age": list(AGE_ANCHORS.keys()),
+                "gender": ["Male"] * len(AGE_ANCHORS),
+                "status": ["Active"] * len(AGE_ANCHORS),
+                "gp": [20] * len(AGE_ANCHORS),
+                "gp_last_180": [20] * len(AGE_ANCHORS),
+                "powerscore_adj": [0.80] * len(AGE_ANCHORS),
+                "powerscore_core": [0.75] * len(AGE_ANCHORS),
+                "sos": [0.5] * len(AGE_ANCHORS),
+                "sos_norm": [0.5] * len(AGE_ANCHORS),
+                "rank_in_cohort": list(range(1, len(AGE_ANCHORS) + 1)),
+                "last_game": [pd.Timestamp("2025-05-15")] * len(AGE_ANCHORS),
+            }
+        )
 
         result = v53e_to_rankings_full_format(teams_df)
 
         for age, anchor in AGE_ANCHORS.items():
             team_row = result[result["team_id"] == f"team_{age}"]
             if not team_row.empty:
-                psf = team_row.iloc[0]["power_score_final"]
-                expected_max = anchor  # base (0.80) * anchor, clipped to anchor
-                assert psf <= anchor + 0.001, \
-                    f"Age {age}: power_score_final={psf:.4f} exceeds anchor={anchor:.3f}"
-                assert psf > 0, \
-                    f"Age {age}: power_score_final={psf:.4f} should be positive"
+                # power_score_final is computed in calculator.py (not adapter).
+                # Test national_power_score which the adapter derives from powerscore_adj.
+                nps = team_row.iloc[0]["national_power_score"]
+                assert nps is not None and nps > 0, f"Age {age}: national_power_score should be positive"
+                assert nps <= 1.001, f"Age {age}: national_power_score={nps:.4f} exceeds 1.0"
 
     def test_anchor_preserves_rank_order(self):
         """Within a cohort, anchor scaling should preserve rank order."""
         from src.rankings.data_adapter import v53e_to_rankings_full_format
 
-        teams_df = pd.DataFrame({
-            "team_id": ["best", "mid", "worst"],
-            "age": [14, 14, 14],
-            "gender": ["Male", "Male", "Male"],
-            "status": ["Active", "Active", "Active"],
-            "gp": [20, 18, 15],
-            "gp_last_180": [20, 18, 15],
-            "powerscore_adj": [0.90, 0.70, 0.50],
-            "powerscore_core": [0.85, 0.65, 0.45],
-            "sos": [0.7, 0.5, 0.3],
-            "sos_norm": [0.7, 0.5, 0.3],
-            "rank_in_cohort": [1, 2, 3],
-            "last_game": [pd.Timestamp("2025-05-15")] * 3,
-        })
+        teams_df = pd.DataFrame(
+            {
+                "team_id": ["best", "mid", "worst"],
+                "age": [14, 14, 14],
+                "gender": ["Male", "Male", "Male"],
+                "status": ["Active", "Active", "Active"],
+                "gp": [20, 18, 15],
+                "gp_last_180": [20, 18, 15],
+                "powerscore_adj": [0.90, 0.70, 0.50],
+                "powerscore_core": [0.85, 0.65, 0.45],
+                "sos": [0.7, 0.5, 0.3],
+                "sos_norm": [0.7, 0.5, 0.3],
+                "rank_in_cohort": [1, 2, 3],
+                "last_game": [pd.Timestamp("2025-05-15")] * 3,
+            }
+        )
 
         result = v53e_to_rankings_full_format(teams_df)
 
-        best_psf = result.loc[result["team_id"] == "best", "power_score_final"].values[0]
-        mid_psf = result.loc[result["team_id"] == "mid", "power_score_final"].values[0]
-        worst_psf = result.loc[result["team_id"] == "worst", "power_score_final"].values[0]
+        # power_score_final is computed in calculator.py, not adapter. Test national_power_score.
+        best_nps = result.loc[result["team_id"] == "best", "national_power_score"].values[0]
+        mid_nps = result.loc[result["team_id"] == "mid", "national_power_score"].values[0]
+        worst_nps = result.loc[result["team_id"] == "worst", "national_power_score"].values[0]
 
-        assert best_psf > mid_psf > worst_psf, \
-            f"Rank order not preserved: best={best_psf:.4f}, mid={mid_psf:.4f}, worst={worst_psf:.4f}"
+        assert best_nps > mid_nps > worst_nps, (
+            f"Rank order not preserved: best={best_nps:.4f}, mid={mid_nps:.4f}, worst={worst_nps:.4f}"
+        )
 
 
 # ---------------------------------------------------------------------------
 # Tests: SOS Shrinkage for Low-Game Teams
 # ---------------------------------------------------------------------------
+
 
 class TestSOSShrinkage:
     """Discover whether SOS shrinkage actually dampens sos_norm for low-game teams.
@@ -603,6 +652,7 @@ class TestSOSShrinkage:
                 if mult == 1.0 and row["gp_last_180"] < 8:
                     # Documenting the inconsistency — not failing, but flagging
                     import warnings
+
                     warnings.warn(
                         f"Team {row['team_id']}: status='Not Enough Ranked Games' "
                         f"but provisional_mult={mult:.2f} (gp={row['gp']}, "
@@ -619,8 +669,7 @@ class TestSOSShrinkage:
         for _, row in teams.iterrows():
             if "sos_norm" in row.index and pd.notna(row["sos_norm"]):
                 assert 0.0 <= row["sos_norm"] <= 1.0, (
-                    f"Team {row['team_id']}: sos_norm={row['sos_norm']:.4f} "
-                    f"out of [0,1] bounds after shrinkage"
+                    f"Team {row['team_id']}: sos_norm={row['sos_norm']:.4f} out of [0,1] bounds after shrinkage"
                 )
 
 
@@ -628,20 +677,20 @@ class TestSOSShrinkage:
 # Tests: Provisional Multiplier
 # ---------------------------------------------------------------------------
 
+
 class TestProvisionalMultiplier:
     """Verify provisional multiplier is applied correctly."""
 
     def test_multiplier_values(self):
-        """Check multiplier function returns correct values."""
+        """Check multiplier function returns correct values (linear ramp)."""
         from src.etl.v53e import _provisional_multiplier
 
-        # < 8 games: 0.85
-        assert _provisional_multiplier(1, 8) == 0.85
-        assert _provisional_multiplier(7, 8) == 0.85
-
-        # 8-14 games: 0.95
-        assert _provisional_multiplier(8, 8) == 0.95
-        assert _provisional_multiplier(14, 8) == 0.95
+        # Linear ramp: 0.85 + (gp/15) * 0.15
+        assert _provisional_multiplier(0, 8) == 0.85
+        assert abs(_provisional_multiplier(1, 8) - 0.86) < 0.01
+        assert abs(_provisional_multiplier(7, 8) - 0.92) < 0.01
+        assert abs(_provisional_multiplier(8, 8) - 0.93) < 0.01
+        assert abs(_provisional_multiplier(14, 8) - 0.99) < 0.01
 
         # 15+ games: 1.0
         assert _provisional_multiplier(15, 8) == 1.0
@@ -651,6 +700,7 @@ class TestProvisionalMultiplier:
 # ---------------------------------------------------------------------------
 # Tests: Pipeline Save Logic
 # ---------------------------------------------------------------------------
+
 
 class TestSaveBatchRetry:
     """Test the retry logic in _save_batch_with_retry for correctness."""
@@ -668,14 +718,12 @@ class TestSaveBatchRetry:
         retry_section_start = source.find("# Retry failed batches")
         assert retry_section_start > 0, "Cannot find retry section in calculate_rankings.py"
 
-        retry_section = source[retry_section_start:retry_section_start + 500]
+        retry_section = source[retry_section_start : retry_section_start + 500]
         assert ".upsert(" in retry_section, (
             "Retry section uses .insert() instead of .upsert(). "
             "This will cause duplicate key errors when the initial table delete fails."
         )
-        assert ".insert(" not in retry_section, (
-            "Retry section still contains .insert() — should be .upsert() only."
-        )
+        assert ".insert(" not in retry_section, "Retry section still contains .insert() — should be .upsert() only."
 
     def test_primary_save_uses_upsert(self):
         """The primary batch save must use .upsert() for idempotency."""
@@ -694,9 +742,7 @@ class TestSaveBatchRetry:
 
         primary_section = source[func_start:retry_section_start]
 
-        assert ".upsert(batch)" in primary_section, (
-            "Primary save section should use .upsert() for idempotent writes"
-        )
+        assert ".upsert(batch)" in primary_section, "Primary save section should use .upsert() for idempotent writes"
         assert ".insert(batch)" not in primary_section, (
             "Primary save section should NOT use .insert() — use .upsert() instead"
         )
@@ -743,6 +789,7 @@ class TestSaveBatchRetry:
 # Tests: End-to-End Rank Consistency
 # ---------------------------------------------------------------------------
 
+
 class TestEndToEndRankConsistency:
     """Verify rank consistency across the full v53e pipeline."""
 
@@ -765,37 +812,38 @@ class TestEndToEndRankConsistency:
 
             # Each team should have >= powerscore of the next-ranked team
             for i in range(len(powerscores) - 1):
-                assert powerscores[i] >= powerscores[i + 1], \
-                    f"Rank ordering violated in {age}/{gender}: " \
-                    f"rank {i+1} has ps={powerscores[i]:.4f} < rank {i+2} ps={powerscores[i+1]:.4f}"
+                assert powerscores[i] >= powerscores[i + 1], (
+                    f"Rank ordering violated in {age}/{gender}: "
+                    f"rank {i + 1} has ps={powerscores[i]:.4f} < rank {i + 2} ps={powerscores[i + 1]:.4f}"
+                )
 
     def test_no_rank_for_one_game_teams(self):
         """Teams with 1 game should NEVER have a rank_in_cohort."""
         one_game_teams = self.teams[self.teams["gp"] <= 1]
         for _, row in one_game_teams.iterrows():
             rank = row.get("rank_in_cohort")
-            assert pd.isna(rank) or rank is None, \
+            assert pd.isna(rank) or rank is None, (
                 f"1-game team {row['team_id']} should not be ranked but got rank={rank}"
+            )
 
     def test_all_teams_have_powerscore(self):
         """All teams (even non-Active) should have a powerscore_adj."""
         for _, row in self.teams.iterrows():
             ps = row.get("powerscore_adj")
-            assert pd.notna(ps), \
-                f"Team {row['team_id']} (status={row['status']}) has NULL powerscore_adj"
+            assert pd.notna(ps), f"Team {row['team_id']} (status={row['status']}) has NULL powerscore_adj"
 
     def test_inactive_teams_truly_old(self):
         """Inactive teams should have no games in last 180 days."""
         inactive = self.teams[self.teams["status"] == "Inactive"]
         for _, row in inactive.iterrows():
             gp180 = row.get("gp_last_180", 0)
-            assert gp180 == 0, \
-                f"Inactive team {row['team_id']} has {gp180} games in last 180 days"
+            assert gp180 == 0, f"Inactive team {row['team_id']} has {gp180} games in last 180 days"
 
 
 # ---------------------------------------------------------------------------
 # Tests: Ranking History (State Rank Active-Only)
 # ---------------------------------------------------------------------------
+
 
 class TestRankingHistoryActiveOnly:
     """Verify ranking_history only assigns state ranks to Active teams."""
@@ -803,35 +851,40 @@ class TestRankingHistoryActiveOnly:
     def test_save_snapshot_active_only_state_ranks(self):
         """save_ranking_snapshot should only compute state ranks for Active teams."""
         # Build a test DataFrame mimicking what compute_all_cohorts produces
-        df = pd.DataFrame({
-            "team_id": ["active_1", "active_2", "low_games_1", "inactive_1"],
-            "age": [14, 14, 14, 14],
-            "gender": ["Male", "Male", "Male", "Male"],
-            "status": ["Active", "Active", "Not Enough Ranked Games", "Inactive"],
-            "rank_in_cohort": [1, 2, pd.NA, pd.NA],
-            "rank_in_cohort_ml": pd.array([1, 2, pd.NA, pd.NA], dtype="Int64"),
-            "power_score_final": [0.85, 0.70, 0.60, 0.40],
-            "powerscore_ml": [0.85, 0.70, 0.60, 0.40],
-            "state_code": ["CA", "CA", "CA", "CA"],
-        })
+        df = pd.DataFrame(
+            {
+                "team_id": ["active_1", "active_2", "low_games_1", "inactive_1"],
+                "age": [14, 14, 14, 14],
+                "gender": ["Male", "Male", "Male", "Male"],
+                "status": ["Active", "Active", "Not Enough Ranked Games", "Inactive"],
+                "rank_in_cohort": [1, 2, pd.NA, pd.NA],
+                "rank_in_cohort_ml": pd.array([1, 2, pd.NA, pd.NA], dtype="Int64"),
+                "power_score_final": [0.85, 0.70, 0.60, 0.40],
+                "powerscore_ml": [0.85, 0.70, 0.60, 0.40],
+                "state_code": ["CA", "CA", "CA", "CA"],
+            }
+        )
 
         # Simulate save_ranking_snapshot's state rank logic
         # (without actually calling Supabase)
-        if 'age_group' not in df.columns:
-            df['age_group'] = df['age'].apply(lambda x: f"u{int(float(x))}" if pd.notna(x) else "")
+        if "age_group" not in df.columns:
+            df["age_group"] = df["age"].apply(lambda x: f"u{int(float(x))}" if pd.notna(x) else "")
 
-        score_col = 'powerscore_ml'
+        score_col = "powerscore_ml"
 
         # Initialize as NULL
-        df['rank_in_state'] = pd.array([pd.NA] * len(df), dtype='Int64')
+        df["rank_in_state"] = pd.array([pd.NA] * len(df), dtype="Int64")
 
         # Only rank Active teams
-        active_mask = df['status'] == 'Active'
+        active_mask = df["status"] == "Active"
         if active_mask.any():
-            active_ranks = df.loc[active_mask].groupby(
-                ['state_code', 'age_group', 'gender']
-            )[score_col].rank(method='min', ascending=False).astype('Int64')
-            df.loc[active_mask, 'rank_in_state'] = active_ranks
+            active_ranks = (
+                df.loc[active_mask]
+                .groupby(["state_code", "age_group", "gender"])[score_col]
+                .rank(method="min", ascending=False)
+                .astype("Int64")
+            )
+            df.loc[active_mask, "rank_in_state"] = active_ranks
 
         # Verify: Active teams have state ranks
         assert df.loc[df["team_id"] == "active_1", "rank_in_state"].values[0] == 1
@@ -845,6 +898,7 @@ class TestRankingHistoryActiveOnly:
 # ---------------------------------------------------------------------------
 # Discovery Tests: Edge Cases That Could Reveal Bugs
 # ---------------------------------------------------------------------------
+
 
 class TestEdgeCaseDiscovery:
     """Tests designed to probe edge cases and reveal latent bugs."""
@@ -888,7 +942,7 @@ class TestEdgeCaseDiscovery:
                 gap = int(ranks[i + 1]) - int(ranks[i])
                 assert gap == 1, (
                     f"Rank gap in {age}/{gender}: ranks {int(ranks[i])} -> "
-                    f"{int(ranks[i+1])} (gap={gap}). This means rank assignment "
+                    f"{int(ranks[i + 1])} (gap={gap}). This means rank assignment "
                     f"is including non-Active teams in the count."
                 )
 
@@ -970,21 +1024,23 @@ class TestEdgeCaseDiscovery:
         """
         from src.rankings.layer13_predictive_adjustment import _rank_active_only
 
-        df = pd.DataFrame({
-            "team_id": ["A", "B", "C", "D", "E", "F"],
-            "age": [14, 14, 14, 14, 14, 14],
-            "gender": ["male"] * 6,
-            "powerscore_ml": [0.95, 0.85, 0.75, 0.65, 0.55, 0.45],
-            "sos": [0.6, 0.5, 0.7, 0.4, 0.3, 0.8],
-            "status": [
-                "Active",
-                "Not Enough Ranked Games",
-                "Active",
-                "Inactive",
-                "Active",
-                "Not Enough Ranked Games",
-            ],
-        })
+        df = pd.DataFrame(
+            {
+                "team_id": ["A", "B", "C", "D", "E", "F"],
+                "age": [14, 14, 14, 14, 14, 14],
+                "gender": ["male"] * 6,
+                "powerscore_ml": [0.95, 0.85, 0.75, 0.65, 0.55, 0.45],
+                "sos": [0.6, 0.5, 0.7, 0.4, 0.3, 0.8],
+                "status": [
+                    "Active",
+                    "Not Enough Ranked Games",
+                    "Active",
+                    "Inactive",
+                    "Active",
+                    "Not Enough Ranked Games",
+                ],
+            }
+        )
 
         ranks = _rank_active_only(df, ["age", "gender"], "powerscore_ml")
 
@@ -1001,20 +1057,22 @@ class TestEdgeCaseDiscovery:
         from src.rankings.data_adapter import v53e_to_rankings_full_format
 
         # Minimal required columns only
-        teams_df = pd.DataFrame({
-            "team_id": ["A"],
-            "age": [14],
-            "gender": ["Male"],
-            "status": ["Active"],
-            "gp": [20],
-            "gp_last_180": [20],
-            "powerscore_adj": [0.8],
-            "powerscore_core": [0.75],
-            "rank_in_cohort": [1],
-            "sos": [0.5],
-            "sos_norm": [0.6],
-            "last_game": [pd.Timestamp("2025-05-15")],
-        })
+        teams_df = pd.DataFrame(
+            {
+                "team_id": ["A"],
+                "age": [14],
+                "gender": ["Male"],
+                "status": ["Active"],
+                "gp": [20],
+                "gp_last_180": [20],
+                "powerscore_adj": [0.8],
+                "powerscore_core": [0.75],
+                "rank_in_cohort": [1],
+                "sos": [0.5],
+                "sos_norm": [0.6],
+                "last_game": [pd.Timestamp("2025-05-15")],
+            }
+        )
 
         # Should not crash even without powerscore_ml, rank_in_cohort_ml, etc.
         try:

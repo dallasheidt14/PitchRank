@@ -103,15 +103,17 @@ class CpuProfiler:
             reverse=True,
         )[:top]:
             filename, lineno, funcname = func_key
-            results.append({
-                "function": funcname,
-                "file": filename,
-                "line": lineno,
-                "calls": nc,
-                "total_time": round(tt, 4),
-                "cumulative_time": round(ct, 4),
-                "time_per_call": round(tt / nc, 6) if nc > 0 else 0,
-            })
+            results.append(
+                {
+                    "function": funcname,
+                    "file": filename,
+                    "line": lineno,
+                    "calls": nc,
+                    "total_time": round(tt, 4),
+                    "cumulative_time": round(ct, 4),
+                    "time_per_call": round(tt / nc, 6) if nc > 0 else 0,
+                }
+            )
         return results
 
     def generate_flamegraph_input(self) -> Optional[Path]:
@@ -159,7 +161,7 @@ def profile_cpu(
     def decorator(fn: Callable) -> Callable:
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
-            name = output or fn.__qualname__.replace(".", "_")
+            name = output or fn.__qualname__.replace(".", "_").replace("<", "").replace(">", "")
             with CpuProfiler(name=name, sort_by=sort_by, enabled=enabled) as prof:
                 result = fn(*args, **kwargs)
             if enabled:
@@ -168,7 +170,7 @@ def profile_cpu(
 
         @functools.wraps(fn)
         async def async_wrapper(*args, **kwargs):
-            name = output or fn.__qualname__.replace(".", "_")
+            name = output or fn.__qualname__.replace(".", "_").replace("<", "").replace(">", "")
             with CpuProfiler(name=name, sort_by=sort_by, enabled=enabled) as prof:
                 result = await fn(*args, **kwargs)
             if enabled:
@@ -176,6 +178,7 @@ def profile_cpu(
             return result
 
         import asyncio
+
         if asyncio.iscoroutinefunction(fn):
             return async_wrapper
         return wrapper

@@ -21,14 +21,33 @@ from src.etl.v53e import V53EConfig, compute_rankings, _provisional_multiplier
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_game_pair(game_id, date, home, away, hs, as_, age="14", gender="male"):
     return [
-        {"game_id": game_id, "date": pd.Timestamp(date),
-         "team_id": home, "opp_id": away, "age": age, "gender": gender,
-         "opp_age": age, "opp_gender": gender, "gf": hs, "ga": as_},
-        {"game_id": game_id, "date": pd.Timestamp(date),
-         "team_id": away, "opp_id": home, "age": age, "gender": gender,
-         "opp_age": age, "opp_gender": gender, "gf": as_, "ga": hs},
+        {
+            "game_id": game_id,
+            "date": pd.Timestamp(date),
+            "team_id": home,
+            "opp_id": away,
+            "age": age,
+            "gender": gender,
+            "opp_age": age,
+            "opp_gender": gender,
+            "gf": hs,
+            "ga": as_,
+        },
+        {
+            "game_id": game_id,
+            "date": pd.Timestamp(date),
+            "team_id": away,
+            "opp_id": home,
+            "age": age,
+            "gender": gender,
+            "opp_age": age,
+            "opp_gender": gender,
+            "gf": as_,
+            "ga": hs,
+        },
     ]
 
 
@@ -48,20 +67,22 @@ def _build_team_with_n_games(team_id, n_games, opponents, base_date, gc_start=0)
 # Unit tests for _provisional_multiplier
 # ===========================================================================
 
+
 class TestProvisionalMultiplierUnit:
     """Direct tests on the _provisional_multiplier function."""
 
     def test_below_min_games(self):
+        # Linear ramp: 0.85 + (gp/15) * 0.15
         assert _provisional_multiplier(0, 8) == 0.85
-        assert _provisional_multiplier(5, 8) == 0.85
-        assert _provisional_multiplier(7, 8) == 0.85
+        assert abs(_provisional_multiplier(5, 8) - 0.90) < 0.01
+        assert abs(_provisional_multiplier(7, 8) - 0.92) < 0.01
 
     def test_at_min_games_boundary(self):
-        assert _provisional_multiplier(8, 8) == 0.95
+        assert abs(_provisional_multiplier(8, 8) - 0.93) < 0.01
 
     def test_between_thresholds(self):
-        assert _provisional_multiplier(10, 8) == 0.95
-        assert _provisional_multiplier(14, 8) == 0.95
+        assert abs(_provisional_multiplier(10, 8) - 0.95) < 0.01
+        assert abs(_provisional_multiplier(14, 8) - 0.99) < 0.01
 
     def test_at_full_confidence(self):
         assert _provisional_multiplier(15, 8) == 1.0
@@ -74,6 +95,7 @@ class TestProvisionalMultiplierUnit:
 # ===========================================================================
 # Integration: provisional multiplier applied correctly in pipeline
 # ===========================================================================
+
 
 class TestProvisionalMultInPipeline:
     """Verify provisional_mult column matches expected values in compute_rankings."""
@@ -106,20 +128,22 @@ class TestProvisionalMultInPipeline:
         return pd.DataFrame(rows)
 
     def test_provisional_mult_values(self):
-        """Verify that gp thresholds map to correct multiplier in output."""
-        games = self._build_scenario({
-            "few_games": 5,      # < 8  → 0.85
-            "mid_games": 10,     # 8-14 → 0.95
-            "full_games": 20,    # ≥ 15 → 1.00
-        })
+        """Verify that gp thresholds map to correct multiplier in output (linear ramp)."""
+        games = self._build_scenario(
+            {
+                "few_games": 5,  # 5 games → ~0.90
+                "mid_games": 10,  # 10 games → ~0.95
+                "full_games": 20,  # ≥ 15 → 1.00
+            }
+        )
         cfg = V53EConfig(SOS_POWER_ITERATIONS=0, SCF_ENABLED=False, PAGERANK_DAMPENING_ENABLED=False)
         result = compute_rankings(games_df=games, cfg=cfg, today=pd.Timestamp("2025-07-01"))
         teams = result["teams"].set_index("team_id")
 
         if "few_games" in teams.index:
-            assert teams.loc["few_games", "provisional_mult"] == 0.85
+            assert abs(teams.loc["few_games", "provisional_mult"] - 0.90) < 0.01
         if "mid_games" in teams.index:
-            assert teams.loc["mid_games", "provisional_mult"] == 0.95
+            assert abs(teams.loc["mid_games", "provisional_mult"] - 0.95) < 0.01
         if "full_games" in teams.index:
             assert teams.loc["full_games", "provisional_mult"] == 1.0
 
@@ -141,6 +165,7 @@ class TestProvisionalMultInPipeline:
 # ===========================================================================
 # SOS shrinkage for low-sample teams
 # ===========================================================================
+
 
 class TestSOSShrinkage:
     """Verify SOS low-sample shrinkage toward anchor."""
@@ -176,6 +201,7 @@ class TestSOSShrinkage:
 # Compound effect: provisional * shrunk SOS
 # ===========================================================================
 
+
 class TestCompoundEffect:
     """Verify the compound penalty for low-game teams."""
 
@@ -208,9 +234,7 @@ class TestCompoundEffect:
         core_b = cfg.OFF_WEIGHT * off_norm + cfg.DEF_WEIGHT * def_norm + cfg.SOS_WEIGHT * sos_norm_b
         adj_b = core_b * _provisional_multiplier(20, cfg.MIN_GAMES_PROVISIONAL)  # * 1.0
 
-        assert adj_a < adj_b, (
-            f"5-game team ({adj_a:.4f}) should score lower than 20-game team ({adj_b:.4f})"
-        )
+        assert adj_a < adj_b, f"5-game team ({adj_a:.4f}) should score lower than 20-game team ({adj_b:.4f})"
         # The difference should be significant due to compound effect
         gap = adj_b - adj_a
         assert gap > 0.05, f"Compound penalty gap too small: {gap:.4f}"
