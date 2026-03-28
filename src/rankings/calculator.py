@@ -994,6 +994,10 @@ async def compute_all_cohorts(
                 if still_null > 0:
                     logger.error(f"❌ {still_null} teams still have NULL power_score_final after anchor scaling!")
 
+            # Ensure power_score_true is numeric (initialized as None → object dtype)
+            if "power_score_true" in teams_combined.columns:
+                teams_combined["power_score_true"] = pd.to_numeric(teams_combined["power_score_true"], errors="coerce")
+
             # === MANDATORY: power_score_true bounds check ===
             if "power_score_true" in teams_combined.columns:
                 pst = teams_combined["power_score_true"].dropna()
