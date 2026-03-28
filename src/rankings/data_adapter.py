@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Optional
 
 import pandas as pd
@@ -218,7 +219,6 @@ async def fetch_games_for_rankings(
 
         if len(first_result.data) == page_size:
             # More pages exist — fetch remaining in parallel batches
-            from concurrent.futures import ThreadPoolExecutor, as_completed
 
             offset = page_size
             done = False

@@ -843,20 +843,27 @@ def compute_rankings(
         # Return empty DataFrames if columns are missing
         return {"teams": pd.DataFrame(), "games_used": pd.DataFrame(), "pre_sos_state": None}
 
+    # Shared helper used by both pre-SOS layers and SOS layers
+    def apply_recency(df: pd.DataFrame) -> pd.DataFrame:
+        n = len(df)
+        w = _recency_weights(n, decay_rate=cfg.RECENCY_DECAY_RATE)
+        out = df.copy()
+        out["w_base"] = w
+        return out
+
     # Two-pass optimization: if pre_sos_state is provided, skip layers 1-5
     # and jump directly to SOS calculation with the new global_strength_map.
-    _skip_pre_sos = pre_sos_state is not None
-    if _skip_pre_sos:
+    _current_pre_sos_state = None
+    if pre_sos_state is not None:
         logger.info("⚡ Restoring pre-SOS state (skipping layers 1-5)")
-        team = pre_sos_state["team"].copy()
-        g = pre_sos_state["g"].copy()
-        g_365 = pre_sos_state["g_365"].copy()
-        strength_map = dict(pre_sos_state["strength_map"])
-        power_map = dict(pre_sos_state["power_map"])
+        team = pre_sos_state["team"]
+        g = pre_sos_state["g"]
+        g_365 = pre_sos_state["g_365"]
+        strength_map = pre_sos_state["strength_map"]
+        power_map = pre_sos_state["power_map"]
         strength_series = pd.Series(strength_map)
         today = pre_sos_state["today"]
-
-    if not _skip_pre_sos:
+    else:
 
         g = games_df.copy()
         g["date"] = pd.to_datetime(g["date"], errors="coerce")
@@ -919,13 +926,6 @@ def compute_rankings(
         # -------------------------
         # Layer 3: Recency weights
         # -------------------------
-        def apply_recency(df: pd.DataFrame) -> pd.DataFrame:
-            n = len(df)
-            w = _recency_weights(n, decay_rate=cfg.RECENCY_DECAY_RATE)
-            out = df.copy()
-            out["w_base"] = w
-            return out
-
         g = pd.concat([apply_recency(grp) for _, grp in g.groupby("team_id")]).reset_index(drop=True)
 
         g["w_game"] = g["w_base"]
@@ -2254,5 +2254,5 @@ def compute_rankings(
     return {
         "teams": teams,
         "games_used": games_used,
-        "pre_sos_state": _current_pre_sos_state if not _skip_pre_sos else None,
+        "pre_sos_state": _current_pre_sos_state,
     }

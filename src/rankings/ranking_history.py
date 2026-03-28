@@ -11,7 +11,8 @@ Supports both national rank changes and state rank changes:
 
 import logging
 from datetime import date, timedelta
-from typing import Optional, Dict, Tuple
+from typing import Dict, Optional, Tuple
+
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -114,8 +115,7 @@ async def save_ranking_snapshot(
         logger.warning("⚠️ No valid records to save in snapshot")
         return 0
 
-    # Batch upsert (insert or update on conflict) to avoid timeout
-    # Process in smaller batches with exponential backoff to handle Supabase timeouts
+    # Batch upsert with exponential backoff retries to handle Supabase timeouts
     try:
         import time
 

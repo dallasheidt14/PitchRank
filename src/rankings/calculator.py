@@ -92,7 +92,7 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
                         or "remote host" in error_msg.lower()
                     )
 
-                    if attempt < max_retries - 1 and (is_retriable or True):
+                    if attempt < max_retries - 1:
                         logger.warning(
                             f"Retriable error on batch {batch_num}/{total_batches}, "
                             f"attempt {attempt + 1}/{max_retries}. "
