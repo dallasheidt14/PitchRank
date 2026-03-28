@@ -33,7 +33,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
   if (!webhookSecret) {
     console.error("Missing STRIPE_WEBHOOK_SECRET environment variable");
     return NextResponse.json(
@@ -94,9 +94,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ received: true });
   } catch (error) {
     console.error("Webhook handler error:", error);
+    // Return 200 to acknowledge receipt and prevent Stripe from retrying
+    // for up to 72 hours. Permanent errors (missing user, bad data) won't
+    // resolve on retry. Transient errors (DB timeout) are rare and can be
+    // reprocessed manually if needed.
     return NextResponse.json(
-      { error: "Webhook handler failed" },
-      { status: 500 }
+      { received: true, error: "Webhook handler failed" },
+      { status: 200 }
     );
   }
 }
@@ -115,8 +119,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
   // Fetch subscription details to get period end and status (may be "trialing" for free trials)
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-  const periodEnd = (subscription as { current_period_end?: number }).current_period_end ||
-    Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60; // Default to 30 days from now
+  const periodEnd = subscription.items.data[0]?.current_period_end ??
+    Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
 
   const { data, error } = await getSupabaseAdmin()
     .from("user_profiles")
@@ -156,8 +160,8 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
     ? "premium"
     : "free";
 
-  // Get period end from subscription
-  const periodEnd = (subscription as unknown as { current_period_end?: number }).current_period_end ||
+  // Get period end from subscription item (moved from top-level in Stripe API 2025-03-31.basil+)
+  const periodEnd = subscription.items.data[0]?.current_period_end ??
     Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
 
   const { data, error } = await getSupabaseAdmin()
@@ -231,9 +235,9 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
     return;
   }
 
-  // Fetch subscription to get updated period end
+  // Fetch subscription to get updated period end (from item, not top-level)
   const subscriptionData = await stripe.subscriptions.retrieve(subscriptionId);
-  const periodEnd = (subscriptionData as { current_period_end?: number }).current_period_end ||
+  const periodEnd = subscriptionData.items.data[0]?.current_period_end ??
     Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
 
   const { data, error } = await getSupabaseAdmin()
