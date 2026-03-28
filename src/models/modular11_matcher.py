@@ -508,7 +508,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
                         final_team_name = (
                             team_result.data.get("team_name", "Unknown") if team_result.data else "Unknown"
                         )
-                    except:
+                    except Exception:
                         final_team_name = "Unknown"
                     self._dlog(f"FINAL DECISION: alias -> {final_team_name} ({team_id_master})")
 
@@ -555,7 +555,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
                         .execute()
                     )
                     final_team_name = team_result.data.get("team_name", "Unknown") if team_result.data else "Unknown"
-                except:
+                except Exception:
                     final_team_name = "Unknown"
                 self._dlog(f"FINAL DECISION: fuzzy_auto -> matched {final_team_name} ({fuzzy_match.team_id_master})")
                 return {
@@ -1840,19 +1840,18 @@ class Modular11GameMatcher(GameHistoryMatcher):
 
             # For Modular11, include age_group AND division in game_uid
             # This matches the alias format: {provider_id}_{age_group}_{division}
+            def normalize_team_id(team_id):
+                if not team_id or team_id == "" or str(team_id).strip().lower() == "none":
+                    return ""
+                try:
+                    return str(int(float(str(team_id))))
+                except (ValueError, TypeError):
+                    return str(team_id).strip()
+
             if age_group and division:
                 # Format: modular11:{date}:{team1}:{team2}:{age_group}:{division}
                 team1_id = home_provider_id or game_data.get("team_id", "")
                 team2_id = away_provider_id or game_data.get("opponent_id", "")
-
-                # Normalize team IDs
-                def normalize_team_id(team_id):
-                    if not team_id or team_id == "" or str(team_id).strip().lower() == "none":
-                        return ""
-                    try:
-                        return str(int(float(str(team_id))))
-                    except (ValueError, TypeError):
-                        return str(team_id).strip()
 
                 team1_str = normalize_team_id(team1_id)
                 team2_str = normalize_team_id(team2_id)
@@ -1863,14 +1862,6 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 # Fallback: include age_group only if division not available
                 team1_id = home_provider_id or game_data.get("team_id", "")
                 team2_id = away_provider_id or game_data.get("opponent_id", "")
-
-                def normalize_team_id(team_id):
-                    if not team_id or team_id == "" or str(team_id).strip().lower() == "none":
-                        return ""
-                    try:
-                        return str(int(float(str(team_id))))
-                    except (ValueError, TypeError):
-                        return str(team_id).strip()
 
                 team1_str = normalize_team_id(team1_id)
                 team2_str = normalize_team_id(team2_id)
@@ -2103,7 +2094,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
                                     )
                                 else:
                                     self._dlog(f"Alias rejected: age mismatch (incoming {age_group} vs team Unknown)")
-                            except:
+                            except Exception:
                                 self._dlog(f"Alias rejected: age mismatch (incoming {age_group})")
                             logger.debug(
                                 f"[Modular11] Provider ID {try_id} matched to team {team_id_master} "
@@ -2165,7 +2156,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
                                         self._dlog(
                                             f"Alias rejected: age mismatch (incoming {age_group} vs team Unknown)"
                                         )
-                                except:
+                                except Exception:
                                     self._dlog(f"Alias rejected: age mismatch (incoming {age_group})")
                                 logger.debug(
                                     f"[Modular11] Provider ID {try_id} matched to team {team_id_master} "
@@ -2214,7 +2205,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
                                         self._dlog(
                                             f"Alias rejected: age mismatch (incoming {age_group} vs team Unknown)"
                                         )
-                                except:
+                                except Exception:
                                     self._dlog(f"Alias rejected: age mismatch (incoming {age_group})")
                                 logger.debug(
                                     f"[Modular11] Provider ID {try_id} matched to team {team_id_master} "

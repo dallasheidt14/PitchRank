@@ -27,8 +27,10 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+# Ensure project root is on path (needed for direct script execution only)
+_project_root = os.path.join(os.path.dirname(__file__), "../..")
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
 from supabase import create_client, Client
 
@@ -36,6 +38,7 @@ from supabase import create_client, Client
 @dataclass
 class TeamRanking:
     """Team ranking data at a point in time"""
+
     team_id: str
     team_name: str
     power_score_final: float
@@ -49,6 +52,7 @@ class TeamRanking:
 @dataclass
 class GamePrediction:
     """Prediction for a single game"""
+
     game_id: str
     game_date: str
     team_a_id: str
@@ -83,19 +87,19 @@ class PredictionValidator:
         """Fetch current rankings from rankings_view"""
         print("Fetching current rankings...")
 
-        response = self.supabase.table('rankings_view').select('*').execute()
+        response = self.supabase.table("rankings_view").select("*").execute()
 
         rankings = {}
         for row in response.data:
-            rankings[row['team_id_master']] = TeamRanking(
-                team_id=row['team_id_master'],
-                team_name=row['team_name'],
-                power_score_final=row['power_score_final'] or 0.5,
-                sos_norm=row['sos_norm'] or 0.5,
-                offense_norm=row.get('offense_norm'),
-                defense_norm=row.get('defense_norm'),
-                win_percentage=row.get('win_percentage'),
-                games_played=row.get('games_played', 0)
+            rankings[row["team_id_master"]] = TeamRanking(
+                team_id=row["team_id_master"],
+                team_name=row["team_name"],
+                power_score_final=row["power_score_final"] or 0.5,
+                sos_norm=row["sos_norm"] or 0.5,
+                offense_norm=row.get("offense_norm"),
+                defense_norm=row.get("defense_norm"),
+                win_percentage=row.get("win_percentage"),
+                games_played=row.get("games_played", 0),
             )
 
         print(f"Loaded {len(rankings)} team rankings")
@@ -105,15 +109,15 @@ class PredictionValidator:
         """Fetch recent games for validation"""
         print(f"Fetching games from last {days} days (limit: {limit})...")
 
-        cutoff_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+        cutoff_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
         response = (
-            self.supabase.table('games')
-            .select('id, game_date, home_team_master_id, away_team_master_id, home_score, away_score')
-            .gte('game_date', cutoff_date)
-            .not_.is_('home_score', 'null')
-            .not_.is_('away_score', 'null')
-            .order('game_date', desc=True)
+            self.supabase.table("games")
+            .select("id, game_date, home_team_master_id, away_team_master_id, home_score, away_score")
+            .gte("game_date", cutoff_date)
+            .not_.is_("home_score", "null")
+            .not_.is_("away_score", "null")
+            .order("game_date", desc=True)
             .limit(limit)
             .execute()
         )
@@ -148,16 +152,12 @@ class PredictionValidator:
         predicted_margin = power_diff * margin_coefficient
 
         return {
-            'predicted_margin': predicted_margin,
-            'win_prob_a': win_prob_a,
-            'power_diff': power_diff,
+            "predicted_margin": predicted_margin,
+            "win_prob_a": win_prob_a,
+            "power_diff": power_diff,
         }
 
-    def validate_games(
-        self,
-        games_df: pd.DataFrame,
-        rankings: Dict[str, TeamRanking]
-    ) -> List[GamePrediction]:
+    def validate_games(self, games_df: pd.DataFrame, rankings: Dict[str, TeamRanking]) -> List[GamePrediction]:
         """Validate predictions against actual game outcomes"""
 
         predictions = []
@@ -167,8 +167,8 @@ class PredictionValidator:
 
         for idx, game in games_df.iterrows():
             # Get team rankings
-            team_a_id = game['home_team_master_id']
-            team_b_id = game['away_team_master_id']
+            team_a_id = game["home_team_master_id"]
+            team_b_id = game["away_team_master_id"]
 
             # Skip if rankings not available
             if team_a_id not in rankings or team_b_id not in rankings:
@@ -184,49 +184,51 @@ class PredictionValidator:
                 continue
 
             # Actual outcome
-            actual_score_a = game['home_score']
-            actual_score_b = game['away_score']
+            actual_score_a = game["home_score"]
+            actual_score_b = game["away_score"]
             actual_margin = actual_score_a - actual_score_b
 
             if actual_margin > 0:
-                actual_winner = 'a'
+                actual_winner = "a"
             elif actual_margin < 0:
-                actual_winner = 'b'
+                actual_winner = "b"
             else:
-                actual_winner = 'draw'
+                actual_winner = "draw"
 
             # Predict
             pred = self.predict_match(team_a, team_b)
 
             # Predicted winner
-            if pred['win_prob_a'] > 0.55:  # Add 5% threshold to avoid ties
-                predicted_winner = 'a'
-            elif pred['win_prob_a'] < 0.45:
-                predicted_winner = 'b'
+            if pred["win_prob_a"] > 0.55:  # Add 5% threshold to avoid ties
+                predicted_winner = "a"
+            elif pred["win_prob_a"] < 0.45:
+                predicted_winner = "b"
             else:
-                predicted_winner = 'draw'
+                predicted_winner = "draw"
 
             # Check if correct
-            prediction_correct = (predicted_winner == actual_winner)
+            prediction_correct = predicted_winner == actual_winner
 
-            predictions.append(GamePrediction(
-                game_id=game['id'],
-                game_date=game['game_date'],
-                team_a_id=team_a_id,
-                team_b_id=team_b_id,
-                team_a_name=team_a.team_name,
-                team_b_name=team_b.team_name,
-                actual_score_a=actual_score_a,
-                actual_score_b=actual_score_b,
-                actual_margin=actual_margin,
-                actual_winner=actual_winner,
-                predicted_margin=pred['predicted_margin'],
-                predicted_win_prob_a=pred['win_prob_a'],
-                predicted_winner=predicted_winner,
-                prediction_correct=prediction_correct,
-                power_diff=pred['power_diff'],
-                sos_diff=team_a.sos_norm - team_b.sos_norm,
-            ))
+            predictions.append(
+                GamePrediction(
+                    game_id=game["id"],
+                    game_date=game["game_date"],
+                    team_a_id=team_a_id,
+                    team_b_id=team_b_id,
+                    team_a_name=team_a.team_name,
+                    team_b_name=team_b.team_name,
+                    actual_score_a=actual_score_a,
+                    actual_score_b=actual_score_b,
+                    actual_margin=actual_margin,
+                    actual_winner=actual_winner,
+                    predicted_margin=pred["predicted_margin"],
+                    predicted_win_prob_a=pred["win_prob_a"],
+                    predicted_winner=predicted_winner,
+                    prediction_correct=prediction_correct,
+                    power_diff=pred["power_diff"],
+                    sos_diff=team_a.sos_norm - team_b.sos_norm,
+                )
+            )
 
         print(f"Validated {len(predictions)} games (skipped {skipped} due to missing rankings)")
         return predictions
@@ -235,10 +237,7 @@ class PredictionValidator:
         """Calculate accuracy metrics"""
 
         if not predictions:
-            return {
-                'error': 'No predictions to validate',
-                'total_games': 0
-            }
+            return {"error": "No predictions to validate", "total_games": 0}
 
         # Direction accuracy (winner prediction)
         correct = sum(1 for p in predictions if p.prediction_correct)
@@ -255,7 +254,7 @@ class PredictionValidator:
         # actual_outcome = 1 if team_a won, 0 if lost
         brier_scores = []
         for p in predictions:
-            actual_outcome = 1.0 if p.actual_winner == 'a' else 0.0
+            actual_outcome = 1.0 if p.actual_winner == "a" else 0.0
             brier_scores.append((p.predicted_win_prob_a - actual_outcome) ** 2)
         brier_score = np.mean(brier_scores)
 
@@ -266,27 +265,21 @@ class PredictionValidator:
         high_conf = [p for p in predictions if abs(p.predicted_win_prob_a - 0.5) > 0.2]
         low_conf = [p for p in predictions if abs(p.predicted_win_prob_a - 0.5) <= 0.2]
 
-        high_conf_accuracy = (
-            sum(1 for p in high_conf if p.prediction_correct) / len(high_conf)
-            if high_conf else 0
-        )
-        low_conf_accuracy = (
-            sum(1 for p in low_conf if p.prediction_correct) / len(low_conf)
-            if low_conf else 0
-        )
+        high_conf_accuracy = sum(1 for p in high_conf if p.prediction_correct) / len(high_conf) if high_conf else 0
+        low_conf_accuracy = sum(1 for p in low_conf if p.prediction_correct) / len(low_conf) if low_conf else 0
 
         return {
-            'total_games': total,
-            'direction_accuracy': direction_accuracy,
-            'correct_predictions': correct,
-            'mae': mae,
-            'rmse': rmse,
-            'brier_score': brier_score,
-            'calibration_bins': calibration_bins,
-            'high_confidence_games': len(high_conf),
-            'high_confidence_accuracy': high_conf_accuracy,
-            'low_confidence_games': len(low_conf),
-            'low_confidence_accuracy': low_conf_accuracy,
+            "total_games": total,
+            "direction_accuracy": direction_accuracy,
+            "correct_predictions": correct,
+            "mae": mae,
+            "rmse": rmse,
+            "brier_score": brier_score,
+            "calibration_bins": calibration_bins,
+            "high_confidence_games": len(high_conf),
+            "high_confidence_accuracy": high_conf_accuracy,
+            "low_confidence_games": len(low_conf),
+            "low_confidence_accuracy": low_conf_accuracy,
         }
 
     def _calculate_calibration(self, predictions: List[GamePrediction]) -> List[Dict]:
@@ -296,67 +289,80 @@ class PredictionValidator:
         For example, of all games predicted at 70% probability, do we win 70% of them?
         """
         bins = [
-            (0.0, 0.1), (0.1, 0.2), (0.2, 0.3), (0.3, 0.4), (0.4, 0.5),
-            (0.5, 0.6), (0.6, 0.7), (0.7, 0.8), (0.8, 0.9), (0.9, 1.0)
+            (0.0, 0.1),
+            (0.1, 0.2),
+            (0.2, 0.3),
+            (0.3, 0.4),
+            (0.4, 0.5),
+            (0.5, 0.6),
+            (0.6, 0.7),
+            (0.7, 0.8),
+            (0.8, 0.9),
+            (0.9, 1.0),
         ]
 
         calibration = []
 
         for bin_min, bin_max in bins:
-            bin_predictions = [
-                p for p in predictions
-                if bin_min <= p.predicted_win_prob_a < bin_max
-            ]
+            bin_predictions = [p for p in predictions if bin_min <= p.predicted_win_prob_a < bin_max]
 
             if not bin_predictions:
                 continue
 
             # Actual win rate for team_a in this bin
-            actual_wins = sum(1 for p in bin_predictions if p.actual_winner == 'a')
+            actual_wins = sum(1 for p in bin_predictions if p.actual_winner == "a")
             actual_rate = actual_wins / len(bin_predictions)
 
             # Expected win rate (midpoint of bin)
             expected_rate = (bin_min + bin_max) / 2
 
-            calibration.append({
-                'bin': f'{bin_min:.1f}-{bin_max:.1f}',
-                'count': len(bin_predictions),
-                'predicted_rate': expected_rate,
-                'actual_rate': actual_rate,
-                'difference': abs(actual_rate - expected_rate),
-            })
+            calibration.append(
+                {
+                    "bin": f"{bin_min:.1f}-{bin_max:.1f}",
+                    "count": len(bin_predictions),
+                    "predicted_rate": expected_rate,
+                    "actual_rate": actual_rate,
+                    "difference": abs(actual_rate - expected_rate),
+                }
+            )
 
         return calibration
 
     def print_report(self, metrics: Dict, predictions: List[GamePrediction]):
         """Print validation report"""
 
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
         print("MATCH PREDICTION VALIDATION REPORT")
-        print("="*70)
+        print("=" * 70)
 
-        if 'error' in metrics:
+        if "error" in metrics:
             print(f"\nERROR: {metrics['error']}")
             return
 
         print(f"\n📊 OVERALL METRICS (n={metrics['total_games']} games)")
         print("-" * 70)
-        print(f"Direction Accuracy:     {metrics['direction_accuracy']:.1%} ({metrics['correct_predictions']}/{metrics['total_games']})")
+        print(
+            f"Direction Accuracy:     {metrics['direction_accuracy']:.1%} ({metrics['correct_predictions']}/{metrics['total_games']})"
+        )
         print(f"MAE (Goal Margin):      {metrics['mae']:.2f} goals")
         print(f"RMSE (Goal Margin):     {metrics['rmse']:.2f} goals")
         print(f"Brier Score:            {metrics['brier_score']:.3f} (lower is better, <0.20 is good)")
 
         print(f"\n🎯 BY CONFIDENCE LEVEL")
         print("-" * 70)
-        print(f"High Confidence (>70%): {metrics['high_confidence_accuracy']:.1%} accurate (n={metrics['high_confidence_games']})")
-        print(f"Low Confidence (50-70%): {metrics['low_confidence_accuracy']:.1%} accurate (n={metrics['low_confidence_games']})")
+        print(
+            f"High Confidence (>70%): {metrics['high_confidence_accuracy']:.1%} accurate (n={metrics['high_confidence_games']})"
+        )
+        print(
+            f"Low Confidence (50-70%): {metrics['low_confidence_accuracy']:.1%} accurate (n={metrics['low_confidence_games']})"
+        )
 
         print(f"\n📈 CALIBRATION ANALYSIS")
         print("-" * 70)
         print(f"{'Probability Bin':<20} {'Count':<10} {'Predicted':<12} {'Actual':<12} {'Error':<10}")
         print("-" * 70)
 
-        for cal in metrics['calibration_bins']:
+        for cal in metrics["calibration_bins"]:
             print(
                 f"{cal['bin']:<20} "
                 f"{cal['count']:<10} "
@@ -376,45 +382,49 @@ class PredictionValidator:
         print("\n✅ CORRECT PREDICTIONS:")
         for p in correct_samples:
             print(f"  {p.team_a_name} vs {p.team_b_name}")
-            print(f"    Actual: {p.actual_score_a}-{p.actual_score_b} | Predicted: {p.predicted_win_prob_a:.0%} for {p.team_a_name}")
+            print(
+                f"    Actual: {p.actual_score_a}-{p.actual_score_b} | Predicted: {p.predicted_win_prob_a:.0%} for {p.team_a_name}"
+            )
             print(f"    Power diff: {p.power_diff:+.3f}")
 
         print("\n❌ INCORRECT PREDICTIONS:")
         for p in incorrect_samples:
             print(f"  {p.team_a_name} vs {p.team_b_name}")
-            print(f"    Actual: {p.actual_score_a}-{p.actual_score_b} | Predicted: {p.predicted_win_prob_a:.0%} for {p.team_a_name}")
+            print(
+                f"    Actual: {p.actual_score_a}-{p.actual_score_b} | Predicted: {p.predicted_win_prob_a:.0%} for {p.team_a_name}"
+            )
             print(f"    Power diff: {p.power_diff:+.3f}")
 
         # Interpretation
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
         print("INTERPRETATION")
-        print("="*70)
+        print("=" * 70)
 
-        if metrics['direction_accuracy'] >= 0.70:
+        if metrics["direction_accuracy"] >= 0.70:
             print("✅ EXCELLENT: >70% direction accuracy is very good for sports prediction")
-        elif metrics['direction_accuracy'] >= 0.60:
+        elif metrics["direction_accuracy"] >= 0.60:
             print("✅ GOOD: 60-70% direction accuracy is solid and useful")
-        elif metrics['direction_accuracy'] >= 0.55:
+        elif metrics["direction_accuracy"] >= 0.55:
             print("⚠️  FAIR: 55-60% is better than random but could be improved")
         else:
             print("❌ POOR: <55% accuracy suggests predictions need improvement")
 
-        if metrics['brier_score'] < 0.20:
+        if metrics["brier_score"] < 0.20:
             print("✅ GOOD: Brier score <0.20 indicates well-calibrated probabilities")
-        elif metrics['brier_score'] < 0.25:
+        elif metrics["brier_score"] < 0.25:
             print("⚠️  FAIR: Brier score shows room for calibration improvement")
         else:
             print("❌ POOR: Probabilities are poorly calibrated")
 
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
 
 
 async def main():
     """Main validation script"""
 
     # Check environment
-    url = os.getenv('SUPABASE_URL')
-    key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
     if not url or not key:
         print("ERROR: Missing environment variables")
@@ -455,28 +465,31 @@ async def main():
         validator.print_report(metrics, predictions)
 
         # Export results (optional)
-        export_path = '/tmp/prediction_validation_results.csv'
-        predictions_df = pd.DataFrame([
-            {
-                'game_date': p.game_date,
-                'team_a': p.team_a_name,
-                'team_b': p.team_b_name,
-                'actual_score': f"{p.actual_score_a}-{p.actual_score_b}",
-                'predicted_win_prob_a': f"{p.predicted_win_prob_a:.1%}",
-                'correct': p.prediction_correct,
-                'power_diff': f"{p.power_diff:+.3f}",
-            }
-            for p in predictions
-        ])
+        export_path = "/tmp/prediction_validation_results.csv"
+        predictions_df = pd.DataFrame(
+            [
+                {
+                    "game_date": p.game_date,
+                    "team_a": p.team_a_name,
+                    "team_b": p.team_b_name,
+                    "actual_score": f"{p.actual_score_a}-{p.actual_score_b}",
+                    "predicted_win_prob_a": f"{p.predicted_win_prob_a:.1%}",
+                    "correct": p.prediction_correct,
+                    "power_diff": f"{p.power_diff:+.3f}",
+                }
+                for p in predictions
+            ]
+        )
         predictions_df.to_csv(export_path, index=False)
         print(f"\n💾 Results exported to: {export_path}")
 
     except Exception as e:
         print(f"\nERROR: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(main())
