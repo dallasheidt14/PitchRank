@@ -104,26 +104,33 @@ class EnhancedETLPipeline:
         self.skip_validation = skip_validation
         self.summary_only = summary_only
         self.metrics = ImportMetrics()
-        # Dynamic batch size based on total games for optimal performance
-        # Larger batches = fewer DB round trips, but watch for 429/timeout errors
-        # Reduced default batch size to avoid Supabase API rate limits
-        self.batch_size = 1000  # Default, reduced from 2000 to avoid rate limits
-        self._batch_count = 0  # Track batches for logging frequency
-        self._log_every_n_batches = 50  # Log metrics to DB every N batches
-        self._log_every_n_games = 10000  # Log progress updates every N games
-        self._last_logged_games = 0  # Track last logged game count
-        self._total_games_hint = 0  # Set externally for ETA display (0 = unknown)
+        self.batch_size = 1000
+        self._batch_count = 0
+        self._log_every_n_batches = 50
+        self._log_every_n_games = 10000
+        self._last_logged_games = 0
+        self._total_games_hint = 0
         self.validator = EnhancedDataValidator()
         self.build_id = BUILD_ID
+
+        # Deferred until first use via _ensure_initialized()
+        self.provider_id = None
+        self.alias_cache = {}
+        self.matcher = None
+        self._initialized = False
+
+    def _ensure_initialized(self):
+        """Lazy init: run DB queries, health check, alias cache, and matcher setup on first use."""
+        if self._initialized:
+            return
 
         # Get provider UUID with retry logic
         max_retries = 5
         retry_delay = 0.5
-        self.provider_id = None
 
         for attempt in range(max_retries):
             try:
-                result = self.supabase.table("providers").select("id").eq("code", provider_code).single().execute()
+                result = self.supabase.table("providers").select("id").eq("code", self.provider_code).single().execute()
                 self.provider_id = result.data["id"]
                 break
             except Exception as e:
@@ -135,11 +142,10 @@ class EnhancedETLPipeline:
                     time.sleep(wait_time)
                     continue
                 else:
-                    logger.error(f"Provider not found after {max_retries} attempts: {provider_code}")
-                    raise ValueError(f"Provider not found: {provider_code}") from e
+                    logger.error(f"Provider not found after {max_retries} attempts: {self.provider_code}")
+                    raise ValueError(f"Provider not found: {self.provider_code}") from e
 
-        # Pre-flight health check: verify Supabase can read AND write before
-        # spending minutes on validation/matching only to fail at insert time.
+        # Pre-flight health check
         try:
             self.supabase.table("games").select("game_uid").limit(1).execute()
             logger.info("Pre-flight health check passed: Supabase connection OK")
@@ -149,14 +155,9 @@ class EnhancedETLPipeline:
                 f"Check credentials and network before retrying."
             ) from e
 
-        # Initialize matcher with provider_id to avoid repeated lookups
-        # Preload alias map cache for fast lookups
-        # IMPORTANT: Handle semicolon-separated provider_team_ids (merged teams)
+        # Preload alias map cache (paginated to load ALL approved aliases)
         self.alias_cache = {}
         try:
-            # CRITICAL: Supabase default SELECT limit is 1000 rows.
-            # We MUST paginate to load ALL approved aliases, otherwise teams
-            # beyond the first 1000 won't be found and will be recreated as duplicates.
             all_alias_data = []
             page_size = 1000
             offset = 0
@@ -174,7 +175,7 @@ class EnhancedETLPipeline:
                     break
                 all_alias_data.extend(alias_result.data)
                 if len(alias_result.data) < page_size:
-                    break  # Last page
+                    break
                 offset += page_size
 
             logger.info(
@@ -189,14 +190,11 @@ class EnhancedETLPipeline:
                     "review_status": alias.get("review_status"),
                 }
 
-                # Handle semicolon-separated provider_team_ids (e.g., "123456;789012")
-                # Create cache entry for EACH individual ID so lookups work
                 if ";" in raw_team_id:
                     individual_ids = [id.strip() for id in raw_team_id.split(";") if id.strip()]
                     for individual_id in individual_ids:
                         if individual_id not in self.alias_cache:
                             self.alias_cache[individual_id] = cache_entry
-                    # Also store the full combined key for backwards compatibility
                     if raw_team_id not in self.alias_cache:
                         self.alias_cache[raw_team_id] = cache_entry
                 else:
@@ -208,41 +206,39 @@ class EnhancedETLPipeline:
             logger.warning(f"Could not preload alias cache: {e}")
             self.alias_cache = {}
 
-        # Use provider-specific matchers when available
-        if provider_code.lower() == "modular11":
-            # Lazy import to avoid breaking other providers if module doesn't exist yet
+        # Initialize provider-specific matcher
+        if self.provider_code.lower() == "modular11":
             from src.models.modular11_matcher import Modular11GameMatcher
 
             logger.info("Using Modular11GameMatcher (with age_group validation)")
-            # Enable debug mode for dry runs OR summary_only mode (to track summary data)
-            # But suppress per-team logs if summary_only is True
-            debug_mode = dry_run or summary_only
+            debug_mode = self.dry_run or self.summary_only
             self.matcher = Modular11GameMatcher(
-                supabase,
+                self.supabase,
                 provider_id=self.provider_id,
                 alias_cache=self.alias_cache,
                 debug=debug_mode,
-                summary_only=summary_only,
+                summary_only=self.summary_only,
             )
-        elif provider_code.lower() == "tgs":
-            # TGS-specific matcher with enhanced fuzzy matching
+        elif self.provider_code.lower() == "tgs":
             from src.models.tgs_matcher import TGSGameMatcher
 
             logger.info("Using TGSGameMatcher (with enhanced fuzzy matching)")
-            self.matcher = TGSGameMatcher(supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
-        elif provider_code.lower() == "sincsports":
+            self.matcher = TGSGameMatcher(self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
+        elif self.provider_code.lower() == "sincsports":
             from src.models.sincsports_matcher import SincSportsGameMatcher
 
             logger.info("Using SincSportsGameMatcher (with enhanced fuzzy matching)")
-            self.matcher = SincSportsGameMatcher(supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
-        elif provider_code.lower() == "affinity_wa":
+            self.matcher = SincSportsGameMatcher(self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
+        elif self.provider_code.lower() == "affinity_wa":
             from src.models.affinity_wa_matcher import AffinityWAGameMatcher
 
             logger.info("Using AffinityWAGameMatcher (WA-specific normalization + auto-create)")
-            self.matcher = AffinityWAGameMatcher(supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
+            self.matcher = AffinityWAGameMatcher(self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
         else:
-            logger.info(f"Using standard GameHistoryMatcher for provider: {provider_code}")
-            self.matcher = GameHistoryMatcher(supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
+            logger.info(f"Using standard GameHistoryMatcher for provider: {self.provider_code}")
+            self.matcher = GameHistoryMatcher(self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
+
+        self._initialized = True
 
     def _has_valid_scores(self, game: Dict) -> bool:
         """
@@ -332,6 +328,7 @@ class EnhancedETLPipeline:
             ImportMetrics object with detailed statistics for THIS BATCH ONLY
             (to avoid double-counting when batches run concurrently)
         """
+        self._ensure_initialized()
         start_time = datetime.now()
 
         # Initialize import start time on first batch
