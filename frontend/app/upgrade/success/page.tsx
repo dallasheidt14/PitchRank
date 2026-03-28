@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Check, Crown, ArrowRight, Sparkles, Search, Eye, BarChart3, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,8 +40,18 @@ const ONBOARDING_STEPS = [
 ];
 
 export default function UpgradeSuccessPage() {
+  return (
+    <Suspense>
+      <UpgradeSuccessContent />
+    </Suspense>
+  );
+}
+
+function UpgradeSuccessContent() {
+  const searchParams = useSearchParams();
   const [showConfetti, setShowConfetti] = useState(false);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<"syncing" | "synced" | "error" | null>(null);
 
   useEffect(() => {
     // Trigger confetti animation on mount
@@ -50,6 +61,33 @@ export default function UpgradeSuccessPage() {
       trackSubscriptionCompleted();
     }
   }, [showConfetti]);
+
+  // Sync subscription status from Stripe as webhook fallback
+  useEffect(() => {
+    const sessionId = searchParams.get("session_id");
+    if (!sessionId || syncStatus) return;
+
+    setSyncStatus("syncing");
+    fetch("/api/stripe/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.synced) {
+          setSyncStatus("synced");
+          console.log(`Subscription synced: plan=${data.plan}, status=${data.status}`);
+        } else {
+          console.error("Sync failed:", data.error);
+          setSyncStatus("error");
+        }
+      })
+      .catch((err) => {
+        console.error("Sync fetch error:", err);
+        setSyncStatus("error");
+      });
+  }, [searchParams, syncStatus]);
 
   const handleShare = async () => {
     const shareData = {
