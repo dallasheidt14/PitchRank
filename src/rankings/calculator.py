@@ -949,7 +949,7 @@ async def compute_all_cohorts(
                 )
 
                 # Save unanchored competitive score (single source of truth)
-                teams_combined.loc[ps_scaled.index, "power_score_true"] = base.values
+                teams_combined.loc[ps_scaled.index, "power_score_true"] = base
 
                 # Apply anchor (sole application point)
                 teams_combined.loc[ps_scaled.index, "power_score_final"] = ps_scaled

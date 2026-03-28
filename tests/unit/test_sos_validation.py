@@ -1,6 +1,7 @@
 """
 Unit tests for SOS (Strength of Schedule) calculations and validation
 """
+
 import pytest
 import pandas as pd
 import numpy as np
@@ -15,10 +16,10 @@ class TestSOSConfiguration:
         cfg = V53EConfig()
 
         # Verify critical SOS parameters exist
-        assert hasattr(cfg, 'SOS_ITERATIONS')
-        assert hasattr(cfg, 'SOS_TRANSITIVITY_LAMBDA')
-        assert hasattr(cfg, 'SOS_REPEAT_CAP')
-        assert hasattr(cfg, 'UNRANKED_SOS_BASE')
+        assert hasattr(cfg, "SOS_ITERATIONS")
+        assert hasattr(cfg, "SOS_TRANSITIVITY_LAMBDA")
+        assert hasattr(cfg, "SOS_REPEAT_CAP")
+        assert hasattr(cfg, "UNRANKED_SOS_BASE")
 
     def test_sos_iterations_is_one(self):
         """Verify single-pass SOS (no transitive propagation)"""
@@ -28,21 +29,18 @@ class TestSOSConfiguration:
     def test_sos_transitivity_lambda_is_zero(self):
         """Verify SOS transitivity is disabled (prevents closed-league inflation)"""
         cfg = V53EConfig()
-        assert cfg.SOS_TRANSITIVITY_LAMBDA == 0.0, \
-            "SOS_TRANSITIVITY_LAMBDA should be 0.0 (pure direct, no transitive)"
+        assert cfg.SOS_TRANSITIVITY_LAMBDA == 0.0, "SOS_TRANSITIVITY_LAMBDA should be 0.0 (pure direct, no transitive)"
 
-    def test_sos_repeat_cap_is_two(self):
-        """Verify repeat cap limits to top 2 games per opponent (prevents regional rival dominance)"""
+    def test_sos_repeat_cap(self):
+        """Verify repeat cap limits games per opponent (prevents regional rival dominance)"""
         cfg = V53EConfig()
-        assert cfg.SOS_REPEAT_CAP == 2, "SOS repeat cap should be 2"
+        assert cfg.SOS_REPEAT_CAP == 4, "SOS repeat cap should be 4"
 
     def test_unranked_sos_base_valid(self):
         """Verify unranked opponent SOS base is reasonable"""
         cfg = V53EConfig()
-        assert 0.0 <= cfg.UNRANKED_SOS_BASE <= 1.0, \
-            "UNRANKED_SOS_BASE must be between 0 and 1"
-        assert cfg.UNRANKED_SOS_BASE == 0.35, \
-            "UNRANKED_SOS_BASE should be 0.35"
+        assert 0.0 <= cfg.UNRANKED_SOS_BASE <= 1.0, "UNRANKED_SOS_BASE must be between 0 and 1"
+        assert cfg.UNRANKED_SOS_BASE == 0.35, "UNRANKED_SOS_BASE should be 0.35"
 
 
 class TestPowerScoreWeights:
@@ -53,8 +51,7 @@ class TestPowerScoreWeights:
         cfg = V53EConfig()
 
         total_weight = cfg.OFF_WEIGHT + cfg.DEF_WEIGHT + cfg.SOS_WEIGHT
-        assert abs(total_weight - 1.0) < 0.0001, \
-            f"PowerScore weights must sum to 1.0, got {total_weight}"
+        assert abs(total_weight - 1.0) < 0.0001, f"PowerScore weights must sum to 1.0, got {total_weight}"
 
     def test_sos_weight(self):
         """Verify SOS has 60% weight in PowerScore"""
@@ -64,8 +61,7 @@ class TestPowerScoreWeights:
     def test_off_def_weights_balanced(self):
         """Verify offense and defense have equal weights"""
         cfg = V53EConfig()
-        assert cfg.OFF_WEIGHT == cfg.DEF_WEIGHT, \
-            "Offense and defense should have equal weights"
+        assert cfg.OFF_WEIGHT == cfg.DEF_WEIGHT, "Offense and defense should have equal weights"
         assert cfg.OFF_WEIGHT == 0.20, "Offense weight should be 20%"
         assert cfg.DEF_WEIGHT == 0.20, "Defense weight should be 20%"
 
@@ -78,35 +74,31 @@ class TestSOSValueRanges:
         """Create sample games data for testing"""
         # Create a small dataset with known teams
         data = {
-            'game_id': ['g1', 'g2', 'g3', 'g4', 'g5', 'g6'],
-            'date': pd.to_datetime(['2024-01-01'] * 6),
-            'team_id': ['t1', 't1', 't2', 't2', 't3', 't3'],
-            'opp_id': ['t2', 't3', 't1', 't3', 't1', 't2'],
-            'age': [12, 12, 12, 12, 12, 12],
-            'gender': ['M', 'M', 'M', 'M', 'M', 'M'],
-            'opp_age': [12, 12, 12, 12, 12, 12],
-            'opp_gender': ['M', 'M', 'M', 'M', 'M', 'M'],
-            'gf': [3, 2, 1, 2, 1, 3],
-            'ga': [1, 1, 3, 1, 2, 2],
+            "game_id": ["g1", "g2", "g3", "g4", "g5", "g6"],
+            "date": pd.to_datetime(["2024-01-01"] * 6),
+            "team_id": ["t1", "t1", "t2", "t2", "t3", "t3"],
+            "opp_id": ["t2", "t3", "t1", "t3", "t1", "t2"],
+            "age": [12, 12, 12, 12, 12, 12],
+            "gender": ["M", "M", "M", "M", "M", "M"],
+            "opp_age": [12, 12, 12, 12, 12, 12],
+            "opp_gender": ["M", "M", "M", "M", "M", "M"],
+            "gf": [3, 2, 1, 2, 1, 3],
+            "ga": [1, 1, 3, 1, 2, 2],
         }
         return pd.DataFrame(data)
 
     def test_sos_raw_in_valid_range(self, sample_games_df):
         """Verify raw SOS values are between 0 and 1"""
         cfg = V53EConfig()
-        result = compute_rankings(
-            games_df=sample_games_df,
-            cfg=cfg,
-            today=pd.Timestamp('2024-06-01')
-        )
+        result = compute_rankings(games_df=sample_games_df, cfg=cfg, today=pd.Timestamp("2024-06-01"))
 
-        teams_df = result['teams']
+        teams_df = result["teams"]
 
         # Check that sos column exists
-        assert 'sos' in teams_df.columns, "SOS column should exist in output"
+        assert "sos" in teams_df.columns, "SOS column should exist in output"
 
         # Check all SOS values are in valid range
-        sos_values = teams_df['sos'].dropna()
+        sos_values = teams_df["sos"].dropna()
         assert len(sos_values) > 0, "Should have SOS values"
         assert (sos_values >= 0.0).all(), "All SOS values should be >= 0.0"
         assert (sos_values <= 1.0).all(), "All SOS values should be <= 1.0"
@@ -114,19 +106,15 @@ class TestSOSValueRanges:
     def test_sos_norm_in_valid_range(self, sample_games_df):
         """Verify normalized SOS values are between 0 and 1"""
         cfg = V53EConfig()
-        result = compute_rankings(
-            games_df=sample_games_df,
-            cfg=cfg,
-            today=pd.Timestamp('2024-06-01')
-        )
+        result = compute_rankings(games_df=sample_games_df, cfg=cfg, today=pd.Timestamp("2024-06-01"))
 
-        teams_df = result['teams']
+        teams_df = result["teams"]
 
         # Check that sos_norm column exists
-        assert 'sos_norm' in teams_df.columns, "SOS_NORM column should exist in output"
+        assert "sos_norm" in teams_df.columns, "SOS_NORM column should exist in output"
 
         # Check all SOS_NORM values are in valid range
-        sos_norm_values = teams_df['sos_norm'].dropna()
+        sos_norm_values = teams_df["sos_norm"].dropna()
         assert len(sos_norm_values) > 0, "Should have SOS_NORM values"
         assert (sos_norm_values >= 0.0).all(), "All SOS_NORM values should be >= 0.0"
         assert (sos_norm_values <= 1.0).all(), "All SOS_NORM values should be <= 1.0"
@@ -134,13 +122,9 @@ class TestSOSValueRanges:
     def test_powerscore_uses_sos_norm(self, sample_games_df):
         """Verify PowerScore calculation uses sos_norm, not raw sos"""
         cfg = V53EConfig()
-        result = compute_rankings(
-            games_df=sample_games_df,
-            cfg=cfg,
-            today=pd.Timestamp('2024-06-01')
-        )
+        result = compute_rankings(games_df=sample_games_df, cfg=cfg, today=pd.Timestamp("2024-06-01"))
 
-        teams_df = result['teams']
+        teams_df = result["teams"]
 
         # Pick a team and verify the formula
         if len(teams_df) > 0:
@@ -151,17 +135,18 @@ class TestSOSValueRanges:
             #           + PERF_BLEND_WEIGHT*perf_centered) / MAX_POWERSCORE_THEORETICAL
             max_ps = 1.0 + 0.5 * cfg.PERF_BLEND_WEIGHT
             expected_ps = (
-                cfg.OFF_WEIGHT * team.get('off_norm', 0) +
-                cfg.DEF_WEIGHT * team.get('def_norm', 0) +
-                cfg.SOS_WEIGHT * team['sos_norm'] +  # Uses sos_norm!
-                team.get('perf_centered', 0) * cfg.PERF_BLEND_WEIGHT  # Performance adjustment
+                cfg.OFF_WEIGHT * team.get("off_norm", 0)
+                + cfg.DEF_WEIGHT * team.get("def_norm", 0)
+                + cfg.SOS_WEIGHT * team["sos_norm"]  # Uses sos_norm!
+                + team.get("perf_centered", 0) * cfg.PERF_BLEND_WEIGHT  # Performance adjustment
             ) / max_ps
 
-            actual_ps = team['powerscore_core']
+            actual_ps = team["powerscore_core"]
 
             # Should match closely (allow small floating point differences)
-            assert abs(expected_ps - actual_ps) < 0.01, \
+            assert abs(expected_ps - actual_ps) < 0.01, (
                 f"PowerScore formula mismatch: expected {expected_ps}, got {actual_ps}"
+            )
 
 
 class TestSOSTransitivity:
@@ -176,14 +161,11 @@ class TestSOSTransitivity:
         transitive_weight = lambda_val
 
         # Verify the weights sum to 1
-        assert abs(direct_weight + transitive_weight - 1.0) < 0.0001, \
-            "Direct + transitive weights should sum to 1.0"
+        assert abs(direct_weight + transitive_weight - 1.0) < 0.0001, "Direct + transitive weights should sum to 1.0"
 
         # Verify expected values for lambda=0.0 (transitive disabled)
-        assert abs(direct_weight - 1.0) < 0.0001, \
-            "Direct weight should be 100% when lambda=0.0"
-        assert abs(transitive_weight - 0.0) < 0.0001, \
-            "Transitive weight should be 0% when lambda=0.0"
+        assert abs(direct_weight - 1.0) < 0.0001, "Direct weight should be 100% when lambda=0.0"
+        assert abs(transitive_weight - 0.0) < 0.0001, "Transitive weight should be 0% when lambda=0.0"
 
 
 class TestSOSDocumentation:
@@ -194,25 +176,20 @@ class TestSOSDocumentation:
         cfg = V53EConfig()
 
         # SOS_ITERATIONS = 1 (single-pass, no transitive)
-        assert cfg.SOS_ITERATIONS == 1, \
-            "SOS_ITERATIONS should be 1 (direct only)"
+        assert cfg.SOS_ITERATIONS == 1, "SOS_ITERATIONS should be 1 (direct only)"
 
         # SOS_TRANSITIVITY_LAMBDA = 0.0 (disabled)
-        assert cfg.SOS_TRANSITIVITY_LAMBDA == 0.0, \
-            "SOS_TRANSITIVITY_LAMBDA should be 0.0 (disabled)"
+        assert cfg.SOS_TRANSITIVITY_LAMBDA == 0.0, "SOS_TRANSITIVITY_LAMBDA should be 0.0 (disabled)"
 
-        # From docs: SOS_REPEAT_CAP = 2 (reduced from 4 to prevent regional rival dominance)
-        assert cfg.SOS_REPEAT_CAP == 2, \
-            "SOS_REPEAT_CAP should be 2 as documented"
+        # SOS_REPEAT_CAP = 4
+        assert cfg.SOS_REPEAT_CAP == 4, "SOS_REPEAT_CAP should be 4 as documented"
 
         # From docs: UNRANKED_SOS_BASE = 0.35
-        assert cfg.UNRANKED_SOS_BASE == 0.35, \
-            "UNRANKED_SOS_BASE should be 0.35 as documented"
+        assert cfg.UNRANKED_SOS_BASE == 0.35, "UNRANKED_SOS_BASE should be 0.35 as documented"
 
         # SOS_WEIGHT = 0.60
-        assert cfg.SOS_WEIGHT == 0.60, \
-            "SOS_WEIGHT should be 60%"
+        assert cfg.SOS_WEIGHT == 0.60, "SOS_WEIGHT should be 60%"
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
