@@ -115,13 +115,15 @@ async def save_ranking_snapshot(
         return 0
 
     # Batch upsert (insert or update on conflict) to avoid timeout
-    # Process in batches to prevent statement timeout errors
+    # Process in smaller batches with exponential backoff to handle Supabase timeouts
     try:
+        import time
+
         total_records = len(snapshot_records)
         logger.info(f"💾 Saving {total_records:,} ranking snapshots for {snapshot_date}...")
-        
-        # Batch size: 2000 records per batch (safe for Supabase upsert operations)
-        batch_size = 2000
+
+        batch_size = 500
+        max_retries = 4
         saved_count = 0
         failed_batches = []
 
@@ -129,37 +131,35 @@ async def save_ranking_snapshot(
             batch = snapshot_records[i:i + batch_size]
             batch_num = (i // batch_size) + 1
             total_batches = (total_records + batch_size - 1) // batch_size
-            
-            try:
-                # Supabase upsert - will insert or update based on (team_id, snapshot_date) unique constraint
-                response = supabase_client.table("ranking_history").upsert(
-                    batch,
-                    on_conflict="team_id,snapshot_date"
-                ).execute()
-                
-                batch_saved = len(response.data) if response.data else len(batch)
-                saved_count += batch_saved
-                
-                if total_batches > 1:
-                    logger.info(f"   Batch {batch_num}/{total_batches}: Saved {batch_saved:,} snapshots ({saved_count:,}/{total_records:,} total)")
-                
-            except Exception as batch_error:
-                logger.error(f"❌ Error saving snapshot batch {batch_num}/{total_batches}: {batch_error}")
-                failed_batches.append(batch_num)
-                # Retry this batch once with backoff
-                import time
-                time.sleep(2)
+
+            for attempt in range(max_retries + 1):
                 try:
                     response = supabase_client.table("ranking_history").upsert(
                         batch,
                         on_conflict="team_id,snapshot_date"
                     ).execute()
+
                     batch_saved = len(response.data) if response.data else len(batch)
                     saved_count += batch_saved
-                    failed_batches.pop()  # Remove from failed list on success
-                    logger.info(f"   Batch {batch_num} succeeded on retry ({batch_saved:,} snapshots)")
-                except Exception as retry_error:
-                    logger.error(f"❌ Batch {batch_num} failed on retry: {retry_error}")
+
+                    if total_batches > 1:
+                        label = f" (retry {attempt})" if attempt > 0 else ""
+                        logger.info(
+                            f"   Batch {batch_num}/{total_batches}{label}: "
+                            f"Saved {batch_saved:,} snapshots ({saved_count:,}/{total_records:,} total)"
+                        )
+                    break
+                except Exception as batch_error:
+                    if attempt < max_retries:
+                        wait = 2 ** (attempt + 1)
+                        logger.warning(
+                            f"⚠️ Batch {batch_num}/{total_batches} attempt {attempt + 1} failed, "
+                            f"retrying in {wait}s: {batch_error}"
+                        )
+                        time.sleep(wait)
+                    else:
+                        logger.error(f"❌ Batch {batch_num}/{total_batches} failed after {max_retries + 1} attempts: {batch_error}")
+                        failed_batches.append(batch_num)
 
         # Verify saved count matches expected count
         if failed_batches:
