@@ -39,7 +39,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-ALERT_EMAIL = os.environ.get("ALERT_EMAIL", "dallasheidt@gmail.com")
+ALERT_EMAIL = os.environ.get("ALERT_EMAIL", "pitchrankio@gmail.com")
 FROM_EMAIL = "PitchRank <newsletter@mail.pitchrank.io>"
 
 
