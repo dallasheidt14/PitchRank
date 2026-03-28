@@ -814,12 +814,14 @@ def compute_rankings(
     global_strength_map: Optional[Dict[str, float]] = None,
     team_state_map: Optional[Dict[str, str]] = None,
     pass_label: Optional[str] = None,
+    pre_sos_state: Optional[Dict] = None,
 ) -> Dict[str, pd.DataFrame]:
     """
     Returns:
       {
         "teams": DataFrame[one row per (team_id, age, gender)],
-        "games_used": DataFrame[rows used in SOS after repeat-cap]
+        "games_used": DataFrame[rows used in SOS after repeat-cap],
+        "pre_sos_state": Dict of intermediate state (for two-pass optimization)
       }
 
     Args:
@@ -830,6 +832,7 @@ def compute_rankings(
                             Used for cross-age/cross-gender opponent lookups in SOS
         team_state_map: Optional dict of team_id -> state_code for Schedule Connectivity
                        Factor (SCF) calculation. If not provided, SCF is disabled.
+        pre_sos_state: Optional cached state from Pass 1 to skip layers 1-5 in Pass 2
     """
     cfg = cfg or V53EConfig()
 
@@ -838,287 +841,311 @@ def compute_rankings(
         _require_columns(games_df, REQUIRED_COLUMNS)
     except ValueError:
         # Return empty DataFrames if columns are missing
-        return {"teams": pd.DataFrame(), "games_used": pd.DataFrame()}
+        return {"teams": pd.DataFrame(), "games_used": pd.DataFrame(), "pre_sos_state": None}
 
-    g = games_df.copy()
-    g["date"] = pd.to_datetime(g["date"], errors="coerce")
-    if today is None:
-        today = pd.Timestamp(pd.Timestamp.now("UTC").date())
+    # Two-pass optimization: if pre_sos_state is provided, skip layers 1-5
+    # and jump directly to SOS calculation with the new global_strength_map.
+    _skip_pre_sos = pre_sos_state is not None
+    if _skip_pre_sos:
+        logger.info("⚡ Restoring pre-SOS state (skipping layers 1-5)")
+        team = pre_sos_state["team"].copy()
+        g = pre_sos_state["g"].copy()
+        g_365 = pre_sos_state["g_365"].copy()
+        strength_map = dict(pre_sos_state["strength_map"])
+        power_map = dict(pre_sos_state["power_map"])
+        strength_series = pd.Series(strength_map)
+        today = pre_sos_state["today"]
 
-    # Defensive check: NaN age/gender would silently bypass cohort groupby operations
-    # (groupby defaults to dropna=True). The import filter in data_adapter.py should
-    # prevent this, but if it fails, catch it early rather than producing wrong rankings.
-    for col in ("age", "gender"):
-        nan_count = g[col].isna().sum() if col in g.columns else 0
-        if nan_count > 0:
-            logger.warning(
-                f"⚠️ {nan_count:,} games have NaN '{col}' — these will be excluded from "
-                f"cohort-level normalization. Check import pipeline for missing metadata."
+    if not _skip_pre_sos:
+
+        g = games_df.copy()
+        g["date"] = pd.to_datetime(g["date"], errors="coerce")
+        if today is None:
+            today = pd.Timestamp(pd.Timestamp.now("UTC").date())
+
+        # Defensive check: NaN age/gender would silently bypass cohort groupby operations
+        # (groupby defaults to dropna=True). The import filter in data_adapter.py should
+        # prevent this, but if it fails, catch it early rather than producing wrong rankings.
+        for col in ("age", "gender"):
+            nan_count = g[col].isna().sum() if col in g.columns else 0
+            if nan_count > 0:
+                logger.warning(
+                    f"⚠️ {nan_count:,} games have NaN '{col}' — these will be excluded from "
+                    f"cohort-level normalization. Check import pipeline for missing metadata."
+                )
+
+        # -------------------------
+        # Layer 1: window filter
+        # -------------------------
+        cutoff = today - pd.Timedelta(days=cfg.WINDOW_DAYS)
+        g = g[g["date"] >= cutoff].copy()
+
+        # Flag game outcomes before outlier clipping modifies gf/ga
+        g["is_win"] = (g["gf"] > g["ga"]).astype(int)
+        g["is_loss"] = (g["gf"] < g["ga"]).astype(int)
+        g["is_draw"] = (g["gf"] == g["ga"]).astype(int)
+
+        # -------------------------
+        # Layer 2: per-team GF/GA outlier guard + GD cap
+        # -------------------------
+        def clip_team_games(df: pd.DataFrame) -> pd.DataFrame:
+            out = df.copy()
+            out["gf"] = _clip_outliers_series(out["gf"], cfg.OUTLIER_GUARD_ZSCORE)
+            out["ga"] = _clip_outliers_series(out["ga"], cfg.OUTLIER_GUARD_ZSCORE)
+            return out
+
+        clipped_groups = [clip_team_games(grp) for _, grp in g.groupby("team_id")]
+        if not clipped_groups:
+            return {"teams": pd.DataFrame(), "games_used": pd.DataFrame(), "pre_sos_state": None}
+        g = pd.concat(clipped_groups).reset_index(drop=True)
+        # Cap individual gf/ga per game (consistent with GOAL_DIFF_CAP).
+        # Without this, an 8-0 blowout contributes 8 goals of offensive output
+        # even though gd is capped at 6. This inflates offense for teams
+        # beating up on weak opponents.
+        g["gf"] = g["gf"].clip(upper=cfg.GOAL_DIFF_CAP)
+        g["ga"] = g["ga"].clip(upper=cfg.GOAL_DIFF_CAP)
+        g["gd"] = (g["gf"] - g["ga"]).clip(-cfg.GOAL_DIFF_CAP, cfg.GOAL_DIFF_CAP)
+
+        # Save ALL 365-day games before the 30-game filter.
+        # SOS uses the full window so that short scheduling clusters
+        # (e.g. 3-4 weak opponents in a row) don't dominate the sample.
+        g = g.sort_values(["team_id", "date"], ascending=[True, False])
+        g["rank_recency"] = g.groupby("team_id")["date"].rank(ascending=False, method="first")
+        g_365 = g.copy()  # Full 365-day set for SOS (before 30-game trim)
+
+        # keep last N games per team (by date) for OFF/DEF calculations
+        g = g[g["rank_recency"] <= cfg.MAX_GAMES_FOR_RANK].copy()
+
+        # -------------------------
+        # Layer 3: Recency weights
+        # -------------------------
+        def apply_recency(df: pd.DataFrame) -> pd.DataFrame:
+            n = len(df)
+            w = _recency_weights(n, decay_rate=cfg.RECENCY_DECAY_RATE)
+            out = df.copy()
+            out["w_base"] = w
+            return out
+
+        g = pd.concat([apply_recency(grp) for _, grp in g.groupby("team_id")]).reset_index(drop=True)
+
+        g["w_game"] = g["w_base"]
+
+        # -------------------------
+        # OFF/SAD aggregation (vectorized)
+        # -------------------------
+        # Vectorized aggregation: compute weighted averages and simple aggregations
+        g["gf_weighted"] = g["gf"] * g["w_game"]
+        g["ga_weighted"] = g["ga"] * g["w_game"]
+
+        # Aggregate using vectorized operations
+        team = (
+            g.groupby(["team_id", "age", "gender"], as_index=False)
+            .agg(
+                {
+                    "gf_weighted": "sum",
+                    "ga_weighted": "sum",
+                    "w_game": "sum",  # w_sum for weighted average calculation
+                    "date": "max",  # last_game
+                }
             )
-
-    # -------------------------
-    # Layer 1: window filter
-    # -------------------------
-    cutoff = today - pd.Timedelta(days=cfg.WINDOW_DAYS)
-    g = g[g["date"] >= cutoff].copy()
-
-    # Flag game outcomes before outlier clipping modifies gf/ga
-    g["is_win"] = (g["gf"] > g["ga"]).astype(int)
-    g["is_loss"] = (g["gf"] < g["ga"]).astype(int)
-    g["is_draw"] = (g["gf"] == g["ga"]).astype(int)
-
-    # -------------------------
-    # Layer 2: per-team GF/GA outlier guard + GD cap
-    # -------------------------
-    def clip_team_games(df: pd.DataFrame) -> pd.DataFrame:
-        out = df.copy()
-        out["gf"] = _clip_outliers_series(out["gf"], cfg.OUTLIER_GUARD_ZSCORE)
-        out["ga"] = _clip_outliers_series(out["ga"], cfg.OUTLIER_GUARD_ZSCORE)
-        return out
-
-    clipped_groups = [clip_team_games(grp) for _, grp in g.groupby("team_id")]
-    if not clipped_groups:
-        return {"teams": pd.DataFrame(), "games_used": pd.DataFrame()}
-    g = pd.concat(clipped_groups).reset_index(drop=True)
-    # Cap individual gf/ga per game (consistent with GOAL_DIFF_CAP).
-    # Without this, an 8-0 blowout contributes 8 goals of offensive output
-    # even though gd is capped at 6. This inflates offense for teams
-    # beating up on weak opponents.
-    g["gf"] = g["gf"].clip(upper=cfg.GOAL_DIFF_CAP)
-    g["ga"] = g["ga"].clip(upper=cfg.GOAL_DIFF_CAP)
-    g["gd"] = (g["gf"] - g["ga"]).clip(-cfg.GOAL_DIFF_CAP, cfg.GOAL_DIFF_CAP)
-
-    # Save ALL 365-day games before the 30-game filter.
-    # SOS uses the full window so that short scheduling clusters
-    # (e.g. 3-4 weak opponents in a row) don't dominate the sample.
-    g = g.sort_values(["team_id", "date"], ascending=[True, False])
-    g["rank_recency"] = g.groupby("team_id")["date"].rank(ascending=False, method="first")
-    g_365 = g.copy()  # Full 365-day set for SOS (before 30-game trim)
-
-    # keep last N games per team (by date) for OFF/DEF calculations
-    g = g[g["rank_recency"] <= cfg.MAX_GAMES_FOR_RANK].copy()
-
-    # -------------------------
-    # Layer 3: Recency weights
-    # -------------------------
-    def apply_recency(df: pd.DataFrame) -> pd.DataFrame:
-        n = len(df)
-        w = _recency_weights(n, decay_rate=cfg.RECENCY_DECAY_RATE)
-        out = df.copy()
-        out["w_base"] = w
-        return out
-
-    g = pd.concat([apply_recency(grp) for _, grp in g.groupby("team_id")]).reset_index(drop=True)
-
-    g["w_game"] = g["w_base"]
-
-    # -------------------------
-    # OFF/SAD aggregation (vectorized)
-    # -------------------------
-    # Vectorized aggregation: compute weighted averages and simple aggregations
-    g["gf_weighted"] = g["gf"] * g["w_game"]
-    g["ga_weighted"] = g["ga"] * g["w_game"]
-
-    # Aggregate using vectorized operations
-    team = (
-        g.groupby(["team_id", "age", "gender"], as_index=False)
-        .agg(
-            {
-                "gf_weighted": "sum",
-                "ga_weighted": "sum",
-                "w_game": "sum",  # w_sum for weighted average calculation
-                "date": "max",  # last_game
-            }
-        )
-        .rename(columns={"date": "last_game"})
-    )
-
-    # Calculate weighted averages (vectorized)
-    w_sum = team["w_game"]
-    team["off_raw"] = np.where(w_sum > 0, team["gf_weighted"] / w_sum, 0.0).astype(float)
-    team["sad_raw"] = np.where(w_sum > 0, team["ga_weighted"] / w_sum, 0.0).astype(float)
-
-    # Add gp (game count) using vectorized count
-    gp_counts = g.groupby(["team_id", "age", "gender"], as_index=False).size().rename(columns={"size": "gp"})
-    team = team.merge(gp_counts, on=["team_id", "age", "gender"], how="left")
-
-    # Compute W/L/D counts per team (flags were set before outlier clipping)
-    wld_counts = g.groupby(["team_id", "age", "gender"], as_index=False).agg(
-        wins=("is_win", "sum"),
-        losses=("is_loss", "sum"),
-        draws=("is_draw", "sum"),
-    )
-    team = team.merge(wld_counts, on=["team_id", "age", "gender"], how="left")
-
-    # Calculate games in activity window (INACTIVE_HIDE_DAYS) for status filtering
-    inactive_cutoff = today - pd.Timedelta(days=cfg.INACTIVE_HIDE_DAYS)
-    g_recent = g[g["date"] >= inactive_cutoff].copy()
-    gp_recent_counts = (
-        g_recent.groupby(["team_id", "age", "gender"], as_index=False).size().rename(columns={"size": "gp_last_window"})
-    )
-    team = team.merge(gp_recent_counts, on=["team_id", "age", "gender"], how="left")
-    team["gp_last_window"] = team["gp_last_window"].fillna(0).astype(int)
-
-    # Drop intermediate columns
-    team = team.drop(columns=["gf_weighted", "ga_weighted", "w_game"])
-
-    # -------------------------
-    # Layer 4: ridge defense
-    # -------------------------
-    team["def_raw"] = 1.0 / (team["sad_raw"] + cfg.RIDGE_GA)
-
-    # -------------------------
-    # Layer 7: shrink within cohort
-    # -------------------------
-    # Shared helpers for shrinkage + clipping (used in initial pass and opponent-adjust pass)
-    def _shrink_cohort(df: pd.DataFrame) -> pd.DataFrame:
-        mu_off = df["off_raw"].mean()
-        mu_sad = df["sad_raw"].mean()
-        out = df.copy()
-        out["off_shrunk"] = (out["off_raw"] * out["gp"] + mu_off * cfg.SHRINK_TAU) / (out["gp"] + cfg.SHRINK_TAU)
-        out["sad_shrunk"] = (out["sad_raw"] * out["gp"] + mu_sad * cfg.SHRINK_TAU) / (out["gp"] + cfg.SHRINK_TAU)
-        out["def_shrunk"] = 1.0 / (out["sad_shrunk"] + cfg.RIDGE_GA)
-        return out
-
-    def _clip_cohort(df: pd.DataFrame) -> pd.DataFrame:
-        out = df.copy()
-        for col in ["off_shrunk", "def_shrunk"]:
-            s = out[col]
-            if len(s) >= 3 and s.std(ddof=0) > 0:
-                mu, sd = s.mean(), s.std(ddof=0)
-                # Save pre-clip values for tie-breaking in normalization
-                out[f"{col}_preclip"] = s
-                out[col] = s.clip(mu - cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd, mu + cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd)
-        return out
-
-    team = pd.concat([_shrink_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
-
-    # -------------------------
-    # Layer 5: team-level outlier guard (OFF/DEF)
-    # -------------------------
-    team = pd.concat([_clip_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
-
-    # -------------------------
-    # Layer 9: normalize OFF/DEF
-    # -------------------------
-    team = _normalize_by_cohort(team, "off_shrunk", "off_norm", cfg.NORM_MODE)
-    team = _normalize_by_cohort(team, "def_shrunk", "def_norm", cfg.NORM_MODE)
-
-    # -------------------------
-    # Pre-SOS power & anchors (national unification)
-    # -------------------------
-    # power_presos uses only OFF/DEF (50% each) to avoid circular dependency with SOS.
-    # This provides a stable base strength for opponent adjustment and cross-age SOS lookups.
-    team["power_presos"] = 0.5 * team["off_norm"] + 0.5 * team["def_norm"]
-
-    from src.rankings.constants import AGE_TO_ANCHOR
-
-    def compute_anchor(age_val):
-        """Map age to static anchor value"""
-        try:
-            age_numeric = int(float(age_val))
-            anchor = AGE_TO_ANCHOR.get(age_numeric)
-            if anchor is None:
-                logger.warning(f"⚠️ Age {age_numeric} outside supported range (10-19) — using fallback anchor 0.70")
-                return 0.70
-            return anchor
-        except (ValueError, TypeError):
-            logger.warning(f"⚠️ Invalid age value '{age_val}' — using fallback anchor 0.70")
-            return 0.70
-
-    team["anchor"] = team["age"].apply(compute_anchor)
-
-    logger.info("✅ Static anchor mapping applied (U10=0.40 → U18=1.00)")
-
-    # True competitive strength (no anchor scaling — anchor is applied only at final scoring)
-    team["abs_strength"] = team["power_presos"].clip(cfg.UNRANKED_SOS_BASE, 1.0)
-
-    strength_map = dict(zip(team["team_id"], team["abs_strength"]))
-    power_map = dict(zip(team["team_id"], team["power_presos"]))
-
-    # -------------------------
-    # Opponent-Adjusted Offense/Defense (if enabled)
-    # -------------------------
-    if cfg.OPPONENT_ADJUST_ENABLED:
-        logger.info("🔄 Applying opponent-adjusted offense/defense to fix double-counting...")
-
-        # Calculate the actual mean strength to use as baseline (instead of hardcoded 0.5)
-        # Floor at UNRANKED_SOS_BASE to prevent division by zero in opponent adjustment
-        strength_values = list(strength_map.values())
-        actual_mean_strength = max(np.mean(strength_values) if strength_values else 0.5, cfg.UNRANKED_SOS_BASE)
-        logger.info(
-            f"📊 Strength distribution: mean={actual_mean_strength:.3f}, "
-            f"min={min(strength_values):.3f}, max={max(strength_values):.3f}"
+            .rename(columns={"date": "last_game"})
         )
 
-        # Use actual mean as baseline for opponent adjustment
-        baseline = actual_mean_strength
+        # Calculate weighted averages (vectorized)
+        w_sum = team["w_game"]
+        team["off_raw"] = np.where(w_sum > 0, team["gf_weighted"] / w_sum, 0.0).astype(float)
+        team["sad_raw"] = np.where(w_sum > 0, team["ga_weighted"] / w_sum, 0.0).astype(float)
 
-        # Adjust games for opponent strength
-        g_adjusted = _adjust_for_opponent_strength(g, strength_map, cfg, baseline=baseline)
+        # Add gp (game count) using vectorized count
+        gp_counts = g.groupby(["team_id", "age", "gender"], as_index=False).size().rename(columns={"size": "gp"})
+        team = team.merge(gp_counts, on=["team_id", "age", "gender"], how="left")
 
-        # Re-aggregate with adjusted values
-        g_adjusted["gf_weighted_adj"] = g_adjusted["gf_adjusted"] * g_adjusted["w_game"]
-        g_adjusted["ga_weighted_adj"] = g_adjusted["ga_adjusted"] * g_adjusted["w_game"]
-
-        team_adj = g_adjusted.groupby(["team_id", "age", "gender"], as_index=False).agg(
-            {
-                "gf_weighted_adj": "sum",
-                "ga_weighted_adj": "sum",
-                "w_game": "sum",
-            }
+        # Compute W/L/D counts per team (flags were set before outlier clipping)
+        wld_counts = g.groupby(["team_id", "age", "gender"], as_index=False).agg(
+            wins=("is_win", "sum"),
+            losses=("is_loss", "sum"),
+            draws=("is_draw", "sum"),
         )
+        team = team.merge(wld_counts, on=["team_id", "age", "gender"], how="left")
 
-        # Calculate adjusted weighted averages
-        w_sum = team_adj["w_game"]
-        team_adj["off_raw"] = np.where(w_sum > 0, team_adj["gf_weighted_adj"] / w_sum, 0.0).astype(float)
-        team_adj["sad_raw"] = np.where(w_sum > 0, team_adj["ga_weighted_adj"] / w_sum, 0.0).astype(float)
-
-        # Merge back to team DataFrame (replace old off_raw, sad_raw)
-        team = team.drop(columns=["off_raw", "sad_raw"])
-        team = team.merge(
-            team_adj[["team_id", "age", "gender", "off_raw", "sad_raw"]], on=["team_id", "age", "gender"], how="left"
+        # Calculate games in activity window (INACTIVE_HIDE_DAYS) for status filtering
+        inactive_cutoff = today - pd.Timedelta(days=cfg.INACTIVE_HIDE_DAYS)
+        g_recent = g[g["date"] >= inactive_cutoff].copy()
+        gp_recent_counts = (
+            g_recent.groupby(["team_id", "age", "gender"], as_index=False).size().rename(columns={"size": "gp_last_window"})
         )
+        team = team.merge(gp_recent_counts, on=["team_id", "age", "gender"], how="left")
+        team["gp_last_window"] = team["gp_last_window"].fillna(0).astype(int)
 
-        # Re-apply defense ridge
+        # Drop intermediate columns
+        team = team.drop(columns=["gf_weighted", "ga_weighted", "w_game"])
+
+        # -------------------------
+        # Layer 4: ridge defense
+        # -------------------------
         team["def_raw"] = 1.0 / (team["sad_raw"] + cfg.RIDGE_GA)
 
-        # Re-apply Bayesian shrinkage (using shared helper)
+        # -------------------------
+        # Layer 7: shrink within cohort
+        # -------------------------
+        # Shared helpers for shrinkage + clipping (used in initial pass and opponent-adjust pass)
+        def _shrink_cohort(df: pd.DataFrame) -> pd.DataFrame:
+            mu_off = df["off_raw"].mean()
+            mu_sad = df["sad_raw"].mean()
+            out = df.copy()
+            out["off_shrunk"] = (out["off_raw"] * out["gp"] + mu_off * cfg.SHRINK_TAU) / (out["gp"] + cfg.SHRINK_TAU)
+            out["sad_shrunk"] = (out["sad_raw"] * out["gp"] + mu_sad * cfg.SHRINK_TAU) / (out["gp"] + cfg.SHRINK_TAU)
+            out["def_shrunk"] = 1.0 / (out["sad_shrunk"] + cfg.RIDGE_GA)
+            return out
+
+        def _clip_cohort(df: pd.DataFrame) -> pd.DataFrame:
+            out = df.copy()
+            for col in ["off_shrunk", "def_shrunk"]:
+                s = out[col]
+                if len(s) >= 3 and s.std(ddof=0) > 0:
+                    mu, sd = s.mean(), s.std(ddof=0)
+                    # Save pre-clip values for tie-breaking in normalization
+                    out[f"{col}_preclip"] = s
+                    out[col] = s.clip(mu - cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd, mu + cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd)
+            return out
+
         team = pd.concat([_shrink_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
 
-        # Re-apply outlier clipping (using shared helper)
+        # -------------------------
+        # Layer 5: team-level outlier guard (OFF/DEF)
+        # -------------------------
         team = pd.concat([_clip_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
 
-        # Re-normalize
+        # -------------------------
+        # Layer 9: normalize OFF/DEF
+        # -------------------------
         team = _normalize_by_cohort(team, "off_shrunk", "off_norm", cfg.NORM_MODE)
         team = _normalize_by_cohort(team, "def_shrunk", "def_norm", cfg.NORM_MODE)
 
-        # Recalculate power_presos with adjusted OFF/DEF (50% each, no SOS to avoid circularity)
+        # -------------------------
+        # Pre-SOS power & anchors (national unification)
+        # -------------------------
+        # power_presos uses only OFF/DEF (50% each) to avoid circular dependency with SOS.
+        # This provides a stable base strength for opponent adjustment and cross-age SOS lookups.
         team["power_presos"] = 0.5 * team["off_norm"] + 0.5 * team["def_norm"]
 
-        # Update strength_map and power_map with adjusted power (no anchor scaling)
+        from src.rankings.constants import AGE_TO_ANCHOR
+
+        def compute_anchor(age_val):
+            """Map age to static anchor value"""
+            try:
+                age_numeric = int(float(age_val))
+                anchor = AGE_TO_ANCHOR.get(age_numeric)
+                if anchor is None:
+                    logger.warning(f"⚠️ Age {age_numeric} outside supported range (10-19) — using fallback anchor 0.70")
+                    return 0.70
+                return anchor
+            except (ValueError, TypeError):
+                logger.warning(f"⚠️ Invalid age value '{age_val}' — using fallback anchor 0.70")
+                return 0.70
+
+        team["anchor"] = team["age"].apply(compute_anchor)
+
+        logger.info("✅ Static anchor mapping applied (U10=0.40 → U18=1.00)")
+
+        # True competitive strength (no anchor scaling — anchor is applied only at final scoring)
         team["abs_strength"] = team["power_presos"].clip(cfg.UNRANKED_SOS_BASE, 1.0)
+
         strength_map = dict(zip(team["team_id"], team["abs_strength"]))
         power_map = dict(zip(team["team_id"], team["power_presos"]))
 
-        logger.info("✅ Opponent-adjusted offense/defense applied successfully")
+        # -------------------------
+        # Opponent-Adjusted Offense/Defense (if enabled)
+        # -------------------------
+        if cfg.OPPONENT_ADJUST_ENABLED:
+            logger.info("🔄 Applying opponent-adjusted offense/defense to fix double-counting...")
 
-        # Diagnostic: opponent-adjusted OFF/DEF distribution (for anchor-isolation validation)
-        logger.info("📊 Opponent-adjusted OFF/DEF distribution:")
-        for (age, gender), grp in team.groupby(["age", "gender"]):
+            # Calculate the actual mean strength to use as baseline (instead of hardcoded 0.5)
+            # Floor at UNRANKED_SOS_BASE to prevent division by zero in opponent adjustment
+            strength_values = list(strength_map.values())
+            actual_mean_strength = max(np.mean(strength_values) if strength_values else 0.5, cfg.UNRANKED_SOS_BASE)
             logger.info(
-                f"  {age} {gender}: off_raw mean={grp['off_raw'].mean():.4f} std={grp['off_raw'].std():.4f}, "
-                f"sad_raw mean={grp['sad_raw'].mean():.4f} std={grp['sad_raw'].std():.4f}"
+                f"📊 Strength distribution: mean={actual_mean_strength:.3f}, "
+                f"min={min(strength_values):.3f}, max={max(strength_values):.3f}"
             )
 
-    # -------------------------
-    # Layer 5: Adaptive K per game (by abs strength gap)
-    # -------------------------
-    def adaptive_k(row) -> float:
-        gap = abs(strength_map.get(row["team_id"], 0.5) - strength_map.get(row["opp_id"], 0.5))
-        return cfg.ADAPTIVE_K_ALPHA * (1.0 + cfg.ADAPTIVE_K_BETA * gap)
+            # Use actual mean as baseline for opponent adjustment
+            baseline = actual_mean_strength
 
-    g["k_adapt"] = g.apply(adaptive_k, axis=1)
+            # Adjust games for opponent strength
+            g_adjusted = _adjust_for_opponent_strength(g, strength_map, cfg, baseline=baseline)
+
+            # Re-aggregate with adjusted values
+            g_adjusted["gf_weighted_adj"] = g_adjusted["gf_adjusted"] * g_adjusted["w_game"]
+            g_adjusted["ga_weighted_adj"] = g_adjusted["ga_adjusted"] * g_adjusted["w_game"]
+
+            team_adj = g_adjusted.groupby(["team_id", "age", "gender"], as_index=False).agg(
+                {
+                    "gf_weighted_adj": "sum",
+                    "ga_weighted_adj": "sum",
+                    "w_game": "sum",
+                }
+            )
+
+            # Calculate adjusted weighted averages
+            w_sum = team_adj["w_game"]
+            team_adj["off_raw"] = np.where(w_sum > 0, team_adj["gf_weighted_adj"] / w_sum, 0.0).astype(float)
+            team_adj["sad_raw"] = np.where(w_sum > 0, team_adj["ga_weighted_adj"] / w_sum, 0.0).astype(float)
+
+            # Merge back to team DataFrame (replace old off_raw, sad_raw)
+            team = team.drop(columns=["off_raw", "sad_raw"])
+            team = team.merge(
+                team_adj[["team_id", "age", "gender", "off_raw", "sad_raw"]], on=["team_id", "age", "gender"], how="left"
+            )
+
+            # Re-apply defense ridge
+            team["def_raw"] = 1.0 / (team["sad_raw"] + cfg.RIDGE_GA)
+
+            # Re-apply Bayesian shrinkage (using shared helper)
+            team = pd.concat([_shrink_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
+
+            # Re-apply outlier clipping (using shared helper)
+            team = pd.concat([_clip_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
+
+            # Re-normalize
+            team = _normalize_by_cohort(team, "off_shrunk", "off_norm", cfg.NORM_MODE)
+            team = _normalize_by_cohort(team, "def_shrunk", "def_norm", cfg.NORM_MODE)
+
+            # Recalculate power_presos with adjusted OFF/DEF (50% each, no SOS to avoid circularity)
+            team["power_presos"] = 0.5 * team["off_norm"] + 0.5 * team["def_norm"]
+
+            # Update strength_map and power_map with adjusted power (no anchor scaling)
+            team["abs_strength"] = team["power_presos"].clip(cfg.UNRANKED_SOS_BASE, 1.0)
+            strength_map = dict(zip(team["team_id"], team["abs_strength"]))
+            power_map = dict(zip(team["team_id"], team["power_presos"]))
+
+            logger.info("✅ Opponent-adjusted offense/defense applied successfully")
+
+            # Diagnostic: opponent-adjusted OFF/DEF distribution (for anchor-isolation validation)
+            logger.info("📊 Opponent-adjusted OFF/DEF distribution:")
+            for (age, gender), grp in team.groupby(["age", "gender"]):
+                logger.info(
+                    f"  {age} {gender}: off_raw mean={grp['off_raw'].mean():.4f} std={grp['off_raw'].std():.4f}, "
+                    f"sad_raw mean={grp['sad_raw'].mean():.4f} std={grp['sad_raw'].std():.4f}"
+                )
+
+        # -------------------------
+        # Layer 5: Adaptive K per game (by abs strength gap)
+        # -------------------------
+        strength_series = pd.Series(strength_map)
+        team_str_g = g["team_id"].map(strength_series).fillna(0.5).values
+        opp_str_g = g["opp_id"].map(strength_series).fillna(0.5).values
+        g["k_adapt"] = cfg.ADAPTIVE_K_ALPHA * (1.0 + cfg.ADAPTIVE_K_BETA * np.abs(team_str_g - opp_str_g))
+
+        # Cache pre-SOS state for Pass 2 reuse (avoids recomputing layers 1-5)
+        _current_pre_sos_state = {
+            "team": team.copy(),
+            "g": g.copy(),
+            "g_365": g_365.copy(),
+            "strength_map": dict(strength_map),
+            "power_map": dict(power_map),
+            "today": today,
+        }
 
     # -------------------------
     # Layer 8: SOS (weights + repeat-cap + iterations)
@@ -1132,22 +1159,22 @@ def compute_rankings(
     #   recency weights → w_game → adaptive K → w_sos
     g_365 = pd.concat([apply_recency(grp) for _, grp in g_365.groupby("team_id")]).reset_index(drop=True)
     g_365["w_game"] = g_365["w_base"]
-    g_365["k_adapt"] = g_365.apply(adaptive_k, axis=1)
+    team_str_365 = g_365["team_id"].map(strength_series).fillna(0.5).values
+    opp_str_365 = g_365["opp_id"].map(strength_series).fillna(0.5).values
+    g_365["k_adapt"] = cfg.ADAPTIVE_K_ALPHA * (1.0 + cfg.ADAPTIVE_K_BETA * np.abs(team_str_365 - opp_str_365))
     g_365["w_sos"] = g_365["w_game"] * g_365["k_adapt"]
 
     # Diagnostic: adaptive_k distribution per cohort (for anchor-isolation validation)
     if "age" in team.columns and "gender" in team.columns:
-        _team_id_to_cohort = dict(zip(team["team_id"], zip(team["age"], team["gender"])))
-        _k_by_cohort: dict[tuple, list] = {}
-        for _, row in g_365[["team_id", "k_adapt"]].iterrows():
-            cohort = _team_id_to_cohort.get(row["team_id"])
-            if cohort:
-                _k_by_cohort.setdefault(cohort, []).append(row["k_adapt"])
+        _cohort_map = dict(zip(team["team_id"], zip(team["age"], team["gender"])))
+        _diag = g_365[["team_id", "k_adapt"]].copy()
+        _diag["cohort"] = _diag["team_id"].map(_cohort_map)
+        _diag = _diag.dropna(subset=["cohort"])
         logger.info("📊 adaptive_k distribution (365-day SOS games):")
-        for (age, gender), k_list in sorted(_k_by_cohort.items()):
-            k_arr = np.array(k_list)
+        for cohort, grp in sorted(_diag.groupby("cohort"), key=lambda x: x[0]):
+            k_arr = grp["k_adapt"].values
             logger.info(
-                f"  {age} {gender}: mean={k_arr.mean():.4f}, p90={np.percentile(k_arr, 90):.4f}, "
+                f"  {cohort[0]} {cohort[1]}: mean={k_arr.mean():.4f}, p90={np.percentile(k_arr, 90):.4f}, "
                 f"max={k_arr.max():.4f}, n={len(k_arr)}"
             )
 
@@ -1910,7 +1937,7 @@ def compute_rankings(
             # Impact: +0.24 for closed elite leagues (correct fix), +0.03 for bubbles (negligible).
             # True competitive strength (no anchor scaling — anchor applied only at final scoring)
             full_power_values = team["powerscore_adj"].values.clip(0.0, 1.0)
-            base_strength_values = np.array([base_strength_map.get(tid, cfg.UNRANKED_SOS_BASE) for tid in team_ids])
+            base_strength_values = pd.Series(team_ids).map(pd.Series(base_strength_map)).fillna(cfg.UNRANKED_SOS_BASE).values
             floored_power_values = np.maximum(full_power_values, base_strength_values)
             full_power_strength_map = dict(zip(team_ids, floored_power_values))
 
@@ -1921,17 +1948,17 @@ def compute_rankings(
                 f"sos_delta={np.abs(team['sos'].values - prev_sos).mean():.6f}"
             )
 
-            # Step 2: Vectorized opponent strength lookup
-            def lookup_strength(opp_id):
-                if opp_id in full_power_strength_map:
-                    return full_power_strength_map[opp_id]
-                opp_id_str = str(opp_id)
-                if global_strength_map and opp_id_str in global_strength_map:
-                    return global_strength_map[opp_id_str]
-                return cfg.UNRANKED_SOS_BASE
-
-            # Use numpy vectorize for faster lookup (still has overhead but cleaner)
-            opp_strengths = np.array([lookup_strength(oid) for oid in opp_ids_array])
+            # Step 2: Vectorized opponent strength lookup via pandas Series.map
+            full_power_series = pd.Series(full_power_strength_map)
+            opp_strengths = pd.Series(opp_ids_array).map(full_power_series)
+            if global_strength_map:
+                global_series = pd.Series(global_strength_map)
+                # For missing values, try string key lookup in global map
+                missing_mask = opp_strengths.isna()
+                if missing_mask.any():
+                    str_keys = pd.Series(opp_ids_array)[missing_mask].astype(str)
+                    opp_strengths.loc[missing_mask] = str_keys.map(global_series)
+            opp_strengths = opp_strengths.fillna(cfg.UNRANKED_SOS_BASE).values
             g_sos["opp_full_strength"] = opp_strengths
 
             # Step 2b: Restore original weights and re-trim with updated strengths
@@ -2224,4 +2251,8 @@ def compute_rankings(
         0.0,
     )
 
-    return {"teams": teams, "games_used": games_used}
+    return {
+        "teams": teams,
+        "games_used": games_used,
+        "pre_sos_state": _current_pre_sos_state if not _skip_pre_sos else None,
+    }

@@ -54,95 +54,80 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
     failed_count = 0
     failed_batches = []  # Collect for end-of-run retry
 
+    total_batches = (len(game_residuals) + batch_size - 1) // batch_size
+    sem = asyncio.Semaphore(3)  # Max 3 concurrent RPC calls
+
+    async def _persist_batch(batch_num, batch_data):
+        """Persist a single batch with retry logic."""
+        async with sem:
+            batch_retry_delay = retry_delay
+            for attempt in range(max_retries):
+                try:
+                    result = await asyncio.to_thread(
+                        lambda bd=batch_data: supabase_client.rpc(
+                            "batch_update_ml_overperformance",
+                            {"updates": bd},
+                        ).execute()
+                    )
+                    count = result.data if result.data is not None else len(batch_data)
+                    return (batch_num, count, None)
+                except Exception as e:
+                    error_msg = str(e)
+                    is_retriable = (
+                        "SSL" in error_msg
+                        or "bad record" in error_msg.lower()
+                        or "ReadError" in error_msg
+                        or "WinError 10054" in error_msg
+                        or "timeout" in error_msg.lower()
+                        or "statement timeout" in error_msg.lower()
+                        or (
+                            "connection" in error_msg.lower()
+                            and (
+                                "closed" in error_msg.lower()
+                                or "reset" in error_msg.lower()
+                                or "forcibly" in error_msg.lower()
+                            )
+                        )
+                        or "forcibly closed" in error_msg.lower()
+                        or "remote host" in error_msg.lower()
+                    )
+
+                    if attempt < max_retries - 1 and (is_retriable or True):
+                        logger.warning(
+                            f"Retriable error on batch {batch_num}/{total_batches}, "
+                            f"attempt {attempt + 1}/{max_retries}. "
+                            f"Retrying in {batch_retry_delay}s... Error: {error_msg[:100]}"
+                        )
+                        await asyncio.sleep(batch_retry_delay)
+                        batch_retry_delay *= 2
+                    else:
+                        logger.warning(
+                            f"Batch {batch_num}/{total_batches} failed after {max_retries} attempts: {error_msg[:100]}"
+                        )
+                        return (batch_num, 0, batch_data)
+            return (batch_num, 0, batch_data)
+
+    # Build all batch tasks
+    tasks = []
     for i in range(0, len(game_residuals), batch_size):
         batch = game_residuals.iloc[i : i + batch_size]
         batch_num = (i // batch_size) + 1
-        total_batches = (len(game_residuals) + batch_size - 1) // batch_size
-
-        # Small delay between batches to avoid overwhelming the server
-        if batch_num > 1:
-            await asyncio.sleep(0.3)
-
-        # Prepare batch data for RPC (Supabase client handles JSON conversion)
         batch_data = [
             {"id": str(row["game_id"]), "ml_overperformance": float(row["ml_overperformance"])}
             for _, row in batch.iterrows()
         ]
+        tasks.append(_persist_batch(batch_num, batch_data))
 
-        # Retry logic with exponential backoff
-        batch_retry_delay = retry_delay
-        batch_saved = False
+    # Run all batches concurrently (semaphore limits to 3 at a time)
+    results = await asyncio.gather(*tasks)
+    for batch_num, count, failed_data in results:
+        if failed_data:
+            failed_batches.append((batch_num, failed_data))
+            failed_count += len(failed_data)
+        else:
+            total_updated += count
 
-        for attempt in range(max_retries):
-            try:
-                # Call RPC function for batch update
-                result = supabase_client.rpc(
-                    "batch_update_ml_overperformance",
-                    {"updates": batch_data},  # Pass list directly, not JSON string
-                ).execute()
-
-                # RPC returns the count of updated rows
-                if result.data is not None:
-                    total_updated += result.data
-                else:
-                    total_updated += len(batch_data)
-
-                batch_saved = True
-                break  # Success, exit retry loop
-
-            except Exception as e:
-                error_msg = str(e)
-                # Detect network/timeout errors specifically
-                is_retriable = (
-                    "SSL" in error_msg
-                    or "bad record" in error_msg.lower()
-                    or "ReadError" in error_msg
-                    or "WinError 10054" in error_msg
-                    or "timeout" in error_msg.lower()
-                    or "statement timeout" in error_msg.lower()
-                    or (
-                        "connection" in error_msg.lower()
-                        and (
-                            "closed" in error_msg.lower()
-                            or "reset" in error_msg.lower()
-                            or "forcibly" in error_msg.lower()
-                        )
-                    )
-                    or "forcibly closed" in error_msg.lower()
-                    or "remote host" in error_msg.lower()
-                )
-
-                if attempt < max_retries - 1 and is_retriable:
-                    logger.warning(
-                        f"Retriable error on batch {batch_num}/{total_batches}, "
-                        f"attempt {attempt + 1}/{max_retries}. "
-                        f"Retrying in {batch_retry_delay}s... Error: {error_msg[:100]}"
-                    )
-                    await asyncio.sleep(batch_retry_delay)
-                    batch_retry_delay *= 2  # Exponential backoff
-                elif attempt < max_retries - 1:
-                    # Non-network error, still retry
-                    logger.warning(
-                        f"Error on batch {batch_num}/{total_batches}, "
-                        f"attempt {attempt + 1}/{max_retries}. "
-                        f"Retrying in {batch_retry_delay}s... Error: {error_msg[:100]}"
-                    )
-                    await asyncio.sleep(batch_retry_delay)
-                    batch_retry_delay *= 2
-                else:
-                    # Last attempt failed
-                    logger.warning(
-                        f"Batch {batch_num}/{total_batches} failed after {max_retries} attempts: {error_msg[:100]}"
-                    )
-                    failed_batches.append((batch_num, batch_data))
-                    break
-
-        if not batch_saved:
-            failed_count += len(batch_data)
-
-        # Progress logging every 10 batches
-        if batch_num % 10 == 0:
-            logger.info(f"  Progress: {total_updated:,} / {len(game_residuals):,} games updated...")
+    logger.info(f"  Progress: {total_updated:,} / {len(game_residuals):,} games updated")
 
     # Retry failed batches once more at the end
     if failed_batches:
@@ -198,6 +183,7 @@ async def compute_rankings_with_ml(
     team_state_map: Optional[Dict[str, str]] = None,  # For SCF regional bubble detection
     timing_report: Optional["TimingReport"] = None,
     pass_label: Optional[str] = None,  # "Pass1" or "Pass2" for log disambiguation
+    pre_sos_state: Optional[Dict] = None,  # Cached state from Pass 1 for two-pass optimization
 ) -> Dict[str, pd.DataFrame]:
     """
     Runs your deterministic v53E engine, then applies the Supabase-aware ML adjustment.
@@ -287,6 +273,7 @@ async def compute_rankings_with_ml(
                 global_strength_map=global_strength_map,
                 team_state_map=team_state_map,  # For SCF regional bubble detection
                 pass_label=pass_label,
+                pre_sos_state=pre_sos_state,
             )
         logger.info(f"✅ v53e engine completed: {len(base['teams']):,} teams ranked")
 
@@ -307,6 +294,7 @@ async def compute_rankings_with_ml(
 
     teams_base = base["teams"]
     games_used = base.get("games_used")
+    _pre_sos_state = base.get("pre_sos_state")
 
     if teams_base.empty:
         return {
@@ -391,6 +379,7 @@ async def compute_rankings_with_ml(
     return {
         "teams": teams_with_ml,
         "games_used": games_used if not getattr(games_used, "empty", True) else pd.DataFrame(),
+        "pre_sos_state": _pre_sos_state,
     }
 
 
@@ -511,8 +500,7 @@ async def compute_all_cohorts(
             team_ids_list = list(team_ids)
             batch_size = 100
 
-            for i in range(0, len(team_ids_list), batch_size):
-                batch = team_ids_list[i : i + batch_size]
+            def _fetch_state_batch_sync(batch):
                 try:
                     result = (
                         supabase_client.table("teams")
@@ -520,15 +508,27 @@ async def compute_all_cohorts(
                         .in_("team_id_master", batch)
                         .execute()
                     )
-                    if result.data:
-                        for row in result.data:
-                            team_id = str(row.get("team_id_master", ""))
-                            state_code = row.get("state_code", "UNKNOWN")
-                            if team_id:
-                                team_state_map[team_id] = state_code if state_code else "UNKNOWN"
+                    return result.data or []
                 except Exception as e:
-                    logger.warning(f"⚠️ Failed to fetch state metadata batch {i}: {str(e)[:100]}")
-                    continue
+                    logger.warning(f"⚠️ Failed to fetch state metadata batch: {str(e)[:100]}")
+                    return []
+
+            batches = [
+                team_ids_list[i : i + batch_size]
+                for i in range(0, len(team_ids_list), batch_size)
+            ]
+            # Run batches concurrently in groups of 5 via thread pool
+            for group_start in range(0, len(batches), 5):
+                group = batches[group_start : group_start + 5]
+                results = await asyncio.gather(
+                    *[asyncio.to_thread(_fetch_state_batch_sync, b) for b in group]
+                )
+                for rows in results:
+                    for row in rows:
+                        team_id = str(row.get("team_id_master", ""))
+                        state_code = row.get("state_code", "UNKNOWN")
+                        if team_id:
+                            team_state_map[team_id] = state_code if state_code else "UNKNOWN"
 
             # Count states for logging
             state_counts = {}
@@ -602,22 +602,32 @@ async def compute_all_cohorts(
     with _section(timing_report, "pass1_all_cohorts"):
         pass1_results = await asyncio.gather(*pass1_tasks)
 
-    # Build global strength map from Pass 1 results
+    # Build global strength map and collect pre-SOS state from Pass 1
     global_strength_map = {}
-    for result in pass1_results:
+    pass1_pre_sos_states = {}
+    for i, result in enumerate(pass1_results):
         if not result["teams"].empty:
             teams_df = result["teams"]
             if "abs_strength" in teams_df.columns:
-                for _, row in teams_df.iterrows():
-                    team_id = str(row["team_id"])
-                    global_strength_map[team_id] = float(row["abs_strength"])
+                strength_dict = dict(zip(
+                    teams_df["team_id"].astype(str),
+                    teams_df["abs_strength"].astype(float),
+                ))
+                global_strength_map.update(strength_dict)
+        # Cache pre-SOS state keyed by cohort index
+        if result.get("pre_sos_state"):
+            pass1_pre_sos_states[i] = result["pre_sos_state"]
 
-    logger.info(f"🌍 Built global strength map with {len(global_strength_map):,} teams")
+    logger.info(
+        f"🌍 Built global strength map with {len(global_strength_map):,} teams, "
+        f"cached {len(pass1_pre_sos_states)} pre-SOS states"
+    )
 
     # ========== PASS 2: Re-run with global strength map ==========
-    logger.info("📊 Pass 2: Re-computing with global strength map for accurate cross-age SOS...")
+    # Uses cached pre-SOS state from Pass 1 to skip layers 1-5 (~50% speedup)
+    logger.info("📊 Pass 2: Re-computing SOS with global strength map (skipping layers 1-5)...")
     pass2_tasks = []
-    for (age, gender), cohort_games in cohorts:
+    for i, ((age, gender), cohort_games) in enumerate(cohorts):
         task = compute_rankings_with_ml(
             supabase_client=supabase_client,
             games_df=cohort_games,
@@ -633,6 +643,7 @@ async def compute_all_cohorts(
             merge_version=merge_version,  # For cache invalidation
             team_state_map=team_state_map,  # For SCF regional bubble detection
             pass_label="Pass2",
+            pre_sos_state=pass1_pre_sos_states.get(i),  # Skip layers 1-5
         )
         pass2_tasks.append(task)
 
