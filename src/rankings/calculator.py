@@ -478,7 +478,8 @@ async def compute_all_cohorts(
             team_ids_list = list(team_ids)
             batch_size = 100
 
-            def _fetch_state_batch_sync(batch):
+            for i in range(0, len(team_ids_list), batch_size):
+                batch = team_ids_list[i : i + batch_size]
                 try:
                     result = (
                         supabase_client.table("teams")
@@ -486,27 +487,15 @@ async def compute_all_cohorts(
                         .in_("team_id_master", batch)
                         .execute()
                     )
-                    return result.data or []
+                    if result.data:
+                        for row in result.data:
+                            team_id = str(row.get("team_id_master", ""))
+                            state_code = row.get("state_code", "UNKNOWN")
+                            if team_id:
+                                team_state_map[team_id] = state_code if state_code else "UNKNOWN"
                 except Exception as e:
-                    logger.warning(f"⚠️ Failed to fetch state metadata batch: {str(e)[:100]}")
-                    return []
-
-            batches = [
-                team_ids_list[i : i + batch_size]
-                for i in range(0, len(team_ids_list), batch_size)
-            ]
-            # Run batches concurrently in groups of 5 via thread pool
-            for group_start in range(0, len(batches), 5):
-                group = batches[group_start : group_start + 5]
-                results = await asyncio.gather(
-                    *[asyncio.to_thread(_fetch_state_batch_sync, b) for b in group]
-                )
-                for rows in results:
-                    for row in rows:
-                        team_id = str(row.get("team_id_master", ""))
-                        state_code = row.get("state_code", "UNKNOWN")
-                        if team_id:
-                            team_state_map[team_id] = state_code if state_code else "UNKNOWN"
+                    logger.warning(f"⚠️ Failed to fetch state metadata batch {i}: {str(e)[:100]}")
+                    continue
 
             # Count states for logging
             state_counts = {}

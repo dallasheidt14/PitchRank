@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Optional
 
 import pandas as pd
@@ -61,6 +60,8 @@ def retry_supabase_query(query_func, max_retries=4, initial_delay=2.0, descripti
                     "temporarily unavailable",
                     "bad record",
                     "remote host",
+                    "server disconnected",
+                    "connectionterminated",
                 ]
             )
 
@@ -190,71 +191,43 @@ async def fetch_games_for_rankings(
             # Continue without provider filter
 
     # Paginate to fetch all games (Supabase max is 1000 per query)
-    # Uses parallel page fetching: fetch first page, then remaining pages concurrently.
     games_data = []
     page_size = 1000
+    offset = 0
     max_games = 1000000  # Safety limit
 
     logger.info(f"📥 Fetching games from Supabase (cutoff: {cutoff_date_str})...")
 
-    def _fetch_page(off):
-        """Fetch a single page of games at the given offset."""
-        q = base_query.range(off, off + page_size - 1)
-        return retry_supabase_query(
-            lambda q=q: q.execute(),
-            max_retries=4,
-            initial_delay=2.0,
-            description=f"Fetching games batch at offset {off}",
-        )
+    while len(games_data) < max_games:
+        query = base_query.range(offset, offset + page_size - 1)
 
-    # Fetch first page to check if data exists
-    try:
-        first_result = _fetch_page(0)
-    except Exception as e:
-        logger.warning(f"⚠️  Failed to fetch first games page: {str(e)[:200]}")
-        first_result = None
+        try:
+            games_result = retry_supabase_query(
+                lambda q=query: q.execute(),
+                max_retries=4,
+                initial_delay=2.0,
+                description=f"Fetching games batch at offset {offset}",
+            )
+        except Exception as e:
+            logger.warning(
+                f"⚠️  Failed to fetch games at offset {offset} after retries. "
+                f"Using {len(games_data):,} games fetched so far."
+            )
+            logger.warning(f"   Error: {str(e)[:200]}")
+            break
 
-    if first_result and first_result.data:
-        games_data.extend(first_result.data)
+        if not games_result.data:
+            break
 
-        if len(first_result.data) == page_size:
-            # More pages exist — fetch remaining in parallel batches
+        games_data.extend(games_result.data)
 
-            offset = page_size
-            done = False
-            with ThreadPoolExecutor(max_workers=4) as executor:
-                while not done and len(games_data) < max_games:
-                    # Submit 4 pages at a time
-                    futures = {}
-                    for i in range(4):
-                        page_offset = offset + i * page_size
-                        futures[executor.submit(_fetch_page, page_offset)] = page_offset
+        if len(games_result.data) < page_size:
+            break
 
-                    # Collect results in offset order
-                    page_results = {}
-                    for future in as_completed(futures):
-                        page_offset = futures[future]
-                        try:
-                            result = future.result()
-                            page_results[page_offset] = result.data if result.data else []
-                        except Exception as e:
-                            logger.warning(f"⚠️  Failed to fetch games at offset {page_offset}: {str(e)[:200]}")
-                            page_results[page_offset] = []
+        offset += page_size
 
-                    # Process in order
-                    for i in range(4):
-                        page_offset = offset + i * page_size
-                        page_data = page_results.get(page_offset, [])
-                        if page_data:
-                            games_data.extend(page_data)
-                        if len(page_data) < page_size:
-                            done = True
-                            break
-
-                    offset += 4 * page_size
-
-                    if len(games_data) % 10000 < 4000:
-                        logger.info(f"  ✓ Fetched {len(games_data):,} games...")
+        if len(games_data) % 10000 == 0:
+            logger.info(f"  ✓ Fetched {len(games_data):,} games...")
 
     logger.info(f"✅ Fetched {len(games_data):,} total games from database")
 
@@ -297,44 +270,33 @@ async def fetch_games_for_rankings(
     logger.info(f"👥 Fetching metadata for {len(team_ids):,} unique teams...")
 
     # Fetch teams in batches (Supabase has URI length limit - UUIDs are long)
-    # Uses parallel fetching via ThreadPoolExecutor for 4x throughput.
     teams_data = []
     team_ids_list = list(team_ids)
     batch_size = 100  # Reduced from 1000 to avoid URI too long errors
 
-    def _fetch_team_batch(batch, batch_label):
-        return retry_supabase_query(
-            lambda b=batch: (
-                db.table("teams")
-                .select("team_id_master, age_group, gender, is_deprecated")
-                .in_("team_id_master", b)
-                .execute()
-            ),
-            max_retries=4,
-            initial_delay=2.0,
-            description=f"Fetching team metadata batch {batch_label}",
-        )
+    for i in range(0, len(team_ids_list), batch_size):
+        batch = team_ids_list[i : i + batch_size]
+        try:
+            teams_result = retry_supabase_query(
+                lambda b=batch: (
+                    db.table("teams")
+                    .select("team_id_master, age_group, gender, is_deprecated")
+                    .in_("team_id_master", b)
+                    .execute()
+                ),
+                max_retries=4,
+                initial_delay=2.0,
+                description=f"Fetching team metadata batch {i}-{i + batch_size}",
+            )
 
-    batches = [
-        (team_ids_list[i : i + batch_size], f"{i}-{i + batch_size}")
-        for i in range(0, len(team_ids_list), batch_size)
-    ]
+            if getattr(teams_result, "data", None):
+                teams_data.extend(teams_result.data)
+        except Exception as e:
+            logger.warning(f"⚠️  Team metadata batch failed ({i}-{i + batch_size}) after retries: {str(e)[:100]}")
+            continue
 
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = {
-            executor.submit(_fetch_team_batch, batch, label): label
-            for batch, label in batches
-        }
-        for future in as_completed(futures):
-            label = futures[future]
-            try:
-                result = future.result()
-                if getattr(result, "data", None):
-                    teams_data.extend(result.data)
-            except Exception as e:
-                logger.warning(f"⚠️  Team metadata batch failed ({label}) after retries: {str(e)[:100]}")
-
-    logger.info(f"  ✓ Fetched metadata for {len(teams_data):,} teams")
+        if (i + batch_size) % 1000 == 0 or (i + batch_size) >= len(team_ids_list):
+            logger.info(f"  ✓ Fetched metadata for {len(teams_data):,} teams...")
 
     if not teams_data:
         logger.warning("⚠️  No team metadata found")
