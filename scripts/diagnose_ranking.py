@@ -28,6 +28,7 @@ from rich.table import Table
 
 from src.rankings.constants import AGE_TO_ANCHOR, SOS_ML_THRESHOLD_HIGH, SOS_ML_THRESHOLD_LOW
 from src.rankings.shared import sos_ml_blend
+from src.utils.merge_resolver import MergeResolver
 from supabase import create_client
 
 load_dotenv(Path(__file__).parent.parent / ".env.local")
@@ -542,7 +543,7 @@ def simulate_what_if(team: dict, top1: dict, cohort_top: list) -> list:
     top_ml = top1.get("ml_norm") or 0.0
     s = simulate_powerscore(top_off, top_def, top_sos, top_gp, top_ml, age_num)
     scenarios.append(
-        ("Clone #1's metrics", f"Copy all normalized values from #1", s["ps_final"], sim_rank(s["ps_final"]))
+        ("Clone #1's metrics", "Copy all normalized values from #1", s["ps_final"], sim_rank(s["ps_final"]))
     )
 
     # Scenario 6: Improve SOS to match #1's SOS only
@@ -721,7 +722,7 @@ def explain_ranking_position(team: dict, top1: dict, cohort_stats: dict) -> list
     return explanations
 
 
-def diagnose_team(supabase, team_id: str):
+def diagnose_team(supabase, team_id: str, merge_resolver: MergeResolver | None = None):
     """Run full diagnostic for a single team."""
     team_name = fetch_team_name(supabase, team_id)
     console.print(Panel(f"[bold]{team_name}[/bold]\n{team_id}", title="Diagnosing Team"))
@@ -969,7 +970,21 @@ def diagnose_team(supabase, team_id: str):
                 opp_ids.append(g.get("home_team_master_id"))
         opp_ids = [oid for oid in opp_ids if oid]
 
-        opp_rankings = fetch_opponent_rankings(supabase, opp_ids)
+        # Resolve deprecated opponent IDs to canonical (mirrors data_adapter merge resolution)
+        opp_id_resolved = {}
+        if merge_resolver is not None:
+            for oid in opp_ids:
+                canonical = merge_resolver.resolve(oid)
+                if canonical != oid:
+                    opp_id_resolved[oid] = canonical
+
+        lookup_ids = [opp_id_resolved.get(oid, oid) for oid in opp_ids]
+        opp_rankings = fetch_opponent_rankings(supabase, lookup_ids)
+
+        # Map back so game-level lookups work with original opp_id keys
+        for orig, canon in opp_id_resolved.items():
+            if canon in opp_rankings:
+                opp_rankings[orig] = opp_rankings[canon]
 
         gt = Table(box=box.SIMPLE, show_header=True)
         gt.add_column("Date", width=12)
@@ -1039,6 +1054,10 @@ def main():
 
     supabase = get_supabase()
 
+    # Load merge map so deprecated opponent IDs resolve to canonical teams
+    resolver = MergeResolver(supabase)
+    resolver.load_merge_map()
+
     console.print(
         Panel(
             f"[bold]PitchRank Ranking Diagnostic[/bold]\n"
@@ -1053,7 +1072,7 @@ def main():
     console.print()
 
     for team_id in args.team_ids:
-        diagnose_team(supabase, team_id.strip())
+        diagnose_team(supabase, team_id.strip(), merge_resolver=resolver)
 
 
 if __name__ == "__main__":
