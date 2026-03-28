@@ -1570,7 +1570,7 @@ elif section == "🆕 New Accounts":
         newsletter_error = None
 
         # -----------------------------
-        # Load accounts (user_profiles)
+        # Load accounts (user_profiles + auth.users fallback)
         # -----------------------------
         try:
             account_rows = fetch_all_rows(
@@ -1579,6 +1579,33 @@ elif section == "🆕 New Accounts":
                 .order('created_at', desc=True)
             )
             accounts_df = pd.DataFrame(account_rows)
+
+            # Also check auth.users for accounts missing from user_profiles
+            # (e.g. trigger failure, manual deletes). Service role can read auth schema.
+            try:
+                auth_users = db.auth.admin.list_users()
+                auth_ids = {str(u.id) for u in auth_users}
+                profile_ids = set(accounts_df['id'].astype(str)) if not accounts_df.empty else set()
+                orphan_ids = auth_ids - profile_ids
+                if orphan_ids:
+                    orphan_rows = []
+                    for u in auth_users:
+                        if str(u.id) in orphan_ids:
+                            orphan_rows.append({
+                                'id': str(u.id),
+                                'email': u.email or '',
+                                'plan': 'free',
+                                'subscription_status': '',
+                                'subscription_period_end': None,
+                                'stripe_customer_id': '',
+                                'created_at': u.created_at if hasattr(u, 'created_at') else None,
+                                'updated_at': None,
+                            })
+                    if orphan_rows:
+                        accounts_df = pd.concat([accounts_df, pd.DataFrame(orphan_rows)], ignore_index=True)
+                        st.info(f"Found {len(orphan_rows)} auth user(s) missing from user_profiles (shown as 'free (no profile)').")
+            except Exception:
+                pass  # auth.admin may not be available in all environments
         except Exception as e:
             st.error(f"Error loading user profiles: {e}")
 
@@ -1608,7 +1635,7 @@ elif section == "🆕 New Accounts":
             accounts_df['created_at_ts'] = pd.to_datetime(accounts_df.get('created_at'), errors='coerce', utc=True)
             accounts_df['updated_at_ts'] = pd.to_datetime(accounts_df.get('updated_at'), errors='coerce', utc=True)
 
-            # Build display_plan that distinguishes trial from active premium
+            # Build display_plan: paid vs free vs trial
             def _display_plan(row):
                 p = row['plan']
                 ss = row['subscription_status']
@@ -1616,13 +1643,18 @@ elif section == "🆕 New Accounts":
                     return 'admin'
                 if p == 'premium':
                     if ss == 'trialing':
-                        return 'premium (trial)'
+                        return 'trial'
                     if ss == 'past_due':
-                        return 'premium (past due)'
-                    return 'premium'
-                # plan is 'free' but check if there's a canceled/expired subscription
+                        return 'paid (past due)'
+                    return 'paid'
+                # plan is 'free' — check for prior subscription history
                 if ss in ('canceled', 'incomplete_expired'):
                     return 'free (churned)'
+                if ss == 'trialing':
+                    return 'trial'
+                # Orphan auth user with no user_profiles row
+                if not row.get('updated_at') and not row.get('stripe_customer_id'):
+                    return 'free (no profile)'
                 return 'free'
 
             accounts_df['display_plan'] = accounts_df.apply(_display_plan, axis=1)
@@ -1647,25 +1679,27 @@ elif section == "🆕 New Accounts":
         created_valid = accounts_df['created_at_ts'].dropna()
         new_7d = int((created_valid >= (now_utc - pd.Timedelta(days=7))).sum()) if not created_valid.empty else 0
         prev_7d = int(((created_valid >= (now_utc - pd.Timedelta(days=14))) & (created_valid < (now_utc - pd.Timedelta(days=7)))).sum()) if not created_valid.empty else 0
-        premium_accounts = int((accounts_df['plan'] == 'premium').sum()) if total_accounts > 0 else 0
-        trial_accounts = int((accounts_df['subscription_status'] == 'trialing').sum()) if total_accounts > 0 else 0
-        premium_pct = (premium_accounts / total_accounts * 100) if total_accounts > 0 else 0.0
+        paid_accounts = int(accounts_df['display_plan'].isin(['paid', 'paid (past due)']).sum()) if total_accounts > 0 else 0
+        trial_accounts = int((accounts_df['display_plan'] == 'trial').sum()) if total_accounts > 0 else 0
+        free_accounts = total_accounts - paid_accounts - trial_accounts - int((accounts_df['display_plan'] == 'admin').sum()) if total_accounts > 0 else 0
         total_subscribers = len(newsletter_df)
 
-        col1, col2, col3, col4, col5 = st.columns(5)
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
         with col1:
             st.metric("Total Accounts", f"{total_accounts:,}")
         with col2:
-            st.metric("New Accounts (7d)", f"{new_7d:,}", delta=f"{new_7d - prev_7d:+,} vs prior 7d")
+            st.metric("New (7d)", f"{new_7d:,}", delta=f"{new_7d - prev_7d:+,} vs prior 7d")
         with col3:
-            st.metric("Premium Accounts", f"{premium_accounts:,}", delta=f"{premium_pct:.1f}% of accounts")
+            st.metric("Paid", f"{paid_accounts:,}")
         with col4:
-            st.metric("Trial Accounts", f"{trial_accounts:,}")
+            st.metric("Trial", f"{trial_accounts:,}")
         with col5:
+            st.metric("Free", f"{free_accounts:,}")
+        with col6:
             if newsletter_available:
-                st.metric("Newsletter Subscribers", f"{total_subscribers:,}")
+                st.metric("Newsletter", f"{total_subscribers:,}")
             else:
-                st.metric("Newsletter Subscribers", "N/A")
+                st.metric("Newsletter", "N/A")
 
         tabs = st.tabs(["Accounts Table", "Signup Analytics", "Newsletter Subscribers"])
 
