@@ -20,6 +20,13 @@ from config.settings import (
     SUPABASE_SERVICE_ROLE_KEY
 )
 
+# Optional Stripe SDK for account reconciliation
+try:
+    import stripe as _stripe_mod
+    _HAVE_STRIPE = True
+except ImportError:
+    _HAVE_STRIPE = False
+
 # Page configuration
 st.set_page_config(
     page_title=f"{PROJECT_NAME} Settings Dashboard",
@@ -1661,6 +1668,36 @@ elif section == "🆕 New Accounts":
                 return 'free'
 
             accounts_df['display_plan'] = accounts_df.apply(_display_plan, axis=1)
+
+            # Reconcile with Stripe: resolve "pending (webhook gap)" into real status
+            stripe_key = os.getenv('STRIPE_SECRET_KEY', '').strip()
+            webhook_gap_mask = accounts_df['display_plan'] == 'pending (webhook gap)'
+            if _HAVE_STRIPE and stripe_key and webhook_gap_mask.any():
+                _stripe_mod.api_key = stripe_key
+                for idx in accounts_df[webhook_gap_mask].index:
+                    cust_id = accounts_df.at[idx, 'stripe_customer_id']
+                    try:
+                        subs = _stripe_mod.Subscription.list(customer=cust_id, limit=1)
+                        if subs.data:
+                            sub = subs.data[0]
+                            status = sub.status  # active, trialing, canceled, past_due, etc.
+                            if status == 'trialing':
+                                accounts_df.at[idx, 'display_plan'] = 'trial'
+                            elif status == 'active':
+                                accounts_df.at[idx, 'display_plan'] = 'paid'
+                            elif status == 'past_due':
+                                accounts_df.at[idx, 'display_plan'] = 'paid (past due)'
+                            elif status in ('canceled', 'incomplete_expired'):
+                                accounts_df.at[idx, 'display_plan'] = 'free (churned)'
+                            else:
+                                accounts_df.at[idx, 'display_plan'] = f'stripe: {status}'
+                            accounts_df.at[idx, 'subscription_status'] = status
+                        else:
+                            accounts_df.at[idx, 'display_plan'] = 'abandoned checkout'
+                    except Exception:
+                        pass  # Keep "pending (webhook gap)" if Stripe call fails
+            elif webhook_gap_mask.any() and not stripe_key:
+                pass  # No Stripe key available, keep "pending (webhook gap)" labels
         else:
             accounts_df = pd.DataFrame(columns=['id', 'email', 'plan', 'subscription_status', 'subscription_period_end', 'stripe_customer_id', 'display_plan', 'created_at_ts', 'updated_at_ts'])
 
@@ -1703,6 +1740,41 @@ elif section == "🆕 New Accounts":
                 st.metric("Newsletter", f"{total_subscribers:,}")
             else:
                 st.metric("Newsletter", "N/A")
+
+        # Sync broken profiles to DB
+        stripe_key = os.getenv('STRIPE_SECRET_KEY', '').strip()
+        needs_sync = accounts_df[
+            (accounts_df['display_plan'].isin(['paid', 'trial', 'paid (past due)']))
+            & (accounts_df['plan'] != 'premium')
+        ] if not accounts_df.empty else pd.DataFrame()
+        if not needs_sync.empty and _HAVE_STRIPE and stripe_key:
+            st.warning(f"**{len(needs_sync)} user(s)** have active Stripe subscriptions but plan=free in database (webhook was broken).")
+            if st.button("🔧 Sync profiles from Stripe", key="sync_stripe"):
+                _stripe_mod.api_key = stripe_key
+                synced = 0
+                for idx in needs_sync.index:
+                    cust_id = needs_sync.at[idx, 'stripe_customer_id']
+                    user_id = needs_sync.at[idx, 'id']
+                    try:
+                        subs = _stripe_mod.Subscription.list(customer=cust_id, limit=1)
+                        if subs.data:
+                            sub = subs.data[0]
+                            period_end = sub['items']['data'][0].get('current_period_end') if sub['items']['data'] else None
+                            plan = 'premium' if sub.status in ('active', 'trialing', 'past_due') else 'free'
+                            update_data = {
+                                'plan': plan,
+                                'subscription_status': sub.status,
+                                'stripe_subscription_id': sub.id,
+                                'updated_at': datetime.utcnow().isoformat(),
+                            }
+                            if period_end:
+                                update_data['subscription_period_end'] = datetime.utcfromtimestamp(period_end).isoformat()
+                            db.table('user_profiles').update(update_data).eq('id', user_id).execute()
+                            synced += 1
+                    except Exception as e:
+                        st.error(f"Failed to sync {cust_id}: {e}")
+                st.success(f"Synced {synced} profile(s) from Stripe.")
+                st.rerun()
 
         tabs = st.tabs(["Accounts Table", "Signup Analytics", "Newsletter Subscribers"])
 
