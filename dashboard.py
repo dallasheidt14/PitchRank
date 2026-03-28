@@ -1639,6 +1639,7 @@ elif section == "🆕 New Accounts":
             def _display_plan(row):
                 p = row['plan']
                 ss = row['subscription_status']
+                has_stripe = bool(row.get('stripe_customer_id'))
                 if p == 'admin':
                     return 'admin'
                 if p == 'premium':
@@ -1647,13 +1648,15 @@ elif section == "🆕 New Accounts":
                     if ss == 'past_due':
                         return 'paid (past due)'
                     return 'paid'
-                # plan is 'free' — check for prior subscription history
-                if ss in ('canceled', 'incomplete_expired'):
-                    return 'free (churned)'
                 if ss == 'trialing':
                     return 'trial'
+                if ss in ('canceled', 'incomplete_expired'):
+                    return 'free (churned)'
+                # Has Stripe customer but no subscription data = webhook gap
+                if has_stripe and not ss:
+                    return 'pending (webhook gap)'
                 # Orphan auth user with no user_profiles row
-                if not row.get('updated_at') and not row.get('stripe_customer_id'):
+                if not row.get('updated_at') and not has_stripe:
                     return 'free (no profile)'
                 return 'free'
 
