@@ -298,8 +298,6 @@ async def fetch_games_for_rankings(
 
     # Fetch teams in batches (Supabase has URI length limit - UUIDs are long)
     # Uses parallel fetching via ThreadPoolExecutor for 4x throughput.
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
     teams_data = []
     team_ids_list = list(team_ids)
     batch_size = 100  # Reduced from 1000 to avoid URI too long errors
