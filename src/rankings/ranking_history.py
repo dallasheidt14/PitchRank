@@ -122,7 +122,7 @@ async def save_ranking_snapshot(
         total_records = len(snapshot_records)
         logger.info(f"💾 Saving {total_records:,} ranking snapshots for {snapshot_date}...")
 
-        batch_size = 500
+        batch_size = 1000
         max_retries = 4
         saved_count = 0
         failed_batches = []
