@@ -64,10 +64,10 @@ class V53EConfig:
     # SOS trimming: reduce filler-game dilution by downweighting weakest opponents
     # Teams with many mandatory league games against weak opponents get penalized under
     # a pure weighted mean. Trimming reduces that dilution while protecting small samples.
-    SOS_TRIM_BOTTOM_PCT: float = 0.25   # Fraction of weakest opponents to trim (0.0 = disabled)
-    SOS_TRIM_MIN_GAMES: int = 8         # Don't trim teams with fewer games than this
-    SOS_TRIM_MAX_GAMES: int = 6         # Cap: never trim more than this many games per team
-    SOS_TRIM_MODE: str = "soft"         # "hard" = zero weight, "soft" = reduce weight
+    SOS_TRIM_BOTTOM_PCT: float = 0.25  # Fraction of weakest opponents to trim (0.0 = disabled)
+    SOS_TRIM_MIN_GAMES: int = 8  # Don't trim teams with fewer games than this
+    SOS_TRIM_MAX_GAMES: int = 6  # Cap: never trim more than this many games per team
+    SOS_TRIM_MODE: str = "soft"  # "hard" = zero weight, "soft" = reduce weight
     SOS_TRIM_SOFT_WEIGHT: float = 0.15  # In soft mode, trimmed games keep this fraction of original weight
 
     SOS_ITERATIONS: int = 1  # Single-pass SOS (no transitive propagation)
@@ -1030,7 +1030,8 @@ def compute_rankings(
 
     logger.info("✅ Static anchor mapping applied (U10=0.40 → U18=1.00)")
 
-    team["abs_strength"] = (team["power_presos"] * team["anchor"]).clip(cfg.UNRANKED_SOS_BASE, 1.0)
+    # True competitive strength (no anchor scaling — anchor is applied only at final scoring)
+    team["abs_strength"] = team["power_presos"].clip(cfg.UNRANKED_SOS_BASE, 1.0)
 
     strength_map = dict(zip(team["team_id"], team["abs_strength"]))
     power_map = dict(zip(team["team_id"], team["power_presos"]))
@@ -1095,12 +1096,20 @@ def compute_rankings(
         # Recalculate power_presos with adjusted OFF/DEF (50% each, no SOS to avoid circularity)
         team["power_presos"] = 0.5 * team["off_norm"] + 0.5 * team["def_norm"]
 
-        # Update strength_map and power_map with adjusted power
-        team["abs_strength"] = (team["power_presos"] * team["anchor"]).clip(cfg.UNRANKED_SOS_BASE, 1.0)
+        # Update strength_map and power_map with adjusted power (no anchor scaling)
+        team["abs_strength"] = team["power_presos"].clip(cfg.UNRANKED_SOS_BASE, 1.0)
         strength_map = dict(zip(team["team_id"], team["abs_strength"]))
         power_map = dict(zip(team["team_id"], team["power_presos"]))
 
         logger.info("✅ Opponent-adjusted offense/defense applied successfully")
+
+        # Diagnostic: opponent-adjusted OFF/DEF distribution (for anchor-isolation validation)
+        logger.info("📊 Opponent-adjusted OFF/DEF distribution:")
+        for (age, gender), grp in team.groupby(["age", "gender"]):
+            logger.info(
+                f"  {age} {gender}: off_raw mean={grp['off_raw'].mean():.4f} std={grp['off_raw'].std():.4f}, "
+                f"sad_raw mean={grp['sad_raw'].mean():.4f} std={grp['sad_raw'].std():.4f}"
+            )
 
     # -------------------------
     # Layer 5: Adaptive K per game (by abs strength gap)
@@ -1125,6 +1134,22 @@ def compute_rankings(
     g_365["w_game"] = g_365["w_base"]
     g_365["k_adapt"] = g_365.apply(adaptive_k, axis=1)
     g_365["w_sos"] = g_365["w_game"] * g_365["k_adapt"]
+
+    # Diagnostic: adaptive_k distribution per cohort (for anchor-isolation validation)
+    if "age" in team.columns and "gender" in team.columns:
+        _team_id_to_cohort = dict(zip(team["team_id"], zip(team["age"], team["gender"])))
+        _k_by_cohort: dict[tuple, list] = {}
+        for _, row in g_365[["team_id", "k_adapt"]].iterrows():
+            cohort = _team_id_to_cohort.get(row["team_id"])
+            if cohort:
+                _k_by_cohort.setdefault(cohort, []).append(row["k_adapt"])
+        logger.info("📊 adaptive_k distribution (365-day SOS games):")
+        for (age, gender), k_list in sorted(_k_by_cohort.items()):
+            k_arr = np.array(k_list)
+            logger.info(
+                f"  {age} {gender}: mean={k_arr.mean():.4f}, p90={np.percentile(k_arr, 90):.4f}, "
+                f"max={k_arr.max():.4f}, n={len(k_arr)}"
+            )
 
     logger.info(f"📊 SOS 365-day window: {len(g_365)} game-rows (vs {len(g)} in 30-game OFF/DEF window)")
 
@@ -1189,9 +1214,7 @@ def compute_rankings(
         eligible = team_counts >= cfg.SOS_TRIM_MIN_GAMES
 
         # Rank opponents by strength ascending within each team (weakest = rank 1)
-        g_sos["_str_rank"] = g_sos.groupby("team_id")[strength_col].rank(
-            method="first", ascending=True
-        )
+        g_sos["_str_rank"] = g_sos.groupby("team_id")[strength_col].rank(method="first", ascending=True)
 
         # Compute per-team trim count: min(floor(count * pct), max_games)
         n_trim_raw = np.floor(team_counts * cfg.SOS_TRIM_BOTTOM_PCT).astype(int)
@@ -1216,34 +1239,24 @@ def compute_rankings(
     team_off_norm_map = dict(zip(team["team_id"], team["off_norm"]))
     team_def_norm_map = dict(zip(team["team_id"], team["def_norm"]))
     team_gp_map = dict(zip(team["team_id"], team["gp"]))
-    team_anchor_map = dict(zip(team["team_id"], team["anchor"]))  # Need anchor for scale matching
 
-    # Calculate cohort average strength for shrinkage
-    # Using (age, gender) as cohort key
+    # Calculate cohort average strength for shrinkage (true competitive strength, no anchor)
     cohort_avg_strength = {}
     for (age, gender), grp in team.groupby(["age", "gender"]):
-        # Base power uses only OFF and DEF (50% each), scaled by anchor
-        # This matches the scale of global_strength_map (which uses abs_strength = power_presos * anchor)
         grp_base_power = 0.5 * grp["off_norm"] + 0.5 * grp["def_norm"]
-        grp_anchor = grp["anchor"]
-        cohort_avg_strength[(age, gender)] = float((grp_base_power * grp_anchor).mean())
+        cohort_avg_strength[(age, gender)] = float(grp_base_power.mean())
 
     # Map team_id to cohort for quick lookup
     team_cohort_map = dict(zip(team["team_id"], list(zip(team["age"], team["gender"]))))
 
-    # Calculate BASE strength for each team (OFF/DEF only, normalized to avoid drift)
-    # This represents opponent quality independent of their schedule
-    # IMPORTANT: Apply anchor to match scale with global_strength_map (which uses abs_strength)
+    # Calculate BASE strength for each team (OFF/DEF only, true competitive strength)
+    # This represents opponent quality independent of their schedule (no anchor scaling).
     # NOTE: Opponent-strength shrinkage was REMOVED - it injected games-played bias into SOS.
     # Teams playing opponents with more games got artificially higher SOS.
     base_strength_map = {}
     for tid in team["team_id"]:
-        # Base power uses only OFF and DEF (50% each of the non-SOS weight)
         base_power = 0.5 * team_off_norm_map.get(tid, 0.5) + 0.5 * team_def_norm_map.get(tid, 0.5)
-        # Apply anchor to match global_strength_map scale
-        # Raw strength is already anchored and bounded [0, 1]
-        anchor = team_anchor_map.get(tid, 0.7)
-        base_strength_map[tid] = float(np.clip(base_power * anchor, 0.0, 1.0))
+        base_strength_map[tid] = float(np.clip(base_power, 0.0, 1.0))
 
     # Use base strength for initial SOS calculation (Pass 1)
     # This represents how good opponents are at OFF/DEF
@@ -1276,6 +1289,13 @@ def compute_rankings(
         f"🔍 {_pass_tag}Cross-age SOS lookups: global_map_size={len(global_strength_map) if global_strength_map else 0}, "
         f"found={cross_age_found}, missing={cross_age_missing}"
     )
+
+    # Diagnostic: cross-age inflation guardrail — log teams with highest cross-age exposure
+    if cross_age_found > 0:
+        cross_age_mask = ~g_sos["opp_id"].isin(base_strength_map)
+        cross_age_by_team = cross_age_mask.groupby(g_sos["team_id"]).sum()
+        top_exposed = cross_age_by_team.nlargest(10)
+        logger.info(f"📊 {_pass_tag}Top 10 teams by cross-age game count: {dict(top_exposed)}")
 
     # Vectorized weighted mean — avoids groupby.apply returning scalar (deprecated pandas pattern)
     # Step A: Compute original (untrimmed) SOS for diagnostic comparison
@@ -1310,7 +1330,9 @@ def compute_rankings(
         sos_curr["sos"] = (1 - cfg.PAGERANK_ALPHA) * cfg.PAGERANK_BASELINE + cfg.PAGERANK_ALPHA * sos_curr["sos"]
         # Apply same dampening to sos_orig for apples-to-apples diagnostic comparison
         if "sos_orig" in sos_curr.columns:
-            sos_curr["sos_orig"] = (1 - cfg.PAGERANK_ALPHA) * cfg.PAGERANK_BASELINE + cfg.PAGERANK_ALPHA * sos_curr["sos_orig"]
+            sos_curr["sos_orig"] = (1 - cfg.PAGERANK_ALPHA) * cfg.PAGERANK_BASELINE + cfg.PAGERANK_ALPHA * sos_curr[
+                "sos_orig"
+            ]
         logger.info(f"📌 PageRank dampening applied: alpha={cfg.PAGERANK_ALPHA}, baseline={cfg.PAGERANK_BASELINE}")
 
     # Log initial SOS (Pass 1: Direct)
@@ -1750,9 +1772,7 @@ def compute_rankings(
         # 2. GP-SOS correlation before/after
         gp_sos_corr_orig = team[["gp", "sos_orig"]].corr().iloc[0, 1]
         gp_sos_corr_trim = team[["gp", "sos"]].corr().iloc[0, 1]
-        logger.info(
-            f"  GP-SOS correlation: orig={gp_sos_corr_orig:.3f} -> trimmed={gp_sos_corr_trim:.3f}"
-        )
+        logger.info(f"  GP-SOS correlation: orig={gp_sos_corr_orig:.3f} -> trimmed={gp_sos_corr_trim:.3f}")
 
         # 3. GP bucket analysis
         gp_buckets = pd.cut(team["gp"], bins=[0, 9, 14, 19, 29, 999], labels=["1-9", "10-14", "15-19", "20-29", "30+"])
@@ -1763,10 +1783,7 @@ def compute_rankings(
 
         # 4. Trim count distribution (how many games trimmed per team)
         if "w_sos_orig" in g_sos.columns:
-            is_trimmed = (
-                (g_sos["w_sos"] < g_sos["w_sos_orig"] - 1e-9)
-                .groupby(g_sos["team_id"]).sum()
-            )
+            is_trimmed = (g_sos["w_sos"] < g_sos["w_sos_orig"] - 1e-9).groupby(g_sos["team_id"]).sum()
             trimmed_nonzero = is_trimmed[is_trimmed > 0]
             if len(trimmed_nonzero) > 0:
                 pcts = trimmed_nonzero.quantile([0.25, 0.50, 0.75, 0.90])
@@ -1780,9 +1797,7 @@ def compute_rankings(
         # 5. Top opponent exposure (avg top-5 and top-10 opp strength)
         if "opp_strength" in g_sos.columns:
             # Rank opponents by strength descending within each team (vectorized, no groupby.apply)
-            _opp_desc_rank = g_sos.groupby("team_id")["opp_strength"].rank(
-                method="first", ascending=False
-            )
+            _opp_desc_rank = g_sos.groupby("team_id")["opp_strength"].rank(method="first", ascending=False)
             top_n_stats = []
             for n in [5, 10]:
                 top_n_mask = _opp_desc_rank <= n
@@ -1791,21 +1806,27 @@ def compute_rankings(
             logger.info(f"  Top opponent exposure: {', '.join(top_n_stats)}")
 
         # 6. Biggest movers (top 10 up, top 10 down)
-        team_shifts = pd.DataFrame({
-            "team_id": team["team_id"],
-            "shift": sos_shift,
-            "sos": team["sos"],
-            "sos_orig": team["sos_orig"],
-            "gp": team["gp"],
-        })
+        team_shifts = pd.DataFrame(
+            {
+                "team_id": team["team_id"],
+                "shift": sos_shift,
+                "sos": team["sos"],
+                "sos_orig": team["sos_orig"],
+                "gp": team["gp"],
+            }
+        )
         top_up = team_shifts.nlargest(10, "shift")
         top_down = team_shifts.nsmallest(10, "shift")
         logger.info("  Top 10 SOS gainers:")
         for _, r in top_up.iterrows():
-            logger.info(f"    {r['team_id'][:12]} | GP:{r['gp']:>2.0f} | {r['sos_orig']:.4f} -> {r['sos']:.4f} ({r['shift']:+.4f})")
+            logger.info(
+                f"    {r['team_id'][:12]} | GP:{r['gp']:>2.0f} | {r['sos_orig']:.4f} -> {r['sos']:.4f} ({r['shift']:+.4f})"
+            )
         logger.info("  Top 10 SOS losers:")
         for _, r in top_down.iterrows():
-            logger.info(f"    {r['team_id'][:12]} | GP:{r['gp']:>2.0f} | {r['sos_orig']:.4f} -> {r['sos']:.4f} ({r['shift']:+.4f})")
+            logger.info(
+                f"    {r['team_id'][:12]} | GP:{r['gp']:>2.0f} | {r['sos_orig']:.4f} -> {r['sos']:.4f} ({r['shift']:+.4f})"
+            )
 
         # 7. sos_norm before/after comparison
         norm_shift = team["sos_norm"] - team["sos_norm_orig"]
@@ -1860,7 +1881,6 @@ def compute_rankings(
         off_norms = team["off_norm"].values
         def_norms = team["def_norm"].values
         perf_centereds = team["perf_centered"].values
-        anchors = team["anchor"].values
         gps = team["gp"].values
 
         # Pre-compute weights for power score formula
@@ -1888,10 +1908,18 @@ def compute_rankings(
             # → even lower SOS. The floor says: "a team's contribution to opponents' SOS
             # cannot drop below their raw OFF/DEF quality (base_strength)."
             # Impact: +0.24 for closed elite leagues (correct fix), +0.03 for bubbles (negligible).
-            full_power_values = (team["powerscore_adj"].values * anchors).clip(0.0, 1.0)
+            # True competitive strength (no anchor scaling — anchor applied only at final scoring)
+            full_power_values = team["powerscore_adj"].values.clip(0.0, 1.0)
             base_strength_values = np.array([base_strength_map.get(tid, cfg.UNRANKED_SOS_BASE) for tid in team_ids])
             floored_power_values = np.maximum(full_power_values, base_strength_values)
             full_power_strength_map = dict(zip(team_ids, floored_power_values))
+
+            # Diagnostic: Power-SOS iteration distribution (for anchor-isolation validation)
+            logger.info(
+                f"  Iteration {power_iter}: full_power mean={full_power_values.mean():.4f}, "
+                f"std={np.std(full_power_values):.4f}, "
+                f"sos_delta={np.abs(team['sos'].values - prev_sos).mean():.6f}"
+            )
 
             # Step 2: Vectorized opponent strength lookup
             def lookup_strength(opp_id):

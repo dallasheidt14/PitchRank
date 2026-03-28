@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Optional
 import pandas as pd
 
 from src.rankings.constants import AGE_TO_ANCHOR
-from src.rankings.shared import normalize_gender, sos_ml_blend
+from src.rankings.shared import normalize_gender
 
 if TYPE_CHECKING:
     from src.profiling.db_profiler import QueryProfiler
@@ -881,14 +881,14 @@ def v53e_to_rankings_full_format(
         else:
             rankings_df[col] = rankings_df[col].fillna(0).astype(int)
 
-    # Map Final power scores
-    # Determine primary power score: ML > adj > core
-    if "powerscore_ml" in rankings_df.columns and rankings_df["powerscore_ml"].notna().any():
+    # DEPRECATED: national_power_score is now derived from power_score_true (single source of truth)
+    if "power_score_true" in rankings_df.columns and rankings_df["power_score_true"].notna().any():
+        rankings_df["national_power_score"] = rankings_df["power_score_true"].clip(0.0, 1.0)
+    elif "powerscore_ml" in rankings_df.columns and rankings_df["powerscore_ml"].notna().any():
+        # Fallback for legacy compatibility
         rankings_df["national_power_score"] = rankings_df["powerscore_ml"].clip(0.0, 1.0)
     elif "powerscore_adj" in rankings_df.columns:
         rankings_df["national_power_score"] = rankings_df["powerscore_adj"].clip(0.0, 1.0)
-    elif "powerscore_core" in rankings_df.columns:
-        rankings_df["national_power_score"] = rankings_df["powerscore_core"].clip(0.0, 1.0)
     else:
         rankings_df["national_power_score"] = 0.0
 
@@ -897,87 +897,30 @@ def v53e_to_rankings_full_format(
         rankings_df["global_power_score"] = None
 
     # =================================================================
-    # ALWAYS apply anchor scaling to power_score_final
+    # ANCHOR PASS-THROUGH ASSERTION
     # =================================================================
-    # Even if calculator.py already applied anchor scaling, we re-apply here
-    # as a defensive measure. The anchor scaling in calculator.py was found to
-    # compute correct values in memory but those values were not persisting to
-    # the DB (power_score_final == national_power_score for all rows).
-    #
-    # This function is the last stop before DB write, so applying anchor
-    # scaling here guarantees correctness regardless of upstream issues.
+    # power_score_final is computed in calculator.py (sole application point).
+    # The adapter MUST NOT recompute it. Validate it arrived correctly.
     # =================================================================
-
-    def calculate_anchor_scaled_power(row):
-        """Calculate anchor-scaled power_score_final with SOS-conditioned ML."""
-        # Step 1: powerscore_adj is ALWAYS the baseline
-        if pd.notna(row.get("powerscore_adj")):
-            ps_adj = float(row["powerscore_adj"])
-        elif pd.notna(row.get("powerscore_core")):
-            ps_adj = float(row["powerscore_core"])
-        else:
-            ps_adj = 0.5
-        ps_adj = max(0.0, min(1.0, ps_adj))
-
-        # Step 2: Apply SOS-conditioned ML adjustment
-        has_ml = pd.notna(row.get("powerscore_ml"))
-        has_sos = pd.notna(row.get("sos_norm"))
-
-        if has_ml and has_sos:
-            base = sos_ml_blend(ps_adj, float(row["powerscore_ml"]), float(row["sos_norm"]))
-        elif has_ml:
-            # ML available but no SOS — use powerscore_adj as baseline
-            base = ps_adj
-        else:
-            base = ps_adj
-
-        # Step 3: Get anchor for this age
-        age_num = row.get("age_num", 0)
-        if pd.isna(age_num):
-            age_num = 0
-        age_num = int(age_num)
-        anchor = AGE_TO_ANCHOR.get(age_num, 0.70)  # Default to median anchor
-
-        # Step 4: Apply anchor scaling and clip to [0, anchor]
-        return min(base * anchor, anchor)
-
-    # Log what we're doing
-    incoming_psf = rankings_df.get("power_score_final")
-    if incoming_psf is not None and incoming_psf.notna().any():
-        logger.info(
-            f"🔄 Re-applying anchor scaling to power_score_final (defensive) - {incoming_psf.notna().sum()} incoming values"
-        )
-        # Diagnostic: check if incoming values look already-scaled or not
+    if "power_score_final" in rankings_df.columns and rankings_df["power_score_final"].notna().any():
+        logger.info("🔒 Anchor pass-through validation (power_score_final from calculator.py):")
         if "age_num" in rankings_df.columns:
-            for age_val in sorted(rankings_df["age_num"].unique()):
-                if age_val in AGE_TO_ANCHOR:
-                    mask = rankings_df["age_num"] == age_val
-                    max_psf = rankings_df.loc[mask, "power_score_final"].max()
-                    anchor = AGE_TO_ANCHOR[age_val]
-                    status = "✅ scaled" if max_psf <= anchor + 0.01 else "⚠️  UNSCALED"
-                    logger.info(
-                        f"   Age {age_val}: max incoming power_score_final={max_psf:.4f}, anchor={anchor:.3f} → {status}"
-                    )
-    else:
-        logger.info("🔄 Applying anchor scaling to power_score_final (no incoming values)")
-
-    rankings_df["power_score_final"] = rankings_df.apply(calculate_anchor_scaled_power, axis=1)
-
-    # Diagnostic: log the result
-    if "age_num" in rankings_df.columns:
-        logger.info("📊 Anchor scaling results (power_score_final):")
-        for age_val in sorted(rankings_df["age_num"].unique()):
-            if age_val in AGE_TO_ANCHOR:
-                mask = rankings_df["age_num"] == age_val
+            for age_val in sorted(rankings_df["age_num"].dropna().unique()):
+                age_int = int(age_val)
+                if age_int not in AGE_TO_ANCHOR:
+                    continue
+                mask = rankings_df["age_num"] == age_int
+                anchor_val = AGE_TO_ANCHOR[age_int]
                 max_psf = rankings_df.loc[mask, "power_score_final"].max()
-                max_nps = (
-                    rankings_df.loc[mask, "national_power_score"].max()
-                    if "national_power_score" in rankings_df.columns
-                    else None
-                )
-                anchor = AGE_TO_ANCHOR[age_val]
-                nps_str = f", max national_power_score={max_nps:.4f}" if max_nps is not None else ""
-                logger.info(f"   Age {age_val}: max power_score_final={max_psf:.4f} (anchor={anchor:.3f}){nps_str}")
+                if max_psf > anchor_val + 0.01:
+                    raise ValueError(
+                        f"❌ ANCHOR INTEGRITY FAILURE: Age {age_int} has power_score_final={max_psf:.4f} "
+                        f"exceeding anchor={anchor_val:.3f}. Calculator.py must be the sole anchor applier."
+                    )
+                logger.info(f"   Age {age_int}: max power_score_final={max_psf:.4f}, anchor={anchor_val:.3f} ✅")
+        logger.info("✅ Anchor pass-through validation passed")
+    else:
+        logger.warning("⚠️ power_score_final not available from calculator — this should not happen")
 
     # Rename team_id to match database column name
     rankings_df = rankings_df.rename(columns={"team_id": "team_id"})
@@ -1039,6 +982,7 @@ def v53e_to_rankings_full_format(
         "rank_change_state_30d",  # State rank changes
         "national_power_score",
         "global_power_score",
+        "power_score_true",
         "power_score_final",
     ]
 

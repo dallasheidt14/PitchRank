@@ -873,9 +873,11 @@ async def compute_all_cohorts(
             # Log age distribution
             logger.info("📊 Applying anchor scaling by age. Age distribution: %s", age_nums.value_counts().to_dict())
 
-            # Initialize power_score_final column if it doesn't exist
+            # Initialize output columns
             if "power_score_final" not in teams_combined.columns:
                 teams_combined["power_score_final"] = None
+            if "power_score_true" not in teams_combined.columns:
+                teams_combined["power_score_true"] = None
 
             # Process each age group separately
             for age, anchor_val in AGE_TO_ANCHOR.items():
@@ -946,7 +948,10 @@ async def compute_all_cohorts(
                     ps_scaled.max(),
                 )
 
-                # Update power_score_final for this age group (index-aligned to avoid misalignment)
+                # Save unanchored competitive score (single source of truth)
+                teams_combined.loc[ps_scaled.index, "power_score_true"] = base.values
+
+                # Apply anchor (sole application point)
                 teams_combined.loc[ps_scaled.index, "power_score_final"] = ps_scaled
 
             # Check for teams that didn't get anchor scaling (ages outside 10-19 range)
@@ -979,6 +984,7 @@ async def compute_all_cohorts(
                             base_score = ps_adj
 
                         base_score = max(0.0, min(1.0, base_score))
+                        teams_combined.loc[idx, "power_score_true"] = base_score
                         teams_combined.loc[idx, "power_score_final"] = min(
                             base_score * fallback_anchor, fallback_anchor
                         )
@@ -987,6 +993,75 @@ async def compute_all_cohorts(
                 still_null = teams_combined["power_score_final"].isna().sum()
                 if still_null > 0:
                     logger.error(f"❌ {still_null} teams still have NULL power_score_final after anchor scaling!")
+
+            # === MANDATORY: power_score_true bounds check ===
+            if "power_score_true" in teams_combined.columns:
+                pst = teams_combined["power_score_true"].dropna()
+                if len(pst) > 0:
+                    if pst.min() < 0 or pst.max() > 1.0:
+                        violations = ((pst < 0) | (pst > 1.0)).sum()
+                        logger.error(
+                            f"❌ power_score_true out of [0,1] bounds: {violations} violations, "
+                            f"min={pst.min():.6f}, max={pst.max():.6f}"
+                        )
+                    else:
+                        logger.info(f"✅ power_score_true bounds: [{pst.min():.4f}, {pst.max():.4f}]")
+
+            # === MANDATORY: Anchor integrity validation ===
+            if "power_score_true" in teams_combined.columns:
+                logger.info("🔒 Anchor integrity validation:")
+                for age_val in sorted(AGE_TO_ANCHOR.keys()):
+                    mask = teams_combined["age_num"] == age_val
+                    if not mask.any():
+                        continue
+                    subset = teams_combined.loc[mask]
+                    anchor_val = AGE_TO_ANCHOR[age_val]
+                    expected = (subset["power_score_true"] * anchor_val).clip(0.0, anchor_val)
+                    actual = subset["power_score_final"]
+                    max_diff = (expected - actual).abs().max()
+                    if max_diff >= 0.001:
+                        raise ValueError(
+                            f"❌ ANCHOR INTEGRITY FAILURE: Age {age_val}, max diff={max_diff:.6f}. "
+                            f"power_score_final must equal power_score_true * anchor."
+                        )
+                    logger.info(f"  Age {age_val}: anchor={anchor_val}, max_diff={max_diff:.6f} ✅")
+
+            # === MANDATORY: Monotonicity guarantee ===
+            if "power_score_true" in teams_combined.columns and "gender" in teams_combined.columns:
+                logger.info("🔒 Monotonicity validation (anchor must not change intra-cohort order):")
+                for (age_val, gender), grp in teams_combined.groupby(["age_num", "gender"]):
+                    if len(grp) < 2:
+                        continue
+                    pst_vals = grp["power_score_true"].dropna()
+                    psf_vals = grp["power_score_final"].dropna()
+                    if len(pst_vals) < 2 or len(psf_vals) < 2:
+                        continue
+                    rank_true = pst_vals.rank(ascending=False, method="min")
+                    rank_final = psf_vals.loc[rank_true.index].rank(ascending=False, method="min")
+                    mismatches = (rank_true != rank_final).sum()
+                    if mismatches > 0:
+                        raise ValueError(
+                            f"❌ MONOTONICITY FAILURE: {age_val} {gender} has {mismatches} rank order "
+                            f"changes between power_score_true and power_score_final"
+                        )
+                    logger.info(f"  {age_val} {gender}: {len(grp)} teams, rank order preserved ✅")
+
+            # === Anchor integrity sample (top 3 per age group) ===
+            if "power_score_true" in teams_combined.columns:
+                logger.info("📊 Anchor integrity sample (top 3 per age):")
+                for age_val in [10, 12, 14, 16, 19]:
+                    mask = (teams_combined["age_num"] == age_val) & teams_combined["power_score_true"].notna()
+                    if not mask.any():
+                        continue
+                    sample = teams_combined.loc[mask].nlargest(3, "power_score_true")
+                    anchor_val = AGE_TO_ANCHOR.get(age_val, 0.70)
+                    for _, row in sample.iterrows():
+                        logger.info(
+                            f"  Age {age_val}: power_score_true={row['power_score_true']:.4f}, "
+                            f"power_score_final={row['power_score_final']:.4f}, "
+                            f"anchor={anchor_val:.3f}, "
+                            f"expected_final={row['power_score_true'] * anchor_val:.4f}"
+                        )
 
     # 🔒 Ensure PowerScore is fully clipped to [0, 1] after all operations
     if not teams_combined.empty:
