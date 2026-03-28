@@ -162,13 +162,14 @@ class V53EConfig:
     SCF_QUALITY_OVERRIDE_ENABLED: bool = True
     SCF_QUALITY_PERCENTILE: float = 0.65  # Opponents avg power above this percentile → boost SCF
     SCF_QUALITY_BOOST_MIN: float = 0.85  # Minimum SCF after quality boost (overrides geographic calc)
+    SCF_QUALITY_MIN_WIN_RATE: float = 0.50  # Must be a winning team (50%+ WR) to receive quality override
 
     # Isolation Penalty via Bridge Games
     # Bridge games = games against teams from outside your state cluster
     # If a team has few bridge games, their SOS is less reliable
     ISOLATION_PENALTY_ENABLED: bool = True
-    MIN_BRIDGE_GAMES: int = 2  # Minimum games vs out-of-state opponents for full SOS
-    ISOLATION_SOS_CAP: float = 0.70  # Max SOS for teams with no bridge games
+    MIN_BRIDGE_GAMES: int = 3  # Minimum games vs out-of-state opponents for full SOS
+    ISOLATION_SOS_CAP: float = 0.60  # Max SOS for teams with no bridge games
 
     # Regional clustering (US geographic regions for better granularity)
     # Teams playing only within their region get lower SCF than teams playing nationally
@@ -535,6 +536,7 @@ def compute_schedule_connectivity(
     team_state_map: Dict[str, str],
     cfg: V53EConfig,
     strength_map: Optional[Dict[str, float]] = None,
+    team_wr_map: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Dict]:
     """
     Compute Schedule Connectivity Factor (SCF) for each team.
@@ -555,6 +557,8 @@ def compute_schedule_connectivity(
     Args:
         strength_map: Optional dict of team_id -> power_score (pre-SCF). Used to
                       detect high-quality schedules that should bypass SCF penalty.
+        team_wr_map: Optional dict of team_id -> win_rate (0-1). Used to gate the
+                     quality override — teams must have a winning record to receive it.
 
     Returns:
         Dict[team_id, {
@@ -641,15 +645,18 @@ def compute_schedule_connectivity(
         scf_raw = state_diversity + region_bonus
         scf = max(cfg.SCF_FLOOR, min(1.0, scf_raw))
 
-        # Opponent Quality Override: if opponents are strong, this is NOT a bubble
-        # MLS NEXT teams play in regional conferences but face elite competition.
-        # Geographic isolation ≠ quality isolation.
+        # Opponent Quality Override: if opponents are strong AND the team is competitive,
+        # this is NOT a bubble. MLS NEXT teams play in regional conferences but face
+        # elite competition. Geographic isolation ≠ quality isolation.
+        # Win-rate gate: prevents closed-ecosystem teams with losing records from
+        # gaming the override via circularly-inflated opponent base_strengths.
         quality_boosted = False
         if quality_threshold is not None and strength_map and len(opp_ids) >= 3:
             opp_strengths = [strength_map.get(str(oid), 0.0) for oid in opp_ids if str(oid) in strength_map]
             if opp_strengths:
                 avg_opp_strength = float(np.mean(opp_strengths))
-                if avg_opp_strength >= quality_threshold:
+                team_wr = team_wr_map.get(team_id_str, 0.5) if team_wr_map else 0.5
+                if avg_opp_strength >= quality_threshold and team_wr >= cfg.SCF_QUALITY_MIN_WIN_RATE:
                     scf = max(scf, cfg.SCF_QUALITY_BOOST_MIN)
                     quality_boosted = True
                     quality_boosted_count += 1
@@ -864,7 +871,6 @@ def compute_rankings(
         strength_series = pd.Series(strength_map)
         today = pre_sos_state["today"]
     else:
-
         g = games_df.copy()
         g["date"] = pd.to_datetime(g["date"], errors="coerce")
         if today is None:
@@ -972,7 +978,9 @@ def compute_rankings(
         inactive_cutoff = today - pd.Timedelta(days=cfg.INACTIVE_HIDE_DAYS)
         g_recent = g[g["date"] >= inactive_cutoff].copy()
         gp_recent_counts = (
-            g_recent.groupby(["team_id", "age", "gender"], as_index=False).size().rename(columns={"size": "gp_last_window"})
+            g_recent.groupby(["team_id", "age", "gender"], as_index=False)
+            .size()
+            .rename(columns={"size": "gp_last_window"})
         )
         team = team.merge(gp_recent_counts, on=["team_id", "age", "gender"], how="left")
         team["gp_last_window"] = team["gp_last_window"].fillna(0).astype(int)
@@ -1095,7 +1103,9 @@ def compute_rankings(
             # Merge back to team DataFrame (replace old off_raw, sad_raw)
             team = team.drop(columns=["off_raw", "sad_raw"])
             team = team.merge(
-                team_adj[["team_id", "age", "gender", "off_raw", "sad_raw"]], on=["team_id", "age", "gender"], how="left"
+                team_adj[["team_id", "age", "gender", "off_raw", "sad_raw"]],
+                on=["team_id", "age", "gender"],
+                how="left",
             )
 
             # Re-apply defense ridge
@@ -1462,11 +1472,20 @@ def compute_rankings(
         # Compute SCF for each team based on their schedule diversity
         # Pass base_strength_map so quality override can detect elite schedules
         # (e.g., MLS NEXT teams in regional conferences are NOT bubbles)
+        # Pass team_wr_map so quality override requires a winning record (prevents
+        # closed-ecosystem teams with losing records from gaming the override)
+        team_wr_map = dict(
+            zip(
+                team["team_id"].astype(str),
+                (team["wins"] / team["gp"].clip(lower=1)).fillna(0).values,
+            )
+        )
         scf_data = compute_schedule_connectivity(
             games_df=g_sos,  # Use full 365-day SOS window (not 30-game recency window)
             team_state_map=team_state_map,
             cfg=cfg,
             strength_map=base_strength_map,
+            team_wr_map=team_wr_map,
         )
 
         # Apply SCF dampening to raw SOS
@@ -1937,7 +1956,9 @@ def compute_rankings(
             # Impact: +0.24 for closed elite leagues (correct fix), +0.03 for bubbles (negligible).
             # True competitive strength (no anchor scaling — anchor applied only at final scoring)
             full_power_values = team["powerscore_adj"].values.clip(0.0, 1.0)
-            base_strength_values = pd.Series(team_ids).map(pd.Series(base_strength_map)).fillna(cfg.UNRANKED_SOS_BASE).values
+            base_strength_values = (
+                pd.Series(team_ids).map(pd.Series(base_strength_map)).fillna(cfg.UNRANKED_SOS_BASE).values
+            )
             floored_power_values = np.maximum(full_power_values, base_strength_values)
             full_power_strength_map = dict(zip(team_ids, floored_power_values))
 
