@@ -54,80 +54,58 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
     failed_count = 0
     failed_batches = []  # Collect for end-of-run retry
 
-    total_batches = (len(game_residuals) + batch_size - 1) // batch_size
-    sem = asyncio.Semaphore(3)  # Max 3 concurrent RPC calls
-
-    async def _persist_batch(batch_num, batch_data):
-        """Persist a single batch with retry logic."""
-        async with sem:
-            batch_retry_delay = retry_delay
-            for attempt in range(max_retries):
-                try:
-                    result = await asyncio.to_thread(
-                        lambda bd=batch_data: supabase_client.rpc(
-                            "batch_update_ml_overperformance",
-                            {"updates": bd},
-                        ).execute()
-                    )
-                    count = result.data if result.data is not None else len(batch_data)
-                    return (batch_num, count, None)
-                except Exception as e:
-                    error_msg = str(e)
-                    is_retriable = (
-                        "SSL" in error_msg
-                        or "bad record" in error_msg.lower()
-                        or "ReadError" in error_msg
-                        or "WinError 10054" in error_msg
-                        or "timeout" in error_msg.lower()
-                        or "statement timeout" in error_msg.lower()
-                        or (
-                            "connection" in error_msg.lower()
-                            and (
-                                "closed" in error_msg.lower()
-                                or "reset" in error_msg.lower()
-                                or "forcibly" in error_msg.lower()
-                            )
-                        )
-                        or "forcibly closed" in error_msg.lower()
-                        or "remote host" in error_msg.lower()
-                    )
-
-                    if attempt < max_retries - 1:
-                        logger.warning(
-                            f"Retriable error on batch {batch_num}/{total_batches}, "
-                            f"attempt {attempt + 1}/{max_retries}. "
-                            f"Retrying in {batch_retry_delay}s... Error: {error_msg[:100]}"
-                        )
-                        await asyncio.sleep(batch_retry_delay)
-                        batch_retry_delay *= 2
-                    else:
-                        logger.warning(
-                            f"Batch {batch_num}/{total_batches} failed after {max_retries} attempts: {error_msg[:100]}"
-                        )
-                        return (batch_num, 0, batch_data)
-            return (batch_num, 0, batch_data)
-
-    # Build all batch tasks
-    tasks = []
     for i in range(0, len(game_residuals), batch_size):
         batch = game_residuals.iloc[i : i + batch_size]
         batch_num = (i // batch_size) + 1
+        total_batches = (len(game_residuals) + batch_size - 1) // batch_size
+
+        if batch_num > 1:
+            await asyncio.sleep(0.1)
+
         batch_data = [
             {"id": str(row["game_id"]), "ml_overperformance": float(row["ml_overperformance"])}
             for _, row in batch.iterrows()
         ]
-        tasks.append(_persist_batch(batch_num, batch_data))
 
-    # Run all batches concurrently (semaphore limits to 3 at a time)
-    results = await asyncio.gather(*tasks)
-    for batch_num, count, failed_data in results:
-        if failed_data:
-            failed_batches.append((batch_num, failed_data))
-            failed_count += len(failed_data)
-        else:
-            total_updated += count
+        batch_retry_delay = retry_delay
+        batch_saved = False
 
-    logger.info(f"  Progress: {total_updated:,} / {len(game_residuals):,} games updated")
+        for attempt in range(max_retries):
+            try:
+                result = supabase_client.rpc(
+                    "batch_update_ml_overperformance",
+                    {"updates": batch_data},
+                ).execute()
+
+                if result.data is not None:
+                    total_updated += result.data
+                else:
+                    total_updated += len(batch_data)
+
+                batch_saved = True
+                break
+            except Exception as e:
+                error_msg = str(e)
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"Retriable error on batch {batch_num}/{total_batches}, "
+                        f"attempt {attempt + 1}/{max_retries}. "
+                        f"Retrying in {batch_retry_delay}s... Error: {error_msg[:100]}"
+                    )
+                    await asyncio.sleep(batch_retry_delay)
+                    batch_retry_delay *= 2
+                else:
+                    logger.warning(
+                        f"Batch {batch_num}/{total_batches} failed after {max_retries} attempts: {error_msg[:100]}"
+                    )
+                    failed_batches.append((batch_num, batch_data))
+                    break
+
+        if not batch_saved:
+            failed_count += len(batch_data)
+
+        if batch_num % 10 == 0:
+            logger.info(f"  Progress: {total_updated:,} / {len(game_residuals):,} games updated...")
 
     # Retry failed batches once more at the end
     if failed_batches:
