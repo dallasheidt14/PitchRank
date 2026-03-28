@@ -28,9 +28,10 @@ if env_local.exists():
 else:
     load_dotenv()
 
-import requests
-import stripe
-from supabase import create_client
+import requests  # noqa: E402
+import stripe  # noqa: E402
+
+from supabase import create_client  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -58,7 +59,10 @@ def fetch_stripe_users(supabase):
     """Fetch all user_profiles rows with a stripe_customer_id."""
     response = (
         supabase.table("user_profiles")
-        .select("id, email, plan, subscription_status, stripe_customer_id, stripe_subscription_id, subscription_period_end")
+        .select(
+            "id, email, plan, subscription_status, "
+            "stripe_customer_id, stripe_subscription_id, subscription_period_end"
+        )
         .not_.is_("stripe_customer_id", "null")
         .execute()
     )
@@ -197,7 +201,8 @@ def send_alert_email(mismatches: list, dry_run: bool):
             f"<tr>"
             f"<td style='padding:6px 12px'>{m['email']}</td>"
             f"<td style='padding:6px 12px'>{m['before']['plan']} &rarr; {m['after']['plan']}</td>"
-            f"<td style='padding:6px 12px'>{m['before']['subscription_status']} &rarr; {m['after']['subscription_status']}</td>"
+            f"<td style='padding:6px 12px'>"
+            f"{m['before']['subscription_status']} &rarr; {m['after']['subscription_status']}</td>"
             f"</tr>"
         )
 
@@ -206,7 +211,8 @@ def send_alert_email(mismatches: list, dry_run: bool):
     html_body = f"""
     <h2>Stripe Subscription Reconciliation</h2>
     <p>{action}.</p>
-    <table border="1" cellpadding="0" cellspacing="0" style="border-collapse:collapse; font-family:sans-serif; font-size:14px">
+    <table border="1" cellpadding="0" cellspacing="0"
+           style="border-collapse:collapse; font-family:sans-serif; font-size:14px">
         <tr style="background:#f5f5f5">
             <th style="padding:8px 12px; text-align:left">User</th>
             <th style="padding:8px 12px; text-align:left">Plan Change</th>
@@ -275,7 +281,7 @@ def main():
 
     mismatches, checked = reconcile(supabase, args.dry_run)
 
-    logger.info(f"\n=== Summary ===")
+    logger.info("\n=== Summary ===")
     logger.info(f"Checked: {checked} user(s)")
     logger.info(f"Mismatches: {len(mismatches)}")
     logger.info(f"Mode: {mode}")
