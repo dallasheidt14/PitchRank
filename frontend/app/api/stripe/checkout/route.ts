@@ -42,8 +42,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Failed to fetch user profile' }, { status: 500 });
     }
 
-    // Check if user already has active subscription
-    if (profile?.plan === 'premium' && profile?.subscription_status === 'active') {
+    // Check if user already has active or trialing subscription
+    if (profile?.plan === 'premium' && (profile?.subscription_status === 'active' || profile?.subscription_status === 'trialing')) {
       return NextResponse.json({ error: 'You already have an active subscription' }, { status: 400 });
     }
 
@@ -72,6 +72,16 @@ export async function POST(req: Request) {
       }
     }
 
+    // Belt-and-suspenders: check Stripe directly for existing subscriptions
+    const existingSubs = await stripe.subscriptions.list({
+      customer: customerId,
+      limit: 10,
+    });
+    const activeSub = existingSubs.data.find((s) => s.status === 'active' || s.status === 'trialing');
+    if (activeSub) {
+      return NextResponse.json({ error: 'You already have an active subscription' }, { status: 400 });
+    }
+
     // Create Stripe checkout session with 7-day free trial
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
@@ -97,8 +107,8 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error('Checkout session error:', error);
 
-    // Return more specific error message for debugging
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: `Failed to create checkout session: ${errorMessage}` }, { status: 500 });
+    console.error('Checkout session detail:', errorMessage);
+    return NextResponse.json({ error: 'Failed to create checkout session' }, { status: 500 });
   }
 }

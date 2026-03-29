@@ -75,8 +75,15 @@ export async function DELETE(request: NextRequest) {
 
     await supabase.from('push_subscriptions').delete().eq('user_id', user.id).eq('endpoint', endpoint);
 
-    // Disable push in profile
-    await supabase.from('user_profiles').update({ push_enabled: false }).eq('id', user.id);
+    // Only disable push if no remaining subscriptions
+    const { count } = await supabase
+      .from('push_subscriptions')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id);
+
+    if (count === 0 || count === null) {
+      await supabase.from('user_profiles').update({ push_enabled: false }).eq('id', user.id);
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {
