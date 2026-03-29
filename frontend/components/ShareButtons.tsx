@@ -1,6 +1,7 @@
 'use client';
 
-import { Twitter, Facebook, Link as LinkIcon, MessageCircle, Share2 } from 'lucide-react';
+import { Link as LinkIcon, MessageCircle, Share2 } from 'lucide-react';
+import { Twitter, Facebook } from '@/components/ui/brand-icons';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect, useRef } from 'react';
 

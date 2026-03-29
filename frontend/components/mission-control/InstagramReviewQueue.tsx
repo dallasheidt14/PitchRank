@@ -14,7 +14,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
-  Instagram,
   Check,
   X,
   Loader2,
@@ -23,6 +22,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
+import { Instagram } from '@/components/ui/brand-icons';
 
 interface ReviewItem {
   handle: string;

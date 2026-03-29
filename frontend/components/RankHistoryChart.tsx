@@ -173,8 +173,8 @@ export function RankHistoryChart({ teamId }: RankHistoryChartProps) {
                 allowDecimals={false}
               />
               <RechartsTooltip
-                content={({ active, payload }: { active?: boolean; payload?: ReadonlyArray<{ payload: (typeof chartData)[0] }> }) => {
-                  if (!active || !payload?.[0]) return null;
+                content={({ active, payload }: { active?: boolean; payload?: ReadonlyArray<{ payload?: (typeof chartData)[0] }> }) => {
+                  if (!active || !payload?.[0]?.payload) return null;
                   const d = payload[0].payload;
                   return (
                     <div className="rounded-lg border bg-background p-2 shadow-md text-xs">
