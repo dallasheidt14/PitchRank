@@ -1,6 +1,6 @@
-import { createClient } from "@supabase/supabase-js";
-import { NextRequest, NextResponse } from "next/server";
-import { normalizeAgeGroup } from "@/lib/utils";
+import { createClient } from '@supabase/supabase-js';
+import { NextRequest, NextResponse } from 'next/server';
+import { normalizeAgeGroup } from '@/lib/utils';
 
 // Module-level singleton — reused across requests within the same serverless
 // function instance. National rankings are public data (no auth needed).
@@ -11,7 +11,7 @@ function getSupabase() {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (!url || !key) {
-      throw new Error("Missing Supabase environment variables");
+      throw new Error('Missing Supabase environment variables');
     }
     _supabase = createClient(url, key);
   }
@@ -29,72 +29,54 @@ function getSupabase() {
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
 
-  const ageParam = searchParams.get("age");
-  const gender = searchParams.get("gender");
-  const limit = parseInt(searchParams.get("limit") || "1000", 10);
-  const offset = parseInt(searchParams.get("offset") || "0", 10);
+  const ageParam = searchParams.get('age');
+  const gender = searchParams.get('gender');
+  const limit = parseInt(searchParams.get('limit') || '1000', 10);
+  const offset = parseInt(searchParams.get('offset') || '0', 10);
 
   // Validate required params
   if (!ageParam || !gender) {
-    return NextResponse.json(
-      { error: "Missing required parameters: age, gender" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: 'Missing required parameters: age, gender' }, { status: 400 });
   }
 
   // Normalize age group (e.g., "u12" -> 12)
   const normalizedAge = normalizeAgeGroup(ageParam);
   if (normalizedAge === null) {
-    return NextResponse.json(
-      { error: `Invalid age group: ${ageParam}` },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: 'Invalid age group format' }, { status: 400 });
   }
 
   // Validate limit/offset
   if (isNaN(limit) || limit < 1 || limit > 5000) {
-    return NextResponse.json(
-      { error: "limit must be between 1 and 5000" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: 'limit must be between 1 and 5000' }, { status: 400 });
   }
   if (isNaN(offset) || offset < 0) {
-    return NextResponse.json(
-      { error: "offset must be >= 0" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: 'offset must be >= 0' }, { status: 400 });
   }
 
   try {
     const supabase = getSupabase();
 
     const { data, error } = await supabase
-      .from("rankings_view")
-      .select("*")
-      .in("status", ["Active", "Not Enough Ranked Games"])
-      .eq("age", normalizedAge)
-      .eq("gender", gender)
-      .order("power_score_final", { ascending: false })
+      .from('rankings_view')
+      .select('*')
+      .in('status', ['Active', 'Not Enough Ranked Games'])
+      .eq('age', normalizedAge)
+      .eq('gender', gender)
+      .order('power_score_final', { ascending: false })
       .range(offset, offset + limit - 1);
 
     if (error) {
-      console.error("[API /rankings/national] Query error:", error.message);
-      return NextResponse.json(
-        { error: "Failed to fetch national rankings" },
-        { status: 500 }
-      );
+      console.error('[API /rankings/national] Query error:', error.message);
+      return NextResponse.json({ error: 'Failed to fetch national rankings' }, { status: 500 });
     }
 
     return NextResponse.json(data || [], {
       headers: {
-        "Cache-Control": "public, s-maxage=120, stale-while-revalidate=300",
+        'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=300',
       },
     });
   } catch (err) {
-    console.error("[API /rankings/national] Unexpected error:", err);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    console.error('[API /rankings/national] Unexpected error:', err);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

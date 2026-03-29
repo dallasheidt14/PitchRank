@@ -9,11 +9,11 @@ export interface Announcement {
   created_at: string;
 }
 
-// GET /api/announcements - Get announcements (latest first)
+/** GET is intentionally public — announcements are user-facing content */
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get('limit') || '10', 10);
+    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '10'), 1), 50);
 
     const { data, error } = await supabase
       .from('announcements')

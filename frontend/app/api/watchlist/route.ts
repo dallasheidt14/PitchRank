@@ -1,5 +1,5 @@
-import { createServerSupabase } from "@/lib/supabase/server";
-import { NextResponse } from "next/server";
+import { createServerSupabase } from '@/lib/supabase/server';
+import { NextResponse } from 'next/server';
 
 /**
  * Watchlist item with team data and insights preview
@@ -10,7 +10,7 @@ export interface WatchlistTeam {
   club_name: string | null;
   state: string | null;
   age: number | null;
-  gender: "M" | "F" | "B" | "G";
+  gender: 'M' | 'F' | 'B' | 'G';
   // Rankings
   rank_in_cohort_final: number | null;
   rank_in_state_final: number | null;
@@ -61,52 +61,49 @@ export async function GET() {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
     // Get user profile to check premium status
     const { data: profile, error: profileError } = await supabase
-      .from("user_profiles")
-      .select("plan")
-      .eq("id", user.id)
+      .from('user_profiles')
+      .select('plan')
+      .eq('id', user.id)
       .single();
 
     if (profileError) {
-      return NextResponse.json(
-        { error: "Failed to fetch user profile" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Failed to fetch user profile' }, { status: 500 });
     }
 
     // Check if profile exists (user may not have a profile row yet)
     if (!profile) {
-      return NextResponse.json({ error: "Profile not found" }, { status: 404 });
+      return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     }
 
     // Enforce premium access
-    if (profile.plan !== "premium" && profile.plan !== "admin") {
-      return NextResponse.json({ error: "Premium required" }, { status: 403 });
+    if (profile.plan !== 'premium' && profile.plan !== 'admin') {
+      return NextResponse.json({ error: 'Premium required' }, { status: 403 });
     }
 
     // Get user's default watchlist
     // First try to find default watchlist
     let { data: watchlist, error: watchlistError } = await supabase
-      .from("watchlists")
-      .select("*")
-      .eq("user_id", user.id)
-      .eq("is_default", true)
+      .from('watchlists')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('is_default', true)
       .single();
 
     // If no default watchlist found, get the most recent watchlist (fallback)
     // This handles cases where watchlists exist but is_default flag is missing
-    if (!watchlist && watchlistError?.code === "PGRST116") {
+    if (!watchlist && watchlistError?.code === 'PGRST116') {
       const { data: watchlists, error: listError } = await supabase
-        .from("watchlists")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
+        .from('watchlists')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
         .limit(1);
-      
+
       if (listError) {
         watchlistError = listError;
       } else if (watchlists && watchlists.length > 0) {
@@ -114,48 +111,41 @@ export async function GET() {
       }
     }
 
-    if (watchlistError && watchlistError.code !== "PGRST116") {
-      console.error("Error fetching watchlist:", watchlistError);
-      return NextResponse.json(
-        { error: "Failed to fetch watchlist" },
-        { status: 500 }
-      );
+    if (watchlistError && watchlistError.code !== 'PGRST116') {
+      console.error('Error fetching watchlist:', watchlistError);
+      return NextResponse.json({ error: 'Failed to fetch watchlist' }, { status: 500 });
     }
 
     // No watchlist exists - return empty response with proper structure
     if (!watchlist) {
       // Try to find ANY watchlist for this user (not just default) for debugging
       const { data: anyWatchlist, error: anyError } = await supabase
-        .from("watchlists")
-        .select("*")
-        .eq("user_id", user.id)
+        .from('watchlists')
+        .select('*')
+        .eq('user_id', user.id)
         .limit(5);
-      
+
       return NextResponse.json({
         watchlist: {
-          id: "",
-          name: "",
+          id: '',
+          name: '',
           is_default: true,
-          created_at: "",
-          updated_at: "",
+          created_at: '',
+          updated_at: '',
         },
         teams: [],
       });
     }
 
-
     // Get watchlist items for the found watchlist
     const { data: items, error: itemsError } = await supabase
-      .from("watchlist_items")
-      .select("team_id_master, created_at")
-      .eq("watchlist_id", watchlist.id);
+      .from('watchlist_items')
+      .select('team_id_master, created_at')
+      .eq('watchlist_id', watchlist.id);
 
     if (itemsError) {
-      console.error("[Watchlist API] Error fetching watchlist items:", itemsError);
-      return NextResponse.json(
-        { error: "Failed to fetch watchlist items" },
-        { status: 500 }
-      );
+      console.error('[Watchlist API] Error fetching watchlist items:', itemsError);
+      return NextResponse.json({ error: 'Failed to fetch watchlist items' }, { status: 500 });
     }
 
     // Define types for database responses
@@ -205,9 +195,7 @@ export async function GET() {
     // Get team IDs
     const typedItems = items as WatchlistItem[];
     const teamIds = typedItems.map((item: WatchlistItem) => item.team_id_master);
-    const itemMap = new Map(
-      typedItems.map((item: WatchlistItem) => [item.team_id_master, item.created_at])
-    );
+    const itemMap = new Map(typedItems.map((item: WatchlistItem) => [item.team_id_master, item.created_at]));
 
     // Guard against empty teamIds array
     if (teamIds.length === 0) {
@@ -226,46 +214,40 @@ export async function GET() {
     // First fetch basic team data from teams table (this has ALL teams)
     // This ensures we return all watched teams, even those without rankings
     const { data: teamsData, error: teamsError } = await supabase
-      .from("teams")
-      .select("team_id_master, team_name, club_name, state, age_group, gender")
-      .in("team_id_master", teamIds);
+      .from('teams')
+      .select('team_id_master, team_name, club_name, state, age_group, gender')
+      .in('team_id_master', teamIds);
 
     if (teamsError) {
-      console.error("Error fetching teams:", teamsError.message);
-      return NextResponse.json(
-        { error: "Failed to fetch team data", details: teamsError.message },
-        { status: 500 }
-      );
+      console.error('Error fetching teams:', teamsError.message);
+      return NextResponse.json({ error: 'Failed to fetch team data', details: teamsError.message }, { status: 500 });
     }
-
 
     // Fetch ranking data from rankings_view (may not have all teams)
     // Filter by status to match rankings pages (only active teams)
     const { data: rankingsData, error: rankingsError } = await supabase
-      .from("rankings_view")
-      .select("*")
-      .in("team_id_master", teamIds)
-      .in("status", ["Active", "Not Enough Ranked Games"]);
+      .from('rankings_view')
+      .select('*')
+      .in('team_id_master', teamIds)
+      .in('status', ['Active', 'Not Enough Ranked Games']);
 
     if (rankingsError) {
-      console.error("Error fetching rankings:", rankingsError);
+      console.error('Error fetching rankings:', rankingsError);
       // Continue with partial data - teams can still be shown without rankings
     }
 
     // Create a map of rankings by team_id_master for quick lookup
-    const rankingsMap = new Map(
-      ((rankingsData || []) as RankingRow[]).map((r: RankingRow) => [r.team_id_master, r])
-    );
+    const rankingsMap = new Map(((rankingsData || []) as RankingRow[]).map((r: RankingRow) => [r.team_id_master, r]));
 
     // Fetch state rankings for state rank (with status filter)
     const { data: stateRankingsData, error: stateRankingsError } = await supabase
-      .from("state_rankings_view")
-      .select("team_id_master, rank_in_state_final")
-      .in("team_id_master", teamIds)
-      .in("status", ["Active", "Not Enough Ranked Games"]);
+      .from('state_rankings_view')
+      .select('team_id_master, rank_in_state_final')
+      .in('team_id_master', teamIds)
+      .in('status', ['Active', 'Not Enough Ranked Games']);
 
     if (stateRankingsError) {
-      console.error("Error fetching state rankings:", stateRankingsError);
+      console.error('Error fetching state rankings:', stateRankingsError);
     }
 
     const stateRankMap = new Map(
@@ -278,21 +260,34 @@ export async function GET() {
     // Calculate new games count (last 7 days) for each team
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const sevenDaysAgoStr = sevenDaysAgo.toISOString().split("T")[0];
+    const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
 
-    // Get recent games for all teams in one query
-    const { data: recentGames, error: recentGamesError } = await supabase
-      .from("games")
-      .select("home_team_master_id, away_team_master_id, game_date")
-      .or(
-        teamIds
-          .map(
-            (id) =>
-              `home_team_master_id.eq.${id},away_team_master_id.eq.${id}`
-          )
-          .join(",")
-      )
-      .gte("game_date", sevenDaysAgoStr);
+    // Get recent games for all teams using parallel .in() queries
+    // (avoids unbounded .or() that can exceed URL length limits)
+    const [homeRecentResult, awayRecentResult] = await Promise.all([
+      supabase
+        .from('games')
+        .select('home_team_master_id, away_team_master_id, game_date')
+        .in('home_team_master_id', teamIds)
+        .gte('game_date', sevenDaysAgoStr),
+      supabase
+        .from('games')
+        .select('home_team_master_id, away_team_master_id, game_date')
+        .in('away_team_master_id', teamIds)
+        .gte('game_date', sevenDaysAgoStr),
+    ]);
+
+    const recentGamesError = homeRecentResult.error || awayRecentResult.error;
+
+    // Merge and deduplicate by composite key (no unique id on select)
+    const recentGamesRaw = [...(homeRecentResult.data || []), ...(awayRecentResult.data || [])];
+    const recentGamesSeen = new Set<string>();
+    const recentGames = recentGamesRaw.filter((g) => {
+      const key = `${g.home_team_master_id}|${g.away_team_master_id}|${g.game_date}`;
+      if (recentGamesSeen.has(key)) return false;
+      recentGamesSeen.add(key);
+      return true;
+    });
 
     // Count new games per team
     const newGamesMap = new Map<string, number>();
@@ -321,23 +316,35 @@ export async function GET() {
     }
 
     // Also get last game date for teams with no recent games
-    const teamsWithoutRecentGames = teamIds.filter(
-      (id: string) => !lastGameMap.has(id)
-    );
+    const teamsWithoutRecentGames = teamIds.filter((id: string) => !lastGameMap.has(id));
     if (teamsWithoutRecentGames.length > 0) {
-      const { data: lastGames, error: lastGamesError } = await supabase
-        .from("games")
-        .select("home_team_master_id, away_team_master_id, game_date")
-        .or(
-          teamsWithoutRecentGames
-            .map(
-              (id: string) =>
-                `home_team_master_id.eq.${id},away_team_master_id.eq.${id}`
-            )
-            .join(",")
-        )
-        .order("game_date", { ascending: false })
-        .limit(teamsWithoutRecentGames.length * 3); // Get a few recent games per team
+      const perTeamLimit = teamsWithoutRecentGames.length * 3;
+      const [homeLastResult, awayLastResult] = await Promise.all([
+        supabase
+          .from('games')
+          .select('home_team_master_id, away_team_master_id, game_date')
+          .in('home_team_master_id', teamsWithoutRecentGames)
+          .order('game_date', { ascending: false })
+          .limit(perTeamLimit),
+        supabase
+          .from('games')
+          .select('home_team_master_id, away_team_master_id, game_date')
+          .in('away_team_master_id', teamsWithoutRecentGames)
+          .order('game_date', { ascending: false })
+          .limit(perTeamLimit),
+      ]);
+
+      const lastGamesError = homeLastResult.error || awayLastResult.error;
+
+      // Merge and deduplicate
+      const lastGamesRaw = [...(homeLastResult.data || []), ...(awayLastResult.data || [])];
+      const lastGamesSeen = new Set<string>();
+      const lastGames = lastGamesRaw.filter((g) => {
+        const key = `${g.home_team_master_id}|${g.away_team_master_id}|${g.game_date}`;
+        if (lastGamesSeen.has(key)) return false;
+        lastGamesSeen.add(key);
+        return true;
+      });
 
       if (!lastGamesError && lastGames) {
         for (const game of lastGames) {
@@ -388,7 +395,7 @@ export async function GET() {
     // Then enrich with ranking data where available
     const teams: WatchlistTeam[] = ((teamsData || []) as TeamRow[]).map((team: TeamRow) => {
       const ranking = rankingsMap.get(team.team_id_master);
-      
+
       // Use age from rankings_view if available (more accurate), otherwise convert from age_group
       const age = ranking?.age ?? ageGroupToAge(team.age_group);
 
@@ -398,7 +405,7 @@ export async function GET() {
         club_name: team.club_name,
         state: team.state,
         age,
-        gender: team.gender as "M" | "F" | "B" | "G",
+        gender: team.gender as 'M' | 'F' | 'B' | 'G',
         // Ranking data (may be null if team has no rankings yet)
         rank_in_cohort_final: ranking?.rank_in_cohort_final ?? null,
         rank_in_state_final: stateRankMap.get(team.team_id_master) ?? null,
@@ -414,7 +421,7 @@ export async function GET() {
         win_percentage: ranking?.win_percentage ?? null,
         new_games_count: newGamesMap.get(team.team_id_master) || 0,
         last_game_date: lastGameMap.get(team.team_id_master) || null,
-        watchlist_added_at: itemMap.get(team.team_id_master) || "",
+        watchlist_added_at: itemMap.get(team.team_id_master) || '',
       };
     });
 
@@ -429,11 +436,8 @@ export async function GET() {
       teams,
     } satisfies WatchlistResponse);
   } catch (error) {
-    console.error("Watchlist GET error:", error);
+    console.error('Watchlist GET error:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);
-    return NextResponse.json(
-      { error: "Failed to fetch watchlist" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch watchlist' }, { status: 500 });
   }
 }

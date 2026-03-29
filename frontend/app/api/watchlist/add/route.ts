@@ -19,8 +19,6 @@ export async function POST(req: Request) {
       error: authError,
     } = await supabase.auth.getUser();
 
-    console.log('[Watchlist Add] Auth check:', user?.id || 'no user', authError?.message || 'no error');
-
     if (!user) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
@@ -32,8 +30,6 @@ export async function POST(req: Request) {
       .eq('id', user.id)
       .single();
 
-    console.log('[Watchlist Add] Profile check:', profile?.plan || 'no profile', profileError?.message || 'no error');
-
     if (profileError) {
       console.error('[Watchlist Add] Error fetching profile:', profileError);
       return NextResponse.json({ error: 'Failed to fetch user profile' }, { status: 500 });
@@ -41,20 +37,17 @@ export async function POST(req: Request) {
 
     // Check if profile exists (user may not have a profile row yet)
     if (!profile) {
-      console.log('[Watchlist Add] No profile found for user');
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     }
 
     // Enforce premium access
     if (profile.plan !== 'premium' && profile.plan !== 'admin') {
-      console.log('[Watchlist Add] User not premium:', profile.plan);
       return NextResponse.json({ error: 'Premium required' }, { status: 403 });
     }
 
     // Parse request body
     const body = await req.json();
     const { teamIdMaster } = body;
-    console.log('[Watchlist Add] Team ID:', teamIdMaster);
 
     if (!teamIdMaster || typeof teamIdMaster !== 'string') {
       return NextResponse.json({ error: 'teamIdMaster is required' }, { status: 400 });
@@ -66,8 +59,6 @@ export async function POST(req: Request) {
       .select('team_id_master, team_name')
       .eq('team_id_master', teamIdMaster)
       .single();
-
-    console.log('[Watchlist Add] Team lookup:', team?.team_name || 'not found', teamError?.message || 'no error');
 
     if (teamError || !team) {
       return NextResponse.json({ error: 'Team not found' }, { status: 404 });
@@ -83,8 +74,6 @@ export async function POST(req: Request) {
       .eq('is_default', true)
       .single();
 
-    console.log('[Watchlist Add] Existing watchlist:', existingWatchlist?.id || 'none', fetchError?.code || 'no error');
-
     if (fetchError && fetchError.code !== 'PGRST116') {
       console.error('[Watchlist Add] Error fetching watchlist:', fetchError);
       return NextResponse.json({ error: 'Failed to fetch watchlist' }, { status: 500 });
@@ -93,7 +82,6 @@ export async function POST(req: Request) {
     // If no default watchlist found, use most recent watchlist (fallback)
     // This prevents creating duplicate watchlists when is_default flag is missing
     if (!existingWatchlist && fetchError?.code === 'PGRST116') {
-      console.log('[Watchlist Add] No default watchlist found, trying most recent');
       const { data: watchlists, error: listError } = await supabase
         .from('watchlists')
         .select('id')
@@ -103,7 +91,6 @@ export async function POST(req: Request) {
 
       if (!listError && watchlists && watchlists.length > 0) {
         existingWatchlist = watchlists[0];
-        console.log('[Watchlist Add] Using most recent watchlist as fallback:', existingWatchlist.id);
       }
     }
 
@@ -111,7 +98,6 @@ export async function POST(req: Request) {
       watchlistId = existingWatchlist.id;
     } else {
       // Create default watchlist
-      console.log('[Watchlist Add] Creating new watchlist for user:', user.id);
       const { data: newWatchlist, error: createError } = await supabase
         .from('watchlists')
         .insert({
@@ -122,8 +108,6 @@ export async function POST(req: Request) {
         .select('id')
         .single();
 
-      console.log('[Watchlist Add] New watchlist:', newWatchlist?.id || 'failed', createError?.message || 'no error');
-
       if (createError || !newWatchlist) {
         console.error('[Watchlist Add] Error creating watchlist:', createError);
         return NextResponse.json({ error: 'Failed to create watchlist' }, { status: 500 });
@@ -133,7 +117,6 @@ export async function POST(req: Request) {
     }
 
     // Add team to watchlist (upsert to handle duplicates gracefully)
-    console.log('[Watchlist Add] Upserting item:', watchlistId, teamIdMaster);
     const { data: upsertData, error: addError } = await supabase
       .from('watchlist_items')
       .upsert(
@@ -148,32 +131,11 @@ export async function POST(req: Request) {
       )
       .select();
 
-    console.log('[Watchlist Add] Upsert result:', {
-      data: upsertData,
-      error: addError?.message,
-      errorCode: addError?.code,
-    });
-
     if (addError) {
       console.error('[Watchlist Add] Error adding team to watchlist:', addError);
       return NextResponse.json({ error: 'Failed to add team to watchlist' }, { status: 500 });
     }
 
-    // Verify the item was actually added
-    const { data: verifyItem, error: verifyError } = await supabase
-      .from('watchlist_items')
-      .select('*')
-      .eq('watchlist_id', watchlistId)
-      .eq('team_id_master', teamIdMaster)
-      .single();
-
-    console.log('[Watchlist Add] Verification query:', {
-      found: !!verifyItem,
-      item: verifyItem,
-      error: verifyError?.message,
-    });
-
-    console.log('[Watchlist Add] Success! Added', team.team_name);
     return NextResponse.json({
       success: true,
       message: `Added ${team.team_name} to watchlist`,

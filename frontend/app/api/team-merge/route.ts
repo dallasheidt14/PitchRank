@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'One or both team IDs do not exist' }, { status: 404 });
       }
 
-      return NextResponse.json({ error: `Merge failed: ${message}` }, { status: 500 });
+      return NextResponse.json({ error: 'Merge failed due to an internal error' }, { status: 500 });
     }
 
     // If confidence score and signals were provided (from Option 8), update the merge record
@@ -199,7 +199,7 @@ export async function DELETE(request: NextRequest) {
         return NextResponse.json({ error: 'This team is not currently merged' }, { status: 404 });
       }
 
-      return NextResponse.json({ error: `Revert failed: ${message}` }, { status: 500 });
+      return NextResponse.json({ error: 'Revert failed due to an internal error' }, { status: 500 });
     }
 
     return NextResponse.json({

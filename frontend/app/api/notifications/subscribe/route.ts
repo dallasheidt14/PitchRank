@@ -69,9 +69,11 @@ export async function DELETE(request: NextRequest) {
     const body = await request.json();
     const { endpoint } = body;
 
-    if (endpoint) {
-      await supabase.from('push_subscriptions').delete().eq('user_id', user.id).eq('endpoint', endpoint);
+    if (!endpoint || typeof endpoint !== 'string') {
+      return NextResponse.json({ error: 'endpoint is required' }, { status: 400 });
     }
+
+    await supabase.from('push_subscriptions').delete().eq('user_id', user.id).eq('endpoint', endpoint);
 
     // Only disable push if no remaining subscriptions
     const { count } = await supabase

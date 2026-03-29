@@ -20,6 +20,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid price ID' }, { status: 400 });
     }
 
+    // Validate against known price IDs from env vars
+    const VALID_PRICE_IDS = [
+      process.env.NEXT_PUBLIC_STRIPE_MONTHLY_PRICE_ID,
+      process.env.NEXT_PUBLIC_STRIPE_YEARLY_PRICE_ID,
+    ].filter(Boolean);
+
+    if (VALID_PRICE_IDS.length > 0 && !VALID_PRICE_IDS.includes(priceId)) {
+      return NextResponse.json({ error: 'Invalid price ID' }, { status: 400 });
+    }
+
     // Get user profile
     const { data: profile, error: profileError } = await supabase
       .from('user_profiles')
@@ -33,7 +43,7 @@ export async function POST(req: Request) {
     }
 
     // Check if user already has active or trialing subscription
-    if (profile?.subscription_status === 'active' || profile?.subscription_status === 'trialing') {
+    if (profile?.plan === 'premium' && (profile?.subscription_status === 'active' || profile?.subscription_status === 'trialing')) {
       return NextResponse.json({ error: 'You already have an active subscription' }, { status: 400 });
     }
 

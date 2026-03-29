@@ -3,10 +3,10 @@ import { supabase } from '@/lib/supabaseClient';
 
 /**
  * Agent Webhook API
- * 
+ *
  * Receives notifications from OpenClaw agent sessions about task lifecycle events.
  * Used to automatically track sub-agent tasks in Mission Control.
- * 
+ *
  * Actions:
  * - spawn: Create a new in-progress task when an agent starts
  * - progress: Update task with progress info (optional)
@@ -21,6 +21,16 @@ interface WebhookPayload {
   task: string;
   result?: string;
   error?: string;
+}
+
+/** Find the task_id associated with a session key via task_comments */
+async function findTaskBySession(sessionKey: string): Promise<string | null> {
+  const { data: comments } = await supabase
+    .from('task_comments')
+    .select('task_id')
+    .like('content', `%Session: ${sessionKey}%`)
+    .limit(1);
+  return comments?.[0]?.task_id ?? null;
 }
 
 // Agent emoji mapping
@@ -79,14 +89,12 @@ export async function POST(request: NextRequest) {
     switch (action) {
       case 'spawn': {
         // Create agent session record for live status tracking
-        const { error: sessionError } = await supabase
-          .from('agent_sessions')
-          .insert({
-            session_key: sessionKey,
-            agent_name: agentName,
-            task_description: task,
-            status: 'active',
-          });
+        const { error: sessionError } = await supabase.from('agent_sessions').insert({
+          session_key: sessionKey,
+          agent_name: agentName,
+          task_description: task,
+          status: 'active',
+        });
 
         if (sessionError) {
           console.error('[AgentWebhook] Failed to create session:', sessionError);
@@ -97,7 +105,7 @@ export async function POST(request: NextRequest) {
 
         // Create new task in in_progress status
         const title = task.length > 100 ? task.substring(0, 97) + '...' : task;
-        
+
         const { data: newTask, error: createError } = await supabase
           .from('agent_tasks')
           .insert({
@@ -135,35 +143,30 @@ export async function POST(request: NextRequest) {
           message_type: 'spawn',
         });
 
-        return NextResponse.json({ 
-          success: true, 
-          taskId: newTask.id,
-          message: 'Task created' 
-        }, { status: 201 });
+        return NextResponse.json(
+          {
+            success: true,
+            taskId: newTask.id,
+            message: 'Task created',
+          },
+          { status: 201 }
+        );
       }
 
       case 'progress': {
         // Update session's updated_at (keeps it "active" in the 5-minute window)
         await supabase
           .from('agent_sessions')
-          .update({ 
+          .update({
             updated_at: new Date().toISOString(),
             task_description: result || task, // Update task description with progress
           })
           .eq('session_key', sessionKey);
 
-        // Find the task by session key in comments
-        const { data: comments } = await supabase
-          .from('task_comments')
-          .select('task_id')
-          .like('content', `%Session: ${sessionKey}%`)
-          .limit(1);
-
-        if (!comments || comments.length === 0) {
+        const taskId = await findTaskBySession(sessionKey);
+        if (!taskId) {
           return NextResponse.json({ error: 'Task not found for session' }, { status: 404 });
         }
-
-        const taskId = comments[0].task_id;
 
         // Add progress comment
         await supabase.from('task_comments').insert({
@@ -181,31 +184,20 @@ export async function POST(request: NextRequest) {
         // Update agent session to completed
         await supabase
           .from('agent_sessions')
-          .update({ 
+          .update({
             status: 'completed',
             completed_at: new Date().toISOString(),
             result: result || 'Task finished successfully',
           })
           .eq('session_key', sessionKey);
 
-        // Find the task by session key in comments
-        const { data: comments } = await supabase
-          .from('task_comments')
-          .select('task_id')
-          .like('content', `%Session: ${sessionKey}%`)
-          .limit(1);
-
-        if (!comments || comments.length === 0) {
+        const taskId = await findTaskBySession(sessionKey);
+        if (!taskId) {
           return NextResponse.json({ error: 'Task not found for session' }, { status: 404 });
         }
 
-        const taskId = comments[0].task_id;
-
         // Update task status to review (needs verification before done)
-        const { error: updateError } = await supabase
-          .from('agent_tasks')
-          .update({ status: 'review' })
-          .eq('id', taskId);
+        const { error: updateError } = await supabase.from('agent_tasks').update({ status: 'review' }).eq('id', taskId);
 
         if (updateError) {
           console.error('Error updating task:', updateError);
@@ -239,31 +231,20 @@ export async function POST(request: NextRequest) {
         // Update agent session to error
         await supabase
           .from('agent_sessions')
-          .update({ 
+          .update({
             status: 'error',
             completed_at: new Date().toISOString(),
             result: errorMsg || 'Task failed - needs retry',
           })
           .eq('session_key', sessionKey);
 
-        // Find the task by session key in comments
-        const { data: comments } = await supabase
-          .from('task_comments')
-          .select('task_id')
-          .like('content', `%Session: ${sessionKey}%`)
-          .limit(1);
-
-        if (!comments || comments.length === 0) {
+        const taskId = await findTaskBySession(sessionKey);
+        if (!taskId) {
           return NextResponse.json({ error: 'Task not found for session' }, { status: 404 });
         }
 
-        const taskId = comments[0].task_id;
-
         // Update task status back to inbox (needs retry)
-        const { error: updateError } = await supabase
-          .from('agent_tasks')
-          .update({ status: 'inbox' })
-          .eq('id', taskId);
+        const { error: updateError } = await supabase.from('agent_tasks').update({ status: 'inbox' }).eq('id', taskId);
 
         if (updateError) {
           console.error('Error updating task:', updateError);
@@ -304,9 +285,9 @@ export async function POST(request: NextRequest) {
 
 // GET endpoint for health check
 export async function GET() {
-  return NextResponse.json({ 
-    status: 'ok', 
+  return NextResponse.json({
+    status: 'ok',
     endpoint: 'agent-webhook',
-    actions: ['spawn', 'progress', 'complete', 'error']
+    actions: ['spawn', 'progress', 'complete', 'error'],
   });
 }
