@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from '@/lib/supabase/admin';
+import { parseJsonBody } from '@/lib/api/parseJsonBody';
 
 /**
  * Preview API for linking unknown opponent
@@ -7,35 +9,28 @@ import { createClient } from '@supabase/supabase-js';
  */
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAdmin();
+    if (auth.error) return auth.error;
+
     const serviceKey = process.env.SUPABASE_SERVICE_KEY;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
     if (!serviceKey || !supabaseUrl) {
       console.error('[link-opponent/preview] Missing environment variables');
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
     }
 
     // Parse request body
-    let requestBody;
-    try {
-      requestBody = await request.json();
-    } catch {
-      return NextResponse.json(
-        { error: 'Invalid request body' },
-        { status: 400 }
-      );
-    }
+    const result = await parseJsonBody<{
+      gameId: string;
+      opponentProviderId: string | number;
+    }>(request);
+    if (result.error) return result.error;
 
-    const { gameId, opponentProviderId } = requestBody;
+    const { gameId, opponentProviderId } = result.data;
 
     if (!gameId || !opponentProviderId) {
-      return NextResponse.json(
-        { error: 'Missing required fields: gameId and opponentProviderId' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Missing required fields: gameId and opponentProviderId' }, { status: 400 });
     }
 
     const supabase = createClient(supabaseUrl, serviceKey);
@@ -49,10 +44,7 @@ export async function POST(request: NextRequest) {
 
     if (gameError || !game) {
       console.error('[link-opponent/preview] Game not found:', gameError);
-      return NextResponse.json(
-        { error: 'Game not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Game not found' }, { status: 404 });
     }
 
     // Get the provider name for display
@@ -90,10 +82,7 @@ export async function POST(request: NextRequest) {
 
     if (homeError || awayError) {
       console.error('[link-opponent/preview] Query error:', homeError || awayError);
-      return NextResponse.json(
-        { error: 'Failed to query games' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Failed to query games' }, { status: 500 });
     }
 
     // Get team names for the affected games to show context
@@ -132,14 +121,16 @@ export async function POST(request: NextRequest) {
     const formatGame = (g: GameRecord, isHome: boolean) => ({
       id: g.id,
       gameDate: g.game_date,
-      score: g.home_score !== null && g.away_score !== null
-        ? `${g.home_score} - ${g.away_score}`
-        : 'No score',
+      score: g.home_score !== null && g.away_score !== null ? `${g.home_score} - ${g.away_score}` : 'No score',
       competition: g.competition || 'Unknown',
       opponentPosition: isHome ? 'home' : 'away',
       otherTeam: isHome
-        ? (g.away_team_master_id ? teamNames[g.away_team_master_id] || 'Unknown' : 'Unknown')
-        : (g.home_team_master_id ? teamNames[g.home_team_master_id] || 'Unknown' : 'Unknown'),
+        ? g.away_team_master_id
+          ? teamNames[g.away_team_master_id] || 'Unknown'
+          : 'Unknown'
+        : g.home_team_master_id
+          ? teamNames[g.home_team_master_id] || 'Unknown'
+          : 'Unknown',
     });
 
     const affectedGames = [
@@ -174,9 +165,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('[link-opponent/preview] Unexpected error:', error);
-    return NextResponse.json(
-      { error: 'An unexpected error occurred' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 });
   }
 }

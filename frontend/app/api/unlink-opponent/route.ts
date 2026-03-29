@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { requireAdmin } from '@/lib/supabase/admin';
+import { parseJsonBody } from '@/lib/api/parseJsonBody';
 
 /**
  * Unlink an incorrectly linked opponent from a game
@@ -16,28 +17,18 @@ export async function POST(request: NextRequest) {
 
     if (!serviceKey || !supabaseUrl) {
       console.error('[unlink-opponent] Missing environment variables');
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
     }
 
-    let requestBody;
-    try {
-      requestBody = await request.json();
-    } catch {
-      return NextResponse.json(
-        { error: 'Invalid request body' },
-        { status: 400 }
-      );
-    }
+    const result = await parseJsonBody<{
+      gameId: string;
+      opponentProviderId: string | number;
+      teamIdMaster: string;
+      unlinkAllGames?: boolean;
+    }>(request);
+    if (result.error) return result.error;
 
-    const {
-      gameId,
-      opponentProviderId,
-      teamIdMaster,
-      unlinkAllGames = true,
-    } = requestBody;
+    const { gameId, opponentProviderId, teamIdMaster, unlinkAllGames = true } = result.data;
 
     if (!gameId || !opponentProviderId || !teamIdMaster) {
       return NextResponse.json(
@@ -57,10 +48,7 @@ export async function POST(request: NextRequest) {
 
     if (gameError || !game) {
       console.error('[unlink-opponent] Game not found:', gameError);
-      return NextResponse.json(
-        { error: 'Game not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Game not found' }, { status: 404 });
     }
 
     const providerTeamIdStr = String(opponentProviderId);
@@ -68,10 +56,7 @@ export async function POST(request: NextRequest) {
     const isOpponentAway = String(game.away_provider_id) === providerTeamIdStr;
 
     if (!isOpponentHome && !isOpponentAway) {
-      return NextResponse.json(
-        { error: 'Provider ID does not match any team in this game' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Provider ID does not match any team in this game' }, { status: 400 });
     }
 
     // Verify the team is actually linked to the expected team
@@ -80,7 +65,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: 'Team mismatch',
-          details: `Expected team ${teamIdMaster} but found ${currentMasterId}. The game may have already been updated.`
+          details: `Expected team ${teamIdMaster} but found ${currentMasterId}. The game may have already been updated.`,
         },
         { status: 400 }
       );
@@ -100,22 +85,14 @@ export async function POST(request: NextRequest) {
     // If RPC function doesn't exist, fall back to direct update
     if (rpcError?.code === '42883' || rpcError?.message?.includes('does not exist')) {
       console.log('[unlink-opponent] RPC function not found, trying direct update');
-      const updateField = isOpponentHome
-        ? { home_team_master_id: null }
-        : { away_team_master_id: null };
-      const { error: directError } = await supabase
-        .from('games')
-        .update(updateField)
-        .eq('id', gameId);
+      const updateField = isOpponentHome ? { home_team_master_id: null } : { away_team_master_id: null };
+      const { error: directError } = await supabase.from('games').update(updateField).eq('id', gameId);
       specificUpdateError = directError;
     }
 
     if (specificUpdateError) {
       console.error('[unlink-opponent] Failed to unlink game:', specificUpdateError);
-      return NextResponse.json(
-        { error: `Failed to unlink game: ${specificUpdateError.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: `Failed to unlink game: ${specificUpdateError.message}` }, { status: 500 });
     }
 
     gamesUpdated = 1;
@@ -158,18 +135,16 @@ export async function POST(request: NextRequest) {
     }
 
     // 5. Create audit log entry
-    const { error: auditError } = await supabase
-      .from('team_link_audit')
-      .insert({
-        provider_team_id: providerTeamIdStr,
-        team_id_master: teamIdMaster,
-        provider_id: game.provider_id,
-        games_updated: gamesUpdated,
-        linked_by: 'frontend_user',
-        reverted_at: new Date().toISOString(),
-        reverted_by: 'frontend_user',
-        notes: `Unlinked ${gamesUpdated} game(s). Alias removed: ${!aliasDeleteError}`,
-      });
+    const { error: auditError } = await supabase.from('team_link_audit').insert({
+      provider_team_id: providerTeamIdStr,
+      team_id_master: teamIdMaster,
+      provider_id: game.provider_id,
+      games_updated: gamesUpdated,
+      linked_by: 'frontend_user',
+      reverted_at: new Date().toISOString(),
+      reverted_by: 'frontend_user',
+      notes: `Unlinked ${gamesUpdated} game(s). Alias removed: ${!aliasDeleteError}`,
+    });
 
     if (auditError) {
       console.error('[unlink-opponent] Failed to create audit log:', auditError);
@@ -183,9 +158,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('[unlink-opponent] Unexpected error:', error);
-    return NextResponse.json(
-      { error: 'An unexpected error occurred' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 });
   }
 }

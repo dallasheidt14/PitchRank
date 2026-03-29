@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { requireAdmin } from '@/lib/supabase/admin';
+import { parseJsonBody } from '@/lib/api/parseJsonBody';
 
 /**
  * Link unknown opponent to a team
@@ -16,29 +17,19 @@ export async function POST(request: NextRequest) {
 
     if (!serviceKey || !supabaseUrl) {
       console.error('[link-opponent] Missing environment variables');
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
     }
 
     // Parse request body
-    let requestBody;
-    try {
-      requestBody = await request.json();
-    } catch {
-      return NextResponse.json(
-        { error: 'Invalid request body' },
-        { status: 400 }
-      );
-    }
+    const result = await parseJsonBody<{
+      gameId: string;
+      opponentProviderId: string | number;
+      teamIdMaster: string;
+      applyToAllGames?: boolean;
+    }>(request);
+    if (result.error) return result.error;
 
-    const {
-      gameId,
-      opponentProviderId,
-      teamIdMaster,
-      applyToAllGames = true,
-    } = requestBody;
+    const { gameId, opponentProviderId, teamIdMaster, applyToAllGames = true } = result.data;
 
     if (!gameId || !opponentProviderId || !teamIdMaster) {
       return NextResponse.json(
@@ -58,10 +49,7 @@ export async function POST(request: NextRequest) {
 
     if (teamError || !team) {
       console.error('[link-opponent] Team not found:', teamError);
-      return NextResponse.json(
-        { error: 'Team not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Team not found' }, { status: 404 });
     }
 
     // 2. Get the provider_id from the game
@@ -73,10 +61,7 @@ export async function POST(request: NextRequest) {
 
     if (gameError || !game) {
       console.error('[link-opponent] Game not found:', gameError);
-      return NextResponse.json(
-        { error: 'Game not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Game not found' }, { status: 404 });
     }
 
     // Debug logging to understand the data
@@ -94,7 +79,7 @@ export async function POST(request: NextRequest) {
         away_provider_id_type: typeof game.away_provider_id,
         home_team_master_id: game.home_team_master_id,
         away_team_master_id: game.away_team_master_id,
-      }
+      },
     });
 
     // Ensure provider_team_id is a string (database column is TEXT)
@@ -111,7 +96,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: 'This opponent is already linked to a team',
-          details: 'The home team position is already filled. If this is incorrect, please contact support.'
+          details: 'The home team position is already filled. If this is incorrect, please contact support.',
         },
         { status: 400 }
       );
@@ -121,7 +106,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: 'This opponent is already linked to a team',
-          details: 'The away team position is already filled. If this is incorrect, please contact support.'
+          details: 'The away team position is already filled. If this is incorrect, please contact support.',
         },
         { status: 400 }
       );
@@ -135,7 +120,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: 'Provider ID does not match any team in this game',
-          details: 'The opponent provider ID does not match the home or away provider ID for this game.'
+          details: 'The opponent provider ID does not match the home or away provider ID for this game.',
         },
         { status: 400 }
       );
@@ -143,18 +128,19 @@ export async function POST(request: NextRequest) {
 
     // 3. Create or update alias mapping (upsert)
 
-    const { error: aliasError } = await supabase
-      .from('team_alias_map')
-      .upsert({
+    const { error: aliasError } = await supabase.from('team_alias_map').upsert(
+      {
         provider_id: game.provider_id,
         provider_team_id: providerTeamIdStr,
         team_id_master: teamIdMaster,
-        match_method: 'manual',  // Valid values: auto, manual, import, direct_id, fuzzy_auto, fuzzy_review
+        match_method: 'manual', // Valid values: auto, manual, import, direct_id, fuzzy_auto, fuzzy_review
         match_confidence: 1.0,
         review_status: 'approved',
-      }, {
-        onConflict: 'provider_id,provider_team_id'
-      });
+      },
+      {
+        onConflict: 'provider_id,provider_team_id',
+      }
+    );
 
     if (aliasError) {
       console.error('[link-opponent] Failed to create alias:', aliasError);
@@ -189,14 +175,18 @@ export async function POST(request: NextRequest) {
       const { error: rpcError, data: rpcData } = await supabase.rpc('link_game_team', {
         p_game_id: gameId,
         p_team_id_master: teamIdMaster,
-        p_is_home_team: true
+        p_is_home_team: true,
       });
 
       let specificUpdateError = rpcError;
       let updateData = rpcData ? [{ id: gameId }] : null;
 
       // If RPC function doesn't exist, fall back to direct update
-      if (rpcError?.code === '42883' || rpcError?.message?.includes('function') || rpcError?.message?.includes('does not exist')) {
+      if (
+        rpcError?.code === '42883' ||
+        rpcError?.message?.includes('function') ||
+        rpcError?.message?.includes('does not exist')
+      ) {
         console.log('[link-opponent] RPC function not found, trying direct update');
         const directResult = await supabase
           .from('games')
@@ -214,7 +204,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           {
             error: `Database update failed: ${specificUpdateError.message}`,
-            details: 'The game could not be updated. This may be due to database constraints.'
+            details: 'The game could not be updated. This may be due to database constraints.',
           },
           { status: 500 }
         );
@@ -237,7 +227,7 @@ export async function POST(request: NextRequest) {
         teamIdMasterType: typeof teamIdMaster,
         verifyGameHomeId: verifyGame?.home_team_master_id,
         verifyGameHomeIdType: typeof verifyGame?.home_team_master_id,
-        updateActuallyWorked
+        updateActuallyWorked,
       });
 
       if (verifyError) {
@@ -260,7 +250,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           {
             error: 'Game update failed - database rejected the change',
-            details: 'The update was rejected by the database. The game may be marked as immutable or there may be a constraint violation.'
+            details:
+              'The update was rejected by the database. The game may be marked as immutable or there may be a constraint violation.',
           },
           { status: 500 }
         );
@@ -273,14 +264,18 @@ export async function POST(request: NextRequest) {
       const { error: rpcError, data: rpcData } = await supabase.rpc('link_game_team', {
         p_game_id: gameId,
         p_team_id_master: teamIdMaster,
-        p_is_home_team: false
+        p_is_home_team: false,
       });
 
       let specificUpdateError = rpcError;
       let updateData = rpcData ? [{ id: gameId }] : null;
 
       // If RPC function doesn't exist, fall back to direct update
-      if (rpcError?.code === '42883' || rpcError?.message?.includes('function') || rpcError?.message?.includes('does not exist')) {
+      if (
+        rpcError?.code === '42883' ||
+        rpcError?.message?.includes('function') ||
+        rpcError?.message?.includes('does not exist')
+      ) {
         console.log('[link-opponent] RPC function not found, trying direct update');
         const directResult = await supabase
           .from('games')
@@ -298,7 +293,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           {
             error: `Database update failed: ${specificUpdateError.message}`,
-            details: 'The game could not be updated. This may be due to database constraints.'
+            details: 'The game could not be updated. This may be due to database constraints.',
           },
           { status: 500 }
         );
@@ -321,7 +316,7 @@ export async function POST(request: NextRequest) {
         teamIdMasterType: typeof teamIdMaster,
         verifyGameAwayId: verifyGame?.away_team_master_id,
         verifyGameAwayIdType: typeof verifyGame?.away_team_master_id,
-        updateActuallyWorked
+        updateActuallyWorked,
       });
 
       if (verifyError) {
@@ -344,7 +339,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           {
             error: 'Game update failed - database rejected the change',
-            details: 'The update was rejected by the database. The game may be marked as immutable or there may be a constraint violation.'
+            details:
+              'The update was rejected by the database. The game may be marked as immutable or there may be a constraint violation.',
           },
           { status: 500 }
         );
@@ -368,9 +364,7 @@ export async function POST(request: NextRequest) {
         .eq('home_provider_id', providerTeamIdStr)
         .is('home_team_master_id', null)
         .neq('id', gameId);
-      homeQuery = providerIdIsNull
-        ? homeQuery.is('provider_id', null)
-        : homeQuery.eq('provider_id', game.provider_id);
+      homeQuery = providerIdIsNull ? homeQuery.is('provider_id', null) : homeQuery.eq('provider_id', game.provider_id);
       const { error: homeUpdateError, data: homeUpdateData } = await homeQuery.select('id');
 
       if (homeUpdateError) {
@@ -386,9 +380,7 @@ export async function POST(request: NextRequest) {
         .eq('away_provider_id', providerTeamIdStr)
         .is('away_team_master_id', null)
         .neq('id', gameId);
-      awayQuery = providerIdIsNull
-        ? awayQuery.is('provider_id', null)
-        : awayQuery.eq('provider_id', game.provider_id);
+      awayQuery = providerIdIsNull ? awayQuery.is('provider_id', null) : awayQuery.eq('provider_id', game.provider_id);
       const { error: awayUpdateError, data: awayUpdateData } = await awayQuery.select('id');
 
       if (awayUpdateError) {
@@ -404,16 +396,14 @@ export async function POST(request: NextRequest) {
     }
 
     // 6. Create audit log entry
-    const { error: auditError } = await supabase
-      .from('team_link_audit')
-      .insert({
-        provider_team_id: providerTeamIdStr,
-        team_id_master: teamIdMaster,
-        provider_id: game.provider_id,
-        games_updated: gamesUpdated,
-        linked_by: 'frontend_user',
-        notes: `Home: ${homeUpdated}, Away: ${awayUpdated}`,
-      });
+    const { error: auditError } = await supabase.from('team_link_audit').insert({
+      provider_team_id: providerTeamIdStr,
+      team_id_master: teamIdMaster,
+      provider_id: game.provider_id,
+      games_updated: gamesUpdated,
+      linked_by: 'frontend_user',
+      notes: `Home: ${homeUpdated}, Away: ${awayUpdated}`,
+    });
 
     if (auditError) {
       console.error('[link-opponent] Failed to create audit log:', auditError);
@@ -425,15 +415,13 @@ export async function POST(request: NextRequest) {
       teamClubName: team.club_name,
       gamesUpdated,
       aliasCreated: true,
-      message: gamesUpdated > 0
-        ? `Successfully linked ${gamesUpdated} game(s) to ${team.team_name}`
-        : `Alias created for ${team.team_name}. Future games will be linked automatically.`,
+      message:
+        gamesUpdated > 0
+          ? `Successfully linked ${gamesUpdated} game(s) to ${team.team_name}`
+          : `Alias created for ${team.team_name}. Future games will be linked automatically.`,
     });
   } catch (error) {
     console.error('[link-opponent] Unexpected error:', error);
-    return NextResponse.json(
-      { error: 'An unexpected error occurred' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 });
   }
 }
