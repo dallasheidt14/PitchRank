@@ -151,7 +151,7 @@ class V53EConfig:
     # Solution: SCF measures schedule diversity. Low SCF → dampen SOS toward 0.5
     SCF_ENABLED: bool = True  # Enable Schedule Connectivity Factor
     SCF_MIN_UNIQUE_STATES: int = 2  # Minimum unique opponent states for full SOS credit
-    SCF_DIVERSITY_DIVISOR: float = 3.0  # divisor for state diversity score
+    SCF_DIVERSITY_DIVISOR: float = 4.0  # divisor for state diversity score (require 4 states for full credit)
     SCF_FLOOR: float = 0.4  # Minimum SCF (even isolated teams get some SOS credit)
     SCF_NEUTRAL_SOS: float = 0.5  # SOS value to dampen toward for low-connectivity teams
 
@@ -162,7 +162,7 @@ class V53EConfig:
     SCF_QUALITY_OVERRIDE_ENABLED: bool = True
     SCF_QUALITY_PERCENTILE: float = 0.65  # Opponents avg power above this percentile → boost SCF
     SCF_QUALITY_BOOST_MIN: float = 0.85  # Minimum SCF after quality boost (overrides geographic calc)
-    SCF_QUALITY_MIN_WIN_RATE: float = 0.50  # Must be a winning team (50%+ WR) to receive quality override
+    SCF_QUALITY_MIN_WIN_RATE: float = 0.55  # Must have a winning record (55%+ WR) to receive quality override
 
     # Isolation Penalty via Bridge Games
     # Bridge games = games against teams from outside your state cluster
