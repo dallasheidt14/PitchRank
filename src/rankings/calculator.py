@@ -1009,13 +1009,16 @@ async def compute_all_cohorts(
                     logger.info(f"  Age {age_val}: anchor={anchor_val}, max_diff={max_diff:.6f} ✅")
 
             # === MANDATORY: Monotonicity guarantee ===
+            # Round to 10 decimal places before ranking to prevent floating-point noise
+            # (e.g., 0.99999999 vs 1.00000000) from creating false rank inversions
+            # after anchor multiplication and clipping.
             if "power_score_true" in teams_combined.columns and "gender" in teams_combined.columns:
                 logger.info("🔒 Monotonicity validation (anchor must not change intra-cohort order):")
                 for (age_val, gender), grp in teams_combined.groupby(["age_num", "gender"]):
                     if len(grp) < 2:
                         continue
-                    pst_vals = grp["power_score_true"].dropna()
-                    psf_vals = grp["power_score_final"].dropna()
+                    pst_vals = grp["power_score_true"].dropna().round(10)
+                    psf_vals = grp["power_score_final"].dropna().round(10)
                     if len(pst_vals) < 2 or len(psf_vals) < 2:
                         continue
                     rank_true = pst_vals.rank(ascending=False, method="min")
