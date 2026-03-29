@@ -17,10 +17,7 @@ export async function POST(request: NextRequest) {
 
     if (!serviceKey || !supabaseUrl) {
       console.error('[create-team] Missing environment variables');
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
     }
 
     // Parse request body
@@ -28,21 +25,10 @@ export async function POST(request: NextRequest) {
     try {
       requestBody = await request.json();
     } catch {
-      return NextResponse.json(
-        { error: 'Invalid request body' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
     }
 
-    const {
-      gameId,
-      opponentProviderId,
-      teamName,
-      clubName,
-      ageGroup,
-      gender,
-      stateCode,
-    } = requestBody;
+    const { gameId, opponentProviderId, teamName, clubName, ageGroup, gender, stateCode } = requestBody;
 
     // Validate required fields
     if (!gameId || !opponentProviderId || !teamName || !ageGroup || !gender) {
@@ -54,18 +40,12 @@ export async function POST(request: NextRequest) {
 
     // Validate gender
     if (gender !== 'Male' && gender !== 'Female') {
-      return NextResponse.json(
-        { error: 'Gender must be "Male" or "Female"' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Gender must be "Male" or "Female"' }, { status: 400 });
     }
 
     // Validate age group format
     if (!/^u\d{1,2}$/i.test(ageGroup)) {
-      return NextResponse.json(
-        { error: 'Age group must be in format like "u10", "u11", etc.' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Age group must be in format like "u10", "u11", etc.' }, { status: 400 });
     }
 
     const supabase = createClient(supabaseUrl, serviceKey);
@@ -79,10 +59,7 @@ export async function POST(request: NextRequest) {
 
     if (gameError || !game) {
       console.error('[create-team] Game not found:', gameError);
-      return NextResponse.json(
-        { error: 'Game not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Game not found' }, { status: 404 });
     }
 
     // 2. Generate new team_id_master
@@ -90,49 +67,42 @@ export async function POST(request: NextRequest) {
     const providerTeamIdStr = String(opponentProviderId);
 
     // 3. Create the team
-    const { error: teamError } = await supabase
-      .from('teams')
-      .insert({
-        team_id_master: teamIdMaster,
-        provider_team_id: providerTeamIdStr,
-        provider_id: game.provider_id,
-        team_name: teamName.trim(),
-        club_name: clubName?.trim() || null,
-        age_group: ageGroup.toLowerCase(),
-        gender: gender,
-        state_code: stateCode || null,
-        state: stateCode || null,
-      });
+    const { error: teamError } = await supabase.from('teams').insert({
+      team_id_master: teamIdMaster,
+      provider_team_id: providerTeamIdStr,
+      provider_id: game.provider_id,
+      team_name: teamName.trim(),
+      club_name: clubName?.trim() || null,
+      age_group: ageGroup.toLowerCase(),
+      gender: gender,
+      state_code: stateCode || null,
+      state: stateCode || null,
+    });
 
     if (teamError) {
       console.error('[create-team] Failed to create team:', teamError);
-      return NextResponse.json(
-        { error: `Failed to create team: ${teamError.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Failed to create team' }, { status: 500 });
     }
 
     // 4. Create alias mapping
-    const { error: aliasError } = await supabase
-      .from('team_alias_map')
-      .upsert({
+    const { error: aliasError } = await supabase.from('team_alias_map').upsert(
+      {
         provider_id: game.provider_id,
         provider_team_id: providerTeamIdStr,
         team_id_master: teamIdMaster,
         match_method: 'manual',
         match_confidence: 1.0,
         review_status: 'approved',
-      }, {
-        onConflict: 'provider_id,provider_team_id'
-      });
+      },
+      {
+        onConflict: 'provider_id,provider_team_id',
+      }
+    );
 
     if (aliasError) {
       console.error('[create-team] Failed to create alias:', aliasError);
       // Team was created but alias failed - still useful
-      return NextResponse.json(
-        { error: `Team created but alias mapping failed: ${aliasError.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Team created but alias mapping failed' }, { status: 500 });
     }
 
     // 5. Backfill games
@@ -200,16 +170,14 @@ export async function POST(request: NextRequest) {
     gamesUpdated = homeUpdated + awayUpdated;
 
     // 6. Create audit log entry
-    const { error: auditError } = await supabase
-      .from('team_link_audit')
-      .insert({
-        provider_team_id: providerTeamIdStr,
-        team_id_master: teamIdMaster,
-        provider_id: game.provider_id,
-        games_updated: gamesUpdated,
-        linked_by: 'frontend_user',
-        notes: `Created new team "${teamName}" (${ageGroup} ${gender}). Home: ${homeUpdated}, Away: ${awayUpdated}`,
-      });
+    const { error: auditError } = await supabase.from('team_link_audit').insert({
+      provider_team_id: providerTeamIdStr,
+      team_id_master: teamIdMaster,
+      provider_id: game.provider_id,
+      games_updated: gamesUpdated,
+      linked_by: 'frontend_user',
+      notes: `Created new team "${teamName}" (${ageGroup} ${gender}). Home: ${homeUpdated}, Away: ${awayUpdated}`,
+    });
 
     if (auditError) {
       console.error('[create-team] Failed to create audit log:', auditError);
@@ -225,9 +193,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('[create-team] Unexpected error:', error);
-    return NextResponse.json(
-      { error: 'An unexpected error occurred' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 });
   }
 }
