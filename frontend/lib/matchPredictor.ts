@@ -187,25 +187,25 @@ loadMarginParametersV2().catch(() => {
 
 // Base feature weights (optimized for close matchups - 74.7% accuracy)
 const BASE_WEIGHTS = {
-  POWER_SCORE: 0.50,  // Base strength
-  SOS: 0.18,          // Schedule strength
-  RECENT_FORM: 0.28,  // Last 5 games momentum - KEY PREDICTOR for close games!
-  MATCHUP: 0.04,      // Offense vs defense
+  POWER_SCORE: 0.5, // Base strength
+  SOS: 0.18, // Schedule strength
+  RECENT_FORM: 0.28, // Last 5 games momentum - KEY PREDICTOR for close games!
+  MATCHUP: 0.04, // Offense vs defense
 };
 
 // Adaptive weights for large skill gaps (>0.08 power diff = 8 percentile points)
 const BLOWOUT_WEIGHTS = {
-  POWER_SCORE: 0.85,  // Power dominates in mismatches (increased from 0.75)
-  SOS: 0.06,          // Schedule matters less
-  RECENT_FORM: 0.07,  // Recent form matters less
-  MATCHUP: 0.02,      // Matchup details matter less
+  POWER_SCORE: 0.85, // Power dominates in mismatches (increased from 0.75)
+  SOS: 0.06, // Schedule matters less
+  RECENT_FORM: 0.07, // Recent form matters less
+  MATCHUP: 0.02, // Matchup details matter less
 };
 
 // Thresholds for adaptive weighting (lowered in v2.1 for more responsive predictions)
 // A 12 percentile point gap should NOT be treated as "close"
 const SKILL_GAP_THRESHOLDS = {
-  LARGE: 0.08,   // >8 percentile points = large gap, use blowout weights
-  MEDIUM: 0.05,  // 5-8 percentile points = transition zone
+  LARGE: 0.08, // >8 percentile points = large gap, use blowout weights
+  MEDIUM: 0.05, // 5-8 percentile points = transition zone
 };
 
 // Prediction parameters (with calibration overrides)
@@ -226,8 +226,8 @@ function getSensitivity(): number {
 
 // Confidence thresholds
 const CONFIDENCE_THRESHOLDS = {
-  HIGH: 0.70,    // >70% probability = high confidence
-  MEDIUM: 0.60,  // 60-70% = medium confidence
+  HIGH: 0.7, // >70% probability = high confidence
+  MEDIUM: 0.6, // 60-70% = medium confidence
   // <60% = low confidence
 };
 
@@ -240,14 +240,10 @@ const CONFIDENCE_THRESHOLDS = {
  * - 3 games out of 5 needed = 60% weight
  * - 5+ games out of 5 needed = 100% weight
  */
-export function calculateRecentForm(
-  teamId: string,
-  allGames: Game[],
-  n: number = RECENT_GAMES_COUNT
-): number {
+export function calculateRecentForm(teamId: string, allGames: Game[], n: number = RECENT_GAMES_COUNT): number {
   // Get team's recent games
   const teamGames = allGames
-    .filter(g => g.home_team_master_id === teamId || g.away_team_master_id === teamId)
+    .filter((g) => g.home_team_master_id === teamId || g.away_team_master_id === teamId)
     .sort((a, b) => new Date(b.game_date).getTime() - new Date(a.game_date).getTime())
     .slice(0, n);
 
@@ -263,7 +259,7 @@ export function calculateRecentForm(
     const oppScore = isHome ? game.away_score : game.home_score;
 
     if (teamScore !== null && oppScore !== null) {
-      totalGoalDiff += (teamScore - oppScore);
+      totalGoalDiff += teamScore - oppScore;
       gamesWithScores++;
     }
   }
@@ -304,9 +300,10 @@ export function calculateHeadToHead(
   allGames: Game[]
 ): { advantage: number; gamesPlayed: number; avgMargin: number } {
   // Find all games between these two teams
-  const h2hGames = allGames.filter(g =>
-    (g.home_team_master_id === teamAId && g.away_team_master_id === teamBId) ||
-    (g.home_team_master_id === teamBId && g.away_team_master_id === teamAId)
+  const h2hGames = allGames.filter(
+    (g) =>
+      (g.home_team_master_id === teamAId && g.away_team_master_id === teamBId) ||
+      (g.home_team_master_id === teamBId && g.away_team_master_id === teamAId)
   );
 
   if (h2hGames.length === 0) {
@@ -323,7 +320,7 @@ export function calculateHeadToHead(
     const teamBScore = isTeamAHome ? game.away_score : game.home_score;
 
     if (teamAScore !== null && teamBScore !== null) {
-      totalGoalDiff += (teamAScore - teamBScore);
+      totalGoalDiff += teamAScore - teamBScore;
       gamesWithScores++;
     }
   }
@@ -367,28 +364,20 @@ function detectMismatch(
   const offenseGap = Math.abs(offenseA - offenseB);
   const defenseGap = Math.abs(defenseA - defenseB);
   // Matchup asymmetry: how much does A's offense exploit B's defense vs reverse
-  const matchupAsymmetry = Math.abs((offenseA - defenseB) - (offenseB - defenseA));
+  const matchupAsymmetry = Math.abs(offenseA - defenseB - (offenseB - defenseA));
 
   // Score each metric (0-1 scale)
-  const powerScore = Math.min(absPowerDiff / 0.12, 1.0);        // 12% gap = max
-  const offenseScore = Math.min(offenseGap / 0.18, 1.0);        // 18% gap = max
-  const defenseScore = Math.min(defenseGap / 0.18, 1.0);        // 18% gap = max
-  const asymmetryScore = Math.min(matchupAsymmetry / 0.30, 1.0); // 0.30 asymmetry = max
+  const powerScore = Math.min(absPowerDiff / 0.12, 1.0); // 12% gap = max
+  const offenseScore = Math.min(offenseGap / 0.18, 1.0); // 18% gap = max
+  const defenseScore = Math.min(defenseGap / 0.18, 1.0); // 18% gap = max
+  const asymmetryScore = Math.min(matchupAsymmetry / 0.3, 1.0); // 0.30 asymmetry = max
 
   // Weighted combination - offense/defense gaps are strong indicators
-  const mismatchScore = (
-    powerScore * 0.35 +
-    offenseScore * 0.25 +
-    defenseScore * 0.25 +
-    asymmetryScore * 0.15
-  );
+  const mismatchScore = powerScore * 0.35 + offenseScore * 0.25 + defenseScore * 0.25 + asymmetryScore * 0.15;
 
   // Mismatch if score > 0.4 OR any single metric is extreme
-  const isMismatch = mismatchScore > 0.4 ||
-    absPowerDiff > 0.10 ||
-    offenseGap > 0.15 ||
-    defenseGap > 0.15 ||
-    matchupAsymmetry > 0.25;
+  const isMismatch =
+    mismatchScore > 0.4 || absPowerDiff > 0.1 || offenseGap > 0.15 || defenseGap > 0.15 || matchupAsymmetry > 0.25;
 
   return { isMismatch, mismatchScore };
 }
@@ -407,9 +396,7 @@ function getAdaptiveWeights(
   defenseA: number,
   defenseB: number
 ): { weights: typeof BASE_WEIGHTS; mismatchScore: number } {
-  const { isMismatch, mismatchScore } = detectMismatch(
-    powerDiff, offenseA, offenseB, defenseA, defenseB
-  );
+  const { isMismatch, mismatchScore } = detectMismatch(powerDiff, offenseA, offenseB, defenseA, defenseB);
 
   const absPowerDiff = Math.abs(powerDiff);
 
@@ -430,20 +417,17 @@ function getAdaptiveWeights(
 
   // Transition zone: interpolate based on mismatch score
   const transitionProgress = Math.max(
-    (absPowerDiff - SKILL_GAP_THRESHOLDS.MEDIUM) /
-      (SKILL_GAP_THRESHOLDS.LARGE - SKILL_GAP_THRESHOLDS.MEDIUM),
+    (absPowerDiff - SKILL_GAP_THRESHOLDS.MEDIUM) / (SKILL_GAP_THRESHOLDS.LARGE - SKILL_GAP_THRESHOLDS.MEDIUM),
     mismatchScore
   );
 
   const weights = {
-    POWER_SCORE: BASE_WEIGHTS.POWER_SCORE +
-      (BLOWOUT_WEIGHTS.POWER_SCORE - BASE_WEIGHTS.POWER_SCORE) * transitionProgress,
-    SOS: BASE_WEIGHTS.SOS +
-      (BLOWOUT_WEIGHTS.SOS - BASE_WEIGHTS.SOS) * transitionProgress,
-    RECENT_FORM: BASE_WEIGHTS.RECENT_FORM +
-      (BLOWOUT_WEIGHTS.RECENT_FORM - BASE_WEIGHTS.RECENT_FORM) * transitionProgress,
-    MATCHUP: BASE_WEIGHTS.MATCHUP +
-      (BLOWOUT_WEIGHTS.MATCHUP - BASE_WEIGHTS.MATCHUP) * transitionProgress,
+    POWER_SCORE:
+      BASE_WEIGHTS.POWER_SCORE + (BLOWOUT_WEIGHTS.POWER_SCORE - BASE_WEIGHTS.POWER_SCORE) * transitionProgress,
+    SOS: BASE_WEIGHTS.SOS + (BLOWOUT_WEIGHTS.SOS - BASE_WEIGHTS.SOS) * transitionProgress,
+    RECENT_FORM:
+      BASE_WEIGHTS.RECENT_FORM + (BLOWOUT_WEIGHTS.RECENT_FORM - BASE_WEIGHTS.RECENT_FORM) * transitionProgress,
+    MATCHUP: BASE_WEIGHTS.MATCHUP + (BLOWOUT_WEIGHTS.MATCHUP - BASE_WEIGHTS.MATCHUP) * transitionProgress,
   };
 
   return { weights, mismatchScore };
@@ -469,16 +453,19 @@ function calibrateProbability(rawProb: number): number {
   // Calibration points: [raw_prob, calibrated_prob]
   // Derived from bucket_accuracy in probability_parameters.json
   // Format: predicted_prob -> actual_win_rate
+  // Raw calibration points from empirical data, enforced monotonic via PAV.
+  // Original non-monotonic points: [0.525,0.465], [0.625,0.739], [0.675,0.669], [0.725,0.650]
+  // PAV pools adjacent violators so calibrated values never decrease as raw increases.
   const calibrationPoints: [number, number][] = [
-    [0.50, 0.50],   // 50% stays 50%
-    [0.525, 0.465], // 50-55% bucket: predicted 52.4% → actual 46.5%
-    [0.575, 0.587], // 55-60% bucket: predicted 57.4% → actual 58.7%
-    [0.625, 0.739], // 60-65% bucket: predicted 62.3% → actual 73.9%
-    [0.675, 0.669], // 65-70% bucket: close to calibrated
-    [0.725, 0.650], // 70-75% bucket: predicted 73.2% → actual ~65% (adjusted from 37% outlier)
-    [0.775, 0.700], // 75-80% bucket: predicted 77.7% → actual ~70%
-    [0.850, 0.796], // 80-90% bucket: predicted 80.7% → actual 79.6%
-    [1.00, 1.00],   // 100% stays 100%
+    [0.5, 0.5], // 50% stays 50%
+    [0.525, 0.526], // PAV-adjusted: pooled with neighbors to enforce monotonicity
+    [0.575, 0.587], // 55-60% bucket: close to calibrated
+    [0.625, 0.686], // PAV-adjusted: pooled 0.739, 0.669, 0.650 → monotonic sequence
+    [0.675, 0.686], // PAV-adjusted: same pool
+    [0.725, 0.686], // PAV-adjusted: same pool
+    [0.775, 0.7], // 75-80% bucket
+    [0.85, 0.796], // 80-90% bucket
+    [1.0, 1.0], // 100% stays 100%
   ];
 
   // Handle edge cases
@@ -528,10 +515,10 @@ function getLeagueAverageGoals(age: number | null): number {
   }
 
   // Fallback to empirical defaults
-  if (age <= 11) return 2.0;      // U10-U11
-  if (age <= 14) return 2.5;      // U12-U14
-  if (age <= 18) return 2.8;      // U15-U18
-  return 3.0;                     // U19+
+  if (age <= 11) return 2.0; // U10-U11
+  if (age <= 14) return 2.5; // U12-U14
+  if (age <= 18) return 2.8; // U15-U18
+  return 3.0; // U19+
 }
 
 /**
@@ -544,11 +531,7 @@ function getLeagueAverageGoals(age: number | null): number {
  * - Allowing full dampening removal for clear mismatches (was capped at 50%)
  * - Blowout MAE was 2x overall MAE; this fix addresses that gap
  */
-function getAgeSpecificMarginMultiplier(
-  age: number | null,
-  absPowerDiff: number,
-  mismatchScore: number = 0
-): number {
+function getAgeSpecificMarginMultiplier(age: number | null, absPowerDiff: number, mismatchScore: number = 0): number {
   // Try to use margin calibration v2 parameters first
   const ageKey = age ? `u${age}` : null;
   let baseMultiplier = 1.0;
@@ -567,15 +550,15 @@ function getAgeSpecificMarginMultiplier(
   let powerGapScaling = 1.0;
   if (absPowerDiff > 0.15) {
     // Very large gap (15+ percentile points) - significant mismatch
-    powerGapScaling = 2.0;  // Was 3.0
-  } else if (absPowerDiff > 0.10) {
+    powerGapScaling = 2.0; // Was 3.0
+  } else if (absPowerDiff > 0.1) {
     // Large gap (10-15 percentile points)
-    const transitionProgress = (absPowerDiff - 0.10) / (0.15 - 0.10);
-    powerGapScaling = 1.5 + (0.5 * transitionProgress);  // Was 2.0 + 1.0
+    const transitionProgress = (absPowerDiff - 0.1) / (0.15 - 0.1);
+    powerGapScaling = 1.5 + 0.5 * transitionProgress; // Was 2.0 + 1.0
   } else if (absPowerDiff > 0.05) {
     // Moderate gap (5-10 percentile points)
-    const transitionProgress = (absPowerDiff - 0.05) / (0.10 - 0.05);
-    powerGapScaling = 1.0 + (0.5 * transitionProgress);  // Was 1.0 + 1.0
+    const transitionProgress = (absPowerDiff - 0.05) / (0.1 - 0.05);
+    powerGapScaling = 1.0 + 0.5 * transitionProgress; // Was 1.0 + 1.0
   }
 
   // Apply global margin_scale from v2 calibration
@@ -584,8 +567,8 @@ function getAgeSpecificMarginMultiplier(
 
   // FIX: Use both powerDiff AND mismatchScore for dampening reduction
   // mismatchScore captures offense/defense gaps that powerDiff alone misses
-  const powerBasedReduction = Math.min(absPowerDiff / 0.12, 1.0);  // Lowered from 0.15 to 0.12
-  const mismatchBasedReduction = Math.min(mismatchScore / 0.7, 1.0);  // New: use mismatchScore
+  const powerBasedReduction = Math.min(absPowerDiff / 0.12, 1.0); // Lowered from 0.15 to 0.12
+  const mismatchBasedReduction = Math.min(mismatchScore / 0.7, 1.0); // New: use mismatchScore
   const gapDampeningReduction = Math.max(powerBasedReduction, mismatchBasedReduction);
 
   // FIX: Allow FULL dampening removal for clear mismatches (was capped at 50%)
@@ -630,7 +613,7 @@ export interface MatchPrediction {
   // Head-to-head history (if available)
   h2h?: {
     gamesPlayed: number;
-    avgMargin: number;  // Team A's average goal margin in H2H meetings
+    avgMargin: number; // Team A's average goal margin in H2H meetings
   };
 }
 
@@ -638,11 +621,7 @@ export interface MatchPrediction {
  * Predict match outcome with enhanced model using adaptive weights
  * v2.3: Multi-metric mismatch detection for better blowout prediction
  */
-export function predictMatch(
-  teamA: TeamWithRanking,
-  teamB: TeamWithRanking,
-  allGames: Game[]
-): MatchPrediction {
+export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, allGames: Game[]): MatchPrediction {
   // 1. Base power score differential
   const powerDiff = (teamA.power_score_final || 0.5) - (teamB.power_score_final || 0.5);
 
@@ -653,9 +632,7 @@ export function predictMatch(
   const defenseB = teamB.defense_norm || 0.5;
 
   // 3. Calculate adaptive weights based on multi-metric mismatch detection
-  const { weights, mismatchScore } = getAdaptiveWeights(
-    powerDiff, offenseA, offenseB, defenseA, defenseB
-  );
+  const { weights, mismatchScore } = getAdaptiveWeights(powerDiff, offenseA, offenseB, defenseA, defenseB);
 
   // 4. SOS differential
   const sosDiff = (teamA.sos_norm || 0.5) - (teamB.sos_norm || 0.5);
@@ -667,7 +644,7 @@ export function predictMatch(
   const formDiffNorm = normalizeRecentForm(formDiffRaw) - 0.5;
 
   // 6. Matchup asymmetry (how much A's offense exploits B's defense)
-  const matchupAdvantage = (offenseA - defenseB) - (offenseB - defenseA);
+  const matchupAdvantage = offenseA - defenseB - (offenseB - defenseA);
 
   // 7. Head-to-head history (HIGHLY predictive if available)
   const h2h = calculateHeadToHead(teamA.team_id_master, teamB.team_id_master, allGames);
@@ -682,7 +659,7 @@ export function predictMatch(
     weights.SOS * sosDiff * h2hAdjustment +
     weights.RECENT_FORM * formDiffNorm * h2hAdjustment +
     weights.MATCHUP * matchupAdvantage * h2hAdjustment +
-    h2hWeight * h2h.advantage * 10; // Scale H2H advantage to be comparable
+    h2hWeight * h2h.advantage * 3; // Scale H2H advantage (reduced from 10 to prevent over-weighting small sample H2H)
 
   // 8. Mismatch amplification: boost composite diff for clear mismatches
   // This ensures large offense/defense gaps translate to higher probabilities
@@ -701,26 +678,17 @@ export function predictMatch(
 
   // 10. Expected goal margin with age-specific and mismatch-based amplification
   // Get age: prefer extracting from team name (handles "14B" = U12 format), fallback to database age
-  const effectiveAge = extractAgeFromTeamName(teamA.team_name) ||
-                       extractAgeFromTeamName(teamB.team_name) ||
-                       teamA.age ||
-                       teamB.age;
+  const effectiveAge =
+    extractAgeFromTeamName(teamA.team_name) || extractAgeFromTeamName(teamB.team_name) || teamA.age || teamB.age;
   // Use raw powerDiff for margin scaling - ensures large skill gaps produce larger margins
   const absPowerDiff = Math.abs(powerDiff);
   // v2.5: Pass mismatchScore to allow full dampening removal for blowouts
   const marginMultiplier = getAgeSpecificMarginMultiplier(effectiveAge, absPowerDiff, mismatchScore);
-  // For mismatches, increase the margin to better reflect blowout potential
-  // v2.5: Reduced boost factor to 2.0 (was 4.0 - caused 28-1 predictions!)
-  // At mismatch=0.4: 1.0x, at mismatch=0.7: 1.6x, at mismatch=1.0: 2.2x
-  const mismatchMarginBoost = mismatchScore > 0.4 ? 1.0 + (mismatchScore - 0.4) * 2.0 : 1.0;
-  let expectedMargin = compositeDiff * MARGIN_COEFFICIENT * marginMultiplier * mismatchMarginBoost;
-
-  // v2.5: Cap margin to realistic range (no youth game ends 28-1)
-  // Max reasonable margin: ~8 goals for extreme mismatches
-  const MAX_REASONABLE_MARGIN = 8.0;
-  if (Math.abs(expectedMargin) > MAX_REASONABLE_MARGIN) {
-    expectedMargin = Math.sign(expectedMargin) * MAX_REASONABLE_MARGIN;
-  }
+  // Mismatch amplification is already applied in two places:
+  // 1. compositeDiff amplification (line 690-693, up to 1.8x)
+  // 2. getAgeSpecificMarginMultiplier dampening reduction (removes dampening for mismatches)
+  // A third mismatchMarginBoost was stacking to ~4.1x total, causing unrealistic predictions.
+  let expectedMargin = compositeDiff * MARGIN_COEFFICIENT * marginMultiplier;
 
   // 11. Expected scores using age-adjusted league average
   const leagueAvgGoals = getLeagueAverageGoals(effectiveAge);
@@ -747,11 +715,11 @@ export function predictMatch(
   } else {
     // Competitive match: both teams score around league average
     if (expectedMargin >= 0) {
-      rawScoreB = leagueAvgGoals - (absExpectedMargin / 2);
-      rawScoreA = leagueAvgGoals + (absExpectedMargin / 2);
+      rawScoreB = leagueAvgGoals - absExpectedMargin / 2;
+      rawScoreA = leagueAvgGoals + absExpectedMargin / 2;
     } else {
-      rawScoreA = leagueAvgGoals - (absExpectedMargin / 2);
-      rawScoreB = leagueAvgGoals + (absExpectedMargin / 2);
+      rawScoreA = leagueAvgGoals - absExpectedMargin / 2;
+      rawScoreB = leagueAvgGoals + absExpectedMargin / 2;
     }
   }
 

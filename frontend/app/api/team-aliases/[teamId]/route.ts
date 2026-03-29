@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from '@/lib/supabase/admin';
 
 /**
  * Get all aliases for a team from team_alias_map
  * Returns provider info and alias details
  */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ teamId: string }> }
-) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ teamId: string }> }) {
   try {
+    const auth = await requireAdmin();
+    if (auth.error) return auth.error;
+
     const { teamId } = await params;
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -17,10 +18,7 @@ export async function GET(
 
     if (!supabaseUrl || !supabaseAnonKey) {
       console.error('[team-aliases] Missing environment variables');
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
@@ -29,7 +27,8 @@ export async function GET(
     // Include division field for MLS NEXT HD/AD differentiation
     const { data: aliases, error } = await supabase
       .from('team_alias_map')
-      .select(`
+      .select(
+        `
         id,
         provider_team_id,
         match_method,
@@ -38,17 +37,15 @@ export async function GET(
         division,
         created_at,
         provider:providers(id, name)
-      `)
+      `
+      )
       .eq('team_id_master', teamId)
       .eq('review_status', 'approved')
       .order('created_at', { ascending: false });
 
     if (error) {
       console.error('[team-aliases] Error fetching aliases:', error);
-      return NextResponse.json(
-        { error: 'Failed to fetch team aliases' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Failed to fetch team aliases' }, { status: 500 });
     }
 
     return NextResponse.json({
@@ -57,9 +54,6 @@ export async function GET(
     });
   } catch (error) {
     console.error('[team-aliases] Unexpected error:', error);
-    return NextResponse.json(
-      { error: 'An unexpected error occurred' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 });
   }
 }
