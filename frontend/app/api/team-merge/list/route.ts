@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from '@/lib/supabase/admin';
 
 /**
  * GET /api/team-merge/list
@@ -8,14 +9,14 @@ import { createClient } from '@supabase/supabase-js';
  */
 export async function GET() {
   try {
+    const auth = await requireAdmin();
+    if (auth.error) return auth.error;
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (!supabaseUrl || !supabaseAnonKey) {
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
@@ -29,10 +30,7 @@ export async function GET() {
 
     if (error) {
       console.error('[team-merge/list] Error fetching merges:', error);
-      return NextResponse.json(
-        { error: 'Failed to fetch merges' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Failed to fetch merges' }, { status: 500 });
     }
 
     return NextResponse.json({
@@ -41,9 +39,6 @@ export async function GET() {
     });
   } catch (error) {
     console.error('[team-merge/list] Unexpected error:', error);
-    return NextResponse.json(
-      { error: 'An unexpected error occurred' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 });
   }
 }

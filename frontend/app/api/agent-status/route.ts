@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabaseClient';
+import { requireAdmin } from '@/lib/supabase/admin';
 
 interface AgentStatusResponse {
   id: string;
@@ -35,7 +36,7 @@ function formatRelativeTime(date: Date): string {
   if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
   if (diffDays === 1) return 'Yesterday';
   if (diffDays < 7) return `${diffDays} days ago`;
-  
+
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
@@ -47,7 +48,7 @@ function calculateNextRun(agentId: string, schedule: string): string | null {
   }
 
   const now = new Date();
-  
+
   // Simple heuristic: if it's a daily schedule, show "Tomorrow at [time]"
   if (schedule.toLowerCase().includes('daily')) {
     const timeMatch = schedule.match(/(\d+):?(\d+)?\s*(am|pm)/i);
@@ -56,7 +57,7 @@ function calculateNextRun(agentId: string, schedule: string): string | null {
       return `Tomorrow at ${timeMatch[1]}:${timeMatch[2] || '00'} ${timeMatch[3].toUpperCase()}`;
     }
   }
-  
+
   // For weekly schedules (like "Sunday 7pm")
   if (schedule.toLowerCase().includes('sunday')) {
     return 'Next Sunday 7:00 PM MT';
@@ -70,13 +71,16 @@ function calculateNextRun(agentId: string, schedule: string): string | null {
   if (schedule.toLowerCase().includes('wednesday')) {
     return 'Next Wednesday';
   }
-  
+
   // Default: just return the schedule
   return schedule;
 }
 
 export async function GET() {
   try {
+    const auth = await requireAdmin();
+    if (auth.error) return auth.error;
+
     const agentIds = Object.keys(AGENT_SCHEDULES);
 
     // Batch: 2 queries instead of 18
@@ -105,14 +109,14 @@ export async function GET() {
     const activeTasks = activeResult.data ?? [];
     const completedTasks = completedResult.data ?? [];
 
-    const agents: AgentStatusResponse[] = agentIds.map(agentId => {
-      const activeTask = activeTasks.find(t => t.assigned_agent === agentId);
-      const lastCompleted = completedTasks.find(t => t.assigned_agent === agentId);
+    const agents: AgentStatusResponse[] = agentIds.map((agentId) => {
+      const activeTask = activeTasks.find((t) => t.assigned_agent === agentId);
+      const lastCompleted = completedTasks.find((t) => t.assigned_agent === agentId);
 
       const schedule = AGENT_SCHEDULES[agentId] || 'Unknown';
       return {
         id: agentId,
-        status: activeTask ? 'active' as const : 'idle' as const,
+        status: activeTask ? ('active' as const) : ('idle' as const),
         currentTask: activeTask?.title ?? null,
         lastRun: lastCompleted ? formatRelativeTime(new Date(lastCompleted.updated_at)) : null,
         nextRun: calculateNextRun(agentId, schedule),
@@ -125,9 +129,6 @@ export async function GET() {
     });
   } catch (error) {
     console.error('[AgentStatus] Error:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch agent status', agents: [] },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch agent status', agents: [] }, { status: 500 });
   }
 }

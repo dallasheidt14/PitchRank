@@ -30,10 +30,7 @@ export async function POST(request: NextRequest) {
 
     if (!serviceKey || !supabaseUrl) {
       console.error('[team-merge] Missing environment variables');
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
     }
 
     // Parse request body
@@ -41,20 +38,11 @@ export async function POST(request: NextRequest) {
     try {
       requestBody = await request.json();
     } catch {
-      return NextResponse.json(
-        { error: 'Invalid request body' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
     }
 
-    const {
-      deprecatedTeamId,
-      canonicalTeamId,
-      mergedBy,
-      mergeReason,
-      confidenceScore,
-      suggestionSignals,
-    } = requestBody;
+    const { deprecatedTeamId, canonicalTeamId, mergedBy, mergeReason, confidenceScore, suggestionSignals } =
+      requestBody;
 
     // Validate required fields
     if (!deprecatedTeamId || !canonicalTeamId || !mergedBy) {
@@ -67,18 +55,12 @@ export async function POST(request: NextRequest) {
     // Validate UUIDs
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidRegex.test(deprecatedTeamId) || !uuidRegex.test(canonicalTeamId)) {
-      return NextResponse.json(
-        { error: 'Invalid team ID format' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Invalid team ID format' }, { status: 400 });
     }
 
     // Prevent self-merge
     if (deprecatedTeamId === canonicalTeamId) {
-      return NextResponse.json(
-        { error: 'Cannot merge a team with itself' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Cannot merge a team with itself' }, { status: 400 });
     }
 
     const supabase = createClient(supabaseUrl, serviceKey);
@@ -98,10 +80,7 @@ export async function POST(request: NextRequest) {
       const message = error.message || 'Unknown error';
 
       if (message.includes('already deprecated') || message.includes('already merged')) {
-        return NextResponse.json(
-          { error: 'This team has already been merged' },
-          { status: 409 }
-        );
+        return NextResponse.json({ error: 'This team has already been merged' }, { status: 409 });
       }
 
       if (message.includes('circular merge') || message.includes('chain')) {
@@ -112,16 +91,10 @@ export async function POST(request: NextRequest) {
       }
 
       if (message.includes('does not exist')) {
-        return NextResponse.json(
-          { error: 'One or both team IDs do not exist' },
-          { status: 404 }
-        );
+        return NextResponse.json({ error: 'One or both team IDs do not exist' }, { status: 404 });
       }
 
-      return NextResponse.json(
-        { error: `Merge failed: ${message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: `Merge failed: ${message}` }, { status: 500 });
     }
 
     // If confidence score and signals were provided (from Option 8), update the merge record
@@ -141,8 +114,8 @@ export async function POST(request: NextRequest) {
       .select('team_id_master, team_name')
       .in('team_id_master', [deprecatedTeamId, canonicalTeamId]);
 
-    const deprecatedTeam = teams?.find(t => t.team_id_master === deprecatedTeamId);
-    const canonicalTeam = teams?.find(t => t.team_id_master === canonicalTeamId);
+    const deprecatedTeam = teams?.find((t) => t.team_id_master === deprecatedTeamId);
+    const canonicalTeam = teams?.find((t) => t.team_id_master === canonicalTeamId);
 
     return NextResponse.json({
       success: true,
@@ -155,10 +128,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('[team-merge] Unexpected error:', error);
-    return NextResponse.json(
-      { error: 'An unexpected error occurred' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 });
   }
 }
 
@@ -180,10 +150,7 @@ export async function DELETE(request: NextRequest) {
 
     if (!serviceKey || !supabaseUrl) {
       console.error('[team-merge] Missing environment variables');
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
     }
 
     // Parse request body
@@ -191,29 +158,20 @@ export async function DELETE(request: NextRequest) {
     try {
       requestBody = await request.json();
     } catch {
-      return NextResponse.json(
-        { error: 'Invalid request body' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
     }
 
     const { deprecatedTeamId, revertedBy, revertReason } = requestBody;
 
     // Validate required fields
     if (!deprecatedTeamId || !revertedBy) {
-      return NextResponse.json(
-        { error: 'Missing required fields: deprecatedTeamId, revertedBy' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Missing required fields: deprecatedTeamId, revertedBy' }, { status: 400 });
     }
 
     // Validate UUID
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidRegex.test(deprecatedTeamId)) {
-      return NextResponse.json(
-        { error: 'Invalid team ID format' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Invalid team ID format' }, { status: 400 });
     }
 
     const supabase = createClient(supabaseUrl, serviceKey);
@@ -238,16 +196,10 @@ export async function DELETE(request: NextRequest) {
       const message = error.message || 'Unknown error';
 
       if (message.includes('not found') || message.includes('not merged')) {
-        return NextResponse.json(
-          { error: 'This team is not currently merged' },
-          { status: 404 }
-        );
+        return NextResponse.json({ error: 'This team is not currently merged' }, { status: 404 });
       }
 
-      return NextResponse.json(
-        { error: `Revert failed: ${message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: `Revert failed: ${message}` }, { status: 500 });
     }
 
     return NextResponse.json({
@@ -258,10 +210,7 @@ export async function DELETE(request: NextRequest) {
     });
   } catch (error) {
     console.error('[team-merge] Unexpected error:', error);
-    return NextResponse.json(
-      { error: 'An unexpected error occurred' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 });
   }
 }
 
@@ -272,33 +221,27 @@ export async function DELETE(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    const auth = await requireAdmin();
+    if (auth.error) return auth.error;
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (!supabaseUrl || !supabaseAnonKey) {
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
     }
 
     const { searchParams } = new URL(request.url);
     const teamId = searchParams.get('teamId');
 
     if (!teamId) {
-      return NextResponse.json(
-        { error: 'Missing teamId query parameter' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Missing teamId query parameter' }, { status: 400 });
     }
 
     // Validate UUID
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidRegex.test(teamId)) {
-      return NextResponse.json(
-        { error: 'Invalid team ID format' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Invalid team ID format' }, { status: 400 });
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
@@ -311,10 +254,7 @@ export async function GET(request: NextRequest) {
       .single();
 
     if (teamError || !team) {
-      return NextResponse.json(
-        { error: 'Team not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Team not found' }, { status: 404 });
     }
 
     if (!team.is_deprecated) {
@@ -341,9 +281,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error('[team-merge] Unexpected error:', error);
-    return NextResponse.json(
-      { error: 'An unexpected error occurred' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 });
   }
 }
