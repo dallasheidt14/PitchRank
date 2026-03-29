@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Twitter, Instagram, Facebook, Linkedin } from 'lucide-react';
+import { Twitter, Instagram, Facebook, Linkedin } from '@/components/ui/brand-icons';
 
 /**
  * Footer component with social media links, site navigation, and state overview links

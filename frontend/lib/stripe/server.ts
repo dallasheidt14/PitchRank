@@ -14,7 +14,7 @@ function getStripeClient(): Stripe {
       throw new Error("Missing STRIPE_SECRET_KEY environment variable");
     }
     stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      apiVersion: "2026-02-25.clover",
+      apiVersion: "2026-03-25.dahlia",
       typescript: true,
     });
   }

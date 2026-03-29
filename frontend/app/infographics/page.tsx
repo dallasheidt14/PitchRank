@@ -21,7 +21,8 @@ import { renderCoverImageToCanvas, COVER_PLATFORMS } from '@/components/infograp
 import { useRankings } from '@/hooks/useRankings';
 import { useInstagramHandles, collectHandlesForCaption } from '@/hooks/useInstagramHandles';
 import { US_STATES } from '@/lib/constants';
-import { Download, Share2, RefreshCw, Instagram, Facebook, ChevronDown, AlertCircle, Trophy, TrendingUp, Users, Award, Megaphone, Image } from 'lucide-react';
+import { Download, Share2, RefreshCw, ChevronDown, AlertCircle, Trophy, TrendingUp, Users, Award, Megaphone, Image } from 'lucide-react';
+import { Instagram, Facebook } from '@/components/ui/brand-icons';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '@/components/PageHeader';

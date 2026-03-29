@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { Copy, Check, RefreshCw, Instagram, Facebook, Shuffle } from 'lucide-react';
+import { Copy, Check, RefreshCw, Shuffle } from 'lucide-react';
+import { Instagram, Facebook } from '@/components/ui/brand-icons';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
