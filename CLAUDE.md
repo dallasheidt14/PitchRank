@@ -1,6 +1,6 @@
 # CLAUDE.md — PitchRank AI Assistant Guide
 
-> Last updated: 2026-03-10
+> Last updated: 2026-03-28
 
 PitchRank is a **youth soccer ranking platform** that scrapes game data from multiple providers, calculates rankings using a proprietary 13-layer algorithm (v53e + ML), and serves results through a Next.js frontend. This file is the primary reference for AI assistants working in this codebase.
 
@@ -11,7 +11,7 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 | Item | Value |
 |------|-------|
 | **Backend** | Python 3.11, Supabase (PostgreSQL) |
-| **Frontend** | Next.js 16, React 19, TypeScript 5.9, Tailwind CSS v4 |
+| **Frontend** | Next.js 16.2, React 19, TypeScript 5.9, Tailwind CSS v4 |
 | **ML** | XGBoost, scikit-learn, pandas, numpy |
 | **Database** | Supabase (hosted PostgreSQL + PostgREST) |
 | **Deployment** | Vercel (frontend), GitHub Actions (backend automation) |
@@ -41,12 +41,14 @@ PitchRank/
 │   ├── app/                # App Router pages + API routes
 │   ├── components/         # React components (shadcn/ui + custom)
 │   ├── lib/                # API client, types, utilities, Supabase clients
+│   │   ├── api/            # Shared route utilities (requirePremium, validatePagination, parseJsonBody)
+│   │   ├── agents/         # Agent config + utils (schedules, formatRelativeTime)
 │   ├── hooks/              # Custom React hooks
 │   ├── types/              # TypeScript type definitions
 │   ├── e2e/                # Playwright E2E tests
 │   └── middleware.ts       # Auth + route protection
 │
-├── scripts/                # 146+ operational scripts (import, ranking, hygiene)
+├── scripts/                # 210+ operational scripts (import, ranking, hygiene)
 ├── scrapers/               # Scrapy-based scrapers (Modular11/MLS NEXT)
 ├── config/                 # Centralized settings.py (12K+ lines)
 ├── data/                   # Cache, master data, raw imports, backtests
@@ -58,7 +60,7 @@ PitchRank/
 ├── .claude/                # Claude agent configs + skills
 │   ├── agents/             # SEO sub-agent definitions
 │   └── skills/             # Domain skills (ranking, scraping, SEO, etc.)
-├── .github/workflows/      # 15+ automated workflows
+├── .github/workflows/      # 19 automated workflows
 ├── dashboard.py            # Streamlit admin dashboard (248K lines)
 └── agent_skills/           # Standalone agent skill packages
 ```
@@ -234,7 +236,12 @@ npm run build
 # Lint
 npm run lint
 
-# E2E tests
+# Unit tests (Vitest)
+npm run test              # Run once
+npm run test:watch        # Watch mode
+npm run test:coverage     # With coverage
+
+# E2E tests (Playwright)
 npm run test:e2e
 npm run test:e2e:smoke    # Smoke tests only
 npm run test:e2e:api      # API tests only
@@ -309,19 +316,32 @@ Required variables are documented in `.env.example`. Key groups:
 - `/blog/[slug]` — Blog posts
 - `/mission-control` — Admin dashboard
 
-### Admin Auth for API Routes
+### Auth for API Routes
 
-Admin-only API routes use `requireAdmin()` from `frontend/lib/supabase/admin.ts`. This verifies the caller is an authenticated user with `user_profiles.plan === 'admin'`. All routes under `/api` are excluded from middleware auth (middleware.ts line 128), so each route must self-enforce authentication.
+All routes under `/api` are excluded from middleware auth (middleware.ts line 128), so each route must self-enforce authentication. Two shared helpers:
 
 ```typescript
+// Admin-only routes (mission control, tasks, agent endpoints, team management)
 import { requireAdmin } from '@/lib/supabase/admin';
+const auth = await requireAdmin();
+if (auth.error) return auth.error;
 
-export async function POST(request: NextRequest) {
-  const auth = await requireAdmin();
-  if (auth.error) return auth.error;
-  // ... route logic
-}
+// Premium routes (watchlist, insights) — returns supabase client for downstream queries
+import { requirePremium } from '@/lib/api/requirePremium';
+const auth = await requirePremium();
+if (auth.error) return auth.error;
+const { user, supabase } = auth;
 ```
+
+### Shared API Utilities
+
+| Utility | File | Purpose |
+|---------|------|---------|
+| `requirePremium()` | `lib/api/requirePremium.ts` | Auth + premium/admin plan check, returns supabase client |
+| `requireAdmin()` | `lib/supabase/admin.ts` | Auth + admin plan check |
+| `validatePagination()` | `lib/api/validatePagination.ts` | Limit/offset parsing and validation |
+| `parseJsonBody()` | `lib/api/parseJsonBody.ts` | Safe JSON body parsing with error response |
+| `checkRateLimit()` | `lib/api/rateLimit.ts` | In-memory IP-based rate limiting |
 
 ### Design System
 
@@ -359,7 +379,7 @@ export async function POST(request: NextRequest) {
 
 ### Git
 
-- Commit messages: conventional style (`feat:`, `fix:`, `chore:`, `docs:`)
+- Commit messages: imperative mood, plain descriptions (e.g., "Fix N+1 query in mission-control status endpoint")
 - Don't commit `.env`, `.env.local`, or large CSV files
 - The `.gitignore` excludes: `venv/`, `__pycache__/`, `*.log`, `logs/`, credentials, large data files
 
@@ -415,6 +435,9 @@ Skills are defined in `.claude/skills/` and provide domain-specific knowledge fo
 | Main scraper script | `scripts/scrape_games.py` |
 | Ranking calculation script | `scripts/calculate_rankings.py` |
 | Frontend API client | `frontend/lib/api.ts` |
+| Shared route utilities | `frontend/lib/api/` (requirePremium, validatePagination, parseJsonBody) |
+| Agent config (operational) | `frontend/lib/agents/config.ts` |
+| Agent config (RPG cards) | `frontend/lib/agent-config.ts` |
 | Frontend types | `frontend/lib/types.ts` |
 | Supabase migrations | `supabase/migrations/` |
 | GH Actions workflows | `.github/workflows/` |

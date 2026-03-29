@@ -22,8 +22,8 @@ interface MoverTeam {
 
 async function getMoversData(ageGroup?: string, gender?: string, limit: number = 5) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
   const supabase = createClient(supabaseUrl, supabaseKey);
 
   // Get climbers
@@ -75,108 +75,145 @@ export async function GET(request: Request) {
   const isStory = platform === 'story';
 
   return new ImageResponse(
-    (
-      <div
-        style={{
-          width: '100%',
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          background: `linear-gradient(135deg, ${BRAND_COLORS.forestGreen} 0%, ${BRAND_COLORS.darkGreen} 100%)`,
-          padding: isStory ? 60 : 50,
-          fontFamily: 'Arial, sans-serif',
-        }}
-      >
-        {/* Header */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 30 }}>
-          <div style={{ fontSize: isStory ? 28 : 24, color: BRAND_COLORS.gold, fontWeight: 'bold', letterSpacing: 4 }}>
-            PITCHRANK
-          </div>
-          <div style={{ fontSize: isStory ? 48 : isSquare ? 42 : 36, color: BRAND_COLORS.brightWhite, fontWeight: 'bold', marginTop: 10 }}>
-            BIGGEST MOVERS
-          </div>
-          <div style={{ fontSize: isStory ? 22 : 18, color: 'rgba(255,255,255,0.8)', marginTop: 8 }}>
-            {ageLabel} {genderLabel} • Week of {dateStr}
-          </div>
+    <div
+      style={{
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        background: `linear-gradient(135deg, ${BRAND_COLORS.forestGreen} 0%, ${BRAND_COLORS.darkGreen} 100%)`,
+        padding: isStory ? 60 : 50,
+        fontFamily: 'Arial, sans-serif',
+      }}
+    >
+      {/* Header */}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 30 }}>
+        <div style={{ fontSize: isStory ? 28 : 24, color: BRAND_COLORS.gold, fontWeight: 'bold', letterSpacing: 4 }}>
+          PITCHRANK
         </div>
-
-        {/* Content */}
-        <div style={{ display: 'flex', flexDirection: isStory ? 'column' : 'row', flex: 1, gap: 30 }}>
-          {/* Climbers */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-            <div style={{ fontSize: isStory ? 26 : 22, color: BRAND_COLORS.climberGreen, fontWeight: 'bold', marginBottom: 16, display: 'flex', alignItems: 'center' }}>
-              🚀 CLIMBERS
-            </div>
-            {climbers.map((team, i) => (
-              <div
-                key={i}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  background: 'rgba(76, 175, 80, 0.15)',
-                  borderLeft: `4px solid ${BRAND_COLORS.climberGreen}`,
-                  borderRadius: 8,
-                  padding: '12px 16px',
-                  marginBottom: 10,
-                }}
-              >
-                <div style={{ fontSize: isStory ? 28 : 24, fontWeight: 'bold', color: BRAND_COLORS.climberGreen, marginRight: 16, minWidth: 70 }}>
-                  +{team.rank_change}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <div style={{ fontSize: isStory ? 18 : 16, color: BRAND_COLORS.brightWhite, fontWeight: 'bold' }}>
-                    {team.team_name}
-                  </div>
-                  <div style={{ fontSize: isStory ? 14 : 12, color: 'rgba(255,255,255,0.7)' }}>
-                    {team.club_name} • {team.state_code} • #{team.current_rank}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Fallers */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-            <div style={{ fontSize: isStory ? 26 : 22, color: BRAND_COLORS.fallerRed, fontWeight: 'bold', marginBottom: 16, display: 'flex', alignItems: 'center' }}>
-              📉 FALLERS
-            </div>
-            {fallers.map((team, i) => (
-              <div
-                key={i}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  background: 'rgba(244, 67, 54, 0.15)',
-                  borderLeft: `4px solid ${BRAND_COLORS.fallerRed}`,
-                  borderRadius: 8,
-                  padding: '12px 16px',
-                  marginBottom: 10,
-                }}
-              >
-                <div style={{ fontSize: isStory ? 28 : 24, fontWeight: 'bold', color: BRAND_COLORS.fallerRed, marginRight: 16, minWidth: 70 }}>
-                  {team.rank_change}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <div style={{ fontSize: isStory ? 18 : 16, color: BRAND_COLORS.brightWhite, fontWeight: 'bold' }}>
-                    {team.team_name}
-                  </div>
-                  <div style={{ fontSize: isStory ? 14 : 12, color: 'rgba(255,255,255,0.7)' }}>
-                    {team.club_name} • {team.state_code} • #{team.current_rank}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+        <div
+          style={{
+            fontSize: isStory ? 48 : isSquare ? 42 : 36,
+            color: BRAND_COLORS.brightWhite,
+            fontWeight: 'bold',
+            marginTop: 10,
+          }}
+        >
+          BIGGEST MOVERS
         </div>
-
-        {/* Footer */}
-        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 20 }}>
-          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)' }}>
-            pitchrank.io • #YouthSoccer #Rankings
-          </div>
+        <div style={{ fontSize: isStory ? 22 : 18, color: 'rgba(255,255,255,0.8)', marginTop: 8 }}>
+          {ageLabel} {genderLabel} • Week of {dateStr}
         </div>
       </div>
-    ),
+
+      {/* Content */}
+      <div style={{ display: 'flex', flexDirection: isStory ? 'column' : 'row', flex: 1, gap: 30 }}>
+        {/* Climbers */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+          <div
+            style={{
+              fontSize: isStory ? 26 : 22,
+              color: BRAND_COLORS.climberGreen,
+              fontWeight: 'bold',
+              marginBottom: 16,
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            🚀 CLIMBERS
+          </div>
+          {climbers.map((team, i) => (
+            <div
+              key={i}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                background: 'rgba(76, 175, 80, 0.15)',
+                borderLeft: `4px solid ${BRAND_COLORS.climberGreen}`,
+                borderRadius: 8,
+                padding: '12px 16px',
+                marginBottom: 10,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: isStory ? 28 : 24,
+                  fontWeight: 'bold',
+                  color: BRAND_COLORS.climberGreen,
+                  marginRight: 16,
+                  minWidth: 70,
+                }}
+              >
+                +{team.rank_change}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <div style={{ fontSize: isStory ? 18 : 16, color: BRAND_COLORS.brightWhite, fontWeight: 'bold' }}>
+                  {team.team_name}
+                </div>
+                <div style={{ fontSize: isStory ? 14 : 12, color: 'rgba(255,255,255,0.7)' }}>
+                  {team.club_name} • {team.state_code} • #{team.current_rank}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Fallers */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+          <div
+            style={{
+              fontSize: isStory ? 26 : 22,
+              color: BRAND_COLORS.fallerRed,
+              fontWeight: 'bold',
+              marginBottom: 16,
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            📉 FALLERS
+          </div>
+          {fallers.map((team, i) => (
+            <div
+              key={i}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                background: 'rgba(244, 67, 54, 0.15)',
+                borderLeft: `4px solid ${BRAND_COLORS.fallerRed}`,
+                borderRadius: 8,
+                padding: '12px 16px',
+                marginBottom: 10,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: isStory ? 28 : 24,
+                  fontWeight: 'bold',
+                  color: BRAND_COLORS.fallerRed,
+                  marginRight: 16,
+                  minWidth: 70,
+                }}
+              >
+                {team.rank_change}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <div style={{ fontSize: isStory ? 18 : 16, color: BRAND_COLORS.brightWhite, fontWeight: 'bold' }}>
+                  {team.team_name}
+                </div>
+                <div style={{ fontSize: isStory ? 14 : 12, color: 'rgba(255,255,255,0.7)' }}>
+                  {team.club_name} • {team.state_code} • #{team.current_rank}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div style={{ display: 'flex', justifyContent: 'center', marginTop: 20 }}>
+        <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)' }}>pitchrank.io • #YouthSoccer #Rankings</div>
+      </div>
+    </div>,
     {
       width: dimensions.width,
       height: dimensions.height,

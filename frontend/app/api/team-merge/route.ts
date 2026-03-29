@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { requireAdmin } from '@/lib/supabase/admin';
-import { parseJsonBody } from '@/lib/api/parseJsonBody';
 
 /**
  * Team Merge API Endpoints
@@ -35,18 +34,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Parse request body
-    const result = await parseJsonBody<{
-      deprecatedTeamId: string;
-      canonicalTeamId: string;
-      mergedBy: string;
-      mergeReason?: string;
-      confidenceScore?: number;
-      suggestionSignals?: Record<string, unknown>;
-    }>(request);
-    if (result.error) return result.error;
+    let requestBody;
+    try {
+      requestBody = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+    }
 
     const { deprecatedTeamId, canonicalTeamId, mergedBy, mergeReason, confidenceScore, suggestionSignals } =
-      result.data;
+      requestBody;
 
     // Validate required fields
     if (!deprecatedTeamId || !canonicalTeamId || !mergedBy) {
@@ -98,7 +94,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'One or both team IDs do not exist' }, { status: 404 });
       }
 
-      return NextResponse.json({ error: `Merge failed: ${message}` }, { status: 500 });
+      return NextResponse.json({ error: 'Merge failed due to an internal error' }, { status: 500 });
     }
 
     // If confidence score and signals were provided (from Option 8), update the merge record
@@ -158,14 +154,14 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Parse request body
-    const deleteResult = await parseJsonBody<{
-      deprecatedTeamId: string;
-      revertedBy: string;
-      revertReason?: string;
-    }>(request);
-    if (deleteResult.error) return deleteResult.error;
+    let requestBody;
+    try {
+      requestBody = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+    }
 
-    const { deprecatedTeamId, revertedBy, revertReason } = deleteResult.data;
+    const { deprecatedTeamId, revertedBy, revertReason } = requestBody;
 
     // Validate required fields
     if (!deprecatedTeamId || !revertedBy) {
@@ -203,7 +199,7 @@ export async function DELETE(request: NextRequest) {
         return NextResponse.json({ error: 'This team is not currently merged' }, { status: 404 });
       }
 
-      return NextResponse.json({ error: `Revert failed: ${message}` }, { status: 500 });
+      return NextResponse.json({ error: 'Revert failed due to an internal error' }, { status: 500 });
     }
 
     return NextResponse.json({
@@ -225,6 +221,9 @@ export async function DELETE(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    const auth = await requireAdmin();
+    if (auth.error) return auth.error;
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 

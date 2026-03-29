@@ -66,6 +66,9 @@ export async function PATCH(request: NextRequest) {
         if (field === 'digest_frequency' && !validFrequencies.includes(body[field])) {
           return NextResponse.json({ error: `Invalid digest_frequency: ${body[field]}` }, { status: 400 });
         }
+        if ((field === 'push_enabled' || field === 'email_digest_enabled') && typeof body[field] !== 'boolean') {
+          return NextResponse.json({ error: `${field} must be a boolean` }, { status: 400 });
+        }
         updates[field] = body[field];
       }
     }
@@ -74,10 +77,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 });
     }
 
-    const { error } = await supabase
-      .from('user_profiles')
-      .update(updates)
-      .eq('id', user.id);
+    const { error } = await supabase.from('user_profiles').update(updates).eq('id', user.id);
 
     if (error) {
       return NextResponse.json({ error: 'Failed to update preferences' }, { status: 500 });

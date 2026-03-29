@@ -1,4 +1,4 @@
-import { requirePremium } from '@/lib/api/requirePremium';
+import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
 /**
@@ -52,9 +52,38 @@ export interface WatchlistResponse {
  */
 export async function GET() {
   try {
-    const auth = await requirePremium();
-    if (auth.error) return auth.error;
-    const { user, supabase } = auth;
+    const supabase = await createServerSupabase();
+
+    // Get authenticated user
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
+    // Get user profile to check premium status
+    const { data: profile, error: profileError } = await supabase
+      .from('user_profiles')
+      .select('plan')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError) {
+      return NextResponse.json({ error: 'Failed to fetch user profile' }, { status: 500 });
+    }
+
+    // Check if profile exists (user may not have a profile row yet)
+    if (!profile) {
+      return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+    }
+
+    // Enforce premium access
+    if (profile.plan !== 'premium' && profile.plan !== 'admin') {
+      return NextResponse.json({ error: 'Premium required' }, { status: 403 });
+    }
 
     // Get user's default watchlist
     // First try to find default watchlist
@@ -233,12 +262,32 @@ export async function GET() {
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
 
-    // Get recent games for all teams in one query
-    const { data: recentGames, error: recentGamesError } = await supabase
-      .from('games')
-      .select('home_team_master_id, away_team_master_id, game_date')
-      .or(teamIds.map((id) => `home_team_master_id.eq.${id},away_team_master_id.eq.${id}`).join(','))
-      .gte('game_date', sevenDaysAgoStr);
+    // Get recent games for all teams using parallel .in() queries
+    // (avoids unbounded .or() that can exceed URL length limits)
+    const [homeRecentResult, awayRecentResult] = await Promise.all([
+      supabase
+        .from('games')
+        .select('home_team_master_id, away_team_master_id, game_date')
+        .in('home_team_master_id', teamIds)
+        .gte('game_date', sevenDaysAgoStr),
+      supabase
+        .from('games')
+        .select('home_team_master_id, away_team_master_id, game_date')
+        .in('away_team_master_id', teamIds)
+        .gte('game_date', sevenDaysAgoStr),
+    ]);
+
+    const recentGamesError = homeRecentResult.error || awayRecentResult.error;
+
+    // Merge and deduplicate by composite key (no unique id on select)
+    const recentGamesRaw = [...(homeRecentResult.data || []), ...(awayRecentResult.data || [])];
+    const recentGamesSeen = new Set<string>();
+    const recentGames = recentGamesRaw.filter((g) => {
+      const key = `${g.home_team_master_id}|${g.away_team_master_id}|${g.game_date}`;
+      if (recentGamesSeen.has(key)) return false;
+      recentGamesSeen.add(key);
+      return true;
+    });
 
     // Count new games per team
     const newGamesMap = new Map<string, number>();
@@ -269,16 +318,33 @@ export async function GET() {
     // Also get last game date for teams with no recent games
     const teamsWithoutRecentGames = teamIds.filter((id: string) => !lastGameMap.has(id));
     if (teamsWithoutRecentGames.length > 0) {
-      const { data: lastGames, error: lastGamesError } = await supabase
-        .from('games')
-        .select('home_team_master_id, away_team_master_id, game_date')
-        .or(
-          teamsWithoutRecentGames
-            .map((id: string) => `home_team_master_id.eq.${id},away_team_master_id.eq.${id}`)
-            .join(',')
-        )
-        .order('game_date', { ascending: false })
-        .limit(teamsWithoutRecentGames.length * 3); // Get a few recent games per team
+      const perTeamLimit = teamsWithoutRecentGames.length * 3;
+      const [homeLastResult, awayLastResult] = await Promise.all([
+        supabase
+          .from('games')
+          .select('home_team_master_id, away_team_master_id, game_date')
+          .in('home_team_master_id', teamsWithoutRecentGames)
+          .order('game_date', { ascending: false })
+          .limit(perTeamLimit),
+        supabase
+          .from('games')
+          .select('home_team_master_id, away_team_master_id, game_date')
+          .in('away_team_master_id', teamsWithoutRecentGames)
+          .order('game_date', { ascending: false })
+          .limit(perTeamLimit),
+      ]);
+
+      const lastGamesError = homeLastResult.error || awayLastResult.error;
+
+      // Merge and deduplicate
+      const lastGamesRaw = [...(homeLastResult.data || []), ...(awayLastResult.data || [])];
+      const lastGamesSeen = new Set<string>();
+      const lastGames = lastGamesRaw.filter((g) => {
+        const key = `${g.home_team_master_id}|${g.away_team_master_id}|${g.game_date}`;
+        if (lastGamesSeen.has(key)) return false;
+        lastGamesSeen.add(key);
+        return true;
+      });
 
       if (!lastGamesError && lastGames) {
         for (const game of lastGames) {

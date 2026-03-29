@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { requireAdmin } from '@/lib/supabase/admin';
-import { parseJsonBody } from '@/lib/api/parseJsonBody';
 
 /**
  * Unlink an incorrectly linked opponent from a game
@@ -20,15 +19,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
     }
 
-    const result = await parseJsonBody<{
-      gameId: string;
-      opponentProviderId: string | number;
-      teamIdMaster: string;
-      unlinkAllGames?: boolean;
-    }>(request);
-    if (result.error) return result.error;
+    let requestBody;
+    try {
+      requestBody = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+    }
 
-    const { gameId, opponentProviderId, teamIdMaster, unlinkAllGames = true } = result.data;
+    const { gameId, opponentProviderId, teamIdMaster, unlinkAllGames = true } = requestBody;
 
     if (!gameId || !opponentProviderId || !teamIdMaster) {
       return NextResponse.json(
@@ -51,6 +49,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Game not found' }, { status: 404 });
     }
 
+    if (!game.provider_id) {
+      return NextResponse.json({ error: 'Game has no provider' }, { status: 400 });
+    }
+
     const providerTeamIdStr = String(opponentProviderId);
     const isOpponentHome = String(game.home_provider_id) === providerTeamIdStr;
     const isOpponentAway = String(game.away_provider_id) === providerTeamIdStr;
@@ -65,7 +67,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: 'Team mismatch',
-          details: `Expected team ${teamIdMaster} but found ${currentMasterId}. The game may have already been updated.`,
+          details: 'Team ID mismatch. The game may have already been updated.',
         },
         { status: 400 }
       );
@@ -92,7 +94,7 @@ export async function POST(request: NextRequest) {
 
     if (specificUpdateError) {
       console.error('[unlink-opponent] Failed to unlink game:', specificUpdateError);
-      return NextResponse.json({ error: `Failed to unlink game: ${specificUpdateError.message}` }, { status: 500 });
+      return NextResponse.json({ error: 'Failed to unlink game' }, { status: 500 });
     }
 
     gamesUpdated = 1;

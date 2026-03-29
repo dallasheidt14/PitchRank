@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { requireAdmin } from '@/lib/supabase/admin';
-import { parseJsonBody } from '@/lib/api/parseJsonBody';
 
 /**
  * Preview API for linking unknown opponent
@@ -9,9 +7,6 @@ import { parseJsonBody } from '@/lib/api/parseJsonBody';
  */
 export async function POST(request: NextRequest) {
   try {
-    const auth = await requireAdmin();
-    if (auth.error) return auth.error;
-
     const serviceKey = process.env.SUPABASE_SERVICE_KEY;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -21,13 +16,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Parse request body
-    const result = await parseJsonBody<{
-      gameId: string;
-      opponentProviderId: string | number;
-    }>(request);
-    if (result.error) return result.error;
+    let requestBody;
+    try {
+      requestBody = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+    }
 
-    const { gameId, opponentProviderId } = result.data;
+    const { gameId, opponentProviderId } = requestBody;
 
     if (!gameId || !opponentProviderId) {
       return NextResponse.json({ error: 'Missing required fields: gameId and opponentProviderId' }, { status: 400 });
@@ -45,6 +41,10 @@ export async function POST(request: NextRequest) {
     if (gameError || !game) {
       console.error('[link-opponent/preview] Game not found:', gameError);
       return NextResponse.json({ error: 'Game not found' }, { status: 404 });
+    }
+
+    if (!game.provider_id) {
+      return NextResponse.json({ error: 'Game has no provider' }, { status: 400 });
     }
 
     // Get the provider name for display

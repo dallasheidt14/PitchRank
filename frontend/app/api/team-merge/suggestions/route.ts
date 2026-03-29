@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from '@/lib/supabase/admin';
 
 /**
  * GET /api/team-merge/suggestions
@@ -59,15 +60,15 @@ interface MergeSuggestion {
 
 // Signal weights
 const WEIGHTS = {
-  opponentOverlap: 0.40,
+  opponentOverlap: 0.4,
   scheduleAlignment: 0.25,
-  nameSimilarity: 0.20,
-  geography: 0.10,
+  nameSimilarity: 0.2,
+  geography: 0.1,
   performance: 0.05,
 };
 
 // Minimum confidence threshold - only show high-quality suggestions
-const MIN_CONFIDENCE_THRESHOLD = 0.90;
+const MIN_CONFIDENCE_THRESHOLD = 0.9;
 
 /**
  * Detects distinguishing markers in team names that indicate different teams
@@ -86,11 +87,50 @@ function hasDistinguishingMarkers(nameA: string, nameB: string): { isDifferent: 
 
   // Common location codes used in youth soccer (3-4 letter codes)
   const locationCodes = [
-    'clw', 'lwr', 'tpa', 'orl', 'jax', 'mia', 'ftl', 'pbg', 'srq', 'tam',  // Florida
-    'atl', 'dal', 'hou', 'aus', 'san', 'phx', 'den', 'sea', 'por', 'lax',  // Other cities
-    'north', 'south', 'east', 'west', 'central', 'metro', 'coastal',       // Directional
-    'mv', 'tem', 'sv', 'cv', 'pv', 'rv', 'ev', 'wv', 'nv',                 // Valley codes
-    'sc', 'fc', 'cf', 'ac', 'bc', 'cc', 'dc', 'ec',                        // Club type codes
+    'clw',
+    'lwr',
+    'tpa',
+    'orl',
+    'jax',
+    'mia',
+    'ftl',
+    'pbg',
+    'srq',
+    'tam', // Florida
+    'atl',
+    'dal',
+    'hou',
+    'aus',
+    'san',
+    'phx',
+    'den',
+    'sea',
+    'por',
+    'lax', // Other cities
+    'north',
+    'south',
+    'east',
+    'west',
+    'central',
+    'metro',
+    'coastal', // Directional
+    'mv',
+    'tem',
+    'sv',
+    'cv',
+    'pv',
+    'rv',
+    'ev',
+    'wv',
+    'nv', // Valley codes
+    'sc',
+    'fc',
+    'cf',
+    'ac',
+    'bc',
+    'cc',
+    'dc',
+    'ec', // Club type codes
   ];
 
   // Extract potential location codes from names
@@ -110,19 +150,22 @@ function hasDistinguishingMarkers(nameA: string, nameB: string): { isDifferent: 
 
   // If both have different location codes, they're different teams
   if (locationA && locationB && locationA !== locationB) {
-    return { isDifferent: true, reason: `Different locations: ${locationA.toUpperCase()} vs ${locationB.toUpperCase()}` };
+    return {
+      isDifferent: true,
+      reason: `Different locations: ${locationA.toUpperCase()} vs ${locationB.toUpperCase()}`,
+    };
   }
 
   // Detect team number suffixes: -1, -2, "2", "II", "1st", "2nd", etc.
   // Also handles numbers embedded in name like "EDP 1" or "Mahe1"
   const numberPatterns = [
-    /[-\s](\d+)$/,                    // Ends with -1, -2, " 1", " 2"
-    /\s(\d+)$/,                       // Ends with space + number
-    /[a-z](\d+)$/i,                   // Number directly after letter: Mahe1, Team2
-    /[-\s](i{1,3}|iv|v)$/i,           // Roman numerals I, II, III, IV, V
-    /(\d+)(st|nd|rd|th)$/i,           // 1st, 2nd, 3rd, 4th
-    /\steam\s*(\d+)/i,                // "team 1", "team 2"
-    /\s(one|two|three|four|five)$/i,  // Written numbers
+    /[-\s](\d+)$/, // Ends with -1, -2, " 1", " 2"
+    /\s(\d+)$/, // Ends with space + number
+    /[a-z](\d+)$/i, // Number directly after letter: Mahe1, Team2
+    /[-\s](i{1,3}|iv|v)$/i, // Roman numerals I, II, III, IV, V
+    /(\d+)(st|nd|rd|th)$/i, // 1st, 2nd, 3rd, 4th
+    /\steam\s*(\d+)/i, // "team 1", "team 2"
+    /\s(one|two|three|four|five)$/i, // Written numbers
     /\b(edp|ecnl|ga|mls)\s+(\d+)\b/i, // League + number: "EDP 1", "ECNL 2"
   ];
 
@@ -229,8 +272,7 @@ function hasDistinguishingMarkers(nameA: string, nameB: string): { isDifferent: 
 
   if (nickA && nickB) {
     // Same age group but different nicknames
-    if (nickA[1].toLowerCase() === nickB[1].toLowerCase() &&
-        nickA[2].toLowerCase() !== nickB[2].toLowerCase()) {
+    if (nickA[1].toLowerCase() === nickB[1].toLowerCase() && nickA[2].toLowerCase() !== nickB[2].toLowerCase()) {
       return { isDifferent: true, reason: `Different team names: ${nickA[2]} vs ${nickB[2]}` };
     }
   }
@@ -240,14 +282,14 @@ function hasDistinguishingMarkers(nameA: string, nameB: string): { isDifferent: 
 
 export async function GET(request: NextRequest) {
   try {
+    const auth = await requireAdmin();
+    if (auth.error) return auth.error;
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (!supabaseUrl || !supabaseAnonKey) {
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
     }
 
     const { searchParams } = new URL(request.url);
@@ -281,10 +323,7 @@ export async function GET(request: NextRequest) {
 
     if (teamsError) {
       console.error('[suggestions] Error fetching teams:', teamsError);
-      return NextResponse.json(
-        { error: 'Failed to fetch teams' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Failed to fetch teams' }, { status: 500 });
     }
 
     if (!teams || teams.length < 2) {
@@ -392,7 +431,7 @@ export async function GET(request: NextRequest) {
             teamBId: teamB.team_id_master,
             teamBName: teamB.team_name,
             confidenceScore: Math.round(confidence * 1000) / 1000,
-            recommendation: confidence >= 0.95 ? 'high' : confidence >= 0.90 ? 'medium' : 'low',
+            recommendation: confidence >= 0.95 ? 'high' : confidence >= 0.9 ? 'medium' : 'low',
             signals,
             details,
           });
@@ -412,10 +451,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error('[suggestions] Unexpected error:', error);
-    return NextResponse.json(
-      { error: 'An unexpected error occurred' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 });
   }
 }
 
@@ -423,12 +459,12 @@ export async function GET(request: NextRequest) {
 function calcOpponentOverlap(gamesA: GameData[], gamesB: GameData[]): number {
   if (!gamesA.length || !gamesB.length) return 0;
 
-  const opponentsA = new Set(gamesA.map(g => g.opponent_id).filter(Boolean));
-  const opponentsB = new Set(gamesB.map(g => g.opponent_id).filter(Boolean));
+  const opponentsA = new Set(gamesA.map((g) => g.opponent_id).filter(Boolean));
+  const opponentsB = new Set(gamesB.map((g) => g.opponent_id).filter(Boolean));
 
   if (!opponentsA.size || !opponentsB.size) return 0;
 
-  const intersection = [...opponentsA].filter(id => opponentsB.has(id)).length;
+  const intersection = [...opponentsA].filter((id) => opponentsB.has(id)).length;
   const union = new Set([...opponentsA, ...opponentsB]).size;
 
   return union > 0 ? intersection / union : 0;
@@ -437,10 +473,10 @@ function calcOpponentOverlap(gamesA: GameData[], gamesB: GameData[]): number {
 function getOpponentOverlapDetail(gamesA: GameData[], gamesB: GameData[]): string {
   if (!gamesA.length || !gamesB.length) return 'Insufficient game data';
 
-  const opponentsA = new Set(gamesA.map(g => g.opponent_id).filter(Boolean));
-  const opponentsB = new Set(gamesB.map(g => g.opponent_id).filter(Boolean));
+  const opponentsA = new Set(gamesA.map((g) => g.opponent_id).filter(Boolean));
+  const opponentsB = new Set(gamesB.map((g) => g.opponent_id).filter(Boolean));
 
-  const intersection = [...opponentsA].filter(id => opponentsB.has(id)).length;
+  const intersection = [...opponentsA].filter((id) => opponentsB.has(id)).length;
   const union = new Set([...opponentsA, ...opponentsB]).size;
 
   return `${intersection} shared opponents out of ${union} total`;
@@ -449,8 +485,8 @@ function getOpponentOverlapDetail(gamesA: GameData[], gamesB: GameData[]): strin
 function calcScheduleAlignment(gamesA: GameData[], gamesB: GameData[]): number {
   if (!gamesA.length || !gamesB.length) return 0;
 
-  const datesA = new Set(gamesA.map(g => g.game_date?.split('T')[0]).filter(Boolean));
-  const datesB = new Set(gamesB.map(g => g.game_date?.split('T')[0]).filter(Boolean));
+  const datesA = new Set(gamesA.map((g) => g.game_date?.split('T')[0]).filter(Boolean));
+  const datesB = new Set(gamesB.map((g) => g.game_date?.split('T')[0]).filter(Boolean));
 
   if (!datesA.size || !datesB.size) return 0;
 
@@ -474,8 +510,8 @@ function calcScheduleAlignment(gamesA: GameData[], gamesB: GameData[]): number {
 function getScheduleAlignmentDetail(gamesA: GameData[], gamesB: GameData[]): string {
   if (!gamesA.length || !gamesB.length) return 'Insufficient game data';
 
-  const datesA = new Set(gamesA.map(g => g.game_date?.split('T')[0]).filter(Boolean));
-  const datesB = new Set(gamesB.map(g => g.game_date?.split('T')[0]).filter(Boolean));
+  const datesA = new Set(gamesA.map((g) => g.game_date?.split('T')[0]).filter(Boolean));
+  const datesB = new Set(gamesB.map((g) => g.game_date?.split('T')[0]).filter(Boolean));
 
   let closeMatches = 0;
   for (const dateA of datesA) {
@@ -584,10 +620,10 @@ function getPerformanceDetail(gamesA: GameData[], gamesB: GameData[]): string {
 }
 
 function calcStats(games: GameData[]) {
-  const valid = games.filter(g => g.goals_for !== null && g.goals_against !== null);
+  const valid = games.filter((g) => g.goals_for !== null && g.goals_against !== null);
   if (!valid.length) return null;
 
-  const wins = valid.filter(g => g.goals_for! > g.goals_against!).length;
+  const wins = valid.filter((g) => g.goals_for! > g.goals_against!).length;
   const gf = valid.reduce((sum, g) => sum + (g.goals_for || 0), 0);
   const ga = valid.reduce((sum, g) => sum + (g.goals_against || 0), 0);
 
@@ -614,11 +650,7 @@ function levenshteinSimilarity(a: string, b: string): number {
   for (let i = 1; i <= a.length; i++) {
     for (let j = 1; j <= b.length; j++) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      matrix[i][j] = Math.min(
-        matrix[i - 1][j] + 1,
-        matrix[i][j - 1] + 1,
-        matrix[i - 1][j - 1] + cost
-      );
+      matrix[i][j] = Math.min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j - 1] + cost);
     }
   }
 

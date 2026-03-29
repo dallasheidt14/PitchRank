@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
 import { requireAdmin } from '@/lib/supabase/admin';
-import { parseJsonBody } from '@/lib/api/parseJsonBody';
 
 /**
  * Create a new team and link it to an unknown opponent
@@ -22,18 +21,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Parse request body
-    const result = await parseJsonBody<{
-      gameId: string;
-      opponentProviderId: string | number;
-      teamName: string;
-      clubName?: string;
-      ageGroup: string;
-      gender: string;
-      stateCode?: string;
-    }>(request);
-    if (result.error) return result.error;
+    let requestBody;
+    try {
+      requestBody = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+    }
 
-    const { gameId, opponentProviderId, teamName, clubName, ageGroup, gender, stateCode } = result.data;
+    const { gameId, opponentProviderId, teamName, clubName, ageGroup, gender, stateCode } = requestBody;
 
     // Validate required fields
     if (!gameId || !opponentProviderId || !teamName || !ageGroup || !gender) {
@@ -86,7 +81,7 @@ export async function POST(request: NextRequest) {
 
     if (teamError) {
       console.error('[create-team] Failed to create team:', teamError);
-      return NextResponse.json({ error: `Failed to create team: ${teamError.message}` }, { status: 500 });
+      return NextResponse.json({ error: 'Failed to create team' }, { status: 500 });
     }
 
     // 4. Create alias mapping
@@ -107,10 +102,7 @@ export async function POST(request: NextRequest) {
     if (aliasError) {
       console.error('[create-team] Failed to create alias:', aliasError);
       // Team was created but alias failed - still useful
-      return NextResponse.json(
-        { error: `Team created but alias mapping failed: ${aliasError.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Team created but alias mapping failed' }, { status: 500 });
     }
 
     // 5. Backfill games

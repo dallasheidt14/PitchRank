@@ -1,7 +1,6 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { normalizeAgeGroup } from '@/lib/utils';
-import { validatePagination } from '@/lib/api/validatePagination';
 
 /**
  * GET /api/rankings/state?state=TX&age=u12&gender=M&limit=1000&offset=0
@@ -16,6 +15,8 @@ export async function GET(request: NextRequest) {
   const state = searchParams.get('state');
   const ageParam = searchParams.get('age');
   const gender = searchParams.get('gender');
+  const limit = parseInt(searchParams.get('limit') || '1000', 10);
+  const offset = parseInt(searchParams.get('offset') || '0', 10);
 
   // Validate required params
   if (!state || !ageParam || !gender) {
@@ -25,13 +26,16 @@ export async function GET(request: NextRequest) {
   // Normalize age group (e.g., "u12" -> 12)
   const normalizedAge = normalizeAgeGroup(ageParam);
   if (normalizedAge === null) {
-    return NextResponse.json({ error: `Invalid age group: ${ageParam}` }, { status: 400 });
+    return NextResponse.json({ error: 'Invalid age group format' }, { status: 400 });
   }
 
   // Validate limit/offset
-  const pagination = validatePagination(searchParams);
-  if ('error' in pagination && pagination.error) return pagination.error;
-  const { limit, offset } = pagination as { limit: number; offset: number };
+  if (isNaN(limit) || limit < 1 || limit > 5000) {
+    return NextResponse.json({ error: 'limit must be between 1 and 5000' }, { status: 400 });
+  }
+  if (isNaN(offset) || offset < 0) {
+    return NextResponse.json({ error: 'offset must be >= 0' }, { status: 400 });
+  }
 
   try {
     const supabase = await createServerSupabase();

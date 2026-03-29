@@ -1,8 +1,8 @@
-import { stripe, WEBHOOK_EVENTS } from "@/lib/stripe/server";
-import { headers } from "next/headers";
-import { NextResponse } from "next/server";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import Stripe from "stripe";
+import { stripe, WEBHOOK_EVENTS } from '@/lib/stripe/server';
+import { headers } from 'next/headers';
+import { NextResponse } from 'next/server';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import Stripe from 'stripe';
 
 // Lazy-load Supabase admin client to avoid build-time initialization errors
 let supabaseAdmin: SupabaseClient | null = null;
@@ -10,12 +10,9 @@ let supabaseAdmin: SupabaseClient | null = null;
 function getSupabaseAdmin(): SupabaseClient {
   if (!supabaseAdmin) {
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      throw new Error("Missing Supabase environment variables");
+      throw new Error('Missing Supabase environment variables');
     }
-    supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY
-    );
+    supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
   }
   return supabaseAdmin;
 }
@@ -23,23 +20,17 @@ function getSupabaseAdmin(): SupabaseClient {
 export async function POST(req: Request) {
   const body = await req.text();
   const headersList = await headers();
-  const sig = headersList.get("stripe-signature");
+  const sig = headersList.get('stripe-signature');
 
   if (!sig) {
-    console.error("Missing stripe-signature header");
-    return NextResponse.json(
-      { error: "Missing stripe-signature header" },
-      { status: 400 }
-    );
+    console.error('Missing stripe-signature header');
+    return NextResponse.json({ error: 'Missing stripe-signature header' }, { status: 400 });
   }
 
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
   if (!webhookSecret) {
-    console.error("Missing STRIPE_WEBHOOK_SECRET environment variable");
-    return NextResponse.json(
-      { error: "Webhook not configured" },
-      { status: 500 }
-    );
+    console.error('Missing STRIPE_WEBHOOK_SECRET environment variable');
+    return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 });
   }
 
   let event: Stripe.Event;
@@ -47,12 +38,9 @@ export async function POST(req: Request) {
   try {
     event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
+    const message = err instanceof Error ? err.message : 'Unknown error';
     console.error(`Webhook signature verification failed: ${message}`);
-    return NextResponse.json(
-      { error: `Webhook signature verification failed: ${message}` },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: 'Webhook signature verification failed' }, { status: 400 });
   }
 
   try {
@@ -93,15 +81,12 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ received: true });
   } catch (error) {
-    console.error("Webhook handler error:", error);
+    console.error('Webhook handler error:', error);
     // Return 200 to acknowledge receipt and prevent Stripe from retrying
     // for up to 72 hours. Permanent errors (missing user, bad data) won't
     // resolve on retry. Transient errors (DB timeout) are rare and can be
     // reprocessed manually if needed.
-    return NextResponse.json(
-      { received: true, error: "Webhook handler failed" },
-      { status: 200 }
-    );
+    return NextResponse.json({ received: true, error: 'Webhook handler failed' }, { status: 200 });
   }
 }
 
@@ -113,29 +98,28 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const subscriptionId = session.subscription as string;
 
   if (!customerId || !subscriptionId) {
-    console.error("Missing customer or subscription ID in checkout session");
+    console.error('Missing customer or subscription ID in checkout session');
     return;
   }
 
   // Fetch subscription details to get period end and status (may be "trialing" for free trials)
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-  const periodEnd = subscription.items.data[0]?.current_period_end ??
-    Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+  const periodEnd = subscription.items.data[0]?.current_period_end ?? Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
 
   const { data, error } = await getSupabaseAdmin()
-    .from("user_profiles")
+    .from('user_profiles')
     .update({
       stripe_subscription_id: subscriptionId,
       subscription_status: subscription.status,
-      plan: "premium",
+      plan: 'premium',
       subscription_period_end: new Date(periodEnd * 1000).toISOString(),
       updated_at: new Date().toISOString(),
     })
-    .eq("stripe_customer_id", customerId)
+    .eq('stripe_customer_id', customerId)
     .select();
 
   if (error) {
-    console.error("Error updating profile after checkout:", error);
+    console.error('Error updating profile after checkout:', error);
     throw error;
   }
 
@@ -156,16 +140,13 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
 
   // Map Stripe status to our plan
   // Keep premium access during past_due (Stripe will retry payment)
-  const plan = status === "active" || status === "trialing" || status === "past_due"
-    ? "premium"
-    : "free";
+  const plan = status === 'active' || status === 'trialing' || status === 'past_due' ? 'premium' : 'free';
 
   // Get period end from subscription item (moved from top-level in Stripe API 2025-03-31.basil+)
-  const periodEnd = subscription.items.data[0]?.current_period_end ??
-    Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+  const periodEnd = subscription.items.data[0]?.current_period_end ?? Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
 
   const { data, error } = await getSupabaseAdmin()
-    .from("user_profiles")
+    .from('user_profiles')
     .update({
       stripe_subscription_id: subscription.id,
       subscription_status: status,
@@ -173,11 +154,11 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
       subscription_period_end: new Date(periodEnd * 1000).toISOString(),
       updated_at: new Date().toISOString(),
     })
-    .eq("stripe_customer_id", customerId)
+    .eq('stripe_customer_id', customerId)
     .select();
 
   if (error) {
-    console.error("Error updating subscription:", error);
+    console.error('Error updating subscription:', error);
     throw error;
   }
 
@@ -196,19 +177,19 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
   const customerId = subscription.customer as string;
 
   const { data, error } = await getSupabaseAdmin()
-    .from("user_profiles")
+    .from('user_profiles')
     .update({
       stripe_subscription_id: null,
-      subscription_status: "canceled",
-      plan: "free",
+      subscription_status: 'canceled',
+      plan: 'free',
       subscription_period_end: null,
       updated_at: new Date().toISOString(),
     })
-    .eq("stripe_customer_id", customerId)
+    .eq('stripe_customer_id', customerId)
     .select();
 
   if (error) {
-    console.error("Error canceling subscription:", error);
+    console.error('Error canceling subscription:', error);
     throw error;
   }
 
@@ -226,9 +207,10 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
 async function handleInvoicePaid(invoice: Stripe.Invoice) {
   const customerId = invoice.customer as string;
   // Get subscription ID - it can be a string or an expanded object
-  const subscriptionId = typeof invoice.parent?.subscription_details?.subscription === 'string'
-    ? invoice.parent.subscription_details.subscription
-    : invoice.parent?.subscription_details?.subscription?.id;
+  const subscriptionId =
+    typeof invoice.parent?.subscription_details?.subscription === 'string'
+      ? invoice.parent.subscription_details.subscription
+      : invoice.parent?.subscription_details?.subscription?.id;
 
   if (!subscriptionId) {
     // One-time payment, not a subscription
@@ -237,22 +219,22 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
 
   // Fetch subscription to get updated period end (from item, not top-level)
   const subscriptionData = await stripe.subscriptions.retrieve(subscriptionId);
-  const periodEnd = subscriptionData.items.data[0]?.current_period_end ??
-    Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+  const periodEnd =
+    subscriptionData.items.data[0]?.current_period_end ?? Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
 
   const { data, error } = await getSupabaseAdmin()
-    .from("user_profiles")
+    .from('user_profiles')
     .update({
-      subscription_status: "active",
-      plan: "premium",
+      subscription_status: 'active',
+      plan: 'premium',
       subscription_period_end: new Date(periodEnd * 1000).toISOString(),
       updated_at: new Date().toISOString(),
     })
-    .eq("stripe_customer_id", customerId)
+    .eq('stripe_customer_id', customerId)
     .select();
 
   if (error) {
-    console.error("Error updating after invoice paid:", error);
+    console.error('Error updating after invoice paid:', error);
     throw error;
   }
 
@@ -271,16 +253,16 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
   const customerId = invoice.customer as string;
 
   const { data, error } = await getSupabaseAdmin()
-    .from("user_profiles")
+    .from('user_profiles')
     .update({
-      subscription_status: "past_due",
+      subscription_status: 'past_due',
       updated_at: new Date().toISOString(),
     })
-    .eq("stripe_customer_id", customerId)
+    .eq('stripe_customer_id', customerId)
     .select();
 
   if (error) {
-    console.error("Error updating after payment failed:", error);
+    console.error('Error updating after payment failed:', error);
     throw error;
   }
 

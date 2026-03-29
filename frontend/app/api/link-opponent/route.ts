@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { requireAdmin } from '@/lib/supabase/admin';
-import { parseJsonBody } from '@/lib/api/parseJsonBody';
 
 /**
  * Link unknown opponent to a team
@@ -21,15 +20,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Parse request body
-    const result = await parseJsonBody<{
-      gameId: string;
-      opponentProviderId: string | number;
-      teamIdMaster: string;
-      applyToAllGames?: boolean;
-    }>(request);
-    if (result.error) return result.error;
+    let requestBody;
+    try {
+      requestBody = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+    }
 
-    const { gameId, opponentProviderId, teamIdMaster, applyToAllGames = true } = result.data;
+    const { gameId, opponentProviderId, teamIdMaster, applyToAllGames = true } = requestBody;
 
     if (!gameId || !opponentProviderId || !teamIdMaster) {
       return NextResponse.json(
@@ -64,24 +62,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Game not found' }, { status: 404 });
     }
 
-    // Debug logging to understand the data
-    console.log('[link-opponent] Debug info:', {
-      gameId,
-      opponentProviderId,
-      opponentProviderIdType: typeof opponentProviderId,
-      teamIdMaster,
-      game: {
-        id: game.id,
-        provider_id: game.provider_id,
-        home_provider_id: game.home_provider_id,
-        home_provider_id_type: typeof game.home_provider_id,
-        away_provider_id: game.away_provider_id,
-        away_provider_id_type: typeof game.away_provider_id,
-        home_team_master_id: game.home_team_master_id,
-        away_team_master_id: game.away_team_master_id,
-      },
-    });
-
     // Ensure provider_team_id is a string (database column is TEXT)
     const providerTeamIdStr = String(opponentProviderId);
 
@@ -92,7 +72,6 @@ export async function POST(request: NextRequest) {
     // EARLY CHECK: Verify the opponent is actually unlinked before proceeding
     // This prevents the confusing case where we return "success" but nothing updates
     if (isOpponentHome && game.home_team_master_id !== null) {
-      console.log('[link-opponent] Home team already linked:', game.home_team_master_id);
       return NextResponse.json(
         {
           error: 'This opponent is already linked to a team',
@@ -102,7 +81,6 @@ export async function POST(request: NextRequest) {
       );
     }
     if (isOpponentAway && game.away_team_master_id !== null) {
-      console.log('[link-opponent] Away team already linked:', game.away_team_master_id);
       return NextResponse.json(
         {
           error: 'This opponent is already linked to a team',
@@ -112,11 +90,6 @@ export async function POST(request: NextRequest) {
       );
     }
     if (!isOpponentHome && !isOpponentAway) {
-      console.log('[link-opponent] Provider ID mismatch:', {
-        opponentProviderId: providerTeamIdStr,
-        home_provider_id: String(game.home_provider_id),
-        away_provider_id: String(game.away_provider_id),
-      });
       return NextResponse.json(
         {
           error: 'Provider ID does not match any team in this game',
@@ -144,10 +117,7 @@ export async function POST(request: NextRequest) {
 
     if (aliasError) {
       console.error('[link-opponent] Failed to create alias:', aliasError);
-      return NextResponse.json(
-        { error: `Failed to create team alias mapping: ${aliasError.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Failed to create team alias mapping' }, { status: 500 });
     }
 
     let gamesUpdated = 0;
@@ -159,18 +129,9 @@ export async function POST(request: NextRequest) {
     // Note: isOpponentHome, isOpponentAway are already defined above
     // At this point, we know the opponent needs linking (validated in early check)
 
-    console.log('[link-opponent] Pre-update check:', {
-      isOpponentHome,
-      isOpponentAway,
-      home_team_master_id_value: game.home_team_master_id,
-      away_team_master_id_value: game.away_team_master_id,
-    });
-
     // 4. FIRST: Always update the specific game the user clicked on (by ID)
     // This ensures the clicked game gets updated regardless of any type issues with provider_id matching
     if (isOpponentHome) {
-      console.log('[link-opponent] Updating specific game (home team) by ID:', gameId);
-
       // Try using RPC function first (handles immutability properly)
       const { error: rpcError, data: rpcData } = await supabase.rpc('link_game_team', {
         p_game_id: gameId,
@@ -187,7 +148,6 @@ export async function POST(request: NextRequest) {
         rpcError?.message?.includes('function') ||
         rpcError?.message?.includes('does not exist')
       ) {
-        console.log('[link-opponent] RPC function not found, trying direct update');
         const directResult = await supabase
           .from('games')
           .update({ home_team_master_id: teamIdMaster })
@@ -197,13 +157,11 @@ export async function POST(request: NextRequest) {
         updateData = directResult.data;
       }
 
-      console.log('[link-opponent] Specific game update result:', { specificUpdateError, updateData });
-
       if (specificUpdateError) {
         console.error('[link-opponent] Failed to update specific game:', specificUpdateError);
         return NextResponse.json(
           {
-            error: `Database update failed: ${specificUpdateError.message}`,
+            error: 'Database update failed',
             details: 'The game could not be updated. This may be due to database constraints.',
           },
           { status: 500 }
@@ -220,15 +178,6 @@ export async function POST(request: NextRequest) {
       verificationResult = verifyGame;
       // Use String() comparison to handle potential UUID format differences
       const updateActuallyWorked = String(verifyGame?.home_team_master_id) === String(teamIdMaster);
-      console.log('[link-opponent] Verification after update:', {
-        verifyGame,
-        verifyError,
-        teamIdMaster,
-        teamIdMasterType: typeof teamIdMaster,
-        verifyGameHomeId: verifyGame?.home_team_master_id,
-        verifyGameHomeIdType: typeof verifyGame?.home_team_master_id,
-        updateActuallyWorked,
-      });
 
       if (verifyError) {
         console.error('[link-opponent] Failed to verify update:', verifyError);
@@ -238,7 +187,6 @@ export async function POST(request: NextRequest) {
         // Trust the verification SELECT
         specificGameUpdated = true;
         homeUpdated = 1;
-        console.log('[link-opponent] Successfully updated specific game (home team) - verified');
       } else if (updateData && updateData.length > 0) {
         // Update reported rows affected but verification failed - database trigger may have blocked
         console.warn('[link-opponent] Update reported success but verification failed - possible trigger issue');
@@ -258,7 +206,6 @@ export async function POST(request: NextRequest) {
       }
     } else {
       // isOpponentAway must be true (validated in early check)
-      console.log('[link-opponent] Updating specific game (away team) by ID:', gameId);
 
       // Try using RPC function first (handles immutability properly)
       const { error: rpcError, data: rpcData } = await supabase.rpc('link_game_team', {
@@ -276,7 +223,6 @@ export async function POST(request: NextRequest) {
         rpcError?.message?.includes('function') ||
         rpcError?.message?.includes('does not exist')
       ) {
-        console.log('[link-opponent] RPC function not found, trying direct update');
         const directResult = await supabase
           .from('games')
           .update({ away_team_master_id: teamIdMaster })
@@ -286,13 +232,11 @@ export async function POST(request: NextRequest) {
         updateData = directResult.data;
       }
 
-      console.log('[link-opponent] Specific game update result:', { specificUpdateError, updateData });
-
       if (specificUpdateError) {
         console.error('[link-opponent] Failed to update specific game:', specificUpdateError);
         return NextResponse.json(
           {
-            error: `Database update failed: ${specificUpdateError.message}`,
+            error: 'Database update failed',
             details: 'The game could not be updated. This may be due to database constraints.',
           },
           { status: 500 }
@@ -309,15 +253,6 @@ export async function POST(request: NextRequest) {
       verificationResult = verifyGame;
       // Use String() comparison to handle potential UUID format differences
       const updateActuallyWorked = String(verifyGame?.away_team_master_id) === String(teamIdMaster);
-      console.log('[link-opponent] Verification after update:', {
-        verifyGame,
-        verifyError,
-        teamIdMaster,
-        teamIdMasterType: typeof teamIdMaster,
-        verifyGameAwayId: verifyGame?.away_team_master_id,
-        verifyGameAwayIdType: typeof verifyGame?.away_team_master_id,
-        updateActuallyWorked,
-      });
 
       if (verifyError) {
         console.error('[link-opponent] Failed to verify update:', verifyError);
@@ -327,7 +262,6 @@ export async function POST(request: NextRequest) {
         // Trust the verification SELECT
         specificGameUpdated = true;
         awayUpdated = 1;
-        console.log('[link-opponent] Successfully updated specific game (away team) - verified');
       } else if (updateData && updateData.length > 0) {
         // Update reported rows affected but verification failed - database trigger may have blocked
         console.warn('[link-opponent] Update reported success but verification failed - possible trigger issue');
@@ -390,7 +324,6 @@ export async function POST(request: NextRequest) {
       }
 
       gamesUpdated = (specificGameUpdated ? 1 : 0) + homeUpdated + awayUpdated;
-      console.log('[link-opponent] Total games updated:', { homeUpdated, awayUpdated, gamesUpdated });
     } else {
       gamesUpdated = specificGameUpdated ? 1 : 0;
     }
