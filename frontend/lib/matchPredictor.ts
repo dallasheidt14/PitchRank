@@ -688,7 +688,7 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
   // 1. compositeDiff amplification (line 690-693, up to 1.8x)
   // 2. getAgeSpecificMarginMultiplier dampening reduction (removes dampening for mismatches)
   // A third mismatchMarginBoost was stacking to ~4.1x total, causing unrealistic predictions.
-  let expectedMargin = compositeDiff * MARGIN_COEFFICIENT * marginMultiplier;
+  const expectedMargin = compositeDiff * MARGIN_COEFFICIENT * marginMultiplier;
 
   // 11. Expected scores using age-adjusted league average
   const leagueAvgGoals = getLeagueAverageGoals(effectiveAge);
