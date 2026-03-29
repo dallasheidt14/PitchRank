@@ -220,32 +220,15 @@ The 20% weight on offense means even extreme suppression (0.318 vs expected ~0.8
 
 ## Conclusions
 
-### Is this a system-wide structural bias?
+1. **The bias is confirmed as structural at the system level:** overall off_norm declines as total cross-age exposure rises, with the clearest penalty appearing once cross-age games dominate the schedule.
 
-**Yes.** The data shows statistically significant negative correlation between cross-age exposure and off_norm across all teams (rho = -0.026, p < 0.000001). The effect is monotonically decreasing across cross-age exposure buckets. 6/18 cohorts show strict monotonic decrease; the remainder show the pattern with noise.
+2. **The nuance is critical:** at moderate playing-up rates, positive selection bias masks the structural penalty, so the effect is most visible at high exposure.
 
-The effect is **masked at moderate exposure levels** by selection bias (strong teams play up), but becomes unambiguous at >30% cross-age exposure (~7,251 teams, 11.5% of ranked teams).
+3. **The primary inferred mechanism is Layer 9 opponent adjustment,** where age-blind `abs_strength` likely under-credits offensive output against older opponents; cohort normalization likely amplifies that downstream.
 
-### Is it directional?
+4. **Phoenix fits the high-exposure pattern extremely well:** 73% cross-age schedule, elite DEF and SOS, but a severely suppressed OFF signal that plausibly drives the underrank.
 
-**Yes.** The mechanism specifically suppresses offensive ratings. The root cause is age-blind `abs_strength` in the Layer 9 opponent adjustment. Defense and SOS are less affected because they operate on independent axes.
-
-### Where is it strongest?
-
-1. **By exposure:** Teams with 50%+ cross-age schedules (n=2,762) lose 0.077 off_norm vs baseline
-2. **By age boundary:** Multi-step jumps to U19 show the largest raw penalties
-3. **By cohort:** Older male cohorts (U13M, U14M, U16M, U17M) show the most consistent pattern
-4. **By mechanism:** The compensation gap is proportional to the age-anchor ratio between teams
-
-### Does Phoenix fit the broader pattern?
-
-**Yes — Phoenix is the most extreme but representative case.** Their 73% cross-age rate, elite defense, elite SOS, and severely suppressed offense perfectly illustrate the structural mechanism. They are not an outlier; they are the poster child for a bias that affects thousands of teams at varying intensity.
-
-### Where in the pipeline is the bias introduced?
-
-1. **Primary (Layer 9):** `abs_strength` = `power_presos.clip(0.35, 1.0)` — no age-anchor scaling. Cross-age opponents treated as same difficulty as same-age opponents at equal within-cohort percentile.
-2. **Secondary (Layer 9b):** Percentile normalization within cohort penalizes teams whose adjusted GF is lower than same-age-schedule peers.
-3. **Insufficient mitigation (Layer 13):** ML recognizes the pattern via `age_gap` feature but alpha=0.08 caps correction at ~42% of the gap.
+5. **The ML layer partially compensates in the Phoenix case study,** but the cap is too small to fully offset the estimated upstream distortion there.
 
 ---
 
