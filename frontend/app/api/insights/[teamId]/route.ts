@@ -1,10 +1,6 @@
-import { createServerSupabase } from "@/lib/supabase/server";
-import { NextResponse } from "next/server";
-import {
-  generateAllInsights,
-  type InsightInputData,
-  type TeamInsightsResponse,
-} from "@/lib/insights";
+import { requirePremium } from '@/lib/api/requirePremium';
+import { NextResponse } from 'next/server';
+import { generateAllInsights, type InsightInputData, type TeamInsightsResponse } from '@/lib/insights';
 
 /**
  * GET /api/insights/[teamId]
@@ -17,88 +13,51 @@ import {
  * - Consistency Score (0-100)
  * - Persona Label (Giant Killer, Flat Track Bully, Gatekeeper, Wildcard)
  */
-export async function GET(
-  req: Request,
-  { params }: { params: Promise<{ teamId: string }> }
-) {
+export async function GET(req: Request, { params }: { params: Promise<{ teamId: string }> }) {
   try {
     const { teamId } = await params;
-    const supabase = await createServerSupabase();
-
-    // Get authenticated user
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    // Get user profile to check premium status
-    const { data: profile, error: profileError } = await supabase
-      .from("user_profiles")
-      .select("plan")
-      .eq("id", user.id)
-      .single();
-
-    if (profileError) {
-      console.error("Error fetching profile:", profileError);
-      return NextResponse.json(
-        { error: "Failed to fetch user profile" },
-        { status: 500 }
-      );
-    }
-
-    // Check if profile exists (user may not have a profile row yet)
-    if (!profile) {
-      console.log("[Insights API] No profile found for user");
-      return NextResponse.json({ error: "Profile not found" }, { status: 404 });
-    }
-
-    // Enforce premium access
-    if (profile.plan !== "premium" && profile.plan !== "admin") {
-      return NextResponse.json({ error: "Premium required" }, { status: 403 });
-    }
+    const auth = await requirePremium();
+    if (auth.error) return auth.error;
+    const { supabase } = auth;
 
     // Validate team ID format
-    const uuidRegex =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidRegex.test(teamId)) {
-      return NextResponse.json({ error: "Invalid team ID" }, { status: 400 });
+      return NextResponse.json({ error: 'Invalid team ID' }, { status: 400 });
     }
 
     // Fetch team data
     const { data: team, error: teamError } = await supabase
-      .from("teams")
-      .select("team_id_master, team_name, state_code, gender")
-      .eq("team_id_master", teamId)
+      .from('teams')
+      .select('team_id_master, team_name, state_code, gender')
+      .eq('team_id_master', teamId)
       .single();
 
     if (teamError || !team) {
-      return NextResponse.json({ error: "Team not found" }, { status: 404 });
+      return NextResponse.json({ error: 'Team not found' }, { status: 404 });
     }
 
     // Fetch ranking data including v53e metrics (offense_norm, defense_norm, perf_centered)
     const { data: ranking, error: rankingError } = await supabase
-      .from("rankings_view")
-      .select("*, offense_norm, defense_norm, perf_centered")
-      .eq("team_id_master", teamId)
+      .from('rankings_view')
+      .select('*, offense_norm, defense_norm, perf_centered')
+      .eq('team_id_master', teamId)
       .single();
 
-    if (rankingError && rankingError.code !== "PGRST116") {
-      console.error("Error fetching ranking:", rankingError);
+    if (rankingError && rankingError.code !== 'PGRST116') {
+      console.error('Error fetching ranking:', rankingError);
     }
 
     // Fetch games with opponent rankings
     const { data: games, error: gamesError } = await supabase
-      .from("games")
-      .select("game_date, home_team_master_id, away_team_master_id, home_score, away_score")
+      .from('games')
+      .select('game_date, home_team_master_id, away_team_master_id, home_score, away_score')
       .or(`home_team_master_id.eq.${teamId},away_team_master_id.eq.${teamId}`)
-      .order("game_date", { ascending: false })
+      .order('game_date', { ascending: false })
       .limit(50);
 
     if (gamesError) {
-      console.error("Error fetching games:", gamesError);
+      console.error('Error fetching games:', gamesError);
     }
 
     // Define types for the database responses
@@ -129,21 +88,18 @@ export async function GET(
     // Get opponent team IDs for ranking lookup
     const opponentIds = new Set<string>();
     ((games || []) as GameRow[]).forEach((game: GameRow) => {
-      const oppId =
-        game.home_team_master_id === teamId
-          ? game.away_team_master_id
-          : game.home_team_master_id;
+      const oppId = game.home_team_master_id === teamId ? game.away_team_master_id : game.home_team_master_id;
       if (oppId) opponentIds.add(oppId);
     });
 
     // Fetch opponent rankings
     const { data: opponentRankings, error: oppRankError } = await supabase
-      .from("rankings_view")
-      .select("team_id_master, rank_in_cohort_final, power_score_final")
-      .in("team_id_master", Array.from(opponentIds));
+      .from('rankings_view')
+      .select('team_id_master, rank_in_cohort_final, power_score_final')
+      .in('team_id_master', Array.from(opponentIds));
 
     if (oppRankError) {
-      console.error("Error fetching opponent rankings:", oppRankError);
+      console.error('Error fetching opponent rankings:', oppRankError);
     }
 
     const oppRankMap = new Map(
@@ -155,14 +111,14 @@ export async function GET(
 
     // Fetch ranking history
     const { data: rankingHistory, error: historyError } = await supabase
-      .from("ranking_history")
-      .select("snapshot_date, rank_in_cohort, power_score_final")
-      .eq("team_id", teamId)
-      .order("snapshot_date", { ascending: false })
+      .from('ranking_history')
+      .select('snapshot_date, rank_in_cohort, power_score_final')
+      .eq('team_id', teamId)
+      .order('snapshot_date', { ascending: false })
       .limit(30);
 
-    if (historyError && historyError.code !== "PGRST116") {
-      console.error("Error fetching ranking history:", historyError);
+    if (historyError && historyError.code !== 'PGRST116') {
+      console.error('Error fetching ranking history:', historyError);
     }
 
     // Get cohort statistics for context
@@ -176,12 +132,12 @@ export async function GET(
       // Only include Active teams in cohort stats to match v53e ranking logic
       // v53e only assigns rank_in_cohort to Active teams (8+ games in 180 days)
       const { data: cohortData, error: cohortError } = await supabase
-        .from("rankings_view")
-        .select("power_score_final")
-        .eq("age", ranking.age)
-        .eq("gender", ranking.gender)
-        .eq("status", "Active")
-        .order("power_score_final", { ascending: false });
+        .from('rankings_view')
+        .select('power_score_final')
+        .eq('age', ranking.age)
+        .eq('gender', ranking.gender)
+        .eq('status', 'Active')
+        .order('power_score_final', { ascending: false });
 
       if (!cohortError && cohortData && cohortData.length > 0) {
         const scores = (cohortData as CohortRow[])
@@ -210,11 +166,7 @@ export async function GET(
         team_name: team.team_name,
         state: team.state_code,
         age: ranking?.age || null,
-        gender: (ranking?.gender || (team.gender === "Male" ? "M" : "F")) as
-          | "M"
-          | "F"
-          | "B"
-          | "G",
+        gender: (ranking?.gender || (team.gender === 'Male' ? 'M' : 'F')) as 'M' | 'F' | 'B' | 'G',
       },
       ranking: {
         rank_in_cohort_final: ranking?.rank_in_cohort_final ?? null,
@@ -232,10 +184,7 @@ export async function GET(
         perf_centered: ranking?.perf_centered ?? null,
       },
       games: ((games || []) as GameRow[]).map((game: GameRow) => {
-        const oppId =
-          game.home_team_master_id === teamId
-            ? game.away_team_master_id
-            : game.home_team_master_id;
+        const oppId = game.home_team_master_id === teamId ? game.away_team_master_id : game.home_team_master_id;
         const oppData = oppId ? oppRankMap.get(oppId) : null;
 
         return {
@@ -261,10 +210,7 @@ export async function GET(
 
     return NextResponse.json(insights);
   } catch (error) {
-    console.error("Insights generation error:", error);
-    return NextResponse.json(
-      { error: "Failed to generate insights" },
-      { status: 500 }
-    );
+    console.error('Insights generation error:', error);
+    return NextResponse.json({ error: 'Failed to generate insights' }, { status: 500 });
   }
 }
