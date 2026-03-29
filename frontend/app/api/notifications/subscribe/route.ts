@@ -25,17 +25,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Upsert push subscription
-    const { error } = await supabase
-      .from('push_subscriptions')
-      .upsert(
-        {
-          user_id: user.id,
-          endpoint,
-          p256dh: keys.p256dh,
-          auth: keys.auth,
-        },
-        { onConflict: 'user_id,endpoint' }
-      );
+    const { error } = await supabase.from('push_subscriptions').upsert(
+      {
+        user_id: user.id,
+        endpoint,
+        p256dh: keys.p256dh,
+        auth: keys.auth,
+      },
+      { onConflict: 'user_id,endpoint' }
+    );
 
     if (error) {
       console.error('Failed to save push subscription:', error);
@@ -43,10 +41,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Enable push in profile
-    await supabase
-      .from('user_profiles')
-      .update({ push_enabled: true })
-      .eq('id', user.id);
+    await supabase.from('user_profiles').update({ push_enabled: true }).eq('id', user.id);
 
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -74,19 +69,14 @@ export async function DELETE(request: NextRequest) {
     const body = await request.json();
     const { endpoint } = body;
 
-    if (endpoint) {
-      await supabase
-        .from('push_subscriptions')
-        .delete()
-        .eq('user_id', user.id)
-        .eq('endpoint', endpoint);
+    if (!endpoint || typeof endpoint !== 'string') {
+      return NextResponse.json({ error: 'endpoint is required' }, { status: 400 });
     }
 
+    await supabase.from('push_subscriptions').delete().eq('user_id', user.id).eq('endpoint', endpoint);
+
     // Disable push in profile
-    await supabase
-      .from('user_profiles')
-      .update({ push_enabled: false })
-      .eq('id', user.id);
+    await supabase.from('user_profiles').update({ push_enabled: false }).eq('id', user.id);
 
     return NextResponse.json({ success: true });
   } catch (error) {
