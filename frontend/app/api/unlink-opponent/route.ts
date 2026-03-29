@@ -49,6 +49,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Game not found' }, { status: 404 });
     }
 
+    if (!game.provider_id) {
+      return NextResponse.json({ error: 'Game has no provider' }, { status: 400 });
+    }
+
     const providerTeamIdStr = String(opponentProviderId);
     const isOpponentHome = String(game.home_provider_id) === providerTeamIdStr;
     const isOpponentAway = String(game.away_provider_id) === providerTeamIdStr;
