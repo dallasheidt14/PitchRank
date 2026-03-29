@@ -149,7 +149,15 @@ async def fetch_historical_games(
 
 
 async def fetch_rankings(supabase: Client) -> pd.DataFrame:
-    """Fetch current team rankings from rankings_full"""
+    """Fetch current team rankings from rankings_full.
+
+    WARNING: This uses the latest ranking snapshot for all games.
+    Historical power_score/sos_norm/offense_norm/defense_norm are not
+    stored in ranking_history, so true temporal backtesting would require
+    re-running the ranking engine at each historical point. The temporal
+    train/test split in main() mitigates the worst leakage by ensuring
+    calibration metrics are computed on held-out future games.
+    """
     logger.info("Fetching team rankings...")
     
     try:
@@ -581,6 +589,8 @@ async def main():
                        help='Test on specific slice, e.g., --test-slice AZ u12')
     parser.add_argument('--no-charts', action='store_true',
                        help='Skip chart generation')
+    parser.add_argument('--train-split', type=float, default=0.8,
+                       help='Fraction of games (oldest first) used for training/calibration (default: 0.8)')
     
     args = parser.parse_args()
     
@@ -625,11 +635,25 @@ async def main():
     ))
     
     team_histories = await fetch_team_game_histories(supabase, team_ids, lookback_days=args.lookback_days)
-    
-    # Run backtest
-    raw_df = await run_backtest(supabase, games_df, rankings_df, team_histories, output_dir)
-    
-    # Generate derived outputs
+
+    # Temporal train/test split: sort by date, use oldest games for training
+    # This prevents the worst form of data leakage where the same games used
+    # for calibration are also used for evaluation
+    games_df = games_df.sort_values('game_date').reset_index(drop=True)
+    split_idx = int(len(games_df) * args.train_split)
+    train_df = games_df.iloc[:split_idx]
+    test_df = games_df.iloc[split_idx:]
+
+    split_date = games_df.iloc[split_idx]['game_date'] if split_idx < len(games_df) else 'N/A'
+    logger.info(
+        f"Temporal split: {len(train_df):,} train games, {len(test_df):,} test games "
+        f"(split at {split_date}, {args.train_split:.0%}/{1-args.train_split:.0%})"
+    )
+
+    # Run backtest on test set only (future games the model hasn't seen)
+    raw_df = await run_backtest(supabase, test_df, rankings_df, team_histories, output_dir)
+
+    # Generate derived outputs (metrics computed on held-out test set)
     generate_derived_outputs(raw_df, output_dir)
     
     # Generate charts
