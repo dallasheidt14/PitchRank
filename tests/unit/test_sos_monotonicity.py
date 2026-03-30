@@ -187,3 +187,135 @@ class TestFixA_ComponentNormalization:
         assert cfg.COMPONENT_SOS_ENABLED is False, (
             f"Expected COMPONENT_SOS_ENABLED=False as new default, got {cfg.COMPONENT_SOS_ENABLED}"
         )
+
+
+def _build_varied_gp_league():
+    """Build a league where teams have varied games played (3 to 12).
+
+    All test teams win 3-1 against the same single opponent (``anchor``), so
+    their raw SOS is identical by construction — the only variable is GP count.
+    The ``anchor`` team plays enough intra-pool games to establish a stable
+    strength estimate.  Because every test team faces the exact same opponent,
+    any sos_norm spread among 6+-GP teams is caused solely by shrinkage, not by
+    opponent selection.
+    """
+    today = pd.Timestamp("2026-03-01")
+    rows = []
+    gid = 0
+
+    # Establish the anchor's strength via a round-robin with 11 filler teams.
+    # anchor wins ~half to produce a mid-tier SOS anchor.
+    anchor = "anchor"
+    fillers = [f"filler_{i}" for i in range(11)]
+    all_pool = [anchor] + fillers
+    for i, home in enumerate(all_pool):
+        for away in all_pool[i + 1:]:
+            gid += 1
+            date = today - pd.Timedelta(days=gid)
+            rows.extend(_make_game(gid, date, home, away, 2, 1))
+
+    # Teams with varied GP, all beating anchor 3-1.
+    # Same single opponent => identical raw SOS; only shrinkage differs.
+    for gp_count in range(3, 13):
+        team_name = f"team_{gp_count}gp"
+        for _ in range(gp_count):
+            gid += 1
+            date = today - pd.Timedelta(days=gid)
+            rows.extend(_make_game(gid, date, team_name, anchor, 3, 1))
+
+    return pd.DataFrame(rows)
+
+
+class TestFixB_ShrinkageThreshold:
+    """Fix B: MIN_GAMES_FOR_TOP_SOS = 6 aligns with Active eligibility."""
+
+    def test_default_threshold_is_6(self):
+        """New default MIN_GAMES_FOR_TOP_SOS should be 6."""
+        cfg = V53EConfig()
+        assert cfg.MIN_GAMES_FOR_TOP_SOS == 6, (
+            f"Expected MIN_GAMES_FOR_TOP_SOS=6, got {cfg.MIN_GAMES_FOR_TOP_SOS}"
+        )
+
+    def test_6gp_team_not_shrunk(self):
+        """A team with exactly 6 GP should have no SOS shrinkage applied
+        (sample_flag should be 'OK', not 'LOW_SAMPLE')."""
+        cfg = V53EConfig()
+        cfg.MIN_GAMES_FOR_TOP_SOS = 6
+        cfg.COMPONENT_SOS_ENABLED = False
+        cfg.GP_SOS_DECORRELATION_ENABLED = False  # isolate shrinkage effect
+        games = _build_varied_gp_league()
+        result = compute_rankings(games, today=pd.Timestamp("2026-03-01"), cfg=cfg)
+        teams = result["teams"]
+
+        team_6 = teams[teams["team_id"] == "team_6gp"]
+        assert len(team_6) == 1, "team_6gp not found in results"
+        assert team_6.iloc[0]["sample_flag"] == "OK", (
+            f"team_6gp should have sample_flag='OK' with threshold=6, "
+            f"got '{team_6.iloc[0]['sample_flag']}'"
+        )
+
+    def test_5gp_team_still_shrunk(self):
+        """A team with 5 GP should still be shrunk (below the threshold)."""
+        cfg = V53EConfig()
+        cfg.MIN_GAMES_FOR_TOP_SOS = 6
+        cfg.COMPONENT_SOS_ENABLED = False
+        cfg.GP_SOS_DECORRELATION_ENABLED = False  # isolate shrinkage effect
+        games = _build_varied_gp_league()
+        result = compute_rankings(games, today=pd.Timestamp("2026-03-01"), cfg=cfg)
+        teams = result["teams"]
+
+        team_5 = teams[teams["team_id"] == "team_5gp"]
+        assert len(team_5) == 1, "team_5gp not found in results"
+        assert team_5.iloc[0]["sample_flag"] == "LOW_SAMPLE", (
+            f"team_5gp should have sample_flag='LOW_SAMPLE' with threshold=6, "
+            f"got '{team_5.iloc[0]['sample_flag']}'"
+        )
+
+    def test_6gp_to_12gp_sos_ordering_preserved(self):
+        """Among teams with 6+ GP playing the same opponents and winning 3-1,
+        sos_norm should be roughly similar (no large inversions from shrinkage).
+        The max spread among these teams should be < 0.10."""
+        cfg = V53EConfig()
+        cfg.MIN_GAMES_FOR_TOP_SOS = 6
+        cfg.COMPONENT_SOS_ENABLED = False
+        cfg.GP_SOS_DECORRELATION_ENABLED = False  # isolate shrinkage effect
+        games = _build_varied_gp_league()
+        result = compute_rankings(games, today=pd.Timestamp("2026-03-01"), cfg=cfg)
+        teams = result["teams"]
+
+        # Get teams with 6+ GP
+        ok_teams = teams[
+            teams["team_id"].str.match(r"team_\d+gp")
+            & (teams["gp"] >= 6)
+        ].sort_values("gp")
+
+        assert len(ok_teams) >= 5, f"Expected at least 5 OK teams, got {len(ok_teams)}"
+
+        sos_spread = ok_teams["sos_norm"].max() - ok_teams["sos_norm"].min()
+        assert sos_spread < 0.10, (
+            f"SOS spread among 6+ GP teams playing same opponents should be < 0.10, "
+            f"got {sos_spread:.4f}. Values:\n"
+            f"{ok_teams[['team_id', 'gp', 'sos_norm', 'sample_flag']].to_string()}"
+        )
+
+    def test_old_threshold_creates_inversions(self):
+        """With the old threshold of 10, teams with 6-9 GP should be noticeably
+        shrunk compared to teams with 10+ GP, even when playing the same opponents.
+        This confirms the old behavior creates the cliff we're fixing."""
+        cfg = V53EConfig()
+        cfg.MIN_GAMES_FOR_TOP_SOS = 10
+        cfg.COMPONENT_SOS_ENABLED = False
+        cfg.GP_SOS_DECORRELATION_ENABLED = False  # isolate shrinkage effect
+        games = _build_varied_gp_league()
+        result = compute_rankings(games, today=pd.Timestamp("2026-03-01"), cfg=cfg)
+        teams = result["teams"]
+
+        team_6 = teams[teams["team_id"] == "team_6gp"].iloc[0]
+        team_12 = teams[teams["team_id"] == "team_12gp"].iloc[0]
+
+        # With threshold=10, team_6gp should be significantly shrunk vs team_12gp
+        gap = team_12["sos_norm"] - team_6["sos_norm"]
+        assert gap > 0.05, (
+            f"With old threshold=10, expected significant gap between 6gp and 12gp teams. "
+            f"6gp={team_6['sos_norm']:.4f}, 12gp={team_12['sos_norm']:.4f}, gap={gap:.4f}"
+        )
