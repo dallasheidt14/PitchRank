@@ -45,11 +45,12 @@ class TestLinearShrinkageFormula:
         assert self._shrink(0, 0.9, cfg.MIN_GAMES_FOR_TOP_SOS, anchor) == anchor
 
     def test_half_threshold_half_deviation(self, cfg):
-        """5 games with threshold=10 → retain 50% of deviation from anchor."""
-        threshold = cfg.MIN_GAMES_FOR_TOP_SOS  # 10
+        """threshold/2 games → retain 50% of deviation from anchor."""
+        threshold = cfg.MIN_GAMES_FOR_TOP_SOS  # 6
         anchor = cfg.SOS_SHRINKAGE_ANCHOR  # 0.35
         raw = 0.9
-        result = self._shrink(5, raw, threshold, anchor)
+        half_gp = threshold // 2  # 3
+        result = self._shrink(half_gp, raw, threshold, anchor)
         expected = anchor + 0.5 * (0.9 - anchor)  # = 0.35 + 0.5*0.55 = 0.625
         assert abs(result - expected) < 1e-10
 
@@ -233,8 +234,8 @@ class TestShrinkageInPipeline:
                     rows.extend(self._make_game_pair(f"g_{gc:04d}", d, h, a, 2, 1))
                     gc += 1
 
-        # 1 "low" team: only 4 games
-        for i in range(4):
+        # 1 "low" team: only 2 games (well below MIN_GAMES_FOR_TOP_SOS=6)
+        for i in range(2):
             d = base - timedelta(days=i * 10)
             rows.extend(self._make_game_pair(f"g_{gc:04d}", d, "low_gp", full_ids[i], 3, 0))
             gc += 1

@@ -91,7 +91,7 @@ class V53EConfig:
     # because it caused games-played bias in sos_norm. Kept for backward compatibility only.
     SOS_SAMPLE_SIZE_THRESHOLD: int = 25  # DEPRECATED: no longer used
     OPPONENT_SAMPLE_SIZE_THRESHOLD: int = 20  # DEPRECATED: no longer used (opponent shrinkage removed)
-    MIN_GAMES_FOR_TOP_SOS: int = 10  # Post-percentile shrinkage threshold (teams < this shrink toward anchor)
+    MIN_GAMES_FOR_TOP_SOS: int = 6  # Aligned with Active eligibility (MIN_GAMES_PROVISIONAL)
     SOS_SHRINKAGE_ANCHOR: float = 0.35  # Low-sample teams shrink toward this (0.35 = below-average, not neutral)
     # NOTE: SOS_TOP_CAP_FOR_LOW_SAMPLE is DEPRECATED - hard caps were replaced with soft shrinkage
     SOS_TOP_CAP_FOR_LOW_SAMPLE: float = 0.70  # DEPRECATED: no longer used
