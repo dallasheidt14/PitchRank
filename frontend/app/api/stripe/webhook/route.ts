@@ -20,6 +20,15 @@ function getSupabaseAdmin(): SupabaseClient {
   return supabaseAdmin;
 }
 
+/**
+ * Permanent errors that won't resolve on retry — return 200 so Stripe
+ * stops retrying. Everything else returns 500 so Stripe retries.
+ */
+function isPermanentError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return msg.includes('No user profile found for Stripe customer');
+}
+
 export async function POST(req: Request) {
   const body = await req.text();
   const headersList = await headers();
@@ -45,6 +54,8 @@ export async function POST(req: Request) {
     console.error(`Webhook signature verification failed: ${message}`);
     return NextResponse.json({ error: 'Webhook signature verification failed' }, { status: 400 });
   }
+
+  console.log(`[webhook] Received ${event.type} (${event.id})`);
 
   try {
     switch (event.type) {
@@ -79,20 +90,24 @@ export async function POST(req: Request) {
       }
 
       default:
-        console.log(`Unhandled event type: ${event.type}`);
+        console.log(`[webhook] Unhandled event type: ${event.type}`);
     }
 
     return NextResponse.json({ received: true });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack : undefined;
-    console.error(`Webhook handler error for ${event.type}: ${errorMessage}`);
+    console.error(`[webhook] Handler error for ${event.type}: ${errorMessage}`);
     if (errorStack) console.error(errorStack);
-    // Return 200 to acknowledge receipt and prevent Stripe from retrying
-    // for up to 72 hours. Permanent errors (missing user, bad data) won't
-    // resolve on retry. Transient errors (DB timeout) are rare and can be
-    // reprocessed manually if needed.
-    return NextResponse.json({ received: true, error: 'Webhook handler failed', detail: errorMessage }, { status: 200 });
+
+    if (isPermanentError(error)) {
+      // No matching user — retrying won't help. Acknowledge so Stripe stops.
+      console.warn(`[webhook] Permanent error, returning 200 to stop retries`);
+      return NextResponse.json({ received: true, error: 'Permanent webhook error', detail: errorMessage }, { status: 200 });
+    }
+
+    // Transient error (DB timeout, network issue) — return 500 so Stripe retries
+    return NextResponse.json({ error: 'Webhook handler failed', detail: errorMessage }, { status: 500 });
   }
 }
 
@@ -104,7 +119,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const subscriptionId = session.subscription as string;
 
   if (!customerId || !subscriptionId) {
-    console.error('Missing customer or subscription ID in checkout session');
+    console.error('[webhook] Missing customer or subscription ID in checkout session');
     return;
   }
 
@@ -117,11 +132,12 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       subscription_status: subscription.status,
       plan: mapStatusToPlan(subscription.status),
       subscription_period_end: extractPeriodEnd(subscription),
+      cancel_at_period_end: false,
     }),
     stripe.customers.retrieve(customerId),
   ]);
 
-  console.log(`Subscription activated for customer ${customerId}`);
+  console.log(`[webhook] Subscription activated for customer ${customerId}`);
 
   // Notify admin of new signup
   const customerName = (customer as Stripe.Customer).name ?? 'Unknown';
@@ -141,21 +157,28 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 }
 
 /**
- * Handle subscription updates (plan changes, renewals)
+ * Handle subscription updates (plan changes, renewals, cancellation intent)
+ *
+ * When a user cancels via Customer Portal, Stripe sets cancel_at_period_end=true
+ * but keeps status as "active" until the period ends. We track this flag so the
+ * dashboard can show the user as "canceling" rather than misleadingly "active".
  */
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   const customerId = subscription.customer as string;
   const status = subscription.status;
   const plan = mapStatusToPlan(status);
+  const canceling = subscription.cancel_at_period_end ?? false;
 
   await updateUserProfile(getSupabaseAdmin(), customerId, {
     stripe_subscription_id: subscription.id,
     subscription_status: status,
     plan,
     subscription_period_end: extractPeriodEnd(subscription),
+    cancel_at_period_end: canceling,
   });
 
-  console.log(`Subscription updated for customer ${customerId}: ${status}`);
+  const label = canceling ? `${status} (canceling at period end)` : status;
+  console.log(`[webhook] Subscription updated for customer ${customerId}: ${label}`);
 }
 
 /**
@@ -169,9 +192,10 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
     subscription_status: 'canceled',
     plan: 'free',
     subscription_period_end: null,
+    cancel_at_period_end: false,
   });
 
-  console.log(`Subscription canceled for customer ${customerId}`);
+  console.log(`[webhook] Subscription canceled for customer ${customerId}`);
 }
 
 /**
@@ -199,9 +223,10 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
     subscription_status: subscriptionData.status,
     plan: mapStatusToPlan(subscriptionData.status),
     subscription_period_end: extractPeriodEnd(subscriptionData),
+    cancel_at_period_end: subscriptionData.cancel_at_period_end ?? false,
   });
 
-  console.log(`Invoice paid for customer ${customerId}`);
+  console.log(`[webhook] Invoice paid for customer ${customerId}`);
 }
 
 /**
@@ -214,5 +239,5 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
     subscription_status: 'past_due',
   });
 
-  console.log(`Payment failed for customer ${customerId}`);
+  console.log(`[webhook] Payment failed for customer ${customerId}`);
 }

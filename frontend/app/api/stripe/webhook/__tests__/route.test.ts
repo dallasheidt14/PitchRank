@@ -23,6 +23,11 @@ vi.mock('@/lib/stripe/server', () => ({
     INVOICE_PAID: 'invoice.paid',
     INVOICE_PAYMENT_FAILED: 'invoice.payment_failed',
   },
+  extractPeriodEnd: vi.fn(() => new Date().toISOString()),
+  mapStatusToPlan: vi.fn((status: string) =>
+    status === 'active' || status === 'trialing' || status === 'past_due' ? 'premium' : 'free',
+  ),
+  updateUserProfile: vi.fn().mockResolvedValue([{ id: '1' }]),
 }));
 
 // Mock @supabase/supabase-js (used directly in webhook route for admin client)
@@ -40,7 +45,7 @@ vi.mock('@supabase/supabase-js', () => ({
 
 import { POST } from '../route';
 import { headers } from 'next/headers';
-import { stripe } from '@/lib/stripe/server';
+import { stripe, updateUserProfile } from '@/lib/stripe/server';
 
 function makeRequest(body = ''): Request {
   return new Request('http://localhost/api/stripe/webhook', {
@@ -129,6 +134,100 @@ describe('POST /api/stripe/webhook', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.received).toBe(true);
+  });
+
+  it('returns 500 on transient errors so Stripe retries', async () => {
+    vi.mocked(headers).mockResolvedValue(
+      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<
+        ReturnType<typeof headers>
+      >,
+    );
+
+    const fakeEvent = {
+      id: 'evt_transient',
+      type: 'customer.subscription.deleted',
+      data: {
+        object: {
+          id: 'sub_123',
+          customer: 'cus_123',
+          status: 'canceled',
+        } as unknown as Stripe.Subscription,
+      },
+    } as Stripe.Event;
+
+    vi.mocked(stripe.webhooks.constructEvent).mockReturnValue(fakeEvent);
+    vi.mocked(updateUserProfile).mockRejectedValueOnce(new Error('DB connection timeout'));
+
+    const res = await POST(makeRequest('valid body'));
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toBe('Webhook handler failed');
+  });
+
+  it('returns 200 on permanent errors (missing user) to stop retries', async () => {
+    vi.mocked(headers).mockResolvedValue(
+      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<
+        ReturnType<typeof headers>
+      >,
+    );
+
+    const fakeEvent = {
+      id: 'evt_permanent',
+      type: 'customer.subscription.deleted',
+      data: {
+        object: {
+          id: 'sub_123',
+          customer: 'cus_orphan',
+          status: 'canceled',
+        } as unknown as Stripe.Subscription,
+      },
+    } as Stripe.Event;
+
+    vi.mocked(stripe.webhooks.constructEvent).mockReturnValue(fakeEvent);
+    vi.mocked(updateUserProfile).mockRejectedValueOnce(
+      new Error('No user profile found for Stripe customer cus_orphan'),
+    );
+
+    const res = await POST(makeRequest('valid body'));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.error).toBe('Permanent webhook error');
+  });
+
+  it('tracks cancel_at_period_end on subscription updates', async () => {
+    vi.mocked(headers).mockResolvedValue(
+      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<
+        ReturnType<typeof headers>
+      >,
+    );
+
+    const fakeEvent = {
+      id: 'evt_cancel_pending',
+      type: 'customer.subscription.updated',
+      data: {
+        object: {
+          id: 'sub_123',
+          customer: 'cus_123',
+          status: 'active',
+          cancel_at_period_end: true,
+          items: { data: [{ current_period_end: 1735689600 }] },
+        } as unknown as Stripe.Subscription,
+      },
+    } as Stripe.Event;
+
+    vi.mocked(stripe.webhooks.constructEvent).mockReturnValue(fakeEvent);
+    vi.mocked(updateUserProfile).mockResolvedValueOnce([{ id: '1' }]);
+
+    const res = await POST(makeRequest('valid body'));
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(updateUserProfile)).toHaveBeenCalledWith(
+      expect.anything(),
+      'cus_123',
+      expect.objectContaining({ cancel_at_period_end: true }),
+    );
   });
 
   it('returns 200 for unknown event types (acknowledge receipt)', async () => {

@@ -1582,7 +1582,7 @@ elif section == "🆕 New Accounts":
         try:
             account_rows = fetch_all_rows(
                 db.table('user_profiles')
-                .select('id, email, plan, subscription_status, subscription_period_end, stripe_customer_id, created_at, updated_at')
+                .select('id, email, plan, subscription_status, subscription_period_end, stripe_customer_id, cancel_at_period_end, created_at, updated_at')
                 .order('created_at', desc=True)
             )
             accounts_df = pd.DataFrame(account_rows)
@@ -1639,6 +1639,7 @@ elif section == "🆕 New Accounts":
             accounts_df['subscription_status'] = accounts_df.get('subscription_status', '').fillna('').astype(str).str.lower()
             accounts_df['subscription_period_end'] = pd.to_datetime(accounts_df.get('subscription_period_end'), errors='coerce', utc=True)
             accounts_df['stripe_customer_id'] = accounts_df.get('stripe_customer_id', '').fillna('')
+            accounts_df['cancel_at_period_end'] = accounts_df.get('cancel_at_period_end', False).fillna(False).astype(bool)
             accounts_df['created_at_ts'] = pd.to_datetime(accounts_df.get('created_at'), errors='coerce', utc=True)
             accounts_df['updated_at_ts'] = pd.to_datetime(accounts_df.get('updated_at'), errors='coerce', utc=True)
 
@@ -1647,9 +1648,12 @@ elif section == "🆕 New Accounts":
                 p = row['plan']
                 ss = row['subscription_status']
                 has_stripe = bool(row.get('stripe_customer_id'))
+                canceling = bool(row.get('cancel_at_period_end'))
                 if p == 'admin':
                     return 'admin'
                 if p == 'premium':
+                    if canceling:
+                        return 'paid (canceling)'
                     if ss == 'trialing':
                         return 'trial'
                     if ss == 'past_due':
