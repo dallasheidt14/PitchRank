@@ -208,7 +208,7 @@ class V53EConfig:
     # Fix: Detect connected components in the game graph and normalize SOS within
     # each component independently.  This ensures each ecosystem gets a fair
     # [0, 1] SOS distribution.  Small components get shrunk toward 0.5.
-    COMPONENT_SOS_ENABLED: bool = True
+    COMPONENT_SOS_ENABLED: bool = False  # Disabled: global-only SOS normalization prevents ceiling ties
     # Minimum component size (within cohort) for full SOS percentile range.
     # Components smaller than this get their sos_norm shrunk toward 0.5.
     # Set to roughly the size of the smallest "real" league in a cohort.
