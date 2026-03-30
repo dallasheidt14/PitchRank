@@ -234,6 +234,16 @@ def generate_newsletter_html(data: dict) -> str:
     total_teams = f'{data["total_teams"]:,}' if data['total_teams'] else '25,000+'
     biggest_jump = f'+{data["biggest_jump"]}' if data['biggest_jump'] else '--'
 
+    # Rotating engagement hooks
+    engagement_hooks = [
+        'Know a soccer parent who checks rankings at 11pm? Forward this email.',
+        'What do you wish rankings could tell you? Reply and let us know.',
+        'Is your team climbing or falling? Check your full trend in Premium.',
+        'Tryout season is coming. Compare clubs before you commit.',
+    ]
+    week_num = data['date'].isocalendar()[1]
+    engagement_hook = engagement_hooks[week_num % len(engagement_hooks)]
+
     html = tmpl.safe_substitute(
         date_display=date_display,
         hook_text=hook_text,
@@ -243,6 +253,7 @@ def generate_newsletter_html(data: dict) -> str:
         spotlight_teams_html=spotlight_teams_html,
         total_teams=total_teams,
         biggest_jump=biggest_jump,
+        engagement_hook=engagement_hook,
     )
 
     log.info(f'Newsletter generated ({len(html):,} bytes)')
