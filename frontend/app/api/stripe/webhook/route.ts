@@ -3,6 +3,7 @@ import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
+import { notifyAdmin } from '@/lib/notifications/admin';
 
 // Lazy-load Supabase admin client to avoid build-time initialization errors
 let supabaseAdmin: SupabaseClient | null = null;
@@ -104,7 +105,11 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
   // Fetch subscription details to get period end and status (may be "trialing" for free trials)
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-  const periodEnd = subscription.items.data[0]?.current_period_end ?? Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+  // Get period end - new API: items.data[0].current_period_end, old API: subscription.current_period_end
+  const periodEnd =
+    subscription.items.data[0]?.current_period_end
+    ?? (subscription as unknown as Record<string, unknown>).current_period_end as number | undefined
+    ?? Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
 
   const { data, error } = await getSupabaseAdmin()
     .from('user_profiles')
@@ -129,6 +134,22 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   }
 
   console.log(`Subscription activated for customer ${customerId}`);
+
+  // Notify admin of new signup
+  const customer = await stripe.customers.retrieve(customerId);
+  const customerName = (customer as Stripe.Customer).name ?? 'Unknown';
+  const customerEmail = (customer as Stripe.Customer).email ?? 'N/A';
+  const planName = subscription.items.data[0]?.price?.product;
+  const statusLabel = subscription.status === 'trialing' ? '🆓 Free Trial' : '💳 Paid';
+
+  await notifyAdmin(
+    `<b>New Signup!</b>\n` +
+    `${statusLabel}\n` +
+    `<b>Name:</b> ${customerName}\n` +
+    `<b>Email:</b> ${customerEmail}\n` +
+    `<b>Plan:</b> Premium Annual\n` +
+    `<b>Status:</b> ${subscription.status}`
+  );
 }
 
 /**
@@ -142,8 +163,11 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   // Keep premium access during past_due (Stripe will retry payment)
   const plan = status === 'active' || status === 'trialing' || status === 'past_due' ? 'premium' : 'free';
 
-  // Get period end from subscription item (moved from top-level in Stripe API 2025-03-31.basil+)
-  const periodEnd = subscription.items.data[0]?.current_period_end ?? Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+  // Get period end - new API: items.data[0].current_period_end, old API: subscription.current_period_end
+  const periodEnd =
+    subscription.items.data[0]?.current_period_end
+    ?? (subscription as unknown as Record<string, unknown>).current_period_end as number | undefined
+    ?? Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
 
   const { data, error } = await getSupabaseAdmin()
     .from('user_profiles')
@@ -206,21 +230,27 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
  */
 async function handleInvoicePaid(invoice: Stripe.Invoice) {
   const customerId = invoice.customer as string;
-  // Get subscription ID - it can be a string or an expanded object
+  // Get subscription ID - handle both new (dahlia+) and old (clover) API versions
+  // New: invoice.parent.subscription_details.subscription
+  // Old: invoice.subscription (top-level, removed in dahlia)
+  const parentSub = invoice.parent?.subscription_details?.subscription;
+  const legacySub = (invoice as unknown as Record<string, unknown>).subscription;
   const subscriptionId =
-    typeof invoice.parent?.subscription_details?.subscription === 'string'
-      ? invoice.parent.subscription_details.subscription
-      : invoice.parent?.subscription_details?.subscription?.id;
+    (typeof parentSub === 'string' ? parentSub : typeof parentSub === 'object' && parentSub !== null ? (parentSub as { id: string }).id : null)
+    ?? (typeof legacySub === 'string' ? legacySub : null);
 
   if (!subscriptionId) {
     // One-time payment, not a subscription
     return;
   }
 
-  // Fetch subscription to get updated period end (from item, not top-level)
+  // Fetch subscription to get updated period end
   const subscriptionData = await stripe.subscriptions.retrieve(subscriptionId);
+  // Get period end - new API: items.data[0].current_period_end, old API: subscription.current_period_end
   const periodEnd =
-    subscriptionData.items.data[0]?.current_period_end ?? Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+    subscriptionData.items.data[0]?.current_period_end
+    ?? (subscriptionData as unknown as Record<string, unknown>).current_period_end as number | undefined
+    ?? Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
 
   const { data, error } = await getSupabaseAdmin()
     .from('user_profiles')
