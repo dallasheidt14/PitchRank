@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
 import { notifyAdmin } from '@/lib/notifications/admin';
+import { tagSubscriber, untagSubscriber } from '@/lib/beehiiv';
 
 // Lazy-load Supabase admin client to avoid build-time initialization errors
 let supabaseAdmin: SupabaseClient | null = null;
@@ -154,6 +155,11 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     `<b>Plan:</b> ${planLabel}\n` +
     `<b>Status:</b> ${subscription.status}`
   );
+
+  // Tag subscriber in Beehiiv as premium (gates welcome sequence pitch emails)
+  if (customerEmail && customerEmail !== 'N/A') {
+    await tagSubscriber(customerEmail, 'premium');
+  }
 }
 
 /**
@@ -196,6 +202,17 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
   });
 
   console.log(`[webhook] Subscription canceled for customer ${customerId}`);
+
+  // Remove premium tag in Beehiiv so they re-enter the pitch funnel
+  try {
+    const customer = await stripe.customers.retrieve(customerId);
+    const email = (customer as Stripe.Customer).email;
+    if (email) {
+      await untagSubscriber(email);
+    }
+  } catch (err) {
+    console.warn(`[webhook] Failed to untag Beehiiv subscriber: ${err}`);
+  }
 }
 
 /**
