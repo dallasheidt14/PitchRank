@@ -359,27 +359,30 @@ def publish_to_beehiiv(html: str, subject: str) -> bool:
 # ---------------------------------------------------------------------------
 
 BLOG_DIR = PROJECT_ROOT / "frontend" / "content" / "blog"
-
-BLOG_TOPICS = ["biggest_movers", "state_spotlight", "cross_league", "by_the_numbers"]
-
-BLOG_TITLES = {
-    "biggest_movers": "This Week's Biggest Movers in Youth Soccer Rankings",
-    "state_spotlight": "State Spotlight: {state} Youth Soccer Rankings",
-    "cross_league": "Cross-League Rankings: How Leagues Compare This Week",
-    "by_the_numbers": "Youth Soccer by the Numbers: This Week's Data",
-}
-
-BLOG_TAGS = {
-    "biggest_movers": ["Rankings", "Movers", "Weekly Update"],
-    "state_spotlight": ["Rankings", "State Guide", "{state}"],
-    "cross_league": ["Rankings", "Cross-League", "ECNL", "MLS NEXT"],
-    "by_the_numbers": ["Rankings", "Data", "Statistics"],
-}
+BLOG_TOPICS_PATH = PROJECT_ROOT / "brand" / "blog-topics.json"
 
 
-def get_blog_topic(week_num: int) -> str:
-    """Rotate blog topics by ISO week number."""
-    return BLOG_TOPICS[week_num % len(BLOG_TOPICS)]
+def load_blog_topic_queue() -> list[dict]:
+    """Load SEO topic queue from brand/blog-topics.json."""
+    if not BLOG_TOPICS_PATH.exists():
+        log.warning(f"Blog topic queue not found: {BLOG_TOPICS_PATH}")
+        return []
+    return json.loads(BLOG_TOPICS_PATH.read_text(encoding="utf-8"))
+
+
+def get_next_blog_topic(week_num: int) -> dict:
+    """Pick the next blog topic from the SEO queue by week number."""
+    queue = load_blog_topic_queue()
+    if not queue:
+        return {
+            "type": "weekly_movers",
+            "title": "This Week's Biggest Movers",
+            "slug_prefix": "weekly-movers",
+            "target_keyword": "youth soccer rankings",
+            "tags": ["Rankings"],
+            "faq": [],
+        }
+    return queue[week_num % len(queue)]
 
 
 def _movers_table(teams: list[dict], direction: str = "up") -> str:
@@ -395,141 +398,173 @@ def _movers_table(teams: list[dict], direction: str = "up") -> str:
     return header + "\n".join(rows)
 
 
-def generate_blog_post(data: dict) -> tuple[str, str]:
-    """Generate a weekly markdown blog post from ranking data.
+def _faq_section(faq_items: list[dict]) -> str:
+    """Build a markdown FAQ section from topic FAQ entries."""
+    if not faq_items:
+        return ""
+    lines = ["## Frequently Asked Questions\n"]
+    for item in faq_items:
+        lines.append(f"**{item['q']}**\n")
+        lines.append(f"{item['a']}\n")
+    return "\n".join(lines)
 
-    Returns (filename, markdown_content).
-    """
-    dt = data["date"]
-    week_num = dt.isocalendar()[1]
-    topic = get_blog_topic(week_num)
-    date_str = dt.strftime("%Y-%m-%d")
-    date_display = dt.strftime("%B %d, %Y")
 
-    state = data.get("spotlight_state", "USA")
-    title = BLOG_TITLES[topic].format(state=state)
-    slug = f"{date_str}-{topic.replace('_', '-')}"
-    tags = [t.format(state=state) for t in BLOG_TAGS[topic]]
+def _filter_by_state(teams: list[dict], state: str) -> list[dict]:
+    """Filter team list to a specific state code."""
+    return [t for t in teams if (t.get("state_code") or t.get("state", "")) == state]
 
-    top = data["climbers"][0] if data["climbers"] else {}
+
+def _build_blog_body(data: dict, topic: dict) -> str:
+    """Build blog post body based on topic type."""
+    topic_type = topic.get("type", "weekly_movers")
     total = f"{data['total_teams']:,}" if data["total_teams"] else "25,000+"
     biggest = data.get("biggest_jump", 0)
-
-    # Common sections reused across topics
+    keyword = topic.get("target_keyword", "youth soccer rankings")
     climbers_table = _movers_table(data["climbers"], "up")
     fallers_table = _movers_table(data["fallers"], "down")
+    faq = _faq_section(topic.get("faq", []))
+    spotlight_state = data.get("spotlight_state", "USA")
 
-    # Build top mover attribution string
-    top_attribution = ""
-    if top:
-        top_name = top.get("team_name", "")
-        top_state = top.get("state_code") or top.get("state", "")
-        top_attribution = f", earned by **{top_name}** from {top_state}"
-
-    # Build body by topic (left-aligned to avoid textwrap.dedent issues with f-strings)
-    if topic == "biggest_movers":
-        body = (
-            f"Every Monday, PitchRank updates rankings for {total} youth soccer\n"
-            f"teams across all 50 states. Here are this week's biggest movers.\n\n"
-            f"## Biggest Climbers\n\n"
-            f"{climbers_table}\n\n"
-            f"## Biggest Drops\n\n"
-            f"{fallers_table}\n\n"
-            f"## What Drove the Movement\n\n"
-            f"The biggest single jump this week was **+{biggest} spots**"
-            f"{top_attribution}. Rankings factor in\n"
-            f"strength of schedule, margin of victory, and opponent quality —\n"
-            f"a single dominant win against a top-ranked opponent can move the\n"
-            f"needle significantly.\n\n"
-            f"## What This Means for Your Team\n\n"
-            f"Rankings shift every week. If your team is climbing, that means\n"
-            f"the algorithm is seeing consistent performance against quality\n"
-            f"opponents. If you're dropping, it may be time to look at\n"
-            f"strength of schedule and upcoming matchups.\n\n"
-            f"**[See the full rankings →](https://pitchrank.io/rankings)**\n"
-        )
-
-    elif topic == "state_spotlight":
-        spotlight_list = "\n".join(
-            f"{i + 1}. **{t.get('team_name', '')}** — "
-            f"#{t.get('current_rank', '?')} nationally "
-            f"(+{abs(t.get('rank_change', 0))} this week)"
-            for i, t in enumerate(data.get("spotlight_teams", []))
-        )
-        body = (
-            f"This week's state spotlight lands on **{state}**, which saw the\n"
-            f"most total rank movement across all {total} teams we track.\n\n"
-            f"## Top Movers in {state}\n\n"
-            f"{spotlight_list}\n\n"
-            f"## Why {state} Moved\n\n"
-            f"States with high movement typically have competitive local\n"
-            f"leagues where results are tightly contested. A single upset\n"
-            f"or dominant streak ripples through the rankings.\n\n"
-            f"## Climbers Nationally\n\n"
-            f"{climbers_table}\n\n"
-            f"## Biggest Drops\n\n"
-            f"{fallers_table}\n\n"
+    if topic_type == "state_rankings":
+        state = topic["state"]
+        state_climbers = _filter_by_state(data["climbers"], state)
+        state_fallers = _filter_by_state(data["fallers"], state)
+        ct = _movers_table(state_climbers or data["climbers"], "up")
+        ft = _movers_table(state_fallers or data["fallers"], "down")
+        return (
+            f"Every Monday, PitchRank updates {keyword} across all leagues.\n"
+            f"We track {total} teams nationally, and here's what moved in {state} this week.\n\n"
+            f"## Top Movers in {state} This Week\n\n{ct}\n\n"
+            f"## Biggest Drops in {state}\n\n{ft}\n\n"
+            f"## How {state} Compares Nationally\n\n"
+            f"{state} is one of the most competitive states in youth soccer.\n"
+            f"PitchRank ranks every team in {state} on the same scale as teams\n"
+            f"in all 50 states — same algorithm, same methodology, real game data.\n\n"
+            f"## What This Means for {state} Parents\n\n"
+            f"If your team is climbing, the data shows consistent results against\n"
+            f"quality opponents. If you're dropping, look at upcoming strength of\n"
+            f"schedule. Rankings shift every week.\n\n"
+            f"{faq}\n"
             f"**[See all {state} rankings →](https://pitchrank.io/rankings)**\n"
         )
 
-    elif topic == "cross_league":
-        body = (
-            f"One of the most common questions in youth soccer: how do teams\n"
-            f"in different leagues actually compare? PitchRank's cross-league\n"
-            f"calibration makes this possible for {total} teams.\n\n"
-            f"## This Week's Top Movers\n\n"
-            f"{climbers_table}\n\n"
-            f"## How Cross-League Ranking Works\n\n"
-            f"PitchRank uses a 13-layer algorithm that normalizes across\n"
-            f"leagues. Whether your team plays ECNL, MLS NEXT, GA, or a\n"
-            f"state league, the same methodology applies: real game results,\n"
-            f"strength of schedule, and margin analysis.\n\n"
-            f"The result: an apples-to-apples comparison that doesn't favor\n"
-            f"any single league.\n\n"
-            f"## Biggest Drops\n\n"
-            f"{fallers_table}\n\n"
-            f"## State Spotlight: {state}\n\n"
-            f"{state} saw the most movement this week with teams shuffling\n"
-            f"across multiple leagues.\n\n"
+    if topic_type == "league_comparison":
+        return (
+            f"One of the most common questions in youth soccer: {keyword} — which\n"
+            f"league is better? PitchRank's cross-league calibration makes a\n"
+            f"data-driven comparison possible across {total} teams.\n\n"
+            f"## This Week's Top Movers\n\n{climbers_table}\n\n"
+            f"## How PitchRank Compares Leagues\n\n"
+            f"PitchRank uses a 13-layer algorithm that normalizes across leagues.\n"
+            f"Whether your team plays ECNL, MLS NEXT, GA, or a state league,\n"
+            f"the same methodology applies: real game results, strength of schedule,\n"
+            f"and margin analysis.\n\n"
+            f"## Biggest Drops\n\n{fallers_table}\n\n"
+            f"## What Parents Should Know\n\n"
+            f"League labels don't tell the whole story. Some state league teams\n"
+            f"outperform ECNL teams at the same age group. The data changes weekly.\n\n"
+            f"{faq}\n"
             f"**[Compare leagues →](https://pitchrank.io/rankings)**\n"
         )
 
-    else:  # by_the_numbers
-        body = (
-            f"Here's what the data looked like this week across youth soccer.\n\n"
-            f"## This Week at a Glance\n\n"
+    if topic_type == "methodology":
+        return (
+            f"This week, PitchRank ranked {total} youth soccer teams across\n"
+            f"all 50 states. Here's how we did it and what the data showed.\n\n"
+            f"## This Week by the Numbers\n\n"
             f"- **{total}** teams ranked\n"
             f"- **50** states covered\n"
             f"- **+{biggest}** biggest single rank jump\n"
             f"- Rankings updated every Monday\n\n"
-            f"## Top Climbers\n\n"
-            f"{climbers_table}\n\n"
-            f"## Biggest Drops\n\n"
-            f"{fallers_table}\n\n"
-            f"## State Spotlight: {state}\n\n"
-            f"{state} led all states in total rank movement this week,\n"
-            f"driven by competitive results across multiple age groups.\n\n"
-            f"## Why It Matters\n\n"
-            f"Weekly ranking snapshots help parents and coaches track\n"
-            f"trajectory over time. A single week doesn't define a team,\n"
-            f"but consistent movement tells a story.\n\n"
+            f"## How the Algorithm Works\n\n"
+            f"PitchRank's 13-layer algorithm (v53e + ML) analyzes real game\n"
+            f"results across every league. It factors in strength of schedule,\n"
+            f"margin of victory, opponent quality, and cross-league calibration.\n"
+            f"No tournament points. No politics. Just data.\n\n"
+            f"## Top Movers This Week\n\n{climbers_table}\n\n"
+            f"{faq}\n"
             f"**[See the full rankings →](https://pitchrank.io/rankings)**\n"
         )
+
+    if topic_type == "age_group":
+        age_group = topic.get("age_group", "U14")
+        return (
+            f"Looking for the {keyword}? PitchRank ranks {total} teams across\n"
+            f"all age groups every Monday. Here's what moved at {age_group} this week.\n\n"
+            f"## Top {age_group} Movers This Week\n\n{climbers_table}\n\n"
+            f"## Biggest Drops at {age_group}\n\n{fallers_table}\n\n"
+            f"## State Spotlight: {spotlight_state}\n\n"
+            f"{spotlight_state} saw the most rank movement this week across all age groups.\n\n"
+            f"{faq}\n"
+            f"**[See {age_group} rankings →](https://pitchrank.io/rankings)**\n"
+        )
+
+    # weekly_movers (default fallback)
+    top = data["climbers"][0] if data["climbers"] else {}
+    top_attr = ""
+    if top:
+        top_attr = f", earned by **{top.get('team_name', '')}** from {top.get('state_code') or top.get('state', '')}"
+    return (
+        f"Every Monday, PitchRank updates youth soccer rankings for {total}\n"
+        f"teams across all 50 states. Here are this week's biggest movers.\n\n"
+        f"## Biggest Climbers\n\n{climbers_table}\n\n"
+        f"## Biggest Drops\n\n{fallers_table}\n\n"
+        f"## What Drove the Movement\n\n"
+        f"The biggest single jump this week was **+{biggest} spots**{top_attr}.\n"
+        f"Rankings factor in strength of schedule, margin of victory, and opponent quality.\n\n"
+        f"{faq}\n"
+        f"**[See the full rankings →](https://pitchrank.io/rankings)**\n"
+    )
+
+
+def generate_blog_post(data: dict) -> tuple[str, str]:
+    """Generate a weekly SEO-targeted blog post from ranking data.
+
+    Reads the topic queue from brand/blog-topics.json and picks the next
+    topic based on ISO week number. Returns (filename, markdown_content).
+    """
+    dt = data["date"]
+    week_num = dt.isocalendar()[1]
+    date_str = dt.strftime("%Y-%m-%d")
+    date_display = dt.strftime("%B %d, %Y")
+    total = f"{data['total_teams']:,}" if data["total_teams"] else "25,000+"
+
+    topic = get_next_blog_topic(week_num)
+    title = topic.get("title", "Youth Soccer Rankings Update").replace("{total}", total)
+    slug = f"{date_str}-{topic.get('slug_prefix', 'weekly-update')}"
+    tags = topic.get("tags", ["Rankings"])
+    target_keyword = topic.get("target_keyword", "youth soccer rankings")
+
+    # Build body using the topic type's template
+    body = _build_blog_body(data, topic)
 
     # Estimate reading time
     word_count = len(body.split())
     reading_time = f"{max(1, word_count // 200)} min read"
 
+    # Build SEO-optimized excerpt
+    state = topic.get("state", "")
+    age_group = topic.get("age_group", "")
+    if state:
+        excerpt = (
+            f"This week's {state} youth soccer rankings update."
+            f" See which {state} teams moved the most across {total} ranked teams."
+        )
+    elif age_group:
+        excerpt = f"Best {age_group} soccer teams this week. Rankings for {total} teams updated every Monday."
+    else:
+        excerpt = f"Weekly youth soccer rankings update for {date_display}. {total} teams ranked across all 50 states."
+
     # Build full markdown with frontmatter
     frontmatter = {
         "title": title,
         "slug": slug,
-        "excerpt": f"Weekly youth soccer rankings update for {date_display}. "
-        f"{total} teams ranked across all 50 states.",
+        "excerpt": excerpt,
         "author": "PitchRank Team",
         "date": date_str,
         "readingTime": reading_time,
         "tags": tags,
+        "target_keyword": target_keyword,
         "image": "/api/infographic/movers?platform=twitter",
     }
 
@@ -540,8 +575,9 @@ def generate_blog_post(data: dict) -> tuple[str, str]:
     fm_yaml = "\n".join(fm_lines)
     markdown = f"---\n{fm_yaml}\n---\n\n# {title}\n\n{body}"
 
+    topic_type = topic.get("type", "weekly_movers")
     filename = f"{slug}.md"
-    log.info(f"Blog post generated: {filename} ({word_count} words, {reading_time})")
+    log.info(f"Blog post generated: {filename} ({word_count} words, topic={topic_type}, keyword={target_keyword})")
     return filename, markdown
 
 

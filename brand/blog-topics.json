@@ -1,0 +1,155 @@
+[
+  {
+    "type": "state_rankings",
+    "state": "TX",
+    "title": "Texas Youth Soccer Rankings: This Week's Top Movers",
+    "slug_prefix": "texas-youth-soccer-rankings",
+    "target_keyword": "texas youth soccer rankings",
+    "tags": ["Rankings", "State Guide", "Texas"],
+    "pillar": 1,
+    "faq": [
+      {"q": "What is the best youth soccer league in Texas?", "a": "Texas has competitive teams across ECNL, MLS NEXT, and state leagues. PitchRank ranks all of them on the same scale using real game data, so you can compare across leagues."},
+      {"q": "How are youth soccer teams ranked in Texas?", "a": "PitchRank uses a 13-layer algorithm that factors in strength of schedule, margin of victory, and opponent quality. Rankings update every Monday for all Texas teams."}
+    ]
+  },
+  {
+    "type": "league_comparison",
+    "title": "ECNL vs MLS NEXT: What This Week's Data Shows",
+    "slug_prefix": "ecnl-vs-mls-next-data",
+    "target_keyword": "ecnl vs mls next",
+    "tags": ["Rankings", "Cross-League", "ECNL", "MLS NEXT"],
+    "pillar": 2,
+    "faq": [
+      {"q": "Is ECNL better than MLS NEXT?", "a": "It depends on age group and region. PitchRank's cross-league calibration shows some state league teams outperform ECNL teams at the same age group. The data changes weekly."},
+      {"q": "How much does ECNL cost per year?", "a": "ECNL typically costs $3,000-$8,000 per year depending on the club, not including travel. MLS NEXT costs vary similarly. PitchRank helps parents evaluate whether the investment matches team performance."}
+    ]
+  },
+  {
+    "type": "state_rankings",
+    "state": "CA",
+    "title": "California Youth Soccer Rankings: This Week's Top Movers",
+    "slug_prefix": "california-youth-soccer-rankings",
+    "target_keyword": "california youth soccer rankings",
+    "tags": ["Rankings", "State Guide", "California"],
+    "pillar": 1,
+    "faq": [
+      {"q": "How many youth soccer teams are in California?", "a": "California has over 15,000 ranked youth soccer teams — the most of any state. PitchRank tracks all of them across every league."},
+      {"q": "What are the best youth soccer clubs in California?", "a": "The top clubs change week to week based on real game results. Check PitchRank's California rankings for the latest data."}
+    ]
+  },
+  {
+    "type": "methodology",
+    "title": "How PitchRank Ranked {total} Teams This Week",
+    "slug_prefix": "how-youth-soccer-teams-ranked",
+    "target_keyword": "how are youth soccer teams ranked",
+    "tags": ["Rankings", "Methodology", "Algorithm"],
+    "pillar": 5,
+    "faq": [
+      {"q": "How are youth soccer teams ranked?", "a": "PitchRank uses a 13-layer algorithm (v53e + ML) that analyzes real game results, strength of schedule, margin of victory, and opponent quality. Rankings update every Monday."},
+      {"q": "Are GotSoccer rankings accurate?", "a": "GotSoccer rankings are based primarily on tournament points, which rewards quantity of tournaments played over quality of results. PitchRank uses actual match outcomes across all leagues for a more accurate picture."}
+    ]
+  },
+  {
+    "type": "state_rankings",
+    "state": "FL",
+    "title": "Florida Youth Soccer Rankings: This Week's Top Movers",
+    "slug_prefix": "florida-youth-soccer-rankings",
+    "target_keyword": "florida youth soccer rankings",
+    "tags": ["Rankings", "State Guide", "Florida"],
+    "pillar": 1,
+    "faq": [
+      {"q": "What is the best youth soccer league in Florida?", "a": "Florida has strong teams across ECNL, MLS NEXT, and state leagues. Year-round play means Florida teams get more games, which often shows in the rankings."},
+      {"q": "How do Florida youth soccer teams compare nationally?", "a": "Florida consistently has teams in the national top 50. Check PitchRank for the latest state and national rankings."}
+    ]
+  },
+  {
+    "type": "age_group",
+    "age_group": "U14",
+    "title": "Best U14 Soccer Teams: This Week's Rankings",
+    "slug_prefix": "best-u14-soccer-teams",
+    "target_keyword": "best u14 soccer teams",
+    "tags": ["Rankings", "U14", "Age Group"],
+    "pillar": 6,
+    "faq": [
+      {"q": "How do I know if my kid is good enough for travel soccer?", "a": "Rankings give you context. If your child's team is competitive in PitchRank's rankings, they're performing well against quality opponents. Use the data to guide decisions, not replace them."},
+      {"q": "What age should kids start club soccer?", "a": "Most competitive club programs start at U10-U12. By U14, the level of play increases significantly. PitchRank tracks all age groups from U10 through U19."}
+    ]
+  },
+  {
+    "type": "state_rankings",
+    "state": "NJ",
+    "title": "New Jersey Youth Soccer Rankings: This Week's Top Movers",
+    "slug_prefix": "new-jersey-youth-soccer-rankings",
+    "target_keyword": "new jersey youth soccer rankings",
+    "tags": ["Rankings", "State Guide", "New Jersey"],
+    "pillar": 1,
+    "faq": [
+      {"q": "Why is New Jersey so competitive in youth soccer?", "a": "New Jersey has the highest density of competitive teams per capita. The proximity of top clubs and multiple elite leagues creates intense competition."},
+      {"q": "What are the best youth soccer clubs in New Jersey?", "a": "The top NJ clubs shift weekly based on results. PitchRank's state rankings show the latest standings across all leagues."}
+    ]
+  },
+  {
+    "type": "weekly_movers",
+    "title": "This Week's Biggest Movers in Youth Soccer Rankings",
+    "slug_prefix": "biggest-movers-youth-soccer",
+    "target_keyword": "youth soccer rankings",
+    "tags": ["Rankings", "Movers", "Weekly Update"],
+    "pillar": 0,
+    "faq": [
+      {"q": "How often do youth soccer rankings update?", "a": "PitchRank updates rankings every Monday based on the previous week's game results across all leagues and states."},
+      {"q": "What makes a team move up in the rankings?", "a": "Beating higher-ranked opponents, winning by larger margins, and having a strong strength of schedule all contribute to climbing the rankings."}
+    ]
+  },
+  {
+    "type": "state_rankings",
+    "state": "GA",
+    "title": "Georgia Youth Soccer Rankings: This Week's Top Movers",
+    "slug_prefix": "georgia-youth-soccer-rankings",
+    "target_keyword": "georgia youth soccer rankings",
+    "tags": ["Rankings", "State Guide", "Georgia"],
+    "pillar": 1,
+    "faq": [
+      {"q": "What are the best youth soccer clubs in Georgia?", "a": "Atlanta-area clubs dominate Georgia rankings. PitchRank tracks every team in the state across all leagues."},
+      {"q": "How does Georgia compare to other states in youth soccer?", "a": "Georgia is one of the top 10 most competitive states. PitchRank's national rankings let you compare Georgia teams against any state."}
+    ]
+  },
+  {
+    "type": "age_group",
+    "age_group": "U16",
+    "title": "Best U16 Soccer Teams: This Week's Rankings",
+    "slug_prefix": "best-u16-soccer-teams",
+    "target_keyword": "best u16 soccer teams",
+    "tags": ["Rankings", "U16", "Age Group"],
+    "pillar": 6,
+    "faq": [
+      {"q": "Which youth soccer clubs produce college players?", "a": "PitchRank tracks team performance data that correlates with college recruiting pipelines. Higher-ranked U16 and U17 teams tend to have stronger college placement rates."},
+      {"q": "What do college soccer coaches look for in recruits?", "a": "Coaches look at competition level, consistency, and how a player performs against top opponents. PitchRank's strength of schedule data helps put a player's team context into perspective."}
+    ]
+  },
+  {
+    "type": "state_rankings",
+    "state": "CO",
+    "title": "Colorado Youth Soccer Rankings: This Week's Top Movers",
+    "slug_prefix": "colorado-youth-soccer-rankings",
+    "target_keyword": "colorado youth soccer rankings",
+    "tags": ["Rankings", "State Guide", "Colorado"],
+    "pillar": 1,
+    "faq": [
+      {"q": "What are the top youth soccer clubs in Colorado?", "a": "Colorado's competitive scene is centered around the Denver metro area. PitchRank ranks every Colorado team weekly."},
+      {"q": "Is club soccer worth the money?", "a": "The average family spends $3,000-$15,000 per year on club soccer. PitchRank helps you see whether your team is performing at a level that justifies the investment."}
+    ]
+  },
+  {
+    "type": "age_group",
+    "age_group": "U12",
+    "title": "Best U12 Soccer Teams: This Week's Rankings",
+    "slug_prefix": "best-u12-soccer-teams",
+    "target_keyword": "best u12 soccer teams",
+    "tags": ["Rankings", "U12", "Age Group"],
+    "pillar": 6,
+    "faq": [
+      {"q": "When should my child start competitive soccer?", "a": "Most competitive club programs begin at U10-U12. PitchRank tracks U12 teams so you can see how your child's team compares regionally and nationally."},
+      {"q": "How do youth soccer age groups work?", "a": "Youth soccer uses birth-year age groups (U10 through U19). Starting 2026-2027, the age cutoff shifts to August 1 - July 31. PitchRank ranks every age group."}
+    ]
+  }
+]
