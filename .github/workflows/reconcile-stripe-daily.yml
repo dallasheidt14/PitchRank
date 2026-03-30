@@ -2,8 +2,8 @@ name: Reconcile Stripe Subscriptions
 
 on:
   schedule:
-    # Run daily at 6:00 AM UTC (11:00 PM MST)
-    - cron: '0 6 * * *'
+    # Run every 6 hours (00:00, 06:00, 12:00, 18:00 UTC)
+    - cron: '0 */6 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
