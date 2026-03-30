@@ -903,6 +903,27 @@ def compute_rankings(
         out["w_base"] = w
         return out
 
+    # Shared helpers for shrinkage + clipping (defined here so they're available
+    # in both the normal path and the pre_sos_state Pass 2 re-adjustment path)
+    def _shrink_cohort(df: pd.DataFrame) -> pd.DataFrame:
+        mu_off = df["off_raw"].mean()
+        mu_sad = df["sad_raw"].mean()
+        out = df.copy()
+        out["off_shrunk"] = (out["off_raw"] * out["gp"] + mu_off * cfg.SHRINK_TAU) / (out["gp"] + cfg.SHRINK_TAU)
+        out["sad_shrunk"] = (out["sad_raw"] * out["gp"] + mu_sad * cfg.SHRINK_TAU) / (out["gp"] + cfg.SHRINK_TAU)
+        out["def_shrunk"] = 1.0 / (out["sad_shrunk"] + cfg.RIDGE_GA)
+        return out
+
+    def _clip_cohort(df: pd.DataFrame) -> pd.DataFrame:
+        out = df.copy()
+        for col in ["off_shrunk", "def_shrunk"]:
+            s = out[col]
+            if len(s) >= 3 and s.std(ddof=0) > 0:
+                mu, sd = s.mean(), s.std(ddof=0)
+                out[f"{col}_preclip"] = s
+                out[col] = s.clip(mu - cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd, mu + cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd)
+        return out
+
     # Two-pass optimization: if pre_sos_state is provided, skip layers 1-5
     # and jump directly to SOS calculation with the new global_strength_map.
     _current_pre_sos_state = None
@@ -1110,27 +1131,6 @@ def compute_rankings(
         # -------------------------
         # Layer 7: shrink within cohort
         # -------------------------
-        # Shared helpers for shrinkage + clipping (used in initial pass and opponent-adjust pass)
-        def _shrink_cohort(df: pd.DataFrame) -> pd.DataFrame:
-            mu_off = df["off_raw"].mean()
-            mu_sad = df["sad_raw"].mean()
-            out = df.copy()
-            out["off_shrunk"] = (out["off_raw"] * out["gp"] + mu_off * cfg.SHRINK_TAU) / (out["gp"] + cfg.SHRINK_TAU)
-            out["sad_shrunk"] = (out["sad_raw"] * out["gp"] + mu_sad * cfg.SHRINK_TAU) / (out["gp"] + cfg.SHRINK_TAU)
-            out["def_shrunk"] = 1.0 / (out["sad_shrunk"] + cfg.RIDGE_GA)
-            return out
-
-        def _clip_cohort(df: pd.DataFrame) -> pd.DataFrame:
-            out = df.copy()
-            for col in ["off_shrunk", "def_shrunk"]:
-                s = out[col]
-                if len(s) >= 3 and s.std(ddof=0) > 0:
-                    mu, sd = s.mean(), s.std(ddof=0)
-                    # Save pre-clip values for tie-breaking in normalization
-                    out[f"{col}_preclip"] = s
-                    out[col] = s.clip(mu - cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd, mu + cfg.TEAM_OUTLIER_GUARD_ZSCORE * sd)
-            return out
-
         team = pd.concat([_shrink_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
 
         # -------------------------
