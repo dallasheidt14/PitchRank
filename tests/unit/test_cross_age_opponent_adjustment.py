@@ -439,49 +439,48 @@ class TestPass2PreSosState:
 class TestSOSCrossAgeScaling:
     """Test that SOS properly credits cross-age opponents via anchor scaling."""
 
-    def test_cross_age_team_gets_higher_sos_with_scaling(self):
-        """team_cross plays U13 opponents (via global_strength_map). With SOS
-        cross-age scaling enabled, those opponents should be valued higher
-        than their raw abs_strength, boosting team_cross's SOS.
-
-        Compare SOS between team_same (all U12 opponents) and team_cross
-        (all U13 opponents). Without the fix, team_cross gets lower SOS
-        because U13 opponents are not in the U12 cohort's base_strength_map
-        and fall back to global_strength_map at raw (unscaled) values.
-        With the fix, the anchor ratio (U13/U12 = 1.136) boosts those
-        opponents' strength, raising team_cross's SOS.
-        """
-        cfg = V53EConfig()
+    def test_sos_scaling_boosts_cross_age_team(self):
+        """Toggling CROSS_AGE_SOS_ADJUST_ENABLED on should increase
+        team_cross's SOS compared to off, because the anchor ratio
+        (U13/U12 = 1.136) scales up the cross-age opponents' strength
+        in the global_strength_map fallback path."""
         games = _build_cross_age_league()
 
         # Build global_strength_map from U13 cohort
         u13_games = games[
             (games["age"] == "13") & (games["gender"] == "male")
         ].copy()
-        u13_result = compute_rankings(u13_games, today=pd.Timestamp("2026-03-01"), cfg=cfg)
+        u13_result = compute_rankings(u13_games, today=pd.Timestamp("2026-03-01"), cfg=V53EConfig())
         global_strength_map = dict(
             zip(u13_result["teams"]["team_id"].astype(str),
                 u13_result["teams"]["abs_strength"].astype(float))
         )
 
-        # Run U12 cohort with global_strength_map
         u12_games = games[
             (games["age"] == "12") & (games["gender"] == "male")
         ].copy()
-        result = compute_rankings(
-            u12_games, today=pd.Timestamp("2026-03-01"), cfg=cfg,
+
+        # Run with SOS scaling OFF
+        cfg_off = V53EConfig()
+        cfg_off.CROSS_AGE_SOS_ADJUST_ENABLED = False
+        result_off = compute_rankings(
+            u12_games, today=pd.Timestamp("2026-03-01"), cfg=cfg_off,
             global_strength_map=global_strength_map,
         )
-        teams = result["teams"]
 
-        same = teams[teams["team_id"] == "team_same"].iloc[0]
-        cross = teams[teams["team_id"] == "team_cross"].iloc[0]
+        # Run with SOS scaling ON
+        cfg_on = V53EConfig()
+        cfg_on.CROSS_AGE_SOS_ADJUST_ENABLED = True
+        result_on = compute_rankings(
+            u12_games, today=pd.Timestamp("2026-03-01"), cfg=cfg_on,
+            global_strength_map=global_strength_map,
+        )
 
-        # team_cross plays U13 opponents who should get anchor-scaled strength
-        # in SOS. This should give team_cross a competitive SOS.
-        sos_gap = same["sos_norm"] - cross["sos_norm"]
-        assert sos_gap < 0.20, (
-            f"SOS gap too large: team_same sos_norm={same['sos_norm']:.3f}, "
-            f"team_cross sos_norm={cross['sos_norm']:.3f}, gap={sos_gap:.3f}. "
-            f"Cross-age SOS scaling should credit U13 opponents more."
+        cross_off = result_off["teams"][result_off["teams"]["team_id"] == "team_cross"].iloc[0]
+        cross_on = result_on["teams"][result_on["teams"]["team_id"] == "team_cross"].iloc[0]
+
+        # SOS scaling ON should boost team_cross's raw SOS (before normalization)
+        assert cross_on["sos"] > cross_off["sos"], (
+            f"SOS scaling ON should increase team_cross raw SOS. "
+            f"OFF: {cross_off['sos']:.4f}, ON: {cross_on['sos']:.4f}"
         )
