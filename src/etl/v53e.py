@@ -1201,6 +1201,20 @@ def compute_rankings(
                     f"sad_raw mean={grp['sad_raw'].mean():.4f} std={grp['sad_raw'].std():.4f}"
                 )
 
+            # Diagnostic: cross-age opponent adjustment impact
+            if cfg.CROSS_AGE_OPPONENT_ADJUST_ENABLED and global_strength_map:
+                cross_age_games = g_adjusted[g_adjusted["opp_age"].astype(str) != g_adjusted["age"].astype(str)]
+                if not cross_age_games.empty:
+                    avg_multiplier_cross = cross_age_games["off_multiplier"].mean()
+                    same_age_games = g_adjusted[g_adjusted["opp_age"].astype(str) == g_adjusted["age"].astype(str)]
+                    avg_multiplier_same = same_age_games["off_multiplier"].mean() if not same_age_games.empty else float("nan")
+                    logger.info(
+                        f"📊 Cross-age opponent adjustment: "
+                        f"cross_age_games={len(cross_age_games)}, "
+                        f"avg_off_mult_cross={avg_multiplier_cross:.3f}, "
+                        f"avg_off_mult_same={avg_multiplier_same:.3f}"
+                    )
+
         # -------------------------
         # Layer 5: Adaptive K per game (by abs strength gap)
         # -------------------------
