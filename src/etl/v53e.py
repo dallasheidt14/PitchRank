@@ -915,6 +915,75 @@ def compute_rankings(
         power_map = pre_sos_state["power_map"]
         strength_series = pd.Series(strength_map)
         today = pre_sos_state["today"]
+
+        # Re-run opponent adjustment with cross-age scaling in Pass 2
+        # Pass 1 ran opponent adjustment without global_strength_map, so cross-age
+        # opponents got no anchor scaling. Now that global_strength_map is available,
+        # re-apply the adjustment with age-anchor scaling enabled.
+        if cfg.OPPONENT_ADJUST_ENABLED and cfg.CROSS_AGE_OPPONENT_ADJUST_ENABLED and global_strength_map:
+            from src.rankings.constants import AGE_TO_ANCHOR
+
+            logger.info("🔄 Re-running opponent adjustment with cross-age scaling (Pass 2)...")
+
+            strength_values = list(strength_map.values())
+            baseline = max(np.mean(strength_values) if strength_values else 0.5, cfg.UNRANKED_SOS_BASE)
+
+            cohort_age = None
+            if "age" in g.columns and not g.empty:
+                try:
+                    cohort_age = int(float(g["age"].iloc[0]))
+                except (ValueError, TypeError):
+                    cohort_age = None
+
+            g_adjusted = _adjust_for_opponent_strength(
+                g, strength_map, cfg, baseline=baseline,
+                global_strength_map=global_strength_map,
+                age_anchor_map=AGE_TO_ANCHOR,
+                team_age=cohort_age,
+            )
+
+            # Re-aggregate OFF/DEF with cross-age-adjusted values
+            g_adjusted["gf_weighted_adj"] = g_adjusted["gf_adjusted"] * g_adjusted["w_game"]
+            g_adjusted["ga_weighted_adj"] = g_adjusted["ga_adjusted"] * g_adjusted["w_game"]
+
+            team_adj = g_adjusted.groupby(["team_id", "age", "gender"], as_index=False).agg(
+                {"gf_weighted_adj": "sum", "ga_weighted_adj": "sum", "w_game": "sum"}
+            )
+            w_sum = team_adj["w_game"]
+            team_adj["off_raw"] = np.where(w_sum > 0, team_adj["gf_weighted_adj"] / w_sum, 0.0).astype(float)
+            team_adj["sad_raw"] = np.where(w_sum > 0, team_adj["ga_weighted_adj"] / w_sum, 0.0).astype(float)
+
+            team = team.drop(columns=["off_raw", "sad_raw"])
+            team = team.merge(
+                team_adj[["team_id", "age", "gender", "off_raw", "sad_raw"]],
+                on=["team_id", "age", "gender"], how="left",
+            )
+            team["def_raw"] = 1.0 / (team["sad_raw"] + cfg.RIDGE_GA)
+
+            # Re-apply Bayesian shrinkage and normalization
+            team = pd.concat([_shrink_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
+            team = pd.concat([_clip_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
+            team = _normalize_by_cohort(team, "off_shrunk", "off_norm", cfg.NORM_MODE)
+            team = _normalize_by_cohort(team, "def_shrunk", "def_norm", cfg.NORM_MODE)
+
+            team["power_presos"] = 0.5 * team["off_norm"] + 0.5 * team["def_norm"]
+            team["abs_strength"] = team["power_presos"].clip(cfg.UNRANKED_SOS_BASE, 1.0)
+            strength_map = dict(zip(team["team_id"], team["abs_strength"]))
+            power_map = dict(zip(team["team_id"], team["power_presos"]))
+            strength_series = pd.Series(strength_map)
+
+            # Diagnostic logging
+            cross_age_games = g_adjusted[g_adjusted["opp_age"].astype(str) != g_adjusted["age"].astype(str)]
+            if not cross_age_games.empty:
+                avg_mult_cross = cross_age_games["off_multiplier"].mean()
+                same_age_games = g_adjusted[g_adjusted["opp_age"].astype(str) == g_adjusted["age"].astype(str)]
+                avg_mult_same = same_age_games["off_multiplier"].mean() if not same_age_games.empty else float("nan")
+                logger.info(
+                    f"📊 Cross-age opponent adjustment (Pass 2): "
+                    f"cross_age_games={len(cross_age_games)}, "
+                    f"avg_off_mult_cross={avg_mult_cross:.3f}, "
+                    f"avg_off_mult_same={avg_mult_same:.3f}"
+                )
     else:
         g = games_df.copy()
         g["date"] = pd.to_datetime(g["date"], errors="coerce")
