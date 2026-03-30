@@ -156,9 +156,9 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     `<b>Status:</b> ${subscription.status}`
   );
 
-  // Tag subscriber in Beehiiv as premium (gates welcome sequence pitch emails)
+  // Set subscriber tier to premium in Beehiiv (gates welcome sequence pitch emails)
   if (customerEmail && customerEmail !== 'N/A') {
-    await tagSubscriber(customerEmail, 'premium');
+    await tagSubscriber(customerEmail);
   }
 }
 
