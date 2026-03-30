@@ -563,8 +563,14 @@ def _fit_and_residualize(feats: pd.DataFrame, train_feats: pd.DataFrame, cfg: La
         model = RandomForestRegressor(**cfg.rf_params)
         model.fit(X_train, y_train)
 
+    # Log feature importances for monitoring (especially age_gap after cross-age fix)
+    feature_names = ["team_power", "opp_power", "power_diff", "age_gap", "cross_gender"]
+    if hasattr(model, "feature_importances_"):
+        importances = dict(zip(feature_names, model.feature_importances_))
+        logger.info(f"📊 ML feature importances: {importances}")
+
     # Compute residuals on full feats DataFrame (for all games)
-    X_full = feats[["team_power", "opp_power", "power_diff", "age_gap", "cross_gender"]].astype(float).values
+    X_full = feats[feature_names].astype(float).values
     y_pred = model.predict(X_full)
 
     out = feats.copy()
