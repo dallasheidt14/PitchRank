@@ -82,12 +82,15 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ received: true });
   } catch (error) {
-    console.error('Webhook handler error:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error(`Webhook handler error for ${event.type}: ${errorMessage}`);
+    if (errorStack) console.error(errorStack);
     // Return 200 to acknowledge receipt and prevent Stripe from retrying
     // for up to 72 hours. Permanent errors (missing user, bad data) won't
     // resolve on retry. Transient errors (DB timeout) are rare and can be
     // reprocessed manually if needed.
-    return NextResponse.json({ received: true, error: 'Webhook handler failed' }, { status: 200 });
+    return NextResponse.json({ received: true, error: 'Webhook handler failed', detail: errorMessage }, { status: 200 });
   }
 }
 
