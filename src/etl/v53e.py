@@ -1125,8 +1125,25 @@ def compute_rankings(
             # Use actual mean as baseline for opponent adjustment
             baseline = actual_mean_strength
 
-            # Adjust games for opponent strength
-            g_adjusted = _adjust_for_opponent_strength(g, strength_map, cfg, baseline=baseline)
+            # Determine team age for cross-age scaling
+            # All games in this cohort have the same team age
+            cohort_age = None
+            if "age" in g.columns and not g.empty:
+                try:
+                    cohort_age = int(float(g["age"].iloc[0]))
+                except (ValueError, TypeError):
+                    cohort_age = None
+
+            # Adjust games for opponent strength (with cross-age scaling in Pass 2)
+            g_adjusted = _adjust_for_opponent_strength(
+                g,
+                strength_map,
+                cfg,
+                baseline=baseline,
+                global_strength_map=global_strength_map,
+                age_anchor_map=AGE_TO_ANCHOR,
+                team_age=cohort_age,
+            )
 
             # Re-aggregate with adjusted values
             g_adjusted["gf_weighted_adj"] = g_adjusted["gf_adjusted"] * g_adjusted["w_game"]
