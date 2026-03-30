@@ -760,7 +760,13 @@ def apply_scf_to_sos(team_df: pd.DataFrame, scf_data: Dict[str, Dict], cfg: V53E
 
 
 def _adjust_for_opponent_strength(
-    games: pd.DataFrame, strength_map: Dict[str, float], cfg: V53EConfig, baseline: Optional[float] = None
+    games: pd.DataFrame,
+    strength_map: Dict[str, float],
+    cfg: V53EConfig,
+    baseline: Optional[float] = None,
+    global_strength_map: Optional[Dict[str, float]] = None,
+    age_anchor_map: Optional[Dict[int, float]] = None,
+    team_age: Optional[int] = None,
 ) -> pd.DataFrame:
     """
     Adjust goals for/against based on opponent strength to fix double-counting problem.
@@ -768,11 +774,20 @@ def _adjust_for_opponent_strength(
     For offense: Scoring against STRONG opponents gets MORE credit (multiplier > 1)
     For defense: Allowing goals to STRONG opponents gets LESS penalty (multiplier < 1)
 
+    When cross-age adjustment is enabled (cfg.CROSS_AGE_OPPONENT_ADJUST_ENABLED),
+    opponents from different age groups have their strength scaled by the ratio of
+    their age anchor to the team's age anchor. This accounts for the inherent
+    difficulty gap between age groups — a median U13 team is harder to score against
+    than a median U12 team.
+
     Args:
-        games: DataFrame with columns [gf, ga, opp_id, w_game]
-        strength_map: Dict mapping team_id to strength (0-1)
+        games: DataFrame with columns [gf, ga, opp_id, opp_age, w_game]
+        strength_map: Dict mapping team_id to strength (0-1) for same-cohort teams
         cfg: Configuration
         baseline: Reference strength for adjustment (defaults to cfg.OPPONENT_ADJUST_BASELINE)
+        global_strength_map: Dict mapping team_id to strength for ALL cohorts (Pass 2)
+        age_anchor_map: Dict mapping integer age to anchor value (e.g., {12: 0.55, 13: 0.625})
+        team_age: Integer age of the team being adjusted (e.g., 12 for U12)
 
     Returns:
         DataFrame with additional columns [gf_adjusted, ga_adjusted]
@@ -783,24 +798,53 @@ def _adjust_for_opponent_strength(
     if baseline is None:
         baseline = cfg.OPPONENT_ADJUST_BASELINE
 
-    # Get opponent strength for each game, floor at UNRANKED_SOS_BASE to prevent division by zero
-    g["opp_strength"] = (
-        g["opp_id"].map(lambda o: strength_map.get(o, cfg.UNRANKED_SOS_BASE)).clip(lower=cfg.UNRANKED_SOS_BASE)
+    # Determine if cross-age scaling is active
+    cross_age_active = (
+        cfg.CROSS_AGE_OPPONENT_ADJUST_ENABLED
+        and global_strength_map
+        and age_anchor_map
+        and team_age is not None
     )
+
+    team_anchor = age_anchor_map.get(team_age, 1.0) if cross_age_active else 1.0
+
+    def _get_opp_strength(row):
+        opp_id = row["opp_id"]
+
+        # First try same-cohort strength map
+        strength = strength_map.get(opp_id)
+
+        # Fall back to global map for cross-age opponents
+        if strength is None and global_strength_map:
+            strength = global_strength_map.get(str(opp_id))
+
+        # Final fallback: unranked baseline
+        if strength is None:
+            strength = cfg.UNRANKED_SOS_BASE
+
+        # Apply cross-age anchor scaling if enabled
+        if cross_age_active:
+            try:
+                opp_age = int(float(row.get("opp_age", team_age)))
+            except (ValueError, TypeError):
+                opp_age = team_age
+
+            if opp_age != team_age:
+                opp_anchor = age_anchor_map.get(opp_age, 1.0)
+                anchor_ratio = opp_anchor / team_anchor
+                strength = strength * anchor_ratio
+
+        return max(strength, cfg.UNRANKED_SOS_BASE)
+
+    g["opp_strength"] = g.apply(_get_opp_strength, axis=1)
 
     # Calculate adjustment multipliers
     # Offense: score against strong opponent = more credit
-    # multiplier = opp_strength / baseline
-    # Example: opp_strength=0.8, baseline=0.7 → multiplier=1.14 (14% more credit)
-    #          opp_strength=0.6, baseline=0.7 → multiplier=0.86 (14% less credit)
     g["off_multiplier"] = (g["opp_strength"] / baseline).clip(
         cfg.OPPONENT_ADJUST_CLIP_MIN, cfg.OPPONENT_ADJUST_CLIP_MAX
     )
 
     # Defense: allow goals to strong opponent = less penalty
-    # multiplier = baseline / opp_strength
-    # Example: opp_strength=0.8, baseline=0.7 → multiplier=0.875 (12.5% less penalty)
-    #          opp_strength=0.6, baseline=0.7 → multiplier=1.17 (17% more penalty)
     g["def_multiplier"] = (baseline / g["opp_strength"]).clip(
         cfg.OPPONENT_ADJUST_CLIP_MIN, cfg.OPPONENT_ADJUST_CLIP_MAX
     )
