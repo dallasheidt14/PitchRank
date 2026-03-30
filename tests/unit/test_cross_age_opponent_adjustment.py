@@ -484,3 +484,80 @@ class TestSOSCrossAgeScaling:
             f"SOS scaling ON should increase team_cross raw SOS. "
             f"OFF: {cross_off['sos']:.4f}, ON: {cross_on['sos']:.4f}"
         )
+
+    def test_sos_toggle_off_preserves_old_behavior(self):
+        """When CROSS_AGE_SOS_ADJUST_ENABLED is False, SOS should not
+        benefit from anchor scaling on cross-age opponents."""
+        cfg = V53EConfig()
+        cfg.CROSS_AGE_SOS_ADJUST_ENABLED = False
+        games = _build_cross_age_league()
+
+        u13_games = games[
+            (games["age"] == "13") & (games["gender"] == "male")
+        ].copy()
+        u13_result = compute_rankings(u13_games, today=pd.Timestamp("2026-03-01"), cfg=cfg)
+        global_strength_map = dict(
+            zip(u13_result["teams"]["team_id"].astype(str),
+                u13_result["teams"]["abs_strength"].astype(float))
+        )
+
+        u12_games = games[
+            (games["age"] == "12") & (games["gender"] == "male")
+        ].copy()
+
+        # Run with SOS scaling OFF
+        result_off = compute_rankings(
+            u12_games, today=pd.Timestamp("2026-03-01"), cfg=cfg,
+            global_strength_map=global_strength_map,
+        )
+
+        # Run with SOS scaling ON
+        cfg_on = V53EConfig()
+        cfg_on.CROSS_AGE_SOS_ADJUST_ENABLED = True
+        result_on = compute_rankings(
+            u12_games, today=pd.Timestamp("2026-03-01"), cfg=cfg_on,
+            global_strength_map=global_strength_map,
+        )
+
+        cross_off = result_off["teams"][result_off["teams"]["team_id"] == "team_cross"].iloc[0]
+        cross_on = result_on["teams"][result_on["teams"]["team_id"] == "team_cross"].iloc[0]
+
+        # With scaling ON, team_cross should get higher SOS (or equal)
+        assert cross_on["sos_norm"] >= cross_off["sos_norm"], (
+            f"SOS scaling ON should give >= SOS than OFF for cross-age team. "
+            f"ON: {cross_on['sos_norm']:.3f}, OFF: {cross_off['sos_norm']:.3f}"
+        )
+
+    def test_no_cross_age_cohort_identical_with_toggle(self):
+        """For a cohort with NO cross-age games, toggling
+        CROSS_AGE_SOS_ADJUST_ENABLED on/off should produce identical SOS.
+        This is the non-regression guardrail."""
+        games = _build_same_age_league()
+
+        # Run with SOS scaling OFF
+        cfg_off = V53EConfig()
+        cfg_off.CROSS_AGE_SOS_ADJUST_ENABLED = False
+        result_off = compute_rankings(
+            games, today=pd.Timestamp("2026-03-01"), cfg=cfg_off,
+            global_strength_map={"fake_team": 0.5},
+        )
+
+        # Run with SOS scaling ON
+        cfg_on = V53EConfig()
+        cfg_on.CROSS_AGE_SOS_ADJUST_ENABLED = True
+        result_on = compute_rankings(
+            games, today=pd.Timestamp("2026-03-01"), cfg=cfg_on,
+            global_strength_map={"fake_team": 0.5},
+        )
+
+        teams_off = result_off["teams"].sort_values("team_id").reset_index(drop=True)
+        teams_on = result_on["teams"].sort_values("team_id").reset_index(drop=True)
+
+        # Every team's sos_norm should be identical
+        for _, (row_off, row_on) in enumerate(zip(
+            teams_off.itertuples(), teams_on.itertuples()
+        )):
+            assert abs(row_off.sos_norm - row_on.sos_norm) < 0.001, (
+                f"SOS changed for {row_off.team_id} in a same-age cohort: "
+                f"OFF={row_off.sos_norm:.4f}, ON={row_on.sos_norm:.4f}"
+            )
