@@ -1,0 +1,77 @@
+name: Marketing Pipeline
+
+on:
+  workflow_run:
+    # Chain to Calculate Rankings — runs after rankings complete
+    workflows: ["Calculate Rankings"]
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (generate content without publishing)'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  marketing:
+    runs-on: ubuntu-latest
+    # Run on manual dispatch always, but only after successful rankings run
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+
+    steps:
+      # ---------------------------------------------------------------
+      # 1. CHECKOUT
+      # ---------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: main
+
+      # ---------------------------------------------------------------
+      # 2. PYTHON SETUP
+      # ---------------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install supabase python-dotenv requests rich
+
+      # ---------------------------------------------------------------
+      # 3. RUN PIPELINE
+      # ---------------------------------------------------------------
+      - name: Run marketing pipeline
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          BEEHIIV_API_KEY: ${{ secrets.BEEHIIV_API_KEY }}
+          BEEHIIV_PUBLICATION_ID: ${{ secrets.BEEHIIV_PUBLICATION_ID }}
+          BUFFER_ACCESS_TOKEN: ${{ secrets.BUFFER_ACCESS_TOKEN }}
+          PITCHRANK_URL: 'https://pitchrank.io'
+        run: |
+          DRY_RUN_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+            DRY_RUN_FLAG="--dry-run"
+          fi
+          python scripts/marketing_pipeline.py $DRY_RUN_FLAG
+
+      # ---------------------------------------------------------------
+      # 4. UPLOAD ARTIFACTS
+      # ---------------------------------------------------------------
+      - name: Upload marketing artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: marketing-output
+          path: |
+            artifacts/newsletter_*.html
+            artifacts/social_posts_*.json
+          retention-days: 30

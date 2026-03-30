@@ -1,7 +1,7 @@
 # PitchRank — Marketing Stack
 
 ## Last Updated
-2026-03-18 by /start-here (build brand)
+2026-03-30 by /start-here
 
 ---
 
@@ -9,13 +9,10 @@
 
 | Tool | Status | Notes |
 |------|--------|-------|
-| Replicate (creative) | ○ Not verified | Set `REPLICATE_API_TOKEN` in `.env` for /creative image and video generation |
-| Email ESP | ✗ Not connected | Mailchimp, ConvertKit, or HubSpot API key for /email-sequences |
-| Analytics | ○ Unknown | GA4 or PostHog for performance tracking |
-| Social scheduling | ○ Unknown | Buffer or Hootsuite for /content-atomizer scheduling |
-
-## Creative Stack Status
-
-| Model | Status | Notes |
-|-------|--------|-------|
-| Replicate API | Not verified | Run creative skill with token to verify and update |
+| Stripe | ✓ Connected | Payment processing, subscriptions |
+| Supabase | ✓ Connected | Database, auth, backend |
+| Telegram Bot | ✓ Connected | Admin notifications |
+| Beehiiv | ✓ Connected | Newsletter + email sequences |
+| Replicate | ✓ Connected | AI image and video generation via /creative |
+| Google Analytics 4 | ✓ Connected | GA4 measurement ID in frontend |
+| Buffer | ✓ Connected | Social scheduling — Twitter/X, Instagram, TikTok |
