@@ -6,14 +6,14 @@
  *   TELEGRAM_ADMIN_CHAT_ID – Your personal chat ID (get from @userinfobot)
  */
 
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN?.trim();
-const CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID?.trim();
-
 /**
  * Send a Telegram message to the admin. Fails silently so it never
  * blocks webhook processing — alerts are best-effort.
  */
 export async function notifyAdmin(message: string): Promise<void> {
+  const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN?.trim();
+  const CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID?.trim();
+
   if (!BOT_TOKEN || !CHAT_ID) {
     console.warn('Admin notification skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_ADMIN_CHAT_ID not set');
     return;
