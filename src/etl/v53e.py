@@ -112,6 +112,7 @@ class V53EConfig:
     OPPONENT_ADJUST_BASELINE: float = 0.5  # Reference strength for adjustment
     OPPONENT_ADJUST_CLIP_MIN: float = 0.25  # Min multiplier (widened to preserve signal from elite matchups)
     OPPONENT_ADJUST_CLIP_MAX: float = 2.0  # Max multiplier (widened — old 1.6 clipped wins vs top-10 opponents)
+    CROSS_AGE_OPPONENT_ADJUST_ENABLED: bool = True  # Scale abs_strength by age anchor ratio for cross-age opponents
 
     # Layer 10 weights (tuned via weight simulator — SOS boosted for schedule-strength emphasis)
     OFF_WEIGHT: float = 0.20  # was 0.25
