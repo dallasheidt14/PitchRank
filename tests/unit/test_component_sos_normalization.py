@@ -156,7 +156,7 @@ class TestDisconnectedEqualEcosystems:
             seed_a=42,
             seed_b=99,
         )
-        cfg = V53EConfig(SOS_NORM_HYBRID_ENABLED=False)
+        cfg = V53EConfig(SOS_NORM_HYBRID_ENABLED=False, COMPONENT_SOS_ENABLED=True)
         result = compute_rankings(games_df=games_df, cfg=cfg, today=pd.Timestamp("2025-07-01"))
         return result, ids_a, ids_b
 
@@ -257,7 +257,7 @@ class TestDisconnectedDifferentQuality:
         rows_b, ids_b = _build_ecosystem("weak", 12, 12, base_date, avg_goals=0.5, seed=99)
 
         games_df = pd.DataFrame(rows_a + rows_b)
-        cfg = V53EConfig(SOS_NORM_HYBRID_ENABLED=False)
+        cfg = V53EConfig(SOS_NORM_HYBRID_ENABLED=False, COMPONENT_SOS_ENABLED=True)
         result = compute_rankings(games_df=games_df, cfg=cfg, today=pd.Timestamp("2025-07-01"))
         return result, ids_a, ids_b
 
@@ -319,7 +319,7 @@ class TestSingleConnectedGraph:
         # so component-size shrinkage doesn't compress the range
         rows, team_ids = _build_ecosystem("team", 35, 12, base_date, seed=42)
         games_df = pd.DataFrame(rows)
-        cfg = V53EConfig(SOS_NORM_HYBRID_ENABLED=False)
+        cfg = V53EConfig(SOS_NORM_HYBRID_ENABLED=False, COMPONENT_SOS_ENABLED=True)
         result = compute_rankings(games_df=games_df, cfg=cfg, today=pd.Timestamp("2025-07-01"))
         return result, team_ids
 
@@ -374,7 +374,7 @@ class TestBridgeGameConnects:
         all_rows = rows_a + rows_b + bridge_rows
         games_df = pd.DataFrame(all_rows)
 
-        cfg = V53EConfig(SOS_NORM_HYBRID_ENABLED=False)
+        cfg = V53EConfig(SOS_NORM_HYBRID_ENABLED=False, COMPONENT_SOS_ENABLED=True)
         result = compute_rankings(games_df=games_df, cfg=cfg, today=pd.Timestamp("2025-07-01"))
         return result, ids_a, ids_b
 
@@ -414,7 +414,7 @@ class TestSmallIsolatedCluster:
         rows_small, ids_small = _build_ecosystem("tiny", 4, 10, base_date, seed=77)
 
         games_df = pd.DataFrame(rows_large + rows_small)
-        cfg = V53EConfig(SOS_NORM_HYBRID_ENABLED=False)
+        cfg = V53EConfig(SOS_NORM_HYBRID_ENABLED=False, COMPONENT_SOS_ENABLED=True)
         result = compute_rankings(games_df=games_df, cfg=cfg, today=pd.Timestamp("2025-07-01"))
         return result, ids_large, ids_small
 
@@ -479,7 +479,7 @@ class TestIterationConvergence:
             eco_b_teams=12,
             games_per_team=12,
         )
-        cfg = V53EConfig(SOS_NORM_HYBRID_ENABLED=False)
+        cfg = V53EConfig(SOS_NORM_HYBRID_ENABLED=False, COMPONENT_SOS_ENABLED=True)
         cfg.SOS_POWER_ITERATIONS = 3  # Ensure iterations are enabled
         result = compute_rankings(games_df=games_df, cfg=cfg, today=pd.Timestamp("2025-07-01"))
         return result, ids_a, ids_b
@@ -536,7 +536,7 @@ class TestMultipleDisconnectedComponents:
         rows_c, ids_c = _build_ecosystem("eco_c", 15, 12, base_date, avg_goals=1.5, seed=123)
 
         games_df = pd.DataFrame(rows_a + rows_b + rows_c)
-        cfg = V53EConfig(SOS_NORM_HYBRID_ENABLED=False)
+        cfg = V53EConfig(SOS_NORM_HYBRID_ENABLED=False, COMPONENT_SOS_ENABLED=True)
         result = compute_rankings(games_df=games_df, cfg=cfg, today=pd.Timestamp("2025-07-01"))
         return result, ids_a, ids_b, ids_c
 
@@ -602,7 +602,7 @@ class TestAsymmetricEcosystemSizes:
         rows_small, ids_small = _build_ecosystem("small", 8, 12, base_date, avg_goals=1.5, seed=99)
 
         games_df = pd.DataFrame(rows_big + rows_small)
-        cfg = V53EConfig(SOS_NORM_HYBRID_ENABLED=False)
+        cfg = V53EConfig(SOS_NORM_HYBRID_ENABLED=False, COMPONENT_SOS_ENABLED=True)
         result = compute_rankings(games_df=games_df, cfg=cfg, today=pd.Timestamp("2025-07-01"))
         return result, ids_big, ids_small
 
@@ -648,7 +648,7 @@ class TestOffDefDifferentiatesComponents:
         rows_weak, ids_weak = _build_ecosystem("weak", 12, 12, base_date, avg_goals=0.5, seed=99)
 
         games_df = pd.DataFrame(rows_strong + rows_weak)
-        cfg = V53EConfig(SOS_NORM_HYBRID_ENABLED=False)
+        cfg = V53EConfig(SOS_NORM_HYBRID_ENABLED=False, COMPONENT_SOS_ENABLED=True)
         result = compute_rankings(games_df=games_df, cfg=cfg, today=pd.Timestamp("2025-07-01"))
         return result, ids_strong, ids_weak
 
