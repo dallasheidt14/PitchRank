@@ -1371,21 +1371,52 @@ def compute_rankings(
     # This represents how good opponents are at OFF/DEF
     # For cross-age/cross-gender opponents, use global_strength_map if available
 
+    # Build opp_age_map for cross-age SOS anchor scaling
+    opp_age_map = {}
+    if "opp_age" in g_sos.columns:
+        for opp_id, opp_age in zip(g_sos["opp_id"], g_sos["opp_age"]):
+            if opp_id not in opp_age_map:
+                try:
+                    opp_age_map[opp_id] = int(float(opp_age))
+                except (ValueError, TypeError):
+                    pass
+
+    # Parse cohort age for SOS anchor ratio computation
+    sos_cohort_age = None
+    if "age" in g_sos.columns and not g_sos.empty:
+        try:
+            sos_cohort_age = int(float(g_sos["age"].iloc[0]))
+        except (ValueError, TypeError):
+            sos_cohort_age = None
+
+    age_anchor_map = _get_age_to_anchor()
+    sos_cross_age_active = (
+        cfg.CROSS_AGE_SOS_ADJUST_ENABLED
+        and global_strength_map
+        and sos_cohort_age is not None
+    )
+    sos_team_anchor = age_anchor_map.get(sos_cohort_age, 1.0) if sos_cross_age_active else 1.0
+
     # Diagnostic: track cross-age lookups
     cross_age_found = 0
     cross_age_missing = 0
 
     def get_opponent_strength(opp_id):
         nonlocal cross_age_found, cross_age_missing
-        # Try local cohort first (same age/gender)
+        # Same-cohort: use raw value, no scaling
         if opp_id in base_strength_map:
             return base_strength_map[opp_id]
-        # Fall back to global map (cross-age/cross-gender)
-        # global_strength_map uses string keys, so convert opp_id to string
+        # Cross-cohort fallback: global map + anchor scaling
         opp_id_str = str(opp_id)
         if global_strength_map and opp_id_str in global_strength_map:
             cross_age_found += 1
-            return global_strength_map[opp_id_str]
+            strength = global_strength_map[opp_id_str]
+            if sos_cross_age_active:
+                opp_age = opp_age_map.get(opp_id)
+                if opp_age is not None and opp_age != sos_cohort_age:
+                    opp_anchor = age_anchor_map.get(opp_age, 1.0)
+                    strength = max(strength * (opp_anchor / sos_team_anchor), cfg.UNRANKED_SOS_BASE)
+            return strength
         # Unknown opponent
         cross_age_missing += 1
         return cfg.UNRANKED_SOS_BASE
@@ -1468,13 +1499,19 @@ def compute_rankings(
         # Calculate transitive SOS (opponent's SOS - this propagates schedule difficulty)
         # Use same fallback pattern: local SOS → global strength → unranked
         def get_opponent_sos(opp_id):
+            # Same-cohort: use raw SOS value, no scaling
             if opp_id in opp_sos_map:
                 return opp_sos_map[opp_id]
-            # For cross-age opponents not in SOS map, use their global strength as proxy
-            # global_strength_map uses string keys, so convert opp_id to string
+            # Cross-cohort fallback: global strength + anchor scaling
             opp_id_str = str(opp_id)
             if global_strength_map and opp_id_str in global_strength_map:
-                return global_strength_map[opp_id_str]
+                strength = global_strength_map[opp_id_str]
+                if sos_cross_age_active:
+                    opp_age = opp_age_map.get(opp_id)
+                    if opp_age is not None and opp_age != sos_cohort_age:
+                        opp_anchor = age_anchor_map.get(opp_age, 1.0)
+                        strength = max(strength * (opp_anchor / sos_team_anchor), cfg.UNRANKED_SOS_BASE)
+                return strength
             return cfg.UNRANKED_SOS_BASE
 
         g_sos["opp_sos"] = g_sos["opp_id"].map(get_opponent_sos)
