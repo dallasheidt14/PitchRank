@@ -533,10 +533,11 @@ def generate_blog_post(data: dict) -> tuple[str, str]:
         "image": "/api/infographic/movers?platform=twitter",
     }
 
-    fm_yaml = "\n".join(
-        f"{k}: {json.dumps(v)}" if isinstance(v, list) else f'{k}: "{str(v).replace(chr(34), chr(39))}"'
-        for k, v in frontmatter.items()
-    )
+    # Serialize frontmatter as JSON values for safety (gray-matter parses both)
+    fm_lines = []
+    for k, v in frontmatter.items():
+        fm_lines.append(f"{k}: {json.dumps(v)}")
+    fm_yaml = "\n".join(fm_lines)
     markdown = f"---\n{fm_yaml}\n---\n\n# {title}\n\n{body}"
 
     filename = f"{slug}.md"
@@ -557,17 +558,43 @@ def commit_and_push_blog_post(filename: str, content: str) -> bool:
     log.info(f"Wrote blog post: {filepath}")
 
     try:
-        subprocess.run(["git", "add", str(filepath)], check=True, cwd=PROJECT_ROOT)
+        subprocess.run(
+            ["git", "add", str(filepath)],
+            check=True,
+            cwd=PROJECT_ROOT,
+            timeout=30,
+            capture_output=True,
+            text=True,
+        )
         subprocess.run(
             ["git", "commit", "-m", f"[blog] Weekly: {filename} [skip ci]"],
             check=True,
             cwd=PROJECT_ROOT,
+            timeout=30,
+            capture_output=True,
+            text=True,
         )
-        subprocess.run(["git", "push", "origin", "main"], check=True, cwd=PROJECT_ROOT)
+        subprocess.run(
+            ["git", "pull", "--rebase", "origin", "main"],
+            check=True,
+            cwd=PROJECT_ROOT,
+            timeout=60,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            ["git", "push", "origin", "main"],
+            check=True,
+            cwd=PROJECT_ROOT,
+            timeout=120,
+            capture_output=True,
+            text=True,
+        )
         log.info("Blog post committed and pushed to main")
         return True
-    except subprocess.CalledProcessError as e:
-        log.error(f"Git operation failed: {e}")
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        stderr = getattr(e, "stderr", "")
+        log.error(f"Git operation failed: {e}\n{stderr}")
         return False
 
 
@@ -835,17 +862,17 @@ def generate_thread_tweets(data: dict) -> list[str]:
     else:
         tweets.append("New youth soccer rankings are live. Here are the biggest movers.")
 
-    # Tweet 2: Top climbers list
+    # Tweet 2: Top climbers list (truncate names to fit 280 char limit)
     climber_lines = "\n".join(
-        f"{i + 1}. {t.get('team_name', '')} (+{abs(t.get('rank_change', 0))})"
-        for i, t in enumerate(data["climbers"][:5])
+        f"{i + 1}. {t.get('team_name', '')[:30]} (+{abs(t.get('rank_change', 0))})"
+        for i, t in enumerate(data["climbers"][:3])
     )
     if climber_lines:
         tweets.append(f"Biggest climbers this week:\n\n{climber_lines}")
 
     # Tweet 3: State spotlight
     if state and data.get("spotlight_teams"):
-        spotlight_list = ", ".join(t.get("team_name", "") for t in data["spotlight_teams"][:3])
+        spotlight_list = ", ".join(t.get("team_name", "")[:25] for t in data["spotlight_teams"][:3])
         tweets.append(f"State to watch: {state}\n\nTop movers: {spotlight_list}")
 
     # Tweet 4: CTA

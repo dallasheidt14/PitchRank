@@ -30,7 +30,7 @@ function parseMarkdownFile(file: string): BlogPost {
     title: data.title || slug,
     excerpt: data.excerpt || '',
     content,
-    date: data.date ? String(data.date) : '',
+    date: data.date ? String(data.date) : '1970-01-01',
     author: data.author || 'PitchRank Team',
     readingTime: data.readingTime,
     tags: data.tags,
