@@ -10,6 +10,12 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+def _get_age_to_anchor():
+    """Lazy import to avoid circular dependency (v53e -> rankings.constants -> rankings.__init__ -> v53e)."""
+    from src.rankings.constants import AGE_TO_ANCHOR
+    return AGE_TO_ANCHOR
+
+
 # =========================
 # Configuration (v53E – National Unified)
 # =========================
@@ -798,45 +804,29 @@ def _adjust_for_opponent_strength(
     if baseline is None:
         baseline = cfg.OPPONENT_ADJUST_BASELINE
 
-    # Determine if cross-age scaling is active
+    # Vectorized opponent strength lookup: same-cohort first, then global fallback
+    g["opp_strength"] = g["opp_id"].map(strength_map)
+    if global_strength_map:
+        mask_null = g["opp_strength"].isna()
+        if mask_null.any():
+            g.loc[mask_null, "opp_strength"] = g.loc[mask_null, "opp_id"].astype(str).map(global_strength_map)
+    g["opp_strength"] = g["opp_strength"].fillna(cfg.UNRANKED_SOS_BASE)
+
+    # Vectorized cross-age anchor scaling
     cross_age_active = (
         cfg.CROSS_AGE_OPPONENT_ADJUST_ENABLED
         and global_strength_map
         and age_anchor_map
         and team_age is not None
     )
-
-    team_anchor = age_anchor_map.get(team_age, 1.0) if cross_age_active else 1.0
-
-    def _get_opp_strength(row):
-        opp_id = row["opp_id"]
-
-        # First try same-cohort strength map
-        strength = strength_map.get(opp_id)
-
-        # Fall back to global map for cross-age opponents
-        if strength is None and global_strength_map:
-            strength = global_strength_map.get(str(opp_id))
-
-        # Final fallback: unranked baseline
-        if strength is None:
-            strength = cfg.UNRANKED_SOS_BASE
-
-        # Apply cross-age anchor scaling if enabled
-        if cross_age_active:
-            try:
-                opp_age = int(float(row.get("opp_age", team_age)))
-            except (ValueError, TypeError):
-                opp_age = team_age
-
-            if opp_age != team_age:
-                opp_anchor = age_anchor_map.get(opp_age, 1.0)
-                anchor_ratio = opp_anchor / team_anchor
-                strength = strength * anchor_ratio
-
-        return max(strength, cfg.UNRANKED_SOS_BASE)
-
-    g["opp_strength"] = g.apply(_get_opp_strength, axis=1)
+    if cross_age_active:
+        team_anchor = age_anchor_map.get(team_age, 1.0)
+        opp_ages = pd.to_numeric(g["opp_age"], errors="coerce").fillna(team_age).astype(int)
+        cross_mask = opp_ages != team_age
+        if cross_mask.any():
+            opp_anchors = opp_ages[cross_mask].map(age_anchor_map).fillna(1.0)
+            g.loc[cross_mask, "opp_strength"] *= (opp_anchors / team_anchor).values
+    g["opp_strength"] = g["opp_strength"].clip(lower=cfg.UNRANKED_SOS_BASE)
 
     # Calculate adjustment multipliers
     # Offense: score against strong opponent = more credit
@@ -854,6 +844,49 @@ def _adjust_for_opponent_strength(
     g["ga_adjusted"] = g["ga"] * g["def_multiplier"]
 
     return g
+
+
+def _reaggregate_after_opponent_adjustment(
+    g_adjusted: pd.DataFrame,
+    team: pd.DataFrame,
+    cfg: V53EConfig,
+    _shrink_cohort,
+    _clip_cohort,
+    _normalize_by_cohort,
+) -> tuple:
+    """Re-aggregate OFF/DEF after opponent adjustment and update team metrics.
+
+    Shared by both Pass 1 and Pass 2 opponent adjustment paths.
+    Returns (team, strength_map, power_map).
+    """
+    g_adjusted["gf_weighted_adj"] = g_adjusted["gf_adjusted"] * g_adjusted["w_game"]
+    g_adjusted["ga_weighted_adj"] = g_adjusted["ga_adjusted"] * g_adjusted["w_game"]
+
+    team_adj = g_adjusted.groupby(["team_id", "age", "gender"], as_index=False).agg(
+        {"gf_weighted_adj": "sum", "ga_weighted_adj": "sum", "w_game": "sum"}
+    )
+    w_sum = team_adj["w_game"]
+    team_adj["off_raw"] = np.where(w_sum > 0, team_adj["gf_weighted_adj"] / w_sum, 0.0).astype(float)
+    team_adj["sad_raw"] = np.where(w_sum > 0, team_adj["ga_weighted_adj"] / w_sum, 0.0).astype(float)
+
+    team = team.drop(columns=["off_raw", "sad_raw"])
+    team = team.merge(
+        team_adj[["team_id", "age", "gender", "off_raw", "sad_raw"]],
+        on=["team_id", "age", "gender"], how="left",
+    )
+    team["def_raw"] = 1.0 / (team["sad_raw"] + cfg.RIDGE_GA)
+
+    team = pd.concat([_shrink_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
+    team = pd.concat([_clip_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
+    team = _normalize_by_cohort(team, "off_shrunk", "off_norm", cfg.NORM_MODE)
+    team = _normalize_by_cohort(team, "def_shrunk", "def_norm", cfg.NORM_MODE)
+
+    team["power_presos"] = 0.5 * team["off_norm"] + 0.5 * team["def_norm"]
+    team["abs_strength"] = team["power_presos"].clip(cfg.UNRANKED_SOS_BASE, 1.0)
+    strength_map = dict(zip(team["team_id"], team["abs_strength"]))
+    power_map = dict(zip(team["team_id"], team["power_presos"]))
+
+    return team, strength_map, power_map
 
 
 # =========================
@@ -942,8 +975,6 @@ def compute_rankings(
         # opponents got no anchor scaling. Now that global_strength_map is available,
         # re-apply the adjustment with age-anchor scaling enabled.
         if cfg.OPPONENT_ADJUST_ENABLED and cfg.CROSS_AGE_OPPONENT_ADJUST_ENABLED and global_strength_map:
-            from src.rankings.constants import AGE_TO_ANCHOR
-
             logger.info("🔄 Re-running opponent adjustment with cross-age scaling (Pass 2)...")
 
             strength_values = list(strength_map.values())
@@ -959,52 +990,16 @@ def compute_rankings(
             g_adjusted = _adjust_for_opponent_strength(
                 g, strength_map, cfg, baseline=baseline,
                 global_strength_map=global_strength_map,
-                age_anchor_map=AGE_TO_ANCHOR,
+                age_anchor_map=_get_age_to_anchor(),
                 team_age=cohort_age,
             )
 
-            # Re-aggregate OFF/DEF with cross-age-adjusted values
-            g_adjusted["gf_weighted_adj"] = g_adjusted["gf_adjusted"] * g_adjusted["w_game"]
-            g_adjusted["ga_weighted_adj"] = g_adjusted["ga_adjusted"] * g_adjusted["w_game"]
-
-            team_adj = g_adjusted.groupby(["team_id", "age", "gender"], as_index=False).agg(
-                {"gf_weighted_adj": "sum", "ga_weighted_adj": "sum", "w_game": "sum"}
+            team, strength_map, power_map = _reaggregate_after_opponent_adjustment(
+                g_adjusted, team, cfg, _shrink_cohort, _clip_cohort, _normalize_by_cohort,
             )
-            w_sum = team_adj["w_game"]
-            team_adj["off_raw"] = np.where(w_sum > 0, team_adj["gf_weighted_adj"] / w_sum, 0.0).astype(float)
-            team_adj["sad_raw"] = np.where(w_sum > 0, team_adj["ga_weighted_adj"] / w_sum, 0.0).astype(float)
-
-            team = team.drop(columns=["off_raw", "sad_raw"])
-            team = team.merge(
-                team_adj[["team_id", "age", "gender", "off_raw", "sad_raw"]],
-                on=["team_id", "age", "gender"], how="left",
-            )
-            team["def_raw"] = 1.0 / (team["sad_raw"] + cfg.RIDGE_GA)
-
-            # Re-apply Bayesian shrinkage and normalization
-            team = pd.concat([_shrink_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
-            team = pd.concat([_clip_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
-            team = _normalize_by_cohort(team, "off_shrunk", "off_norm", cfg.NORM_MODE)
-            team = _normalize_by_cohort(team, "def_shrunk", "def_norm", cfg.NORM_MODE)
-
-            team["power_presos"] = 0.5 * team["off_norm"] + 0.5 * team["def_norm"]
-            team["abs_strength"] = team["power_presos"].clip(cfg.UNRANKED_SOS_BASE, 1.0)
-            strength_map = dict(zip(team["team_id"], team["abs_strength"]))
-            power_map = dict(zip(team["team_id"], team["power_presos"]))
             strength_series = pd.Series(strength_map)
 
-            # Diagnostic logging
-            cross_age_games = g_adjusted[g_adjusted["opp_age"].astype(str) != g_adjusted["age"].astype(str)]
-            if not cross_age_games.empty:
-                avg_mult_cross = cross_age_games["off_multiplier"].mean()
-                same_age_games = g_adjusted[g_adjusted["opp_age"].astype(str) == g_adjusted["age"].astype(str)]
-                avg_mult_same = same_age_games["off_multiplier"].mean() if not same_age_games.empty else float("nan")
-                logger.info(
-                    f"📊 Cross-age opponent adjustment (Pass 2): "
-                    f"cross_age_games={len(cross_age_games)}, "
-                    f"avg_off_mult_cross={avg_mult_cross:.3f}, "
-                    f"avg_off_mult_same={avg_mult_same:.3f}"
-                )
+            logger.info("✅ Cross-age opponent adjustment applied (Pass 2)")
     else:
         g = games_df.copy()
         g["date"] = pd.to_datetime(g["date"], errors="coerce")
@@ -1151,13 +1146,11 @@ def compute_rankings(
         # This provides a stable base strength for opponent adjustment and cross-age SOS lookups.
         team["power_presos"] = 0.5 * team["off_norm"] + 0.5 * team["def_norm"]
 
-        from src.rankings.constants import AGE_TO_ANCHOR
-
         def compute_anchor(age_val):
             """Map age to static anchor value"""
             try:
                 age_numeric = int(float(age_val))
-                anchor = AGE_TO_ANCHOR.get(age_numeric)
+                anchor = _get_age_to_anchor().get(age_numeric)
                 if anchor is None:
                     logger.warning(f"⚠️ Age {age_numeric} outside supported range (10-19) — using fallback anchor 0.70")
                     return 0.70
@@ -1205,84 +1198,17 @@ def compute_rankings(
 
             # Adjust games for opponent strength (with cross-age scaling in Pass 2)
             g_adjusted = _adjust_for_opponent_strength(
-                g,
-                strength_map,
-                cfg,
-                baseline=baseline,
+                g, strength_map, cfg, baseline=baseline,
                 global_strength_map=global_strength_map,
-                age_anchor_map=AGE_TO_ANCHOR,
+                age_anchor_map=_get_age_to_anchor(),
                 team_age=cohort_age,
             )
 
-            # Re-aggregate with adjusted values
-            g_adjusted["gf_weighted_adj"] = g_adjusted["gf_adjusted"] * g_adjusted["w_game"]
-            g_adjusted["ga_weighted_adj"] = g_adjusted["ga_adjusted"] * g_adjusted["w_game"]
-
-            team_adj = g_adjusted.groupby(["team_id", "age", "gender"], as_index=False).agg(
-                {
-                    "gf_weighted_adj": "sum",
-                    "ga_weighted_adj": "sum",
-                    "w_game": "sum",
-                }
+            team, strength_map, power_map = _reaggregate_after_opponent_adjustment(
+                g_adjusted, team, cfg, _shrink_cohort, _clip_cohort, _normalize_by_cohort,
             )
-
-            # Calculate adjusted weighted averages
-            w_sum = team_adj["w_game"]
-            team_adj["off_raw"] = np.where(w_sum > 0, team_adj["gf_weighted_adj"] / w_sum, 0.0).astype(float)
-            team_adj["sad_raw"] = np.where(w_sum > 0, team_adj["ga_weighted_adj"] / w_sum, 0.0).astype(float)
-
-            # Merge back to team DataFrame (replace old off_raw, sad_raw)
-            team = team.drop(columns=["off_raw", "sad_raw"])
-            team = team.merge(
-                team_adj[["team_id", "age", "gender", "off_raw", "sad_raw"]],
-                on=["team_id", "age", "gender"],
-                how="left",
-            )
-
-            # Re-apply defense ridge
-            team["def_raw"] = 1.0 / (team["sad_raw"] + cfg.RIDGE_GA)
-
-            # Re-apply Bayesian shrinkage (using shared helper)
-            team = pd.concat([_shrink_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
-
-            # Re-apply outlier clipping (using shared helper)
-            team = pd.concat([_clip_cohort(grp) for _, grp in team.groupby(["age", "gender"])]).reset_index(drop=True)
-
-            # Re-normalize
-            team = _normalize_by_cohort(team, "off_shrunk", "off_norm", cfg.NORM_MODE)
-            team = _normalize_by_cohort(team, "def_shrunk", "def_norm", cfg.NORM_MODE)
-
-            # Recalculate power_presos with adjusted OFF/DEF (50% each, no SOS to avoid circularity)
-            team["power_presos"] = 0.5 * team["off_norm"] + 0.5 * team["def_norm"]
-
-            # Update strength_map and power_map with adjusted power (no anchor scaling)
-            team["abs_strength"] = team["power_presos"].clip(cfg.UNRANKED_SOS_BASE, 1.0)
-            strength_map = dict(zip(team["team_id"], team["abs_strength"]))
-            power_map = dict(zip(team["team_id"], team["power_presos"]))
 
             logger.info("✅ Opponent-adjusted offense/defense applied successfully")
-
-            # Diagnostic: opponent-adjusted OFF/DEF distribution (for anchor-isolation validation)
-            logger.info("📊 Opponent-adjusted OFF/DEF distribution:")
-            for (age, gender), grp in team.groupby(["age", "gender"]):
-                logger.info(
-                    f"  {age} {gender}: off_raw mean={grp['off_raw'].mean():.4f} std={grp['off_raw'].std():.4f}, "
-                    f"sad_raw mean={grp['sad_raw'].mean():.4f} std={grp['sad_raw'].std():.4f}"
-                )
-
-            # Diagnostic: cross-age opponent adjustment impact
-            if cfg.CROSS_AGE_OPPONENT_ADJUST_ENABLED and global_strength_map:
-                cross_age_games = g_adjusted[g_adjusted["opp_age"].astype(str) != g_adjusted["age"].astype(str)]
-                if not cross_age_games.empty:
-                    avg_multiplier_cross = cross_age_games["off_multiplier"].mean()
-                    same_age_games = g_adjusted[g_adjusted["opp_age"].astype(str) == g_adjusted["age"].astype(str)]
-                    avg_multiplier_same = same_age_games["off_multiplier"].mean() if not same_age_games.empty else float("nan")
-                    logger.info(
-                        f"📊 Cross-age opponent adjustment: "
-                        f"cross_age_games={len(cross_age_games)}, "
-                        f"avg_off_mult_cross={avg_multiplier_cross:.3f}, "
-                        f"avg_off_mult_same={avg_multiplier_same:.3f}"
-                    )
 
         # -------------------------
         # Layer 5: Adaptive K per game (by abs strength gap)

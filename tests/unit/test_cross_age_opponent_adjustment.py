@@ -350,3 +350,87 @@ class TestCrossAgeEdgeCases:
             f"Playing-down team should not get excessive off_norm boost: "
             f"team_down={down['off_norm']:.3f}, team_honest={honest['off_norm']:.3f}, gap={gap:.3f}"
         )
+
+
+class TestPass2PreSosState:
+    """Test that the Pass 2 pre_sos_state path applies cross-age adjustment."""
+
+    def test_pass2_with_pre_sos_state_applies_cross_age_scaling(self):
+        """When compute_rankings is called with pre_sos_state + global_strength_map,
+        the cross-age opponent adjustment should still apply. This is the production
+        code path (two-pass architecture) that previously had zero test coverage."""
+        cfg = V53EConfig()
+        games = _build_cross_age_league()
+
+        # Build global_strength_map from U13 cohort
+        u13_games = games[
+            (games["age"] == "13") & (games["gender"] == "male")
+        ].copy()
+        u13_result = compute_rankings(u13_games, today=pd.Timestamp("2026-03-01"), cfg=cfg)
+        global_strength_map = dict(
+            zip(u13_result["teams"]["team_id"].astype(str),
+                u13_result["teams"]["abs_strength"].astype(float))
+        )
+
+        # Pass 1: Run U12 cohort WITHOUT global_strength_map (simulates Pass 1)
+        u12_games = games[
+            (games["age"] == "12") & (games["gender"] == "male")
+        ].copy()
+        pass1_result = compute_rankings(
+            u12_games, today=pd.Timestamp("2026-03-01"), cfg=cfg,
+            global_strength_map=None,
+        )
+        pre_sos_state = pass1_result["pre_sos_state"]
+        assert pre_sos_state is not None, "Pass 1 should produce pre_sos_state"
+
+        # Pass 2: Re-run WITH pre_sos_state + global_strength_map
+        pass2_result = compute_rankings(
+            u12_games, today=pd.Timestamp("2026-03-01"), cfg=cfg,
+            global_strength_map=global_strength_map,
+            pre_sos_state=pre_sos_state,
+        )
+
+        # Compare team_cross off_norm between Pass 1 and Pass 2
+        pass1_cross = pass1_result["teams"][
+            pass1_result["teams"]["team_id"] == "team_cross"
+        ].iloc[0]
+        pass2_cross = pass2_result["teams"][
+            pass2_result["teams"]["team_id"] == "team_cross"
+        ].iloc[0]
+
+        # Pass 2 should boost team_cross's off_norm (cross-age scaling active)
+        assert pass2_cross["off_norm"] > pass1_cross["off_norm"], (
+            f"Pass 2 should improve team_cross off_norm via cross-age scaling. "
+            f"Pass 1: {pass1_cross['off_norm']:.3f}, Pass 2: {pass2_cross['off_norm']:.3f}"
+        )
+
+    def test_pass2_same_age_cohort_unchanged(self):
+        """When a cohort has no cross-age games, Pass 2 re-adjustment should
+        produce identical results to Pass 1 (no corruption)."""
+        cfg = V53EConfig()
+        games = _build_same_age_league()
+
+        # Pass 1: no global map
+        pass1_result = compute_rankings(
+            games, today=pd.Timestamp("2026-03-01"), cfg=cfg,
+            global_strength_map=None,
+        )
+        pre_sos_state = pass1_result["pre_sos_state"]
+
+        # Pass 2: with empty global map (no cross-age opponents to look up)
+        pass2_result = compute_rankings(
+            games, today=pd.Timestamp("2026-03-01"), cfg=cfg,
+            global_strength_map={"fake_team": 0.5},
+            pre_sos_state=pre_sos_state,
+        )
+
+        # off_norm for team_A should be the same in both passes
+        # (SOS may differ slightly due to global_strength_map affecting SOS lookups,
+        # but off_norm should not change since there are no cross-age games)
+        p1_a = pass1_result["teams"][pass1_result["teams"]["team_id"] == "team_A"].iloc[0]
+        p2_a = pass2_result["teams"][pass2_result["teams"]["team_id"] == "team_A"].iloc[0]
+
+        assert abs(p1_a["off_norm"] - p2_a["off_norm"]) < 0.001, (
+            f"Same-age cohort off_norm should not change between passes. "
+            f"Pass 1: {p1_a['off_norm']:.4f}, Pass 2: {p2_a['off_norm']:.4f}"
+        )
