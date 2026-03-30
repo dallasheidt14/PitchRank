@@ -742,7 +742,7 @@ def generate_social_posts(data: dict) -> list[dict]:
         posts.append(
             {
                 "text": text,
-                "media_url": f"{PITCHRANK_URL}/api/infographic/movers?platform=twitter",
+                "media_url": f"{PITCHRANK_URL}/api/infographic/spotlight?platform=twitter",
                 "scheduled_at": wednesday,
                 "type": "mover_spotlight",
             }
@@ -767,7 +767,9 @@ def generate_social_posts(data: dict) -> list[dict]:
     posts.append(
         {
             "text": text,
-            "media_url": f"{PITCHRANK_URL}/api/infographic/movers?platform=instagram",
+            "media_url": (
+                f"{PITCHRANK_URL}/api/infographic/state?state={data.get('spotlight_state', 'TX')}&platform=instagram"
+            ),
             "scheduled_at": thursday,
             "type": "state_spotlight" if data["spotlight_state"] else "data_flex",
         }
