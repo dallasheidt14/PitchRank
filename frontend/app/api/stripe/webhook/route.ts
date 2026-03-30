@@ -1,4 +1,4 @@
-import { stripe, WEBHOOK_EVENTS } from '@/lib/stripe/server';
+import { stripe, WEBHOOK_EVENTS, extractPeriodEnd, mapStatusToPlan, updateUserProfile } from '@/lib/stripe/server';
 import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
@@ -110,49 +110,32 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
   // Fetch subscription details to get period end and status (may be "trialing" for free trials)
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-  // Get period end - new API: items.data[0].current_period_end, old API: subscription.current_period_end
-  const periodEnd =
-    subscription.items.data[0]?.current_period_end
-    ?? (subscription as unknown as Record<string, unknown>).current_period_end as number | undefined
-    ?? Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
-
-  const { data, error } = await getSupabaseAdmin()
-    .from('user_profiles')
-    .update({
+  // Fetch customer details in parallel (independent of DB update)
+  const [, customer] = await Promise.all([
+    updateUserProfile(getSupabaseAdmin(), customerId, {
       stripe_subscription_id: subscriptionId,
       subscription_status: subscription.status,
-      plan: 'premium',
-      subscription_period_end: new Date(periodEnd * 1000).toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('stripe_customer_id', customerId)
-    .select();
-
-  if (error) {
-    console.error('Error updating profile after checkout:', error);
-    throw error;
-  }
-
-  if (!data || data.length === 0) {
-    console.error(`No user found with stripe_customer_id: ${customerId}`);
-    throw new Error(`No user profile found for Stripe customer ${customerId}`);
-  }
+      plan: mapStatusToPlan(subscription.status),
+      subscription_period_end: extractPeriodEnd(subscription),
+    }),
+    stripe.customers.retrieve(customerId),
+  ]);
 
   console.log(`Subscription activated for customer ${customerId}`);
 
   // Notify admin of new signup
-  const customer = await stripe.customers.retrieve(customerId);
   const customerName = (customer as Stripe.Customer).name ?? 'Unknown';
   const customerEmail = (customer as Stripe.Customer).email ?? 'N/A';
-  const planName = subscription.items.data[0]?.price?.product;
   const statusLabel = subscription.status === 'trialing' ? '🆓 Free Trial' : '💳 Paid';
+  const interval = subscription.items.data[0]?.price?.recurring?.interval;
+  const planLabel = interval === 'month' ? 'Premium Monthly' : 'Premium Annual';
 
   await notifyAdmin(
     `<b>New Signup!</b>\n` +
     `${statusLabel}\n` +
     `<b>Name:</b> ${customerName}\n` +
     `<b>Email:</b> ${customerEmail}\n` +
-    `<b>Plan:</b> Premium Annual\n` +
+    `<b>Plan:</b> ${planLabel}\n` +
     `<b>Status:</b> ${subscription.status}`
   );
 }
@@ -163,38 +146,14 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   const customerId = subscription.customer as string;
   const status = subscription.status;
+  const plan = mapStatusToPlan(status);
 
-  // Map Stripe status to our plan
-  // Keep premium access during past_due (Stripe will retry payment)
-  const plan = status === 'active' || status === 'trialing' || status === 'past_due' ? 'premium' : 'free';
-
-  // Get period end - new API: items.data[0].current_period_end, old API: subscription.current_period_end
-  const periodEnd =
-    subscription.items.data[0]?.current_period_end
-    ?? (subscription as unknown as Record<string, unknown>).current_period_end as number | undefined
-    ?? Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
-
-  const { data, error } = await getSupabaseAdmin()
-    .from('user_profiles')
-    .update({
-      stripe_subscription_id: subscription.id,
-      subscription_status: status,
-      plan: plan,
-      subscription_period_end: new Date(periodEnd * 1000).toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('stripe_customer_id', customerId)
-    .select();
-
-  if (error) {
-    console.error('Error updating subscription:', error);
-    throw error;
-  }
-
-  if (!data || data.length === 0) {
-    console.error(`No user found with stripe_customer_id: ${customerId}`);
-    throw new Error(`No user profile found for Stripe customer ${customerId}`);
-  }
+  await updateUserProfile(getSupabaseAdmin(), customerId, {
+    stripe_subscription_id: subscription.id,
+    subscription_status: status,
+    plan,
+    subscription_period_end: extractPeriodEnd(subscription),
+  });
 
   console.log(`Subscription updated for customer ${customerId}: ${status}`);
 }
@@ -205,27 +164,12 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
 async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
   const customerId = subscription.customer as string;
 
-  const { data, error } = await getSupabaseAdmin()
-    .from('user_profiles')
-    .update({
-      stripe_subscription_id: null,
-      subscription_status: 'canceled',
-      plan: 'free',
-      subscription_period_end: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('stripe_customer_id', customerId)
-    .select();
-
-  if (error) {
-    console.error('Error canceling subscription:', error);
-    throw error;
-  }
-
-  if (!data || data.length === 0) {
-    console.error(`No user found with stripe_customer_id: ${customerId}`);
-    throw new Error(`No user profile found for Stripe customer ${customerId}`);
-  }
+  await updateUserProfile(getSupabaseAdmin(), customerId, {
+    stripe_subscription_id: null,
+    subscription_status: 'canceled',
+    plan: 'free',
+    subscription_period_end: null,
+  });
 
   console.log(`Subscription canceled for customer ${customerId}`);
 }
@@ -251,32 +195,11 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
 
   // Fetch subscription to get updated period end
   const subscriptionData = await stripe.subscriptions.retrieve(subscriptionId);
-  // Get period end - new API: items.data[0].current_period_end, old API: subscription.current_period_end
-  const periodEnd =
-    subscriptionData.items.data[0]?.current_period_end
-    ?? (subscriptionData as unknown as Record<string, unknown>).current_period_end as number | undefined
-    ?? Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
-
-  const { data, error } = await getSupabaseAdmin()
-    .from('user_profiles')
-    .update({
-      subscription_status: 'active',
-      plan: 'premium',
-      subscription_period_end: new Date(periodEnd * 1000).toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('stripe_customer_id', customerId)
-    .select();
-
-  if (error) {
-    console.error('Error updating after invoice paid:', error);
-    throw error;
-  }
-
-  if (!data || data.length === 0) {
-    console.error(`No user found with stripe_customer_id: ${customerId}`);
-    throw new Error(`No user profile found for Stripe customer ${customerId}`);
-  }
+  await updateUserProfile(getSupabaseAdmin(), customerId, {
+    subscription_status: subscriptionData.status,
+    plan: mapStatusToPlan(subscriptionData.status),
+    subscription_period_end: extractPeriodEnd(subscriptionData),
+  });
 
   console.log(`Invoice paid for customer ${customerId}`);
 }
@@ -287,24 +210,9 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
 async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
   const customerId = invoice.customer as string;
 
-  const { data, error } = await getSupabaseAdmin()
-    .from('user_profiles')
-    .update({
-      subscription_status: 'past_due',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('stripe_customer_id', customerId)
-    .select();
-
-  if (error) {
-    console.error('Error updating after payment failed:', error);
-    throw error;
-  }
-
-  if (!data || data.length === 0) {
-    console.error(`No user found with stripe_customer_id: ${customerId}`);
-    throw new Error(`No user profile found for Stripe customer ${customerId}`);
-  }
+  await updateUserProfile(getSupabaseAdmin(), customerId, {
+    subscription_status: 'past_due',
+  });
 
   console.log(`Payment failed for customer ${customerId}`);
 }

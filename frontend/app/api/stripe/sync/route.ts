@@ -1,4 +1,4 @@
-import { stripe } from "@/lib/stripe/server";
+import { stripe, extractPeriodEnd, mapStatusToPlan } from "@/lib/stripe/server";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
@@ -42,26 +42,25 @@ export async function POST(req: Request) {
         ? await stripe.subscriptions.retrieve(session.subscription)
         : session.subscription;
 
-    const periodEnd =
-      subscription.items.data[0]?.current_period_end ??
-      Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
-
-    // Map Stripe status to plan
     const status = subscription.status;
-    const plan =
-      status === "active" || status === "trialing" || status === "past_due"
-        ? "premium"
-        : "free";
+    const plan = mapStatusToPlan(status);
 
-    // Verify the caller owns this customer by checking their profile
-    const { data: profile } = await supabase
-      .from("user_profiles")
-      .select("stripe_customer_id")
-      .eq("id", user.id)
-      .single();
-
-    if (profile?.stripe_customer_id && profile.stripe_customer_id !== customerId) {
-      return NextResponse.json({ error: "Session does not belong to you" }, { status: 403 });
+    // Verify the caller owns this checkout session via metadata (preferred)
+    // or via profile customer_id (legacy fallback for sessions created before metadata was added)
+    const sessionUserId = session.metadata?.supabase_user_id;
+    if (sessionUserId) {
+      if (sessionUserId !== user.id) {
+        return NextResponse.json({ error: "Session does not belong to you" }, { status: 403 });
+      }
+    } else {
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("stripe_customer_id")
+        .eq("id", user.id)
+        .single();
+      if (profile?.stripe_customer_id && profile.stripe_customer_id !== customerId) {
+        return NextResponse.json({ error: "Session does not belong to you" }, { status: 403 });
+      }
     }
 
     // Update user_profiles (same fields as webhook handler)
@@ -72,7 +71,7 @@ export async function POST(req: Request) {
         stripe_subscription_id: subscription.id,
         subscription_status: status,
         plan,
-        subscription_period_end: new Date(periodEnd * 1000).toISOString(),
+        subscription_period_end: extractPeriodEnd(subscription),
         updated_at: new Date().toISOString(),
       })
       .eq("id", user.id);
@@ -93,7 +92,6 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error("Sync error:", error);
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: "Failed to sync subscription" }, { status: 500 });
   }
 }

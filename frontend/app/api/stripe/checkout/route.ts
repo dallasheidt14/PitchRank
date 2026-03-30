@@ -1,4 +1,4 @@
-import { stripe } from '@/lib/stripe/server';
+import { stripe, getStripePriceIds } from '@/lib/stripe/server';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
@@ -20,13 +20,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid price ID' }, { status: 400 });
     }
 
-    // Validate against known price IDs from env vars
-    const VALID_PRICE_IDS = [
-      process.env.NEXT_PUBLIC_STRIPE_MONTHLY_PRICE_ID,
-      process.env.NEXT_PUBLIC_STRIPE_YEARLY_PRICE_ID,
-    ].filter(Boolean);
+    // Validate against known price IDs (uses env var fallback chain)
+    const { MONTHLY, YEARLY } = getStripePriceIds();
+    const VALID_PRICE_IDS = [MONTHLY, YEARLY].filter(Boolean);
 
-    if (VALID_PRICE_IDS.length > 0 && !VALID_PRICE_IDS.includes(priceId)) {
+    if (!VALID_PRICE_IDS.includes(priceId)) {
       return NextResponse.json({ error: 'Invalid price ID' }, { status: 400 });
     }
 
@@ -72,28 +70,33 @@ export async function POST(req: Request) {
       }
     }
 
-    // Belt-and-suspenders: check Stripe directly for existing subscriptions
-    const existingSubs = await stripe.subscriptions.list({
+    // Check Stripe for existing subscriptions (active check + trial eligibility)
+    const allSubs = await stripe.subscriptions.list({
       customer: customerId,
+      status: 'all',
       limit: 10,
     });
-    const activeSub = existingSubs.data.find((s) => s.status === 'active' || s.status === 'trialing');
+    const activeSub = allSubs.data.find((s) => s.status === 'active' || s.status === 'trialing');
     if (activeSub) {
       return NextResponse.json({ error: 'You already have an active subscription' }, { status: 400 });
     }
 
-    // Create Stripe checkout session with 7-day free trial
+    // Only grant trial to first-time subscribers
+    const hasHadSubscription = allSubs.data.length > 0;
+
+    // Create Stripe checkout session
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       customer: customerId,
       line_items: [{ price: priceId, quantity: 1 }],
+      // Session metadata: used by /api/stripe/sync for ownership verification
+      metadata: { supabase_user_id: user.id },
       success_url: `${process.env.NEXT_PUBLIC_SITE_URL}/upgrade/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL}/upgrade`,
       subscription_data: {
-        trial_period_days: 7,
-        metadata: {
-          supabase_user_id: user.id,
-        },
+        ...(hasHadSubscription ? {} : { trial_period_days: 7 }),
+        // Subscription metadata: used by webhook handlers for audit trail
+        metadata: { supabase_user_id: user.id },
       },
       allow_promotion_codes: true,
       billing_address_collection: 'auto',
