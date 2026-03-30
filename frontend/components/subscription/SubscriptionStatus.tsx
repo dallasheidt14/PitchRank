@@ -29,7 +29,10 @@ function formatDate(dateString: string | null): string {
   });
 }
 
-function getStatusColor(status: string | null): string {
+function getStatusColor(status: string | null, canceling?: boolean): string {
+  if (canceling && (status === "active" || status === "trialing")) {
+    return "bg-orange-500/10 text-orange-600 border-orange-500/20";
+  }
   switch (status) {
     case "active":
     case "trialing":
@@ -41,6 +44,13 @@ function getStatusColor(status: string | null): string {
     default:
       return "bg-muted text-muted-foreground";
   }
+}
+
+function getStatusLabel(profile: UserProfile): string {
+  if (profile.cancel_at_period_end && profile.subscription_status === "active") {
+    return "Canceling";
+  }
+  return profile.subscription_status || "Unknown";
 }
 
 export function SubscriptionStatus({ profile }: SubscriptionStatusProps) {
@@ -116,8 +126,8 @@ export function SubscriptionStatus({ profile }: SubscriptionStatusProps) {
             <Crown className="w-5 h-5 text-primary" />
             PitchRank+ Subscription
           </CardTitle>
-          <Badge className={getStatusColor(profile.subscription_status)}>
-            {profile.subscription_status || "Unknown"}
+          <Badge className={getStatusColor(profile.subscription_status, profile.cancel_at_period_end)}>
+            {getStatusLabel(profile)}
           </Badge>
         </div>
         <CardDescription>
@@ -142,6 +152,22 @@ export function SubscriptionStatus({ profile }: SubscriptionStatusProps) {
             </div>
           )}
         </div>
+
+        {/* Canceling notice */}
+        {profile.cancel_at_period_end && profile.subscription_status === "active" && (
+          <div className="flex items-start gap-3 p-3 rounded-lg bg-orange-500/10 border border-orange-500/20">
+            <AlertCircle className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-orange-600">
+                Subscription Canceling
+              </p>
+              <p className="text-xs text-orange-600/80 mt-1">
+                Your access continues until {formatDate(profile.subscription_period_end)}.
+                You can resubscribe anytime from the billing portal.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Past due warning */}
         {profile.subscription_status === "past_due" && (

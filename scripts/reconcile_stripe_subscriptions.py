@@ -90,6 +90,7 @@ def check_stripe_subscription(customer_id: str):
         "status": sub.status,
         "subscription_id": sub.id,
         "period_end": period_end,
+        "cancel_at_period_end": bool(sub.cancel_at_period_end),
     }
 
 
@@ -124,12 +125,14 @@ def reconcile(supabase, dry_run: bool):
             stripe_status = sub_data["status"]
             stripe_sub_id = sub_data["subscription_id"]
             period_end = sub_data["period_end"]
+            cancel_at_period_end = sub_data["cancel_at_period_end"]
         else:
             # No subscription in Stripe
             expected_plan = "free"
             stripe_status = None
             stripe_sub_id = None
             period_end = None
+            cancel_at_period_end = False
 
         db_plan = row.get("plan") or "free"
         db_status = row.get("subscription_status")
@@ -172,6 +175,7 @@ def reconcile(supabase, dry_run: bool):
                 "plan": expected_plan,
                 "subscription_status": stripe_status,
                 "stripe_subscription_id": stripe_sub_id,
+                "cancel_at_period_end": cancel_at_period_end,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
             if period_end:
