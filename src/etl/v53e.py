@@ -2087,8 +2087,16 @@ def compute_rankings(
                 missing_mask = opp_strengths.isna()
                 if missing_mask.any():
                     str_keys = pd.Series(opp_ids_array)[missing_mask].astype(str)
-                    opp_strengths.loc[missing_mask] = str_keys.map(global_series)
-            opp_strengths = opp_strengths.fillna(cfg.UNRANKED_SOS_BASE).values
+                    global_vals = str_keys.map(global_series)
+                    # Apply cross-age anchor scaling to global fallback values
+                    if sos_cross_age_active:
+                        opp_ages_missing = pd.Series(opp_ids_array)[missing_mask].map(opp_age_map)
+                        opp_anchors = opp_ages_missing.map(age_anchor_map).fillna(1.0)
+                        cross_mask = opp_ages_missing.notna() & (opp_ages_missing != sos_cohort_age)
+                        if cross_mask.any():
+                            global_vals[cross_mask] *= (opp_anchors[cross_mask] / sos_team_anchor)
+                    opp_strengths.loc[missing_mask] = global_vals
+            opp_strengths = opp_strengths.fillna(cfg.UNRANKED_SOS_BASE).clip(lower=cfg.UNRANKED_SOS_BASE).values
             g_sos["opp_full_strength"] = opp_strengths
 
             # Step 2b: Restore original weights and re-trim with updated strengths
