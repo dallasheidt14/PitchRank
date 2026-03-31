@@ -1,6 +1,7 @@
 'use client';
 
 import { useTrafficData } from '@/hooks/useAnalytics';
+import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { MetricCard } from './MetricCard';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -26,10 +27,10 @@ interface TrafficTabProps {
 }
 
 export function TrafficTab({ range }: TrafficTabProps) {
-  const { data, isLoading, error } = useTrafficData(range);
+  const { data, isLoading, error, refetch } = useTrafficData(range);
 
   if (error) {
-    return <p className="text-red-400">Failed to load traffic data: {error.message}</p>;
+    return <ErrorDisplay error={error} retry={refetch} />;
   }
 
   return (

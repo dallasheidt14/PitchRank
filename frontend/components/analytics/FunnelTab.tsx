@@ -2,6 +2,7 @@
 
 import { useFunnelData } from '@/hooks/useAnalytics';
 import { formatPercent } from '@/lib/analytics-utils';
+import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { MetricCard } from './MetricCard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
@@ -13,10 +14,10 @@ interface FunnelTabProps {
 }
 
 export function FunnelTab({ range }: FunnelTabProps) {
-  const { data, isLoading, error } = useFunnelData(range);
+  const { data, isLoading, error, refetch } = useFunnelData(range);
 
   if (error) {
-    return <p className="text-red-400">Failed to load funnel data: {error.message}</p>;
+    return <ErrorDisplay error={error} retry={refetch} />;
   }
 
   if (isLoading) {

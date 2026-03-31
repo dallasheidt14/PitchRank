@@ -1,6 +1,6 @@
 # CLAUDE.md — PitchRank AI Assistant Guide
 
-> Last updated: 2026-03-28
+> Last updated: 2026-03-31
 
 PitchRank is a **youth soccer ranking platform** that scrapes game data from multiple providers, calculates rankings using a proprietary 13-layer algorithm (v53e + ML), and serves results through a Next.js frontend. This file is the primary reference for AI assistants working in this codebase.
 
@@ -114,8 +114,8 @@ PitchRank/
 ```
 Games (Supabase, 365-day window)
   → Merge Resolution (deprecated → canonical team IDs)
-  → v53e Base Calculation (10 layers)
-  → ML Layer 13 (XGBoost residual adjustment, alpha=0.15)
+  → v53e Base Calculation (11 layers)
+  → ML Layer 13 (XGBoost residual adjustment, alpha=0.08)
   → Two-Pass SOS Normalization (cross-age, national, state)
   → Age Anchor Scaling (U10=0.40 → U19=1.00)
   → Save to rankings_full + current_rankings
@@ -125,14 +125,15 @@ Games (Supabase, 365-day window)
 
 1. **Window**: 365-day lookback, 180-day inactivity threshold
 2. **Offense/Defense**: Goal difference capped at 6
-3. **Recency**: Exponential decay (rate=0.05), recent 15 games at 65% weight
+3. **Recency**: Exponential decay (rate=0.08), recent 15 games at 65% weight
 4. **Defense Ridge**: Ridge regression (factor=0.25)
 5. **Adaptive K**: Dynamic K-factor (alpha=0.5, beta=0.6)
-6. **Performance**: Goal-based residuals (scale=5.0, decay=0.08)
+6. **Performance**: Goal-based residuals (scale=5.0, decay=0.08) — **DISABLED** (PERF_BLEND_WEIGHT=0.00)
 7. **Bayesian Shrinkage**: Tau=8.0 for small-sample correction
-8. **SOS**: Iterative, 3 passes, unranked base=0.35, repeat cap=2
-9. **Opponent-Adjusted**: Offense/defense corrected for opponent strength
-10. **PowerScore Blend**: OFF:0.25, DEF:0.25, SOS:0.50
+8. **SOS**: Iterative, 1 pass, unranked base=0.35, repeat cap=2
+9. **Normalize**: OFF/DEF normalization
+10. **PowerScore Blend**: OFF:0.20, DEF:0.20, SOS:0.60
+11. **Rank & Status**: Final ranking and status assignment
 
 ### PowerScore
 
@@ -146,7 +147,7 @@ Games (Supabase, 365-day window)
 - Fallback: RandomForest (240 estimators, max_depth=18)
 - 30-day time-split prevents data leakage
 - Residuals clipped ±3.5 goals, normalized by cohort
-- Blend: `powerscore_ml = powerscore_adj + α * ml_norm` (α=0.15)
+- Blend: `powerscore_ml = powerscore_adj + α * ml_norm` (α=0.08)
 
 ---
 
