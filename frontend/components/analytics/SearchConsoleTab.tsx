@@ -1,17 +1,10 @@
 'use client';
 
 import { useSearchConsole } from '@/hooks/useAnalytics';
+import { formatPercent, formatPosition } from '@/lib/analytics-utils';
 import { MetricCard } from './MetricCard';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
-
-function formatCtr(ctr: number): string {
-  return `${(ctr * 100).toFixed(1)}%`;
-}
-
-function formatPosition(pos: number): string {
-  return pos.toFixed(1);
-}
 
 function TableSkeleton() {
   return (
@@ -44,7 +37,7 @@ export function SearchConsoleTab({ range }: SearchConsoleTabProps) {
           value={data ? data.totals.impressions.toLocaleString() : '—'}
           loading={isLoading}
         />
-        <MetricCard title="Average CTR" value={data ? formatCtr(data.totals.ctr) : '—'} loading={isLoading} />
+        <MetricCard title="Average CTR" value={data ? formatPercent(data.totals.ctr) : '—'} loading={isLoading} />
         <MetricCard
           title="Average Position"
           value={data ? formatPosition(data.totals.position) : '—'}
@@ -75,7 +68,7 @@ export function SearchConsoleTab({ range }: SearchConsoleTabProps) {
                     <TableCell className="text-white">{row.query}</TableCell>
                     <TableCell className="text-right text-gray-300">{row.clicks.toLocaleString()}</TableCell>
                     <TableCell className="text-right text-gray-300">{row.impressions.toLocaleString()}</TableCell>
-                    <TableCell className="text-right text-gray-300">{formatCtr(row.ctr)}</TableCell>
+                    <TableCell className="text-right text-gray-300">{formatPercent(row.ctr)}</TableCell>
                     <TableCell className="text-right text-gray-300">{formatPosition(row.position)}</TableCell>
                   </TableRow>
                 ))}
@@ -117,7 +110,7 @@ export function SearchConsoleTab({ range }: SearchConsoleTabProps) {
                     </TableCell>
                     <TableCell className="text-right text-gray-300">{row.clicks.toLocaleString()}</TableCell>
                     <TableCell className="text-right text-gray-300">{row.impressions.toLocaleString()}</TableCell>
-                    <TableCell className="text-right text-gray-300">{formatCtr(row.ctr)}</TableCell>
+                    <TableCell className="text-right text-gray-300">{formatPercent(row.ctr)}</TableCell>
                     <TableCell className="text-right text-gray-300">{formatPosition(row.position)}</TableCell>
                   </TableRow>
                 ))}

@@ -1,15 +1,12 @@
 'use client';
 
 import { useFunnelData } from '@/hooks/useAnalytics';
+import { formatPercent } from '@/lib/analytics-utils';
 import { MetricCard } from './MetricCard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 const FUNNEL_COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444'];
-
-function formatPercent(rate: number): string {
-  return `${(rate * 100).toFixed(1)}%`;
-}
 
 interface FunnelTabProps {
   range: string;
@@ -113,7 +110,11 @@ export function FunnelTab({ range }: FunnelTabProps) {
               key={step.event}
               title={step.label}
               value={step.count.toLocaleString()}
-              subtitle={i > 0 ? `${formatPercent(step.count / data.funnel[0].count)} of views` : undefined}
+              subtitle={
+                i > 0 && data.funnel[0].count > 0
+                  ? `${formatPercent(step.count / data.funnel[0].count)} of views`
+                  : undefined
+              }
             />
           ))}
         </div>
