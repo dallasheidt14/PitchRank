@@ -82,6 +82,16 @@ class TestGlicko2Update:
         )
         assert new_sigma < sigma
 
+    def test_no_games_increases_uncertainty(self):
+        """No games played should increase sigma (uncertainty widens)."""
+        cfg = GlickoConfig()
+        mu, sigma = 1500.0, 200.0
+        new_mu, new_sigma, _ = glicko2_update(
+            mu, sigma, cfg.INITIAL_VOLATILITY, [], [], [], cfg.TAU
+        )
+        assert new_mu == pytest.approx(mu, abs=0.001)  # mu unchanged
+        assert new_sigma > sigma  # sigma increases
+
     def test_glickman_example(self):
         """Verify against Glickman's paper example (approximately).
 

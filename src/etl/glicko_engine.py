@@ -100,8 +100,17 @@ def _update_volatility(
     f_A = f(A)
     f_B = f(B)
     EPSILON = 1e-6
+    MAX_ITERATIONS = 100
 
+    iteration = 0
     while abs(B - A) > EPSILON:
+        if iteration >= MAX_ITERATIONS:
+            logger.warning(
+                "glicko2 volatility update did not converge after %d iterations "
+                "(sigma_vol=%.6f, delta=%.6f, phi=%.6f, v=%.6f, tau=%.6f)",
+                MAX_ITERATIONS, sigma_vol, delta, phi, v, tau,
+            )
+            break
         C = A + (A - B) * f_A / (f_B - f_A)
         f_C = f(C)
         if f_C * f_B <= 0:
@@ -111,6 +120,7 @@ def _update_volatility(
             f_A = f_A / 2.0
         B = C
         f_B = f_C
+        iteration += 1
 
     return math.exp(A / 2.0)
 
@@ -120,7 +130,7 @@ def _update_volatility(
 # =========================================================
 def glicko2_update(
     mu: float,
-    phi: float,
+    rd: float,
     sigma: float,
     opponents: List[Tuple[float, float]],
     outcomes: List[float],
@@ -139,7 +149,9 @@ def glicko2_update(
 
     Args:
         mu: Current rating on the original scale (1500-centered).
-        phi: Current rating deviation (sigma) on the original scale.
+        rd: Current rating deviation on the original 1500-scale (e.g. 350.0).
+            Not to be confused with the Glicko-2 internal phi; the conversion
+            happens inside this function.
         sigma: Current volatility.
         opponents: List of (mu_j, sigma_j) tuples on the original scale.
         outcomes: List of game outcomes (0.0 to 1.0).
@@ -147,10 +159,16 @@ def glicko2_update(
         tau: System constant controlling volatility change.
 
     Returns:
-        Tuple of (new_mu, new_phi, new_sigma) on the original scale.
+        Tuple of (new_mu, new_rd, new_sigma) on the original scale.
     """
     # Step 2: Convert to Glicko-2 scale
-    mu_g2, phi_g2 = _to_glicko2_scale(mu, phi)
+    mu_g2, phi_g2 = _to_glicko2_scale(mu, rd)
+
+    # No games played: widen uncertainty, leave mu and sigma unchanged
+    if not opponents:
+        phi_star = math.sqrt(phi_g2 ** 2 + sigma ** 2)
+        new_mu, new_phi = _from_glicko2_scale(mu_g2, phi_star)
+        return new_mu, new_phi, sigma
 
     opp_g2 = [_to_glicko2_scale(m, s) for m, s in opponents]
 
