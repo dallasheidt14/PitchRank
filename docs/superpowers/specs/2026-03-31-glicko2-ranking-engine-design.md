@@ -2,7 +2,7 @@
 
 ## Goal
 
-Replace the v53e 10-layer normalization pipeline with a Glicko-2 core engine that produces a single unified rating per team. Offense, defense, and schedule strength become derived display metrics — not inputs to the ranking. This eliminates the entire class of normalization inflation problems that plague v53e.
+Replace the v53e 10-layer normalization pipeline with a Glicko-2 core engine that produces a single unified rating per team. Offense, defense, and schedule strength become derived display metrics — not inputs to the ranking. This eliminates the multi-layer normalization inflation cascade in v53e. Regional bubble inflation requires separate handling (see SCF section).
 
 ## Architecture
 
@@ -74,7 +74,11 @@ For a loss:  result = 0.5 - 0.5 * log(1 + goal_diff) / log(1 + MAX_GD)
 For a draw:  result = 0.5
 ```
 
-Where `MAX_GD` is a cap on goal differential (e.g., 6) to prevent blowouts from dominating. This maps outcomes to a continuous scale where:
+Where `MAX_GD = 6` (matching v53e's GOAL_DIFF_CAP) to prevent blowouts from dominating.
+
+**Outlier guard:** Before computing goal differential, clip individual game GF/GA to cohort mean +/- 2.5 standard deviations (matching v53e's OUTLIER_GUARD_ZSCORE). This prevents data entry errors (e.g., 15-0 forfeits coded as scores) from distorting ratings.
+
+This maps outcomes to a continuous scale where:
 - 1-0 win ≈ 0.64
 - 3-0 win ≈ 0.81
 - 5-0 win ≈ 0.89
@@ -82,17 +86,61 @@ Where `MAX_GD` is a cap on goal differential (e.g., 6) to prevent blowouts from 
 
 ### Convergence
 
-Since we process historical games in batch (not sequentially like chess), the engine iterates over the full game set 3-5 times until ratings stabilize (max delta < 0.1 per team per iteration). Each iteration uses the updated ratings from the previous pass.
+Since we process historical games in batch (not sequentially like chess), the engine iterates over the full game set until ratings stabilize. Each iteration uses the updated ratings from the previous pass.
+
+**Convergence criteria:**
+- Stop when max |delta_mu| < 1.0 across all teams (on the 1500-scale, 1.0 is negligible)
+- Safety valve: max 10 iterations with a warning log if not converged
+- Expected convergence: 3-5 iterations for typical cohorts, empirically validated on production data before go-live
+
+**Recency weighting:** Each game's contribution to the Glicko-2 mu/sigma update is weighted by exponential decay: `weight = exp(-lambda * days_ago / 365)` where lambda matches v53e's effective decay. Recent games have ~5x the impact of games from 11 months ago. Without this, a team dominant 10 months ago but losing recently would still appear elite.
+
+**Disconnected components:** Teams that never play each other (even transitively) converge independently. Their rating scales may not be directly comparable. The SCF bubble detection (see below) identifies and dampens isolated clusters.
 
 ### Cross-Age Scaling
 
 When a U14 team plays a U15 opponent:
 1. Look up the U15 opponent's Glicko-2 rating from their own cohort (Pass 2)
-2. Scale by age anchor ratio: `scaled_rating = opp_mu * (opp_anchor / team_anchor)`
-3. Use scaled_rating as the opponent strength for the Glicko-2 update
+2. Apply **additive** age adjustment: `scaled_mu = opp_mu + (opp_anchor - team_anchor) * ANCHOR_SCALE_FACTOR`
+3. Use scaled_mu as the opponent strength for the Glicko-2 update
 
-Age anchors (same as current v53e):
-- U10: 0.40, U11: 0.50, U12: 0.60, U13: 0.70, U14: 0.80, U15: 0.85, U16: 0.90, U17: 0.95, U18: 1.00, U19: 1.00
+**Why additive, not multiplicative:** Glicko-2 mu is on an interval scale (1500 = average). Multiplying mu by a ratio (as v53e does with 0-1 normalized strengths) produces nonsensical results — a U14 team rated 1500 (average) seen by a U19 team would become 1500 * 0.93 = 1395 ("well below average"), when the intended meaning is "slightly younger age group, same relative strength." Additive scaling preserves the "average in their cohort" meaning.
+
+**ANCHOR_SCALE_FACTOR:** Converts anchor difference to Glicko-2 rating points. Calibrated so that the full U10→U19 anchor spread maps to a meaningful rating gap (e.g., ANCHOR_SCALE_FACTOR = 400 means the U10/U19 gap ≈ 80 rating points).
+
+**Age anchors (calibrated from empirical cross-age data):**
+
+Male:
+
+| Age | Anchor | Source |
+|-----|--------|--------|
+| U10 | 0.783 | Empirical: top-team rating 78.3% of U19 |
+| U11 | 0.793 | |
+| U12 | 0.824 | |
+| U13 | 0.878 | |
+| U14 | 0.928 | |
+| U15 | 0.935 | |
+| U16 | 0.962 | |
+| U17 | 0.965 | |
+| U18 | 0.985 | Interpolated |
+| U19 | 1.000 | Reference |
+
+Female:
+
+| Age | Anchor | Source |
+|-----|--------|--------|
+| U10 | 0.792 | Empirical: top-team rating 79.2% of U19 |
+| U11 | 0.828 | |
+| U12 | 0.885 | |
+| U13 | 0.914 | |
+| U14 | 0.957 | |
+| U15 | 0.962 | |
+| U16 | 0.984 | |
+| U17 | 0.996 | |
+| U18 | 0.998 | Interpolated |
+| U19 | 1.000 | Reference |
+
+**Key insight from calibration:** Age gaps are much tighter than v53e's old anchors assumed. U14-U19 is within ~7% for both genders. The real separation is U10-U13. Previous anchors (U10=0.40, U14=0.70) were over-penalizing younger age groups by nearly 2x.
 
 Two-pass architecture:
 - **Pass 1:** Each cohort computed independently, collect all mu values
@@ -112,29 +160,37 @@ After Glicko-2 produces unified ratings, derive offense and defense from game-le
 
 ### Per-Game Expected Goals
 
-Using the rating difference between team and opponent, compute expected goals for and against based on the league average goals per game within the cohort.
+Use the Glicko-2 expected score function to predict goals:
+
+```
+E(team, opp) = 1 / (1 + 10^((opp_mu - team_mu) / 400))
+expected_gf = cohort_avg_gpg * E(team, opp)
+expected_ga = cohort_avg_gpg * E(opp, team)
+```
+
+Where `cohort_avg_gpg` is the average goals per game within the (age, gender) cohort (typically 2-3 for youth soccer). This converts a win probability into an expected goal count.
 
 ### Offense Rating
 
 ```
 off_residual_per_game = actual_gf - expected_gf
-offense_raw = weighted_avg(off_residuals, weights=recency * opp_rating_weight)
+offense_raw = weighted_avg(off_residuals, weights=recency_weight * opp_rating_weight)
 ```
 
-Positive = team scores more than expected given opponent quality.
+Positive = team scores more than expected given opponent quality. Recency weight uses the same exponential decay as the core engine.
 
 ### Defense Rating
 
 ```
 def_residual_per_game = expected_ga - actual_ga
-defense_raw = weighted_avg(def_residuals, weights=recency * opp_rating_weight)
+defense_raw = weighted_avg(def_residuals, weights=recency_weight * opp_rating_weight)
 ```
 
 Positive = team concedes less than expected given opponent quality.
 
 ### Key Property
 
-A team scoring 3 goals against a 1600-rated opponent gets more offensive credit than scoring 3 against a 1200-rated opponent. Opponent strength is inherent in the expected goals calculation.
+A team scoring 3 goals against a 1600-rated opponent gets more offensive credit than scoring 3 against a 1200-rated opponent. Opponent strength is inherent in the expected goals calculation — `E(team, 1600_opp)` produces lower expected_gf than `E(team, 1200_opp)`, so the same actual goals yield a larger positive residual.
 
 ### Display Normalization
 
@@ -149,6 +205,30 @@ sos_raw = mean(opponent_glicko_rating for each game played)
 No normalization needed for the computation — opponent ratings are already on an absolute scale (1500 = cohort average). A team with SOS of 1620 played harder opponents than a team with SOS of 1480, period.
 
 For display in the frontend, convert to 0-1 via sigmoid z-score within cohort (same as off/def — display only, not a ranking input).
+
+## Schedule Strength Details
+
+### SOS Repeat Cap and Trimming
+
+Port from v53e to prevent schedule gaming:
+- **Repeat cap:** Cap repeat opponents at 4 games (SOS_REPEAT_CAP=4). A team playing the same weak opponent 8 times only counts 4 toward SOS.
+- **Symmetric trim:** Trim bottom 25% and top 15% of opponents by rating before computing mean SOS. Prevents outlier opponents from distorting the average.
+
+With Glicko-2 ratings on an absolute scale, trimming is simpler than v53e's percentile-based approach — just sort opponents by mu and trim.
+
+## SCF: Regional Bubble Detection
+
+Regional bubble inflation is a graph topology problem that Glicko-2 does not solve. Three teams in Idaho playing only each other will inflate each other's ratings through circular wins.
+
+**Port the SCF (Schedule Connectivity Factor) logic from v53e:**
+- Detect connected components in the game graph
+- Compute bridge games (cross-component games that connect isolated clusters)
+- Dampen ratings for teams in isolated components with few bridge games
+- Track `unique_opp_states` to detect regional bubbles
+
+**Output columns:** `scf`, `bridge_games`, `is_isolated`, `unique_opp_states`, `quality_boosted` — same as v53e, computed on Glicko-2 ratings instead of base_strength_map.
+
+**PageRank dampening:** Apply the same PageRank-style dampening to Glicko-2 SOS values for teams in small components. This reduces the SOS credit for playing within a closed cluster.
 
 ## ML Layer Integration
 
@@ -174,6 +254,12 @@ Default alpha = 0.08 (configurable).
 - Recency-weighted residual trend (increasing or decreasing?)
 - Opponent rating variance (performs differently against strong vs weak?)
 - Win streak / form indicators
+
+### Feature Compatibility
+
+The current Layer 13 uses v53e features (team_power, opp_power, power_diff, age_gap, cross_gender). To preserve learned relationships, map Glicko-2 mu to 0-1 power score first (via sigmoid z-score), then use the same feature names. This avoids a cold-start problem where the ML model needs to relearn from scratch.
+
+Alpha = 0.08 was tuned for v53e residuals. Re-tune on Glicko-2 residuals after the first production run — the residual scale may differ.
 
 ### Retraining
 
@@ -203,7 +289,9 @@ No frontend changes required at launch — this is the data layer for future UI 
 
 ## Output Contract
 
-The new engine maps to the exact same `rankings_full` columns:
+The new engine maps to the exact same `rankings_full` columns. Every column is accounted for:
+
+### Core ranking columns (computed by new engine)
 
 | Column | Source in New Engine |
 |--------|---------------------|
@@ -214,12 +302,94 @@ The new engine maps to the exact same `rankings_full` columns:
 | sos | Average opponent Glicko-2 mu (absolute scale) |
 | national_rank | Rank by Glicko-2 mu within cohort |
 | state_rank | Rank by Glicko-2 mu within cohort + state |
+| global_rank | Rank by Glicko-2 mu across all cohorts |
 | games_played | Count of games in 30-game window |
 | wins/losses/draws | From game results |
-| provisional_mult | Derived from sigma: high uncertainty → lower mult |
+| win_percentage | wins / games_played |
+| goals_for / goals_against | Sum from game results |
+| provisional_mult | Derived from sigma (see formula below) |
 | powerscore_ml | powerscore_adj + alpha * ml_norm |
 | status | Active if game in last 180 days, else Inactive |
 | power_score_final | = powerscore_ml (or powerscore_adj if ML disabled) |
+| sample_flag | "LOW_SAMPLE" if gp < 6, else "OK" |
+| last_game | Most recent game date |
+| last_calculated | Timestamp of ranking run |
+
+### Raw/intermediate columns (computed for diagnostics and display)
+
+| Column | Source |
+|--------|--------|
+| off_raw | offense_raw (pre-normalization residual) |
+| sad_raw | defense_raw as goals-against average (for backward compat) |
+| off_shrunk | = off_raw (no separate shrinkage — Glicko-2 sigma handles uncertainty) |
+| def_shrunk | = defense_raw |
+| sad_shrunk | = sad_raw |
+| abs_strength | Glicko-2 mu normalized to 0-1 (used by two-pass cross-age) |
+| power_presos | powerscore_adj before ML correction |
+| anchor | Bayesian anchor (0.5 — cohort midpoint) |
+| powerscore_core | = powerscore_adj (no separate core vs adj in Glicko-2) |
+
+### SCF/bubble columns (ported from v53e)
+
+| Column | Source |
+|--------|--------|
+| scf | Schedule Connectivity Factor from bubble detection |
+| bridge_games | Count of cross-component games |
+| is_isolated | Boolean: team in small disconnected component |
+| unique_opp_states | Count of unique states among opponents |
+| quality_boosted | Boolean: quality override applied |
+
+### SOS detail columns
+
+| Column | Source |
+|--------|--------|
+| sos_raw | = sos (average opponent Glicko-2 mu) |
+| sos_norm_national | sos_norm (same — already national scope) |
+| sos_norm_state | SOS sigmoid z-score within state subset |
+| sos_rank_national | Rank by sos within cohort |
+| sos_rank_state | Rank by sos within cohort + state |
+| strength_of_schedule | = sos (alias) |
+
+### ML columns
+
+| Column | Source |
+|--------|--------|
+| ml_overperf | ML adjustment value per team |
+| ml_norm | ML adjustment normalized within cohort |
+| powerscore_ml | powerscore_adj + alpha * ml_norm |
+| rank_in_cohort_ml | Rank by powerscore_ml |
+| perf_raw | Game residuals (actual - expected margin) |
+| perf_centered | perf_raw centered within cohort |
+
+### Computed downstream (not by engine)
+
+| Column | Source |
+|--------|--------|
+| rank_change_7d | Computed by comparing to ranking_history |
+| rank_change_30d | Same |
+| rank_change_state_7d | Same |
+| rank_change_state_30d | Same |
+| national_power_score | = power_score_final (alias) |
+| global_power_score | = power_score_final (alias) |
+| power_score_true | = power_score_final (alias) |
+| games_last_180_days | Count from game dates |
+
+### Provisional Multiplier Formula
+
+Derived from Glicko-2 sigma (uncertainty):
+
+```
+provisional_mult = clip(1.0 - (sigma / INITIAL_SIGMA)^2, 0.0, 1.0)
+```
+
+Where INITIAL_SIGMA = 350. Examples:
+- New team (sigma=350): mult = 0.00 (fully dampened)
+- 3 games (sigma~250): mult ≈ 0.49
+- 6 games (sigma~180): mult ≈ 0.74
+- 15 games (sigma~100): mult ≈ 0.92
+- 30 games (sigma~60): mult ≈ 0.97
+
+This naturally replaces v53e's hard-coded GP thresholds with a continuous function driven by actual rating confidence.
 
 ### Wiring Change
 
@@ -235,6 +405,16 @@ from src.etl.glicko_engine import compute_rankings_v2
 ### Rollback
 
 Change the import back. v53e.py is untouched.
+
+## Performance
+
+v53e processes ~500K game rows in a ~2hr window. The Glicko-2 engine adds convergence iterations (3-5x) and a second pass (2x), for roughly 6-10x more row-passes.
+
+**Mitigations:**
+- Vectorize Glicko-2 updates with numpy (batch all teams simultaneously, not per-team loops)
+- Pass 2 may need only 1-2 refinement iterations (not full convergence) since cross-age games are a small fraction
+- Per-cohort processing is embarrassingly parallel — can use multiprocessing if needed
+- Benchmark on production data before go-live; if >4hr, reduce convergence iterations with empirical justification
 
 ## What Stays Untouched
 
