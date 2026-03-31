@@ -71,7 +71,7 @@ class V53EConfig:
     # Teams with many mandatory league games against weak opponents get penalized under
     # a pure weighted mean. Trimming reduces that dilution while protecting small samples.
     SOS_TRIM_BOTTOM_PCT: float = 0.25  # Fraction of weakest opponents to trim (0.0 = disabled)
-    SOS_TRIM_MIN_GAMES: int = 8  # Don't trim teams with fewer games than this
+    SOS_TRIM_MIN_GAMES: int = 6  # Aligned with Active eligibility (MIN_GAMES_PROVISIONAL)
     SOS_TRIM_MAX_GAMES: int = 6  # Cap: never trim more than this many games per team
     SOS_TRIM_MODE: str = "soft"  # "hard" = zero weight, "soft" = reduce weight
     SOS_TRIM_SOFT_WEIGHT: float = 0.15  # In soft mode, trimmed games keep this fraction of original weight
@@ -104,7 +104,7 @@ class V53EConfig:
     # NOTE: Only teams with GP >= MIN_GAMES_FOR_TOP_SOS participate in both the
     # correlation measurement and OLS fit, to avoid measuring artificial correlation
     # introduced by low-sample shrinkage (which pulls GP < 10 teams toward 0.35).
-    GP_SOS_DECORRELATION_ENABLED: bool = True
+    GP_SOS_DECORRELATION_ENABLED: bool = False  # Disabled: clip artifact created ceiling ties; re-enable after rescale fix
     GP_SOS_DECORRELATION_THRESHOLD: float = (
         0.15  # Correlation threshold to trigger (above 0.10 guardrail, conservative)
     )
