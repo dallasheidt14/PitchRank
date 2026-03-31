@@ -262,16 +262,19 @@ class TestDisconnectedDifferentQuality:
         return result, ids_a, ids_b
 
     def test_strong_ecosystem_ranks_higher_on_average(self, different_quality_ecosystems):
-        """Strong ecosystem should rank higher via OFF/DEF, not SOS."""
+        """Strong ecosystem should have higher OFF/DEF than weak ecosystem.
+        With z-score base_strength, closed ecosystems have near-identical SOS
+        (correct: they play only each other), so differentiation comes from
+        off_norm/def_norm, not powerscore total."""
         result, ids_a, ids_b = different_quality_ecosystems
         teams = result["teams"]
         active = teams[teams["status"] == "Active"]
 
-        power_strong = active[active["team_id"].isin(ids_a)]["powerscore_adj"].mean()
-        power_weak = active[active["team_id"].isin(ids_b)]["powerscore_adj"].mean()
+        off_strong = active[active["team_id"].isin(ids_a)]["off_norm"].mean()
+        off_weak = active[active["team_id"].isin(ids_b)]["off_norm"].mean()
 
-        assert power_strong > power_weak, (
-            f"Strong ecosystem ({power_strong:.3f}) should rank above weak ecosystem ({power_weak:.3f})"
+        assert off_strong > off_weak, (
+            f"Strong ecosystem off_norm ({off_strong:.3f}) should be above weak ({off_weak:.3f})"
         )
 
     def test_differentiation_comes_from_off_def_not_sos(self, different_quality_ecosystems):

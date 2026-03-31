@@ -71,6 +71,7 @@ class V53EConfig:
     # Teams with many mandatory league games against weak opponents get penalized under
     # a pure weighted mean. Trimming reduces that dilution while protecting small samples.
     SOS_TRIM_BOTTOM_PCT: float = 0.25  # Fraction of weakest opponents to trim (0.0 = disabled)
+    SOS_TRIM_TOP_PCT: float = 0.15  # Fraction of strongest opponents to trim (symmetric correction)
     SOS_TRIM_MIN_GAMES: int = 6  # Aligned with Active eligibility (MIN_GAMES_PROVISIONAL)
     SOS_TRIM_MAX_GAMES: int = 6  # Cap: never trim more than this many games per team
     SOS_TRIM_MODE: str = "soft"  # "hard" = zero weight, "soft" = reduce weight
@@ -1309,38 +1310,47 @@ def compute_rankings(
         return float(np.average(df[col].values, weights=w))
 
     def _apply_sos_trim(g_sos: pd.DataFrame, strength_col: str) -> int:
-        """Downweight each team's weakest opponents for SOS calculation.
+        """Downweight each team's weakest AND strongest opponents for SOS calculation.
 
+        Symmetric trim: bottom SOS_TRIM_BOTTOM_PCT + top SOS_TRIM_TOP_PCT.
         Supports hard mode (zero weight) and soft mode (reduced weight).
         Respects SOS_TRIM_MIN_GAMES and SOS_TRIM_MAX_GAMES guards.
         Returns the number of games trimmed.
         """
-        if cfg.SOS_TRIM_BOTTOM_PCT <= 0:
+        if cfg.SOS_TRIM_BOTTOM_PCT <= 0 and cfg.SOS_TRIM_TOP_PCT <= 0:
             return 0
 
         team_counts = g_sos.groupby("team_id")[strength_col].transform("count")
-        # Skip teams below minimum games threshold
         eligible = team_counts >= cfg.SOS_TRIM_MIN_GAMES
 
-        # Rank opponents by strength ascending within each team (weakest = rank 1)
-        g_sos["_str_rank"] = g_sos.groupby("team_id")[strength_col].rank(method="first", ascending=True)
+        # Rank ascending (weakest=1) and descending (strongest=1)
+        g_sos["_str_rank_asc"] = g_sos.groupby("team_id")[strength_col].rank(method="first", ascending=True)
+        g_sos["_str_rank_desc"] = g_sos.groupby("team_id")[strength_col].rank(method="first", ascending=False)
 
-        # Compute per-team trim count: min(floor(count * pct), max_games)
-        n_trim_raw = np.floor(team_counts * cfg.SOS_TRIM_BOTTOM_PCT).astype(int)
-        n_trim = np.minimum(n_trim_raw, cfg.SOS_TRIM_MAX_GAMES)
+        # Bottom trim
+        n_trim_bottom = np.minimum(
+            np.floor(team_counts * cfg.SOS_TRIM_BOTTOM_PCT).astype(int),
+            cfg.SOS_TRIM_MAX_GAMES,
+        )
+        bottom_mask = eligible & (g_sos["_str_rank_asc"] <= n_trim_bottom)
 
-        # Build trim mask: eligible teams, rank within trim cutoff
-        trim_mask = eligible & (g_sos["_str_rank"] <= n_trim)
+        # Top trim
+        n_trim_top = np.minimum(
+            np.floor(team_counts * cfg.SOS_TRIM_TOP_PCT).astype(int),
+            cfg.SOS_TRIM_MAX_GAMES,
+        )
+        top_mask = eligible & (g_sos["_str_rank_desc"] <= n_trim_top)
+
+        trim_mask = bottom_mask | top_mask
         n_trimmed = int(trim_mask.sum())
 
         if n_trimmed > 0:
             if cfg.SOS_TRIM_MODE == "hard":
                 g_sos.loc[trim_mask, "w_sos"] = 0.0
             else:
-                # Soft mode: reduce weight to a fraction of original
                 g_sos.loc[trim_mask, "w_sos"] *= cfg.SOS_TRIM_SOFT_WEIGHT
 
-        g_sos.drop(columns=["_str_rank"], inplace=True)
+        g_sos.drop(columns=["_str_rank_asc", "_str_rank_desc"], inplace=True)
         return n_trimmed
 
     # Create lookup maps for base strength calculation (OFF/DEF only, no SOS component)
@@ -1358,14 +1368,35 @@ def compute_rankings(
     # Map team_id to cohort for quick lookup
     team_cohort_map = dict(zip(team["team_id"], list(zip(team["age"], team["gender"]))))
 
-    # Calculate BASE strength for each team (OFF/DEF only, true competitive strength)
-    # This represents opponent quality independent of their schedule (no anchor scaling).
-    # NOTE: Opponent-strength shrinkage was REMOVED - it injected games-played bias into SOS.
-    # Teams playing opponents with more games got artificially higher SOS.
+    # Calculate BASE strength for each team using z-score + sigmoid normalization.
+    # WHY NOT PERCENTILE: percentile normalization (used for off_norm/def_norm) spreads
+    # values uniformly across [0, 1], making the top team in a weak league look as strong
+    # as the top team in an elite league. For SOS purposes, we need ABSOLUTE quality —
+    # a mediocre team should have mediocre base_strength regardless of their cohort rank.
+    #
+    # Z-score + sigmoid preserves absolute gaps: a team 2 std above mean gets ~0.88,
+    # while a team 0.3 std above mean gets ~0.57, even if both are at p60 in percentile.
+    # Per-cohort z-scoring handles scale differences between age groups (U10 vs U17).
     base_strength_map = {}
-    for tid in team["team_id"]:
-        base_power = 0.5 * team_off_norm_map.get(tid, 0.5) + 0.5 * team_def_norm_map.get(tid, 0.5)
-        base_strength_map[tid] = float(np.clip(base_power, 0.0, 1.0))
+    for (age, gender), grp in team.groupby(["age", "gender"]):
+        off_vals = grp["off_shrunk"].values
+        def_vals = grp["def_shrunk"].values
+        tids = grp["team_id"].values
+
+        # Z-score each independently within cohort (handles different scales)
+        off_std = max(off_vals.std(ddof=0), 1e-6)
+        def_std = max(def_vals.std(ddof=0), 1e-6)
+        off_z = (off_vals - off_vals.mean()) / off_std
+        def_z = (def_vals - def_vals.mean()) / def_std
+
+        # Average z-scores (both on same scale now: mean=0, std=1)
+        combined_z = 0.5 * off_z + 0.5 * def_z
+
+        # Sigmoid to bound [0, 1] — preserves absolute gaps
+        base_strength_vals = 1.0 / (1.0 + np.exp(-combined_z))
+
+        for tid, bs in zip(tids, base_strength_vals):
+            base_strength_map[tid] = float(max(bs, cfg.UNRANKED_SOS_BASE))
 
     # Use base strength for initial SOS calculation (Pass 1)
     # This represents how good opponents are at OFF/DEF
