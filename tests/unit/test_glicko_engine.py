@@ -2,16 +2,21 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
+import pandas as pd
 import pytest
 
 from src.etl.glicko_config import GlickoConfig
 from src.etl.glicko_engine import (
     _from_glicko2_scale,
     _to_glicko2_scale,
+    clip_outlier_goals,
+    compute_recency_weights,
     game_outcome,
     glicko2_E,
     glicko2_g,
     glicko2_update,
+    select_games,
 )
 
 
@@ -140,3 +145,107 @@ class TestGameOutcome:
 
     def test_zero_zero_draw(self):
         assert game_outcome(0, 0, 6) == 0.5
+
+
+class TestClipOutlierGoals:
+    def test_extreme_score_clipped(self):
+        """A 15-0 game should get GF clipped."""
+        n = 20
+        games = pd.DataFrame({
+            'gf': [2, 1, 3, 2, 1, 2, 3, 1, 2, 2, 1, 3, 2, 1, 2, 3, 1, 2, 2, 15],
+            'ga': [1, 2, 0, 1, 1, 2, 1, 0, 1, 2, 1, 0, 1, 2, 1, 0, 1, 2, 1, 0],
+            'age': ['U15'] * n,
+            'gender': ['M'] * n,
+        })
+        result = clip_outlier_goals(games, zscore_threshold=2.5)
+        assert result['gf'].iloc[3] < 15  # 15 should be clipped
+
+    def test_normal_scores_unchanged(self):
+        """Normal scores within 2.5 sigma should not change."""
+        games = pd.DataFrame({
+            'gf': [2, 1, 3, 2, 1, 2],
+            'ga': [1, 2, 0, 1, 1, 3],
+            'age': ['U15'] * 6,
+            'gender': ['M'] * 6,
+        })
+        result = clip_outlier_goals(games, zscore_threshold=2.5)
+        pd.testing.assert_frame_equal(result[['gf', 'ga']], games[['gf', 'ga']])
+
+    def test_does_not_modify_original(self):
+        """Should return a copy, not modify in place."""
+        games = pd.DataFrame({
+            'gf': [2, 15], 'ga': [1, 0],
+            'age': ['U15', 'U15'], 'gender': ['M', 'M'],
+        })
+        original_gf = games['gf'].iloc[1]
+        clip_outlier_goals(games, zscore_threshold=2.5)
+        assert games['gf'].iloc[1] == original_gf
+
+
+class TestSelectGames:
+    def test_max_games_limit(self):
+        """Should return at most max_games games."""
+        today = pd.Timestamp('2026-03-31')
+        dates = pd.date_range(end=today, periods=40, freq='7D')
+        games = pd.DataFrame({
+            'team_id': ['team_a'] * 40,
+            'date': dates,
+            'gf': [2] * 40,
+            'ga': [1] * 40,
+        })
+        result = select_games(games, 'team_a', max_games=30, window_days=365, today=today)
+        assert len(result) == 30
+
+    def test_window_filter(self):
+        """Should exclude games outside the window."""
+        today = pd.Timestamp('2026-03-31')
+        games = pd.DataFrame({
+            'team_id': ['team_a'] * 3,
+            'date': [
+                pd.Timestamp('2026-03-01'),  # within window
+                pd.Timestamp('2025-06-01'),  # within window
+                pd.Timestamp('2024-01-01'),  # outside 365-day window
+            ],
+            'gf': [2, 1, 3],
+            'ga': [1, 2, 0],
+        })
+        result = select_games(games, 'team_a', max_games=30, window_days=365, today=today)
+        assert len(result) == 2
+
+    def test_most_recent_first(self):
+        """Games should be sorted most recent first."""
+        today = pd.Timestamp('2026-03-31')
+        games = pd.DataFrame({
+            'team_id': ['team_a'] * 3,
+            'date': [pd.Timestamp('2026-01-01'), pd.Timestamp('2026-03-01'), pd.Timestamp('2026-02-01')],
+            'gf': [1, 2, 3], 'ga': [0, 0, 0],
+        })
+        result = select_games(games, 'team_a', max_games=30, window_days=365, today=today)
+        assert result.iloc[0]['gf'] == 2  # March game first
+
+
+class TestRecencyWeights:
+    def test_most_recent_highest_weight(self):
+        """Most recent game should have the highest weight."""
+        today = pd.Timestamp('2026-03-31')
+        dates = pd.Series([
+            pd.Timestamp('2026-03-31'),  # today
+            pd.Timestamp('2026-01-01'),  # 3 months ago
+            pd.Timestamp('2025-06-01'),  # 10 months ago
+        ])
+        weights = compute_recency_weights(dates, today, lambda_=1.0)
+        assert weights[0] > weights[1] > weights[2]
+
+    def test_weights_sum_to_one(self):
+        """Weights should be normalized to sum to 1."""
+        today = pd.Timestamp('2026-03-31')
+        dates = pd.Series([pd.Timestamp('2026-03-01'), pd.Timestamp('2025-09-01')])
+        weights = compute_recency_weights(dates, today, lambda_=1.0)
+        assert abs(weights.sum() - 1.0) < 0.001
+
+    def test_single_game_weight_one(self):
+        """Single game should have weight 1.0."""
+        today = pd.Timestamp('2026-03-31')
+        dates = pd.Series([pd.Timestamp('2026-03-01')])
+        weights = compute_recency_weights(dates, today, lambda_=1.0)
+        assert abs(weights[0] - 1.0) < 0.001

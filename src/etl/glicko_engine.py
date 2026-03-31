@@ -4,6 +4,9 @@ import logging
 import math
 from typing import List, Tuple
 
+import numpy as np
+import pandas as pd
+
 logger = logging.getLogger(__name__)
 
 
@@ -232,3 +235,77 @@ def game_outcome(gf: int, ga: int, max_gd: int) -> float:
         return 0.5 + margin
     else:
         return 0.5 - margin
+
+
+# =========================================================
+# Game preprocessing
+# =========================================================
+def clip_outlier_goals(
+    games_df: pd.DataFrame, zscore_threshold: float = 2.5
+) -> pd.DataFrame:
+    """Clip GF/GA per (age, gender) cohort to mean +/- zscore_threshold * std.
+
+    Args:
+        games_df: DataFrame with columns gf, ga, age, gender.
+        zscore_threshold: Number of standard deviations for the clip boundary.
+
+    Returns:
+        A new DataFrame with gf and ga clipped and rounded to integers.
+    """
+    df = games_df.copy()
+
+    for _, idx in df.groupby(["age", "gender"]).groups.items():
+        group = df.loc[idx]
+        for col in ("gf", "ga"):
+            mean = group[col].mean()
+            std = group[col].std()
+            if std == 0 or pd.isna(std):
+                continue
+            lo = mean - zscore_threshold * std
+            hi = mean + zscore_threshold * std
+            df.loc[idx, col] = group[col].clip(lower=lo, upper=hi).round().astype(int)
+
+    return df
+
+
+def select_games(
+    games_df: pd.DataFrame,
+    team_id: str,
+    max_games: int,
+    window_days: int,
+    today: pd.Timestamp,
+) -> pd.DataFrame:
+    """Select the most recent *max_games* games within *window_days* for a team.
+
+    Args:
+        games_df: DataFrame with columns team_id and date.
+        team_id: The team to filter for.
+        max_games: Maximum number of games to return.
+        window_days: Only include games within this many days of *today*.
+        today: Reference date for the window and recency sort.
+
+    Returns:
+        Filtered DataFrame sorted by date descending, at most *max_games* rows.
+    """
+    cutoff = today - pd.Timedelta(days=window_days)
+    mask = (games_df["team_id"] == team_id) & (games_df["date"] >= cutoff)
+    filtered = games_df.loc[mask].sort_values("date", ascending=False)
+    return filtered.head(max_games)
+
+
+def compute_recency_weights(
+    game_dates: pd.Series, today: pd.Timestamp, lambda_: float = 1.0
+) -> np.ndarray:
+    """Compute exponential-decay recency weights.
+
+    Args:
+        game_dates: Series of game dates.
+        today: Reference date.
+        lambda_: Decay rate (higher = faster decay).
+
+    Returns:
+        Numpy array of weights that sum to 1.0.
+    """
+    days_ago = (today - game_dates).dt.days
+    weights = np.exp(-lambda_ * days_ago / 365.0)
+    return weights / weights.sum()
