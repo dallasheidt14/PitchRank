@@ -82,7 +82,7 @@ class V53EConfig:
     # Power-SOS Co-Calculation: Use opponent's FULL power score (including their SOS) for SOS calculation
     # This ensures that playing teams with tough schedules properly boosts your SOS
     # Set to 0 to disable (use old off/def-only approach), 2-3 iterations recommended
-    SOS_POWER_ITERATIONS: int = 3  # Number of power-SOS refinement cycles (0 = disabled)
+    SOS_POWER_ITERATIONS: int = 0  # Disabled: circular feedback inflates dense mediocre leagues. Re-enable with quality-weighted blending.
     SOS_POWER_DAMPING: float = 0.5  # Damping factor: weight on new vs previous SOS (lower = more conservative)
     SOS_POWER_MAX_BOOST: float = 0.03  # Max SOS increase from iteration vs pre-iteration baseline
 
