@@ -1,29 +1,8 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/supabase/admin';
 import { getSearchConsoleClient } from '@/lib/google-auth';
+import { getDateRange } from '@/lib/analytics-utils';
 import type { SearchConsoleData, SearchConsoleRow, SearchConsolePageRow } from '@/types/analytics';
-
-function getDateRange(range: string): { startDate: string; endDate: string } {
-  const end = new Date();
-  end.setDate(end.getDate() - 1); // GSC data has ~2 day lag
-  const start = new Date(end);
-
-  switch (range) {
-    case '7d':
-      start.setDate(start.getDate() - 7);
-      break;
-    case '90d':
-      start.setDate(start.getDate() - 90);
-      break;
-    default:
-      start.setDate(start.getDate() - 28);
-  }
-
-  return {
-    startDate: start.toISOString().split('T')[0],
-    endDate: end.toISOString().split('T')[0],
-  };
-}
 
 export async function GET(req: Request) {
   const auth = await requireAdmin();

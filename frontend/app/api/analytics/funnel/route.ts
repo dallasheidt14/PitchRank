@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/supabase/admin';
 import { getAnalyticsDataClient } from '@/lib/google-auth';
+import { getDateRange } from '@/lib/analytics-utils';
 import type { FunnelData, FunnelStep, ConversionRates } from '@/types/analytics';
 
 const FUNNEL_EVENTS = [
@@ -9,28 +10,6 @@ const FUNNEL_EVENTS = [
   { event: 'checkout_initiated', label: 'Checkout Started' },
   { event: 'subscription_completed', label: 'Subscribed' },
 ] as const;
-
-function getDateRange(range: string): { startDate: string; endDate: string } {
-  const end = new Date();
-  end.setDate(end.getDate() - 1);
-  const start = new Date(end);
-
-  switch (range) {
-    case '7d':
-      start.setDate(start.getDate() - 7);
-      break;
-    case '90d':
-      start.setDate(start.getDate() - 90);
-      break;
-    default:
-      start.setDate(start.getDate() - 28);
-  }
-
-  return {
-    startDate: start.toISOString().split('T')[0],
-    endDate: end.toISOString().split('T')[0],
-  };
-}
 
 export async function GET(req: Request) {
   const auth = await requireAdmin();
