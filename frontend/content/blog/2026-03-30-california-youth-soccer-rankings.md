@@ -1,7 +1,7 @@
 ---
 title: "California Youth Soccer Rankings: This Week's Top Movers"
 slug: "2026-03-30-california-youth-soccer-rankings"
-excerpt: "This week's CA youth soccer rankings update. See which CA teams moved the most across 75,085 ranked teams."
+excerpt: "This week's CA youth soccer rankings update. See which CA teams moved the most across 74,761 ranked teams."
 author: "PitchRank Team"
 date: "2026-03-30"
 readingTime: "1 min read"
@@ -13,27 +13,27 @@ image: "/api/infographic/movers?platform=twitter"
 # California Youth Soccer Rankings: This Week's Top Movers
 
 Every Monday, PitchRank updates california youth soccer rankings across all leagues.
-We track 75,085 teams nationally, and here's what moved in CA this week.
+We track 74,761 teams nationally, and here's what moved in CA this week.
 
 ## Top Movers in CA This Week
 
 | Rank | Team | State | Change |
 |------|------|-------|--------|
-| #403 | Lubbock Soccer - Sharks | TX | +4340 |
-| #1072 | Lubbock Soccer - Nitros | TX | +3799 |
-| #1677 | All In Futbol Club Tennessee - All-In FC TN 2013 NPL | TN | +3718 |
-| #1218 | PRE-ACADEMY II 2014 | OH | +3652 |
-| #1969 | Lubbock Soccer - LBK Demons | TX | +3617 |
+| #581 | Lubbock Soccer - Sharks | TX | +4162 |
+| #1276 | Lubbock Soccer - Nitros | TX | +3595 |
+| #1931 | All In Futbol Club Tennessee - All-In FC TN 2013 NPL | TN | +3464 |
+| #1697 | Impact SC 2013 BA1 | IN | +3302 |
+| #2231 | Wake FC - 2013 WFC North NPL | NC | +3290 |
 
 ## Biggest Drops in CA
 
 | Rank | Team | State | Change |
 |------|------|-------|--------|
-| #7599 | El Paso Premier League - Deportivo Juárez 2014 | TX | -5206 |
-| #6594 | LYONS FC 2013 - Gold Team | TX | -4922 |
-| #6772 | Greenbush SC 2015 Green | NY | -4811 |
-| #6597 | FC Columbus Brazil | OH | -4801 |
-| #6235 | Westfield SA Tigres | NJ | -4715 |
+| #6846 | Greenbush SC 2015 Green | NY | -4885 |
+| #6336 | Mustard | CO | -4764 |
+| #6698 | South Plainfield Soccer Club - S.P. United | NJ | -4764 |
+| #5538 | Imperial SC STXCL EC Black 2015 | TX | -4740 |
+| #6524 | FC Columbus Brazil | OH | -4728 |
 
 ## How CA Compares Nationally
 
