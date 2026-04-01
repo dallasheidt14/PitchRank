@@ -978,9 +978,9 @@ def compute_rankings_v2(
     team_df["perf_raw"] = 0.0
     team_df["perf_centered"] = 0.0
 
-    # ML columns (placeholder -- Layer 13 fills these)
-    team_df["ml_overperf"] = None
-    team_df["ml_norm"] = None
+    # ML columns (placeholders — Layer 13 overwrites ml_overperf via merge)
+    team_df["ml_overperf"] = 0.0
+    team_df["ml_norm"] = 0.0
     team_df["powerscore_ml"] = team_df["powerscore_adj"]
     team_df["rank_in_cohort_ml"] = team_df["rank_in_cohort"]
 

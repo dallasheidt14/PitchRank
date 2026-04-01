@@ -380,6 +380,9 @@ async def apply_predictive_adjustment(
     team_resid = _aggregate_team_residuals(feats, cfg)
 
     # 5) Merge & normalize within cohort
+    # Drop pre-existing ml_overperf to avoid suffix collision (_x/_y) on merge
+    if "ml_overperf" in out.columns:
+        out = out.drop(columns=["ml_overperf"])
     out = out.merge(team_resid, on=["team_id", "age", "gender"], how="left")
     out["ml_overperf"] = (
         out["ml_overperf"].fillna(0.0).clip(lower=-cfg.residual_clip_goals, upper=cfg.residual_clip_goals)
