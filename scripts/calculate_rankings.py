@@ -613,7 +613,7 @@ async def main():
             console.print(f"[dim]✓ power_score_final exists in teams_df with {teams_df['power_score_final'].notna().sum()} non-null values[/dim]")
             if 'age_group' in teams_df.columns:
                 # Extract age and check max per age
-                age_nums = teams_df['age_group'].astype(str).str.extract(r'(\d+)').astype(int)
+                age_nums = teams_df['age_group'].astype(str).str.extract(r'(\d+)')[0].astype(int)
                 max_by_age = teams_df.groupby(age_nums)['power_score_final'].max()
                 console.print(f"[dim]Max power_score_final by age:[/dim]")
                 for age, max_ps in max_by_age.items():
