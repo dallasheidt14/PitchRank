@@ -1,3 +1,4 @@
+import 'server-only';
 import { google } from 'googleapis';
 import type { JWT } from 'google-auth-library';
 

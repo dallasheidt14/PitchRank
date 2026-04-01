@@ -529,6 +529,12 @@ async def main():
         action='store_true',
         help='Enable verbose diagnostic output (PowerScore distribution, DIAG blocks)'
     )
+    parser.add_argument(
+        '--engine',
+        choices=['v53e', 'glicko'],
+        default='glicko',
+        help='Ranking engine to use (default: glicko)'
+    )
 
     args = parser.parse_args()
     
@@ -561,7 +567,8 @@ async def main():
 
     # Run rankings calculation
     try:
-        mode_text = "ML-Enhanced" if args.ml else "v53e Only"
+        engine_label = "Glicko-2" if args.engine == "glicko" else "v53e"
+        mode_text = f"ML-Enhanced ({engine_label})" if args.ml else f"{engine_label} Only"
         console.print(f"\n[bold green]Calculating {mode_text} Rankings[/bold green]")
         console.print(f"  Lookback days: {args.lookback_days}")
         if args.provider:
@@ -581,6 +588,7 @@ async def main():
                 force_rebuild=args.force_rebuild,
                 merge_resolver=merge_resolver,
                 timing_report=timing_report,
+                use_glicko=(args.engine == "glicko"),
             )
         else:
             result = await compute_rankings_v53e_only(

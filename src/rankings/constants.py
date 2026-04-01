@@ -17,6 +17,19 @@ AGE_TO_ANCHOR: dict[int, float] = {
     19: 1.000,  # U19 encompasses birth years 2007+2008 (formerly U18+U19)
 }
 
+# Calibrated age anchors for Glicko-2 engine (empirical, from cross-age competition data)
+MALE_AGE_ANCHORS: dict[int, float] = {
+    10: 0.783, 11: 0.793, 12: 0.824, 13: 0.878,
+    14: 0.928, 15: 0.935, 16: 0.962, 17: 0.965,
+    18: 0.985, 19: 1.000,
+}
+
+FEMALE_AGE_ANCHORS: dict[int, float] = {
+    10: 0.792, 11: 0.828, 12: 0.885, 13: 0.914,
+    14: 0.957, 15: 0.962, 16: 0.984, 17: 0.996,
+    18: 0.998, 19: 1.000,
+}
+
 # SOS-conditioned ML scaling thresholds
 # Below LOW, ML has no authority; above HIGH, ML has full authority
 SOS_ML_THRESHOLD_LOW = 0.45

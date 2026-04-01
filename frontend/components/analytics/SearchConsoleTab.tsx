@@ -2,6 +2,7 @@
 
 import { useSearchConsole } from '@/hooks/useAnalytics';
 import { formatPercent, formatPosition } from '@/lib/analytics-utils';
+import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { MetricCard } from './MetricCard';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -21,10 +22,10 @@ interface SearchConsoleTabProps {
 }
 
 export function SearchConsoleTab({ range }: SearchConsoleTabProps) {
-  const { data, isLoading, error } = useSearchConsole(range);
+  const { data, isLoading, error, refetch } = useSearchConsole(range);
 
   if (error) {
-    return <p className="text-red-400">Failed to load Search Console data: {error.message}</p>;
+    return <ErrorDisplay error={error} retry={refetch} />;
   }
 
   return (
