@@ -116,7 +116,7 @@ jobs:
           echo "Python version: $(python --version)"
           echo "Current directory: $(pwd)"
           echo "SUPABASE_URL configured: $([[ -n "$SUPABASE_URL" ]] && echo 'Yes' || echo 'No')"
-          python scripts/calculate_rankings.py --ml --force-rebuild || {
+          python scripts/calculate_rankings.py --ml --force-rebuild --engine glicko || {
             echo "❌ Rankings calculation failed with exit code $?"
             exit 1
           }
