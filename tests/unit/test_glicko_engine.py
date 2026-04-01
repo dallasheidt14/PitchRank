@@ -13,10 +13,12 @@ from src.etl.glicko_engine import (
     clip_outlier_goals,
     compute_recency_weights,
     game_outcome,
+    get_anchor,
     glicko2_E,
     glicko2_g,
     glicko2_update,
     run_glicko2_cohort,
+    scale_cross_age_rating,
     select_games,
 )
 
@@ -339,3 +341,55 @@ class TestRunGlicko2Cohort:
         assert a_row['draws'] == 1
         assert a_row['goals_for'] == 4  # 3 + 1 + 0
         assert a_row['goals_against'] == 4  # 1 + 1 + 2
+
+
+class TestCrossAgeScaling:
+    def test_same_age_no_scaling(self):
+        """Same age and gender should return opp_mu unchanged."""
+        cfg = GlickoConfig()
+        result = scale_cross_age_rating(1500.0, 15, 'M', 15, 'M', cfg)
+        assert result == 1500.0
+
+    def test_u14m_vs_u19m(self):
+        """U14M team facing U19M opponent: opponent gets boosted."""
+        cfg = GlickoConfig()
+        # opp_anchor(U19M)=1.000, team_anchor(U14M)=0.928
+        # scaled = 1500 + (1.000 - 0.928) * 400 = 1528.8
+        result = scale_cross_age_rating(1500.0, 19, 'M', 14, 'M', cfg)
+        assert abs(result - 1528.8) < 0.1
+
+    def test_u10f_vs_u19f(self):
+        """U10F team facing U19F opponent: large boost."""
+        cfg = GlickoConfig()
+        # opp_anchor(U19F)=1.000, team_anchor(U10F)=0.792
+        # scaled = 1500 + (1.000 - 0.792) * 400 = 1583.2
+        result = scale_cross_age_rating(1500.0, 19, 'F', 10, 'F', cfg)
+        assert abs(result - 1583.2) < 0.1
+
+    def test_older_team_facing_younger_opponent(self):
+        """U19M facing U14M: opponent gets reduced."""
+        cfg = GlickoConfig()
+        # opp_anchor(U14M)=0.928, team_anchor(U19M)=1.000
+        # scaled = 1500 + (0.928 - 1.000) * 400 = 1471.2
+        result = scale_cross_age_rating(1500.0, 14, 'M', 19, 'M', cfg)
+        assert abs(result - 1471.2) < 0.1
+
+    def test_average_team_stays_reasonable(self):
+        """Average-rated younger team shouldn't become 'terrible' after scaling."""
+        cfg = GlickoConfig()
+        # U10M (anchor=0.783) opponent rated 1500, seen by U19M (anchor=1.000)
+        result = scale_cross_age_rating(1500.0, 10, 'M', 19, 'M', cfg)
+        # scaled = 1500 + (0.783 - 1.000) * 400 = 1413.2
+        assert result > 1400  # Still a reasonable rating, not catastrophic
+        assert result < 1500  # But lower than their actual rating
+
+    def test_get_anchor_string_age(self):
+        """get_anchor should handle string ages like 'U15'."""
+        cfg = GlickoConfig()
+        assert get_anchor('U15', 'M', cfg) == cfg.MALE_ANCHORS[15]
+        assert get_anchor('u15', 'Female', cfg) == cfg.FEMALE_ANCHORS[15]
+
+    def test_get_anchor_unknown_age(self):
+        """Unknown age should return 1.0."""
+        cfg = GlickoConfig()
+        assert get_anchor(99, 'M', cfg) == 1.0

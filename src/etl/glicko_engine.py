@@ -314,6 +314,74 @@ def compute_recency_weights(
 
 
 # =========================================================
+# Cross-age scaling
+# =========================================================
+def get_anchor(age, gender: str, cfg: GlickoConfig) -> float:
+    """Look up the calibrated anchor for a given age and gender.
+
+    Args:
+        age: Age as an int (14) or string like 'U14' / 'u14'.
+        gender: Gender string — anything starting with 'M' (case-insensitive)
+                or equal to 'Male' is treated as male; all others as female.
+        cfg: GlickoConfig containing MALE_ANCHORS and FEMALE_ANCHORS.
+
+    Returns:
+        Anchor float from the config, or 1.0 for unknown ages.
+    """
+    # Normalise age to int
+    if isinstance(age, str):
+        age = int(age.lstrip('Uu'))
+
+    # Choose anchor dict by gender
+    if gender.upper().startswith('M'):
+        anchors = cfg.MALE_ANCHORS
+    else:
+        anchors = cfg.FEMALE_ANCHORS
+
+    return anchors.get(age, 1.0)
+
+
+def scale_cross_age_rating(
+    opp_mu: float,
+    opp_age,
+    opp_gender: str,
+    team_age,
+    team_gender: str,
+    cfg: GlickoConfig,
+) -> float:
+    """Apply additive cross-age scaling on the Glicko-2 scale.
+
+    Adjusts an opponent's effective rating based on the age/gender anchor
+    difference between the two cohorts.  A younger team facing an older
+    opponent sees that opponent as effectively stronger, and vice-versa.
+
+    Formula:
+        scaled_mu = opp_mu + (opp_anchor - team_anchor) * ANCHOR_SCALE_FACTOR
+
+    Example — U14M team (anchor=0.928) vs U19M opponent (anchor=1.000) rated 1500:
+        scaled = 1500 + (1.000 - 0.928) * 400 = 1528.8
+
+    Args:
+        opp_mu: Opponent's current Glicko-2 rating on the original scale.
+        opp_age: Opponent's age (int or string like 'U19').
+        opp_gender: Opponent's gender string.
+        team_age: This team's age (int or string like 'U14').
+        team_gender: This team's gender string.
+        cfg: GlickoConfig with MALE_ANCHORS, FEMALE_ANCHORS, ANCHOR_SCALE_FACTOR.
+
+    Returns:
+        Scaled opponent mu (float), unchanged when anchors are equal.
+    """
+    opp_anchor = get_anchor(opp_age, opp_gender, cfg)
+    team_anchor = get_anchor(team_age, team_gender, cfg)
+
+    if opp_anchor == team_anchor:
+        return opp_mu
+
+    return opp_mu + (opp_anchor - team_anchor) * cfg.ANCHOR_SCALE_FACTOR
+
+
+# =========================================================
 # Batch convergence engine
 # =========================================================
 def run_glicko2_cohort(
