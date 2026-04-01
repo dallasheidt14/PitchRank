@@ -217,13 +217,14 @@ def _extract_game_residuals(feats: pd.DataFrame, cfg: Layer13Config) -> pd.DataF
 
     # Warn if home perspective filter eliminates all rows (likely a merge resolution issue)
     if len(home_perspective) == 0 and len(feats) > 0:
-        match_count = (feats["team_id_str"] == feats["home_team_master_id_str"]).sum()
+        (feats["team_id_str"] == feats["home_team_master_id_str"]).sum()
         logger.warning(
             f"_extract_game_residuals: all {len(feats)} rows filtered out (0 home perspective matches). "
             f"This likely means home_team_master_id was not resolved through MergeResolver."
         )
         logger.debug(
-            f"  Sample team_id: {feats['team_id_str'].head(3).tolist()}, home_master: {feats['home_team_master_id_str'].head(3).tolist()}"
+            f"  Sample team_id: {feats['team_id_str'].head(3).tolist()}, "
+            f"home_master: {feats['home_team_master_id_str'].head(3).tolist()}"
         )
 
     if home_perspective.empty:
@@ -503,14 +504,16 @@ def _build_features(
     )
     f["power_diff"] = f["team_power"] - f["opp_power"]
 
-    # age gap
-    def _gap(a, b):
-        try:
-            return abs(int(float(a)) - int(float(b)))
-        except Exception:
-            return 0
-
-    f["age_gap"] = f.apply(lambda r: _gap(r[age_col], r[opp_age_col]), axis=1)
+    # age gap (vectorized)
+    team_age_num = (
+        pd.to_numeric(f[age_col].astype(str).str.extract(r"(\d+)", expand=False), errors="coerce")
+        .fillna(0).astype(int)
+    )
+    opp_age_num = (
+        pd.to_numeric(f[opp_age_col].astype(str).str.extract(r"(\d+)", expand=False), errors="coerce")
+        .fillna(0).astype(int)
+    )
+    f["age_gap"] = (team_age_num - opp_age_num).abs()
 
     # basic cross-gender flag
     f["cross_gender"] = (f[gender_col].astype(str).str.lower() != f[opp_gender_col].astype(str).str.lower()).astype(int)
@@ -597,29 +600,21 @@ def _aggregate_team_residuals(feats: pd.DataFrame, cfg: Layer13Config) -> pd.Dat
     age_col = "age" if "age" in df.columns else cfg.age_col
     gender_col = "gender" if "gender" in df.columns else cfg.gender_col
 
-    # Compute weighted average per group (avoiding deprecated .apply pattern)
-    def compute_group_wavg(group_df):
-        w = group_df["recency_w"].values
-        s = float(w.sum())
-        if s <= 0:
-            return 0.0
-        return float(np.average(group_df["residual"].values, weights=w))
-
-    # Use pd.concat + list comprehension (pandas 3.0 compat: groupby().apply() drops group keys)
-    parts = [
-        pd.DataFrame(
-            {
-                team_id_col: [grp[team_id_col].iloc[0]],
-                age_col: [grp[age_col].iloc[0]],
-                gender_col: [grp[gender_col].iloc[0]],
-                "ml_overperf": [compute_group_wavg(grp)],
-            }
-        )
-        for _, grp in df.groupby([team_id_col, age_col, gender_col])
-    ]
-    if not parts:
+    # Vectorized weighted average per group
+    df["weighted_residual"] = df["residual"] * df["recency_w"]
+    group_cols = [team_id_col, age_col, gender_col]
+    agg = df.groupby(group_cols, as_index=False).agg(
+        weighted_sum=("weighted_residual", "sum"),
+        weight_sum=("recency_w", "sum"),
+    )
+    agg["ml_overperf"] = np.where(
+        agg["weight_sum"] > 0,
+        agg["weighted_sum"] / agg["weight_sum"],
+        0.0,
+    )
+    agg = agg.drop(columns=["weighted_sum", "weight_sum"])
+    if agg.empty:
         return pd.DataFrame(columns=["team_id", "age", "gender", "ml_overperf"])
-    agg = pd.concat(parts).reset_index(drop=True)
 
     # require a minimum number of games to avoid yo-yo
     counts = (

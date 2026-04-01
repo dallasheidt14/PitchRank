@@ -43,7 +43,7 @@ def glicko2_g(phi: float) -> float:
 
     Reduces the impact of games against opponents with high rating deviation.
     """
-    return 1.0 / math.sqrt(1.0 + 3.0 * phi ** 2 / (math.pi ** 2))
+    return 1.0 / math.sqrt(1.0 + 3.0 * phi**2 / (math.pi**2))
 
 
 def glicko2_E(mu: float, mu_j: float, phi_j: float) -> float:
@@ -81,15 +81,15 @@ def _update_volatility(
     Returns:
         Updated volatility.
     """
-    a = math.log(sigma_vol ** 2)
-    phi2 = phi ** 2
-    delta2 = delta ** 2
+    a = math.log(sigma_vol**2)
+    phi2 = phi**2
+    delta2 = delta**2
 
     def f(x: float) -> float:
         ex = math.exp(x)
         num = ex * (delta2 - phi2 - v - ex)
         denom = 2.0 * (phi2 + v + ex) ** 2
-        return num / denom - (x - a) / (tau ** 2)
+        return num / denom - (x - a) / (tau**2)
 
     # Step 5.4.2: Set initial values of iterative algorithm
     A = a
@@ -113,7 +113,12 @@ def _update_volatility(
             logger.warning(
                 "glicko2 volatility update did not converge after %d iterations "
                 "(sigma_vol=%.6f, delta=%.6f, phi=%.6f, v=%.6f, tau=%.6f)",
-                MAX_ITERATIONS, sigma_vol, delta, phi, v, tau,
+                MAX_ITERATIONS,
+                sigma_vol,
+                delta,
+                phi,
+                v,
+                tau,
             )
             break
         C = A + (A - B) * f_A / (f_B - f_A)
@@ -171,7 +176,7 @@ def glicko2_update(
 
     # No games played: widen uncertainty, leave mu and sigma unchanged
     if not opponents:
-        phi_star = math.sqrt(phi_g2 ** 2 + sigma ** 2)
+        phi_star = math.sqrt(phi_g2**2 + sigma**2)
         new_mu, new_phi = _from_glicko2_scale(mu_g2, phi_star)
         return new_mu, new_phi, sigma
 
@@ -184,7 +189,7 @@ def glicko2_update(
     for (mu_j, phi_j), s_j, w_j in zip(opp_g2, outcomes, weights):
         g_j = glicko2_g(phi_j)
         E_j = glicko2_E(mu_g2, mu_j, phi_j)
-        v_inv += w_j * g_j ** 2 * E_j * (1.0 - E_j)
+        v_inv += w_j * g_j**2 * E_j * (1.0 - E_j)
         delta_sum += w_j * g_j * (s_j - E_j)
 
     v = 1.0 / v_inv
@@ -194,11 +199,11 @@ def glicko2_update(
     new_sigma = _update_volatility(sigma, delta, phi_g2, v, tau)
 
     # Step 5: Update phi (pre-rating period value)
-    phi_star = math.sqrt(phi_g2 ** 2 + new_sigma ** 2)
+    phi_star = math.sqrt(phi_g2**2 + new_sigma**2)
 
     # Step 6: Update phi and mu
-    new_phi_g2 = 1.0 / math.sqrt(1.0 / phi_star ** 2 + 1.0 / v)
-    new_mu_g2 = mu_g2 + new_phi_g2 ** 2 * delta_sum
+    new_phi_g2 = 1.0 / math.sqrt(1.0 / phi_star**2 + 1.0 / v)
+    new_mu_g2 = mu_g2 + new_phi_g2**2 * delta_sum
 
     # Step 7: Convert back to original scale
     new_mu, new_phi = _from_glicko2_scale(new_mu_g2, new_phi_g2)
@@ -242,9 +247,7 @@ def game_outcome(gf: int, ga: int, max_gd: int) -> float:
 # =========================================================
 # Game preprocessing
 # =========================================================
-def clip_outlier_goals(
-    games_df: pd.DataFrame, zscore_threshold: float = 2.5
-) -> pd.DataFrame:
+def clip_outlier_goals(games_df: pd.DataFrame, zscore_threshold: float = 2.5) -> pd.DataFrame:
     """Clip GF/GA per (age, gender) cohort to mean +/- zscore_threshold * std.
 
     Args:
@@ -295,9 +298,7 @@ def select_games(
     return filtered.head(max_games)
 
 
-def compute_recency_weights(
-    game_dates: pd.Series, today: pd.Timestamp, lambda_: float = 1.0
-) -> np.ndarray:
+def compute_recency_weights(game_dates: pd.Series, today: pd.Timestamp, lambda_: float = 1.0) -> np.ndarray:
     """Compute exponential-decay recency weights.
 
     Args:
@@ -330,10 +331,10 @@ def get_anchor(age, gender: str, cfg: GlickoConfig) -> float:
     """
     # Normalise age to int
     if isinstance(age, str):
-        age = int(age.lstrip('Uu'))
+        age = int(age.lstrip("Uu"))
 
     # Choose anchor dict by gender
-    if gender.upper().startswith('M'):
+    if gender.upper().startswith("M"):
         anchors = cfg.MALE_ANCHORS
     else:
         anchors = cfg.FEMALE_ANCHORS
@@ -402,6 +403,7 @@ def derive_offense_defense(
     team_ratings: Dict[str, Tuple[float, float, float]],
     cfg: GlickoConfig,
     today: pd.Timestamp,
+    team_games: Optional[Dict[str, pd.DataFrame]] = None,
 ) -> pd.DataFrame:
     """Compute off_raw and def_raw per team using expected goals formula.
 
@@ -415,6 +417,7 @@ def derive_offense_defense(
         team_ratings: Dict of {team_id: (mu, sigma, volatility)}.
         cfg: GlickoConfig with MAX_GAMES, WINDOW_DAYS, RECENCY_LAMBDA.
         today: Reference date for window and recency.
+        team_games: Optional pre-filtered games dict from run_glicko2_cohort.
 
     Returns:
         DataFrame with columns: team_id, off_raw, def_raw.
@@ -423,25 +426,19 @@ def derive_offense_defense(
 
     results = []
     for team_id, (team_mu, _, _) in team_ratings.items():
-        tg = select_games(games_df, team_id, cfg.MAX_GAMES, cfg.WINDOW_DAYS, today)
+        tg = (
+            team_games[team_id] if team_games and team_id in team_games
+            else select_games(games_df, team_id, cfg.MAX_GAMES, cfg.WINDOW_DAYS, today)
+        )
         if len(tg) == 0:
             results.append({"team_id": team_id, "off_raw": 0.0, "def_raw": 0.0})
             continue
 
-        off_residuals = []
-        def_residuals = []
-        for _, row in tg.iterrows():
-            opp_id = row["opp_id"]
-            opp_mu = team_ratings[opp_id][0] if opp_id in team_ratings else cfg.INITIAL_MU
-
-            e_team = expected_score(team_mu, opp_mu)
-            e_opp = expected_score(opp_mu, team_mu)
-
-            expected_gf = cohort_avg_gpg * e_team
-            expected_ga = cohort_avg_gpg * e_opp
-
-            off_residuals.append(float(row["gf"]) - expected_gf)
-            def_residuals.append(expected_ga - float(row["ga"]))  # positive = good defense
+        # Vectorized: lookup opponent mus
+        opp_mus = np.array([team_ratings.get(o, (cfg.INITIAL_MU,))[0] for o in tg["opp_id"].values])
+        e_team = 1.0 / (1.0 + 10.0 ** ((opp_mus - team_mu) / 400.0))
+        off_residuals = tg["gf"].values.astype(float) - cohort_avg_gpg * e_team
+        def_residuals = cohort_avg_gpg * (1.0 - e_team) - tg["ga"].values.astype(float)
 
         weights = compute_recency_weights(tg["date"], today, cfg.RECENCY_LAMBDA)
         off_raw = float(np.average(off_residuals, weights=weights))
@@ -457,6 +454,7 @@ def compute_sos(
     team_ratings: Dict[str, Tuple[float, float, float]],
     cfg: GlickoConfig,
     today: pd.Timestamp,
+    team_games: Optional[Dict[str, pd.DataFrame]] = None,
 ) -> pd.DataFrame:
     """Compute schedule strength as average opponent Glicko-2 mu.
 
@@ -469,34 +467,39 @@ def compute_sos(
         cfg: GlickoConfig with MAX_GAMES, WINDOW_DAYS, SOS_REPEAT_CAP,
              SOS_TRIM_BOTTOM_PCT, SOS_TRIM_TOP_PCT.
         today: Reference date for window filtering.
+        team_games: Optional pre-filtered games dict from run_glicko2_cohort.
 
     Returns:
         DataFrame with columns: team_id, sos_raw.
     """
     results = []
     for team_id in team_ratings:
-        tg = select_games(games_df, team_id, cfg.MAX_GAMES, cfg.WINDOW_DAYS, today)
+        tg = (
+            team_games[team_id] if team_games and team_id in team_games
+            else select_games(games_df, team_id, cfg.MAX_GAMES, cfg.WINDOW_DAYS, today)
+        )
         if len(tg) == 0:
             results.append({"team_id": team_id, "sos_raw": cfg.INITIAL_MU})
             continue
 
-        # Collect opponent mus with repeat cap
-        opp_mus: List[float] = []
+        # Vectorized opponent mu lookup
+        opp_ids = tg["opp_id"].values
+        opp_mus_all = np.array([team_ratings.get(o, (cfg.INITIAL_MU,))[0] for o in opp_ids])
+
+        # Apply repeat cap
         opp_counts: Dict[str, int] = {}
-        for _, row in tg.iterrows():
-            opp_id = row["opp_id"]
-            opp_counts[opp_id] = opp_counts.get(opp_id, 0) + 1
-            if opp_counts[opp_id] > cfg.SOS_REPEAT_CAP:
-                continue
-            opp_mu = team_ratings[opp_id][0] if opp_id in team_ratings else cfg.INITIAL_MU
-            opp_mus.append(opp_mu)
+        keep_mask = []
+        for o in opp_ids:
+            opp_counts[o] = opp_counts.get(o, 0) + 1
+            keep_mask.append(opp_counts[o] <= cfg.SOS_REPEAT_CAP)
+        opp_mus = opp_mus_all[keep_mask]
 
         if len(opp_mus) == 0:
             results.append({"team_id": team_id, "sos_raw": cfg.INITIAL_MU})
             continue
 
         # Symmetric trim: sort, remove bottom and top percentiles
-        opp_mus_sorted = sorted(opp_mus)
+        opp_mus_sorted = np.sort(opp_mus)
         n = len(opp_mus_sorted)
         trim_bottom = int(n * cfg.SOS_TRIM_BOTTOM_PCT)
         trim_top = int(n * cfg.SOS_TRIM_TOP_PCT)
@@ -511,8 +514,7 @@ def compute_sos(
         if len(trimmed) == 0:
             trimmed = opp_mus_sorted  # fallback: keep all
 
-        sos_raw = float(np.mean(trimmed))
-        results.append({"team_id": team_id, "sos_raw": sos_raw})
+        results.append({"team_id": team_id, "sos_raw": float(np.mean(trimmed))})
 
     return pd.DataFrame(results)
 
@@ -545,6 +547,7 @@ def compute_scf(
     team_state_map: Dict[str, str],
     team_ratings: Dict[str, Tuple[float, float, float]],
     cfg: GlickoConfig,
+    team_games: Optional[Dict[str, pd.DataFrame]] = None,
 ) -> Dict[str, Dict]:
     """Compute Schedule Connectivity Factor for each team.
 
@@ -558,6 +561,7 @@ def compute_scf(
         team_ratings: Dict of {team_id: (mu, sigma, volatility)}.
         cfg: GlickoConfig with SCF_ENABLED, SCF_DIVERSITY_DIVISOR, SCF_FLOOR,
              MIN_BRIDGE_GAMES, SCF_MIN_UNIQUE_STATES.
+        team_games: Optional pre-filtered games dict from run_glicko2_cohort.
 
     Returns:
         Dict[team_id, {scf, unique_states, bridge_games, is_isolated, quality_boosted}]
@@ -576,28 +580,22 @@ def compute_scf(
             continue
 
         team_state = team_state_map.get(team_id, "")
-        team_games = games_df[games_df["team_id"] == team_id]
+        if team_games and team_id in team_games:
+            tg = team_games[team_id]
+        else:
+            tg = games_df[games_df["team_id"] == team_id]
 
-        opp_states: List[str] = []
-        bridge_count = 0
-        for _, row in team_games.iterrows():
-            opp_id = row["opp_id"]
-            opp_state = team_state_map.get(opp_id, "")
-            if opp_state:
-                opp_states.append(opp_state)
-                if opp_state != team_state:
-                    bridge_count += 1
-
-        unique_states = len(set(opp_states))
+        # Vectorized state lookup
+        opp_ids = tg["opp_id"].values
+        opp_states = [team_state_map.get(o, "") for o in opp_ids]
+        bridge_count = sum(1 for s in opp_states if s and s != team_state)
+        unique_states = len(set(s for s in opp_states if s))
 
         # SCF score: diversity of opponent states
         scf_raw = min(unique_states / cfg.SCF_DIVERSITY_DIVISOR, 1.0)
         scf = max(cfg.SCF_FLOOR, scf_raw)
 
-        is_isolated = (
-            bridge_count < cfg.MIN_BRIDGE_GAMES
-            or unique_states < cfg.SCF_MIN_UNIQUE_STATES
-        )
+        is_isolated = bridge_count < cfg.MIN_BRIDGE_GAMES or unique_states < cfg.SCF_MIN_UNIQUE_STATES
 
         result[team_id] = {
             "scf": scf,
@@ -632,21 +630,11 @@ def apply_scf_dampening(
     neutral = cfg.INITIAL_MU  # 1500.0
 
     # Map SCF fields onto the DataFrame
-    df["scf"] = df["team_id"].map(
-        lambda t: scf_data.get(t, {}).get("scf", 1.0)
-    )
-    df["bridge_games"] = df["team_id"].map(
-        lambda t: scf_data.get(t, {}).get("bridge_games", 0)
-    )
-    df["is_isolated"] = df["team_id"].map(
-        lambda t: scf_data.get(t, {}).get("is_isolated", False)
-    )
-    df["unique_opp_states"] = df["team_id"].map(
-        lambda t: scf_data.get(t, {}).get("unique_states", 0)
-    )
-    df["quality_boosted"] = df["team_id"].map(
-        lambda t: scf_data.get(t, {}).get("quality_boosted", False)
-    )
+    df["scf"] = df["team_id"].map(lambda t: scf_data.get(t, {}).get("scf", 1.0))
+    df["bridge_games"] = df["team_id"].map(lambda t: scf_data.get(t, {}).get("bridge_games", 0))
+    df["is_isolated"] = df["team_id"].map(lambda t: scf_data.get(t, {}).get("is_isolated", False))
+    df["unique_opp_states"] = df["team_id"].map(lambda t: scf_data.get(t, {}).get("unique_states", 0))
+    df["quality_boosted"] = df["team_id"].map(lambda t: scf_data.get(t, {}).get("quality_boosted", False))
 
     # Cap isolated teams' SOS before dampening
     max_sos = df["sos_raw"].max()
@@ -668,13 +656,14 @@ def run_glicko2_cohort(
     cfg: GlickoConfig,
     today: pd.Timestamp,
     global_rating_map: Optional[Dict[str, float]] = None,
-) -> pd.DataFrame:
+    initial_ratings: Optional[Dict[str, Tuple[float, float, float]]] = None,
+) -> Tuple[pd.DataFrame, Dict[str, pd.DataFrame]]:
     """Run Glicko-2 for a single (age, gender) cohort.
 
     Processes games iteratively until ratings converge. Each iteration:
     1. For each team, collect opponents + outcomes + recency weights
     2. Apply glicko2_update to compute new mu/sigma/volatility
-    3. Check convergence (max |delta_mu| < threshold)
+    3. Check convergence (mean |delta_mu| < threshold)
     4. Stop if converged or max iterations reached
 
     Args:
@@ -685,19 +674,28 @@ def run_glicko2_cohort(
         today: Reference date for recency weighting and window filtering.
         global_rating_map: Optional dict of {team_id: mu} for cross-age opponent lookup.
                           When provided (Pass 2), cross-age opponents use this rating.
+        initial_ratings: Optional dict of {team_id: (mu, sigma, volatility)} for warm-start.
+                        When provided, use these as starting ratings instead of defaults.
 
     Returns:
-        DataFrame with columns: team_id, mu, sigma, volatility,
-        games_played, wins, losses, draws, last_game, goals_for, goals_against
+        Tuple of (DataFrame, team_games dict):
+        - DataFrame with columns: team_id, mu, sigma, volatility,
+          games_played, wins, losses, draws, last_game, goals_for, goals_against
+        - Dict mapping team_id -> filtered games DataFrame for reuse downstream
     """
     # 1. Identify all teams
     all_teams = games_df["team_id"].unique().tolist()
 
-    # 2. Initialize ratings
-    ratings: Dict[str, Tuple[float, float, float]] = {
-        t: (cfg.INITIAL_MU, cfg.INITIAL_SIGMA, cfg.INITIAL_VOLATILITY)
-        for t in all_teams
-    }
+    # 2. Initialize ratings (warm-start if provided)
+    if initial_ratings is not None:
+        ratings: Dict[str, Tuple[float, float, float]] = {
+            t: initial_ratings.get(t, (cfg.INITIAL_MU, cfg.INITIAL_SIGMA, cfg.INITIAL_VOLATILITY))
+            for t in all_teams
+        }
+    else:
+        ratings = {
+            t: (cfg.INITIAL_MU, cfg.INITIAL_SIGMA, cfg.INITIAL_VOLATILITY) for t in all_teams
+        }
 
     # 3. Clip outlier goals
     df = clip_outlier_goals(games_df, cfg.OUTLIER_GUARD_ZSCORE)
@@ -712,53 +710,68 @@ def run_glicko2_cohort(
     cohort_age = df["age"].iloc[0] if len(df) > 0 else None
     cohort_gender = df["gender"].iloc[0] if len(df) > 0 else None
 
-    # 6. Iterate until convergence (Jacobi iteration)
+    # 6. Pre-convert team games to arrays (avoid iterrows in the hot loop)
+    team_arrays: Dict[str, Optional[Dict]] = {}
+    for t in all_teams:
+        tg = team_games[t]
+        if len(tg) == 0:
+            team_arrays[t] = None
+            continue
+        opp_ages = tg["opp_age"].values if "opp_age" in tg.columns else None
+        opp_genders = tg["opp_gender"].values if "opp_gender" in tg.columns else None
+        cross_age_mask = None
+        if opp_ages is not None and opp_genders is not None:
+            cross_age_mask = (opp_ages != cohort_age) | (opp_genders != cohort_gender)
+        team_arrays[t] = {
+            "opp_ids": tg["opp_id"].values,
+            "gf": tg["gf"].values.astype(int),
+            "ga": tg["ga"].values.astype(int),
+            "opp_ages": opp_ages,
+            "opp_genders": opp_genders,
+            "cross_age_mask": cross_age_mask,
+            "weights": compute_recency_weights(tg["date"], today, cfg.RECENCY_LAMBDA).tolist(),
+            "outcomes": [
+                game_outcome(int(gf), int(ga), cfg.MAX_GD)
+                for gf, ga in zip(tg["gf"].values, tg["ga"].values)
+            ],
+        }
+
+    # 7. Iterate until convergence (Jacobi iteration)
     for iteration in range(cfg.MAX_ITERATIONS):
         new_ratings: Dict[str, Tuple[float, float, float]] = {}
 
         for t in all_teams:
-            tg = team_games[t]
-            if len(tg) == 0:
+            arr = team_arrays[t]
+            if arr is None:
                 new_ratings[t] = ratings[t]
                 continue
 
-            # Collect opponents, outcomes, and weights
+            # Collect opponents using pre-computed arrays
+            opp_ids = arr["opp_ids"]
+            cross_age_mask = arr["cross_age_mask"]
             opponents_list: List[Tuple[float, float]] = []
-            outcomes_list: List[float] = []
-
-            for _, row in tg.iterrows():
-                opp_id = row["opp_id"]
-
-                # Check if opponent is cross-age
-                is_cross_age = False
-                if "opp_age" in row.index and "opp_gender" in row.index:
-                    if row["opp_age"] != cohort_age or row["opp_gender"] != cohort_gender:
-                        is_cross_age = True
-
-                # Look up opponent rating
+            for i, opp_id in enumerate(opp_ids):
+                is_cross_age = cross_age_mask[i] if cross_age_mask is not None else False
                 if is_cross_age and global_rating_map is not None:
                     opp_mu = global_rating_map.get(opp_id, cfg.INITIAL_MU)
                     opp_sigma = cfg.INITIAL_SIGMA
+                    opp_mu = scale_cross_age_rating(
+                        opp_mu,
+                        str(arr["opp_ages"][i]) if arr["opp_ages"] is not None else str(cohort_age),
+                        str(arr["opp_genders"][i]) if arr["opp_genders"] is not None else str(cohort_gender),
+                        str(cohort_age), str(cohort_gender), cfg,
+                    )
                 elif opp_id in ratings:
                     opp_mu, opp_sigma, _ = ratings[opp_id]
                 else:
                     opp_mu = cfg.INITIAL_MU
                     opp_sigma = cfg.INITIAL_SIGMA
-
                 opponents_list.append((opp_mu, opp_sigma))
-                outcomes_list.append(
-                    game_outcome(int(row["gf"]), int(row["ga"]), cfg.MAX_GD)
-                )
-
-            # Compute recency weights
-            weights = compute_recency_weights(
-                tg["date"], today, cfg.RECENCY_LAMBDA
-            ).tolist()
 
             # Update rating
             mu, sigma, vol = ratings[t]
             new_mu, new_sigma, new_vol = glicko2_update(
-                mu, sigma, vol, opponents_list, outcomes_list, weights, cfg.TAU
+                mu, sigma, vol, opponents_list, arr["outcomes"], arr["weights"], cfg.TAU
             )
             new_ratings[t] = (new_mu, new_sigma, new_vol)
 
@@ -776,19 +789,25 @@ def run_glicko2_cohort(
 
         logger.info(
             "Glicko-2 iteration %d: max_delta=%.4f, mean_delta=%.4f",
-            iteration + 1, max_delta, mean_delta,
+            iteration + 1,
+            max_delta,
+            mean_delta,
         )
 
-        if max_delta < cfg.CONVERGENCE_THRESHOLD:
+        if mean_delta < cfg.CONVERGENCE_THRESHOLD:
             logger.info(
-                "Glicko-2 converged after %d iterations (max_delta=%.4f)",
-                iteration + 1, max_delta,
+                "Glicko-2 converged after %d iterations (max_delta=%.4f, mean_delta=%.4f)",
+                iteration + 1,
+                max_delta,
+                mean_delta,
             )
             break
     else:
         logger.warning(
-            "Glicko-2 did not converge after %d iterations (max_delta=%.4f)",
-            cfg.MAX_ITERATIONS, max_delta,
+            "Glicko-2 did not converge after %d iterations (max_delta=%.4f, mean_delta=%.4f)",
+            cfg.MAX_ITERATIONS,
+            max_delta,
+            mean_delta,
         )
 
     # 7. Compute aggregate stats per team
@@ -805,21 +824,23 @@ def run_glicko2_cohort(
         goals_for = int(tg["gf"].sum()) if gp > 0 else 0
         goals_against = int(tg["ga"].sum()) if gp > 0 else 0
 
-        results.append({
-            "team_id": t,
-            "mu": mu,
-            "sigma": sigma,
-            "volatility": vol,
-            "games_played": gp,
-            "wins": wins,
-            "losses": losses,
-            "draws": draws,
-            "last_game": last_game,
-            "goals_for": goals_for,
-            "goals_against": goals_against,
-        })
+        results.append(
+            {
+                "team_id": t,
+                "mu": mu,
+                "sigma": sigma,
+                "volatility": vol,
+                "games_played": gp,
+                "wins": wins,
+                "losses": losses,
+                "draws": draws,
+                "last_game": last_game,
+                "goals_for": goals_for,
+                "goals_against": goals_against,
+            }
+        )
 
-    return pd.DataFrame(results)
+    return pd.DataFrame(results), team_games
 
 
 # =========================================================
@@ -832,6 +853,7 @@ def compute_rankings_v2(
     global_rating_map: Optional[Dict[str, float]] = None,
     team_state_map: Optional[Dict[str, str]] = None,
     pass_label: Optional[str] = None,
+    initial_ratings: Optional[Dict[str, Tuple[float, float, float]]] = None,
 ) -> Dict[str, pd.DataFrame]:
     """Drop-in replacement for v53e.compute_rankings.
 
@@ -864,24 +886,27 @@ def compute_rankings_v2(
     logger.info(f"Starting Glicko-2 ranking engine{label}")
 
     # 2. Run Glicko-2 convergence
-    team_df = run_glicko2_cohort(games_df, cfg, today, global_rating_map)
+    team_df, team_games = run_glicko2_cohort(
+        games_df, cfg, today, global_rating_map, initial_ratings=initial_ratings
+    )
 
     # 3. Build ratings dict for derived metrics
-    team_ratings: Dict[str, Tuple[float, float, float]] = {}
-    for _, row in team_df.iterrows():
-        team_ratings[row["team_id"]] = (row["mu"], row["sigma"], row["volatility"])
+    team_ratings: Dict[str, Tuple[float, float, float]] = dict(zip(
+        team_df["team_id"],
+        zip(team_df["mu"], team_df["sigma"], team_df["volatility"])
+    ))
 
     # 4. Derive offense/defense
-    off_def = derive_offense_defense(games_df, team_ratings, cfg, today)
+    off_def = derive_offense_defense(games_df, team_ratings, cfg, today, team_games=team_games)
     team_df = team_df.merge(off_def, on="team_id", how="left")
 
     # 5. Compute SOS
-    sos = compute_sos(games_df, team_ratings, cfg, today)
+    sos = compute_sos(games_df, team_ratings, cfg, today, team_games=team_games)
     team_df = team_df.merge(sos, on="team_id", how="left")
 
     # 6. Apply SCF (if team_state_map provided and SCF_ENABLED)
     if cfg.SCF_ENABLED and team_state_map:
-        scf_data = compute_scf(games_df, team_state_map, team_ratings, cfg)
+        scf_data = compute_scf(games_df, team_state_map, team_ratings, cfg, team_games=team_games)
         team_df = apply_scf_dampening(team_df, scf_data, cfg)
 
     # 7. Normalize to 0-1 via sigmoid z-score
@@ -891,23 +916,17 @@ def compute_rankings_v2(
     team_df["powerscore_adj"] = sigmoid_zscore_normalize(team_df["mu"])
 
     # 8. Provisional multiplier from sigma
-    team_df["provisional_mult"] = np.clip(
-        1.0 - (team_df["sigma"] / cfg.INITIAL_SIGMA) ** 2, 0.0, 1.0
-    )
+    team_df["provisional_mult"] = np.clip(1.0 - (team_df["sigma"] / cfg.INITIAL_SIGMA) ** 2, 0.0, 1.0)
 
     # 9. Status and rankings
     cutoff = today - pd.Timedelta(days=cfg.INACTIVE_DAYS)
     team_df["status"] = np.where(team_df["last_game"] >= cutoff, "Active", "Inactive")
 
-    team_df["sample_flag"] = np.where(
-        team_df["games_played"] < cfg.MIN_GAMES_PROVISIONAL, "LOW_SAMPLE", "OK"
-    )
+    team_df["sample_flag"] = np.where(team_df["games_played"] < cfg.MIN_GAMES_PROVISIONAL, "LOW_SAMPLE", "OK")
 
     active_mask = team_df["status"] == "Active"
     team_df["rank_in_cohort"] = np.nan
-    team_df.loc[active_mask, "rank_in_cohort"] = team_df.loc[active_mask, "mu"].rank(
-        ascending=False, method="min"
-    )
+    team_df.loc[active_mask, "rank_in_cohort"] = team_df.loc[active_mask, "mu"].rank(ascending=False, method="min")
     team_df["national_rank"] = team_df["rank_in_cohort"]
 
     # 10. Map to all rankings_full columns
@@ -920,9 +939,7 @@ def compute_rankings_v2(
     )
 
     # Age group and gender from games
-    team_df["age_group"] = team_df.get(
-        "age", games_df["age"].iloc[0] if len(games_df) > 0 else "U15"
-    )
+    team_df["age_group"] = team_df.get("age", games_df["age"].iloc[0] if len(games_df) > 0 else "U15")
     if "gender" not in team_df.columns:
         team_df["gender"] = games_df["gender"].iloc[0] if len(games_df) > 0 else "M"
 
@@ -935,9 +952,9 @@ def compute_rankings_v2(
 
     # SOS rankings
     team_df["sos_rank_national"] = np.nan
-    team_df.loc[active_mask, "sos_rank_national"] = team_df.loc[
-        active_mask, "sos_raw"
-    ].rank(ascending=False, method="min")
+    team_df.loc[active_mask, "sos_rank_national"] = team_df.loc[active_mask, "sos_raw"].rank(
+        ascending=False, method="min"
+    )
     team_df["sos_rank_state"] = team_df["sos_rank_national"]
 
     # Raw/intermediate (backward compat)
@@ -988,9 +1005,7 @@ def compute_rankings_v2(
 
     # State code
     if team_state_map:
-        team_df["state_code"] = team_df["team_id"].map(
-            lambda t: team_state_map.get(str(t), None)
-        )
+        team_df["state_code"] = team_df["team_id"].map(lambda t: team_state_map.get(str(t), None))
     else:
         team_df["state_code"] = None
 
@@ -998,9 +1013,7 @@ def compute_rankings_v2(
     if "sos_raw_col" in team_df.columns:
         team_df["sos_raw"] = team_df["sos_raw_col"]
 
-    logger.info(
-        f"Glicko-2 engine complete{label}: {len(team_df)} teams ranked"
-    )
+    logger.info(f"Glicko-2 engine complete{label}: {len(team_df)} teams ranked")
 
     return {
         "teams": team_df,

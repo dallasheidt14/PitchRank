@@ -65,8 +65,8 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
             await asyncio.sleep(0.1)
 
         batch_data = [
-            {"id": str(row["game_id"]), "ml_overperformance": float(row["ml_overperformance"])}
-            for _, row in batch.iterrows()
+            {"id": str(gid), "ml_overperformance": float(val)}
+            for gid, val in zip(batch["game_id"].values, batch["ml_overperformance"].values)
         ]
 
         batch_retry_delay = retry_delay
@@ -139,7 +139,8 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
         )
     elif failed_count > 0:
         logger.warning(
-            f"⚠️ Residual persistence partial: {total_updated:,} updated, {failed_count:,} failed out of {len(game_residuals):,}"
+            f"⚠️ Residual persistence partial: {total_updated:,} updated, "
+            f"{failed_count:,} failed out of {len(game_residuals):,}"
         )
     else:
         logger.info(f"✅ Successfully updated {total_updated:,} games with ML residuals")
@@ -165,6 +166,7 @@ async def compute_rankings_with_ml(
     pass_label: Optional[str] = None,  # "Pass1" or "Pass2" for log disambiguation
     pre_sos_state: Optional[Dict] = None,  # Cached state from Pass 1 for two-pass optimization
     use_glicko: bool = True,  # True = Glicko-2 engine, False = v53e engine
+    initial_ratings: Optional[Dict] = None,  # Warm-start Glicko-2 Pass 2 from Pass 1 converged ratings
 ) -> Dict[str, pd.DataFrame]:
     """
     Runs your deterministic v53E engine, then applies the Supabase-aware ML adjustment.
@@ -255,6 +257,7 @@ async def compute_rankings_with_ml(
                     global_rating_map=global_strength_map,
                     team_state_map=team_state_map,
                     pass_label=pass_label,
+                    initial_ratings=initial_ratings,
                 )
             logger.info(f"✅ Glicko-2 engine completed: {len(base['teams']):,} teams ranked")
         else:
@@ -300,13 +303,15 @@ async def compute_rankings_with_ml(
     if not teams_base.empty and "powerscore_adj" in teams_base.columns:
         ps_stats = teams_base["powerscore_adj"]
         logger.info(
-            f"📊 Pre-ML PowerScore: min={ps_stats.min():.3f}, max={ps_stats.max():.3f}, mean={ps_stats.mean():.3f}, n={len(teams_base)}"
+            f"📊 Pre-ML PowerScore: min={ps_stats.min():.3f}, max={ps_stats.max():.3f}, "
+            f"mean={ps_stats.mean():.3f}, n={len(teams_base)}"
         )
 
     # 3) Apply ML predictive adjustment
     logger.info("🤖 Applying ML predictive adjustment layer...")
     logger.debug(
-        f"games_df: {len(games_df)} rows, has_id={'id' in games_df.columns}, has_home_master={'home_team_master_id' in games_df.columns}"
+        f"games_df: {len(games_df)} rows, has_id={'id' in games_df.columns}, "
+        f"has_home_master={'home_team_master_id' in games_df.columns}"
     )
 
     ml_cfg = layer13_cfg or Layer13Config(
@@ -329,9 +334,12 @@ async def compute_rankings_with_ml(
         )
     logger.info(f"✅ ML adjustment completed: {len(teams_with_ml):,} teams processed")
 
-    # Persist game residuals to database
+    # Persist game residuals to database (skip during Pass 1 — Pass 2 values overwrite)
+    skip_persist = pass_label == "Pass1"
     with _section(timing_report, "persist_game_residuals"):
-        if not game_residuals.empty:
+        if skip_persist:
+            logger.info("⏭️  Skipping residual persistence (Pass 1 — will persist in Pass 2)")
+        elif not game_residuals.empty:
             logger.info(f"💾 Persisting {len(game_residuals):,} game residuals to database...")
             updated, failed = await _persist_game_residuals(supabase_client, game_residuals)
             if failed > 0:
@@ -539,7 +547,8 @@ async def compute_all_cohorts(
         invalid_games = games_df.loc[invalid_age_mask]
         invalid_age_counts = invalid_games["age"].value_counts().to_dict()
         logger.warning(
-            f"🚫 Quarantining {invalid_age_mask.sum():,} game rows with ages outside {VALID_AGE_MIN}–{VALID_AGE_MAX}: {invalid_age_counts}"
+            f"🚫 Quarantining {invalid_age_mask.sum():,} game rows with ages "
+            f"outside {VALID_AGE_MIN}–{VALID_AGE_MAX}: {invalid_age_counts}"
         )
         for bad_age, count in sorted(invalid_age_counts.items(), key=lambda x: -x[1]):
             sample = invalid_games[invalid_games["age"] == bad_age].head(3)
@@ -593,15 +602,24 @@ async def compute_all_cohorts(
     strength_col = "mu" if use_glicko else "abs_strength"
     global_strength_map = {}
     pass1_pre_sos_states = {}
+    pass1_glicko_ratings = {}  # Cache converged ratings per cohort for warm-start
     for i, result in enumerate(pass1_results):
         if not result["teams"].empty:
             teams_df = result["teams"]
             if strength_col in teams_df.columns:
-                strength_dict = dict(zip(
-                    teams_df["team_id"].astype(str),
-                    teams_df[strength_col].astype(float),
-                ))
+                strength_dict = dict(
+                    zip(
+                        teams_df["team_id"].astype(str),
+                        teams_df[strength_col].astype(float),
+                    )
+                )
                 global_strength_map.update(strength_dict)
+            # Cache converged Glicko-2 ratings for warm-starting Pass 2
+            if use_glicko and all(c in teams_df.columns for c in ("mu", "sigma", "volatility")):
+                pass1_glicko_ratings[i] = dict(zip(
+                    teams_df["team_id"].astype(str),
+                    zip(teams_df["mu"], teams_df["sigma"], teams_df["volatility"]),
+                ))
         # Cache pre-SOS state keyed by cohort index (v53e only; Glicko-2 has none)
         if not use_glicko and result.get("pre_sos_state"):
             pass1_pre_sos_states[i] = result["pre_sos_state"]
@@ -613,8 +631,8 @@ async def compute_all_cohorts(
 
     # ========== PASS 2: Re-run with global strength map ==========
     # v53e: Uses cached pre-SOS state from Pass 1 to skip layers 1-5 (~50% speedup)
-    # Glicko-2: Full re-run with global_rating_map for cross-age SOS
-    skip_note = " (skipping layers 1-5)" if not use_glicko else ""
+    # Glicko-2: Warm-starts from Pass 1 converged ratings (converges in 2-5 iterations)
+    skip_note = " (skipping layers 1-5)" if not use_glicko else " (warm-start from Pass 1)"
     logger.info(f"📊 Pass 2: Re-computing SOS with global strength map{skip_note}...")
     pass2_tasks = []
     for i, ((age, gender), cohort_games) in enumerate(cohorts):
@@ -635,6 +653,7 @@ async def compute_all_cohorts(
             pass_label="Pass2",
             pre_sos_state=None if use_glicko else pass1_pre_sos_states.get(i),
             use_glicko=use_glicko,
+            initial_ratings=pass1_glicko_ratings.get(i) if use_glicko else None,
         )
         pass2_tasks.append(task)
 
@@ -764,11 +783,13 @@ async def compute_all_cohorts(
 
         # Log SOS normalization results
         excluded_count = (~sos_rank_eligible).sum()
-        total_count = len(teams_combined)
+        len(teams_combined)
         ranked_national = teams_combined["sos_rank_national"].notna().sum()
         logger.info(
             f"✅ National/State SOS normalization complete: "
-            f"sos_norm_national range=[{teams_combined['sos_norm_national'].min():.3f}, {teams_combined['sos_norm_national'].max():.3f}], "
+            f"sos_norm_national range="
+            f"[{teams_combined['sos_norm_national'].min():.3f}, "
+            f"{teams_combined['sos_norm_national'].max():.3f}], "
             f"SOS ranking: {ranked_national:,} Active teams eligible, "
             f"{excluded_count:,} non-Active teams excluded"
         )
