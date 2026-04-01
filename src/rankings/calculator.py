@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
 import pandas as pd
 
+from src.etl.glicko_config import GlickoConfig
+from src.etl.glicko_engine import compute_rankings_v2
 from src.etl.v53e import V53EConfig, compute_rankings
 from src.rankings.data_adapter import fetch_games_for_rankings
 from src.rankings.layer13_predictive_adjustment import Layer13Config, apply_predictive_adjustment
@@ -162,6 +164,7 @@ async def compute_rankings_with_ml(
     timing_report: Optional["TimingReport"] = None,
     pass_label: Optional[str] = None,  # "Pass1" or "Pass2" for log disambiguation
     pre_sos_state: Optional[Dict] = None,  # Cached state from Pass 1 for two-pass optimization
+    use_glicko: bool = True,  # True = Glicko-2 engine, False = v53e engine
 ) -> Dict[str, pd.DataFrame]:
     """
     Runs your deterministic v53E engine, then applies the Supabase-aware ML adjustment.
@@ -240,20 +243,33 @@ async def compute_rankings_with_ml(
             # Cache load failed - continue with computation
             pass
 
-    # 2) Run v53e rankings engine (if not cached)
+    # 2) Run rankings engine (if not cached)
     if base is None:
-        logger.info(f"🔁 Rebuilding v53e rankings from raw data... (force_rebuild={force_rebuild})")
-        with _section(timing_report, "v53e_computation"):
-            base = compute_rankings(
-                games_df=games_df,
-                today=today,
-                cfg=v53_cfg,
-                global_strength_map=global_strength_map,
-                team_state_map=team_state_map,  # For SCF regional bubble detection
-                pass_label=pass_label,
-                pre_sos_state=pre_sos_state,
-            )
-        logger.info(f"✅ v53e engine completed: {len(base['teams']):,} teams ranked")
+        if use_glicko:
+            logger.info(f"🔁 Rebuilding Glicko-2 rankings from raw data... (force_rebuild={force_rebuild})")
+            with _section(timing_report, "glicko2_computation"):
+                base = compute_rankings_v2(
+                    games_df=games_df,
+                    today=today,
+                    cfg=GlickoConfig(),
+                    global_rating_map=global_strength_map,
+                    team_state_map=team_state_map,
+                    pass_label=pass_label,
+                )
+            logger.info(f"✅ Glicko-2 engine completed: {len(base['teams']):,} teams ranked")
+        else:
+            logger.info(f"🔁 Rebuilding v53e rankings from raw data... (force_rebuild={force_rebuild})")
+            with _section(timing_report, "v53e_computation"):
+                base = compute_rankings(
+                    games_df=games_df,
+                    today=today,
+                    cfg=v53_cfg,
+                    global_strength_map=global_strength_map,
+                    team_state_map=team_state_map,
+                    pass_label=pass_label,
+                    pre_sos_state=pre_sos_state,
+                )
+            logger.info(f"✅ v53e engine completed: {len(base['teams']):,} teams ranked")
 
         # Save to cache (both teams and games_used DataFrames)
         try:
@@ -429,6 +445,7 @@ async def compute_all_cohorts(
     force_rebuild: bool = False,
     merge_resolver=None,  # Optional MergeResolver for team merge resolution
     timing_report: Optional["TimingReport"] = None,
+    use_glicko: bool = True,  # True = Glicko-2 engine, False = v53e engine
 ) -> Dict[str, pd.DataFrame]:
     """
     Compute rankings for all cohorts using two-pass architecture.
@@ -440,6 +457,7 @@ async def compute_all_cohorts(
 
     Args:
         merge_resolver: Optional MergeResolver instance for resolving merged teams
+        use_glicko: If True, use Glicko-2 engine; if False, use v53e engine
     """
     # Default config if not provided
     v53_cfg = v53_cfg or V53EConfig()
@@ -563,6 +581,7 @@ async def compute_all_cohorts(
             merge_version=merge_version,  # For cache invalidation
             team_state_map=team_state_map,  # For SCF regional bubble detection
             pass_label="Pass1",
+            use_glicko=use_glicko,
         )
         pass1_tasks.append(task)
 
@@ -570,29 +589,33 @@ async def compute_all_cohorts(
         pass1_results = await asyncio.gather(*pass1_tasks)
 
     # Build global strength map and collect pre-SOS state from Pass 1
+    # Glicko-2 uses mu (raw rating) for cross-age lookups; v53e uses abs_strength
+    strength_col = "mu" if use_glicko else "abs_strength"
     global_strength_map = {}
     pass1_pre_sos_states = {}
     for i, result in enumerate(pass1_results):
         if not result["teams"].empty:
             teams_df = result["teams"]
-            if "abs_strength" in teams_df.columns:
+            if strength_col in teams_df.columns:
                 strength_dict = dict(zip(
                     teams_df["team_id"].astype(str),
-                    teams_df["abs_strength"].astype(float),
+                    teams_df[strength_col].astype(float),
                 ))
                 global_strength_map.update(strength_dict)
-        # Cache pre-SOS state keyed by cohort index
-        if result.get("pre_sos_state"):
+        # Cache pre-SOS state keyed by cohort index (v53e only; Glicko-2 has none)
+        if not use_glicko and result.get("pre_sos_state"):
             pass1_pre_sos_states[i] = result["pre_sos_state"]
 
     logger.info(
-        f"🌍 Built global strength map with {len(global_strength_map):,} teams, "
-        f"cached {len(pass1_pre_sos_states)} pre-SOS states"
+        f"🌍 Built global strength map with {len(global_strength_map):,} teams "
+        f"(col={strength_col}), cached {len(pass1_pre_sos_states)} pre-SOS states"
     )
 
     # ========== PASS 2: Re-run with global strength map ==========
-    # Uses cached pre-SOS state from Pass 1 to skip layers 1-5 (~50% speedup)
-    logger.info("📊 Pass 2: Re-computing SOS with global strength map (skipping layers 1-5)...")
+    # v53e: Uses cached pre-SOS state from Pass 1 to skip layers 1-5 (~50% speedup)
+    # Glicko-2: Full re-run with global_rating_map for cross-age SOS
+    skip_note = " (skipping layers 1-5)" if not use_glicko else ""
+    logger.info(f"📊 Pass 2: Re-computing SOS with global strength map{skip_note}...")
     pass2_tasks = []
     for i, ((age, gender), cohort_games) in enumerate(cohorts):
         task = compute_rankings_with_ml(
@@ -606,11 +629,12 @@ async def compute_all_cohorts(
             provider_filter=provider_filter,
             force_rebuild=True,  # Force rebuild to use new global map
             save_snapshot=False,
-            global_strength_map=global_strength_map,  # Now with cross-age strengths
+            global_strength_map=global_strength_map,  # Now with cross-age strengths/ratings
             merge_version=merge_version,  # For cache invalidation
             team_state_map=team_state_map,  # For SCF regional bubble detection
             pass_label="Pass2",
-            pre_sos_state=pass1_pre_sos_states.get(i),  # Skip layers 1-5
+            pre_sos_state=None if use_glicko else pass1_pre_sos_states.get(i),
+            use_glicko=use_glicko,
         )
         pass2_tasks.append(task)
 
