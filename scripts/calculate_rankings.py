@@ -774,10 +774,10 @@ async def main():
                         f"Max same score: {value_counts.max()}"
                     )
 
-                if value_counts.max() > 10:
-                    console.print("\n  [yellow]Top 5 most common PowerScore values:[/yellow]")
-                    for score, count in value_counts.head(5).items():
-                        console.print(f"    {score:.6f}: {count} teams")
+                    if value_counts.max() > 10:
+                        console.print("\n  [yellow]Top 5 most common PowerScore values:[/yellow]")
+                        for score, count in value_counts.head(5).items():
+                            console.print(f"    {score:.6f}: {count} teams")
         else:
             power_col = "powerscore_core"
             rank_col = "rank_in_cohort"
