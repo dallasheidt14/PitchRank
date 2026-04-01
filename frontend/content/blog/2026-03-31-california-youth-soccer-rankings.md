@@ -1,7 +1,7 @@
 ---
 title: "California Youth Soccer Rankings: This Week's Top Movers"
 slug: "2026-03-31-california-youth-soccer-rankings"
-excerpt: "This week's CA youth soccer rankings update. See which CA teams moved the most across 74,761 ranked teams."
+excerpt: "This week's CA youth soccer rankings update. See which CA teams moved the most across 75,196 ranked teams."
 author: "PitchRank Team"
 date: "2026-03-31"
 readingTime: "1 min read"
@@ -13,27 +13,27 @@ image: "/api/infographic/movers?platform=twitter"
 # California Youth Soccer Rankings: This Week's Top Movers
 
 Every Monday, PitchRank updates california youth soccer rankings across all leagues.
-We track 74,761 teams nationally, and here's what moved in CA this week.
+We track 75,196 teams nationally, and here's what moved in CA this week.
 
 ## Top Movers in CA This Week
 
 | Rank | Team | State | Change |
 |------|------|-------|--------|
-| #581 | Lubbock Soccer - Sharks | TX | +4162 |
-| #1279 | Lubbock Soccer - Nitros | TX | +3592 |
-| #1920 | All In Futbol Club Tennessee - All-In FC TN 2013 NPL | TN | +3475 |
-| #2189 | Wake FC - 2013 WFC North NPL | NC | +3332 |
-| #1685 | Impact SC 2013 BA1 | IN | +3314 |
+| #1314 | KCMO Rush 2014 Blue | MO | +4243 |
+| #210 | South Lakes SC - Oklahoma Cosmos 2014 Wolves | OK | +4023 |
+| #2324 | U/2015 White | TX | +3979 |
+| #1274 | UNITED FC GRAND ISLAND 2014 | NE | +3928 |
+| #1630 | BH Rapids U12 Burgundy | SD | +3672 |
 
 ## Biggest Drops in CA
 
 | Rank | Team | State | Change |
 |------|------|-------|--------|
-| #7107 | El Paso Premier League - Deportivo Juárez 2014 | TX | -4714 |
-| #7077 | El Paso Premier League - Nido Aguila Gold 2014 | TX | -4661 |
-| #6616 | Greenbush SC 2015 Green | NY | -4655 |
-| #6466 | South Plainfield Soccer Club - S.P. United | NJ | -4532 |
-| #5418 | FCDA 2013 Red NL AZ | AZ | -4525 |
+| #5802 | Whetstone Park Rangers 2013 Columbus | OH | -5650 |
+| #6845 | Mineral Wells Soccer - Panthers 2015 | TX | -4982 |
+| #7070 | CWSC 2013 Academy Red | OH | -4725 |
+| #6038 | Wall SC Leeds | NJ | -4651 |
+| #6247 | Timbers 2015 | TX | -4571 |
 
 ## How CA Compares Nationally
 
