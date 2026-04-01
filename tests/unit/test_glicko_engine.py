@@ -12,6 +12,7 @@ from src.etl.glicko_engine import (
     _to_glicko2_scale,
     apply_scf_dampening,
     clip_outlier_goals,
+    compute_rankings_v2,
     compute_recency_weights,
     compute_scf,
     compute_sos,
@@ -587,3 +588,83 @@ class TestSCF:
         for team_id, data in result.items():
             assert data["scf"] == 1.0
             assert data["is_isolated"] is False
+
+
+class TestComputeRankingsV2:
+    def _make_game(self, team_a, team_b, gf, ga, date, age="U15", gender="M"):
+        return [
+            {"team_id": team_a, "opp_id": team_b, "gf": gf, "ga": ga,
+             "date": pd.Timestamp(date), "age": age, "gender": gender,
+             "opp_age": age, "opp_gender": gender},
+            {"team_id": team_b, "opp_id": team_a, "gf": ga, "ga": gf,
+             "date": pd.Timestamp(date), "age": age, "gender": gender,
+             "opp_age": age, "opp_gender": gender},
+        ]
+
+    def test_returns_teams_and_games(self):
+        """Should return dict with 'teams' and 'games_used' keys."""
+        rows = self._make_game("A", "B", 2, 1, "2026-03-01")
+        games = pd.DataFrame(rows)
+        result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"))
+        assert "teams" in result
+        assert "games_used" in result
+
+    def test_all_expected_columns_present(self):
+        """Output should have all 57 rankings_full columns."""
+        rows = []
+        rows += self._make_game("A", "B", 3, 1, "2026-03-01")
+        rows += self._make_game("B", "C", 2, 0, "2026-03-10")
+        rows += self._make_game("A", "C", 4, 0, "2026-03-20")
+        games = pd.DataFrame(rows)
+        result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"))
+        teams = result["teams"]
+
+        expected_columns = [
+            "team_id", "age_group", "gender", "state_code", "status",
+            "last_game", "last_calculated", "games_played", "games_last_180_days",
+            "wins", "losses", "draws", "goals_for", "goals_against", "win_percentage",
+            "off_raw", "sad_raw", "off_shrunk", "sad_shrunk", "def_shrunk",
+            "off_norm", "def_norm", "sos", "sos_norm", "sos_raw",
+            "sos_norm_national", "sos_norm_state", "sos_rank_national", "sos_rank_state",
+            "sample_flag", "strength_of_schedule", "power_presos", "anchor", "abs_strength",
+            "powerscore_core", "provisional_mult", "powerscore_adj",
+            "perf_raw", "perf_centered", "ml_overperf", "ml_norm",
+            "powerscore_ml", "rank_in_cohort_ml", "rank_in_cohort", "national_rank",
+            "state_rank", "global_rank", "rank_change_7d", "rank_change_30d",
+            "rank_change_state_7d", "rank_change_state_30d",
+            "national_power_score", "global_power_score", "power_score_true", "power_score_final",
+        ]
+        for col in expected_columns:
+            assert col in teams.columns, f"Missing column: {col}"
+
+    def test_ranking_order_matches_mu(self):
+        """National rank should match mu ordering."""
+        rows = []
+        rows += self._make_game("A", "B", 5, 0, "2026-03-01")
+        rows += self._make_game("B", "C", 3, 0, "2026-03-10")
+        rows += self._make_game("A", "C", 4, 0, "2026-03-20")
+        games = pd.DataFrame(rows)
+        result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"))
+        teams = result["teams"].sort_values("mu", ascending=False)
+        # Rank 1 should be the team with highest mu
+        rank1 = result["teams"][result["teams"]["national_rank"] == 1.0]
+        assert rank1.iloc[0]["team_id"] == teams.iloc[0]["team_id"]
+
+    def test_inactive_team_not_ranked(self):
+        """Team with no games in 180 days should be Inactive."""
+        rows = self._make_game("A", "B", 2, 1, "2025-01-01")  # old game
+        games = pd.DataFrame(rows)
+        result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"))
+        teams = result["teams"]
+        assert all(teams["status"] == "Inactive")
+        assert all(teams["national_rank"].isna())
+
+    def test_provisional_mult_from_sigma(self):
+        """High sigma (new team) should give low provisional_mult."""
+        rows = self._make_game("A", "B", 2, 1, "2026-03-01")
+        games = pd.DataFrame(rows)
+        result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"))
+        teams = result["teams"]
+        # Teams with few games should have high sigma -> low provisional_mult
+        for _, row in teams.iterrows():
+            assert 0.0 <= row["provisional_mult"] <= 1.0

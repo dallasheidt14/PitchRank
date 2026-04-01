@@ -820,3 +820,189 @@ def run_glicko2_cohort(
         })
 
     return pd.DataFrame(results)
+
+
+# =========================================================
+# Main entry point — drop-in replacement for v53e.compute_rankings
+# =========================================================
+def compute_rankings_v2(
+    games_df: pd.DataFrame,
+    today: Optional[pd.Timestamp] = None,
+    cfg: Optional[GlickoConfig] = None,
+    global_rating_map: Optional[Dict[str, float]] = None,
+    team_state_map: Optional[Dict[str, str]] = None,
+    pass_label: Optional[str] = None,
+) -> Dict[str, pd.DataFrame]:
+    """Drop-in replacement for v53e.compute_rankings.
+
+    Runs the full Glicko-2 pipeline:
+    1. Run Glicko-2 convergence for the cohort
+    2. Derive offense/defense from game residuals
+    3. Compute SOS with repeat cap and trim
+    4. Apply SCF bubble detection (if team_state_map provided)
+    5. Normalize all metrics via sigmoid z-score
+    6. Compute rankings and status
+    7. Map to full rankings_full schema
+
+    Args:
+        games_df: DataFrame with game data (team_id, opp_id, date, gf, ga, age, gender, opp_age, opp_gender).
+        today: Reference date. Defaults to now.
+        cfg: GlickoConfig. Defaults to GlickoConfig().
+        global_rating_map: Cross-age opponent ratings from Pass 1. None for Pass 1.
+        team_state_map: Team ID -> state code for SCF. None disables SCF.
+        pass_label: "Pass1" or "Pass2" for logging.
+
+    Returns:
+        {"teams": DataFrame with all rankings_full columns, "games_used": DataFrame of games used}
+    """
+    # 1. Setup
+    if today is None:
+        today = pd.Timestamp.now("UTC")
+    if cfg is None:
+        cfg = GlickoConfig()
+    label = f" [{pass_label}]" if pass_label else ""
+    logger.info(f"Starting Glicko-2 ranking engine{label}")
+
+    # 2. Run Glicko-2 convergence
+    team_df = run_glicko2_cohort(games_df, cfg, today, global_rating_map)
+
+    # 3. Build ratings dict for derived metrics
+    team_ratings: Dict[str, Tuple[float, float, float]] = {}
+    for _, row in team_df.iterrows():
+        team_ratings[row["team_id"]] = (row["mu"], row["sigma"], row["volatility"])
+
+    # 4. Derive offense/defense
+    off_def = derive_offense_defense(games_df, team_ratings, cfg, today)
+    team_df = team_df.merge(off_def, on="team_id", how="left")
+
+    # 5. Compute SOS
+    sos = compute_sos(games_df, team_ratings, cfg, today)
+    team_df = team_df.merge(sos, on="team_id", how="left")
+
+    # 6. Apply SCF (if team_state_map provided and SCF_ENABLED)
+    if cfg.SCF_ENABLED and team_state_map:
+        scf_data = compute_scf(games_df, team_state_map, team_ratings, cfg)
+        team_df = apply_scf_dampening(team_df, scf_data, cfg)
+
+    # 7. Normalize to 0-1 via sigmoid z-score
+    team_df["off_norm"] = sigmoid_zscore_normalize(team_df["off_raw"].fillna(0))
+    team_df["def_norm"] = sigmoid_zscore_normalize(team_df["def_raw"].fillna(0))
+    team_df["sos_norm"] = sigmoid_zscore_normalize(team_df["sos_raw"].fillna(1500))
+    team_df["powerscore_adj"] = sigmoid_zscore_normalize(team_df["mu"])
+
+    # 8. Provisional multiplier from sigma
+    team_df["provisional_mult"] = np.clip(
+        1.0 - (team_df["sigma"] / cfg.INITIAL_SIGMA) ** 2, 0.0, 1.0
+    )
+
+    # 9. Status and rankings
+    cutoff = today - pd.Timedelta(days=cfg.INACTIVE_DAYS)
+    team_df["status"] = np.where(team_df["last_game"] >= cutoff, "Active", "Inactive")
+
+    team_df["sample_flag"] = np.where(
+        team_df["games_played"] < cfg.MIN_GAMES_PROVISIONAL, "LOW_SAMPLE", "OK"
+    )
+
+    active_mask = team_df["status"] == "Active"
+    team_df["rank_in_cohort"] = np.nan
+    team_df.loc[active_mask, "rank_in_cohort"] = team_df.loc[active_mask, "mu"].rank(
+        ascending=False, method="min"
+    )
+    team_df["national_rank"] = team_df["rank_in_cohort"]
+
+    # 10. Map to all rankings_full columns
+
+    # Win percentage
+    team_df["win_percentage"] = np.where(
+        team_df["games_played"] > 0,
+        (team_df["wins"] / team_df["games_played"] * 100).round(1),
+        0.0,
+    )
+
+    # Age group and gender from games
+    team_df["age_group"] = team_df.get(
+        "age", games_df["age"].iloc[0] if len(games_df) > 0 else "U15"
+    )
+    if "gender" not in team_df.columns:
+        team_df["gender"] = games_df["gender"].iloc[0] if len(games_df) > 0 else "M"
+
+    # SOS aliases and backward-compat columns
+    team_df["sos"] = team_df["sos_raw"]
+    team_df["sos_raw_col"] = team_df["sos_raw"]
+    team_df["strength_of_schedule"] = team_df["sos_raw"]
+    team_df["sos_norm_national"] = team_df["sos_norm"]
+    team_df["sos_norm_state"] = team_df["sos_norm"]
+
+    # SOS rankings
+    team_df["sos_rank_national"] = np.nan
+    team_df.loc[active_mask, "sos_rank_national"] = team_df.loc[
+        active_mask, "sos_raw"
+    ].rank(ascending=False, method="min")
+    team_df["sos_rank_state"] = team_df["sos_rank_national"]
+
+    # Raw/intermediate (backward compat)
+    team_df["sad_raw"] = -team_df["def_raw"].fillna(0)
+    team_df["off_shrunk"] = team_df["off_raw"]
+    team_df["def_shrunk"] = team_df["def_raw"]
+    team_df["sad_shrunk"] = team_df["sad_raw"]
+
+    # Abs strength for two-pass
+    team_df["abs_strength"] = sigmoid_zscore_normalize(team_df["mu"])
+
+    # Power scores
+    team_df["power_presos"] = team_df["powerscore_adj"]
+    team_df["powerscore_core"] = team_df["powerscore_adj"]
+    team_df["anchor"] = 0.5
+
+    # Performance residuals (placeholder -- ML layer computes these)
+    team_df["perf_raw"] = 0.0
+    team_df["perf_centered"] = 0.0
+
+    # ML columns (placeholder -- Layer 13 fills these)
+    team_df["ml_overperf"] = None
+    team_df["ml_norm"] = None
+    team_df["powerscore_ml"] = team_df["powerscore_adj"]
+    team_df["rank_in_cohort_ml"] = team_df["rank_in_cohort"]
+
+    # Final scores
+    team_df["power_score_final"] = team_df["powerscore_adj"].clip(0.0, 1.0)
+    team_df["national_power_score"] = team_df["power_score_final"]
+    team_df["global_power_score"] = team_df["power_score_final"]
+    team_df["power_score_true"] = team_df["power_score_final"]
+
+    # State rank (same as national for now -- compute_all_cohorts adds state-level)
+    team_df["state_rank"] = team_df["national_rank"]
+    team_df["global_rank"] = team_df["national_rank"]
+
+    # Rank changes (computed downstream by ranking_history comparison)
+    team_df["rank_change_7d"] = None
+    team_df["rank_change_30d"] = None
+    team_df["rank_change_state_7d"] = None
+    team_df["rank_change_state_30d"] = None
+
+    # Timestamps
+    team_df["last_calculated"] = pd.Timestamp.now("UTC")
+
+    # Games in last 180 days
+    team_df["games_last_180_days"] = team_df["games_played"]  # approximation
+
+    # State code
+    if team_state_map:
+        team_df["state_code"] = team_df["team_id"].map(
+            lambda t: team_state_map.get(str(t), None)
+        )
+    else:
+        team_df["state_code"] = None
+
+    # 11. Return
+    if "sos_raw_col" in team_df.columns:
+        team_df["sos_raw"] = team_df["sos_raw_col"]
+
+    logger.info(
+        f"Glicko-2 engine complete{label}: {len(team_df)} teams ranked"
+    )
+
+    return {
+        "teams": team_df,
+        "games_used": games_df,
+    }
