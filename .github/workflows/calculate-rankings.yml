@@ -16,7 +16,16 @@ on:
       - "Modular11 Events Weekly Scrape"
     types:
       - completed
-  workflow_dispatch: # Allow manual trigger from GitHub Actions tab
+  workflow_dispatch:
+    inputs:
+      engine:
+        description: 'Ranking engine to use'
+        required: false
+        default: 'glicko'
+        type: choice
+        options:
+          - glicko
+          - v53e
 
 # Prevent concurrent ranking calculations — if a scrape-triggered ranking
 # is still running when the scheduled one fires, the scheduled one will queue.
@@ -41,17 +50,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
-          ref: main  # Explicitly checkout main branch
+          ref: ${{ github.ref }}  # workflow_dispatch: branch selected in UI; schedule/workflow_run: default branch
           fetch-depth: 0
 
       # ---------------------------------------------------------------
       # 2. FAIL-SAFE: VERIFY WE ARE ON THE RIGHT BRANCH
       # ---------------------------------------------------------------
-      - name: Verify correct branch
+      - name: Verify branch
         run: |
-          echo "Checked-out branch: $(git branch --show-current)"
-          if [ "$(git branch --show-current)" != "main" ]; then
-            echo "❌ ERROR: Wrong branch checked out! Rankings run ABORTED."
+          BRANCH=$(git branch --show-current)
+          echo "Checked-out branch: $BRANCH"
+          echo "Trigger: ${{ github.event_name }}"
+          echo "Engine: ${{ github.event.inputs.engine || 'glicko' }}"
+          # Non-dispatch triggers (schedule, workflow_run) must run on main
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ] && [ "$BRANCH" != "main" ]; then
+            echo "❌ ERROR: Non-dispatch trigger on branch '$BRANCH' — expected 'main'. Aborting."
             exit 1
           fi
 
@@ -116,7 +129,7 @@ jobs:
           echo "Python version: $(python --version)"
           echo "Current directory: $(pwd)"
           echo "SUPABASE_URL configured: $([[ -n "$SUPABASE_URL" ]] && echo 'Yes' || echo 'No')"
-          python scripts/calculate_rankings.py --ml --force-rebuild || {
+          python scripts/calculate_rankings.py --ml --force-rebuild --engine ${{ github.event.inputs.engine || 'glicko' }} || {
             echo "❌ Rankings calculation failed with exit code $?"
             exit 1
           }

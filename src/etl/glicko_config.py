@@ -31,7 +31,7 @@ class GlickoConfig:
 
     # Convergence
     CONVERGENCE_THRESHOLD: float = 1.0
-    MAX_ITERATIONS: int = 10
+    MAX_ITERATIONS: int = 30
 
     # Cross-age
     ANCHOR_SCALE_FACTOR: float = 400.0
