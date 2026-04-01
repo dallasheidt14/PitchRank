@@ -12,6 +12,9 @@ from src.etl.glicko_engine import (
     _to_glicko2_scale,
     clip_outlier_goals,
     compute_recency_weights,
+    compute_sos,
+    derive_offense_defense,
+    expected_score,
     game_outcome,
     get_anchor,
     glicko2_E,
@@ -20,6 +23,7 @@ from src.etl.glicko_engine import (
     run_glicko2_cohort,
     scale_cross_age_rating,
     select_games,
+    sigmoid_zscore_normalize,
 )
 
 
@@ -393,3 +397,118 @@ class TestCrossAgeScaling:
         """Unknown age should return 1.0."""
         cfg = GlickoConfig()
         assert get_anchor(99, 'M', cfg) == 1.0
+
+
+class TestExpectedScore:
+    def test_equal_ratings(self):
+        assert expected_score(1500.0, 1500.0) == pytest.approx(0.5)
+
+    def test_higher_rated_favored(self):
+        assert expected_score(1700.0, 1500.0) > 0.7
+
+    def test_symmetry(self):
+        e1 = expected_score(1600.0, 1400.0)
+        e2 = expected_score(1400.0, 1600.0)
+        assert abs(e1 + e2 - 1.0) < 0.001
+
+
+class TestDeriveOffenseDefense:
+    def test_scoring_above_expected_positive_offense(self):
+        """Team scoring more than expected gets positive off_raw."""
+        cfg = GlickoConfig()
+        today = pd.Timestamp('2026-03-31')
+        games = pd.DataFrame([
+            {'team_id': 'A', 'opp_id': 'B', 'gf': 5, 'ga': 0, 'date': pd.Timestamp('2026-03-01'), 'age': 'U15', 'gender': 'M'},
+            {'team_id': 'B', 'opp_id': 'A', 'gf': 0, 'ga': 5, 'date': pd.Timestamp('2026-03-01'), 'age': 'U15', 'gender': 'M'},
+        ])
+        ratings = {'A': (1600.0, 200.0, 0.06), 'B': (1400.0, 200.0, 0.06)}
+        result = derive_offense_defense(games, ratings, cfg, today)
+        a_row = result[result['team_id'] == 'A'].iloc[0]
+        assert a_row['off_raw'] > 0
+
+    def test_opponent_strength_matters(self):
+        """Scoring 3 vs strong opponent gives more off credit than vs weak."""
+        cfg = GlickoConfig()
+        today = pd.Timestamp('2026-03-31')
+        games = pd.DataFrame([
+            {'team_id': 'A', 'opp_id': 'B', 'gf': 3, 'ga': 1, 'date': pd.Timestamp('2026-03-01'), 'age': 'U15', 'gender': 'M'},
+            {'team_id': 'B', 'opp_id': 'A', 'gf': 1, 'ga': 3, 'date': pd.Timestamp('2026-03-01'), 'age': 'U15', 'gender': 'M'},
+            {'team_id': 'C', 'opp_id': 'D', 'gf': 3, 'ga': 1, 'date': pd.Timestamp('2026-03-01'), 'age': 'U15', 'gender': 'M'},
+            {'team_id': 'D', 'opp_id': 'C', 'gf': 1, 'ga': 3, 'date': pd.Timestamp('2026-03-01'), 'age': 'U15', 'gender': 'M'},
+        ])
+        ratings = {
+            'A': (1500.0, 200.0, 0.06), 'B': (1700.0, 200.0, 0.06),
+            'C': (1500.0, 200.0, 0.06), 'D': (1300.0, 200.0, 0.06),
+        }
+        result = derive_offense_defense(games, ratings, cfg, today)
+        a_off = result[result['team_id'] == 'A'].iloc[0]['off_raw']
+        c_off = result[result['team_id'] == 'C'].iloc[0]['off_raw']
+        assert a_off > c_off
+
+
+class TestComputeSOS:
+    def test_repeat_cap(self):
+        """Team playing same opponent 8 times should only count 4."""
+        cfg = GlickoConfig()
+        today = pd.Timestamp('2026-03-31')
+        rows = []
+        for i in range(8):
+            date = f'2026-03-{i+1:02d}'
+            rows.append({'team_id': 'A', 'opp_id': 'B', 'gf': 2, 'ga': 1, 'date': pd.Timestamp(date), 'age': 'U15', 'gender': 'M'})
+            rows.append({'team_id': 'B', 'opp_id': 'A', 'gf': 1, 'ga': 2, 'date': pd.Timestamp(date), 'age': 'U15', 'gender': 'M'})
+        games = pd.DataFrame(rows)
+        ratings = {'A': (1500.0, 200.0, 0.06), 'B': (1600.0, 200.0, 0.06)}
+        result = compute_sos(games, ratings, cfg, today)
+        assert 'A' in result['team_id'].values
+
+    def test_stronger_schedule_higher_sos(self):
+        """Team playing strong opponents should have higher sos_raw."""
+        cfg = GlickoConfig()
+        today = pd.Timestamp('2026-03-31')
+        rows = []
+        for i, opp_mu in enumerate([1700, 1650, 1600, 1550, 1500]):
+            opp = f'strong_{i}'
+            rows.append({'team_id': 'A', 'opp_id': opp, 'gf': 1, 'ga': 2, 'date': pd.Timestamp(f'2026-03-{i+1:02d}'), 'age': 'U15', 'gender': 'M'})
+            rows.append({'team_id': opp, 'opp_id': 'A', 'gf': 2, 'ga': 1, 'date': pd.Timestamp(f'2026-03-{i+1:02d}'), 'age': 'U15', 'gender': 'M'})
+        for i, opp_mu in enumerate([1300, 1250, 1200, 1150, 1100]):
+            opp = f'weak_{i}'
+            rows.append({'team_id': 'B', 'opp_id': opp, 'gf': 2, 'ga': 1, 'date': pd.Timestamp(f'2026-03-{i+6:02d}'), 'age': 'U15', 'gender': 'M'})
+            rows.append({'team_id': opp, 'opp_id': 'B', 'gf': 1, 'ga': 2, 'date': pd.Timestamp(f'2026-03-{i+6:02d}'), 'age': 'U15', 'gender': 'M'})
+        games = pd.DataFrame(rows)
+
+        all_teams = {'A': (1500.0, 200.0, 0.06), 'B': (1500.0, 200.0, 0.06)}
+        for i, mu in enumerate([1700, 1650, 1600, 1550, 1500]):
+            all_teams[f'strong_{i}'] = (float(mu), 200.0, 0.06)
+        for i, mu in enumerate([1300, 1250, 1200, 1150, 1100]):
+            all_teams[f'weak_{i}'] = (float(mu), 200.0, 0.06)
+
+        result = compute_sos(games, all_teams, cfg, today)
+        a_sos = result[result['team_id'] == 'A'].iloc[0]['sos_raw']
+        b_sos = result[result['team_id'] == 'B'].iloc[0]['sos_raw']
+        assert a_sos > b_sos
+
+
+class TestSigmoidZscoreNormalize:
+    def test_mean_maps_to_half(self):
+        """Average value should map to ~0.5."""
+        vals = pd.Series([100, 200, 300, 400, 500])
+        result = sigmoid_zscore_normalize(vals)
+        assert abs(result.iloc[2] - 0.5) < 0.001
+
+    def test_above_mean_above_half(self):
+        vals = pd.Series([100, 200, 300, 400, 500])
+        result = sigmoid_zscore_normalize(vals)
+        assert result.iloc[4] > 0.5
+
+    def test_no_rescaling(self):
+        """Max value should NOT be forced to 1.0 (no min-max rescaling)."""
+        vals = pd.Series([100, 200, 300, 400, 500])
+        result = sigmoid_zscore_normalize(vals)
+        assert result.iloc[4] < 1.0
+        assert result.iloc[0] > 0.0
+
+    def test_constant_input(self):
+        """All same values should return 0.5."""
+        vals = pd.Series([100, 100, 100])
+        result = sigmoid_zscore_normalize(vals)
+        assert all(abs(v - 0.5) < 0.001 for v in result)

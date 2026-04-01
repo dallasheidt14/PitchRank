@@ -382,6 +382,162 @@ def scale_cross_age_rating(
 
 
 # =========================================================
+# Offense / Defense / SOS derivation
+# =========================================================
+def expected_score(mu_a: float, mu_b: float) -> float:
+    """Standard expected score on the 1500-scale (NOT Glicko-2 internal scale).
+
+    Args:
+        mu_a: Rating of player A on the original scale.
+        mu_b: Rating of player B on the original scale.
+
+    Returns:
+        Expected score for player A, between 0.0 and 1.0.
+    """
+    return 1.0 / (1.0 + 10.0 ** ((mu_b - mu_a) / 400.0))
+
+
+def derive_offense_defense(
+    games_df: pd.DataFrame,
+    team_ratings: Dict[str, Tuple[float, float, float]],
+    cfg: GlickoConfig,
+    today: pd.Timestamp,
+) -> pd.DataFrame:
+    """Compute off_raw and def_raw per team using expected goals formula.
+
+    For each team, compares actual goals scored/conceded against expected
+    values derived from rating differences.  Positive off_raw means the
+    team scores more than its rating predicts; positive def_raw means
+    the team concedes fewer goals than expected (good defense).
+
+    Args:
+        games_df: DataFrame with columns team_id, opp_id, gf, ga, date, age, gender.
+        team_ratings: Dict of {team_id: (mu, sigma, volatility)}.
+        cfg: GlickoConfig with MAX_GAMES, WINDOW_DAYS, RECENCY_LAMBDA.
+        today: Reference date for window and recency.
+
+    Returns:
+        DataFrame with columns: team_id, off_raw, def_raw.
+    """
+    cohort_avg_gpg = games_df["gf"].mean()
+
+    results = []
+    for team_id, (team_mu, _, _) in team_ratings.items():
+        tg = select_games(games_df, team_id, cfg.MAX_GAMES, cfg.WINDOW_DAYS, today)
+        if len(tg) == 0:
+            results.append({"team_id": team_id, "off_raw": 0.0, "def_raw": 0.0})
+            continue
+
+        off_residuals = []
+        def_residuals = []
+        for _, row in tg.iterrows():
+            opp_id = row["opp_id"]
+            opp_mu = team_ratings[opp_id][0] if opp_id in team_ratings else cfg.INITIAL_MU
+
+            e_team = expected_score(team_mu, opp_mu)
+            e_opp = expected_score(opp_mu, team_mu)
+
+            expected_gf = cohort_avg_gpg * e_team
+            expected_ga = cohort_avg_gpg * e_opp
+
+            off_residuals.append(float(row["gf"]) - expected_gf)
+            def_residuals.append(expected_ga - float(row["ga"]))  # positive = good defense
+
+        weights = compute_recency_weights(tg["date"], today, cfg.RECENCY_LAMBDA)
+        off_raw = float(np.average(off_residuals, weights=weights))
+        def_raw = float(np.average(def_residuals, weights=weights))
+
+        results.append({"team_id": team_id, "off_raw": off_raw, "def_raw": def_raw})
+
+    return pd.DataFrame(results)
+
+
+def compute_sos(
+    games_df: pd.DataFrame,
+    team_ratings: Dict[str, Tuple[float, float, float]],
+    cfg: GlickoConfig,
+    today: pd.Timestamp,
+) -> pd.DataFrame:
+    """Compute schedule strength as average opponent Glicko-2 mu.
+
+    Applies a repeat cap per opponent and symmetric trim of the weakest
+    and strongest opponents before averaging.
+
+    Args:
+        games_df: DataFrame with columns team_id, opp_id, gf, ga, date, age, gender.
+        team_ratings: Dict of {team_id: (mu, sigma, volatility)}.
+        cfg: GlickoConfig with MAX_GAMES, WINDOW_DAYS, SOS_REPEAT_CAP,
+             SOS_TRIM_BOTTOM_PCT, SOS_TRIM_TOP_PCT.
+        today: Reference date for window filtering.
+
+    Returns:
+        DataFrame with columns: team_id, sos_raw.
+    """
+    results = []
+    for team_id in team_ratings:
+        tg = select_games(games_df, team_id, cfg.MAX_GAMES, cfg.WINDOW_DAYS, today)
+        if len(tg) == 0:
+            results.append({"team_id": team_id, "sos_raw": cfg.INITIAL_MU})
+            continue
+
+        # Collect opponent mus with repeat cap
+        opp_mus: List[float] = []
+        opp_counts: Dict[str, int] = {}
+        for _, row in tg.iterrows():
+            opp_id = row["opp_id"]
+            opp_counts[opp_id] = opp_counts.get(opp_id, 0) + 1
+            if opp_counts[opp_id] > cfg.SOS_REPEAT_CAP:
+                continue
+            opp_mu = team_ratings[opp_id][0] if opp_id in team_ratings else cfg.INITIAL_MU
+            opp_mus.append(opp_mu)
+
+        if len(opp_mus) == 0:
+            results.append({"team_id": team_id, "sos_raw": cfg.INITIAL_MU})
+            continue
+
+        # Symmetric trim: sort, remove bottom and top percentiles
+        opp_mus_sorted = sorted(opp_mus)
+        n = len(opp_mus_sorted)
+        trim_bottom = int(n * cfg.SOS_TRIM_BOTTOM_PCT)
+        trim_top = int(n * cfg.SOS_TRIM_TOP_PCT)
+
+        if trim_bottom + trim_top >= n:
+            # If trimming would remove everything, keep all
+            trimmed = opp_mus_sorted
+        else:
+            end = n - trim_top if trim_top > 0 else n
+            trimmed = opp_mus_sorted[trim_bottom:end]
+
+        if len(trimmed) == 0:
+            trimmed = opp_mus_sorted  # fallback: keep all
+
+        sos_raw = float(np.mean(trimmed))
+        results.append({"team_id": team_id, "sos_raw": sos_raw})
+
+    return pd.DataFrame(results)
+
+
+def sigmoid_zscore_normalize(values: pd.Series) -> pd.Series:
+    """Normalize values to [0, 1] using sigmoid of z-score.
+
+    Maps the mean to 0.5, with values above/below the mean approaching
+    1.0/0.0 asymptotically.  No min-max rescaling is applied.
+
+    Args:
+        values: Series of numeric values to normalize.
+
+    Returns:
+        Series of normalized values in (0, 1).
+    """
+    mean = values.mean()
+    std = values.std(ddof=0)
+    if std < 1e-10:
+        return pd.Series(0.5, index=values.index)
+    z = (values - mean) / std
+    return 1.0 / (1.0 + np.exp(-z))
+
+
+# =========================================================
 # Batch convergence engine
 # =========================================================
 def run_glicko2_cohort(
