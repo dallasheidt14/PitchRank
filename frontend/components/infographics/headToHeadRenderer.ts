@@ -1,3 +1,4 @@
+import type { TeamWithRanking } from '@/lib/types';
 import type { RankingRow } from '@/types/RankingRow';
 import { PLATFORM_DIMENSIONS, BRAND_COLORS, Platform } from './InfographicWrapper';
 import { predictMatch } from '@/lib/matchPredictor';
@@ -243,8 +244,8 @@ export async function renderHeadToHeadToCanvas(options: HeadToHeadOptions): Prom
 
   // ===== PROJECTED SCORE =====
   const matchPrediction = predictMatch(
-    { ...team1, team_id_master: team1.team_id_master || '' } as RankingRow,
-    { ...team2, team_id_master: team2.team_id_master || '' } as RankingRow,
+    { ...team1, team_id_master: team1.team_id_master || '', last_scraped_at: null } as unknown as TeamWithRanking,
+    { ...team2, team_id_master: team2.team_id_master || '', last_scraped_at: null } as unknown as TeamWithRanking,
     allGames
   );
   const prediction = {

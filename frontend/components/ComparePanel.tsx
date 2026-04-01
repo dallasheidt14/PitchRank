@@ -624,23 +624,24 @@ export function ComparePanel() {
                                   </p>
                                 )}
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                  {payload.map(
-                                    (entry: { color?: string; name?: string; value?: number }, index: number) => (
-                                      <div key={index} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <div
-                                          style={{
-                                            width: '12px',
-                                            height: '12px',
-                                            backgroundColor: entry.color,
-                                            borderRadius: '2px',
-                                          }}
-                                        />
-                                        <span style={{ color: 'var(--foreground)' }}>
-                                          {entry.name}: <strong>{entry.value?.toFixed(1)}</strong>
-                                        </span>
-                                      </div>
-                                    )
-                                  )}
+                                  {payload.map((entry, index) => (
+                                    <div key={index} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      <div
+                                        style={{
+                                          width: '12px',
+                                          height: '12px',
+                                          backgroundColor: entry.color,
+                                          borderRadius: '2px',
+                                        }}
+                                      />
+                                      <span style={{ color: 'var(--foreground)' }}>
+                                        {entry.name}:{' '}
+                                        <strong>
+                                          {typeof entry.value === 'number' ? entry.value.toFixed(1) : entry.value}
+                                        </strong>
+                                      </span>
+                                    </div>
+                                  ))}
                                 </div>
                               </div>
                             );

@@ -62,7 +62,7 @@ export function useScrapeRequestNotifications() {
                 if (trackedIds.includes(requestId)) {
                   markAsProcessed(requestId);
 
-                  const gamesFound = requestData.games_found ?? 0;
+                  const gamesFound = (requestData.games_found as number) ?? 0;
                   const teamName = requestData.team_name || 'the team';
                   const gameDate = requestData.game_date;
 

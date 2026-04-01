@@ -270,7 +270,8 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
               strokeOpacity={0.5}
               dot={(props: { cx?: number; cy?: number; payload?: Record<string, unknown>; index?: number }) => {
                 const { cx, cy, payload } = props;
-                const color = payload.goalDifferential >= 0 ? 'var(--color-win)' : 'var(--color-loss)';
+                const gd = (payload?.goalDifferential as number) ?? 0;
+                const color = gd >= 0 ? 'var(--color-win)' : 'var(--color-loss)';
                 return <circle cx={cx} cy={cy} r={4} fill={color} stroke="var(--background)" strokeWidth={2} />;
               }}
               name="Goal Differential"

@@ -2,6 +2,7 @@
 
 import React, { forwardRef } from 'react';
 import { InfographicWrapper, Platform, BRAND_COLORS, PLATFORM_DIMENSIONS } from './InfographicWrapper';
+import type { TeamWithRanking } from '@/lib/types';
 import type { RankingRow } from '@/types/RankingRow';
 import { predictMatch } from '@/lib/matchPredictor';
 import type { Game } from '@/lib/types';
@@ -128,8 +129,8 @@ export const HeadToHeadPreview = forwardRef<HTMLDivElement, HeadToHeadPreviewPro
 
     // Get prediction using the same logic as compare tab
     const matchPrediction = predictMatch(
-      { ...team1, team_id_master: team1.team_id_master || '' } as RankingRow,
-      { ...team2, team_id_master: team2.team_id_master || '' } as RankingRow,
+      { ...team1, team_id_master: team1.team_id_master || '', last_scraped_at: null } as unknown as TeamWithRanking,
+      { ...team2, team_id_master: team2.team_id_master || '', last_scraped_at: null } as unknown as TeamWithRanking,
       allGames
     );
     const prediction = {
