@@ -538,6 +538,129 @@ def sigmoid_zscore_normalize(values: pd.Series) -> pd.Series:
 
 
 # =========================================================
+# SCF: Schedule Connectivity Factor (regional bubble detection)
+# =========================================================
+def compute_scf(
+    games_df: pd.DataFrame,
+    team_state_map: Dict[str, str],
+    team_ratings: Dict[str, Tuple[float, float, float]],
+    cfg: GlickoConfig,
+) -> Dict[str, Dict]:
+    """Compute Schedule Connectivity Factor for each team.
+
+    Detects teams playing in isolated regional bubbles (e.g., 3 Idaho teams
+    only playing each other inflate each other's ratings) and assigns a
+    diversity score that can dampen their SOS toward neutral.
+
+    Args:
+        games_df: DataFrame with columns team_id, opp_id plus standard game cols.
+        team_state_map: Dict mapping team_id -> state abbreviation (e.g. 'ID').
+        team_ratings: Dict of {team_id: (mu, sigma, volatility)}.
+        cfg: GlickoConfig with SCF_ENABLED, SCF_DIVERSITY_DIVISOR, SCF_FLOOR,
+             MIN_BRIDGE_GAMES, SCF_MIN_UNIQUE_STATES.
+
+    Returns:
+        Dict[team_id, {scf, unique_states, bridge_games, is_isolated, quality_boosted}]
+    """
+    result: Dict[str, Dict] = {}
+
+    for team_id in team_ratings:
+        if not cfg.SCF_ENABLED:
+            result[team_id] = {
+                "scf": 1.0,
+                "unique_states": 0,
+                "bridge_games": 0,
+                "is_isolated": False,
+                "quality_boosted": False,
+            }
+            continue
+
+        team_state = team_state_map.get(team_id, "")
+        team_games = games_df[games_df["team_id"] == team_id]
+
+        opp_states: List[str] = []
+        bridge_count = 0
+        for _, row in team_games.iterrows():
+            opp_id = row["opp_id"]
+            opp_state = team_state_map.get(opp_id, "")
+            if opp_state:
+                opp_states.append(opp_state)
+                if opp_state != team_state:
+                    bridge_count += 1
+
+        unique_states = len(set(opp_states))
+
+        # SCF score: diversity of opponent states
+        scf_raw = min(unique_states / cfg.SCF_DIVERSITY_DIVISOR, 1.0)
+        scf = max(cfg.SCF_FLOOR, scf_raw)
+
+        is_isolated = (
+            bridge_count < cfg.MIN_BRIDGE_GAMES
+            or unique_states < cfg.SCF_MIN_UNIQUE_STATES
+        )
+
+        result[team_id] = {
+            "scf": scf,
+            "unique_states": unique_states,
+            "bridge_games": bridge_count,
+            "is_isolated": is_isolated,
+            "quality_boosted": False,
+        }
+
+    return result
+
+
+def apply_scf_dampening(
+    team_df: pd.DataFrame,
+    scf_data: Dict[str, Dict],
+    cfg: GlickoConfig,
+) -> pd.DataFrame:
+    """Apply SCF dampening to SOS values.
+
+    Dampens sos_raw toward the Glicko-2 neutral rating (1500.0) based on
+    each team's SCF score. Isolated teams also get their SOS capped.
+
+    Args:
+        team_df: DataFrame with columns team_id, sos_raw.
+        scf_data: Output of compute_scf().
+        cfg: GlickoConfig with ISOLATION_SOS_CAP.
+
+    Returns:
+        Modified DataFrame with SCF columns added and sos_raw dampened.
+    """
+    df = team_df.copy()
+    neutral = cfg.INITIAL_MU  # 1500.0
+
+    # Map SCF fields onto the DataFrame
+    df["scf"] = df["team_id"].map(
+        lambda t: scf_data.get(t, {}).get("scf", 1.0)
+    )
+    df["bridge_games"] = df["team_id"].map(
+        lambda t: scf_data.get(t, {}).get("bridge_games", 0)
+    )
+    df["is_isolated"] = df["team_id"].map(
+        lambda t: scf_data.get(t, {}).get("is_isolated", False)
+    )
+    df["unique_opp_states"] = df["team_id"].map(
+        lambda t: scf_data.get(t, {}).get("unique_states", 0)
+    )
+    df["quality_boosted"] = df["team_id"].map(
+        lambda t: scf_data.get(t, {}).get("quality_boosted", False)
+    )
+
+    # Cap isolated teams' SOS before dampening
+    max_sos = df["sos_raw"].max()
+    isolated_mask = df["is_isolated"]
+    sos_cap = neutral + cfg.ISOLATION_SOS_CAP * (max_sos - neutral)
+    df.loc[isolated_mask, "sos_raw"] = df.loc[isolated_mask, "sos_raw"].clip(upper=sos_cap)
+
+    # Dampen SOS toward neutral: sos_dampened = neutral + scf * (sos_raw - neutral)
+    df["sos_raw"] = neutral + df["scf"] * (df["sos_raw"] - neutral)
+
+    return df
+
+
+# =========================================================
 # Batch convergence engine
 # =========================================================
 def run_glicko2_cohort(

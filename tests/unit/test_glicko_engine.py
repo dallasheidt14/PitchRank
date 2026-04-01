@@ -10,8 +10,10 @@ from src.etl.glicko_config import GlickoConfig
 from src.etl.glicko_engine import (
     _from_glicko2_scale,
     _to_glicko2_scale,
+    apply_scf_dampening,
     clip_outlier_goals,
     compute_recency_weights,
+    compute_scf,
     compute_sos,
     derive_offense_defense,
     expected_score,
@@ -512,3 +514,76 @@ class TestSigmoidZscoreNormalize:
         vals = pd.Series([100, 100, 100])
         result = sigmoid_zscore_normalize(vals)
         assert all(abs(v - 0.5) < 0.001 for v in result)
+
+
+class TestSCF:
+    def _make_games(self, team_id: str, opp_ids: list[str]) -> pd.DataFrame:
+        """Helper: one game row per opponent for *team_id*."""
+        rows = [
+            {"team_id": team_id, "opp_id": opp, "gf": 2, "ga": 1,
+             "date": pd.Timestamp("2026-03-01"), "age": "U15", "gender": "M"}
+            for opp in opp_ids
+        ]
+        return pd.DataFrame(rows)
+
+    def test_isolated_team_flagged(self):
+        """Team whose opponents are all in the same state is_isolated=True."""
+        cfg = GlickoConfig()
+        games = self._make_games("A", ["B", "C", "D"])
+        state_map = {"A": "ID", "B": "ID", "C": "ID", "D": "ID"}
+        ratings = {"A": (1500.0, 200.0, 0.06), "B": (1500.0, 200.0, 0.06),
+                   "C": (1500.0, 200.0, 0.06), "D": (1500.0, 200.0, 0.06)}
+        result = compute_scf(games, state_map, ratings, cfg)
+        assert result["A"]["is_isolated"] is True
+
+    def test_connected_team_not_isolated(self):
+        """Team with opponents from 5 different states is_isolated=False."""
+        cfg = GlickoConfig()
+        opp_ids = [f"opp_{s}" for s in ["OR", "WA", "MT", "WY", "UT"]]
+        games = self._make_games("A", opp_ids)
+        state_map = {"A": "ID", "opp_OR": "OR", "opp_WA": "WA",
+                     "opp_MT": "MT", "opp_WY": "WY", "opp_UT": "UT"}
+        ratings = {"A": (1500.0, 200.0, 0.06)}
+        for opp in opp_ids:
+            ratings[opp] = (1500.0, 200.0, 0.06)
+        result = compute_scf(games, state_map, ratings, cfg)
+        assert result["A"]["is_isolated"] is False
+        assert result["A"]["unique_states"] == 5
+
+    def test_scf_dampens_sos(self):
+        """Isolated team (low scf) has SOS dampened closer to 1500 than connected team."""
+        cfg = GlickoConfig()
+        neutral = 1500.0
+        raw_sos = 1700.0  # both start with strong schedule
+
+        team_df = pd.DataFrame([
+            {"team_id": "isolated", "sos_raw": raw_sos},
+            {"team_id": "connected", "sos_raw": raw_sos},
+        ])
+        scf_data = {
+            "isolated": {"scf": cfg.SCF_FLOOR, "bridge_games": 0,
+                         "is_isolated": True, "unique_states": 1, "quality_boosted": False},
+            "connected": {"scf": 1.0, "bridge_games": 10,
+                          "is_isolated": False, "unique_states": 5, "quality_boosted": False},
+        }
+        result = apply_scf_dampening(team_df, scf_data, cfg)
+        isolated_sos = result[result["team_id"] == "isolated"]["sos_raw"].iloc[0]
+        connected_sos = result[result["team_id"] == "connected"]["sos_raw"].iloc[0]
+
+        # Isolated team's SOS should be dampened toward 1500; connected unchanged
+        assert isolated_sos < connected_sos
+        assert isolated_sos < raw_sos
+        assert abs(connected_sos - (neutral + 1.0 * (raw_sos - neutral))) < 0.01
+
+    def test_scf_disabled(self):
+        """SCF_ENABLED=False gives scf=1.0 and is_isolated=False for all teams."""
+        cfg = GlickoConfig()
+        cfg.SCF_ENABLED = False
+        games = self._make_games("A", ["B", "C"])
+        state_map = {"A": "ID", "B": "ID", "C": "ID"}
+        ratings = {"A": (1500.0, 200.0, 0.06), "B": (1500.0, 200.0, 0.06),
+                   "C": (1500.0, 200.0, 0.06)}
+        result = compute_scf(games, state_map, ratings, cfg)
+        for team_id, data in result.items():
+            assert data["scf"] == 1.0
+            assert data["is_isolated"] is False
