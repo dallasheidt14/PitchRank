@@ -3850,6 +3850,149 @@ elif section == "🔀 Team Merge Manager":
                         return True
                 return False
 
+            # ── Division / location / structural distinction detection ──
+            # Mirrors the logic in find_fuzzy_duplicate_teams.py to prevent
+            # suggesting merges for teams that differ only by division tier
+            # (HD vs AD), location branch (SEV vs WV), or program level.
+            DIVISION_CODES = frozenset({
+                "hd", "ad", "ea",   # Higher Division, Academy Division, Elite Academy
+            })
+            LOCATION_CODES_DASH = frozenset({
+                # AZ sub-regions
+                "sev", "wv", "ev", "phx",
+                # TX sub-regions
+                "ctx", "ntx", "stx", "etx", "wtx",
+                # CA sub-regions
+                "sm", "av", "mv", "le", "hb", "nb", "lb", "oc", "ie", "sfv",
+                # General location codes (within-club branches)
+                "cp", "wc", "up", "rc", "go", "sl", "tw", "tt", "cy",
+            })
+            PROGRAM_CODES = frozenset({
+                "ecnl", "ecrl", "npl", "ga", "rl", "dpl", "mls",
+                "premier", "select", "elite", "academy", "classic",
+                "next", "copa", "nal", "reserve", "fdl", "pre",
+            })
+            TEAM_COLORS = frozenset({
+                "red", "blue", "white", "black", "gold", "grey", "gray",
+                "green", "orange", "purple", "yellow", "navy", "maroon",
+                "silver", "pink", "sky", "royal", "crimson",
+            })
+            DIRECTION_MAP = {
+                "north": "north", "south": "south", "east": "east", "west": "west",
+                "central": "central",
+                "n": "north", "s": "south", "e": "east", "w": "west",
+                "nw": "northwest", "ne": "northeast", "sw": "southwest", "se": "southeast",
+            }
+            NOISE_WORDS = frozenset({
+                "fc", "sc", "sa", "ac", "cf", "fcs", "ysa",
+                "soccer", "club", "futbol", "football", "youth",
+                "boys", "girls", "the", "of", "and",
+            })
+
+            def _extract_structural_features(name, club_name=""):
+                """Extract division codes, location codes, colors, directions, and programs from a team name."""
+                import re as _re
+                if not name:
+                    return {"divisions": frozenset(), "locations": frozenset(),
+                            "programs": frozenset(), "colors": frozenset(),
+                            "directions": frozenset(), "squad_words": frozenset(),
+                            "team_number": None}
+                # Tokenize
+                normalized = _re.sub(r"[-_./]", " ", name.lower())
+                tokens = [w.strip("()[]'*") for w in normalized.split() if w.strip("()[]'*")]
+
+                # Strip club name tokens (but keep programs)
+                if club_name:
+                    club_tokens = set(_re.sub(r"[-_./]", " ", club_name.lower()).split()) - NOISE_WORDS - PROGRAM_CODES
+                    tokens = [t for t in tokens if t not in club_tokens]
+
+                divisions = set()
+                locations = set()
+                programs = set()
+                colors = set()
+                directions = set()
+                team_number = None
+                classified = set()
+
+                for idx, tok in enumerate(tokens):
+                    if tok in DIVISION_CODES:
+                        divisions.add(tok)
+                        classified.add(idx)
+                    elif tok in TEAM_COLORS:
+                        colors.add(tok)
+                        classified.add(idx)
+                    elif tok in DIRECTION_MAP:
+                        directions.add(DIRECTION_MAP[tok])
+                        classified.add(idx)
+                    elif tok in PROGRAM_CODES:
+                        programs.add(tok)
+                        classified.add(idx)
+                    elif tok in LOCATION_CODES_DASH:
+                        locations.add(tok)
+                        classified.add(idx)
+                    elif tok in NOISE_WORDS:
+                        classified.add(idx)
+                    elif _re.fullmatch(r"(i{1,3}|iv|v|vi{0,3})", tok):
+                        team_number = tok
+                        classified.add(idx)
+                    elif _re.fullmatch(r"[1-9]|10", tok):
+                        team_number = tok
+                        classified.add(idx)
+
+                # Classify age tokens
+                age_pattern = _re.compile(r"\b(20\d{2})\b|'(\d{2})(?:/(\d{2}))?|\b[Uu]-?(\d{1,2})\b")
+                for idx, tok in enumerate(tokens):
+                    if idx in classified:
+                        continue
+                    if _re.fullmatch(r"(\d{1,4})u?[bgmf]|[bgmf](\d{1,4})u?|u(\d{1,2})[bgmf]", tok):
+                        classified.add(idx)
+                    elif _re.fullmatch(r"20\d{2}", tok) or _re.fullmatch(r"\d{2}/\d{2}", tok):
+                        classified.add(idx)
+                    elif _re.fullmatch(r"u-?\d{1,2}", tok):
+                        classified.add(idx)
+                    elif _re.fullmatch(r"\d+m?", tok):
+                        classified.add(idx)
+
+                # Remaining tokens → squad words or location codes (by length)
+                squad_words = set()
+                for idx, tok in enumerate(tokens):
+                    if idx in classified or not tok:
+                        continue
+                    if not tok.isalpha() and not tok.isdigit() and len(tok) >= 2:
+                        squad_words.add(tok)
+                        continue
+                    if not tok.isalpha():
+                        continue
+                    if len(tok) == 1:
+                        squad_words.add(tok)
+                    elif 2 <= len(tok) <= 3:
+                        locations.add(tok)
+                    elif len(tok) >= 4:
+                        squad_words.add(tok)
+
+                return {
+                    "divisions": frozenset(divisions),
+                    "locations": frozenset(locations),
+                    "programs": frozenset(programs),
+                    "colors": frozenset(colors),
+                    "directions": frozenset(directions),
+                    "squad_words": frozenset(squad_words),
+                    "team_number": team_number,
+                }
+
+            def has_structural_difference(name_a, name_b, club_a="", club_b=""):
+                """Return True if two team names differ by a structural feature
+                (division code, location branch, color, direction, program, squad word,
+                or team number) — meaning they are distinct teams, NOT duplicates."""
+                fa = _extract_structural_features(name_a, club_a)
+                fb = _extract_structural_features(name_b, club_b)
+                # Any structural feature mismatch → different teams
+                for key in ("divisions", "locations", "programs", "colors",
+                            "directions", "squad_words", "team_number"):
+                    if fa[key] != fb[key]:
+                        return True
+                return False
+
             def get_opponents(team_id, games_data):
                 """Get set of opponent IDs for a team from games data"""
                 opponents = set()
@@ -3966,10 +4109,24 @@ elif section == "🔀 Team Merge Manager":
                                         if pair_count % 100 == 0:
                                             progress_bar.progress(0.3 + (pair_count / total_pairs) * 0.7)
 
-                                        name_a = (team_a.get('team_name') or '').lower()
-                                        name_b = (team_b.get('team_name') or '').lower()
-                                        club_a = (team_a.get('club_name') or '').lower()
-                                        club_b = (team_b.get('club_name') or '').lower()
+                                        raw_name_a = team_a.get('team_name') or ''
+                                        raw_name_b = team_b.get('team_name') or ''
+                                        raw_club_a = team_a.get('club_name') or ''
+                                        raw_club_b = team_b.get('club_name') or ''
+
+                                        # Skip pairs that differ by division, location,
+                                        # color, direction, program, or squad word —
+                                        # these are distinct teams, not duplicates.
+                                        if has_structural_difference(
+                                            raw_name_a, raw_name_b,
+                                            raw_club_a, raw_club_b
+                                        ):
+                                            continue
+
+                                        name_a = raw_name_a.lower()
+                                        name_b = raw_name_b.lower()
+                                        club_a = raw_club_a.lower()
+                                        club_b = raw_club_b.lower()
                                         state_a = team_a.get('state_code', '')
                                         state_b = team_b.get('state_code', '')
 

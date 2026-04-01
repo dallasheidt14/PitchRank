@@ -386,6 +386,31 @@ const { user, supabase } = auth;
 
 ---
 
+## Git Workflow
+
+- Never commit directly to main. Always create a feature branch, make changes there, and open a PR unless explicitly told otherwise.
+- When the user asks for git operations (commit, push, merge), do them immediately without requiring a second ask.
+
+---
+
+## General Rules
+
+- Before creating new files or configurations, check if they already exist first (e.g., .env, .env.local, Telegram integrations, notification setups). Never create duplicates.
+
+---
+
+## Editing Rules
+
+- After editing files, re-read them to confirm changes persisted. External processes (linters, pre-commit hooks, ruff) may silently revert edits.
+
+---
+
+## Debugging
+
+- When debugging failures, diagnose the root cause before re-running. Do not blindly retry failing commands or CI runs.
+
+---
+
 ## Agent System
 
 PitchRank uses a multi-agent system with specialized personas:
