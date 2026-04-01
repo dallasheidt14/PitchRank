@@ -16,7 +16,16 @@ on:
       - "Modular11 Events Weekly Scrape"
     types:
       - completed
-  workflow_dispatch: # Allow manual trigger from GitHub Actions tab
+  workflow_dispatch:
+    inputs:
+      engine:
+        description: 'Ranking engine to use'
+        required: false
+        default: 'glicko'
+        type: choice
+        options:
+          - glicko
+          - v53e
 
 # Prevent concurrent ranking calculations — if a scrape-triggered ranking
 # is still running when the scheduled one fires, the scheduled one will queue.
@@ -116,7 +125,7 @@ jobs:
           echo "Python version: $(python --version)"
           echo "Current directory: $(pwd)"
           echo "SUPABASE_URL configured: $([[ -n "$SUPABASE_URL" ]] && echo 'Yes' || echo 'No')"
-          python scripts/calculate_rankings.py --ml --force-rebuild --engine glicko || {
+          python scripts/calculate_rankings.py --ml --force-rebuild --engine ${{ github.event.inputs.engine || 'glicko' }} || {
             echo "❌ Rankings calculation failed with exit code $?"
             exit 1
           }
