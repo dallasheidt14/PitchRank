@@ -312,7 +312,11 @@ def compute_recency_weights(game_dates: pd.Series, today: pd.Timestamp, lambda_:
     Returns:
         Numpy array of weights that sum to 1.0.
     """
-    gd = game_dates.dt.tz_localize(None) if hasattr(game_dates.dtype, "tz") and game_dates.dtype.tz is not None else game_dates
+    gd = (
+        game_dates.dt.tz_localize(None)
+        if hasattr(game_dates.dtype, "tz") and game_dates.dtype.tz is not None
+        else game_dates
+    )
     today_naive = today.tz_localize(None) if today.tzinfo is not None else today
     days_ago = (today_naive - gd).dt.days
     weights = np.exp(-lambda_ * days_ago / 365.0)
