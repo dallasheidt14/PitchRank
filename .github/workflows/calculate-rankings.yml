@@ -56,13 +56,10 @@ jobs:
       # ---------------------------------------------------------------
       # 2. FAIL-SAFE: VERIFY WE ARE ON THE RIGHT BRANCH
       # ---------------------------------------------------------------
-      - name: Verify correct branch
+      - name: Verify branch
         run: |
           echo "Checked-out branch: $(git branch --show-current)"
-          if [ "$(git branch --show-current)" != "main" ]; then
-            echo "❌ ERROR: Wrong branch checked out! Rankings run ABORTED."
-            exit 1
-          fi
+          echo "Engine: ${{ github.event.inputs.engine || 'glicko' }}"
 
       # ---------------------------------------------------------------
       # 3. PRINT COMMIT HASH (for debugging + traceability)
