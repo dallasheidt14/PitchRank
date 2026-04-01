@@ -283,7 +283,7 @@ class TestRunGlicko2Cohort:
         rows += self._make_game('A', 'C', 4, 0, '2026-03-20')
         games = pd.DataFrame(rows)
 
-        result = run_glicko2_cohort(games, cfg, today)
+        result, team_games = run_glicko2_cohort(games, cfg, today)
         ratings = result.set_index('team_id')['mu']
         assert ratings['A'] > ratings['B'] > ratings['C']
 
@@ -297,7 +297,7 @@ class TestRunGlicko2Cohort:
         games = pd.DataFrame(rows)
 
         # Should not raise or warn
-        result = run_glicko2_cohort(games, cfg, today)
+        result, team_games = run_glicko2_cohort(games, cfg, today)
         assert len(result) == 3
 
     def test_recency_matters(self):
@@ -313,7 +313,7 @@ class TestRunGlicko2Cohort:
         rows += self._make_game('B', 'C', 3, 0, '2026-03-15')
         games = pd.DataFrame(rows)
 
-        result = run_glicko2_cohort(games, cfg, today)
+        result, team_games = run_glicko2_cohort(games, cfg, today)
         ratings = result.set_index('team_id')['mu']
         assert ratings['B'] > ratings['A']
 
@@ -324,7 +324,7 @@ class TestRunGlicko2Cohort:
         rows = self._make_game('A', 'B', 2, 1, '2026-03-01')
         games = pd.DataFrame(rows)
 
-        result = run_glicko2_cohort(games, cfg, today)
+        result, team_games = run_glicko2_cohort(games, cfg, today)
         required = ['team_id', 'mu', 'sigma', 'volatility', 'games_played',
                      'wins', 'losses', 'draws', 'last_game', 'goals_for', 'goals_against']
         for col in required:
@@ -340,7 +340,7 @@ class TestRunGlicko2Cohort:
         rows += self._make_game('A', 'B', 0, 2, '2026-03-20')  # A loses
         games = pd.DataFrame(rows)
 
-        result = run_glicko2_cohort(games, cfg, today)
+        result, team_games = run_glicko2_cohort(games, cfg, today)
         a_row = result[result['team_id'] == 'A'].iloc[0]
         assert a_row['games_played'] == 3
         assert a_row['wins'] == 1

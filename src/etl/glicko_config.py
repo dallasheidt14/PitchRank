@@ -35,16 +35,34 @@ class GlickoConfig:
 
     # Cross-age
     ANCHOR_SCALE_FACTOR: float = 400.0
-    MALE_ANCHORS: dict = field(default_factory=lambda: {
-        10: 0.783, 11: 0.793, 12: 0.824, 13: 0.878,
-        14: 0.928, 15: 0.935, 16: 0.962, 17: 0.965,
-        18: 0.985, 19: 1.000,
-    })
-    FEMALE_ANCHORS: dict = field(default_factory=lambda: {
-        10: 0.792, 11: 0.828, 12: 0.885, 13: 0.914,
-        14: 0.957, 15: 0.962, 16: 0.984, 17: 0.996,
-        18: 0.998, 19: 1.000,
-    })
+    MALE_ANCHORS: dict = field(
+        default_factory=lambda: {
+            10: 0.783,
+            11: 0.793,
+            12: 0.824,
+            13: 0.878,
+            14: 0.928,
+            15: 0.935,
+            16: 0.962,
+            17: 0.965,
+            18: 0.985,
+            19: 1.000,
+        }
+    )
+    FEMALE_ANCHORS: dict = field(
+        default_factory=lambda: {
+            10: 0.792,
+            11: 0.828,
+            12: 0.885,
+            13: 0.914,
+            14: 0.957,
+            15: 0.962,
+            16: 0.984,
+            17: 0.996,
+            18: 0.998,
+            19: 1.000,
+        }
+    )
 
     # SOS
     SOS_REPEAT_CAP: int = 4
