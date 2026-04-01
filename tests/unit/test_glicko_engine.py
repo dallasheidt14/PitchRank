@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import math
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -12,6 +10,7 @@ from src.etl.glicko_engine import (
     _to_glicko2_scale,
     apply_scf_dampening,
     clip_outlier_goals,
+    compute_game_explainability,
     compute_rankings_v2,
     compute_recency_weights,
     compute_scf,
@@ -73,8 +72,13 @@ class TestGlicko2Update:
         mu, sigma = 1500.0, 200.0
         opp_mu, opp_sigma = 1500.0, 200.0
         new_mu, new_sigma, new_vol = glicko2_update(
-            mu, sigma, cfg.INITIAL_VOLATILITY,
-            [(opp_mu, opp_sigma)], [1.0], [1.0], cfg.TAU,
+            mu,
+            sigma,
+            cfg.INITIAL_VOLATILITY,
+            [(opp_mu, opp_sigma)],
+            [1.0],
+            [1.0],
+            cfg.TAU,
         )
         assert new_mu > mu
 
@@ -82,8 +86,13 @@ class TestGlicko2Update:
         mu, sigma = 1500.0, 200.0
         cfg = GlickoConfig()
         new_mu, _, _ = glicko2_update(
-            mu, sigma, cfg.INITIAL_VOLATILITY,
-            [(1500.0, 200.0)], [0.0], [1.0], cfg.TAU,
+            mu,
+            sigma,
+            cfg.INITIAL_VOLATILITY,
+            [(1500.0, 200.0)],
+            [0.0],
+            [1.0],
+            cfg.TAU,
         )
         assert new_mu < mu
 
@@ -92,8 +101,13 @@ class TestGlicko2Update:
         cfg = GlickoConfig()
         mu, sigma = 1500.0, 350.0
         new_mu, new_sigma, _ = glicko2_update(
-            mu, sigma, cfg.INITIAL_VOLATILITY,
-            [(1500.0, 200.0)], [0.5], [1.0], cfg.TAU,
+            mu,
+            sigma,
+            cfg.INITIAL_VOLATILITY,
+            [(1500.0, 200.0)],
+            [0.5],
+            [1.0],
+            cfg.TAU,
         )
         assert new_sigma < sigma
 
@@ -101,9 +115,7 @@ class TestGlicko2Update:
         """No games played should increase sigma (uncertainty widens)."""
         cfg = GlickoConfig()
         mu, sigma = 1500.0, 200.0
-        new_mu, new_sigma, _ = glicko2_update(
-            mu, sigma, cfg.INITIAL_VOLATILITY, [], [], [], cfg.TAU
-        )
+        new_mu, new_sigma, _ = glicko2_update(mu, sigma, cfg.INITIAL_VOLATILITY, [], [], [], cfg.TAU)
         assert new_mu == pytest.approx(mu, abs=0.001)  # mu unchanged
         assert new_sigma > sigma  # sigma increases
 
@@ -116,7 +128,9 @@ class TestGlicko2Update:
         """
         cfg = GlickoConfig()
         new_mu, new_sigma, _ = glicko2_update(
-            1500.0, 200.0, 0.06,
+            1500.0,
+            200.0,
+            0.06,
             [(1400.0, 30.0), (1550.0, 100.0), (1700.0, 300.0)],
             [1.0, 0.0, 0.0],
             [1.0, 1.0, 1.0],
@@ -161,139 +175,172 @@ class TestClipOutlierGoals:
     def test_extreme_score_clipped(self):
         """A 15-0 game should get GF clipped."""
         n = 20
-        games = pd.DataFrame({
-            'gf': [2, 1, 3, 2, 1, 2, 3, 1, 2, 2, 1, 3, 2, 1, 2, 3, 1, 2, 2, 15],
-            'ga': [1, 2, 0, 1, 1, 2, 1, 0, 1, 2, 1, 0, 1, 2, 1, 0, 1, 2, 1, 0],
-            'age': ['U15'] * n,
-            'gender': ['M'] * n,
-        })
+        games = pd.DataFrame(
+            {
+                "gf": [2, 1, 3, 2, 1, 2, 3, 1, 2, 2, 1, 3, 2, 1, 2, 3, 1, 2, 2, 15],
+                "ga": [1, 2, 0, 1, 1, 2, 1, 0, 1, 2, 1, 0, 1, 2, 1, 0, 1, 2, 1, 0],
+                "age": ["U15"] * n,
+                "gender": ["M"] * n,
+            }
+        )
         result = clip_outlier_goals(games, zscore_threshold=2.5)
-        assert result['gf'].iloc[3] < 15  # 15 should be clipped
+        assert result["gf"].iloc[3] < 15  # 15 should be clipped
 
     def test_normal_scores_unchanged(self):
         """Normal scores within 2.5 sigma should not change."""
-        games = pd.DataFrame({
-            'gf': [2, 1, 3, 2, 1, 2],
-            'ga': [1, 2, 0, 1, 1, 3],
-            'age': ['U15'] * 6,
-            'gender': ['M'] * 6,
-        })
+        games = pd.DataFrame(
+            {
+                "gf": [2, 1, 3, 2, 1, 2],
+                "ga": [1, 2, 0, 1, 1, 3],
+                "age": ["U15"] * 6,
+                "gender": ["M"] * 6,
+            }
+        )
         result = clip_outlier_goals(games, zscore_threshold=2.5)
-        pd.testing.assert_frame_equal(result[['gf', 'ga']], games[['gf', 'ga']])
+        pd.testing.assert_frame_equal(result[["gf", "ga"]], games[["gf", "ga"]])
 
     def test_does_not_modify_original(self):
         """Should return a copy, not modify in place."""
-        games = pd.DataFrame({
-            'gf': [2, 15], 'ga': [1, 0],
-            'age': ['U15', 'U15'], 'gender': ['M', 'M'],
-        })
-        original_gf = games['gf'].iloc[1]
+        games = pd.DataFrame(
+            {
+                "gf": [2, 15],
+                "ga": [1, 0],
+                "age": ["U15", "U15"],
+                "gender": ["M", "M"],
+            }
+        )
+        original_gf = games["gf"].iloc[1]
         clip_outlier_goals(games, zscore_threshold=2.5)
-        assert games['gf'].iloc[1] == original_gf
+        assert games["gf"].iloc[1] == original_gf
 
 
 class TestSelectGames:
     def test_max_games_limit(self):
         """Should return at most max_games games."""
-        today = pd.Timestamp('2026-03-31')
-        dates = pd.date_range(end=today, periods=40, freq='7D')
-        games = pd.DataFrame({
-            'team_id': ['team_a'] * 40,
-            'date': dates,
-            'gf': [2] * 40,
-            'ga': [1] * 40,
-        })
-        result = select_games(games, 'team_a', max_games=30, window_days=365, today=today)
+        today = pd.Timestamp("2026-03-31")
+        dates = pd.date_range(end=today, periods=40, freq="7D")
+        games = pd.DataFrame(
+            {
+                "team_id": ["team_a"] * 40,
+                "date": dates,
+                "gf": [2] * 40,
+                "ga": [1] * 40,
+            }
+        )
+        result = select_games(games, "team_a", max_games=30, window_days=365, today=today)
         assert len(result) == 30
 
     def test_window_filter(self):
         """Should exclude games outside the window."""
-        today = pd.Timestamp('2026-03-31')
-        games = pd.DataFrame({
-            'team_id': ['team_a'] * 3,
-            'date': [
-                pd.Timestamp('2026-03-01'),  # within window
-                pd.Timestamp('2025-06-01'),  # within window
-                pd.Timestamp('2024-01-01'),  # outside 365-day window
-            ],
-            'gf': [2, 1, 3],
-            'ga': [1, 2, 0],
-        })
-        result = select_games(games, 'team_a', max_games=30, window_days=365, today=today)
+        today = pd.Timestamp("2026-03-31")
+        games = pd.DataFrame(
+            {
+                "team_id": ["team_a"] * 3,
+                "date": [
+                    pd.Timestamp("2026-03-01"),  # within window
+                    pd.Timestamp("2025-06-01"),  # within window
+                    pd.Timestamp("2024-01-01"),  # outside 365-day window
+                ],
+                "gf": [2, 1, 3],
+                "ga": [1, 2, 0],
+            }
+        )
+        result = select_games(games, "team_a", max_games=30, window_days=365, today=today)
         assert len(result) == 2
 
     def test_most_recent_first(self):
         """Games should be sorted most recent first."""
-        today = pd.Timestamp('2026-03-31')
-        games = pd.DataFrame({
-            'team_id': ['team_a'] * 3,
-            'date': [pd.Timestamp('2026-01-01'), pd.Timestamp('2026-03-01'), pd.Timestamp('2026-02-01')],
-            'gf': [1, 2, 3], 'ga': [0, 0, 0],
-        })
-        result = select_games(games, 'team_a', max_games=30, window_days=365, today=today)
-        assert result.iloc[0]['gf'] == 2  # March game first
+        today = pd.Timestamp("2026-03-31")
+        games = pd.DataFrame(
+            {
+                "team_id": ["team_a"] * 3,
+                "date": [pd.Timestamp("2026-01-01"), pd.Timestamp("2026-03-01"), pd.Timestamp("2026-02-01")],
+                "gf": [1, 2, 3],
+                "ga": [0, 0, 0],
+            }
+        )
+        result = select_games(games, "team_a", max_games=30, window_days=365, today=today)
+        assert result.iloc[0]["gf"] == 2  # March game first
 
 
 class TestRecencyWeights:
     def test_most_recent_highest_weight(self):
         """Most recent game should have the highest weight."""
-        today = pd.Timestamp('2026-03-31')
-        dates = pd.Series([
-            pd.Timestamp('2026-03-31'),  # today
-            pd.Timestamp('2026-01-01'),  # 3 months ago
-            pd.Timestamp('2025-06-01'),  # 10 months ago
-        ])
+        today = pd.Timestamp("2026-03-31")
+        dates = pd.Series(
+            [
+                pd.Timestamp("2026-03-31"),  # today
+                pd.Timestamp("2026-01-01"),  # 3 months ago
+                pd.Timestamp("2025-06-01"),  # 10 months ago
+            ]
+        )
         weights = compute_recency_weights(dates, today, lambda_=1.0)
         assert weights[0] > weights[1] > weights[2]
 
     def test_weights_sum_to_one(self):
         """Weights should be normalized to sum to 1."""
-        today = pd.Timestamp('2026-03-31')
-        dates = pd.Series([pd.Timestamp('2026-03-01'), pd.Timestamp('2025-09-01')])
+        today = pd.Timestamp("2026-03-31")
+        dates = pd.Series([pd.Timestamp("2026-03-01"), pd.Timestamp("2025-09-01")])
         weights = compute_recency_weights(dates, today, lambda_=1.0)
         assert abs(weights.sum() - 1.0) < 0.001
 
     def test_single_game_weight_one(self):
         """Single game should have weight 1.0."""
-        today = pd.Timestamp('2026-03-31')
-        dates = pd.Series([pd.Timestamp('2026-03-01')])
+        today = pd.Timestamp("2026-03-31")
+        dates = pd.Series([pd.Timestamp("2026-03-01")])
         weights = compute_recency_weights(dates, today, lambda_=1.0)
         assert abs(weights[0] - 1.0) < 0.001
 
 
 class TestRunGlicko2Cohort:
-    def _make_game(self, team_a, team_b, gf, ga, date, age='U15', gender='M'):
+    def _make_game(self, team_a, team_b, gf, ga, date, age="U15", gender="M"):
         """Helper to create symmetric game rows."""
         return [
-            {'team_id': team_a, 'opp_id': team_b, 'gf': gf, 'ga': ga,
-             'date': pd.Timestamp(date), 'age': age, 'gender': gender,
-             'opp_age': age, 'opp_gender': gender},
-            {'team_id': team_b, 'opp_id': team_a, 'gf': ga, 'ga': gf,
-             'date': pd.Timestamp(date), 'age': age, 'gender': gender,
-             'opp_age': age, 'opp_gender': gender},
+            {
+                "team_id": team_a,
+                "opp_id": team_b,
+                "gf": gf,
+                "ga": ga,
+                "date": pd.Timestamp(date),
+                "age": age,
+                "gender": gender,
+                "opp_age": age,
+                "opp_gender": gender,
+            },
+            {
+                "team_id": team_b,
+                "opp_id": team_a,
+                "gf": ga,
+                "ga": gf,
+                "date": pd.Timestamp(date),
+                "age": age,
+                "gender": gender,
+                "opp_age": age,
+                "opp_gender": gender,
+            },
         ]
 
     def test_three_team_ordering(self):
         """A beats B, B beats C, A beats C => A > B > C."""
         cfg = GlickoConfig()
-        today = pd.Timestamp('2026-03-31')
+        today = pd.Timestamp("2026-03-31")
         rows = []
-        rows += self._make_game('A', 'B', 3, 1, '2026-03-01')
-        rows += self._make_game('B', 'C', 2, 0, '2026-03-10')
-        rows += self._make_game('A', 'C', 4, 0, '2026-03-20')
+        rows += self._make_game("A", "B", 3, 1, "2026-03-01")
+        rows += self._make_game("B", "C", 2, 0, "2026-03-10")
+        rows += self._make_game("A", "C", 4, 0, "2026-03-20")
         games = pd.DataFrame(rows)
 
         result, team_games = run_glicko2_cohort(games, cfg, today)
-        ratings = result.set_index('team_id')['mu']
-        assert ratings['A'] > ratings['B'] > ratings['C']
+        ratings = result.set_index("team_id")["mu"]
+        assert ratings["A"] > ratings["B"] > ratings["C"]
 
     def test_convergence_within_limit(self):
         """Should converge within MAX_ITERATIONS."""
         cfg = GlickoConfig()
-        today = pd.Timestamp('2026-03-31')
+        today = pd.Timestamp("2026-03-31")
         rows = []
-        rows += self._make_game('A', 'B', 2, 1, '2026-03-01')
-        rows += self._make_game('B', 'C', 2, 1, '2026-03-10')
+        rows += self._make_game("A", "B", 2, 1, "2026-03-01")
+        rows += self._make_game("B", "C", 2, 1, "2026-03-10")
         games = pd.DataFrame(rows)
 
         # Should not raise or warn
@@ -303,58 +350,69 @@ class TestRunGlicko2Cohort:
     def test_recency_matters(self):
         """Team with recent losses should rate lower than one with recent wins."""
         cfg = GlickoConfig()
-        today = pd.Timestamp('2026-03-31')
+        today = pd.Timestamp("2026-03-31")
         rows = []
         # Team A wins early, loses recently
-        rows += self._make_game('A', 'C', 3, 0, '2025-06-01')
-        rows += self._make_game('A', 'C', 0, 3, '2026-03-15')
+        rows += self._make_game("A", "C", 3, 0, "2025-06-01")
+        rows += self._make_game("A", "C", 0, 3, "2026-03-15")
         # Team B loses early, wins recently
-        rows += self._make_game('B', 'C', 0, 3, '2025-06-01')
-        rows += self._make_game('B', 'C', 3, 0, '2026-03-15')
+        rows += self._make_game("B", "C", 0, 3, "2025-06-01")
+        rows += self._make_game("B", "C", 3, 0, "2026-03-15")
         games = pd.DataFrame(rows)
 
         result, team_games = run_glicko2_cohort(games, cfg, today)
-        ratings = result.set_index('team_id')['mu']
-        assert ratings['B'] > ratings['A']
+        ratings = result.set_index("team_id")["mu"]
+        assert ratings["B"] > ratings["A"]
 
     def test_output_columns(self):
         """Output should have all required columns."""
         cfg = GlickoConfig()
-        today = pd.Timestamp('2026-03-31')
-        rows = self._make_game('A', 'B', 2, 1, '2026-03-01')
+        today = pd.Timestamp("2026-03-31")
+        rows = self._make_game("A", "B", 2, 1, "2026-03-01")
         games = pd.DataFrame(rows)
 
         result, team_games = run_glicko2_cohort(games, cfg, today)
-        required = ['team_id', 'mu', 'sigma', 'volatility', 'games_played',
-                     'wins', 'losses', 'draws', 'last_game', 'goals_for', 'goals_against']
+        required = [
+            "team_id",
+            "mu",
+            "sigma",
+            "volatility",
+            "games_played",
+            "wins",
+            "losses",
+            "draws",
+            "last_game",
+            "goals_for",
+            "goals_against",
+        ]
         for col in required:
             assert col in result.columns, f"Missing column: {col}"
 
     def test_game_stats_correct(self):
         """Win/loss/draw counts should be correct."""
         cfg = GlickoConfig()
-        today = pd.Timestamp('2026-03-31')
+        today = pd.Timestamp("2026-03-31")
         rows = []
-        rows += self._make_game('A', 'B', 3, 1, '2026-03-01')  # A wins
-        rows += self._make_game('A', 'B', 1, 1, '2026-03-10')  # draw
-        rows += self._make_game('A', 'B', 0, 2, '2026-03-20')  # A loses
+        rows += self._make_game("A", "B", 3, 1, "2026-03-01")  # A wins
+        rows += self._make_game("A", "B", 1, 1, "2026-03-10")  # draw
+        rows += self._make_game("A", "B", 0, 2, "2026-03-20")  # A loses
         games = pd.DataFrame(rows)
 
         result, team_games = run_glicko2_cohort(games, cfg, today)
-        a_row = result[result['team_id'] == 'A'].iloc[0]
-        assert a_row['games_played'] == 3
-        assert a_row['wins'] == 1
-        assert a_row['losses'] == 1
-        assert a_row['draws'] == 1
-        assert a_row['goals_for'] == 4  # 3 + 1 + 0
-        assert a_row['goals_against'] == 4  # 1 + 1 + 2
+        a_row = result[result["team_id"] == "A"].iloc[0]
+        assert a_row["games_played"] == 3
+        assert a_row["wins"] == 1
+        assert a_row["losses"] == 1
+        assert a_row["draws"] == 1
+        assert a_row["goals_for"] == 4  # 3 + 1 + 0
+        assert a_row["goals_against"] == 4  # 1 + 1 + 2
 
 
 class TestCrossAgeScaling:
     def test_same_age_no_scaling(self):
         """Same age and gender should return opp_mu unchanged."""
         cfg = GlickoConfig()
-        result = scale_cross_age_rating(1500.0, 15, 'M', 15, 'M', cfg)
+        result = scale_cross_age_rating(1500.0, 15, "M", 15, "M", cfg)
         assert result == 1500.0
 
     def test_u14m_vs_u19m(self):
@@ -362,7 +420,7 @@ class TestCrossAgeScaling:
         cfg = GlickoConfig()
         # opp_anchor(U19M)=1.000, team_anchor(U14M)=0.928
         # scaled = 1500 + (1.000 - 0.928) * 400 = 1528.8
-        result = scale_cross_age_rating(1500.0, 19, 'M', 14, 'M', cfg)
+        result = scale_cross_age_rating(1500.0, 19, "M", 14, "M", cfg)
         assert abs(result - 1528.8) < 0.1
 
     def test_u10f_vs_u19f(self):
@@ -370,7 +428,7 @@ class TestCrossAgeScaling:
         cfg = GlickoConfig()
         # opp_anchor(U19F)=1.000, team_anchor(U10F)=0.792
         # scaled = 1500 + (1.000 - 0.792) * 400 = 1583.2
-        result = scale_cross_age_rating(1500.0, 19, 'F', 10, 'F', cfg)
+        result = scale_cross_age_rating(1500.0, 19, "F", 10, "F", cfg)
         assert abs(result - 1583.2) < 0.1
 
     def test_older_team_facing_younger_opponent(self):
@@ -378,14 +436,14 @@ class TestCrossAgeScaling:
         cfg = GlickoConfig()
         # opp_anchor(U14M)=0.928, team_anchor(U19M)=1.000
         # scaled = 1500 + (0.928 - 1.000) * 400 = 1471.2
-        result = scale_cross_age_rating(1500.0, 14, 'M', 19, 'M', cfg)
+        result = scale_cross_age_rating(1500.0, 14, "M", 19, "M", cfg)
         assert abs(result - 1471.2) < 0.1
 
     def test_average_team_stays_reasonable(self):
         """Average-rated younger team shouldn't become 'terrible' after scaling."""
         cfg = GlickoConfig()
         # U10M (anchor=0.783) opponent rated 1500, seen by U19M (anchor=1.000)
-        result = scale_cross_age_rating(1500.0, 10, 'M', 19, 'M', cfg)
+        result = scale_cross_age_rating(1500.0, 10, "M", 19, "M", cfg)
         # scaled = 1500 + (0.783 - 1.000) * 400 = 1413.2
         assert result > 1400  # Still a reasonable rating, not catastrophic
         assert result < 1500  # But lower than their actual rating
@@ -393,13 +451,13 @@ class TestCrossAgeScaling:
     def test_get_anchor_string_age(self):
         """get_anchor should handle string ages like 'U15'."""
         cfg = GlickoConfig()
-        assert get_anchor('U15', 'M', cfg) == cfg.MALE_ANCHORS[15]
-        assert get_anchor('u15', 'Female', cfg) == cfg.FEMALE_ANCHORS[15]
+        assert get_anchor("U15", "M", cfg) == cfg.MALE_ANCHORS[15]
+        assert get_anchor("u15", "Female", cfg) == cfg.FEMALE_ANCHORS[15]
 
     def test_get_anchor_unknown_age(self):
         """Unknown age should return 1.0."""
         cfg = GlickoConfig()
-        assert get_anchor(99, 'M', cfg) == 1.0
+        assert get_anchor(99, "M", cfg) == 1.0
 
 
 class TestExpectedScore:
@@ -419,33 +477,87 @@ class TestDeriveOffenseDefense:
     def test_scoring_above_expected_positive_offense(self):
         """Team scoring more than expected gets positive off_raw."""
         cfg = GlickoConfig()
-        today = pd.Timestamp('2026-03-31')
-        games = pd.DataFrame([
-            {'team_id': 'A', 'opp_id': 'B', 'gf': 5, 'ga': 0, 'date': pd.Timestamp('2026-03-01'), 'age': 'U15', 'gender': 'M'},
-            {'team_id': 'B', 'opp_id': 'A', 'gf': 0, 'ga': 5, 'date': pd.Timestamp('2026-03-01'), 'age': 'U15', 'gender': 'M'},
-        ])
-        ratings = {'A': (1600.0, 200.0, 0.06), 'B': (1400.0, 200.0, 0.06)}
+        today = pd.Timestamp("2026-03-31")
+        games = pd.DataFrame(
+            [
+                {
+                    "team_id": "A",
+                    "opp_id": "B",
+                    "gf": 5,
+                    "ga": 0,
+                    "date": pd.Timestamp("2026-03-01"),
+                    "age": "U15",
+                    "gender": "M",
+                },
+                {
+                    "team_id": "B",
+                    "opp_id": "A",
+                    "gf": 0,
+                    "ga": 5,
+                    "date": pd.Timestamp("2026-03-01"),
+                    "age": "U15",
+                    "gender": "M",
+                },
+            ]
+        )
+        ratings = {"A": (1600.0, 200.0, 0.06), "B": (1400.0, 200.0, 0.06)}
         result = derive_offense_defense(games, ratings, cfg, today)
-        a_row = result[result['team_id'] == 'A'].iloc[0]
-        assert a_row['off_raw'] > 0
+        a_row = result[result["team_id"] == "A"].iloc[0]
+        assert a_row["off_raw"] > 0
 
     def test_opponent_strength_matters(self):
         """Scoring 3 vs strong opponent gives more off credit than vs weak."""
         cfg = GlickoConfig()
-        today = pd.Timestamp('2026-03-31')
-        games = pd.DataFrame([
-            {'team_id': 'A', 'opp_id': 'B', 'gf': 3, 'ga': 1, 'date': pd.Timestamp('2026-03-01'), 'age': 'U15', 'gender': 'M'},
-            {'team_id': 'B', 'opp_id': 'A', 'gf': 1, 'ga': 3, 'date': pd.Timestamp('2026-03-01'), 'age': 'U15', 'gender': 'M'},
-            {'team_id': 'C', 'opp_id': 'D', 'gf': 3, 'ga': 1, 'date': pd.Timestamp('2026-03-01'), 'age': 'U15', 'gender': 'M'},
-            {'team_id': 'D', 'opp_id': 'C', 'gf': 1, 'ga': 3, 'date': pd.Timestamp('2026-03-01'), 'age': 'U15', 'gender': 'M'},
-        ])
+        today = pd.Timestamp("2026-03-31")
+        games = pd.DataFrame(
+            [
+                {
+                    "team_id": "A",
+                    "opp_id": "B",
+                    "gf": 3,
+                    "ga": 1,
+                    "date": pd.Timestamp("2026-03-01"),
+                    "age": "U15",
+                    "gender": "M",
+                },
+                {
+                    "team_id": "B",
+                    "opp_id": "A",
+                    "gf": 1,
+                    "ga": 3,
+                    "date": pd.Timestamp("2026-03-01"),
+                    "age": "U15",
+                    "gender": "M",
+                },
+                {
+                    "team_id": "C",
+                    "opp_id": "D",
+                    "gf": 3,
+                    "ga": 1,
+                    "date": pd.Timestamp("2026-03-01"),
+                    "age": "U15",
+                    "gender": "M",
+                },
+                {
+                    "team_id": "D",
+                    "opp_id": "C",
+                    "gf": 1,
+                    "ga": 3,
+                    "date": pd.Timestamp("2026-03-01"),
+                    "age": "U15",
+                    "gender": "M",
+                },
+            ]
+        )
         ratings = {
-            'A': (1500.0, 200.0, 0.06), 'B': (1700.0, 200.0, 0.06),
-            'C': (1500.0, 200.0, 0.06), 'D': (1300.0, 200.0, 0.06),
+            "A": (1500.0, 200.0, 0.06),
+            "B": (1700.0, 200.0, 0.06),
+            "C": (1500.0, 200.0, 0.06),
+            "D": (1300.0, 200.0, 0.06),
         }
         result = derive_offense_defense(games, ratings, cfg, today)
-        a_off = result[result['team_id'] == 'A'].iloc[0]['off_raw']
-        c_off = result[result['team_id'] == 'C'].iloc[0]['off_raw']
+        a_off = result[result["team_id"] == "A"].iloc[0]["off_raw"]
+        c_off = result[result["team_id"] == "C"].iloc[0]["off_raw"]
         assert a_off > c_off
 
 
@@ -453,41 +565,101 @@ class TestComputeSOS:
     def test_repeat_cap(self):
         """Team playing same opponent 8 times should only count 4."""
         cfg = GlickoConfig()
-        today = pd.Timestamp('2026-03-31')
+        today = pd.Timestamp("2026-03-31")
         rows = []
         for i in range(8):
-            date = f'2026-03-{i+1:02d}'
-            rows.append({'team_id': 'A', 'opp_id': 'B', 'gf': 2, 'ga': 1, 'date': pd.Timestamp(date), 'age': 'U15', 'gender': 'M'})
-            rows.append({'team_id': 'B', 'opp_id': 'A', 'gf': 1, 'ga': 2, 'date': pd.Timestamp(date), 'age': 'U15', 'gender': 'M'})
+            date = f"2026-03-{i + 1:02d}"
+            rows.append(
+                {
+                    "team_id": "A",
+                    "opp_id": "B",
+                    "gf": 2,
+                    "ga": 1,
+                    "date": pd.Timestamp(date),
+                    "age": "U15",
+                    "gender": "M",
+                }
+            )
+            rows.append(
+                {
+                    "team_id": "B",
+                    "opp_id": "A",
+                    "gf": 1,
+                    "ga": 2,
+                    "date": pd.Timestamp(date),
+                    "age": "U15",
+                    "gender": "M",
+                }
+            )
         games = pd.DataFrame(rows)
-        ratings = {'A': (1500.0, 200.0, 0.06), 'B': (1600.0, 200.0, 0.06)}
+        ratings = {"A": (1500.0, 200.0, 0.06), "B": (1600.0, 200.0, 0.06)}
         result = compute_sos(games, ratings, cfg, today)
-        assert 'A' in result['team_id'].values
+        assert "A" in result["team_id"].values
 
     def test_stronger_schedule_higher_sos(self):
         """Team playing strong opponents should have higher sos_raw."""
         cfg = GlickoConfig()
-        today = pd.Timestamp('2026-03-31')
+        today = pd.Timestamp("2026-03-31")
         rows = []
         for i, opp_mu in enumerate([1700, 1650, 1600, 1550, 1500]):
-            opp = f'strong_{i}'
-            rows.append({'team_id': 'A', 'opp_id': opp, 'gf': 1, 'ga': 2, 'date': pd.Timestamp(f'2026-03-{i+1:02d}'), 'age': 'U15', 'gender': 'M'})
-            rows.append({'team_id': opp, 'opp_id': 'A', 'gf': 2, 'ga': 1, 'date': pd.Timestamp(f'2026-03-{i+1:02d}'), 'age': 'U15', 'gender': 'M'})
+            opp = f"strong_{i}"
+            rows.append(
+                {
+                    "team_id": "A",
+                    "opp_id": opp,
+                    "gf": 1,
+                    "ga": 2,
+                    "date": pd.Timestamp(f"2026-03-{i + 1:02d}"),
+                    "age": "U15",
+                    "gender": "M",
+                }
+            )
+            rows.append(
+                {
+                    "team_id": opp,
+                    "opp_id": "A",
+                    "gf": 2,
+                    "ga": 1,
+                    "date": pd.Timestamp(f"2026-03-{i + 1:02d}"),
+                    "age": "U15",
+                    "gender": "M",
+                }
+            )
         for i, opp_mu in enumerate([1300, 1250, 1200, 1150, 1100]):
-            opp = f'weak_{i}'
-            rows.append({'team_id': 'B', 'opp_id': opp, 'gf': 2, 'ga': 1, 'date': pd.Timestamp(f'2026-03-{i+6:02d}'), 'age': 'U15', 'gender': 'M'})
-            rows.append({'team_id': opp, 'opp_id': 'B', 'gf': 1, 'ga': 2, 'date': pd.Timestamp(f'2026-03-{i+6:02d}'), 'age': 'U15', 'gender': 'M'})
+            opp = f"weak_{i}"
+            rows.append(
+                {
+                    "team_id": "B",
+                    "opp_id": opp,
+                    "gf": 2,
+                    "ga": 1,
+                    "date": pd.Timestamp(f"2026-03-{i + 6:02d}"),
+                    "age": "U15",
+                    "gender": "M",
+                }
+            )
+            rows.append(
+                {
+                    "team_id": opp,
+                    "opp_id": "B",
+                    "gf": 1,
+                    "ga": 2,
+                    "date": pd.Timestamp(f"2026-03-{i + 6:02d}"),
+                    "age": "U15",
+                    "gender": "M",
+                }
+            )
         games = pd.DataFrame(rows)
 
-        all_teams = {'A': (1500.0, 200.0, 0.06), 'B': (1500.0, 200.0, 0.06)}
+        all_teams = {"A": (1500.0, 200.0, 0.06), "B": (1500.0, 200.0, 0.06)}
         for i, mu in enumerate([1700, 1650, 1600, 1550, 1500]):
-            all_teams[f'strong_{i}'] = (float(mu), 200.0, 0.06)
+            all_teams[f"strong_{i}"] = (float(mu), 200.0, 0.06)
         for i, mu in enumerate([1300, 1250, 1200, 1150, 1100]):
-            all_teams[f'weak_{i}'] = (float(mu), 200.0, 0.06)
+            all_teams[f"weak_{i}"] = (float(mu), 200.0, 0.06)
 
         result = compute_sos(games, all_teams, cfg, today)
-        a_sos = result[result['team_id'] == 'A'].iloc[0]['sos_raw']
-        b_sos = result[result['team_id'] == 'B'].iloc[0]['sos_raw']
+        a_sos = result[result["team_id"] == "A"].iloc[0]["sos_raw"]
+        b_sos = result[result["team_id"] == "B"].iloc[0]["sos_raw"]
         assert a_sos > b_sos
 
 
@@ -521,8 +693,15 @@ class TestSCF:
     def _make_games(self, team_id: str, opp_ids: list[str]) -> pd.DataFrame:
         """Helper: one game row per opponent for *team_id*."""
         rows = [
-            {"team_id": team_id, "opp_id": opp, "gf": 2, "ga": 1,
-             "date": pd.Timestamp("2026-03-01"), "age": "U15", "gender": "M"}
+            {
+                "team_id": team_id,
+                "opp_id": opp,
+                "gf": 2,
+                "ga": 1,
+                "date": pd.Timestamp("2026-03-01"),
+                "age": "U15",
+                "gender": "M",
+            }
             for opp in opp_ids
         ]
         return pd.DataFrame(rows)
@@ -532,8 +711,12 @@ class TestSCF:
         cfg = GlickoConfig()
         games = self._make_games("A", ["B", "C", "D"])
         state_map = {"A": "ID", "B": "ID", "C": "ID", "D": "ID"}
-        ratings = {"A": (1500.0, 200.0, 0.06), "B": (1500.0, 200.0, 0.06),
-                   "C": (1500.0, 200.0, 0.06), "D": (1500.0, 200.0, 0.06)}
+        ratings = {
+            "A": (1500.0, 200.0, 0.06),
+            "B": (1500.0, 200.0, 0.06),
+            "C": (1500.0, 200.0, 0.06),
+            "D": (1500.0, 200.0, 0.06),
+        }
         result = compute_scf(games, state_map, ratings, cfg)
         assert result["A"]["is_isolated"] is True
 
@@ -542,8 +725,7 @@ class TestSCF:
         cfg = GlickoConfig()
         opp_ids = [f"opp_{s}" for s in ["OR", "WA", "MT", "WY", "UT"]]
         games = self._make_games("A", opp_ids)
-        state_map = {"A": "ID", "opp_OR": "OR", "opp_WA": "WA",
-                     "opp_MT": "MT", "opp_WY": "WY", "opp_UT": "UT"}
+        state_map = {"A": "ID", "opp_OR": "OR", "opp_WA": "WA", "opp_MT": "MT", "opp_WY": "WY", "opp_UT": "UT"}
         ratings = {"A": (1500.0, 200.0, 0.06)}
         for opp in opp_ids:
             ratings[opp] = (1500.0, 200.0, 0.06)
@@ -557,15 +739,27 @@ class TestSCF:
         neutral = 1500.0
         raw_sos = 1700.0  # both start with strong schedule
 
-        team_df = pd.DataFrame([
-            {"team_id": "isolated", "sos_raw": raw_sos},
-            {"team_id": "connected", "sos_raw": raw_sos},
-        ])
+        team_df = pd.DataFrame(
+            [
+                {"team_id": "isolated", "sos_raw": raw_sos},
+                {"team_id": "connected", "sos_raw": raw_sos},
+            ]
+        )
         scf_data = {
-            "isolated": {"scf": cfg.SCF_FLOOR, "bridge_games": 0,
-                         "is_isolated": True, "unique_states": 1, "quality_boosted": False},
-            "connected": {"scf": 1.0, "bridge_games": 10,
-                          "is_isolated": False, "unique_states": 5, "quality_boosted": False},
+            "isolated": {
+                "scf": cfg.SCF_FLOOR,
+                "bridge_games": 0,
+                "is_isolated": True,
+                "unique_states": 1,
+                "quality_boosted": False,
+            },
+            "connected": {
+                "scf": 1.0,
+                "bridge_games": 10,
+                "is_isolated": False,
+                "unique_states": 5,
+                "quality_boosted": False,
+            },
         }
         result = apply_scf_dampening(team_df, scf_data, cfg)
         isolated_sos = result[result["team_id"] == "isolated"]["sos_raw"].iloc[0]
@@ -582,8 +776,7 @@ class TestSCF:
         cfg.SCF_ENABLED = False
         games = self._make_games("A", ["B", "C"])
         state_map = {"A": "ID", "B": "ID", "C": "ID"}
-        ratings = {"A": (1500.0, 200.0, 0.06), "B": (1500.0, 200.0, 0.06),
-                   "C": (1500.0, 200.0, 0.06)}
+        ratings = {"A": (1500.0, 200.0, 0.06), "B": (1500.0, 200.0, 0.06), "C": (1500.0, 200.0, 0.06)}
         result = compute_scf(games, state_map, ratings, cfg)
         for team_id, data in result.items():
             assert data["scf"] == 1.0
@@ -593,12 +786,28 @@ class TestSCF:
 class TestComputeRankingsV2:
     def _make_game(self, team_a, team_b, gf, ga, date, age="U15", gender="M"):
         return [
-            {"team_id": team_a, "opp_id": team_b, "gf": gf, "ga": ga,
-             "date": pd.Timestamp(date), "age": age, "gender": gender,
-             "opp_age": age, "opp_gender": gender},
-            {"team_id": team_b, "opp_id": team_a, "gf": ga, "ga": gf,
-             "date": pd.Timestamp(date), "age": age, "gender": gender,
-             "opp_age": age, "opp_gender": gender},
+            {
+                "team_id": team_a,
+                "opp_id": team_b,
+                "gf": gf,
+                "ga": ga,
+                "date": pd.Timestamp(date),
+                "age": age,
+                "gender": gender,
+                "opp_age": age,
+                "opp_gender": gender,
+            },
+            {
+                "team_id": team_b,
+                "opp_id": team_a,
+                "gf": ga,
+                "ga": gf,
+                "date": pd.Timestamp(date),
+                "age": age,
+                "gender": gender,
+                "opp_age": age,
+                "opp_gender": gender,
+            },
         ]
 
     def test_returns_teams_and_games(self):
@@ -620,19 +829,61 @@ class TestComputeRankingsV2:
         teams = result["teams"]
 
         expected_columns = [
-            "team_id", "age_group", "gender", "state_code", "status",
-            "last_game", "last_calculated", "games_played", "games_last_180_days",
-            "wins", "losses", "draws", "goals_for", "goals_against", "win_percentage",
-            "off_raw", "sad_raw", "off_shrunk", "sad_shrunk", "def_shrunk",
-            "off_norm", "def_norm", "sos", "sos_norm", "sos_raw",
-            "sos_norm_national", "sos_norm_state", "sos_rank_national", "sos_rank_state",
-            "sample_flag", "strength_of_schedule", "power_presos", "anchor", "abs_strength",
-            "powerscore_core", "provisional_mult", "powerscore_adj",
-            "perf_raw", "perf_centered", "ml_overperf", "ml_norm",
-            "powerscore_ml", "rank_in_cohort_ml", "rank_in_cohort", "national_rank",
-            "state_rank", "global_rank", "rank_change_7d", "rank_change_30d",
-            "rank_change_state_7d", "rank_change_state_30d",
-            "national_power_score", "global_power_score", "power_score_true", "power_score_final",
+            "team_id",
+            "age_group",
+            "gender",
+            "state_code",
+            "status",
+            "last_game",
+            "last_calculated",
+            "games_played",
+            "games_last_180_days",
+            "wins",
+            "losses",
+            "draws",
+            "goals_for",
+            "goals_against",
+            "win_percentage",
+            "off_raw",
+            "sad_raw",
+            "off_shrunk",
+            "sad_shrunk",
+            "def_shrunk",
+            "off_norm",
+            "def_norm",
+            "sos",
+            "sos_norm",
+            "sos_raw",
+            "sos_norm_national",
+            "sos_norm_state",
+            "sos_rank_national",
+            "sos_rank_state",
+            "sample_flag",
+            "strength_of_schedule",
+            "power_presos",
+            "anchor",
+            "abs_strength",
+            "powerscore_core",
+            "provisional_mult",
+            "powerscore_adj",
+            "perf_raw",
+            "perf_centered",
+            "ml_overperf",
+            "ml_norm",
+            "powerscore_ml",
+            "rank_in_cohort_ml",
+            "rank_in_cohort",
+            "national_rank",
+            "state_rank",
+            "global_rank",
+            "rank_change_7d",
+            "rank_change_30d",
+            "rank_change_state_7d",
+            "rank_change_state_30d",
+            "national_power_score",
+            "global_power_score",
+            "power_score_true",
+            "power_score_final",
         ]
         for col in expected_columns:
             assert col in teams.columns, f"Missing column: {col}"
@@ -679,3 +930,294 @@ class TestComputeRankingsV2:
         # Teams with few games should have high sigma -> low provisional_mult
         for _, row in teams.iterrows():
             assert 0.0 <= row["provisional_mult"] <= 1.0
+
+
+class TestGameExplainability:
+    """Tests for compute_game_explainability post-hoc breakdown."""
+
+    def _make_game(self, team_a, team_b, gf, ga, date, age="U15", gender="M"):
+        """Helper to create symmetric game rows (mirrors TestRunGlicko2Cohort)."""
+        return [
+            {
+                "team_id": team_a,
+                "opp_id": team_b,
+                "gf": gf,
+                "ga": ga,
+                "date": pd.Timestamp(date),
+                "age": age,
+                "gender": gender,
+                "opp_age": age,
+                "opp_gender": gender,
+            },
+            {
+                "team_id": team_b,
+                "opp_id": team_a,
+                "gf": ga,
+                "ga": gf,
+                "date": pd.Timestamp(date),
+                "age": age,
+                "gender": gender,
+                "opp_age": age,
+                "opp_gender": gender,
+            },
+        ]
+
+    def _run_cohort_and_explain(self, games_df, cfg=None, today=None, global_rating_map=None):
+        """Run convergence then explainability in one shot."""
+        cfg = cfg or GlickoConfig()
+        today = today or pd.Timestamp("2026-03-31")
+        team_df, team_games = run_glicko2_cohort(games_df, cfg, today, global_rating_map)
+        team_ratings = dict(
+            zip(
+                team_df["team_id"],
+                zip(team_df["mu"], team_df["sigma"], team_df["volatility"]),
+            )
+        )
+        explain_df = compute_game_explainability(
+            games_df,
+            team_ratings,
+            cfg,
+            today,
+            team_games=team_games,
+            global_rating_map=global_rating_map,
+        )
+        return team_df, team_ratings, explain_df
+
+    def test_returns_expected_columns(self):
+        """Output should have all required columns."""
+        rows = []
+        rows += self._make_game("A", "B", 3, 1, "2026-03-01")
+        rows += self._make_game("B", "C", 2, 0, "2026-03-10")
+        rows += self._make_game("A", "C", 4, 0, "2026-03-20")
+        games = pd.DataFrame(rows)
+
+        _, _, explain_df = self._run_cohort_and_explain(games)
+        expected_cols = [
+            "team_id",
+            "opp_id",
+            "game_date",
+            "gf",
+            "ga",
+            "team_mu",
+            "team_sigma",
+            "opp_mu",
+            "opp_sigma",
+            "expected_outcome",
+            "actual_outcome",
+            "outcome_surprise",
+            "g_factor",
+            "recency_weight",
+            "rating_contribution",
+            "off_residual",
+            "def_residual",
+        ]
+        for col in expected_cols:
+            assert col in explain_df.columns, f"Missing column: {col}"
+
+    def test_row_count_matches_perspectives(self):
+        """3 teams each with 2 games = 6 rows (one per team-game perspective)."""
+        rows = []
+        rows += self._make_game("A", "B", 3, 1, "2026-03-01")
+        rows += self._make_game("B", "C", 2, 0, "2026-03-10")
+        rows += self._make_game("A", "C", 4, 0, "2026-03-20")
+        games = pd.DataFrame(rows)
+
+        _, _, explain_df = self._run_cohort_and_explain(games)
+        # A plays 2 games, B plays 2 games, C plays 2 games = 6 rows
+        assert len(explain_df) == 6
+
+    def test_expected_outcome_bounds(self):
+        """All expected_outcome values should be in [0, 1]."""
+        rows = []
+        rows += self._make_game("A", "B", 3, 1, "2026-03-01")
+        rows += self._make_game("B", "C", 2, 0, "2026-03-10")
+        games = pd.DataFrame(rows)
+
+        _, _, explain_df = self._run_cohort_and_explain(games)
+        assert (explain_df["expected_outcome"] >= 0.0).all()
+        assert (explain_df["expected_outcome"] <= 1.0).all()
+
+    def test_actual_outcome_bounds(self):
+        """All actual_outcome values should be in [0, 1]."""
+        rows = []
+        rows += self._make_game("A", "B", 3, 1, "2026-03-01")
+        rows += self._make_game("A", "B", 0, 5, "2026-03-10")
+        games = pd.DataFrame(rows)
+
+        _, _, explain_df = self._run_cohort_and_explain(games)
+        assert (explain_df["actual_outcome"] >= 0.0).all()
+        assert (explain_df["actual_outcome"] <= 1.0).all()
+
+    def test_surprise_equals_actual_minus_expected(self):
+        """outcome_surprise should equal actual_outcome - expected_outcome."""
+        rows = []
+        rows += self._make_game("A", "B", 3, 1, "2026-03-01")
+        rows += self._make_game("B", "C", 2, 0, "2026-03-10")
+        games = pd.DataFrame(rows)
+
+        _, _, explain_df = self._run_cohort_and_explain(games)
+        computed = explain_df["actual_outcome"] - explain_df["expected_outcome"]
+        np.testing.assert_allclose(
+            explain_df["outcome_surprise"].values,
+            computed.values,
+            atol=1e-10,
+        )
+
+    def test_recency_weights_positive(self):
+        """All recency weights should be > 0."""
+        rows = []
+        rows += self._make_game("A", "B", 2, 1, "2026-01-01")
+        rows += self._make_game("A", "B", 1, 2, "2026-03-15")
+        games = pd.DataFrame(rows)
+
+        _, _, explain_df = self._run_cohort_and_explain(games)
+        assert (explain_df["recency_weight"] > 0.0).all()
+
+    def test_rating_contribution_sign(self):
+        """Upset win should have positive contribution; expected loss negative."""
+        rows = []
+        rows += self._make_game("Weak", "Strong", 3, 0, "2026-03-01")
+        games = pd.DataFrame(rows)
+
+        cfg = GlickoConfig()
+        today = pd.Timestamp("2026-03-31")
+        # Give Strong a much higher rating to make Weak's win an upset
+        team_ratings = {
+            "Weak": (1300.0, 200.0, 0.06),
+            "Strong": (1700.0, 200.0, 0.06),
+        }
+        explain_df = compute_game_explainability(games, team_ratings, cfg, today)
+
+        weak_row = explain_df[explain_df["team_id"] == "Weak"].iloc[0]
+        strong_row = explain_df[explain_df["team_id"] == "Strong"].iloc[0]
+
+        # Weak team beat Strong team — big positive surprise
+        assert weak_row["rating_contribution"] > 0
+        # Strong team lost to Weak team — negative surprise
+        assert strong_row["rating_contribution"] < 0
+
+    def test_contribution_sum_correlates_with_mu_delta(self):
+        """Sum of rating_contribution should have same sign as mu change."""
+        rows = []
+        rows += self._make_game("A", "B", 3, 1, "2026-03-01")
+        rows += self._make_game("A", "C", 4, 0, "2026-03-10")
+        rows += self._make_game("B", "C", 2, 0, "2026-03-20")
+        games = pd.DataFrame(rows)
+
+        cfg = GlickoConfig()
+        team_df, _, explain_df = self._run_cohort_and_explain(games, cfg=cfg)
+
+        # A won both games — should have positive mu delta from initial
+        a_mu = team_df[team_df["team_id"] == "A"].iloc[0]["mu"]
+        a_contribution_sum = explain_df[explain_df["team_id"] == "A"]["rating_contribution"].sum()
+
+        # Both should be positive (rating went up, contributions are positive)
+        assert (a_mu - cfg.INITIAL_MU) > 0
+        assert a_contribution_sum > 0
+
+        # C lost both games — should have negative mu delta from initial
+        c_mu = team_df[team_df["team_id"] == "C"].iloc[0]["mu"]
+        c_contribution_sum = explain_df[explain_df["team_id"] == "C"]["rating_contribution"].sum()
+
+        assert (c_mu - cfg.INITIAL_MU) < 0
+        assert c_contribution_sum < 0
+
+    def test_off_def_residuals_computed(self):
+        """Off/def residuals should not be NaN for teams with games."""
+        rows = []
+        rows += self._make_game("A", "B", 3, 1, "2026-03-01")
+        games = pd.DataFrame(rows)
+
+        _, _, explain_df = self._run_cohort_and_explain(games)
+        assert not explain_df["off_residual"].isna().any()
+        assert not explain_df["def_residual"].isna().any()
+
+    def test_cross_age_opponent_uses_global_map(self):
+        """Cross-age opponent should use global_rating_map when provided."""
+        cfg = GlickoConfig()
+        today = pd.Timestamp("2026-03-31")
+        games = pd.DataFrame(
+            [
+                {
+                    "team_id": "A",
+                    "opp_id": "X",
+                    "gf": 2,
+                    "ga": 1,
+                    "date": pd.Timestamp("2026-03-01"),
+                    "age": "U15",
+                    "gender": "M",
+                    "opp_age": "U17",
+                    "opp_gender": "M",
+                },
+                {
+                    "team_id": "X",
+                    "opp_id": "A",
+                    "gf": 1,
+                    "ga": 2,
+                    "date": pd.Timestamp("2026-03-01"),
+                    "age": "U17",
+                    "gender": "M",
+                    "opp_age": "U15",
+                    "opp_gender": "M",
+                },
+            ]
+        )
+
+        team_ratings = {
+            "A": (1500.0, 200.0, 0.06),
+            "X": (1600.0, 200.0, 0.06),
+        }
+        global_map = {"X": 1650.0, "A": 1500.0}
+
+        explain_df = compute_game_explainability(
+            games,
+            team_ratings,
+            cfg,
+            today,
+            global_rating_map=global_map,
+        )
+
+        a_row = explain_df[explain_df["team_id"] == "A"].iloc[0]
+        # X is cross-age (U17 vs U15 cohort), so opp_mu should NOT be 1600 (within-cohort)
+        # It should be scaled from global_map[X]=1650 with cross-age adjustment
+        assert a_row["opp_mu"] != 1600.0
+        # Anchor diff scaled by ANCHOR_SCALE_FACTOR
+        opp_anchor = cfg.MALE_ANCHORS[17]
+        team_anchor = cfg.MALE_ANCHORS[15]
+        expected_scaled = 1650.0 + (opp_anchor - team_anchor) * cfg.ANCHOR_SCALE_FACTOR
+        assert a_row["opp_mu"] == pytest.approx(expected_scaled, abs=0.1)
+
+    def test_empty_games_returns_empty_df(self):
+        """Empty games DataFrame should return empty result with correct columns."""
+        cfg = GlickoConfig()
+        today = pd.Timestamp("2026-03-31")
+        games = pd.DataFrame(
+            columns=[
+                "team_id",
+                "opp_id",
+                "gf",
+                "ga",
+                "date",
+                "age",
+                "gender",
+                "opp_age",
+                "opp_gender",
+            ]
+        )
+
+        explain_df = compute_game_explainability(games, {}, cfg, today)
+        assert len(explain_df) == 0
+        assert "team_id" in explain_df.columns
+        assert "rating_contribution" in explain_df.columns
+
+    def test_compute_rankings_v2_includes_explainability(self):
+        """compute_rankings_v2 should return game_explainability key."""
+        rows = []
+        rows += self._make_game("A", "B", 2, 1, "2026-03-01")
+        rows += self._make_game("B", "C", 3, 0, "2026-03-10")
+        games = pd.DataFrame(rows)
+
+        result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"))
+        assert "game_explainability" in result
+        assert isinstance(result["game_explainability"], pd.DataFrame)
+        assert len(result["game_explainability"]) > 0

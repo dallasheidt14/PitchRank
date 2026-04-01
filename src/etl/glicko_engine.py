@@ -17,6 +17,28 @@ logger = logging.getLogger(__name__)
 # =========================================================
 GLICKO2_SCALE = 173.7178  # Glickman's scaling factor
 
+_EXPLAIN_COLUMNS = [
+    "team_id",
+    "opp_id",
+    "game_date",
+    "gf",
+    "ga",
+    "game_id",
+    "id",
+    "team_mu",
+    "team_sigma",
+    "opp_mu",
+    "opp_sigma",
+    "expected_outcome",
+    "actual_outcome",
+    "outcome_surprise",
+    "g_factor",
+    "recency_weight",
+    "rating_contribution",
+    "off_residual",
+    "def_residual",
+]
+
 
 # =========================================================
 # Scale conversion helpers
@@ -436,7 +458,8 @@ def derive_offense_defense(
     results = []
     for team_id, (team_mu, _, _) in team_ratings.items():
         tg = (
-            team_games[team_id] if team_games and team_id in team_games
+            team_games[team_id]
+            if team_games and team_id in team_games
             else select_games(games_df, team_id, cfg.MAX_GAMES, cfg.WINDOW_DAYS, today)
         )
         if len(tg) == 0:
@@ -484,7 +507,8 @@ def compute_sos(
     results = []
     for team_id in team_ratings:
         tg = (
-            team_games[team_id] if team_games and team_id in team_games
+            team_games[team_id]
+            if team_games and team_id in team_games
             else select_games(games_df, team_id, cfg.MAX_GAMES, cfg.WINDOW_DAYS, today)
         )
         if len(tg) == 0:
@@ -617,6 +641,140 @@ def compute_scf(
     return result
 
 
+def compute_game_explainability(
+    games_df: pd.DataFrame,
+    team_ratings: Dict[str, Tuple[float, float, float]],
+    cfg: GlickoConfig,
+    today: pd.Timestamp,
+    team_games: Optional[Dict[str, pd.DataFrame]] = None,
+    global_rating_map: Optional[Dict[str, float]] = None,
+) -> pd.DataFrame:
+    """Compute per-game explainability breakdown using final converged ratings.
+
+    For each team's perspective of each game, re-derives the intermediate
+    Glicko-2 values that were aggregated during convergence: expected outcome,
+    actual outcome, surprise factor, rating contribution, and off/def residuals.
+
+    Runs once as a post-hoc pass — does NOT modify the convergence loop.
+
+    Args:
+        games_df: DataFrame with columns team_id, opp_id, date, gf, ga, age, gender,
+                  opp_age, opp_gender.  Optional columns game_id and id are passed
+                  through to the output when present (from data_adapter).
+        team_ratings: Dict of {team_id: (mu, sigma, volatility)} from final convergence.
+        cfg: GlickoConfig with MAX_GAMES, WINDOW_DAYS, RECENCY_LAMBDA, MAX_GD.
+        today: Reference date for window and recency.
+        team_games: Optional pre-filtered games dict from run_glicko2_cohort.
+        global_rating_map: Cross-age opponent ratings from Pass 1. None for Pass 1.
+
+    Returns:
+        DataFrame with one row per (team, game) perspective.  Columns are defined
+        by _EXPLAIN_COLUMNS: team_id, opp_id, game_date, gf, ga, game_id, id,
+        team_mu, team_sigma, opp_mu, opp_sigma, expected_outcome, actual_outcome,
+        outcome_surprise, g_factor, recency_weight, rating_contribution,
+        off_residual, def_residual.
+    """
+    cohort_avg_gpg = games_df["gf"].mean() if len(games_df) > 0 else 0.0
+
+    # Determine cohort age/gender for cross-age detection
+    cohort_age = games_df["age"].iloc[0] if len(games_df) > 0 else None
+    cohort_gender = games_df["gender"].iloc[0] if len(games_df) > 0 else None
+
+    rows = []
+    for team_id, (team_mu, team_sigma, _) in team_ratings.items():
+        tg = (
+            team_games[team_id]
+            if team_games and team_id in team_games
+            else select_games(games_df, team_id, cfg.MAX_GAMES, cfg.WINDOW_DAYS, today)
+        )
+        if len(tg) == 0:
+            continue
+
+        # Recency weights (convert to ndarray for positional indexing)
+        weights = np.asarray(compute_recency_weights(tg["date"], today, cfg.RECENCY_LAMBDA))
+
+        # Convert team rating to Glicko-2 scale
+        team_mu_g2, _ = _to_glicko2_scale(team_mu, team_sigma)
+
+        # Per-game breakdown
+        opp_ids = tg["opp_id"].values
+        gf_vals = tg["gf"].values.astype(int)
+        ga_vals = tg["ga"].values.astype(int)
+        dates = tg["date"].values
+
+        has_cross_age = "opp_age" in tg.columns and "opp_gender" in tg.columns
+        opp_ages = tg["opp_age"].values if has_cross_age else None
+        opp_genders = tg["opp_gender"].values if has_cross_age else None
+
+        # Optional ID columns from data_adapter
+        game_ids = tg["game_id"].values if "game_id" in tg.columns else [None] * len(tg)
+        row_ids = tg["id"].values if "id" in tg.columns else [None] * len(tg)
+
+        for i, opp_id in enumerate(opp_ids):
+            # Resolve opponent rating (mirroring run_glicko2_cohort cross-age logic)
+            is_cross_age = False
+            if has_cross_age and opp_ages is not None and opp_genders is not None:
+                is_cross_age = (opp_ages[i] != cohort_age) or (opp_genders[i] != cohort_gender)
+
+            if is_cross_age and global_rating_map is not None:
+                opp_mu = global_rating_map.get(opp_id, cfg.INITIAL_MU)
+                opp_sigma = cfg.INITIAL_SIGMA
+                opp_mu = scale_cross_age_rating(
+                    opp_mu,
+                    str(opp_ages[i]),
+                    str(opp_genders[i]),
+                    str(cohort_age),
+                    str(cohort_gender),
+                    cfg,
+                )
+            elif opp_id in team_ratings:
+                opp_mu, opp_sigma, _ = team_ratings[opp_id]
+            else:
+                opp_mu = cfg.INITIAL_MU
+                opp_sigma = cfg.INITIAL_SIGMA
+
+            # Glicko-2 per-game values
+            opp_mu_g2, opp_phi_g2 = _to_glicko2_scale(opp_mu, opp_sigma)
+            g_j = glicko2_g(opp_phi_g2)
+            E_j = glicko2_E(team_mu_g2, opp_mu_g2, opp_phi_g2)
+            s_j = game_outcome(int(gf_vals[i]), int(ga_vals[i]), cfg.MAX_GD)
+            w_j = float(weights[i])
+
+            # Off/def residuals use Elo scale, not Glicko-2 scale
+            e_team = expected_score(team_mu, opp_mu)
+            off_res = float(gf_vals[i]) - cohort_avg_gpg * e_team
+            def_res = cohort_avg_gpg * (1.0 - e_team) - float(ga_vals[i])
+
+            rows.append(
+                {
+                    "team_id": team_id,
+                    "opp_id": opp_id,
+                    "game_date": dates[i],
+                    "gf": int(gf_vals[i]),
+                    "ga": int(ga_vals[i]),
+                    "game_id": game_ids[i],
+                    "id": row_ids[i],
+                    "team_mu": team_mu,
+                    "team_sigma": team_sigma,
+                    "opp_mu": opp_mu,
+                    "opp_sigma": opp_sigma,
+                    "expected_outcome": E_j,
+                    "actual_outcome": s_j,
+                    "outcome_surprise": s_j - E_j,
+                    "g_factor": g_j,
+                    "recency_weight": w_j,
+                    "rating_contribution": w_j * g_j * (s_j - E_j),
+                    "off_residual": off_res,
+                    "def_residual": def_res,
+                }
+            )
+
+    if not rows:
+        return pd.DataFrame(columns=_EXPLAIN_COLUMNS)
+
+    return pd.DataFrame(rows)
+
+
 def apply_scf_dampening(
     team_df: pd.DataFrame,
     scf_data: Dict[str, Dict],
@@ -698,13 +856,10 @@ def run_glicko2_cohort(
     # 2. Initialize ratings (warm-start if provided)
     if initial_ratings is not None:
         ratings: Dict[str, Tuple[float, float, float]] = {
-            t: initial_ratings.get(t, (cfg.INITIAL_MU, cfg.INITIAL_SIGMA, cfg.INITIAL_VOLATILITY))
-            for t in all_teams
+            t: initial_ratings.get(t, (cfg.INITIAL_MU, cfg.INITIAL_SIGMA, cfg.INITIAL_VOLATILITY)) for t in all_teams
         }
     else:
-        ratings = {
-            t: (cfg.INITIAL_MU, cfg.INITIAL_SIGMA, cfg.INITIAL_VOLATILITY) for t in all_teams
-        }
+        ratings = {t: (cfg.INITIAL_MU, cfg.INITIAL_SIGMA, cfg.INITIAL_VOLATILITY) for t in all_teams}
 
     # 3. Clip outlier goals
     df = clip_outlier_goals(games_df, cfg.OUTLIER_GUARD_ZSCORE)
@@ -740,8 +895,7 @@ def run_glicko2_cohort(
             "cross_age_mask": cross_age_mask,
             "weights": compute_recency_weights(tg["date"], today, cfg.RECENCY_LAMBDA).tolist(),
             "outcomes": [
-                game_outcome(int(gf), int(ga), cfg.MAX_GD)
-                for gf, ga in zip(tg["gf"].values, tg["ga"].values)
+                game_outcome(int(gf), int(ga), cfg.MAX_GD) for gf, ga in zip(tg["gf"].values, tg["ga"].values)
             ],
         }
 
@@ -768,7 +922,9 @@ def run_glicko2_cohort(
                         opp_mu,
                         str(arr["opp_ages"][i]) if arr["opp_ages"] is not None else str(cohort_age),
                         str(arr["opp_genders"][i]) if arr["opp_genders"] is not None else str(cohort_gender),
-                        str(cohort_age), str(cohort_gender), cfg,
+                        str(cohort_age),
+                        str(cohort_gender),
+                        cfg,
                     )
                 elif opp_id in ratings:
                     opp_mu, opp_sigma, _ = ratings[opp_id]
@@ -884,7 +1040,10 @@ def compute_rankings_v2(
         pass_label: "Pass1" or "Pass2" for logging.
 
     Returns:
-        {"teams": DataFrame with all rankings_full columns, "games_used": DataFrame of games used}
+        {"teams": DataFrame with all rankings_full columns,
+         "games_used": DataFrame of games used,
+         "game_explainability": DataFrame with per-game Glicko-2 breakdown
+             (one row per team-game perspective)}
     """
     # 1. Setup
     if today is None:
@@ -898,15 +1057,12 @@ def compute_rankings_v2(
     logger.info(f"Starting Glicko-2 ranking engine{label}")
 
     # 2. Run Glicko-2 convergence
-    team_df, team_games = run_glicko2_cohort(
-        games_df, cfg, today, global_rating_map, initial_ratings=initial_ratings
-    )
+    team_df, team_games = run_glicko2_cohort(games_df, cfg, today, global_rating_map, initial_ratings=initial_ratings)
 
     # 3. Build ratings dict for derived metrics
-    team_ratings: Dict[str, Tuple[float, float, float]] = dict(zip(
-        team_df["team_id"],
-        zip(team_df["mu"], team_df["sigma"], team_df["volatility"])
-    ))
+    team_ratings: Dict[str, Tuple[float, float, float]] = dict(
+        zip(team_df["team_id"], zip(team_df["mu"], team_df["sigma"], team_df["volatility"]))
+    )
 
     # 4. Derive offense/defense
     off_def = derive_offense_defense(games_df, team_ratings, cfg, today, team_games=team_games)
@@ -915,6 +1071,16 @@ def compute_rankings_v2(
     # 5. Compute SOS
     sos = compute_sos(games_df, team_ratings, cfg, today, team_games=team_games)
     team_df = team_df.merge(sos, on="team_id", how="left")
+
+    # 5b. Compute per-game explainability breakdown
+    game_explain_df = compute_game_explainability(
+        games_df,
+        team_ratings,
+        cfg,
+        today,
+        team_games=team_games,
+        global_rating_map=global_rating_map,
+    )
 
     # 6. Apply SCF (if team_state_map provided and SCF_ENABLED)
     if cfg.SCF_ENABLED and team_state_map:
@@ -1044,4 +1210,5 @@ def compute_rankings_v2(
     return {
         "teams": team_df,
         "games_used": games_df,
+        "game_explainability": game_explain_df,
     }
