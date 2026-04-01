@@ -2,53 +2,50 @@
 """
 Calculate team rankings using v53e engine with optional ML layer
 """
-import asyncio
+
 import argparse
+import asyncio
 import sys
 from contextlib import nullcontext
 from pathlib import Path
-from datetime import datetime
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from supabase import create_client
-from supabase.lib.client_options import SyncClientOptions
+import logging
 import os
+
 import pandas as pd
 from dotenv import load_dotenv
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
+from rich.table import Table
+from supabase.lib.client_options import SyncClientOptions
 
-from src.rankings.calculator import compute_rankings_with_ml, compute_rankings_v53e_only, compute_all_cohorts
-from src.etl.v53e import V53EConfig
-from src.rankings.layer13_predictive_adjustment import Layer13Config
-from src.rankings.data_adapter import v53e_to_supabase_format, v53e_to_rankings_full_format
+from src.rankings.calculator import compute_all_cohorts, compute_rankings_v53e_only
+from src.rankings.data_adapter import v53e_to_rankings_full_format, v53e_to_supabase_format
 from src.utils.merge_resolver import MergeResolver
-import logging
+from supabase import create_client
 
 # Configure logging for progress visibility
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(message)s',
-    handlers=[logging.StreamHandler()]
-)
+logging.basicConfig(level=logging.INFO, format="%(message)s", handlers=[logging.StreamHandler()])
 logger = logging.getLogger(__name__)
 
 # Suppress verbose HTTP logging from httpx/supabase
-logging.getLogger('httpx').setLevel(logging.WARNING)
-logging.getLogger('httpcore').setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 console = Console()
 # Load environment variables - prioritize .env.local if it exists
-env_local = Path('.env.local')
+env_local = Path(".env.local")
 if env_local.exists():
     load_dotenv(env_local, override=True)
 else:
     load_dotenv()
 
 
-async def save_rankings_to_supabase(supabase_client, teams_df, use_rankings_full=True, maintain_backward_compat=True, merge_resolver=None, verbose=False):
+async def save_rankings_to_supabase(
+    supabase_client, teams_df, use_rankings_full=True, maintain_backward_compat=True, merge_resolver=None, verbose=False
+):
     """Save rankings to rankings_full table (and optionally current_rankings for backward compatibility)
 
     Args:
@@ -74,84 +71,99 @@ async def save_rankings_to_supabase(supabase_client, teams_df, use_rankings_full
         deprecated_ids.update(merge_resolver.get_deprecated_teams())
 
     # Source 2: teams.is_deprecated field (canonical source of truth)
-    team_ids_to_check = teams_df['team_id'].astype(str).unique().tolist()
+    team_ids_to_check = teams_df["team_id"].astype(str).unique().tolist()
     batch_size = 150
     for i in range(0, len(team_ids_to_check), batch_size):
-        batch = team_ids_to_check[i:i + batch_size]
+        batch = team_ids_to_check[i : i + batch_size]
         try:
-            result = supabase_client.table('teams').select(
-                'team_id_master'
-            ).in_('team_id_master', batch).eq('is_deprecated', True).execute()
+            result = (
+                supabase_client.table("teams")
+                .select("team_id_master")
+                .in_("team_id_master", batch)
+                .eq("is_deprecated", True)
+                .execute()
+            )
             if result.data:
-                deprecated_ids.update(str(row['team_id_master']) for row in result.data)
+                deprecated_ids.update(str(row["team_id_master"]) for row in result.data)
         except Exception:
             continue
 
     if deprecated_ids:
         before_count = len(teams_df)
-        teams_df = teams_df[~teams_df['team_id'].astype(str).isin(deprecated_ids)].copy()
+        teams_df = teams_df[~teams_df["team_id"].astype(str).isin(deprecated_ids)].copy()
         filtered_count = before_count - len(teams_df)
         if filtered_count > 0:
             console.print(f"[dim]Filtered {filtered_count} deprecated teams from rankings output[/dim]")
-    
+
     # Fetch team metadata (age_group, gender, state_code) for rankings_full
-    team_ids = teams_df['team_id'].astype(str).unique().tolist()
+    team_ids = teams_df["team_id"].astype(str).unique().tolist()
     teams_metadata_df = None
     if use_rankings_full and team_ids:
         console.print("[dim]Fetching team metadata for rankings_full...[/dim]")
         teams_meta_data = []
         batch_size = 150  # Avoid Supabase URL length limits
         for i in range(0, len(team_ids), batch_size):
-            batch = team_ids[i:i+batch_size]
+            batch = team_ids[i : i + batch_size]
             try:
-                teams_result = supabase_client.table('teams').select(
-                    'team_id_master, age_group, gender, state_code'
-                ).in_('team_id_master', batch).execute()
+                teams_result = (
+                    supabase_client.table("teams")
+                    .select("team_id_master, age_group, gender, state_code")
+                    .in_("team_id_master", batch)
+                    .execute()
+                )
                 if teams_result.data:
                     teams_meta_data.extend(teams_result.data)
             except Exception as e:
-                logger.warning(f"Team metadata batch failed ({i}-{i+batch_size}): {e}")
+                logger.warning(f"Team metadata batch failed ({i}-{i + batch_size}): {e}")
                 continue
-        
+
         if teams_meta_data:
             teams_metadata_df = pd.DataFrame(teams_meta_data)
             console.print(f"[dim]Fetched metadata for {len(teams_metadata_df)} teams[/dim]")
-    
+
     total_saved = 0
-    
+
     # Save to rankings_full table
     if use_rankings_full:
         try:
             # Convert to rankings_full format
             rankings_full_df = v53e_to_rankings_full_format(teams_df, teams_metadata_df)
-            
+
             if rankings_full_df.empty:
                 console.print("[yellow]No rankings to save after conversion to rankings_full format[/yellow]")
             else:
                 # Set last_calculated timestamp
-                rankings_full_df['last_calculated'] = pd.Timestamp.now()
-                
+                rankings_full_df["last_calculated"] = pd.Timestamp.now()
+
                 # Convert DataFrame to records (handle NaN values)
-                records_full = rankings_full_df.replace({pd.NA: None, pd.NaT: None}).to_dict('records')
-                
+                records_full = rankings_full_df.replace({pd.NA: None, pd.NaT: None}).to_dict("records")
+
                 # DIAGNOSTIC: Verify power_score_final != national_power_score before upsert
                 import numpy as np
+
                 if records_full:
                     # Sample a few records from different age groups to verify anchor scaling
                     age_samples = {}
                     for rec in records_full:
-                        ag = rec.get('age_group', '')
+                        ag = rec.get("age_group", "")
                         if ag and ag not in age_samples:
                             age_samples[ag] = rec
                         if len(age_samples) >= 5:
                             break
                     if verbose:
-                        console.print(f"[bold]🔍 DIAG: Verifying power_score_final vs national_power_score in records (pre-upsert):[/bold]")
+                        console.print(
+                            "[bold]🔍 DIAG: Verifying power_score_final vs "
+                            "national_power_score in records (pre-upsert):[/bold]"
+                        )
                         for ag, rec in sorted(age_samples.items()):
-                            psf = rec.get('power_score_final')
-                            nps = rec.get('national_power_score')
-                            ps_adj = rec.get('powerscore_adj')
-                            match = "⚠️  IDENTICAL" if psf is not None and nps is not None and abs(psf - nps) < 0.001 else "✅ different"
+                            psf = rec.get("power_score_final")
+                            nps = rec.get("national_power_score")
+                            ps_adj = rec.get("powerscore_adj")
+                            match = (
+                                "⚠️  IDENTICAL"
+                                if psf is not None and nps is not None and abs(psf - nps) < 0.001
+                                else "✅ different"
+                            )
                             console.print(f"  {ag}: psf={psf}, nps={nps}, ps_adj={ps_adj} → {match}")
 
                 # Clean up records: convert numpy types to Python native types
@@ -165,86 +177,82 @@ async def save_rankings_to_supabase(supabase_client, teams_df, use_rankings_full
                             record[key] = value.isoformat() if pd.notna(value) else None
                         elif pd.isna(value):
                             record[key] = None
-                
+
                 # Save to rankings_full table
                 saved_full = await _save_batch_with_retry(
-                    supabase_client, 
-                    'rankings_full', 
-                    records_full,
-                    table_name_display="rankings_full"
+                    supabase_client, "rankings_full", records_full, table_name_display="rankings_full"
                 )
                 total_saved += saved_full
         except Exception as e:
             console.print(f"[yellow]Warning: Failed to save to rankings_full: {e}[/yellow]")
             console.print("[yellow]Falling back to current_rankings only[/yellow]")
             use_rankings_full = False
-    
+
     # Save to current_rankings for backward compatibility
     if maintain_backward_compat:
         try:
             # Convert to current_rankings format
             rankings_df = v53e_to_supabase_format(teams_df)
-            
+
             if rankings_df.empty:
                 console.print("[yellow]No rankings to save after conversion to current_rankings format[/yellow]")
             else:
                 # Merge SOS from original teams_df
-                if 'sos' in teams_df.columns:
-                    sos_map = dict(zip(teams_df['team_id'].astype(str), teams_df['sos']))
-                    rankings_df['sos'] = rankings_df['team_id'].astype(str).map(sos_map)
-                
+                if "sos" in teams_df.columns:
+                    sos_map = dict(zip(teams_df["team_id"].astype(str), teams_df["sos"]))
+                    rankings_df["sos"] = rankings_df["team_id"].astype(str).map(sos_map)
+
                 # Prepare records for current_rankings
                 records_current = []
                 for _, row in rankings_df.iterrows():
                     try:
                         record = {
-                            'team_id': str(row['team_id']),
-                            'national_power_score': float(row.get('national_power_score', 0.0)),
+                            "team_id": str(row["team_id"]),
+                            "national_power_score": float(row.get("national_power_score", 0.0)),
                         }
-                        
+
                         # Handle national_rank (may be None)
-                        if pd.notna(row.get('national_rank')):
-                            record['national_rank'] = int(row.get('national_rank'))
+                        if pd.notna(row.get("national_rank")):
+                            record["national_rank"] = int(row.get("national_rank"))
                         else:
-                            record['national_rank'] = None
-                        
+                            record["national_rank"] = None
+
                         # Optional fields
-                        record['games_played'] = int(row.get('gp', 0)) if pd.notna(row.get('gp')) else 0
-                        record['wins'] = int(row.get('wins', 0)) if pd.notna(row.get('wins')) else 0
-                        record['losses'] = int(row.get('losses', 0)) if pd.notna(row.get('losses')) else 0
-                        record['draws'] = int(row.get('draws', 0)) if pd.notna(row.get('draws')) else 0
-                        record['goals_for'] = int(row.get('goals_for', 0)) if pd.notna(row.get('goals_for')) else 0
-                        record['goals_against'] = int(row.get('goals_against', 0)) if pd.notna(row.get('goals_against')) else 0
-                        
+                        record["games_played"] = int(row.get("gp", 0)) if pd.notna(row.get("gp")) else 0
+                        record["wins"] = int(row.get("wins", 0)) if pd.notna(row.get("wins")) else 0
+                        record["losses"] = int(row.get("losses", 0)) if pd.notna(row.get("losses")) else 0
+                        record["draws"] = int(row.get("draws", 0)) if pd.notna(row.get("draws")) else 0
+                        record["goals_for"] = int(row.get("goals_for", 0)) if pd.notna(row.get("goals_for")) else 0
+                        record["goals_against"] = (
+                            int(row.get("goals_against", 0)) if pd.notna(row.get("goals_against")) else 0
+                        )
+
                         # Calculate win percentage
-                        if record['games_played'] > 0:
-                            record['win_percentage'] = float(record['wins'] / record['games_played'])
+                        if record["games_played"] > 0:
+                            record["win_percentage"] = float(record["wins"] / record["games_played"])
                         else:
-                            record['win_percentage'] = None
-                        
+                            record["win_percentage"] = None
+
                         # Add Strength of Schedule (SOS)
-                        if 'sos' in row and pd.notna(row.get('sos')):
-                            record['strength_of_schedule'] = float(row['sos'])
+                        if "sos" in row and pd.notna(row.get("sos")):
+                            record["strength_of_schedule"] = float(row["sos"])
                         else:
-                            record['strength_of_schedule'] = None
-                        
+                            record["strength_of_schedule"] = None
+
                         records_current.append(record)
                     except Exception as e:
                         console.print(f"[yellow]Warning: Skipping row due to error: {e}[/yellow]")
                         continue
-                
+
                 # Save to current_rankings
                 if records_current:
                     saved_current = await _save_batch_with_retry(
-                        supabase_client,
-                        'current_rankings',
-                        records_current,
-                        table_name_display="current_rankings"
+                        supabase_client, "current_rankings", records_current, table_name_display="current_rankings"
                     )
                     total_saved += saved_current
         except Exception as e:
             console.print(f"[yellow]Warning: Failed to save to current_rankings: {e}[/yellow]")
-    
+
     return total_saved
 
 
@@ -252,12 +260,13 @@ async def _save_batch_with_retry(supabase_client, table_name, records, table_nam
     """Helper function to save records in batches with retry logic"""
     if not records:
         return 0
-    
+
     table_display = table_name_display or table_name
     import time
+
     max_retries = 3
     retry_delay = 2  # seconds
-    
+
     try:
         # ---------------------------------------------------------------
         # UPSERT-FIRST STRATEGY: Never delete before inserting.
@@ -267,7 +276,7 @@ async def _save_batch_with_retry(supabase_client, table_name, records, table_nam
         # ---------------------------------------------------------------
 
         # Collect the set of team_ids we are about to write
-        new_team_ids = {r.get('team_id') or r.get('team_id_master') for r in records}
+        new_team_ids = {r.get("team_id") or r.get("team_id_master") for r in records}
         new_team_ids.discard(None)
 
         # Upsert new rankings in batches with retry logic
@@ -276,7 +285,7 @@ async def _save_batch_with_retry(supabase_client, table_name, records, table_nam
         failed_batches = []
 
         for i in range(0, len(records), batch_size):
-            batch = records[i:i + batch_size]
+            batch = records[i : i + batch_size]
             batch_num = (i // batch_size) + 1
             total_batches = (len(records) + batch_size - 1) // batch_size
 
@@ -293,40 +302,58 @@ async def _save_batch_with_retry(supabase_client, table_name, records, table_nam
                     result = supabase_client.table(table_name).upsert(batch).execute()
                     if result.data:
                         total_inserted += len(result.data)
-                    console.print(f"[dim]Batch {batch_num}/{total_batches} ({table_display}): {len(batch)} records saved[/dim]")
+                    console.print(
+                        f"[dim]Batch {batch_num}/{total_batches} ({table_display}): {len(batch)} records saved[/dim]"
+                    )
                     batch_saved = True
                     break  # Success, exit retry loop
                 except Exception as e:
                     error_msg = str(e)
                     # Check for various connection/network errors
                     is_network_error = (
-                        'SSL' in error_msg or
-                        'bad record' in error_msg.lower() or
-                        'ReadError' in error_msg or
-                        'WinError 10054' in error_msg or
-                        'connection' in error_msg.lower() and ('closed' in error_msg.lower() or 'reset' in error_msg.lower() or 'forcibly' in error_msg.lower()) or
-                        'forcibly closed' in error_msg.lower() or
-                        'remote host' in error_msg.lower()
+                        "SSL" in error_msg
+                        or "bad record" in error_msg.lower()
+                        or "ReadError" in error_msg
+                        or "WinError 10054" in error_msg
+                        or "connection" in error_msg.lower()
+                        and (
+                            "closed" in error_msg.lower()
+                            or "reset" in error_msg.lower()
+                            or "forcibly" in error_msg.lower()
+                        )
+                        or "forcibly closed" in error_msg.lower()
+                        or "remote host" in error_msg.lower()
                     )
 
                     if attempt < max_retries - 1 and is_network_error:
-                        console.print(f"[yellow]Network error on batch {batch_num} ({table_display}), attempt {attempt + 1}/{max_retries}. Retrying in {batch_retry_delay}s...[/yellow]")
+                        console.print(
+                            f"[yellow]Network error on batch {batch_num} ({table_display}), "
+                            f"attempt {attempt + 1}/{max_retries}. "
+                            f"Retrying in {batch_retry_delay}s...[/yellow]"
+                        )
                         time.sleep(batch_retry_delay)
                         batch_retry_delay *= 2  # Exponential backoff for this batch
                         # Recreate client connection if needed
                         try:
                             # Force a small delay to let connection reset
                             time.sleep(1)
-                        except:
+                        except Exception:
                             pass
                     elif attempt < max_retries - 1:
                         # Non-network error, but retry anyway
-                        console.print(f"[yellow]Error on batch {batch_num} ({table_display}), attempt {attempt + 1}/{max_retries}. Retrying in {batch_retry_delay}s...[/yellow]")
+                        console.print(
+                            f"[yellow]Error on batch {batch_num} ({table_display}), "
+                            f"attempt {attempt + 1}/{max_retries}. "
+                            f"Retrying in {batch_retry_delay}s...[/yellow]"
+                        )
                         time.sleep(batch_retry_delay)
                         batch_retry_delay *= 2
                     else:
                         # Last attempt failed
-                        console.print(f"[red]Failed to save batch {batch_num} ({table_display}) after {max_retries} attempts: {e}[/red]")
+                        console.print(
+                            f"[red]Failed to save batch {batch_num} ({table_display}) "
+                            f"after {max_retries} attempts: {e}[/red]"
+                        )
                         failed_batches.append((batch_num, batch))
                         break  # Continue with next batch instead of raising
 
@@ -350,7 +377,9 @@ async def _save_batch_with_retry(supabase_client, table_name, records, table_nam
                             time.sleep(batch_retry_delay)
                             batch_retry_delay *= 2
                         else:
-                            console.print(f"[red]Batch {batch_num} ({table_display}) failed after all retries: {e}[/red]")
+                            console.print(
+                                f"[red]Batch {batch_num} ({table_display}) failed after all retries: {e}[/red]"
+                            )
 
         # ---------------------------------------------------------------
         # STALE ROW CLEANUP: Remove rows for teams no longer in rankings.
@@ -364,13 +393,13 @@ async def _save_batch_with_retry(supabase_client, table_name, records, table_nam
             offset = 0
             page_size = 1000
             while True:
-                page = supabase_client.table(table_name).select(
-                    'team_id'
-                ).range(offset, offset + page_size - 1).execute()
+                page = (
+                    supabase_client.table(table_name).select("team_id").range(offset, offset + page_size - 1).execute()
+                )
                 if not page.data:
                     break
                 for row in page.data:
-                    existing_ids.add(row['team_id'])
+                    existing_ids.add(row["team_id"])
                 if len(page.data) < page_size:
                     break
                 offset += page_size
@@ -380,15 +409,15 @@ async def _save_batch_with_retry(supabase_client, table_name, records, table_nam
             if stale_ids:
                 stale_list = list(stale_ids)
                 for i in range(0, len(stale_list), 100):
-                    batch = stale_list[i:i + 100]
-                    supabase_client.table(table_name).delete().in_('team_id', batch).execute()
+                    batch = stale_list[i : i + 100]
+                    supabase_client.table(table_name).delete().in_("team_id", batch).execute()
                     stale_deleted += len(batch)
                 console.print(f"[dim]Cleaned up {stale_deleted} stale rows from {table_display}[/dim]")
             else:
                 console.print(f"[dim]No stale rows to clean up in {table_display}[/dim]")
         except Exception as e:
             console.print(f"[yellow]Warning: stale row cleanup failed for {table_display}: {e}[/yellow]")
-            console.print(f"[yellow]Old rankings for removed teams may persist until next run[/yellow]")
+            console.print("[yellow]Old rankings for removed teams may persist until next run[/yellow]")
 
         if total_inserted > 0:
             console.print(f"[green]Saved {total_inserted} rankings to {table_display} table[/green]")
@@ -417,15 +446,15 @@ async def _backfill_game_stats_python(supabase_client, console) -> int:
     page_size = 5000
     offset = 0
     while True:
-        page = supabase_client.table('games').select(
-            'home_team_master_id, away_team_master_id, home_score, away_score'
-        ).eq(
-            'is_excluded', False
-        ).not_.is_(
-            'home_score', 'null'
-        ).not_.is_(
-            'away_score', 'null'
-        ).range(offset, offset + page_size - 1).execute()
+        page = (
+            supabase_client.table("games")
+            .select("home_team_master_id, away_team_master_id, home_score, away_score")
+            .eq("is_excluded", False)
+            .not_.is_("home_score", "null")
+            .not_.is_("away_score", "null")
+            .range(offset, offset + page_size - 1)
+            .execute()
+        )
 
         rows = page.data or []
         all_games.extend(rows)
@@ -441,33 +470,37 @@ async def _backfill_game_stats_python(supabase_client, console) -> int:
 
     # Step 2: Compute home + away aggregates in pandas
     gdf = pd.DataFrame(all_games)
-    gdf['home_score'] = pd.to_numeric(gdf['home_score'], errors='coerce')
-    gdf['away_score'] = pd.to_numeric(gdf['away_score'], errors='coerce')
+    gdf["home_score"] = pd.to_numeric(gdf["home_score"], errors="coerce")
+    gdf["away_score"] = pd.to_numeric(gdf["away_score"], errors="coerce")
 
     # Home perspective
-    home = gdf[['home_team_master_id', 'home_score', 'away_score']].copy()
-    home.columns = ['team_id', 'gf', 'ga']
+    home = gdf[["home_team_master_id", "home_score", "away_score"]].copy()
+    home.columns = ["team_id", "gf", "ga"]
 
     # Away perspective
-    away = gdf[['away_team_master_id', 'away_score', 'home_score']].copy()
-    away.columns = ['team_id', 'gf', 'ga']
+    away = gdf[["away_team_master_id", "away_score", "home_score"]].copy()
+    away.columns = ["team_id", "gf", "ga"]
 
     perspectives = pd.concat([home, away], ignore_index=True)
-    perspectives['is_win'] = perspectives['gf'] > perspectives['ga']
-    perspectives['is_loss'] = perspectives['gf'] < perspectives['ga']
-    perspectives['is_draw'] = perspectives['gf'] == perspectives['ga']
+    perspectives["is_win"] = perspectives["gf"] > perspectives["ga"]
+    perspectives["is_loss"] = perspectives["gf"] < perspectives["ga"]
+    perspectives["is_draw"] = perspectives["gf"] == perspectives["ga"]
 
-    agg = perspectives.groupby('team_id').agg(
-        total_games=('gf', 'count'),
-        total_wins=('is_win', 'sum'),
-        total_losses=('is_loss', 'sum'),
-        total_draws=('is_draw', 'sum'),
-    ).reset_index()
+    agg = (
+        perspectives.groupby("team_id")
+        .agg(
+            total_games=("gf", "count"),
+            total_wins=("is_win", "sum"),
+            total_losses=("is_loss", "sum"),
+            total_draws=("is_draw", "sum"),
+        )
+        .reset_index()
+    )
 
-    agg['total_wins'] = agg['total_wins'].astype(int)
-    agg['total_losses'] = agg['total_losses'].astype(int)
-    agg['total_draws'] = agg['total_draws'].astype(int)
-    agg['total_games'] = agg['total_games'].astype(int)
+    agg["total_wins"] = agg["total_wins"].astype(int)
+    agg["total_losses"] = agg["total_losses"].astype(int)
+    agg["total_draws"] = agg["total_draws"].astype(int)
+    agg["total_games"] = agg["total_games"].astype(int)
 
     # Step 3: Batch update rankings_full
     console.print(f"[dim]  Updating {len(agg):,} teams in rankings_full...[/dim]")
@@ -475,30 +508,26 @@ async def _backfill_game_stats_python(supabase_client, console) -> int:
     updated = 0
 
     for i in range(0, len(agg), batch_size):
-        batch = agg.iloc[i:i + batch_size]
+        batch = agg.iloc[i : i + batch_size]
         records = [
             {
-                'team_id': str(row['team_id']),
-                'total_games_played': int(row['total_games']),
-                'total_wins': int(row['total_wins']),
-                'total_losses': int(row['total_losses']),
-                'total_draws': int(row['total_draws']),
+                "team_id": str(row["team_id"]),
+                "total_games_played": int(row["total_games"]),
+                "total_wins": int(row["total_wins"]),
+                "total_losses": int(row["total_losses"]),
+                "total_draws": int(row["total_draws"]),
             }
             for _, row in batch.iterrows()
         ]
         try:
-            supabase_client.table('rankings_full').upsert(
-                records, on_conflict='team_id'
-            ).execute()
+            supabase_client.table("rankings_full").upsert(records, on_conflict="team_id").execute()
             updated += len(records)
         except Exception as e:
             logger.warning(f"Backfill batch {i // batch_size + 1} failed: {e}")
             time.sleep(1)
             # Retry once
             try:
-                supabase_client.table('rankings_full').upsert(
-                    records, on_conflict='team_id'
-                ).execute()
+                supabase_client.table("rankings_full").upsert(records, on_conflict="team_id").execute()
                 updated += len(records)
             except Exception:
                 pass  # Skip this batch, continue with the rest
@@ -507,45 +536,36 @@ async def _backfill_game_stats_python(supabase_client, console) -> int:
 
 
 async def main():
-    parser = argparse.ArgumentParser(description='Calculate team rankings')
-    parser.add_argument('--ml', action='store_true', help='Enable ML predictive adjustment layer')
-    parser.add_argument('--provider', type=str, default=None, help='Filter by provider code (gotsport, tgs, usclub)')
-    parser.add_argument('--lookback-days', type=int, default=365, help='Days to look back for rankings (default: 365)')
-    parser.add_argument('--age-group', type=str, default=None, help='Filter by age group (u10, u11, etc.)')
-    parser.add_argument('--gender', type=str, default=None, help='Filter by gender (Male, Female)')
-    parser.add_argument('--dry-run', action='store_true', help='Calculate rankings without saving to database')
+    parser = argparse.ArgumentParser(description="Calculate team rankings")
+    parser.add_argument("--ml", action="store_true", help="Enable ML predictive adjustment layer")
+    parser.add_argument("--provider", type=str, default=None, help="Filter by provider code (gotsport, tgs, usclub)")
+    parser.add_argument("--lookback-days", type=int, default=365, help="Days to look back for rankings (default: 365)")
+    parser.add_argument("--age-group", type=str, default=None, help="Filter by age group (u10, u11, etc.)")
+    parser.add_argument("--gender", type=str, default=None, help="Filter by gender (Male, Female)")
+    parser.add_argument("--dry-run", action="store_true", help="Calculate rankings without saving to database")
     parser.add_argument(
-        '--force-rebuild',
-        action='store_true',
-        help='Ignore cached v53e rankings and rebuild from raw data'
+        "--force-rebuild", action="store_true", help="Ignore cached v53e rankings and rebuild from raw data"
     )
     parser.add_argument(
-        '--profile',
-        action='store_true',
-        help='Enable performance profiling (prints timing report at the end)'
+        "--profile", action="store_true", help="Enable performance profiling (prints timing report at the end)"
     )
     parser.add_argument(
-        '--verbose',
-        action='store_true',
-        help='Enable verbose diagnostic output (PowerScore distribution, DIAG blocks)'
+        "--verbose", action="store_true", help="Enable verbose diagnostic output (PowerScore distribution, DIAG blocks)"
     )
     parser.add_argument(
-        '--engine',
-        choices=['v53e', 'glicko'],
-        default='glicko',
-        help='Ranking engine to use (default: glicko)'
+        "--engine", choices=["v53e", "glicko"], default="glicko", help="Ranking engine to use (default: glicko)"
     )
 
     args = parser.parse_args()
-    
+
     # Initialize Supabase client
-    supabase_url = os.getenv('SUPABASE_URL')
-    supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
-    
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
     if not supabase_url or not supabase_key:
         console.print("[red]Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env[/red]")
         sys.exit(1)
-    
+
     supabase = create_client(supabase_url, supabase_key)
 
     # Initialize merge resolver for team merge support
@@ -556,12 +576,13 @@ async def main():
     else:
         # CRITICAL: Warn loudly if merge map is empty — deprecated teams will be silently dropped
         console.print(f"[yellow]⚠️  No team merges loaded (version: {merge_resolver.version})[/yellow]")
-        console.print(f"[yellow]   If team_merge_map has entries, check Supabase connectivity and permissions.[/yellow]")
+        console.print("[yellow]   If team_merge_map has entries, check Supabase connectivity and permissions.[/yellow]")
 
     # Set up optional profiling
     timing_report = None
     if args.profile:
         from src.profiling.timer import TimingReport
+
         timing_report = TimingReport("Calculate Rankings")
         console.print("[dim]Profiling enabled — timing report will print at the end[/dim]")
 
@@ -574,9 +595,9 @@ async def main():
         if args.provider:
             console.print(f"  Provider filter: {args.provider}")
         if args.dry_run:
-            console.print(f"  [yellow]Mode: DRY RUN (no database writes)[/yellow]")
+            console.print("  [yellow]Mode: DRY RUN (no database writes)[/yellow]")
         console.print("")  # Blank line for spacing
-        
+
         if args.ml:
             # Use compute_all_cohorts for two-pass SOS + national/state normalization
             result = await compute_all_cohorts(
@@ -601,120 +622,131 @@ async def main():
                 merge_resolver=merge_resolver,
                 timing_report=timing_report,
             )
-        
+
         teams_df = result["teams"]
-        
+
         if teams_df.empty:
             console.print("[yellow]No teams found for ranking[/yellow]")
             return
-        
+
         # Debug: Check if power_score_final exists and has anchor scaling applied
-        if 'power_score_final' in teams_df.columns:
-            console.print(f"[dim]✓ power_score_final exists in teams_df with {teams_df['power_score_final'].notna().sum()} non-null values[/dim]")
-            if 'age_group' in teams_df.columns:
+        if "power_score_final" in teams_df.columns:
+            console.print(
+                f"[dim]✓ power_score_final exists in teams_df with "
+                f"{teams_df['power_score_final'].notna().sum()} non-null values[/dim]"
+            )
+            if "age_group" in teams_df.columns:
                 # Extract age and check max per age
                 age_nums = teams_df['age_group'].astype(str).str.extract(r'(\d+)')[0].astype(int)
                 max_by_age = teams_df.groupby(age_nums)['power_score_final'].max()
-                console.print(f"[dim]Max power_score_final by age:[/dim]")
+                console.print("[dim]Max power_score_final by age:[/dim]")
                 for age, max_ps in max_by_age.items():
                     console.print(f"[dim]  Age {age}: {max_ps:.4f}[/dim]")
         else:
-            console.print("[yellow]⚠ power_score_final not found in teams_df - will be calculated by data adapter[/yellow]")
-        
+            console.print(
+                "[yellow]⚠ power_score_final not found in teams_df - will be calculated by data adapter[/yellow]"
+            )
+
         # Track total teams before filtering
         total_teams = len(teams_df)
-        
+
         # Filter by age group and gender if specified
         if args.age_group:
             # Convert 'u10' to '10' format and handle string/int conversion
-            age_filter_str = args.age_group.replace('u', '').replace('U', '')
+            age_filter_str = args.age_group.replace("u", "").replace("U", "")
             try:
                 age_filter_int = int(age_filter_str)
                 # Normalize age column for comparison (remove 'u' prefix if present)
-                age_normalized = teams_df['age'].astype(str).str.replace('u', '').str.replace('U', '')
+                age_normalized = teams_df["age"].astype(str).str.replace("u", "").str.replace("U", "")
                 teams_df = teams_df[age_normalized.astype(int) == age_filter_int]
             except (ValueError, TypeError):
                 # Fallback to string comparison with normalized age
-                age_normalized = teams_df['age'].astype(str).str.replace('u', '').str.replace('U', '')
+                age_normalized = teams_df["age"].astype(str).str.replace("u", "").str.replace("U", "")
                 teams_df = teams_df[age_normalized == age_filter_str]
-        
+
         if args.gender:
             # Case-insensitive gender filter
             gender_filter = args.gender.lower()
-            teams_df = teams_df[teams_df['gender'].str.lower() == gender_filter]
-        
+            teams_df = teams_df[teams_df["gender"].str.lower() == gender_filter]
+
         # Track filtered teams count
         filtered_teams = len(teams_df)
-        
+
         # Fetch team names and club names for display
-        team_ids = teams_df['team_id'].astype(str).unique().tolist()
+        team_ids = teams_df["team_id"].astype(str).unique().tolist()
         if team_ids:
             # Fetch in smaller batches (150) to avoid Supabase URL length limits (~8KB)
             teams_meta = {}
             batch_size = 150  # Reduced to avoid Supabase URL length limits
             for i in range(0, len(team_ids), batch_size):
-                batch = team_ids[i:i+batch_size]
+                batch = team_ids[i : i + batch_size]
                 try:
-                    teams_meta_result = supabase.table('teams').select(
-                        'team_id_master, team_name, club_name'
-                    ).in_('team_id_master', batch).execute()
-                    
+                    teams_meta_result = (
+                        supabase.table("teams")
+                        .select("team_id_master, team_name, club_name")
+                        .in_("team_id_master", batch)
+                        .execute()
+                    )
+
                     if teams_meta_result.data:
                         for t in teams_meta_result.data:
-                            teams_meta[str(t['team_id_master'])] = t
+                            teams_meta[str(t["team_id_master"])] = t
                 except Exception as e:
-                    logger.warning(f"Metadata batch failed ({i}-{i+batch_size}): {e}")
+                    logger.warning(f"Metadata batch failed ({i}-{i + batch_size}): {e}")
                     continue
-            
+
             # Add to teams_df
-            teams_df['team_name'] = teams_df['team_id'].astype(str).map(
-                lambda tid: teams_meta.get(tid, {}).get('team_name', 'Unknown')
+            teams_df["team_name"] = (
+                teams_df["team_id"].astype(str).map(lambda tid: teams_meta.get(tid, {}).get("team_name", "Unknown"))
             )
-            teams_df['club_name'] = teams_df['team_id'].astype(str).map(
-                lambda tid: teams_meta.get(tid, {}).get('club_name', '') or ''
+            teams_df["club_name"] = (
+                teams_df["team_id"].astype(str).map(lambda tid: teams_meta.get(tid, {}).get("club_name", "") or "")
             )
-        
+
         # Display summary
-        console.print(f"\n[bold green]Rankings Calculated Successfully![/bold green]")
-        console.print(f"\n[bold]Summary:[/bold]")
+        console.print("\n[bold green]Rankings Calculated Successfully![/bold green]")
+        console.print("\n[bold]Summary:[/bold]")
         console.print(f"  Total teams: {filtered_teams:,}")
-        
+
         # Determine PowerScore column and validate bounds
         out_of_bounds_count = 0
-        if 'powerscore_ml' in teams_df.columns:
-            console.print(f"  Using ML-enhanced PowerScore")
-            power_col = 'powerscore_ml'
-            rank_col = 'rank_in_cohort_ml'
-            
+        if "powerscore_ml" in teams_df.columns:
+            console.print("  Using ML-enhanced PowerScore")
+            power_col = "powerscore_ml"
+            rank_col = "rank_in_cohort_ml"
+
             # Validate PowerScore bounds
             if not teams_df.empty:
                 min_score = teams_df[power_col].min()
                 max_score = teams_df[power_col].max()
                 violations = teams_df[~teams_df[power_col].between(0.0, 1.0, inclusive="both")]
                 out_of_bounds_count = len(violations)
-                
-                console.print(f"\n[bold]PowerScore Validation:[/bold]")
+
+                console.print("\n[bold]PowerScore Validation:[/bold]")
                 console.print(f"  Min: {min_score:.6f}")
                 console.print(f"  Max: {max_score:.6f}")
                 if out_of_bounds_count == 0:
-                    console.print(f"  [green]✓ All PowerScores within [0.0, 1.0] bounds[/green]")
+                    console.print("  [green]✓ All PowerScores within [0.0, 1.0] bounds[/green]")
                 else:
                     console.print(f"  [red]✗ {out_of_bounds_count} PowerScores out of bounds[/red]")
-                
+
                 # PowerScore Distribution Analysis (verbose only)
                 if args.verbose:
                     unique_scores = teams_df[power_col].nunique()
                     duplicate_count = len(teams_df) - unique_scores
                     value_counts = teams_df[power_col].value_counts()
-                    console.print(f"\n[bold]PowerScore Distribution:[/bold]")
-                    console.print(f"  Unique: {unique_scores:,}, Duplicates: {duplicate_count:,}, Max same score: {value_counts.max()}")
+                    console.print("\n[bold]PowerScore Distribution:[/bold]")
+                    console.print(
+                        f"  Unique: {unique_scores:,}, Duplicates: {duplicate_count:,}, "
+                        f"Max same score: {value_counts.max()}"
+                    )
                     if value_counts.max() > 10:
                         for score, count in value_counts.head(5).items():
                             console.print(f"    {score:.6f}: {count} teams")
-        elif 'powerscore_adj' in teams_df.columns:
-            console.print(f"  Using adjusted PowerScore")
-            power_col = 'powerscore_adj'
-            rank_col = 'rank_in_cohort'
+        elif "powerscore_adj" in teams_df.columns:
+            console.print("  Using adjusted PowerScore")
+            power_col = "powerscore_adj"
+            rank_col = "rank_in_cohort"
 
             # Validate PowerScore bounds
             if not teams_df.empty:
@@ -723,11 +755,11 @@ async def main():
                 violations = teams_df[~teams_df[power_col].between(0.0, 1.0, inclusive="both")]
                 out_of_bounds_count = len(violations)
 
-                console.print(f"\n[bold]PowerScore Validation:[/bold]")
+                console.print("\n[bold]PowerScore Validation:[/bold]")
                 console.print(f"  Min: {min_score:.6f}")
                 console.print(f"  Max: {max_score:.6f}")
                 if out_of_bounds_count == 0:
-                    console.print(f"  [green]✓ All PowerScores within [0.0, 1.0] bounds[/green]")
+                    console.print("  [green]✓ All PowerScores within [0.0, 1.0] bounds[/green]")
                 else:
                     console.print(f"  [red]✗ {out_of_bounds_count} PowerScores out of bounds[/red]")
 
@@ -736,22 +768,25 @@ async def main():
                     unique_scores = teams_df[power_col].nunique()
                     duplicate_count = len(teams_df) - unique_scores
                     value_counts = teams_df[power_col].value_counts()
-                    console.print(f"\n[bold]PowerScore Distribution:[/bold]")
-                    console.print(f"  Unique: {unique_scores:,}, Duplicates: {duplicate_count:,}, Max same score: {value_counts.max()}")
-                
+                    console.print("\n[bold]PowerScore Distribution:[/bold]")
+                    console.print(
+                        f"  Unique: {unique_scores:,}, Duplicates: {duplicate_count:,}, "
+                        f"Max same score: {value_counts.max()}"
+                    )
+
                 if value_counts.max() > 10:
-                    console.print(f"\n  [yellow]Top 5 most common PowerScore values:[/yellow]")
+                    console.print("\n  [yellow]Top 5 most common PowerScore values:[/yellow]")
                     for score, count in value_counts.head(5).items():
                         console.print(f"    {score:.6f}: {count} teams")
         else:
-            power_col = 'powerscore_core'
-            rank_col = 'rank_in_cohort'
-            
+            power_col = "powerscore_core"
+            rank_col = "rank_in_cohort"
+
             # Validate PowerScore bounds
             if not teams_df.empty and power_col in teams_df.columns:
                 violations = teams_df[~teams_df[power_col].between(0.0, 1.0, inclusive="both")]
                 out_of_bounds_count = len(violations)
-        
+
         # Show top 10 teams
         if not teams_df.empty:
             # Restrict to teams that actually have a rank to avoid int(None) errors
@@ -761,7 +796,9 @@ async def main():
                 ranked_df = pd.DataFrame()
 
             if ranked_df.empty:
-                console.print("[yellow]No ranked teams available for Top 10 preview (all teams unranked / provisional).[/yellow]")
+                console.print(
+                    "[yellow]No ranked teams available for Top 10 preview (all teams unranked / provisional).[/yellow]"
+                )
             else:
                 top_teams = ranked_df.nlargest(10, power_col)
                 table = Table(title="Top 10 Teams")
@@ -788,12 +825,14 @@ async def main():
 
                 console.print("\n")
                 console.print(table)
-        
+
         # Save to database
         saved_count = 0
-        with (timing_report.section("save_rankings") if timing_report else nullcontext()):
+        with timing_report.section("save_rankings") if timing_report else nullcontext():
             if not args.dry_run:
-                saved_count = await save_rankings_to_supabase(supabase, teams_df, merge_resolver=merge_resolver, verbose=getattr(args, 'verbose', False))
+                saved_count = await save_rankings_to_supabase(
+                    supabase, teams_df, merge_resolver=merge_resolver, verbose=getattr(args, "verbose", False)
+                )
             else:
                 console.print("\n[yellow]Dry run - rankings not saved to database[/yellow]")
                 saved_count = filtered_teams  # Would-be saved count
@@ -801,7 +840,7 @@ async def main():
         # Refresh precomputed total game stats used by rankings_view
         backfill_status = "skipped"
         if not args.dry_run and saved_count > 0:
-            with (timing_report.section("backfill_total_game_stats") if timing_report else nullcontext()):
+            with timing_report.section("backfill_total_game_stats") if timing_report else nullcontext():
                 try:
                     console.print("[dim]Backfilling total game stats via RPC...[/dim]")
                     # The batched SQL function needs up to 300s. The default
@@ -809,15 +848,20 @@ async def main():
                     # the RPC to be killed mid-flight. Use a dedicated client
                     # with a 360s timeout (300s SQL + 60s overhead).
                     backfill_client = create_client(
-                        supabase_url, supabase_key,
+                        supabase_url,
+                        supabase_key,
                         options=SyncClientOptions(postgrest_client_timeout=360),
                     )
-                    result = backfill_client.rpc('backfill_total_game_stats').execute()
+                    result = backfill_client.rpc("backfill_total_game_stats").execute()
                     backfill_count = result.data if result.data else 0
-                    console.print(f"[dim]Backfilled total game stats for {backfill_count:,} teams (10K batch updates)[/dim]")
+                    console.print(
+                        f"[dim]Backfilled total game stats for {backfill_count:,} teams (10K batch updates)[/dim]"
+                    )
                     backfill_status = "complete"
                 except Exception as e:
-                    console.print(f"[yellow]RPC backfill failed ({e}), falling back to Python-side computation...[/yellow]")
+                    console.print(
+                        f"[yellow]RPC backfill failed ({e}), falling back to Python-side computation...[/yellow]"
+                    )
                     try:
                         backfill_count = await _backfill_game_stats_python(supabase, console)
                         console.print(f"[dim]Python backfill complete: {backfill_count:,} teams updated[/dim]")
@@ -826,7 +870,7 @@ async def main():
                         backfill_status = "failed"
                         console.print(f"[yellow]WARNING: Python backfill also failed: {fallback_err}[/yellow]")
                         console.print("[yellow]Run status: PARTIAL — rankings saved but game stats stale[/yellow]")
-        
+
         # ----------------------------------------------------------------
         #  Summary Banner
         # ----------------------------------------------------------------
@@ -838,22 +882,26 @@ async def main():
             f"• Saved to Supabase: [green]{saved_count:,}[/green]\n"
             f"• Dry run mode: [yellow]{args.dry_run}[/yellow]\n"
             f"• ML Layer: [yellow]{args.ml}[/yellow]\n"
-            f"• Backfill status: [{'green' if backfill_status == 'complete' else 'yellow'}]{backfill_status}[/{'green' if backfill_status == 'complete' else 'yellow'}]"
+            f"• Backfill status: "
+            f"[{'green' if backfill_status == 'complete' else 'yellow'}]"
+            f"{backfill_status}"
+            f"[/{'green' if backfill_status == 'complete' else 'yellow'}]"
         )
         console.print("\n")
         console.print(Panel(summary_text, title="📊 Run Summary", border_style="bright_blue"))
 
         if timing_report:
             timing_report.print_summary()
-        
+
     except Exception as e:
         console.print(f"\n[red]Rankings calculation failed: {e}[/red]")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     try:
         asyncio.run(main())
         sys.exit(0)
@@ -863,6 +911,6 @@ if __name__ == '__main__':
     except Exception as e:
         console.print(f"\n[red]💥 Fatal error: {e}[/red]")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
-

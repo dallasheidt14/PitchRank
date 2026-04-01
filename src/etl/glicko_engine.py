@@ -293,7 +293,10 @@ def select_games(
         Filtered DataFrame sorted by date descending, at most *max_games* rows.
     """
     cutoff = today - pd.Timedelta(days=window_days)
-    mask = (games_df["team_id"] == team_id) & (games_df["date"] >= cutoff)
+    dates = games_df["date"]
+    if hasattr(dates.dtype, "tz") and dates.dtype.tz is not None:
+        dates = dates.dt.tz_localize(None)
+    mask = (games_df["team_id"] == team_id) & (dates >= cutoff)
     filtered = games_df.loc[mask].sort_values("date", ascending=False)
     return filtered.head(max_games)
 
@@ -309,7 +312,9 @@ def compute_recency_weights(game_dates: pd.Series, today: pd.Timestamp, lambda_:
     Returns:
         Numpy array of weights that sum to 1.0.
     """
-    days_ago = (today - game_dates).dt.days
+    gd = game_dates.dt.tz_localize(None) if hasattr(game_dates.dtype, "tz") and game_dates.dtype.tz is not None else game_dates
+    today_naive = today.tz_localize(None) if today.tzinfo is not None else today
+    days_ago = (today_naive - gd).dt.days
     weights = np.exp(-lambda_ * days_ago / 365.0)
     return weights / weights.sum()
 
@@ -880,6 +885,9 @@ def compute_rankings_v2(
     # 1. Setup
     if today is None:
         today = pd.Timestamp.now("UTC")
+    # Strip timezone so all date comparisons are tz-naive (Supabase dates are naive)
+    if today.tzinfo is not None:
+        today = today.tz_localize(None)
     if cfg is None:
         cfg = GlickoConfig()
     label = f" [{pass_label}]" if pass_label else ""
@@ -920,7 +928,10 @@ def compute_rankings_v2(
 
     # 9. Status and rankings
     cutoff = today - pd.Timedelta(days=cfg.INACTIVE_DAYS)
-    team_df["status"] = np.where(team_df["last_game"] >= cutoff, "Active", "Inactive")
+    last_game_ser = pd.to_datetime(team_df["last_game"])
+    if hasattr(last_game_ser.dtype, "tz") and last_game_ser.dtype.tz is not None:
+        last_game_ser = last_game_ser.dt.tz_localize(None)
+    team_df["status"] = np.where(last_game_ser >= cutoff, "Active", "Inactive")
 
     team_df["sample_flag"] = np.where(team_df["games_played"] < cfg.MIN_GAMES_PROVISIONAL, "LOW_SAMPLE", "OK")
 
