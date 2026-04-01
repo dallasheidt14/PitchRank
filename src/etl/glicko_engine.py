@@ -914,7 +914,10 @@ def compute_rankings_v2(
 
     # 9. Status and rankings
     cutoff = today - pd.Timedelta(days=cfg.INACTIVE_DAYS)
-    last_game_naive = pd.to_datetime(team_df["last_game"]).dt.tz_localize(None)
+    last_game_ser = pd.to_datetime(team_df["last_game"])
+    if hasattr(last_game_ser.dtype, "tz") and last_game_ser.dtype.tz is not None:
+        last_game_ser = last_game_ser.dt.tz_localize(None)
+    last_game_naive = last_game_ser
     team_df["status"] = np.where(last_game_naive >= cutoff, "Active", "Inactive")
 
     team_df["sample_flag"] = np.where(

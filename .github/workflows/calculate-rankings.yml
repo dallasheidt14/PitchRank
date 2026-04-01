@@ -50,7 +50,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.ref }}  # Use the triggering branch (main for scheduled, feature branch for dispatch)
+          ref: ${{ github.ref }}  # workflow_dispatch: branch selected in UI; schedule/workflow_run: default branch
           fetch-depth: 0
 
       # ---------------------------------------------------------------
@@ -58,8 +58,15 @@ jobs:
       # ---------------------------------------------------------------
       - name: Verify branch
         run: |
-          echo "Checked-out branch: $(git branch --show-current)"
+          BRANCH=$(git branch --show-current)
+          echo "Checked-out branch: $BRANCH"
+          echo "Trigger: ${{ github.event_name }}"
           echo "Engine: ${{ github.event.inputs.engine || 'glicko' }}"
+          # Non-dispatch triggers (schedule, workflow_run) must run on main
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ] && [ "$BRANCH" != "main" ]; then
+            echo "❌ ERROR: Non-dispatch trigger on branch '$BRANCH' — expected 'main'. Aborting."
+            exit 1
+          fi
 
       # ---------------------------------------------------------------
       # 3. PRINT COMMIT HASH (for debugging + traceability)
