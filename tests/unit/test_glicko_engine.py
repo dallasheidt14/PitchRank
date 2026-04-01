@@ -16,6 +16,7 @@ from src.etl.glicko_engine import (
     glicko2_E,
     glicko2_g,
     glicko2_update,
+    run_glicko2_cohort,
     select_games,
 )
 
@@ -249,3 +250,92 @@ class TestRecencyWeights:
         dates = pd.Series([pd.Timestamp('2026-03-01')])
         weights = compute_recency_weights(dates, today, lambda_=1.0)
         assert abs(weights[0] - 1.0) < 0.001
+
+
+class TestRunGlicko2Cohort:
+    def _make_game(self, team_a, team_b, gf, ga, date, age='U15', gender='M'):
+        """Helper to create symmetric game rows."""
+        return [
+            {'team_id': team_a, 'opp_id': team_b, 'gf': gf, 'ga': ga,
+             'date': pd.Timestamp(date), 'age': age, 'gender': gender,
+             'opp_age': age, 'opp_gender': gender},
+            {'team_id': team_b, 'opp_id': team_a, 'gf': ga, 'ga': gf,
+             'date': pd.Timestamp(date), 'age': age, 'gender': gender,
+             'opp_age': age, 'opp_gender': gender},
+        ]
+
+    def test_three_team_ordering(self):
+        """A beats B, B beats C, A beats C => A > B > C."""
+        cfg = GlickoConfig()
+        today = pd.Timestamp('2026-03-31')
+        rows = []
+        rows += self._make_game('A', 'B', 3, 1, '2026-03-01')
+        rows += self._make_game('B', 'C', 2, 0, '2026-03-10')
+        rows += self._make_game('A', 'C', 4, 0, '2026-03-20')
+        games = pd.DataFrame(rows)
+
+        result = run_glicko2_cohort(games, cfg, today)
+        ratings = result.set_index('team_id')['mu']
+        assert ratings['A'] > ratings['B'] > ratings['C']
+
+    def test_convergence_within_limit(self):
+        """Should converge within MAX_ITERATIONS."""
+        cfg = GlickoConfig()
+        today = pd.Timestamp('2026-03-31')
+        rows = []
+        rows += self._make_game('A', 'B', 2, 1, '2026-03-01')
+        rows += self._make_game('B', 'C', 2, 1, '2026-03-10')
+        games = pd.DataFrame(rows)
+
+        # Should not raise or warn
+        result = run_glicko2_cohort(games, cfg, today)
+        assert len(result) == 3
+
+    def test_recency_matters(self):
+        """Team with recent losses should rate lower than one with recent wins."""
+        cfg = GlickoConfig()
+        today = pd.Timestamp('2026-03-31')
+        rows = []
+        # Team A wins early, loses recently
+        rows += self._make_game('A', 'C', 3, 0, '2025-06-01')
+        rows += self._make_game('A', 'C', 0, 3, '2026-03-15')
+        # Team B loses early, wins recently
+        rows += self._make_game('B', 'C', 0, 3, '2025-06-01')
+        rows += self._make_game('B', 'C', 3, 0, '2026-03-15')
+        games = pd.DataFrame(rows)
+
+        result = run_glicko2_cohort(games, cfg, today)
+        ratings = result.set_index('team_id')['mu']
+        assert ratings['B'] > ratings['A']
+
+    def test_output_columns(self):
+        """Output should have all required columns."""
+        cfg = GlickoConfig()
+        today = pd.Timestamp('2026-03-31')
+        rows = self._make_game('A', 'B', 2, 1, '2026-03-01')
+        games = pd.DataFrame(rows)
+
+        result = run_glicko2_cohort(games, cfg, today)
+        required = ['team_id', 'mu', 'sigma', 'volatility', 'games_played',
+                     'wins', 'losses', 'draws', 'last_game', 'goals_for', 'goals_against']
+        for col in required:
+            assert col in result.columns, f"Missing column: {col}"
+
+    def test_game_stats_correct(self):
+        """Win/loss/draw counts should be correct."""
+        cfg = GlickoConfig()
+        today = pd.Timestamp('2026-03-31')
+        rows = []
+        rows += self._make_game('A', 'B', 3, 1, '2026-03-01')  # A wins
+        rows += self._make_game('A', 'B', 1, 1, '2026-03-10')  # draw
+        rows += self._make_game('A', 'B', 0, 2, '2026-03-20')  # A loses
+        games = pd.DataFrame(rows)
+
+        result = run_glicko2_cohort(games, cfg, today)
+        a_row = result[result['team_id'] == 'A'].iloc[0]
+        assert a_row['games_played'] == 3
+        assert a_row['wins'] == 1
+        assert a_row['losses'] == 1
+        assert a_row['draws'] == 1
+        assert a_row['goals_for'] == 4  # 3 + 1 + 0
+        assert a_row['goals_against'] == 4  # 1 + 1 + 2

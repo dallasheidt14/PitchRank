@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+
+from src.etl.glicko_config import GlickoConfig
 
 logger = logging.getLogger(__name__)
 
@@ -309,3 +311,165 @@ def compute_recency_weights(
     days_ago = (today - game_dates).dt.days
     weights = np.exp(-lambda_ * days_ago / 365.0)
     return weights / weights.sum()
+
+
+# =========================================================
+# Batch convergence engine
+# =========================================================
+def run_glicko2_cohort(
+    games_df: pd.DataFrame,
+    cfg: GlickoConfig,
+    today: pd.Timestamp,
+    global_rating_map: Optional[Dict[str, float]] = None,
+) -> pd.DataFrame:
+    """Run Glicko-2 for a single (age, gender) cohort.
+
+    Processes games iteratively until ratings converge. Each iteration:
+    1. For each team, collect opponents + outcomes + recency weights
+    2. Apply glicko2_update to compute new mu/sigma/volatility
+    3. Check convergence (max |delta_mu| < threshold)
+    4. Stop if converged or max iterations reached
+
+    Args:
+        games_df: DataFrame with columns: team_id, opp_id, date, gf, ga, age, gender.
+                  Should be pre-filtered to a single (age, gender) cohort.
+                  Each row is one team's perspective of one game.
+        cfg: GlickoConfig with all parameters.
+        today: Reference date for recency weighting and window filtering.
+        global_rating_map: Optional dict of {team_id: mu} for cross-age opponent lookup.
+                          When provided (Pass 2), cross-age opponents use this rating.
+
+    Returns:
+        DataFrame with columns: team_id, mu, sigma, volatility,
+        games_played, wins, losses, draws, last_game, goals_for, goals_against
+    """
+    # 1. Identify all teams
+    all_teams = games_df["team_id"].unique().tolist()
+
+    # 2. Initialize ratings
+    ratings: Dict[str, Tuple[float, float, float]] = {
+        t: (cfg.INITIAL_MU, cfg.INITIAL_SIGMA, cfg.INITIAL_VOLATILITY)
+        for t in all_teams
+    }
+
+    # 3. Clip outlier goals
+    df = clip_outlier_goals(games_df, cfg.OUTLIER_GUARD_ZSCORE)
+
+    # 4. Select games per team
+    team_games: Dict[str, pd.DataFrame] = {}
+    for t in all_teams:
+        team_games[t] = select_games(df, t, cfg.MAX_GAMES, cfg.WINDOW_DAYS, today)
+
+    # 5. Determine cohort age/gender for cross-age detection
+    # Use the first row's age/gender as the cohort identity
+    cohort_age = df["age"].iloc[0] if len(df) > 0 else None
+    cohort_gender = df["gender"].iloc[0] if len(df) > 0 else None
+
+    # 6. Iterate until convergence (Jacobi iteration)
+    for iteration in range(cfg.MAX_ITERATIONS):
+        new_ratings: Dict[str, Tuple[float, float, float]] = {}
+
+        for t in all_teams:
+            tg = team_games[t]
+            if len(tg) == 0:
+                new_ratings[t] = ratings[t]
+                continue
+
+            # Collect opponents, outcomes, and weights
+            opponents_list: List[Tuple[float, float]] = []
+            outcomes_list: List[float] = []
+
+            for _, row in tg.iterrows():
+                opp_id = row["opp_id"]
+
+                # Check if opponent is cross-age
+                is_cross_age = False
+                if "opp_age" in row.index and "opp_gender" in row.index:
+                    if row["opp_age"] != cohort_age or row["opp_gender"] != cohort_gender:
+                        is_cross_age = True
+
+                # Look up opponent rating
+                if is_cross_age and global_rating_map is not None:
+                    opp_mu = global_rating_map.get(opp_id, cfg.INITIAL_MU)
+                    opp_sigma = cfg.INITIAL_SIGMA
+                elif opp_id in ratings:
+                    opp_mu, opp_sigma, _ = ratings[opp_id]
+                else:
+                    opp_mu = cfg.INITIAL_MU
+                    opp_sigma = cfg.INITIAL_SIGMA
+
+                opponents_list.append((opp_mu, opp_sigma))
+                outcomes_list.append(
+                    game_outcome(int(row["gf"]), int(row["ga"]), cfg.MAX_GD)
+                )
+
+            # Compute recency weights
+            weights = compute_recency_weights(
+                tg["date"], today, cfg.RECENCY_LAMBDA
+            ).tolist()
+
+            # Update rating
+            mu, sigma, vol = ratings[t]
+            new_mu, new_sigma, new_vol = glicko2_update(
+                mu, sigma, vol, opponents_list, outcomes_list, weights, cfg.TAU
+            )
+            new_ratings[t] = (new_mu, new_sigma, new_vol)
+
+        # Compute convergence metrics
+        max_delta = 0.0
+        delta_sum = 0.0
+        for t in all_teams:
+            delta = abs(new_ratings[t][0] - ratings[t][0])
+            max_delta = max(max_delta, delta)
+            delta_sum += delta
+        mean_delta = delta_sum / len(all_teams) if all_teams else 0.0
+
+        # Batch-update all ratings (Jacobi)
+        ratings = new_ratings
+
+        logger.info(
+            "Glicko-2 iteration %d: max_delta=%.4f, mean_delta=%.4f",
+            iteration + 1, max_delta, mean_delta,
+        )
+
+        if max_delta < cfg.CONVERGENCE_THRESHOLD:
+            logger.info(
+                "Glicko-2 converged after %d iterations (max_delta=%.4f)",
+                iteration + 1, max_delta,
+            )
+            break
+    else:
+        logger.warning(
+            "Glicko-2 did not converge after %d iterations (max_delta=%.4f)",
+            cfg.MAX_ITERATIONS, max_delta,
+        )
+
+    # 7. Compute aggregate stats per team
+    results = []
+    for t in all_teams:
+        tg = team_games[t]
+        mu, sigma, vol = ratings[t]
+
+        gp = len(tg)
+        wins = int((tg["gf"] > tg["ga"]).sum()) if gp > 0 else 0
+        losses = int((tg["gf"] < tg["ga"]).sum()) if gp > 0 else 0
+        draws = int((tg["gf"] == tg["ga"]).sum()) if gp > 0 else 0
+        last_game = tg["date"].max() if gp > 0 else pd.NaT
+        goals_for = int(tg["gf"].sum()) if gp > 0 else 0
+        goals_against = int(tg["ga"].sum()) if gp > 0 else 0
+
+        results.append({
+            "team_id": t,
+            "mu": mu,
+            "sigma": sigma,
+            "volatility": vol,
+            "games_played": gp,
+            "wins": wins,
+            "losses": losses,
+            "draws": draws,
+            "last_game": last_game,
+            "goals_for": goals_for,
+            "goals_against": goals_against,
+        })
+
+    return pd.DataFrame(results)
