@@ -644,7 +644,9 @@ class TestComputeRankingsV2:
         rows += self._make_game("B", "C", 3, 0, "2026-03-10")
         rows += self._make_game("A", "C", 4, 0, "2026-03-20")
         games = pd.DataFrame(rows)
-        result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"))
+        # Each team has only 2 games — use low threshold so they qualify as Active
+        cfg = GlickoConfig(MIN_GAMES_PROVISIONAL=1)
+        result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"), cfg=cfg)
         teams = result["teams"].sort_values("mu", ascending=False)
         # Rank 1 should be the team with highest mu
         rank1 = result["teams"][result["teams"]["national_rank"] == 1.0]
@@ -657,6 +659,15 @@ class TestComputeRankingsV2:
         result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"))
         teams = result["teams"]
         assert all(teams["status"] == "Inactive")
+        assert all(teams["national_rank"].isna())
+
+    def test_low_sample_team_not_ranked(self):
+        """Team with < MIN_GAMES_PROVISIONAL games should be 'Not Enough Ranked Games'."""
+        rows = self._make_game("A", "B", 2, 1, "2026-03-01")  # recent, but only 1 game
+        games = pd.DataFrame(rows)
+        result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"))
+        teams = result["teams"]
+        assert all(teams["status"] == "Not Enough Ranked Games")
         assert all(teams["national_rank"].isna())
 
     def test_provisional_mult_from_sigma(self):

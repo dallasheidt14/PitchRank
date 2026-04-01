@@ -935,7 +935,15 @@ def compute_rankings_v2(
     last_game_ser = pd.to_datetime(team_df["last_game"])
     if hasattr(last_game_ser.dtype, "tz") and last_game_ser.dtype.tz is not None:
         last_game_ser = last_game_ser.dt.tz_localize(None)
-    team_df["status"] = np.where(last_game_ser >= cutoff, "Active", "Inactive")
+    team_df["status"] = np.where(
+        (last_game_ser < cutoff) | (team_df["last_game"].isna()),
+        "Inactive",
+        np.where(
+            team_df["games_played"] < cfg.MIN_GAMES_PROVISIONAL,
+            "Not Enough Ranked Games",
+            "Active",
+        ),
+    )
 
     team_df["sample_flag"] = np.where(team_df["games_played"] < cfg.MIN_GAMES_PROVISIONAL, "LOW_SAMPLE", "OK")
 
