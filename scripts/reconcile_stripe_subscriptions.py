@@ -9,6 +9,7 @@ Usage:
     python scripts/reconcile_stripe_subscriptions.py           # Fix mismatches
     python scripts/reconcile_stripe_subscriptions.py --dry-run  # Check only
 """
+
 import argparse
 import logging
 import os
@@ -60,8 +61,7 @@ def fetch_stripe_users(supabase):
     response = (
         supabase.table("user_profiles")
         .select(
-            "id, email, plan, subscription_status, "
-            "stripe_customer_id, stripe_subscription_id, subscription_period_end"
+            "id, email, plan, subscription_status, stripe_customer_id, stripe_subscription_id, subscription_period_end"
         )
         .not_.is_("stripe_customer_id", "null")
         .execute()
@@ -164,11 +164,7 @@ def reconcile(supabase, dry_run: bool):
         }
         mismatches.append(mismatch)
 
-        logger.warning(
-            f"  MISMATCH {email}: "
-            f"plan {db_plan}->{expected_plan}, "
-            f"status {db_status}->{stripe_status}"
-        )
+        logger.warning(f"  MISMATCH {email}: plan {db_plan}->{expected_plan}, status {db_status}->{stripe_status}")
 
         if not dry_run:
             update = {
@@ -179,9 +175,7 @@ def reconcile(supabase, dry_run: bool):
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
             if period_end:
-                update["subscription_period_end"] = datetime.fromtimestamp(
-                    period_end, tz=timezone.utc
-                ).isoformat()
+                update["subscription_period_end"] = datetime.fromtimestamp(period_end, tz=timezone.utc).isoformat()
 
             supabase.table("user_profiles").update(update).eq("id", row["id"]).execute()
             logger.info(f"  FIXED {email}")
@@ -253,9 +247,7 @@ def send_alert_email(mismatches: list, dry_run: bool):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Reconcile Stripe subscriptions with user_profiles"
-    )
+    parser = argparse.ArgumentParser(description="Reconcile Stripe subscriptions with user_profiles")
     parser.add_argument(
         "--dry-run",
         action="store_true",

@@ -5,7 +5,7 @@
 ```
 Agent spawns → Does work → Finishes
                   ↓
-           WORKING-agent.md 
+           WORKING-agent.md
           (rarely updated)
                   ↓
          Mission Control reads
@@ -161,16 +161,19 @@ Agent spawns → Does work → Finishes
 ## Key Points
 
 ### 5-Minute Active Window
+
 - Sessions are "active" if started within last 5 minutes
 - Progress updates refresh the `updated_at` timestamp
 - Long-running tasks stay active as long as they send progress
 
 ### Graceful Degradation
+
 - If database query fails → falls back to WORKING files
 - If no active session found → shows WORKING file status
 - Never breaks Mission Control!
 
 ### Real-Time Updates
+
 - Mission Control refreshes every 30 seconds
 - Shows latest status from database
 - No manual updates needed
@@ -195,14 +198,14 @@ Agent spawns → Does work → Finishes
 
 ```sql
 -- Automatically filters to last 5 minutes
-SELECT 
+SELECT
   agent_name,
   task_description,
   started_at,
   EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER AS duration_seconds
 FROM agent_sessions
-WHERE 
-  status = 'active' 
+WHERE
+  status = 'active'
   AND started_at > NOW() - INTERVAL '5 minutes'
 ORDER BY started_at DESC;
 
@@ -218,12 +221,14 @@ ORDER BY started_at DESC;
 ## API Endpoints Used
 
 ### POST /api/agent-webhook
+
 - `spawn` - Create session
 - `progress` - Update session
 - `complete` - Mark done
 - `error` - Mark failed
 
 ### GET /api/mission-control/status
+
 - Queries `agent_sessions` for active sessions
 - Maps to agent configs
 - Falls back to WORKING files
@@ -238,7 +243,7 @@ ORDER BY started_at DESC;
 ✅ **Historical tracking** - See what agents did recently  
 ✅ **Task correlation** - Link sessions to task board  
 ✅ **Auto-cleanup** - Old sessions purged after 24h  
-✅ **Graceful fallback** - Works even if DB is down  
+✅ **Graceful fallback** - Works even if DB is down
 
 ---
 

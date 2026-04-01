@@ -8,27 +8,30 @@ team games with canonical team games.
 
 Run: python scripts/test_merge_pipeline.py
 """
+
 import sys
 from pathlib import Path
-sys.path.append(str(Path(__file__).parent.parent))
 
-import pandas as pd
-import numpy as np
-from unittest.mock import MagicMock
+sys.path.append(str(Path(__file__).parent.parent))
 
 # Import MergeResolver directly (avoiding __init__.py import chains)
 import importlib.util
-spec = importlib.util.spec_from_file_location("merge_resolver", str(Path(__file__).parent.parent / "src/utils/merge_resolver.py"))
+
+import pandas as pd
+
+spec = importlib.util.spec_from_file_location(
+    "merge_resolver", str(Path(__file__).parent.parent / "src/utils/merge_resolver.py")
+)
 merge_mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(merge_mod)
 MergeResolver = merge_mod.MergeResolver
 
 # Test configuration
-CANONICAL_ID = '691eb36d-95b2-4a08-bd59-13c1b0e830bb'
-DEPRECATED_ID = '1ad83e6f-aaaa-bbbb-cccc-dddddddddddd'
-OPPONENT_A = 'aaaaaaaa-1111-2222-3333-444444444444'
-OPPONENT_B = 'bbbbbbbb-1111-2222-3333-444444444444'
-OPPONENT_C = 'cccccccc-1111-2222-3333-444444444444'
+CANONICAL_ID = "691eb36d-95b2-4a08-bd59-13c1b0e830bb"
+DEPRECATED_ID = "1ad83e6f-aaaa-bbbb-cccc-dddddddddddd"
+OPPONENT_A = "aaaaaaaa-1111-2222-3333-444444444444"
+OPPONENT_B = "bbbbbbbb-1111-2222-3333-444444444444"
+OPPONENT_C = "cccccccc-1111-2222-3333-444444444444"
 
 
 def test_merge_resolution():
@@ -56,113 +59,119 @@ def test_merge_resolution():
 
     # Canonical team games (home perspective)
     for i in range(3):
-        rows.append({
-            'game_id': f'canonical_game_{i}',
-            'id': f'uuid_canonical_{i}',
-            'date': pd.Timestamp('2026-01-15') + pd.Timedelta(days=i),
-            'team_id': CANONICAL_ID,
-            'opp_id': OPPONENT_A,
-            'home_team_master_id': CANONICAL_ID,
-            'age': '12',
-            'gender': 'male',
-            'opp_age': '12',
-            'opp_gender': 'male',
-            'gf': 2.0,
-            'ga': 1.0,
-        })
+        rows.append(
+            {
+                "game_id": f"canonical_game_{i}",
+                "id": f"uuid_canonical_{i}",
+                "date": pd.Timestamp("2026-01-15") + pd.Timedelta(days=i),
+                "team_id": CANONICAL_ID,
+                "opp_id": OPPONENT_A,
+                "home_team_master_id": CANONICAL_ID,
+                "age": "12",
+                "gender": "male",
+                "opp_age": "12",
+                "opp_gender": "male",
+                "gf": 2.0,
+                "ga": 1.0,
+            }
+        )
 
     # Deprecated team games (home perspective)
     for i in range(5):
-        rows.append({
-            'game_id': f'deprecated_game_{i}',
-            'id': f'uuid_deprecated_{i}',
-            'date': pd.Timestamp('2026-02-01') + pd.Timedelta(days=i),
-            'team_id': DEPRECATED_ID,
-            'opp_id': OPPONENT_B,
-            'home_team_master_id': DEPRECATED_ID,
-            'age': '12',
-            'gender': 'male',
-            'opp_age': '12',
-            'opp_gender': 'male',
-            'gf': 3.0,
-            'ga': 0.0,
-        })
+        rows.append(
+            {
+                "game_id": f"deprecated_game_{i}",
+                "id": f"uuid_deprecated_{i}",
+                "date": pd.Timestamp("2026-02-01") + pd.Timedelta(days=i),
+                "team_id": DEPRECATED_ID,
+                "opp_id": OPPONENT_B,
+                "home_team_master_id": DEPRECATED_ID,
+                "age": "12",
+                "gender": "male",
+                "opp_age": "12",
+                "opp_gender": "male",
+                "gf": 3.0,
+                "ga": 0.0,
+            }
+        )
 
     # Opponent perspective rows (opponents playing against deprecated team)
     for i in range(5):
-        rows.append({
-            'game_id': f'deprecated_game_{i}',
-            'id': f'uuid_deprecated_{i}',
-            'date': pd.Timestamp('2026-02-01') + pd.Timedelta(days=i),
-            'team_id': OPPONENT_B,
-            'opp_id': DEPRECATED_ID,
-            'home_team_master_id': DEPRECATED_ID,
-            'age': '12',
-            'gender': 'male',
-            'opp_age': '12',
-            'opp_gender': 'male',
-            'gf': 0.0,
-            'ga': 3.0,
-        })
+        rows.append(
+            {
+                "game_id": f"deprecated_game_{i}",
+                "id": f"uuid_deprecated_{i}",
+                "date": pd.Timestamp("2026-02-01") + pd.Timedelta(days=i),
+                "team_id": OPPONENT_B,
+                "opp_id": DEPRECATED_ID,
+                "home_team_master_id": DEPRECATED_ID,
+                "age": "12",
+                "gender": "male",
+                "opp_age": "12",
+                "opp_gender": "male",
+                "gf": 0.0,
+                "ga": 3.0,
+            }
+        )
 
     v53e_df = pd.DataFrame(rows)
     print(f"✅ Created {len(v53e_df)} perspective rows (3 canonical + 5 deprecated + 5 opponent)")
 
     # Build team maps (as data_adapter.py does)
     team_age_map = {
-        CANONICAL_ID: '12',
-        DEPRECATED_ID: '12',
-        OPPONENT_A: '12',
-        OPPONENT_B: '12',
+        CANONICAL_ID: "12",
+        DEPRECATED_ID: "12",
+        OPPONENT_A: "12",
+        OPPONENT_B: "12",
     }
     team_gender_map = {
-        CANONICAL_ID: 'male',
-        DEPRECATED_ID: 'male',
-        OPPONENT_A: 'male',
-        OPPONENT_B: 'male',
+        CANONICAL_ID: "male",
+        DEPRECATED_ID: "male",
+        OPPONENT_A: "male",
+        OPPONENT_B: "male",
     }
 
     # Build deprecated_team_ids set (as data_adapter.py does)
     deprecated_team_ids = {DEPRECATED_ID}
 
     # ---- PRE-MERGE STATE ----
-    canon_before = (v53e_df['team_id'] == CANONICAL_ID).sum()
-    dep_before = (v53e_df['team_id'] == DEPRECATED_ID).sum()
-    print(f"\n--- Pre-merge state ---")
+    canon_before = (v53e_df["team_id"] == CANONICAL_ID).sum()
+    dep_before = (v53e_df["team_id"] == DEPRECATED_ID).sum()
+    print("\n--- Pre-merge state ---")
     print(f"  canonical as team_id: {canon_before}")
     print(f"  deprecated as team_id: {dep_before}")
 
     # ---- APPLY MERGE RESOLUTION (exact same code as data_adapter.py) ----
-    print(f"\n--- Applying merge resolution ---")
-    v53e_df = resolver.resolve_dataframe(v53e_df, ['team_id', 'opp_id'])
+    print("\n--- Applying merge resolution ---")
+    v53e_df = resolver.resolve_dataframe(v53e_df, ["team_id", "opp_id"])
 
     # Re-map age/gender
-    v53e_df['age'] = v53e_df['team_id'].map(team_age_map).fillna(v53e_df['age'])
-    v53e_df['gender'] = v53e_df['team_id'].map(team_gender_map).fillna(v53e_df['gender'])
-    v53e_df['opp_age'] = v53e_df['opp_id'].map(team_age_map).fillna(v53e_df['opp_age'])
-    v53e_df['opp_gender'] = v53e_df['opp_id'].map(team_gender_map).fillna(v53e_df['opp_gender'])
+    v53e_df["age"] = v53e_df["team_id"].map(team_age_map).fillna(v53e_df["age"])
+    v53e_df["gender"] = v53e_df["team_id"].map(team_gender_map).fillna(v53e_df["gender"])
+    v53e_df["opp_age"] = v53e_df["opp_id"].map(team_age_map).fillna(v53e_df["opp_age"])
+    v53e_df["opp_gender"] = v53e_df["opp_id"].map(team_gender_map).fillna(v53e_df["opp_gender"])
 
     # ---- POST-MERGE STATE ----
-    canon_after = (v53e_df['team_id'] == CANONICAL_ID).sum()
-    dep_after = (v53e_df['team_id'] == DEPRECATED_ID).sum()
+    canon_after = (v53e_df["team_id"] == CANONICAL_ID).sum()
+    dep_after = (v53e_df["team_id"] == DEPRECATED_ID).sum()
     print(f"  canonical as team_id: {canon_after}")
     print(f"  deprecated as team_id: {dep_after}")
 
     # ---- DEPRECATED FILTER (exact same code as data_adapter.py) ----
     if deprecated_team_ids:
         before_filter = len(v53e_df)
-        v53e_df = v53e_df[~v53e_df['team_id'].astype(str).isin(deprecated_team_ids)]
+        v53e_df = v53e_df[~v53e_df["team_id"].astype(str).isin(deprecated_team_ids)]
         removed = before_filter - len(v53e_df)
-        print(f"\n--- Deprecated filter ---")
+        print("\n--- Deprecated filter ---")
         print(f"  Removed {removed} rows")
 
-    canon_final = (v53e_df['team_id'] == CANONICAL_ID).sum()
-    print(f"\n--- Final state ---")
+    canon_final = (v53e_df["team_id"] == CANONICAL_ID).sum()
+    print("\n--- Final state ---")
     print(f"  canonical as team_id: {canon_final}")
     print(f"  Total rows: {len(v53e_df)}")
 
     # ---- ASSERTIONS ----
-    print(f"\n--- Assertions ---")
+    print("\n--- Assertions ---")
 
     # After merge, deprecated team's 5 games should be attributed to canonical
     assert dep_after == 0, f"FAIL: deprecated team still has {dep_after} rows after merge"
@@ -181,10 +190,10 @@ def test_merge_resolution():
     print("✅ Final canonical team count: 8 perspective rows")
 
     # Opponent B's opp_id should now point to canonical
-    opp_b_rows = v53e_df[v53e_df['team_id'] == OPPONENT_B]
-    opp_b_opp_ids = opp_b_rows['opp_id'].unique()
-    assert CANONICAL_ID in opp_b_opp_ids, f"FAIL: Opponent B's opp_id doesn't include canonical"
-    assert DEPRECATED_ID not in opp_b_opp_ids, f"FAIL: Opponent B's opp_id still has deprecated"
+    opp_b_rows = v53e_df[v53e_df["team_id"] == OPPONENT_B]
+    opp_b_opp_ids = opp_b_rows["opp_id"].unique()
+    assert CANONICAL_ID in opp_b_opp_ids, "FAIL: Opponent B's opp_id doesn't include canonical"
+    assert DEPRECATED_ID not in opp_b_opp_ids, "FAIL: Opponent B's opp_id still has deprecated"
     print("✅ Opponent's opp_id correctly resolved to canonical")
 
     print("\n" + "=" * 70)
@@ -199,5 +208,5 @@ def test_merge_resolution():
     print("to check the production data.")
 
 
-if __name__ == '__main__':
-    test_merge_pipeline()
+if __name__ == "__main__":
+    test_merge_resolution()

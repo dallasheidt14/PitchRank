@@ -47,11 +47,7 @@ export class SectionErrorBoundary extends Component<Props, State> {
               <p className="text-sm text-muted-foreground">
                 {this.props.fallbackTitle || 'This section failed to load.'}
               </p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => this.setState({ hasError: false })}
-              >
+              <Button variant="outline" size="sm" onClick={() => this.setState({ hasError: false })}>
                 Try Again
               </Button>
             </div>

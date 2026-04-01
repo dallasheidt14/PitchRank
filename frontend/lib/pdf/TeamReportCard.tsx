@@ -1,13 +1,5 @@
 import React from 'react';
-import {
-  Document,
-  Page,
-  View,
-  Text,
-  Link,
-  StyleSheet,
-  Font,
-} from '@react-pdf/renderer';
+import { Document, Page, View, Text, Link, StyleSheet, Font } from '@react-pdf/renderer';
 
 // Register fonts via Google Fonts CDN
 Font.register({
@@ -346,11 +338,7 @@ function ResultBadge({ result }: { result: string }) {
     D: C.drawGray,
     U: C.mediumGray,
   };
-  return (
-    <Text style={[s.gameBadge, { backgroundColor: colorMap[result] || C.mediumGray }]}>
-      {result}
-    </Text>
-  );
+  return <Text style={[s.gameBadge, { backgroundColor: colorMap[result] || C.mediumGray }]}>{result}</Text>;
 }
 
 function FormIndicator({ perf }: { perf: number | null }) {
@@ -427,11 +415,12 @@ export function TeamReportCard({
 }: ReportCardProps) {
   const percentile = Math.round((1 - ranking.rank_in_cohort_final / cohortTotal) * 100);
   const genderLabel = team.gender === 'M' || team.gender === 'B' ? 'Boys' : 'Girls';
-  const winPct = ranking.win_percentage != null
-    ? `${Math.round(ranking.win_percentage)}%`
-    : ranking.total_games_played > 0
-      ? `${Math.round(((ranking.total_wins + 0.5 * ranking.total_draws) / ranking.total_games_played) * 100)}%`
-      : '—';
+  const winPct =
+    ranking.win_percentage != null
+      ? `${Math.round(ranking.win_percentage)}%`
+      : ranking.total_games_played > 0
+        ? `${Math.round(((ranking.total_wins + 0.5 * ranking.total_draws) / ranking.total_games_played) * 100)}%`
+        : '—';
 
   return (
     <Document>
@@ -448,8 +437,7 @@ export function TeamReportCard({
         </View>
         <Text style={s.teamMeta}>
           {team.club_name ? `${team.club_name} · ` : ''}
-          {team.state ? `${team.state.toUpperCase()} · ` : ''}
-          U{team.age} {genderLabel} · Generated {generatedDate}
+          {team.state ? `${team.state.toUpperCase()} · ` : ''}U{team.age} {genderLabel} · Generated {generatedDate}
         </Text>
 
         {/* Ranking Overview */}
@@ -457,13 +445,17 @@ export function TeamReportCard({
         <View style={s.rankRow}>
           <View style={s.rankBox}>
             <Text style={s.rankNumber}>#{ranking.rank_in_cohort_final}</Text>
-            <Text style={s.rankLabel}>National Rank{'\n'}of {cohortTotal} teams</Text>
+            <Text style={s.rankLabel}>
+              National Rank{'\n'}of {cohortTotal} teams
+            </Text>
             <RankChangeText change={ranking.rank_change_30d} />
           </View>
           {ranking.rank_in_state_final != null && (
             <View style={s.rankBox}>
               <Text style={s.rankNumber}>#{ranking.rank_in_state_final}</Text>
-              <Text style={s.rankLabel}>State Rank{'\n'}of {stateCohortTotal} in {team.state?.toUpperCase()}</Text>
+              <Text style={s.rankLabel}>
+                State Rank{'\n'}of {stateCohortTotal} in {team.state?.toUpperCase()}
+              </Text>
               <RankChangeText change={ranking.rank_change_state_30d} />
             </View>
           )}
@@ -518,7 +510,8 @@ export function TeamReportCard({
             Win Rate: <Text style={{ fontWeight: 700 }}>{winPct}</Text>
           </Text>
           <Text style={{ fontSize: 9, color: C.mediumGray }}>
-            Career: {ranking.total_wins}-{ranking.total_losses}-{ranking.total_draws} ({ranking.total_games_played} games)
+            Career: {ranking.total_wins}-{ranking.total_losses}-{ranking.total_draws} ({ranking.total_games_played}{' '}
+            games)
           </Text>
         </View>
         <FormIndicator perf={ranking.perf_centered} />

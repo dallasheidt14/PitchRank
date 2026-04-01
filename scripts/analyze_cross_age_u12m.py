@@ -20,9 +20,9 @@ import os
 import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
+
 from supabase import create_client
 
 # ── Setup ────────────────────────────────────────────────────────────────
@@ -95,12 +95,7 @@ team_name_rows = []
 batch_size = 200
 for i in range(0, len(u12m_ids), batch_size):
     batch = u12m_ids[i : i + batch_size]
-    result = (
-        supabase.table("teams")
-        .select("team_id_master, team_name")
-        .in_("team_id_master", batch)
-        .execute()
-    )
+    result = supabase.table("teams").select("team_id_master, team_name").in_("team_id_master", batch).execute()
     if result.data:
         team_name_rows.extend(result.data)
 
@@ -154,23 +149,27 @@ print(f"  → {len(home_games_all)} home game rows, {len(away_games_all)} away g
 # Build a unified game-perspective dataframe: one row per (u12m_team, game)
 rows = []
 for g in home_games_all:
-    rows.append({
-        "game_id": g["id"],
-        "team_id": g["home_team_master_id"],
-        "opp_id": g["away_team_master_id"],
-        "gf": g["home_score"],
-        "ga": g["away_score"],
-        "game_date": g["game_date"],
-    })
+    rows.append(
+        {
+            "game_id": g["id"],
+            "team_id": g["home_team_master_id"],
+            "opp_id": g["away_team_master_id"],
+            "gf": g["home_score"],
+            "ga": g["away_score"],
+            "game_date": g["game_date"],
+        }
+    )
 for g in away_games_all:
-    rows.append({
-        "game_id": g["id"],
-        "team_id": g["away_team_master_id"],
-        "opp_id": g["home_team_master_id"],
-        "gf": g["away_score"],
-        "ga": g["home_score"],
-        "game_date": g["game_date"],
-    })
+    rows.append(
+        {
+            "game_id": g["id"],
+            "team_id": g["away_team_master_id"],
+            "opp_id": g["home_team_master_id"],
+            "gf": g["away_score"],
+            "ga": g["home_score"],
+            "game_date": g["game_date"],
+        }
+    )
 
 games_df = pd.DataFrame(rows)
 # Only keep rows where team_id is a U12M team
@@ -187,12 +186,7 @@ print(f"  → {len(all_opp_ids)} unique opponents to look up")
 opp_info_rows = []
 for i in range(0, len(all_opp_ids), batch_size):
     batch = all_opp_ids[i : i + batch_size]
-    result = (
-        supabase.table("teams")
-        .select("team_id_master, age_group, gender")
-        .in_("team_id_master", batch)
-        .execute()
-    )
+    result = supabase.table("teams").select("team_id_master, age_group, gender").in_("team_id_master", batch).execute()
     if result.data:
         opp_info_rows.extend(result.data)
 
@@ -203,6 +197,7 @@ games_df.rename(columns={"age_group": "opp_age_group", "gender": "opp_gender"}, 
 
 # Parse age numbers
 games_df["opp_age_num"] = games_df["opp_age_group"].apply(age_group_number)
+
 
 # Classify opponent
 def classify_opp(row):
@@ -215,6 +210,7 @@ def classify_opp(row):
         return "older"
     else:
         return "younger"
+
 
 games_df["opp_class"] = games_df.apply(classify_opp, axis=1)
 
@@ -238,18 +234,18 @@ unknown = by_class.get("unknown", 0)
 cross_age = older + younger
 
 print(f"\n  Total game-perspectives:  {total:,}")
-print(f"  vs Same-age (U12):       {same_age:,}  ({100*same_age/total:.1f}%)")
-print(f"  vs Older (U13+):         {older:,}  ({100*older/total:.1f}%)")
-print(f"  vs Younger (U11-):       {younger:,}  ({100*younger/total:.1f}%)")
-print(f"  vs Unknown age:          {unknown:,}  ({100*unknown/total:.1f}%)")
-print(f"  ────────────────────────")
-print(f"  Total cross-age:         {cross_age:,}  ({100*cross_age/total:.1f}%)")
+print(f"  vs Same-age (U12):       {same_age:,}  ({100 * same_age / total:.1f}%)")
+print(f"  vs Older (U13+):         {older:,}  ({100 * older / total:.1f}%)")
+print(f"  vs Younger (U11-):       {younger:,}  ({100 * younger / total:.1f}%)")
+print(f"  vs Unknown age:          {unknown:,}  ({100 * unknown / total:.1f}%)")
+print("  ────────────────────────")
+print(f"  Total cross-age:         {cross_age:,}  ({100 * cross_age / total:.1f}%)")
 
 # Breakdown by specific age group
 print("\n  Breakdown by opponent age group:")
 opp_age_counts = games_df.groupby("opp_age_group").size().sort_values(ascending=False)
 for ag, cnt in opp_age_counts.items():
-    print(f"    {ag or 'NULL':>5}: {cnt:>6,}  ({100*cnt/total:.1f}%)")
+    print(f"    {ag or 'NULL':>5}: {cnt:>6,}  ({100 * cnt / total:.1f}%)")
 
 # ══════════════════════════════════════════════════════════════════════════
 # SECTION B: Performance split by opponent age
@@ -275,14 +271,14 @@ for cls_label, cls_key in [("Same-age (U12)", "same_age"), ("Older (U13+)", "old
     print(f"    Avg goals_for:       {avg_gf:.2f}")
     print(f"    Avg goals_against:   {avg_ga:.2f}")
     print(f"    Avg goal margin:     {avg_margin:+.2f}")
-    print(f"    Win rate:            {100*win_rate:.1f}%")
-    print(f"    Draw rate:           {100*draw_rate:.1f}%")
-    print(f"    Loss rate:           {100*loss_rate:.1f}%")
+    print(f"    Win rate:            {100 * win_rate:.1f}%")
+    print(f"    Draw rate:           {100 * draw_rate:.1f}%")
+    print(f"    Loss rate:           {100 * loss_rate:.1f}%")
 
 # Detailed by specific older age groups
 older_games = games_df[games_df["opp_class"] == "older"]
 if len(older_games) > 0:
-    print(f"\n  Detailed breakdown vs older opponents:")
+    print("\n  Detailed breakdown vs older opponents:")
     for ag in sorted(older_games["opp_age_group"].unique(), key=lambda x: age_group_number(x) or 99):
         sub = older_games[older_games["opp_age_group"] == ag]
         n = len(sub)
@@ -292,7 +288,10 @@ if len(older_games) > 0:
         avg_ga = sub["ga"].mean()
         avg_margin = sub["margin"].mean()
         win_rate = (sub["result"] == "W").sum() / n
-        print(f"    vs {ag}: n={n:>4}, avg_gf={avg_gf:.2f}, avg_ga={avg_ga:.2f}, margin={avg_margin:+.2f}, win%={100*win_rate:.1f}%")
+        print(
+            f"    vs {ag}: n={n:>4}, avg_gf={avg_gf:.2f}, avg_ga={avg_ga:.2f}, "
+            f"margin={avg_margin:+.2f}, win%={100 * win_rate:.1f}%"
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -324,7 +323,7 @@ analysis = analysis[analysis["games_played"] >= 6].copy()
 print(f"\n  Teams with 6+ games for correlation: {len(analysis)}")
 
 # Compute correlations
-from scipy import stats as sp_stats
+from scipy import stats as sp_stats  # noqa: E402
 
 for metric in ["off_norm", "def_norm", "sos_norm", "powerscore_adj", "win_percentage", "rank_in_cohort"]:
     valid = analysis.dropna(subset=["pct_cross_age", metric])
@@ -354,15 +353,18 @@ print(SEPARATOR)
 
 top20 = analysis.nsmallest(20, "rank_in_cohort")
 
-print(f"\n  {'Rank':>4}  {'Team Name':<42}  {'St':>2}  {'GP':>3}  {'Off':>5}  {'Def':>5}  {'SOS':>5}  {'PwrAdj':>6}  {'XAge%':>5}  {'Old%':>5}")
+print(
+    f"\n  {'Rank':>4}  {'Team Name':<42}  {'St':>2}  {'GP':>3}  {'Off':>5}  "
+    f"{'Def':>5}  {'SOS':>5}  {'PwrAdj':>6}  {'XAge%':>5}  {'Old%':>5}"
+)
 print("  " + "-" * 120)
 for _, row in top20.iterrows():
     name = (row.get("team_name") or "???")[:42]
     print(
-        f"  {int(row['rank_in_cohort']):>4}  {name:<42}  {row.get('state_code','??'):>2}  "
+        f"  {int(row['rank_in_cohort']):>4}  {name:<42}  {row.get('state_code', '??'):>2}  "
         f"{int(row['games_played']):>3}  {row['off_norm']:.3f}  {row['def_norm']:.3f}  "
         f"{row['sos_norm']:.3f}  {row['powerscore_adj']:.4f}  "
-        f"{100*row['pct_cross_age']:.1f}%  {100*row['pct_older']:.1f}%"
+        f"{100 * row['pct_cross_age']:.1f}%  {100 * row['pct_older']:.1f}%"
     )
 
 
@@ -385,41 +387,48 @@ resid["misalignment"] = resid["win_pct_01"] - resid["off_norm"]
 top_misaligned = resid.nlargest(20, "misalignment")
 
 print(f"\n  Teams with 10+ games: {len(resid)}")
-print(f"  Showing top 20 where win% >> off_norm (candidates for cross-age suppression)\n")
+print("  Showing top 20 where win% >> off_norm (candidates for cross-age suppression)\n")
 
-print(f"  {'Rank':>4}  {'Team Name':<38}  {'St':>2}  {'GP':>3}  {'Win%':>5}  {'Off':>5}  {'Gap':>6}  {'XAge%':>5}  {'Old%':>5}  {'SOS':>5}")
+print(
+    f"  {'Rank':>4}  {'Team Name':<38}  {'St':>2}  {'GP':>3}  {'Win%':>5}  "
+    f"{'Off':>5}  {'Gap':>6}  {'XAge%':>5}  {'Old%':>5}  {'SOS':>5}"
+)
 print("  " + "-" * 115)
 for _, row in top_misaligned.iterrows():
     name = (row.get("team_name") or "???")[:38]
     print(
-        f"  {int(row['rank_in_cohort']):>4}  {name:<38}  {row.get('state_code','??'):>2}  "
+        f"  {int(row['rank_in_cohort']):>4}  {name:<38}  {row.get('state_code', '??'):>2}  "
         f"{int(row['games_played']):>3}  {row['win_pct_01']:.3f}  {row['off_norm']:.3f}  "
         f"{row['misalignment']:+.3f}  "
-        f"{100*row['pct_cross_age']:.1f}%  {100*row['pct_older']:.1f}%  {row['sos_norm']:.3f}"
+        f"{100 * row['pct_cross_age']:.1f}%  {100 * row['pct_older']:.1f}%  {row['sos_norm']:.3f}"
     )
 
 # Summary stats on misalignment by cross-age buckets
-print(f"\n  Misalignment by cross-age game percentage buckets:")
+print("\n  Misalignment by cross-age game percentage buckets:")
 resid["xage_bucket"] = pd.cut(
     resid["pct_cross_age"],
     bins=[0, 0.05, 0.15, 0.30, 0.50, 1.0],
     labels=["0-5%", "5-15%", "15-30%", "30-50%", "50%+"],
     include_lowest=True,
 )
-bucket_stats = resid.groupby("xage_bucket", observed=True).agg(
-    n=("team_id", "count"),
-    avg_misalignment=("misalignment", "mean"),
-    avg_off_norm=("off_norm", "mean"),
-    avg_win_pct=("win_pct_01", "mean"),
-    avg_pct_cross_age=("pct_cross_age", "mean"),
-).reset_index()
+bucket_stats = (
+    resid.groupby("xage_bucket", observed=True)
+    .agg(
+        n=("team_id", "count"),
+        avg_misalignment=("misalignment", "mean"),
+        avg_off_norm=("off_norm", "mean"),
+        avg_win_pct=("win_pct_01", "mean"),
+        avg_pct_cross_age=("pct_cross_age", "mean"),
+    )
+    .reset_index()
+)
 
 print(f"\n  {'Bucket':>8}  {'N':>5}  {'Avg Misalign':>12}  {'Avg Off':>7}  {'Avg Win%':>8}  {'Avg XAge%':>9}")
 print("  " + "-" * 60)
 for _, b in bucket_stats.iterrows():
     print(
         f"  {b['xage_bucket']:>8}  {int(b['n']):>5}  {b['avg_misalignment']:>+12.4f}  "
-        f"{b['avg_off_norm']:>7.3f}  {b['avg_win_pct']:>8.3f}  {100*b['avg_pct_cross_age']:>8.1f}%"
+        f"{b['avg_off_norm']:>7.3f}  {b['avg_win_pct']:>8.3f}  {100 * b['avg_pct_cross_age']:>8.1f}%"
     )
 
 print(f"\n{SEPARATOR}")

@@ -86,17 +86,11 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
     }
   }, [isPremium, userLoading, teamId]);
 
-  const seasonTruth = insights?.insights.find(
-    (i) => i.type === 'season_truth'
-  ) as SeasonTruthInsight | undefined;
+  const seasonTruth = insights?.insights.find((i) => i.type === 'season_truth') as SeasonTruthInsight | undefined;
 
-  const consistency = insights?.insights.find(
-    (i) => i.type === 'consistency_score'
-  ) as ConsistencyInsight | undefined;
+  const consistency = insights?.insights.find((i) => i.type === 'consistency_score') as ConsistencyInsight | undefined;
 
-  const persona = insights?.insights.find(
-    (i) => i.type === 'persona'
-  ) as PersonaInsight | undefined;
+  const persona = insights?.insights.find((i) => i.type === 'persona') as PersonaInsight | undefined;
 
   // Loading state for user check
   if (userLoading) {
@@ -158,9 +152,7 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
             {/* Overlay CTA */}
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/60 backdrop-blur-[1px]">
               <Lock className="h-5 w-5 text-muted-foreground mb-2" />
-              <p className="text-xs text-muted-foreground mb-2">
-                Unlock AI-powered team analysis
-              </p>
+              <p className="text-xs text-muted-foreground mb-2">Unlock AI-powered team analysis</p>
               <Link
                 href={`/upgrade?source=team_insights&team=${teamId}`}
                 onClick={() =>
@@ -211,9 +203,7 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground text-center py-2">
-            Unable to load insights
-          </p>
+          <p className="text-sm text-muted-foreground text-center py-2">Unable to load insights</p>
         </CardContent>
       </Card>
     );
@@ -231,9 +221,7 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
           <CardDescription>AI-powered scouting analysis</CardDescription>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground text-center py-2">
-            Insights not available for this team yet
-          </p>
+          <p className="text-sm text-muted-foreground text-center py-2">Insights not available for this team yet</p>
         </CardContent>
       </Card>
     );
@@ -339,9 +327,8 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
                 <TooltipContent side="right" className="max-w-[280px]">
                   <p className="font-semibold mb-1">Consistency Score (0-100)</p>
                   <p className="text-xs">
-                    How predictable is this team? Higher scores mean they perform
-                    at a steady level game-to-game. Lower scores mean their results
-                    vary wildly - big wins followed by unexpected losses.
+                    How predictable is this team? Higher scores mean they perform at a steady level game-to-game. Lower
+                    scores mean their results vary wildly - big wins followed by unexpected losses.
                   </p>
                   <p className="text-xs mt-1 text-muted-foreground">
                     75+: Very reliable | 55-74: Steady | 35-54: Unpredictable | &lt;35: Volatile
@@ -420,9 +407,8 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
                   <TooltipContent side="right" className="max-w-[280px]">
                     <p className="font-semibold mb-1">Rank Trend</p>
                     <p className="text-xs">
-                      Based on recent game results compared to expectations.
-                      Rising means the team is overperforming and their rank will likely
-                      improve. Falling means recent results suggest their rank may drop.
+                      Based on recent game results compared to expectations. Rising means the team is overperforming and
+                      their rank will likely improve. Falling means recent results suggest their rank may drop.
                     </p>
                   </TooltipContent>
                 </Tooltip>
@@ -451,9 +437,7 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
             {seasonTruth.details.rankVelocity && (
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Movement</span>
-                <span className="text-xs font-medium text-foreground/80">
-                  {seasonTruth.details.rankVelocity}
-                </span>
+                <span className="text-xs font-medium text-foreground/80">{seasonTruth.details.rankVelocity}</span>
               </div>
             )}
 
@@ -468,9 +452,8 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
                   <TooltipContent side="right" className="max-w-[280px]">
                     <p className="font-semibold mb-1">Strength of Schedule (SOS)</p>
                     <p className="text-xs">
-                      How tough are the opponents this team has faced? Higher percentile
-                      means tougher competition. A team at 90th percentile has played
-                      one of the hardest schedules in their age group.
+                      How tough are the opponents this team has faced? Higher percentile means tougher competition. A
+                      team at 90th percentile has played one of the hardest schedules in their age group.
                     </p>
                     <p className="text-xs mt-1 text-muted-foreground">
                       Note: Our ranking already factors in schedule strength.
@@ -478,45 +461,43 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
                   </TooltipContent>
                 </Tooltip>
               </div>
-              <span className="font-mono font-medium">
-                {seasonTruth.details.sosPercentile}th %ile
-              </span>
+              <span className="font-mono font-medium">{seasonTruth.details.sosPercentile}th %ile</span>
             </div>
 
             {/* Form/Momentum - Only show notable streaks */}
             {seasonTruth.details.formSignal &&
-             (seasonTruth.details.formSignal === 'hot_streak' || seasonTruth.details.formSignal === 'cold_streak') && (
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-muted-foreground">Current Form</span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
-                    </TooltipTrigger>
-                    <TooltipContent side="right" className="max-w-[280px]">
-                      <p className="font-semibold mb-1">Current Form</p>
-                      <p className="text-xs">
-                        {seasonTruth.details.formSignal === 'hot_streak'
-                          ? 'This team is on fire! They\'re winning games they\'re expected to lose and dominating matches they should win.'
-                          : 'This team is struggling. Recent results are below what you\'d expect based on their overall talent level.'}
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
+              (seasonTruth.details.formSignal === 'hot_streak' || seasonTruth.details.formSignal === 'cold_streak') && (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-muted-foreground">Current Form</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-[280px]">
+                        <p className="font-semibold mb-1">Current Form</p>
+                        <p className="text-xs">
+                          {seasonTruth.details.formSignal === 'hot_streak'
+                            ? "This team is on fire! They're winning games they're expected to lose and dominating matches they should win."
+                            : "This team is struggling. Recent results are below what you'd expect based on their overall talent level."}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <span
+                    className={cn(
+                      'inline-flex items-center gap-1 px-2 py-0.5 rounded font-medium',
+                      seasonTruth.details.formSignal === 'hot_streak'
+                        ? 'bg-orange-500/20 text-orange-700 dark:text-orange-400'
+                        : 'bg-blue-500/20 text-blue-700 dark:text-blue-400'
+                    )}
+                  >
+                    {seasonTruth.details.formSignal === 'hot_streak' && <Flame className="h-3 w-3" />}
+                    {seasonTruth.details.formSignal === 'cold_streak' && <Snowflake className="h-3 w-3" />}
+                    {seasonTruth.details.formSignal === 'hot_streak' ? 'Hot Streak' : 'Cold Streak'}
+                  </span>
                 </div>
-                <span
-                  className={cn(
-                    'inline-flex items-center gap-1 px-2 py-0.5 rounded font-medium',
-                    seasonTruth.details.formSignal === 'hot_streak'
-                      ? 'bg-orange-500/20 text-orange-700 dark:text-orange-400'
-                      : 'bg-blue-500/20 text-blue-700 dark:text-blue-400'
-                  )}
-                >
-                  {seasonTruth.details.formSignal === 'hot_streak' && <Flame className="h-3 w-3" />}
-                  {seasonTruth.details.formSignal === 'cold_streak' && <Snowflake className="h-3 w-3" />}
-                  {seasonTruth.details.formSignal === 'hot_streak' ? 'Hot Streak' : 'Cold Streak'}
-                </span>
-              </div>
-            )}
+              )}
           </div>
         )}
       </CardContent>

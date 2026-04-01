@@ -22,7 +22,7 @@ interface BiggestMoversPreviewProps {
 
 export const BiggestMoversPreview = forwardRef<HTMLDivElement, BiggestMoversPreviewProps>(
   ({ climbers, fallers, platform, scale = 0.5, generatedDate, ageGroup, gender, regionName }, ref) => {
-    const dimensions = PLATFORM_DIMENSIONS[platform];
+    const _dimensions = PLATFORM_DIMENSIONS[platform];
     const isVertical = platform === 'instagramStory';
     const isSquare = platform === 'instagram';
 
@@ -64,7 +64,8 @@ export const BiggestMoversPreview = forwardRef<HTMLDivElement, BiggestMoversPrev
             minWidth: isVertical ? '50px' : '40px',
           }}
         >
-          {isClimber ? '↑' : '↓'}{Math.abs(team.change)}
+          {isClimber ? '↑' : '↓'}
+          {Math.abs(team.change)}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div

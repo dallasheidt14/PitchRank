@@ -24,9 +24,7 @@ export default function TeamNotFound() {
       <div className="container mx-auto py-6 sm:py-8 px-4 sm:px-6">
         <Card className="border-l-4 border-l-accent max-w-2xl mx-auto">
           <CardHeader>
-            <CardTitle className="font-display uppercase tracking-wide">
-              404 - Team Not Found
-            </CardTitle>
+            <CardTitle className="font-display uppercase tracking-wide">404 - Team Not Found</CardTitle>
             <CardDescription>
               We couldn&apos;t find the team you were looking for. This could happen if:
             </CardDescription>

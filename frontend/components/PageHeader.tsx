@@ -9,12 +9,7 @@ interface PageHeaderProps {
   backHref?: string;
 }
 
-export function PageHeader({
-  title,
-  description,
-  showBackButton = false,
-  backHref = '/',
-}: PageHeaderProps) {
+export function PageHeader({ title, description, showBackButton = false, backHref = '/' }: PageHeaderProps) {
   return (
     <div className="mb-6 flex items-start justify-between gap-4">
       <div className="flex-1">
@@ -27,11 +22,8 @@ export function PageHeader({
           </Link>
         )}
         <h1 className="font-display text-3xl font-bold uppercase tracking-wide">{title}</h1>
-        {description && (
-          <p className="mt-2 text-muted-foreground">{description}</p>
-        )}
+        {description && <p className="mt-2 text-muted-foreground">{description}</p>}
       </div>
     </div>
   );
 }
-

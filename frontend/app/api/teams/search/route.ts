@@ -69,9 +69,7 @@ export async function GET(request: NextRequest) {
     // Sanitize query: whitelist alphanumeric, spaces, hyphens, apostrophes
     // The Supabase JS client handles escaping for PostgREST internally —
     // do NOT double apostrophes here as that breaks literal matches (e.g. O'Brien)
-    const sanitizedQuery = query
-      .replace(/[^a-zA-Z0-9\s\-']/g, '')
-      .trim();
+    const sanitizedQuery = query.replace(/[^a-zA-Z0-9\s\-']/g, '').trim();
     if (sanitizedQuery.length < 2) {
       return NextResponse.json({ teams: [] });
     }
@@ -97,11 +95,14 @@ export async function GET(request: NextRequest) {
           });
         }
 
-        return NextResponse.json({ teams: teams || [] }, {
-          headers: {
-            'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120',
-          },
-        });
+        return NextResponse.json(
+          { teams: teams || [] },
+          {
+            headers: {
+              'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120',
+            },
+          }
+        );
       }
 
       lastError = error;
@@ -128,15 +129,9 @@ export async function GET(request: NextRequest) {
       query: sanitizedQuery,
       duration: `${duration}ms`,
     });
-    return NextResponse.json(
-      { error: 'Failed to search teams' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to search teams' }, { status: 500 });
   } catch (error) {
     console.error('[teams/search] Unexpected error:', error);
-    return NextResponse.json(
-      { error: 'An unexpected error occurred' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 });
   }
 }

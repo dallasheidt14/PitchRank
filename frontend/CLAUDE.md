@@ -6,22 +6,22 @@
 
 ## Quick Reference
 
-| Item | Value |
-|------|-------|
-| **Framework** | Next.js 16.2.1 (App Router) |
-| **React** | 19.2.1 (Server Components by default) |
-| **TypeScript** | 5.9.3 (strict mode) |
-| **Styling** | Tailwind CSS v4, shadcn/ui (Radix), CVA |
-| **State** | TanStack React Query v5 |
-| **Auth** | Supabase Auth (SSR cookies) |
-| **Payments** | Stripe (checkout + portal) |
-| **Charts** | Recharts v3 |
-| **Search** | Fuse.js (client-side fuzzy) |
-| **Virtualization** | @tanstack/react-virtual |
-| **Unit Tests** | Vitest (happy-dom) |
-| **E2E Tests** | Playwright v1.58 |
-| **Path alias** | `@/*` → project root |
-| **Domain** | www.pitchrank.io |
+| Item               | Value                                   |
+| ------------------ | --------------------------------------- |
+| **Framework**      | Next.js 16.2.1 (App Router)             |
+| **React**          | 19.2.1 (Server Components by default)   |
+| **TypeScript**     | 5.9.3 (strict mode)                     |
+| **Styling**        | Tailwind CSS v4, shadcn/ui (Radix), CVA |
+| **State**          | TanStack React Query v5                 |
+| **Auth**           | Supabase Auth (SSR cookies)             |
+| **Payments**       | Stripe (checkout + portal)              |
+| **Charts**         | Recharts v3                             |
+| **Search**         | Fuse.js (client-side fuzzy)             |
+| **Virtualization** | @tanstack/react-virtual                 |
+| **Unit Tests**     | Vitest (happy-dom)                      |
+| **E2E Tests**      | Playwright v1.58                        |
+| **Path alias**     | `@/*` → project root                    |
+| **Domain**         | www.pitchrank.io                        |
 
 ---
 
@@ -100,20 +100,24 @@ frontend/
 ## API Routes
 
 ### Public
+
 - `GET /api/rankings/national?age=12&gender=M&limit=1000&offset=0`
 - `GET /api/rankings/state?state=CA&age=12&gender=M&limit=1000&offset=0`
 - `GET /api/teams/search?q=FC%20Dallas`
 
 ### Auth
+
 - `GET /api/auth/callback` — OAuth/email link handler
 - `POST /api/logout`
 
 ### Premium
+
 - `GET /api/watchlist` / `POST /api/watchlist/add` / `POST /api/watchlist/remove`
 - `GET /api/insights/[teamId]`
 - `POST /api/stripe/checkout` / `POST /api/stripe/portal` / `POST /api/stripe/webhook`
 
 ### Admin (requireAdmin)
+
 - `GET|POST /api/mission-control/*`
 - `GET|POST|PUT|DELETE /api/tasks/*`
 - `POST /api/chat`
@@ -122,11 +126,13 @@ frontend/
 - `GET|POST|DELETE /api/team-merge/*`
 
 ### Data Operations (requireAdmin)
+
 - `POST /api/link-opponent` / `POST /api/unlink-opponent`
 - `POST /api/create-team`
 - `POST /api/scrape-missing-game` / `GET /api/process-missing-games` (CRON_SECRET)
 
 ### Public
+
 - `GET /api/announcements` (intentionally public, limit clamped to 50)
 - `POST /api/newsletter` (rate limited: 5 req/min per IP)
 
@@ -138,12 +144,12 @@ frontend/
 
 ```typescript
 // Browser (singleton) — use in client components
-import { createBrowserClient } from '@/lib/supabase/client'
-const supabase = createBrowserClient()
+import { createBrowserClient } from '@/lib/supabase/client';
+const supabase = createBrowserClient();
 
 // Server — use in API routes and server components
-import { createServerSupabase } from '@/lib/supabase/server'
-const supabase = await createServerSupabase()
+import { createServerSupabase } from '@/lib/supabase/server';
+const supabase = await createServerSupabase();
 ```
 
 ### API Route Auth
@@ -181,12 +187,12 @@ retry: network errors 3x, others 1x (exponential backoff)
 
 ### Custom Hooks
 
-| Hook | Purpose |
-|------|---------|
-| `useUser()` | Auth state, profile, session, `hasPremiumAccess()` |
-| `useRankings()` | Paginated rankings via API routes |
-| `useTeamSearch()` | All teams with searchable_name field |
-| `usePerformance()` | Performance metrics |
+| Hook               | Purpose                                            |
+| ------------------ | -------------------------------------------------- |
+| `useUser()`        | Auth state, profile, session, `hasPremiumAccess()` |
+| `useRankings()`    | Paginated rankings via API routes                  |
+| `useTeamSearch()`  | All teams with searchable_name field               |
+| `usePerformance()` | Performance metrics                                |
 
 ### Component Patterns
 
@@ -222,37 +228,40 @@ import { isNetworkError, getErrorMessage } from '@/lib/errors'
 ## Design System
 
 ### Colors (OKLch)
+
 - **Primary**: Forest Green `oklch(0.38 0.1 163)` / `#0B5345`
 - **Accent**: Electric Yellow `oklch(0.88 0.18 90)` / `#F4D03F`
 - **Background**: Pure White
 - **Win**: Green | **Loss**: Red | **Draw**: Yellow
 
 ### Fonts
+
 - **Display**: Oswald (athletic headlines)
 - **Body**: DM Sans
 - **Mono**: JetBrains Mono (stats/data)
 
 ### Utility
+
 ```typescript
-import { cn } from '@/lib/utils'   // clsx + tailwind-merge
-cn('base-class', condition && 'conditional-class')
+import { cn } from '@/lib/utils'; // clsx + tailwind-merge
+cn('base-class', condition && 'conditional-class');
 ```
 
 ---
 
 ## Naming Conventions
 
-| Thing | Convention | Example |
-|-------|-----------|---------|
-| Components | PascalCase | `RankingsTable.tsx` |
-| Files | kebab-case (except components) | `lib/utils.ts` |
-| Functions | camelCase | `formatPowerScore()` |
-| Constants | UPPER_SNAKE | `US_STATES` |
-| DB columns | snake_case | `team_name` |
-| Age groups | Integer | `10`, `12`, `14` (not 'u10') |
-| Gender | Single letter | `'M'`, `'F'`, `'B'`, `'G'` |
-| States | 2-letter lowercase | `'ca'`, `'ny'` |
-| Events | snake_case | `rankings_viewed` |
+| Thing      | Convention                     | Example                      |
+| ---------- | ------------------------------ | ---------------------------- |
+| Components | PascalCase                     | `RankingsTable.tsx`          |
+| Files      | kebab-case (except components) | `lib/utils.ts`               |
+| Functions  | camelCase                      | `formatPowerScore()`         |
+| Constants  | UPPER_SNAKE                    | `US_STATES`                  |
+| DB columns | snake_case                     | `team_name`                  |
+| Age groups | Integer                        | `10`, `12`, `14` (not 'u10') |
+| Gender     | Single letter                  | `'M'`, `'F'`, `'B'`, `'G'`   |
+| States     | 2-letter lowercase             | `'ca'`, `'ny'`               |
+| Events     | snake_case                     | `rankings_viewed`            |
 
 ---
 
@@ -292,6 +301,7 @@ cn('base-class', condition && 'conditional-class')
 ## Environment Variables
 
 ### Public (browser-visible)
+
 ```
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -302,6 +312,7 @@ NEXT_PUBLIC_STRIPE_PRICE_YEARLY
 ```
 
 ### Server-only
+
 ```
 SUPABASE_SERVICE_KEY
 STRIPE_SECRET_KEY

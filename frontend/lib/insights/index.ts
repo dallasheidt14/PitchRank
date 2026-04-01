@@ -8,15 +8,15 @@
  * 3. Team Persona Label
  */
 
-export * from "./types";
-export { generateSeasonTruth } from "./seasonTruth";
-export { generateConsistencyScore } from "./consistency";
-export { generatePersonaInsight } from "./persona";
+export * from './types';
+export { generateSeasonTruth } from './seasonTruth';
+export { generateConsistencyScore } from './consistency';
+export { generatePersonaInsight } from './persona';
 
-import type { InsightInputData, TeamInsight, TeamInsightsResponse } from "./types";
-import { generateSeasonTruth } from "./seasonTruth";
-import { generateConsistencyScore } from "./consistency";
-import { generatePersonaInsight } from "./persona";
+import type { InsightInputData, TeamInsight, TeamInsightsResponse } from './types';
+import { generateSeasonTruth } from './seasonTruth';
+import { generateConsistencyScore } from './consistency';
+import { generatePersonaInsight } from './persona';
 
 /**
  * Generate all insights for a team
@@ -44,13 +44,13 @@ export function getFeaturedInsight(data: InsightInputData): TeamInsight {
   const persona = generatePersonaInsight(data);
 
   // Prioritize non-Wildcard personas as they're more distinctive
-  if (persona.label !== "Wildcard") {
+  if (persona.label !== 'Wildcard') {
     return persona;
   }
 
   // Next priority: Strong consistency scores
   const consistency = generateConsistencyScore(data);
-  if (consistency.label === "very reliable" || consistency.label === "highly volatile") {
+  if (consistency.label === 'very reliable' || consistency.label === 'highly volatile') {
     return consistency;
   }
 

@@ -7,4 +7,3 @@ import { TableSkeleton } from '@/components/ui/skeletons';
 export function RankingsTableSkeleton({ rows = 10 }: { rows?: number }) {
   return <TableSkeleton rows={rows} />;
 }
-

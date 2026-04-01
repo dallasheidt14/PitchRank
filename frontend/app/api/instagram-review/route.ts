@@ -85,7 +85,7 @@ export async function GET() {
     }
 
     const items = Array.from(grouped.values()).sort(
-      (a, b) => b.team_count - a.team_count || b.confidence - a.confidence,
+      (a, b) => b.team_count - a.team_count || b.confidence - a.confidence
     );
 
     return NextResponse.json({ items, total: items.length });
@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
     if (!handle || !action || !['approve', 'reject'].includes(action)) {
       return NextResponse.json(
         { error: 'Required: { handle: string, action: "approve" | "reject" }' },
-        { status: 400 },
+        { status: 400 }
       );
     }
 

@@ -143,7 +143,10 @@ def fetch_team_name(supabase, team_id: str) -> str:
     )
     if result.data:
         r = result.data[0]
-        return f"{r.get('team_name', '?')} ({r.get('club_name', '')}) — {r.get('age_group', '?')} {r.get('gender', '?')}, {r.get('state_code', '?')}"
+        return (
+            f"{r.get('team_name', '?')} ({r.get('club_name', '')}) — "
+            f"{r.get('age_group', '?')} {r.get('gender', '?')}, {r.get('state_code', '?')}"
+        )
     return f"Unknown ({team_id[:8]}...)"
 
 
@@ -404,8 +407,8 @@ def validate_algorithm(team: dict, cohort_stats: dict) -> list:
 
     # --- Win percentage sanity ---
     wins = team.get("wins") or 0
-    losses = team.get("losses") or 0
-    draws = team.get("draws") or 0
+    team.get("losses") or 0
+    team.get("draws") or 0
     wp = team.get("win_percentage")
     if gp and gp > 0 and wp is not None:
         expected_wp = (wins / gp) * 100
@@ -656,7 +659,7 @@ def explain_ranking_position(team: dict, top1: dict, cohort_stats: dict) -> list
     def_contrib = def_gap * ALGORITHM["DEF_WEIGHT"]
     sos_contrib = sos_gap * ALGORITHM["SOS_WEIGHT"]
 
-    total_contrib = off_contrib + def_contrib + sos_contrib
+    off_contrib + def_contrib + sos_contrib
 
     explanations.append(f"Total gap to #1: {gap:.4f} in power_score_final")
     explanations.append("")

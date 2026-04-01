@@ -108,20 +108,21 @@ async function fetchNationalRankings(
  * @param gender - Gender filter ('M', 'F', 'B', 'G')
  * @returns React Query hook result with rankings data
  */
-export function useRankings(
-  region?: string | null,
-  ageGroup?: string,
-  gender?: 'M' | 'F' | 'B' | 'G' | null
-) {
+export function useRankings(region?: string | null, ageGroup?: string, gender?: 'M' | 'F' | 'B' | 'G' | null) {
   return useQuery<RankingRow[]>({
     queryKey: ['rankings', region, ageGroup, gender],
     enabled: true,
-    queryFn: () => apiTimer('rankings:list', async () => {
-      if (region) {
-        return fetchStateRankings(region, ageGroup, gender);
-      }
-      return fetchNationalRankings(ageGroup, gender);
-    }, { region, ageGroup, gender }),
+    queryFn: () =>
+      apiTimer(
+        'rankings:list',
+        async () => {
+          if (region) {
+            return fetchStateRankings(region, ageGroup, gender);
+          }
+          return fetchNationalRankings(ageGroup, gender);
+        },
+        { region, ageGroup, gender }
+      ),
     staleTime: 2 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
     retry: 2,

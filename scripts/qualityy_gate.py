@@ -12,9 +12,9 @@ import os
 from datetime import datetime, timedelta, timezone
 
 import psycopg2
-from psycopg2 import OperationalError
-from dotenv import load_dotenv
 import requests
+from dotenv import load_dotenv
+from psycopg2 import OperationalError
 
 REPORT_PATH = os.path.join(os.path.dirname(__file__), "..", "reports", "system_status.md")
 SCORECARD_PATH = os.path.join(os.path.dirname(__file__), "..", "reports", "system_scorecard.json")

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useRef, useEffect, useDeferredValue, useTransition, useCallback } from 'react';
+import { useState, useMemo, useRef, useEffect, useDeferredValue } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { Input } from '@/components/ui/input';
@@ -72,30 +72,30 @@ export function GlobalSearch() {
   const searchResults = useMemo(() => {
     if (!deferredSearchQuery || !allTeams || deferredSearchQuery.length < 2) return [];
 
-    const queryWords = deferredSearchQuery.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+    const queryWords = deferredSearchQuery
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 0);
 
     // Filter teams where ALL query words appear in searchable_name or club_name
-    const matchingTeams = allTeams.filter(team => {
+    const matchingTeams = allTeams.filter((team) => {
       const searchText = ((team.searchable_name || team.team_name) + ' ' + (team.club_name || '')).toLowerCase();
-      return queryWords.every(word => searchText.includes(word));
+      return queryWords.every((word) => searchText.includes(word));
     });
 
     // Sort by how early the first match appears (better relevance)
     matchingTeams.sort((a, b) => {
       const aText = ((a.searchable_name || a.team_name) + ' ' + (a.club_name || '')).toLowerCase();
       const bText = ((b.searchable_name || b.team_name) + ' ' + (b.club_name || '')).toLowerCase();
-      const aIndex = Math.min(...queryWords.map(w => aText.indexOf(w)));
-      const bIndex = Math.min(...queryWords.map(w => bText.indexOf(w)));
+      const aIndex = Math.min(...queryWords.map((w) => aText.indexOf(w)));
+      const bIndex = Math.min(...queryWords.map((w) => bText.indexOf(w)));
       return aIndex - bIndex;
     });
 
     return matchingTeams.slice(0, 8);
   }, [deferredSearchQuery, allTeams]);
 
-  // Reset selected index when results change
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [searchResults.length]);
+  // selectedIndex is reset to 0 when search query changes (in handleSearchChange below)
 
   // Track search query after a debounce period (when user stops typing)
   const lastTrackedQuery = useRef<string>('');
@@ -190,6 +190,7 @@ export function GlobalSearch() {
           value={searchQuery}
           onChange={(e) => {
             setSearchQuery(e.target.value);
+            setSelectedIndex(0);
             setIsOpen(true);
           }}
           onFocus={() => {
@@ -216,7 +217,7 @@ export function GlobalSearch() {
           </button>
         )}
       </div>
-      
+
       {isOpen && searchQuery.length >= 2 && (
         <Card className="absolute z-50 w-full mt-1 max-h-80 overflow-y-auto shadow-lg">
           <CardContent className="p-2">
@@ -235,27 +236,15 @@ export function GlobalSearch() {
                     key={team.team_id_master}
                     onClick={() => handleSelect(team)}
                     className={`w-full text-left p-3 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary min-h-[44px] ${
-                      index === selectedIndex
-                        ? 'bg-accent font-semibold'
-                        : 'hover:bg-accent/50'
+                      index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
                     }`}
                     aria-label={`Select ${team.team_name}`}
                   >
-                    <div className="font-medium truncate">
-                      {highlightMatch(team.team_name, deferredSearchQuery)}
-                    </div>
+                    <div className="font-medium truncate">{highlightMatch(team.team_name, deferredSearchQuery)}</div>
                     <div className="text-xs text-muted-foreground mt-1">
-                      {team.club_name && (
-                        <span>{highlightMatch(team.club_name, deferredSearchQuery)}</span>
-                      )}
-                      {team.state && (
-                        <span className={team.club_name ? ' • ' : ''}>
-                          {team.state.toUpperCase()}
-                        </span>
-                      )}
-                      {team.rank_in_cohort_final && (
-                        <span> • Rank #{team.rank_in_cohort_final}</span>
-                      )}
+                      {team.club_name && <span>{highlightMatch(team.club_name, deferredSearchQuery)}</span>}
+                      {team.state && <span className={team.club_name ? ' • ' : ''}>{team.state.toUpperCase()}</span>}
+                      {team.rank_in_cohort_final && <span> • Rank #{team.rank_in_cohort_final}</span>}
                       {team.age != null && team.gender && (
                         <span className={team.club_name || team.state || team.rank_in_cohort_final ? ' • ' : ''}>
                           U{team.age} {team.gender === 'M' ? 'Boys' : team.gender === 'F' ? 'Girls' : team.gender}
@@ -272,4 +261,3 @@ export function GlobalSearch() {
     </div>
   );
 }
-

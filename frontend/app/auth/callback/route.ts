@@ -1,23 +1,23 @@
-import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { cookies } from 'next/headers';
+import { NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
 
-  const token_hash = searchParams.get("token_hash");
-  const type = searchParams.get("type");
-  const code = searchParams.get("code");
+  const token_hash = searchParams.get('token_hash');
+  const type = searchParams.get('type');
+  const code = searchParams.get('code');
   // Default to /rankings instead of /watchlist to avoid redirecting free users to premium route
-  const rawNext = searchParams.get("next") ?? "/rankings";
+  const rawNext = searchParams.get('next') ?? '/rankings';
   // Prevent open redirect: only allow paths starting with / (not //)
-  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/rankings";
-  const error = searchParams.get("error");
-  const errorDescription = searchParams.get("error_description");
+  const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/rankings';
+  const error = searchParams.get('error');
+  const errorDescription = searchParams.get('error_description');
 
   // Handle auth errors from Supabase
   if (error) {
-    console.error("[Auth Callback] Error:", error, errorDescription);
+    console.error('[Auth Callback] Error:', error, errorDescription);
     return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(errorDescription ?? error)}`);
   }
 
@@ -45,16 +45,16 @@ export async function GET(request: Request) {
   if (token_hash && type) {
     const { error: verifyError } = await supabase.auth.verifyOtp({
       token_hash,
-      type: type as "magiclink" | "signup" | "recovery" | "invite" | "email_change" | "email",
+      type: type as 'magiclink' | 'signup' | 'recovery' | 'invite' | 'email_change' | 'email',
     });
 
     if (verifyError) {
-      console.error("[Auth Callback] Verify OTP error:", verifyError.message);
+      console.error('[Auth Callback] Verify OTP error:', verifyError.message);
       return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(verifyError.message)}`);
     }
 
     // For password recovery, redirect to the reset password page
-    if (type === "recovery") {
+    if (type === 'recovery') {
       return NextResponse.redirect(`${origin}/reset-password`);
     }
 
@@ -63,27 +63,28 @@ export async function GET(request: Request) {
 
   // Handle OAuth/PKCE (code exchange flow)
   if (code) {
-    const isRecovery = type === "recovery" || cookieStore.get("password_reset_pending")?.value === "true";
+    const isRecovery = type === 'recovery' || cookieStore.get('password_reset_pending')?.value === 'true';
     if (isRecovery) {
-      cookieStore.set("password_reset_pending", "", { path: "/", maxAge: 0 });
+      cookieStore.set('password_reset_pending', '', { path: '/', maxAge: 0 });
     }
 
     const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
 
     if (exchangeError) {
-      console.error("[Auth Callback] Code exchange error:", exchangeError.message);
+      console.error('[Auth Callback] Code exchange error:', exchangeError.message);
 
       // When PKCE code exchange fails (e.g., user opened the email confirmation
       // link in a different browser/tab where the code_verifier cookie is missing),
       // the email is still confirmed by Supabase — only the session creation failed.
       // Redirect to login with a success message so the user can sign in manually.
-      const isCodeVerifierError = exchangeError.message.toLowerCase().includes("code verifier")
-        || exchangeError.message.toLowerCase().includes("code_verifier")
-        || exchangeError.message.toLowerCase().includes("pkce");
+      const isCodeVerifierError =
+        exchangeError.message.toLowerCase().includes('code verifier') ||
+        exchangeError.message.toLowerCase().includes('code_verifier') ||
+        exchangeError.message.toLowerCase().includes('pkce');
 
       if (isCodeVerifierError) {
         return NextResponse.redirect(
-          `${origin}/login?message=${encodeURIComponent("Email confirmed! Please sign in with your password.")}`
+          `${origin}/login?message=${encodeURIComponent('Email confirmed! Please sign in with your password.')}`
         );
       }
 

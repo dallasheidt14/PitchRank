@@ -1,14 +1,17 @@
 # ✅ Live Agent Status - Implementation Complete
 
 ## Task Completed
+
 Made Agent Status Cards show **LIVE status** instead of static/hardcoded data.
 
 ## Problem Solved
+
 Agent cards on Mission Control showed agents as "idle" even when they're actively working. Status was based on rarely-updated WORKING files.
 
 ## Solution Implemented
 
 ### 1. Created `/api/agent-status` Endpoint
+
 **File:** `app/api/agent-status/route.ts`
 
 A dedicated endpoint that returns live status for all agents:
@@ -33,11 +36,13 @@ Response:
 ```
 
 ### 2. Updated Mission Control Status Endpoint
+
 **File:** `app/api/mission-control/status/route.ts`
 
 Now uses **live database queries** instead of file parsing:
 
 **Logic:**
+
 1. Query `agent_tasks` table for tasks with `status = 'in_progress'`
 2. If an agent has an in-progress task → status = **"active"**
 3. Check last completed task (done/review) for **lastRun** timestamp
@@ -45,26 +50,26 @@ Now uses **live database queries** instead of file parsing:
 5. Use hardcoded schedules for **nextRun** calculation
 
 **Database Queries:**
+
 ```typescript
 // Active tasks (in_progress)
-supabase.from('agent_tasks')
-  .eq('assigned_agent', agentId)
-  .eq('status', 'in_progress')
+supabase.from('agent_tasks').eq('assigned_agent', agentId).eq('status', 'in_progress');
 
 // Last completed task
-supabase.from('agent_tasks')
+supabase
+  .from('agent_tasks')
   .eq('assigned_agent', agentId)
   .in('status', ['done', 'review'])
-  .order('updated_at', { ascending: false })
+  .order('updated_at', { ascending: false });
 
 // Blocked tasks (assigned but not started)
-supabase.from('agent_tasks')
-  .eq('assigned_agent', agentId)
-  .eq('status', 'assigned')
+supabase.from('agent_tasks').eq('assigned_agent', agentId).eq('status', 'assigned');
 ```
 
 ### 3. Time Formatting
+
 Implemented human-friendly relative time display:
+
 - "Just now"
 - "5 minutes ago"
 - "2 hours ago"
@@ -72,13 +77,16 @@ Implemented human-friendly relative time display:
 - "Jan 15" (for older)
 
 ### 4. Next Run Calculation
+
 Smart scheduling hints based on agent schedules:
+
 - **Watchy:** "Tomorrow at 8:00 AM" (daily)
 - **Cleany:** "Next Sunday 7:00 PM MT" (weekly)
 - **Codey:** `null` (on-demand)
 - **Orchestrator:** `null` (always on)
 
 ## Static Agent Definitions (Preserved)
+
 ```typescript
 const AGENTS = {
   orchestrator: { emoji: "🎯", name: "Orchestrator", ... },
@@ -98,12 +106,14 @@ These are merged with live status data to create complete agent cards.
 ## How Mission Control Works Now
 
 ### On Page Load
+
 1. Mission Control page calls `/api/mission-control/status`
 2. Endpoint queries database for each agent's live status
 3. Returns combined static + live data
 4. Page renders agent cards with **real-time status**
 
 ### Auto-Refresh
+
 - Page refreshes every **30 seconds** (already implemented)
 - Agent cards update automatically with latest status
 - Shows "Active" when tasks are in_progress
@@ -133,6 +143,7 @@ Next poll shows "Idle"
 ```
 
 ## Build Status
+
 ✅ **Compiled successfully**
 
 ```bash
@@ -146,13 +157,17 @@ npm run build
 ## Files Modified/Created
 
 ### New Files:
+
 - `app/api/agent-status/route.ts` - Dedicated agent status endpoint
 
 ### Modified Files:
+
 - `app/api/mission-control/status/route.ts` - Now queries database instead of files
 
 ### Database Schema (Already Exists):
+
 Uses the existing `agent_tasks` table:
+
 ```sql
 agent_tasks (
   id, title, description,
@@ -165,6 +180,7 @@ agent_tasks (
 ## Testing
 
 ### Manual Test:
+
 ```bash
 # Check agent status
 curl http://localhost:3000/api/agent-status | jq '.agents[] | select(.id=="codey")'
@@ -180,10 +196,11 @@ curl http://localhost:3000/api/agent-status | jq '.agents[] | select(.id=="codey
 ```
 
 ### Create Test Task:
+
 ```bash
 # Simulate active agent
 psql -d pitchrank -c "
-  INSERT INTO agent_tasks (title, status, assigned_agent) 
+  INSERT INTO agent_tasks (title, status, assigned_agent)
   VALUES ('Test task', 'in_progress', 'codey');
 "
 
@@ -191,15 +208,17 @@ psql -d pitchrank -c "
 ```
 
 ## Benefits
+
 ✅ Real-time agent status display  
 ✅ No manual file updates required  
 ✅ Uses existing database infrastructure  
 ✅ Graceful error handling  
 ✅ Human-friendly time display  
 ✅ Auto-refresh every 30 seconds  
-✅ Works with existing agent-webhook integration  
+✅ Works with existing agent-webhook integration
 
 ## Next Steps (Optional Enhancements)
+
 - Add duration display ("Active for 3m 42s")
 - Add progress indicators for long tasks
 - Add realtime updates via Supabase subscriptions
@@ -207,6 +226,7 @@ psql -d pitchrank -c "
 - Add alerts for stuck agents (active > 30 min)
 
 ## Commit
+
 ```bash
 git commit -m "feat: Live agent status on Mission Control"
 # Commit: 864c2ca

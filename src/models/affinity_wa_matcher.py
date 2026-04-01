@@ -17,9 +17,7 @@ import re
 import uuid
 from typing import Dict, Optional
 
-from supabase import Client
 from config.settings import MATCHING_CONFIG
-
 from src.models.game_matcher import GameHistoryMatcher
 from src.utils.club_normalizer import are_same_club
 
@@ -109,7 +107,7 @@ class AffinityWAGameMatcher(GameHistoryMatcher):
     ) -> Optional[Dict]:
         """Affinity-only fuzzy matching with gated candidate selection."""
         try:
-            from src.models.game_matcher import extract_team_variant, extract_club_from_team_name
+            from src.models.game_matcher import extract_club_from_team_name, extract_team_variant
 
             # Canonicalize provider inputs before any candidate retrieval/scoring.
             provider_team_name = _normalize_for_affinity_wa(team_name)
@@ -234,7 +232,8 @@ class AffinityWAGameMatcher(GameHistoryMatcher):
 
             if self._affinity_debug_match_reasons:
                 logger.info(
-                    "[AffinityWA] Candidate gate stats: before=%s after=%s rejected(club=%s, variant=%s, rcl=%s) for '%s'",
+                    "[AffinityWA] Candidate gate stats: before=%s after=%s "
+                    "rejected(club=%s, variant=%s, rcl=%s) for '%s'",
                     candidate_count_before_gate,
                     candidate_count_after_gate,
                     reject_counts["club_mismatch"],

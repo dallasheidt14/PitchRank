@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 from dotenv import load_dotenv
+
 from supabase import create_client
 
 load_dotenv(Path(__file__).parent.parent / ".env.local")
@@ -50,11 +51,28 @@ else:
 
     # Key metrics summary
     key_fields = [
-        "rank_in_cohort", "off_raw", "off_norm", "def_norm", "sos", "sos_norm",
-        "powerscore_adj", "powerscore_ml", "national_rank", "state_rank",
-        "games_played", "wins", "losses", "draws", "goals_for", "goals_against",
-        "win_percentage", "abs_strength", "power_presos", "perf_centered",
-        "ml_overperf", "ml_norm",
+        "rank_in_cohort",
+        "off_raw",
+        "off_norm",
+        "def_norm",
+        "sos",
+        "sos_norm",
+        "powerscore_adj",
+        "powerscore_ml",
+        "national_rank",
+        "state_rank",
+        "games_played",
+        "wins",
+        "losses",
+        "draws",
+        "goals_for",
+        "goals_against",
+        "win_percentage",
+        "abs_strength",
+        "power_presos",
+        "perf_centered",
+        "ml_overperf",
+        "ml_norm",
     ]
     print("\n--- Key Metrics ---")
     for f in key_fields:
@@ -93,29 +111,33 @@ away = (
 # Build unified game list
 games = []
 for g in home.data:
-    games.append({
-        "game_id": g["id"],
-        "game_date": g["game_date"],
-        "gf": g["home_score"],
-        "ga": g["away_score"],
-        "opp_id": g["away_team_master_id"],
-        "age_group": g["age_group"],
-        "gender": None,
-        "ml_overperformance": g.get("ml_overperformance"),
-        "side": "home",
-    })
+    games.append(
+        {
+            "game_id": g["id"],
+            "game_date": g["game_date"],
+            "gf": g["home_score"],
+            "ga": g["away_score"],
+            "opp_id": g["away_team_master_id"],
+            "age_group": g["age_group"],
+            "gender": None,
+            "ml_overperformance": g.get("ml_overperformance"),
+            "side": "home",
+        }
+    )
 for g in away.data:
-    games.append({
-        "game_id": g["id"],
-        "game_date": g["game_date"],
-        "gf": g["away_score"],
-        "ga": g["home_score"],
-        "opp_id": g["home_team_master_id"],
-        "age_group": g["age_group"],
-        "gender": None,
-        "ml_overperformance": g.get("ml_overperformance"),
-        "side": "away",
-    })
+    games.append(
+        {
+            "game_id": g["id"],
+            "game_date": g["game_date"],
+            "gf": g["away_score"],
+            "ga": g["home_score"],
+            "opp_id": g["home_team_master_id"],
+            "age_group": g["age_group"],
+            "gender": None,
+            "ml_overperformance": g.get("ml_overperformance"),
+            "side": "away",
+        }
+    )
 
 games.sort(key=lambda x: x["game_date"] or "", reverse=True)
 
@@ -126,7 +148,12 @@ if opp_ids:
     # Fetch in batches to avoid URL length limits
     for i in range(0, len(opp_ids), 50):
         batch = opp_ids[i : i + 50]
-        res = sb.table("teams").select("team_id_master, team_name, age_group, gender").in_("team_id_master", batch).execute()
+        res = (
+            sb.table("teams")
+            .select("team_id_master, team_name, age_group, gender")
+            .in_("team_id_master", batch)
+            .execute()
+        )
         for t in res.data:
             opp_map[t["team_id_master"]] = t
 
@@ -149,7 +176,10 @@ for g in games:
     opp_age = opp_info.get("age_group", g["age_group"] or "?")
     ml_op = g.get("ml_overperformance")
     ml_str = f"{ml_op:+.3f}" if ml_op is not None else "N/A"
-    print(f"{g['game_date'] or 'N/A':12s} {g['gf'] or 0:3d} {g['ga'] or 0:3d} {g['side']:5s} {str(opp_age):7s} {ml_str:>12s}  {opp_name}")
+    print(
+        f"{g['game_date'] or 'N/A':12s} {g['gf'] or 0:3d} {g['ga'] or 0:3d} "
+        f"{g['side']:5s} {str(opp_age):7s} {ml_str:>12s}  {opp_name}"
+    )
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # C) Summary stats by opponent age group
@@ -159,7 +189,7 @@ print("\n" + "=" * 90)
 print("C) SUMMARY STATS — by opponent age group")
 print("=" * 90)
 
-from collections import defaultdict
+from collections import defaultdict  # noqa: E402
 
 age_buckets = defaultdict(lambda: {"games": 0, "gf": 0, "ga": 0, "wins": 0, "draws": 0, "losses": 0})
 
@@ -196,7 +226,10 @@ for age_key, b in age_buckets.items():
         for k in older_stats:
             older_stats[k] += b[k]
 
-print(f"\n{'Age Group':12s} {'Games':>6s} {'W':>4s} {'D':>4s} {'L':>4s} {'GF':>5s} {'GA':>5s} {'Margin':>7s} {'WinRate':>8s}")
+print(
+    f"\n{'Age Group':12s} {'Games':>6s} {'W':>4s} {'D':>4s} {'L':>4s} "
+    f"{'GF':>5s} {'GA':>5s} {'Margin':>7s} {'WinRate':>8s}"
+)
 print("-" * 70)
 for age_key in sorted(age_buckets.keys(), key=lambda x: str(x)):
     b = age_buckets[age_key]
@@ -205,7 +238,10 @@ for age_key in sorted(age_buckets.keys(), key=lambda x: str(x)):
     avg_gf = b["gf"] / b["games"] if b["games"] else 0
     avg_ga = b["ga"] / b["games"] if b["games"] else 0
     avg_margin = margin / b["games"] if b["games"] else 0
-    print(f"{str(age_key):12s} {b['games']:6d} {b['wins']:4d} {b['draws']:4d} {b['losses']:4d} {b['gf']:5d} {b['ga']:5d} {margin:+7d} {wr:7.1f}%")
+    print(
+        f"{str(age_key):12s} {b['games']:6d} {b['wins']:4d} {b['draws']:4d} "
+        f"{b['losses']:4d} {b['gf']:5d} {b['ga']:5d} {margin:+7d} {wr:7.1f}%"
+    )
 
 print("\n--- Same-age (U12) vs Older opponents ---")
 for label, s in [("Same-age (U12)", same_age_stats), ("Older (U13+)", older_stats)]:
@@ -216,7 +252,10 @@ for label, s in [("Same-age (U12)", same_age_stats), ("Older (U13+)", older_stat
     avg_ga = s["ga"] / s["games"]
     avg_margin = (s["gf"] - s["ga"]) / s["games"]
     wr = s["wins"] / s["games"] * 100
-    print(f"  {label:20s}: {s['games']:3d} games | Avg GF {avg_gf:.2f} | Avg GA {avg_ga:.2f} | Avg Margin {avg_margin:+.2f} | Win Rate {wr:.1f}%")
+    print(
+        f"  {label:20s}: {s['games']:3d} games | Avg GF {avg_gf:.2f} | Avg GA {avg_ga:.2f} "
+        f"| Avg Margin {avg_margin:+.2f} | Win Rate {wr:.1f}%"
+    )
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # D) Top 10 U12M Arizona teams
@@ -228,7 +267,9 @@ print("=" * 90)
 
 top10 = (
     sb.table("rankings_full")
-    .select("team_id, rank_in_cohort, off_norm, def_norm, sos_norm, powerscore_adj, games_played, goals_for, goals_against")
+    .select(
+        "team_id, rank_in_cohort, off_norm, def_norm, sos_norm, powerscore_adj, games_played, goals_for, goals_against"
+    )
     .eq("age_group", "u12")
     .eq("gender", "Male")
     .eq("state_code", "AZ")
@@ -245,7 +286,10 @@ if top10_ids:
     for t in res.data:
         top10_names[t["team_id_master"]] = t["team_name"]
 
-print(f"\n{'#':>3s} {'Team':40s} {'Cohort':>7s} {'Off':>6s} {'Def':>6s} {'SOS':>6s} {'PwrAdj':>8s} {'GP':>4s} {'GF':>4s} {'GA':>4s}")
+print(
+    f"\n{'#':>3s} {'Team':40s} {'Cohort':>7s} {'Off':>6s} {'Def':>6s} "
+    f"{'SOS':>6s} {'PwrAdj':>8s} {'GP':>4s} {'GF':>4s} {'GA':>4s}"
+)
 print("-" * 100)
 for i, t in enumerate(top10.data, 1):
     marker = " <--" if t["team_id"] == TEAM_ID else ""
@@ -288,14 +332,16 @@ for g in games:
     except ValueError:
         age_num = 0
 
-    all_opp_details.append({
-        "date": g["game_date"],
-        "opponent": opp_name,
-        "opp_age": opp_age,
-        "abs_strength": abs_str,
-        "gf": g["gf"],
-        "ga": g["ga"],
-    })
+    all_opp_details.append(
+        {
+            "date": g["game_date"],
+            "opponent": opp_name,
+            "opp_age": opp_age,
+            "abs_strength": abs_str,
+            "gf": g["gf"],
+            "ga": g["ga"],
+        }
+    )
 
     if abs_str is not None:
         if age_num == 12:
@@ -306,21 +352,33 @@ for g in games:
 print(f"\n{'Date':12s} {'GF':>3s} {'GA':>3s} {'OppAge':7s} {'AbsStr':>8s}  Opponent")
 print("-" * 80)
 for d in all_opp_details:
-    abs_s = f"{d['abs_strength']:.4f}" if d['abs_strength'] is not None else "N/A"
-    print(f"{d['date'] or 'N/A':12s} {d['gf'] or 0:3d} {d['ga'] or 0:3d} {str(d['opp_age']):7s} {abs_s:>8s}  {d['opponent']}")
+    abs_s = f"{d['abs_strength']:.4f}" if d["abs_strength"] is not None else "N/A"
+    print(
+        f"{d['date'] or 'N/A':12s} {d['gf'] or 0:3d} {d['ga'] or 0:3d} "
+        f"{str(d['opp_age']):7s} {abs_s:>8s}  {d['opponent']}"
+    )
 
 print("\n--- Average opponent abs_strength ---")
 if same_age_strengths:
-    print(f"  Same-age (U12): {sum(same_age_strengths)/len(same_age_strengths):.4f}  ({len(same_age_strengths)} games with ranked opponents)")
+    print(
+        f"  Same-age (U12): {sum(same_age_strengths) / len(same_age_strengths):.4f}  "
+        f"({len(same_age_strengths)} games with ranked opponents)"
+    )
 else:
     print("  Same-age (U12): No ranked opponents found")
 if older_strengths:
-    print(f"  Older (U13+):   {sum(older_strengths)/len(older_strengths):.4f}  ({len(older_strengths)} games with ranked opponents)")
+    print(
+        f"  Older (U13+):   {sum(older_strengths) / len(older_strengths):.4f}  "
+        f"({len(older_strengths)} games with ranked opponents)"
+    )
 else:
     print("  Older (U13+):   No ranked opponents found")
 
 all_strengths = same_age_strengths + older_strengths
 if all_strengths:
-    print(f"  Overall:        {sum(all_strengths)/len(all_strengths):.4f}  ({len(all_strengths)} total ranked opponents)")
+    print(
+        f"  Overall:        {sum(all_strengths) / len(all_strengths):.4f}  "
+        f"({len(all_strengths)} total ranked opponents)"
+    )
 
 print("\nDone.")

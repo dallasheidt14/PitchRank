@@ -8,26 +8,27 @@ Usage:
 This script traces the exact pipeline used in fetch_games_for_rankings
 to identify where deprecated team games are being lost.
 """
-import asyncio
+
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 
+import logging
+import os
+
 import pandas as pd
 from dotenv import load_dotenv
-from supabase import create_client
-import os
-import logging
 
-from src.utils.merge_resolver import MergeResolver
 from src.rankings.data_adapter import age_group_to_age
+from src.utils.merge_resolver import MergeResolver
+from supabase import create_client
 
-logging.basicConfig(level=logging.INFO, format='%(message)s')
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 # Load environment variables
-env_local = Path('.env.local')
+env_local = Path(".env.local")
 if env_local.exists():
     load_dotenv(env_local, override=True)
 else:
@@ -36,8 +37,8 @@ else:
 
 def diagnose_merge(canonical_team_id: str):
     """Trace the merge resolution pipeline for a specific canonical team."""
-    supabase_url = os.getenv('SUPABASE_URL')
-    supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
     if not supabase_url or not supabase_key:
         print("ERROR: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set")
@@ -75,45 +76,54 @@ def diagnose_merge(canonical_team_id: str):
     # Step 2: Check team metadata
     print("\n--- Step 2: Team metadata ---")
     for team_id in [canonical_team_id] + deprecated_ids:
-        result = supabase.table('teams').select(
-            'team_id_master, age_group, gender, is_deprecated'
-        ).eq('team_id_master', team_id).execute()
+        result = (
+            supabase.table("teams")
+            .select("team_id_master, age_group, gender, is_deprecated")
+            .eq("team_id_master", team_id)
+            .execute()
+        )
         if result.data:
             row = result.data[0]
-            age = age_group_to_age(row.get('age_group', ''))
-            print(f"  {team_id[:12]}... age_group={row['age_group']}, "
-                  f"normalized_age={age}, gender={row['gender']}, "
-                  f"is_deprecated={row['is_deprecated']}")
+            age = age_group_to_age(row.get("age_group", ""))
+            print(
+                f"  {team_id[:12]}... age_group={row['age_group']}, "
+                f"normalized_age={age}, gender={row['gender']}, "
+                f"is_deprecated={row['is_deprecated']}"
+            )
         else:
             print(f"  {team_id[:12]}... NOT FOUND in teams table!")
 
     # Step 3: Count games in database
     print("\n--- Step 3: Games in database (365-day window) ---")
-    cutoff = (pd.Timestamp.utcnow() - pd.Timedelta(days=365)).strftime('%Y-%m-%d')
-    today_str = pd.Timestamp.utcnow().strftime('%Y-%m-%d')
+    cutoff = (pd.Timestamp.utcnow() - pd.Timedelta(days=365)).strftime("%Y-%m-%d")
+    today_str = pd.Timestamp.utcnow().strftime("%Y-%m-%d")
 
     for team_id in [canonical_team_id] + deprecated_ids:
         # Count as home
-        home_result = supabase.table('games').select(
-            'id', count='exact'
-        ).eq('home_team_master_id', team_id).gte(
-            'game_date', cutoff
-        ).lte('game_date', today_str).not_.is_(
-            'home_score', 'null'
-        ).not_.is_(
-            'away_score', 'null'
-        ).eq('is_excluded', False).execute()
+        home_result = (
+            supabase.table("games")
+            .select("id", count="exact")
+            .eq("home_team_master_id", team_id)
+            .gte("game_date", cutoff)
+            .lte("game_date", today_str)
+            .not_.is_("home_score", "null")
+            .not_.is_("away_score", "null")
+            .eq("is_excluded", False)
+            .execute()
+        )
 
         # Count as away
-        away_result = supabase.table('games').select(
-            'id', count='exact'
-        ).eq('away_team_master_id', team_id).gte(
-            'game_date', cutoff
-        ).lte('game_date', today_str).not_.is_(
-            'home_score', 'null'
-        ).not_.is_(
-            'away_score', 'null'
-        ).eq('is_excluded', False).execute()
+        away_result = (
+            supabase.table("games")
+            .select("id", count="exact")
+            .eq("away_team_master_id", team_id)
+            .gte("game_date", cutoff)
+            .lte("game_date", today_str)
+            .not_.is_("home_score", "null")
+            .not_.is_("away_score", "null")
+            .eq("is_excluded", False)
+            .execute()
+        )
 
         home_count = home_result.count if home_result.count is not None else len(home_result.data)
         away_count = away_result.count if away_result.count is not None else len(away_result.data)
@@ -125,26 +135,35 @@ def diagnose_merge(canonical_team_id: str):
 
     # Fetch a few games for the deprecated team
     for dep_id in deprecated_ids:
-        sample = supabase.table('games').select(
-            'id, home_team_master_id, away_team_master_id'
-        ).or_(
-            f'home_team_master_id.eq.{dep_id},away_team_master_id.eq.{dep_id}'
-        ).gte('game_date', cutoff).lte('game_date', today_str).not_.is_(
-            'home_score', 'null'
-        ).not_.is_('away_score', 'null').eq(
-            'is_excluded', False
-        ).limit(3).execute()
+        sample = (
+            supabase.table("games")
+            .select("id, home_team_master_id, away_team_master_id")
+            .or_(f"home_team_master_id.eq.{dep_id},away_team_master_id.eq.{dep_id}")
+            .gte("game_date", cutoff)
+            .lte("game_date", today_str)
+            .not_.is_("home_score", "null")
+            .not_.is_("away_score", "null")
+            .eq("is_excluded", False)
+            .limit(3)
+            .execute()
+        )
 
         if sample.data:
             print(f"\n  Sample games for deprecated {dep_id[:12]}...:")
             for game in sample.data:
-                home_id = str(game['home_team_master_id'])
-                away_id = str(game['away_team_master_id'])
+                home_id = str(game["home_team_master_id"])
+                away_id = str(game["away_team_master_id"])
                 resolved_home = resolver.resolve(home_id)
                 resolved_away = resolver.resolve(away_id)
                 print(f"    Game {game['id'][:12]}...")
-                print(f"      home: {home_id[:12]}... → {resolved_home[:12]}... {'RESOLVED' if home_id != resolved_home else '(unchanged)'}")
-                print(f"      away: {away_id[:12]}... → {resolved_away[:12]}... {'RESOLVED' if away_id != resolved_away else '(unchanged)'}")
+                print(
+                    f"      home: {home_id[:12]}... → {resolved_home[:12]}... "
+                    f"{'RESOLVED' if home_id != resolved_home else '(unchanged)'}"
+                )
+                print(
+                    f"      away: {away_id[:12]}... → {resolved_away[:12]}... "
+                    f"{'RESOLVED' if away_id != resolved_away else '(unchanged)'}"
+                )
 
                 # Check if the game's team IDs match the merge map keys exactly
                 if home_id == dep_id:
@@ -179,13 +198,15 @@ def diagnose_merge(canonical_team_id: str):
     # Step 6: Check rankings_full current values
     print("\n--- Step 6: Current rankings_full entries ---")
     for team_id in [canonical_team_id] + deprecated_ids:
-        result = supabase.table('rankings_full').select(
-            'team_id, games_played, last_calculated'
-        ).eq('team_id', team_id).execute()
+        result = (
+            supabase.table("rankings_full")
+            .select("team_id, games_played, last_calculated")
+            .eq("team_id", team_id)
+            .execute()
+        )
         if result.data:
             row = result.data[0]
-            print(f"  {team_id[:12]}... games_played={row['games_played']}, "
-                  f"last_calculated={row['last_calculated']}")
+            print(f"  {team_id[:12]}... games_played={row['games_played']}, last_calculated={row['last_calculated']}")
         else:
             print(f"  {team_id[:12]}... NO ENTRY in rankings_full")
 
@@ -194,9 +215,10 @@ def diagnose_merge(canonical_team_id: str):
     print("=" * 80)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description='Diagnose merge resolution')
-    parser.add_argument('--canonical', required=True, help='Canonical team ID')
+
+    parser = argparse.ArgumentParser(description="Diagnose merge resolution")
+    parser.add_argument("--canonical", required=True, help="Canonical team ID")
     args = parser.parse_args()
     diagnose_merge(args.canonical)

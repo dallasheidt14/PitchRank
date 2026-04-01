@@ -19,14 +19,14 @@ interface RankingsPageContentProps {
 export function RankingsPageContent({ region, ageGroup, gender }: RankingsPageContentProps) {
   // Convert gender from URL format (lowercase) to API format (single letter)
   const genderForAPI = gender
-    ? (gender === 'male' ? 'M' : gender === 'female' ? 'F' : null) as 'M' | 'F' | 'B' | 'G' | null
+    ? ((gender === 'male' ? 'M' : gender === 'female' ? 'F' : null) as 'M' | 'F' | 'B' | 'G' | null)
     : null;
 
   // Format region name for display
   const isNational = region === 'national';
   const stateName = isNational
     ? 'National'
-    : US_STATES.find(s => s.code.toLowerCase() === region.toLowerCase())?.name || region.toUpperCase();
+    : US_STATES.find((s) => s.code.toLowerCase() === region.toLowerCase())?.name || region.toUpperCase();
 
   // Format age group for display
   const ageGroupDisplay = ageGroup.toUpperCase();
@@ -41,12 +41,7 @@ export function RankingsPageContent({ region, ageGroup, gender }: RankingsPageCo
     <div className="container mx-auto py-8 px-4">
       <Breadcrumbs />
 
-      <PageHeader
-        title="PitchRank Rankings"
-        description=""
-        showBackButton
-        backHref="/"
-      />
+      <PageHeader title="PitchRank Rankings" description="" showBackButton backHref="/" />
 
       <div className="space-y-6">
         <RankingsFilter />
@@ -61,21 +56,12 @@ export function RankingsPageContent({ region, ageGroup, gender }: RankingsPageCo
         </div>
 
         <Suspense fallback={<RankingsTableSkeleton />}>
-          <RankingsTable
-            region={region === 'national' ? null : region}
-            ageGroup={ageGroup}
-            gender={genderForAPI}
-          />
+          <RankingsTable region={region === 'national' ? null : region} ageGroup={ageGroup} gender={genderForAPI} />
         </Suspense>
 
         {/* Internal linking for SEO */}
-        <RelatedRankings
-          currentRegion={region}
-          currentAgeGroup={ageGroup}
-          currentGender={gender}
-        />
+        <RelatedRankings currentRegion={region} currentAgeGroup={ageGroup} currentGender={gender} />
       </div>
     </div>
   );
 }
-

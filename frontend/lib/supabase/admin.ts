@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-import { createServerSupabase } from "./server";
+import { NextResponse } from 'next/server';
+import { createServerSupabase } from './server';
 
 /**
  * Verify the request is from an authenticated admin user.
@@ -11,8 +11,7 @@ import { createServerSupabase } from "./server";
  *   const { user } = auth;
  */
 export async function requireAdmin(): Promise<
-  | { user: { id: string; email?: string }; error: null }
-  | { user: null; error: NextResponse }
+  { user: { id: string; email?: string }; error: null } | { user: null; error: NextResponse }
 > {
   try {
     const supabase = await createServerSupabase();
@@ -25,26 +24,16 @@ export async function requireAdmin(): Promise<
     if (authError || !user) {
       return {
         user: null,
-        error: NextResponse.json(
-          { error: "Not authenticated" },
-          { status: 401 }
-        ),
+        error: NextResponse.json({ error: 'Not authenticated' }, { status: 401 }),
       };
     }
 
-    const { data: profile } = await supabase
-      .from("user_profiles")
-      .select("plan")
-      .eq("id", user.id)
-      .single();
+    const { data: profile } = await supabase.from('user_profiles').select('plan').eq('id', user.id).single();
 
-    if (!profile || profile.plan !== "admin") {
+    if (!profile || profile.plan !== 'admin') {
       return {
         user: null,
-        error: NextResponse.json(
-          { error: "Admin access required" },
-          { status: 403 }
-        ),
+        error: NextResponse.json({ error: 'Admin access required' }, { status: 403 }),
       };
     }
 
@@ -52,10 +41,7 @@ export async function requireAdmin(): Promise<
   } catch {
     return {
       user: null,
-      error: NextResponse.json(
-        { error: "Authentication failed" },
-        { status: 500 }
-      ),
+      error: NextResponse.json({ error: 'Authentication failed' }, { status: 500 }),
     };
   }
 }

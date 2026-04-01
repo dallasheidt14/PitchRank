@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 def _get_age_to_anchor():
     """Lazy import to avoid circular dependency (v53e -> rankings.constants -> rankings.__init__ -> v53e)."""
     from src.rankings.constants import AGE_TO_ANCHOR
+
     return AGE_TO_ANCHOR
 
 
@@ -83,7 +84,9 @@ class V53EConfig:
     # Power-SOS Co-Calculation: Use opponent's FULL power score (including their SOS) for SOS calculation
     # This ensures that playing teams with tough schedules properly boosts your SOS
     # Set to 0 to disable (use old off/def-only approach), 2-3 iterations recommended
-    SOS_POWER_ITERATIONS: int = 0  # Disabled: circular feedback inflates dense mediocre leagues. Re-enable with quality-weighted blending.
+    SOS_POWER_ITERATIONS: int = (
+        0  # Disabled: circular feedback inflates dense mediocre leagues. Re-enable with quality-weighted blending.
+    )
     SOS_POWER_DAMPING: float = 0.5  # Damping factor: weight on new vs previous SOS (lower = more conservative)
     SOS_POWER_MAX_BOOST: float = 0.03  # Max SOS increase from iteration vs pre-iteration baseline
 
@@ -105,7 +108,9 @@ class V53EConfig:
     # NOTE: Only teams with GP >= MIN_GAMES_FOR_TOP_SOS participate in both the
     # correlation measurement and OLS fit, to avoid measuring artificial correlation
     # introduced by low-sample shrinkage (which pulls GP < 10 teams toward 0.35).
-    GP_SOS_DECORRELATION_ENABLED: bool = False  # Disabled: clip artifact created ceiling ties; re-enable after rescale fix
+    GP_SOS_DECORRELATION_ENABLED: bool = (
+        False  # Disabled: clip artifact created ceiling ties; re-enable after rescale fix
+    )
     GP_SOS_DECORRELATION_THRESHOLD: float = (
         0.15  # Correlation threshold to trigger (above 0.10 guardrail, conservative)
     )
@@ -613,7 +618,7 @@ def compute_schedule_connectivity(
     for team_id, team_games in games_df.groupby("team_id"):
         team_id_str = str(team_id)
         home_state = team_state_map.get(team_id_str, "UNKNOWN")
-        home_region = STATE_TO_REGION.get(home_state, "unknown")
+        STATE_TO_REGION.get(home_state, "unknown")
 
         # Get all opponent states
         opp_ids = team_games["opp_id"].unique()
@@ -816,10 +821,7 @@ def _adjust_for_opponent_strength(
 
     # Vectorized cross-age anchor scaling
     cross_age_active = (
-        cfg.CROSS_AGE_OPPONENT_ADJUST_ENABLED
-        and global_strength_map
-        and age_anchor_map
-        and team_age is not None
+        cfg.CROSS_AGE_OPPONENT_ADJUST_ENABLED and global_strength_map and age_anchor_map and team_age is not None
     )
     if cross_age_active:
         team_anchor = age_anchor_map.get(team_age, 1.0)
@@ -874,7 +876,8 @@ def _reaggregate_after_opponent_adjustment(
     team = team.drop(columns=["off_raw", "sad_raw"])
     team = team.merge(
         team_adj[["team_id", "age", "gender", "off_raw", "sad_raw"]],
-        on=["team_id", "age", "gender"], how="left",
+        on=["team_id", "age", "gender"],
+        how="left",
     )
     team["def_raw"] = 1.0 / (team["sad_raw"] + cfg.RIDGE_GA)
 
@@ -990,14 +993,22 @@ def compute_rankings(
                     cohort_age = None
 
             g_adjusted = _adjust_for_opponent_strength(
-                g, strength_map, cfg, baseline=baseline,
+                g,
+                strength_map,
+                cfg,
+                baseline=baseline,
                 global_strength_map=global_strength_map,
                 age_anchor_map=_get_age_to_anchor(),
                 team_age=cohort_age,
             )
 
             team, strength_map, power_map = _reaggregate_after_opponent_adjustment(
-                g_adjusted, team, cfg, _shrink_cohort, _clip_cohort, _normalize_by_cohort,
+                g_adjusted,
+                team,
+                cfg,
+                _shrink_cohort,
+                _clip_cohort,
+                _normalize_by_cohort,
             )
             strength_series = pd.Series(strength_map)
 
@@ -1200,14 +1211,22 @@ def compute_rankings(
 
             # Adjust games for opponent strength (with cross-age scaling in Pass 2)
             g_adjusted = _adjust_for_opponent_strength(
-                g, strength_map, cfg, baseline=baseline,
+                g,
+                strength_map,
+                cfg,
+                baseline=baseline,
                 global_strength_map=global_strength_map,
                 age_anchor_map=_get_age_to_anchor(),
                 team_age=cohort_age,
             )
 
             team, strength_map, power_map = _reaggregate_after_opponent_adjustment(
-                g_adjusted, team, cfg, _shrink_cohort, _clip_cohort, _normalize_by_cohort,
+                g_adjusted,
+                team,
+                cfg,
+                _shrink_cohort,
+                _clip_cohort,
+                _normalize_by_cohort,
             )
 
             logger.info("✅ Opponent-adjusted offense/defense applied successfully")
@@ -1355,9 +1374,9 @@ def compute_rankings(
 
     # Create lookup maps for base strength calculation (OFF/DEF only, no SOS component)
     # This avoids feedback loops in the iterative algorithm
-    team_off_norm_map = dict(zip(team["team_id"], team["off_norm"]))
-    team_def_norm_map = dict(zip(team["team_id"], team["def_norm"]))
-    team_gp_map = dict(zip(team["team_id"], team["gp"]))
+    dict(zip(team["team_id"], team["off_norm"]))
+    dict(zip(team["team_id"], team["def_norm"]))
+    dict(zip(team["team_id"], team["gp"]))
 
     # Calculate cohort average strength for shrinkage (true competitive strength, no anchor)
     cohort_avg_strength = {}
@@ -1366,7 +1385,7 @@ def compute_rankings(
         cohort_avg_strength[(age, gender)] = float(grp_base_power.mean())
 
     # Map team_id to cohort for quick lookup
-    team_cohort_map = dict(zip(team["team_id"], list(zip(team["age"], team["gender"]))))
+    dict(zip(team["team_id"], list(zip(team["age"], team["gender"]))))
 
     # Calculate BASE strength for each team using z-score + sigmoid normalization.
     # WHY NOT PERCENTILE: percentile normalization (used for off_norm/def_norm) spreads
@@ -1421,11 +1440,7 @@ def compute_rankings(
             sos_cohort_age = None
 
     age_anchor_map = _get_age_to_anchor()
-    sos_cross_age_active = (
-        cfg.CROSS_AGE_SOS_ADJUST_ENABLED
-        and global_strength_map
-        and sos_cohort_age is not None
-    )
+    sos_cross_age_active = cfg.CROSS_AGE_SOS_ADJUST_ENABLED and global_strength_map and sos_cohort_age is not None
     sos_team_anchor = age_anchor_map.get(sos_cohort_age, 1.0) if sos_cross_age_active else 1.0
 
     # Diagnostic: track cross-age lookups
@@ -1457,7 +1472,8 @@ def compute_rankings(
     # Log cross-age lookup stats
     _pass_tag = f"[{pass_label}] " if pass_label else ""
     logger.info(
-        f"🔍 {_pass_tag}Cross-age SOS lookups: global_map_size={len(global_strength_map) if global_strength_map else 0}, "
+        f"🔍 {_pass_tag}Cross-age SOS lookups: "
+        f"global_map_size={len(global_strength_map) if global_strength_map else 0}, "
         f"found={cross_age_found}, missing={cross_age_missing}"
     )
 
@@ -1670,7 +1686,6 @@ def compute_rankings(
     global_group_cols = ["age", "gender"]
     component_group_cols = ["age", "gender", "component_id"] if cfg.COMPONENT_SOS_ENABLED else global_group_cols
     # Keep sos_group_cols pointing to component-level for backward compat with downstream code
-    sos_group_cols = component_group_cols
 
     # Percentile rank within each group - ensures full [0, 1] range per group
     def percentile_within_group(x):
@@ -1687,7 +1702,10 @@ def compute_rankings(
 
     # Select normalization function: hybrid (percentile+zscore blend) or pure percentile
     if cfg.SOS_NORM_HYBRID_ENABLED:
-        _sos_norm_fn = lambda x: _hybrid_sos_norm(x, zscore_blend=cfg.SOS_NORM_HYBRID_ZSCORE_BLEND)
+
+        def _sos_norm_fn(x):
+            return _hybrid_sos_norm(x, zscore_blend=cfg.SOS_NORM_HYBRID_ZSCORE_BLEND)
+
         logger.info(f"🔀 Using HYBRID SOS normalization (zscore_blend={cfg.SOS_NORM_HYBRID_ZSCORE_BLEND:.0%})")
     else:
         _sos_norm_fn = percentile_within_group
@@ -1733,7 +1751,8 @@ def compute_rankings(
 
     # Log SOS norms summary (per-cohort detail at DEBUG)
     logger.info(
-        f"📊 SOS norms: overall min={team['sos_norm'].min():.3f}, max={team['sos_norm'].max():.3f}, mean={team['sos_norm'].mean():.3f}"
+        f"📊 SOS norms: overall min={team['sos_norm'].min():.3f}, "
+        f"max={team['sos_norm'].max():.3f}, mean={team['sos_norm'].mean():.3f}"
     )
     for (age, gender), grp in team.groupby(["age", "gender"]):
         if len(grp) >= 5:
@@ -1785,7 +1804,8 @@ def compute_rankings(
         corr_gh = team[["sos_norm_global", "sos_norm"]].corr().iloc[0, 1]
         corr_ch = team[["sos_norm_component", "sos_norm"]].corr().iloc[0, 1]
         logger.info(
-            f"  Correlations: global-component={corr_gc:.3f}, global-hybrid={corr_gh:.3f}, component-hybrid={corr_ch:.3f}"
+            f"  Correlations: global-component={corr_gc:.3f}, "
+            f"global-hybrid={corr_gh:.3f}, component-hybrid={corr_ch:.3f}"
         )
 
     # Low sample handling: smooth shrink toward 0.5 for teams with insufficient games
@@ -2006,12 +2026,14 @@ def compute_rankings(
         logger.info("  Top 10 SOS gainers:")
         for _, r in top_up.iterrows():
             logger.info(
-                f"    {r['team_id'][:12]} | GP:{r['gp']:>2.0f} | {r['sos_orig']:.4f} -> {r['sos']:.4f} ({r['shift']:+.4f})"
+                f"    {r['team_id'][:12]} | GP:{r['gp']:>2.0f} | "
+                f"{r['sos_orig']:.4f} -> {r['sos']:.4f} ({r['shift']:+.4f})"
             )
         logger.info("  Top 10 SOS losers:")
         for _, r in top_down.iterrows():
             logger.info(
-                f"    {r['team_id'][:12]} | GP:{r['gp']:>2.0f} | {r['sos_orig']:.4f} -> {r['sos']:.4f} ({r['shift']:+.4f})"
+                f"    {r['team_id'][:12]} | GP:{r['gp']:>2.0f} | "
+                f"{r['sos_orig']:.4f} -> {r['sos']:.4f} ({r['shift']:+.4f})"
             )
 
         # 7. sos_norm before/after comparison
@@ -2077,8 +2099,8 @@ def compute_rankings(
 
         # Build opponent lookup from g_sos once (game-level data doesn't change)
         opp_ids_array = g_sos["opp_id"].values
-        team_ids_sos = g_sos["team_id"].values
-        w_sos_array = g_sos["w_sos"].values
+        g_sos["team_id"].values
+        g_sos["w_sos"].values
 
         # Capture pre-iteration SOS baseline for boost capping
         sos_baseline = team["sos"].values.copy()
@@ -2125,7 +2147,7 @@ def compute_rankings(
                         opp_anchors = opp_ages_missing.map(age_anchor_map).fillna(1.0)
                         cross_mask = opp_ages_missing.notna() & (opp_ages_missing != sos_cohort_age)
                         if cross_mask.any():
-                            global_vals[cross_mask] *= (opp_anchors[cross_mask] / sos_team_anchor)
+                            global_vals[cross_mask] *= opp_anchors[cross_mask] / sos_team_anchor
                     opp_strengths.loc[missing_mask] = global_vals
             opp_strengths = opp_strengths.fillna(cfg.UNRANKED_SOS_BASE).clip(lower=cfg.UNRANKED_SOS_BASE).values
             g_sos["opp_full_strength"] = opp_strengths
@@ -2242,7 +2264,8 @@ def compute_rankings(
 
     # Filter teams based on games in activity window (INACTIVE_HIDE_DAYS, aligned with WINDOW_DAYS=365)
     # Status priority:
-    # 1. "Inactive" - No games in activity window (gp_last_window == 0) OR last_game is NULL OR days_since_last >= INACTIVE_HIDE_DAYS
+    # 1. "Inactive" - No games in activity window (gp_last_window == 0) OR last_game is NULL
+    #    OR days_since_last >= INACTIVE_HIDE_DAYS
     #    Note: Use >= to match the gp_last_window calculation which uses >= cutoff (includes games exactly at boundary)
     # 2. "Not Enough Ranked Games" - Has games in activity window but < MIN_GAMES_PROVISIONAL (6 games)
     # 3. "Active" - Has >= MIN_GAMES_PROVISIONAL games in activity window

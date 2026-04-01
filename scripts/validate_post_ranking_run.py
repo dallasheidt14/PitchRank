@@ -23,6 +23,7 @@ from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
+
 from supabase import create_client
 
 # ── Setup ────────────────────────────────────────────────────────────────
@@ -58,8 +59,8 @@ verdicts: list[tuple[str, str, str]] = []  # (check_name, verdict, reason)
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
-def paginated_fetch(table: str, select: str, filters: dict | None = None,
-                    limit: int = 1000) -> list:
+
+def paginated_fetch(table: str, select: str, filters: dict | None = None, limit: int = 1000) -> list:
     """Fetch all rows from a Supabase table with offset-based pagination."""
     all_rows: list = []
     offset = 0
@@ -122,8 +123,7 @@ def fetch_games() -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def compute_cross_age_pct(team_ids: list[str], games_df: pd.DataFrame,
-                          teams_df: pd.DataFrame) -> dict[str, float]:
+def compute_cross_age_pct(team_ids: list[str], games_df: pd.DataFrame, teams_df: pd.DataFrame) -> dict[str, float]:
     """Compute cross-age game percentage for a set of teams.
 
     Returns dict of team_id -> pct_cross_age (0.0-1.0).
@@ -132,10 +132,12 @@ def compute_cross_age_pct(team_ids: list[str], games_df: pd.DataFrame,
         return {}
 
     # Build age lookup from teams table
-    age_map = dict(zip(
-        teams_df["team_id_master"].astype(str),
-        teams_df["age_group"].astype(str),
-    ))
+    age_map = dict(
+        zip(
+            teams_df["team_id_master"].astype(str),
+            teams_df["age_group"].astype(str),
+        )
+    )
 
     result = {}
     for tid in team_ids:
@@ -168,6 +170,7 @@ def compute_cross_age_pct(team_ids: list[str], games_df: pd.DataFrame,
 
 # ── Check 1: Phoenix United Elite Sanity Check ──────────────────────────
 
+
 def check_1_phoenix(rf: pd.DataFrame):
     print(f"\n{SEP}")
     print("  CHECK 1: Phoenix United Elite Sanity Check")
@@ -180,9 +183,16 @@ def check_1_phoenix(rf: pd.DataFrame):
     row = row.iloc[0]
 
     cols = [
-        "off_norm", "off_raw", "def_norm", "sos_norm",
-        "powerscore_adj", "powerscore_ml", "rank_in_cohort",
-        "rank_in_cohort_ml", "national_rank", "state_rank",
+        "off_norm",
+        "off_raw",
+        "def_norm",
+        "sos_norm",
+        "powerscore_adj",
+        "powerscore_ml",
+        "rank_in_cohort",
+        "rank_in_cohort_ml",
+        "national_rank",
+        "state_rank",
     ]
     print(f"\n  {'Metric':<22} {'Value':>12}")
     print(f"  {THIN}")
@@ -213,16 +223,19 @@ def check_1_phoenix(rf: pd.DataFrame):
         print(f"  Current state rank:   #{int(state_rank)}")
 
     if delta_off > 0:
-        verdict("Check 1: Phoenix", "PASS",
-                f"off_norm improved by {delta_off:+.4f} (was {PREFIX_OFF_NORM}, now {current_off_norm:.4f})")
+        verdict(
+            "Check 1: Phoenix",
+            "PASS",
+            f"off_norm improved by {delta_off:+.4f} (was {PREFIX_OFF_NORM}, now {current_off_norm:.4f})",
+        )
     elif delta_off == 0:
         verdict("Check 1: Phoenix", "WARN", "off_norm unchanged from pre-fix value")
     else:
-        verdict("Check 1: Phoenix", "WARN",
-                f"off_norm decreased by {delta_off:+.4f} -- may need investigation")
+        verdict("Check 1: Phoenix", "WARN", f"off_norm decreased by {delta_off:+.4f} -- may need investigation")
 
 
 # ── Check 2: Cohort-Wide Stability ──────────────────────────────────────
+
 
 def check_2_cohort_stability(rf: pd.DataFrame, rh: pd.DataFrame):
     print(f"\n{SEP}")
@@ -262,15 +275,13 @@ def check_2_cohort_stability(rf: pd.DataFrame, rh: pd.DataFrame):
     prev_snap = rh[rh["snapshot_date"] == prev_date]
     print(f"\n  Previous snapshot date: {prev_date.date()}")
 
-    print(f"\n  Mean powerscore_ml comparison (current vs previous):\n")
+    print("\n  Mean powerscore_ml comparison (current vs previous):\n")
     print(f"  {'Cohort':<16} {'Prev ML':>10} {'Curr ML':>10} {'Delta':>10} {'Status':>8}")
     print(f"  {THIN}")
 
     any_flagged = False
     for (ag, gen), grp in sorted(cohorts):
-        prev_cohort = prev_snap[
-            (prev_snap["age_group"] == ag) & (prev_snap["gender"] == gen)
-        ]
+        prev_cohort = prev_snap[(prev_snap["age_group"] == ag) & (prev_snap["gender"] == gen)]
         if prev_cohort.empty or "powerscore_ml" not in prev_cohort.columns:
             continue
 
@@ -284,17 +295,15 @@ def check_2_cohort_stability(rf: pd.DataFrame, rh: pd.DataFrame):
         print(f"  {label:<16} {prev_ml:>10.4f} {curr_ml:>10.4f} {delta:>+10.4f} {status:>8}")
 
     if any_flagged:
-        verdict("Check 2: Cohort Stability", "WARN",
-                "One or more cohorts shifted mean powerscore_ml by >0.01")
+        verdict("Check 2: Cohort Stability", "WARN", "One or more cohorts shifted mean powerscore_ml by >0.01")
     else:
-        verdict("Check 2: Cohort Stability", "PASS",
-                "All cohorts within 0.01 mean powerscore_ml of previous snapshot")
+        verdict("Check 2: Cohort Stability", "PASS", "All cohorts within 0.01 mean powerscore_ml of previous snapshot")
 
 
 # ── Check 3: Cross-Age Team Improvement (Top 20 Most Helped) ────────────
 
-def check_3_cross_age_improvement(rf: pd.DataFrame, rh: pd.DataFrame,
-                                  teams_df: pd.DataFrame, games_df: pd.DataFrame):
+
+def check_3_cross_age_improvement(rf: pd.DataFrame, rh: pd.DataFrame, teams_df: pd.DataFrame, games_df: pd.DataFrame):
     print(f"\n{SEP}")
     print("  CHECK 3: Cross-Age Team Improvement (Top 20 Most Helped)")
     print(SEP)
@@ -327,18 +336,19 @@ def check_3_cross_age_improvement(rf: pd.DataFrame, rh: pd.DataFrame,
     top20 = merged.nlargest(20, "rank_change")
 
     # Get team names
-    name_map = dict(zip(
-        teams_df["team_id_master"].astype(str),
-        teams_df["team_name"].astype(str),
-    ))
+    name_map = dict(
+        zip(
+            teams_df["team_id_master"].astype(str),
+            teams_df["team_name"].astype(str),
+        )
+    )
 
     # Compute cross-age % for these teams
     team_ids = top20["team_id"].astype(str).tolist()
     cross_age_map = compute_cross_age_pct(team_ids, games_df, teams_df)
 
     print(f"\n  Previous snapshot: {prev_date.date()}")
-    print(f"\n  {'#':<4} {'Team':<32} {'AG':<6} {'Gen':<8} {'Old':>5} {'New':>5} "
-          f"{'Chg':>5} {'%XAge':>7}")
+    print(f"\n  {'#':<4} {'Team':<32} {'AG':<6} {'Gen':<8} {'Old':>5} {'New':>5} {'Chg':>5} {'%XAge':>7}")
     print(f"  {THIN}")
 
     high_cross_age_count = 0
@@ -348,25 +358,33 @@ def check_3_cross_age_improvement(rf: pd.DataFrame, rh: pd.DataFrame,
         pct = cross_age_map.get(tid, 0.0)
         if pct > 0.15:
             high_cross_age_count += 1
-        print(f"  {i:<4} {name:<32} {row['age_group']:<6} {row['gender']:<8} "
-              f"{int(row['old_rank']):>5} {int(row['new_rank']):>5} "
-              f"{int(row['rank_change']):>+5} {pct:>6.1%}")
+        print(
+            f"  {i:<4} {name:<32} {row['age_group']:<6} {row['gender']:<8} "
+            f"{int(row['old_rank']):>5} {int(row['new_rank']):>5} "
+            f"{int(row['rank_change']):>+5} {pct:>6.1%}"
+        )
 
     pct_high = high_cross_age_count / len(top20) if len(top20) > 0 else 0
     print(f"\n  {high_cross_age_count}/{len(top20)} most-improved teams have >15% cross-age exposure")
 
     if pct_high >= 0.5:
-        verdict("Check 3: Cross-Age Improvement", "PASS",
-                f"{pct_high:.0%} of most-improved teams have high cross-age exposure")
+        verdict(
+            "Check 3: Cross-Age Improvement",
+            "PASS",
+            f"{pct_high:.0%} of most-improved teams have high cross-age exposure",
+        )
     else:
-        verdict("Check 3: Cross-Age Improvement", "WARN",
-                f"Only {pct_high:.0%} of most-improved teams have high cross-age exposure")
+        verdict(
+            "Check 3: Cross-Age Improvement",
+            "WARN",
+            f"Only {pct_high:.0%} of most-improved teams have high cross-age exposure",
+        )
 
 
 # ── Check 4: Playing-Down Deflation Check ────────────────────────────────
 
-def check_4_deflation(rf: pd.DataFrame, rh: pd.DataFrame,
-                      teams_df: pd.DataFrame, games_df: pd.DataFrame):
+
+def check_4_deflation(rf: pd.DataFrame, rh: pd.DataFrame, teams_df: pd.DataFrame, games_df: pd.DataFrame):
     print(f"\n{SEP}")
     print("  CHECK 4: Playing-Down Deflation Check (Top 20 Most Hurt)")
     print(SEP)
@@ -398,17 +416,18 @@ def check_4_deflation(rf: pd.DataFrame, rh: pd.DataFrame,
     # Top 20 most dropped
     top20 = merged.nlargest(20, "rank_drop")
 
-    name_map = dict(zip(
-        teams_df["team_id_master"].astype(str),
-        teams_df["team_name"].astype(str),
-    ))
+    name_map = dict(
+        zip(
+            teams_df["team_id_master"].astype(str),
+            teams_df["team_name"].astype(str),
+        )
+    )
 
     team_ids = top20["team_id"].astype(str).tolist()
     cross_age_map = compute_cross_age_pct(team_ids, games_df, teams_df)
 
     print(f"\n  Previous snapshot: {prev_date.date()}")
-    print(f"\n  {'#':<4} {'Team':<32} {'AG':<6} {'Gen':<8} {'Old':>5} {'New':>5} "
-          f"{'Drop':>5} {'%XAge':>7}")
+    print(f"\n  {'#':<4} {'Team':<32} {'AG':<6} {'Gen':<8} {'Old':>5} {'New':>5} {'Drop':>5} {'%XAge':>7}")
     print(f"  {THIN}")
 
     flagged_teams = []
@@ -421,22 +440,24 @@ def check_4_deflation(rf: pd.DataFrame, rh: pd.DataFrame,
         if pct < 0.05 and drop > 50:
             flag = " ** FLAGGED"
             flagged_teams.append(name)
-        print(f"  {i:<4} {name:<32} {row['age_group']:<6} {row['gender']:<8} "
-              f"{int(row['old_rank']):>5} {int(row['new_rank']):>5} "
-              f"{drop:>+5} {pct:>6.1%}{flag}")
+        print(
+            f"  {i:<4} {name:<32} {row['age_group']:<6} {row['gender']:<8} "
+            f"{int(row['old_rank']):>5} {int(row['new_rank']):>5} "
+            f"{drop:>+5} {pct:>6.1%}{flag}"
+        )
 
     if flagged_teams:
-        verdict("Check 4: Deflation Check", "FAIL",
-                f"{len(flagged_teams)} team(s) with <5% cross-age dropped 50+ positions")
+        verdict(
+            "Check 4: Deflation Check", "FAIL", f"{len(flagged_teams)} team(s) with <5% cross-age dropped 50+ positions"
+        )
     else:
-        verdict("Check 4: Deflation Check", "PASS",
-                "No teams with <5% cross-age exposure dropped 50+ positions")
+        verdict("Check 4: Deflation Check", "PASS", "No teams with <5% cross-age exposure dropped 50+ positions")
 
 
 # ── Check 5: ML Residual Shift ──────────────────────────────────────────
 
-def check_5_ml_residual(rf: pd.DataFrame, teams_df: pd.DataFrame,
-                        games_df: pd.DataFrame):
+
+def check_5_ml_residual(rf: pd.DataFrame, teams_df: pd.DataFrame, games_df: pd.DataFrame):
     print(f"\n{SEP}")
     print("  CHECK 5: ML Residual Shift (ml_overperf by Cross-Age Exposure)")
     print(SEP)
@@ -459,26 +480,31 @@ def check_5_ml_residual(rf: pd.DataFrame, teams_df: pd.DataFrame,
     high_mean = high["ml_overperf"].mean() if not high.empty else float("nan")
     low_mean = low["ml_overperf"].mean() if not low.empty else float("nan")
 
-    print(f"\n  High cross-age exposure (>30%): {len(high)} teams, "
-          f"mean ml_overperf = {high_mean:.4f}")
-    print(f"  Low cross-age exposure (<5%):   {len(low)} teams, "
-          f"mean ml_overperf = {low_mean:.4f}")
+    print(f"\n  High cross-age exposure (>30%): {len(high)} teams, mean ml_overperf = {high_mean:.4f}")
+    print(f"  Low cross-age exposure (<5%):   {len(low)} teams, mean ml_overperf = {low_mean:.4f}")
 
     if pd.notna(high_mean) and pd.notna(low_mean):
         diff = high_mean - low_mean
         print(f"  Difference (high - low):        {diff:+.4f}")
 
     if pd.notna(high_mean) and high_mean > 0.5:
-        verdict("Check 5: ML Residual", "WARN",
-                f"High-cross-age teams still have unusually high ml_overperf ({high_mean:.4f} > 0.5)")
+        verdict(
+            "Check 5: ML Residual",
+            "WARN",
+            f"High-cross-age teams still have unusually high ml_overperf ({high_mean:.4f} > 0.5)",
+        )
     elif pd.isna(high_mean):
         verdict("Check 5: ML Residual", "WARN", "No teams with >30% cross-age exposure found")
     else:
-        verdict("Check 5: ML Residual", "PASS",
-                f"High-cross-age ml_overperf ({high_mean:.4f}) is within normal range (<= 0.5)")
+        verdict(
+            "Check 5: ML Residual",
+            "PASS",
+            f"High-cross-age ml_overperf ({high_mean:.4f}) is within normal range (<= 0.5)",
+        )
 
 
 # ── Check 6: Top-of-Cohort Stability ────────────────────────────────────
+
 
 def check_6_top_stability(rf: pd.DataFrame, rh: pd.DataFrame):
     print(f"\n{SEP}")
@@ -504,8 +530,7 @@ def check_6_top_stability(rf: pd.DataFrame, rh: pd.DataFrame):
     if score_col not in rf.columns:
         score_col = "power_score_final"
     if score_col not in rf.columns:
-        verdict("Check 6: Top Stability", "FAIL",
-                "Neither powerscore_adj nor power_score_final found in rankings_full")
+        verdict("Check 6: Top Stability", "FAIL", "Neither powerscore_adj nor power_score_final found in rankings_full")
         return
 
     cohorts = rf.groupby(["age_group", "gender"])
@@ -521,15 +546,11 @@ def check_6_top_stability(rf: pd.DataFrame, rh: pd.DataFrame):
         current_top10_ids = set(grp_sorted["team_id"].astype(str).tolist())
 
         # Previous top 10 by rank_in_cohort
-        prev_cohort = prev_snap[
-            (prev_snap["age_group"] == ag) & (prev_snap["gender"] == gen)
-        ]
+        prev_cohort = prev_snap[(prev_snap["age_group"] == ag) & (prev_snap["gender"] == gen)]
         if prev_cohort.empty:
             continue
 
-        prev_cohort_sorted = prev_cohort.sort_values(
-            "rank_in_cohort", ascending=True
-        ).head(10)
+        prev_cohort_sorted = prev_cohort.sort_values("rank_in_cohort", ascending=True).head(10)
         prev_top10_ids = set(prev_cohort_sorted["team_id"].astype(str).tolist())
 
         retained = len(current_top10_ids & prev_top10_ids)
@@ -540,14 +561,13 @@ def check_6_top_stability(rf: pd.DataFrame, rh: pd.DataFrame):
         print(f"  {label:<16} {retained:>7}/10 {status:>8}")
 
     if any_flagged:
-        verdict("Check 6: Top Stability", "WARN",
-                "One or more cohorts had <6/10 top-team retention")
+        verdict("Check 6: Top Stability", "WARN", "One or more cohorts had <6/10 top-team retention")
     else:
-        verdict("Check 6: Top Stability", "PASS",
-                "All cohorts retained >= 6/10 top teams from previous snapshot")
+        verdict("Check 6: Top Stability", "PASS", "All cohorts retained >= 6/10 top teams from previous snapshot")
 
 
 # ── Main ─────────────────────────────────────────────────────────────────
+
 
 def main():
     print(f"\n{SEP}")
@@ -598,8 +618,7 @@ def main():
             line += f" -- {reason}"
         print(line)
 
-    print(f"\n  Total: {pass_count} PASS, {warn_count} WARN, {fail_count} FAIL "
-          f"(out of {len(verdicts)} checks)")
+    print(f"\n  Total: {pass_count} PASS, {warn_count} WARN, {fail_count} FAIL (out of {len(verdicts)} checks)")
 
     if fail_count > 0:
         print("\n  RESULT: FAILURES DETECTED -- review flagged checks above")

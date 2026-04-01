@@ -19,11 +19,9 @@ Usage:
 from __future__ import annotations
 
 import logging
-import re
 import time
 from collections import defaultdict
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -64,18 +62,13 @@ class QueryReport:
 
         if self.queries_by_table:
             lines.append("\n  Queries by table:")
-            for table, count in sorted(
-                self.queries_by_table.items(), key=lambda x: x[1], reverse=True
-            ):
+            for table, count in sorted(self.queries_by_table.items(), key=lambda x: x[1], reverse=True):
                 lines.append(f"    {table:<30} {count:>5} queries")
 
         if self.slow_queries:
             lines.append(f"\n  Slow queries (>{SLOW_THRESHOLD_MS}ms):")
             for q in self.slow_queries[:10]:
-                lines.append(
-                    f"    {q.elapsed_ms:>8.1f}ms  {q.operation:<8} {q.table} "
-                    f"({q.row_count} rows) {q.filters}"
-                )
+                lines.append(f"    {q.elapsed_ms:>8.1f}ms  {q.operation:<8} {q.table} ({q.row_count} rows) {q.filters}")
 
         if self.n_plus_one:
             lines.append("\n  N+1 Query Patterns Detected:")
@@ -117,15 +110,17 @@ class QueryProfiler:
         """Manually record a query."""
         if not self._enabled:
             return
-        self.queries.append(QueryRecord(
-            table=table,
-            operation=operation,
-            elapsed_ms=elapsed_ms,
-            row_count=row_count,
-            timestamp=time.time(),
-            filters=filters,
-            columns=columns,
-        ))
+        self.queries.append(
+            QueryRecord(
+                table=table,
+                operation=operation,
+                elapsed_ms=elapsed_ms,
+                row_count=row_count,
+                timestamp=time.time(),
+                filters=filters,
+                columns=columns,
+            )
+        )
 
     def wrap(self, supabase_client):
         """Wrap a Supabase client to automatically track queries.
@@ -161,15 +156,15 @@ class QueryProfiler:
 
                 count_in_window = i - window_start + 1
                 if count_in_window >= N_PLUS_ONE_THRESHOLD:
-                    window_ms = (
-                        group_queries[i].timestamp - group_queries[window_start].timestamp
-                    ) * 1000
-                    patterns.append({
-                        "table": table,
-                        "operation": op,
-                        "count": count_in_window,
-                        "window_ms": window_ms,
-                    })
+                    window_ms = (group_queries[i].timestamp - group_queries[window_start].timestamp) * 1000
+                    patterns.append(
+                        {
+                            "table": table,
+                            "operation": op,
+                            "count": count_in_window,
+                            "window_ms": window_ms,
+                        }
+                    )
                     break  # One detection per group is enough
 
         return patterns
@@ -290,10 +285,12 @@ class _TrackedTable:
         # Pass through other builder methods (gte, lte, order, limit, etc.)
         attr = getattr(self._builder, name)
         if callable(attr):
+
             def proxy(*args, **kwargs):
                 self._filters.append(f"{name}(...)")
                 self._builder = attr(*args, **kwargs)
                 return self
+
             return proxy
         return attr
 

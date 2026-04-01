@@ -18,11 +18,11 @@ Usage:
         compute_rankings(...)
 """
 
-from src.profiling.cpu_profiler import profile_cpu, CpuProfiler
-from src.profiling.memory_profiler import profile_memory, MemoryProfiler
-from src.profiling.timer import timer, Timer, TimingReport
+from src.profiling.cpu_profiler import CpuProfiler, profile_cpu
 from src.profiling.db_profiler import QueryProfiler, detect_n_plus_one
+from src.profiling.memory_profiler import MemoryProfiler, profile_memory
 from src.profiling.reporter import ProfileReport, generate_report
+from src.profiling.timer import Timer, TimingReport, timer
 
 __all__ = [
     "profile_cpu",

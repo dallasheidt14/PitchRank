@@ -1,13 +1,13 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import Image from "next/image";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Menu, X, Star, User, LogOut, LogIn } from "lucide-react";
-import { GlobalSearch } from "./GlobalSearch";
-import { Button } from "./ui/button";
-import { useUser } from "@/hooks/useUser";
+import { useState } from 'react';
+import Image from 'next/image';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { Menu, X, Star, User, LogOut, LogIn } from 'lucide-react';
+import { GlobalSearch } from './GlobalSearch';
+import { Button } from './ui/button';
+import { useUser } from '@/hooks/useUser';
 
 export function Navigation() {
   const router = useRouter();
@@ -21,12 +21,12 @@ export function Navigation() {
       await signOut();
       setMobileMenuOpen(false);
       // Use router for client-side navigation instead of full page reload
-      router.push("/");
+      router.push('/');
       router.refresh();
     } catch (error) {
-      console.error("Sign out error:", error);
+      console.error('Sign out error:', error);
       // Fallback to logout route if signOut fails
-      router.push("/logout");
+      router.push('/logout');
       router.refresh();
     } finally {
       setIsSigningOut(false);
@@ -34,7 +34,10 @@ export function Navigation() {
   };
 
   return (
-    <header data-testid="main-navigation" className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 safe-top">
+    <header
+      data-testid="main-navigation"
+      className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 safe-top"
+    >
       <div className="container flex h-16 items-center justify-between gap-3 sm:gap-4 px-3 sm:px-4">
         <Link
           href="/"
@@ -116,8 +119,8 @@ export function Navigation() {
             <>
               {user ? (
                 <div className="flex items-center gap-3 ml-2 pl-4 border-l">
-                  <span className="text-sm text-muted-foreground truncate max-w-[120px]" title={user.email ?? ""}>
-                    {user.email?.split("@")[0]}
+                  <span className="text-sm text-muted-foreground truncate max-w-[120px]" title={user.email ?? ''}>
+                    {user.email?.split('@')[0]}
                   </span>
                   <Button
                     variant="ghost"
@@ -128,7 +131,7 @@ export function Navigation() {
                     aria-label="Sign out"
                   >
                     <LogOut className="h-3.5 w-3.5" />
-                    <span className="hidden xl:inline">{isSigningOut ? "Signing out..." : "Sign out"}</span>
+                    <span className="hidden xl:inline">{isSigningOut ? 'Signing out...' : 'Sign out'}</span>
                   </Button>
                 </div>
               ) : (
@@ -156,11 +159,7 @@ export function Navigation() {
             aria-label="Toggle menu"
             data-testid="mobile-menu-toggle"
           >
-            {mobileMenuOpen ? (
-              <X className="h-6 w-6" />
-            ) : (
-              <Menu className="h-6 w-6" />
-            )}
+            {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
           </Button>
         </div>
       </div>
@@ -229,7 +228,7 @@ export function Navigation() {
                         className="w-full text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-destructive hover:bg-destructive/10 py-3 px-2 rounded-md min-h-[44px] flex items-center gap-2 disabled:opacity-50"
                       >
                         <LogOut className="h-4 w-4" />
-                        {isSigningOut ? "Signing out..." : "Sign out"}
+                        {isSigningOut ? 'Signing out...' : 'Sign out'}
                       </button>
                     </div>
                   ) : (

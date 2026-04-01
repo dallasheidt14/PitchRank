@@ -462,7 +462,8 @@ async def fetch_games_for_rankings(
             )
         else:
             logger.info(
-                f"✅ Deprecated filter: 0 rows removed (all {len(deprecated_team_ids)} deprecated teams properly merged)"
+                f"✅ Deprecated filter: 0 rows removed "
+                f"(all {len(deprecated_team_ids)} deprecated teams properly merged)"
             )
 
     # Filter out rows with missing scores
@@ -991,7 +992,8 @@ def v53e_to_rankings_full_format(
 
     logger.info(f"🧾 Prepared {len(result_df):,} records for rankings_full table upload.")
     logger.info(
-        f"   Fields populated: {sum(result_df[col].notna().any() for col in result_df.columns)}/{len(result_df.columns)}"
+        f"   Fields populated: "
+        f"{sum(result_df[col].notna().any() for col in result_df.columns)}/{len(result_df.columns)}"
     )
 
     return result_df

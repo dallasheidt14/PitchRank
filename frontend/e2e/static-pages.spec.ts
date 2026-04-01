@@ -67,10 +67,10 @@ test.describe('SEO & Meta Tags', () => {
 
     const ogTitle = page.locator('meta[property="og:title"]');
     const ogDescription = page.locator('meta[property="og:description"]');
-    const ogType = page.locator('meta[property="og:type"]');
+    const _ogType = page.locator('meta[property="og:type"]');
 
     // At least one OG tag should be present
-    const hasOgTags = await ogTitle.count() > 0 || await ogDescription.count() > 0;
+    const hasOgTags = (await ogTitle.count()) > 0 || (await ogDescription.count()) > 0;
     expect(hasOgTags).toBe(true);
   });
 
@@ -91,7 +91,7 @@ test.describe('SEO & Meta Tags', () => {
     await page.goto('/methodology');
 
     const canonical = page.locator('link[rel="canonical"]');
-    if (await canonical.count() > 0) {
+    if ((await canonical.count()) > 0) {
       await expect(canonical).toHaveAttribute('href', /methodology/);
     }
   });

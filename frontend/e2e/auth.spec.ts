@@ -69,9 +69,7 @@ test.describe('Login Page', () => {
     await page.locator('[data-testid="login-submit"]').click();
 
     // Button should show "Signing in..." briefly
-    await expect(
-      page.locator('[data-testid="login-submit"]')
-    ).toContainText(/Sign(ing)? in/i);
+    await expect(page.locator('[data-testid="login-submit"]')).toContainText(/Sign(ing)? in/i);
   });
 
   test('page has correct title', async ({ page }) => {
@@ -118,9 +116,7 @@ test.describe('Signup Page', () => {
   });
 
   test('shows terms of service notice', async ({ page }) => {
-    await expect(
-      page.getByText('By creating an account, you agree')
-    ).toBeVisible();
+    await expect(page.getByText('By creating an account, you agree')).toBeVisible();
   });
 
   test('all form fields are required', async ({ page }) => {

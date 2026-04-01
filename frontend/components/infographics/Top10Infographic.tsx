@@ -22,14 +22,14 @@ interface Top10InfographicProps {
 export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps>(
   ({ teams, platform, scale = 0.5, generatedDate, ageGroup, gender, region, regionName }, ref) => {
     const top10 = teams.slice(0, 10);
-    const dimensions = PLATFORM_DIMENSIONS[platform];
+    const _dimensions = PLATFORM_DIMENSIONS[platform];
     const isVertical = platform === 'instagramStory';
     const isSquare = platform === 'instagram';
 
     // Scale factors based on platform
     const titleSize = isVertical ? 72 : isSquare ? 64 : 56;
     const subtitleSize = isVertical ? 36 : isSquare ? 32 : 28;
-    const ctaSize = isVertical ? 24 : isSquare ? 22 : 18;
+    const _ctaSize = isVertical ? 24 : isSquare ? 22 : 18;
     const rankSize = isVertical ? 36 : isSquare ? 32 : 28;
     const teamNameSize = isVertical ? 28 : isSquare ? 24 : 20;
     const statsSize = isVertical ? 20 : isSquare ? 18 : 16;
@@ -43,7 +43,7 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
 
     // Generate dynamic title — use "IN {STATE}" for state rankings, dash for national
     const genderLabel = gender === 'M' ? 'BOYS' : 'GIRLS';
-    const regionLabel = region ? (regionName || region.toUpperCase()) : 'NATIONAL';
+    const regionLabel = region ? regionName || region.toUpperCase() : 'NATIONAL';
     const title = region
       ? `TOP 10 ${ageGroup.toUpperCase()} ${genderLabel} IN ${regionLabel}`
       : `TOP 10 ${ageGroup.toUpperCase()} ${genderLabel} - NATIONAL`;
@@ -120,7 +120,7 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
             {/* Date */}
             <div
               style={{
-                fontFamily: "Arial, sans-serif",
+                fontFamily: 'Arial, sans-serif',
                 fontSize: `${statsSize}px`,
                 fontWeight: 400,
                 color: '#AAAAAA',
@@ -130,7 +130,6 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
             >
               Rankings as of {formatDate(generatedDate)}
             </div>
-
           </div>
 
           {/* Rankings List */}
@@ -168,7 +167,7 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
           >
             <div
               style={{
-                fontFamily: "Arial, sans-serif",
+                fontFamily: 'Arial, sans-serif',
                 fontSize: `${statsSize}px`,
                 fontWeight: 400,
                 color: '#999999',
@@ -222,9 +221,7 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
         display: 'flex',
         alignItems: 'center',
         padding: isVertical ? '16px 20px' : '12px 16px',
-        background: isTopThree
-          ? 'linear-gradient(90deg, #3d5a2e 0%, #0f3d32 100%)'
-          : '#0f3d32',
+        background: isTopThree ? 'linear-gradient(90deg, #3d5a2e 0%, #0f3d32 100%)' : '#0f3d32',
         borderRadius: '8px',
         borderLeft: isTopThree ? `4px solid ${medalColors[rank]}` : '4px solid transparent',
       }}
@@ -268,7 +265,7 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
         </div>
         <div
           style={{
-            fontFamily: "Arial, sans-serif",
+            fontFamily: 'Arial, sans-serif',
             fontSize: `${statsSize - 2}px`,
             fontWeight: 400,
             color: '#999999',
@@ -278,7 +275,8 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
             letterSpacing: 'normal',
           }}
         >
-          {team.club_name ? `${team.club_name} | ` : ''}{team.state || 'N/A'}
+          {team.club_name ? `${team.club_name} | ` : ''}
+          {team.state || 'N/A'}
         </div>
       </div>
 
@@ -294,7 +292,7 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
         <div style={{ textAlign: 'center' }}>
           <div
             style={{
-              fontFamily: "Arial, sans-serif",
+              fontFamily: 'Arial, sans-serif',
               fontSize: `${statsSize}px`,
               fontWeight: 700,
               color: BRAND_COLORS.brightWhite,
@@ -305,7 +303,7 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
           </div>
           <div
             style={{
-              fontFamily: "Arial, sans-serif",
+              fontFamily: 'Arial, sans-serif',
               fontSize: `${statsSize - 4}px`,
               fontWeight: 400,
               color: '#888888',
@@ -321,7 +319,7 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
         <div style={{ textAlign: 'center', minWidth: isVertical ? '70px' : '60px' }}>
           <div
             style={{
-              fontFamily: "Arial, sans-serif",
+              fontFamily: 'Arial, sans-serif',
               fontSize: `${statsSize}px`,
               fontWeight: 700,
               color: BRAND_COLORS.electricYellow,
@@ -332,7 +330,7 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
           </div>
           <div
             style={{
-              fontFamily: "Arial, sans-serif",
+              fontFamily: 'Arial, sans-serif',
               fontSize: `${statsSize - 4}px`,
               fontWeight: 400,
               color: '#888888',

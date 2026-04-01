@@ -49,7 +49,7 @@ function getMarkdownBlogPosts(): BlogPost[] {
   if (_mdCache) return _mdCache;
   if (!fs.existsSync(BLOG_DIR)) return [];
 
-  const files = fs.readdirSync(BLOG_DIR).filter(f => f.endsWith('.md') || f.endsWith('.mdx'));
+  const files = fs.readdirSync(BLOG_DIR).filter((f) => f.endsWith('.md') || f.endsWith('.mdx'));
   _mdCache = files.map(parseMarkdownFile);
   return _mdCache;
 }
@@ -60,21 +60,19 @@ function getMarkdownBlogPosts(): BlogPost[] {
 export function getAllBlogPosts(): BlogPost[] {
   const tsx = [...blogPosts] as BlogPost[];
   const md = getMarkdownBlogPosts();
-  return [...tsx, ...md].sort((a, b) =>
-    new Date(b.date).getTime() - new Date(a.date).getTime()
-  );
+  return [...tsx, ...md].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 }
 
 /**
  * Get a single blog post by slug
  */
 export function getBlogPost(slug: string): BlogPost | undefined {
-  return getAllBlogPosts().find(post => post.slug === slug);
+  return getAllBlogPosts().find((post) => post.slug === slug);
 }
 
 /**
  * Get all blog post slugs for static generation
  */
 export function getAllBlogSlugs(): string[] {
-  return getAllBlogPosts().map(post => post.slug);
+  return getAllBlogPosts().map((post) => post.slug);
 }

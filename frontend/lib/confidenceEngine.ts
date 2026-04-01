@@ -60,7 +60,7 @@ async function loadConfidenceParametersV2(): Promise<ConfidenceParametersV2 | nu
         // File not found - will use defaults
         confidenceParamsV2 = null;
       }
-    } catch (error) {
+    } catch (_error) {
       // Fallback to defaults on error
       confidenceParamsV2 = null;
     }
@@ -80,9 +80,7 @@ loadConfidenceParametersV2().catch(() => {
  */
 function calculateTeamVariance(teamId: string, allGames: Game[]): number {
   // Filter games for this team
-  const teamGames = allGames.filter(
-    (g) => g.home_team_master_id === teamId || g.away_team_master_id === teamId
-  );
+  const teamGames = allGames.filter((g) => g.home_team_master_id === teamId || g.away_team_master_id === teamId);
 
   if (teamGames.length < 2) {
     // Not enough data for variance calculation
@@ -175,17 +173,14 @@ export function computeConfidence(
 
   // Sample size strength (normalized to [0, 1])
   // Use minimum of both teams' games played
-  const minGamesPlayed = Math.min(
-    teamA.games_played || 0,
-    teamB.games_played || 0
-  );
+  const minGamesPlayed = Math.min(teamA.games_played || 0, teamB.games_played || 0);
   const sample_strength = Math.min(1.0, minGamesPlayed / 30.0);
 
   // Use V2 fitted weights if available, otherwise use V1 defaults
   // Note: params may not be loaded yet on first call - that's OK, will use defaults
   const weights = confidenceParamsV2?.weights;
   const intercept = confidenceParamsV2?.intercept ?? 0;
-  
+
   let confidence_score: number;
   if (weights) {
     // V2 Formula: Use fitted weights from logistic regression
@@ -198,18 +193,14 @@ export function computeConfidence(
   } else {
     // V1 Formula: compositeDiff + variance + sample size
     // No SOS term to avoid double-counting (compositeDiff already captures skill gap)
-    confidence_score = sigmoid(
-      1.6 * Math.abs(compositeDiff) -
-      1.0 * combined_variance +
-      0.6 * sample_strength
-    );
+    confidence_score = sigmoid(1.6 * Math.abs(compositeDiff) - 1.0 * combined_variance + 0.6 * sample_strength);
   }
 
   // Map to labels (use calibrated thresholds if available)
   const thresholds = confidenceParamsV2?.thresholds;
   const highThreshold = thresholds?.high ?? 0.68;
   const mediumThreshold = thresholds?.medium ?? 0.52;
-  
+
   let confidence: 'high' | 'medium' | 'low';
   if (confidence_score >= highThreshold) {
     confidence = 'high';
@@ -224,4 +215,3 @@ export function computeConfidence(
     confidence,
   };
 }
-

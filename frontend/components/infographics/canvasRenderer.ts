@@ -53,7 +53,7 @@ export async function renderInfographicToCanvas(options: RenderOptions): Promise
   // Font sizes based on platform
   const titleSize = isVertical ? 72 : isSquare ? 64 : 56;
   const subtitleSize = isVertical ? 36 : isSquare ? 32 : 28;
-  const ctaSize = isVertical ? 24 : isSquare ? 22 : 18;
+  const _ctaSize = isVertical ? 24 : isSquare ? 22 : 18;
   const rankSize = isVertical ? 36 : isSquare ? 32 : 28;
   const teamNameSize = isVertical ? 26 : isSquare ? 22 : 18;
   const statsSize = isVertical ? 20 : isSquare ? 18 : 16;

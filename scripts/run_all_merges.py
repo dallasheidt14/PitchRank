@@ -4,67 +4,115 @@ Run duplicate finder and execute merges for all age groups, states, and genders.
 Creates a summary tracker for weekly runs.
 """
 
-import os
-import sys
 import json
+import os
 import re
-from datetime import datetime
+import sys
 from collections import defaultdict
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(__file__))
 
 from dotenv import load_dotenv
-from supabase import create_client
-from team_name_normalizer import parse_team_name, ALIAS_DIVISION_SUFFIXES
-from collections import defaultdict
+from team_name_normalizer import ALIAS_DIVISION_SUFFIXES, parse_team_name
 
-load_dotenv('/Users/pitchrankio-dev/Projects/PitchRank/.env')
-supabase = create_client(os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_KEY'))
+from supabase import create_client
+
+load_dotenv("/Users/pitchrankio-dev/Projects/PitchRank/.env")
+supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
 # All states + DC
-ALL_STATES = ['AK', 'AL', 'AR', 'AZ', 'CA', 'CO', 'CT', 'DC', 'DE', 'FL', 'GA', 'HI', 
-              'IA', 'ID', 'IL', 'IN', 'KS', 'KY', 'LA', 'MA', 'MD', 'ME', 'MI', 'MN', 
-              'MO', 'MS', 'MT', 'NC', 'ND', 'NE', 'NH', 'NJ', 'NM', 'NV', 'NY', 'OH', 
-              'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VA', 'VT', 'WA', 
-              'WI', 'WV', 'WY']
+ALL_STATES = [
+    "AK",
+    "AL",
+    "AR",
+    "AZ",
+    "CA",
+    "CO",
+    "CT",
+    "DC",
+    "DE",
+    "FL",
+    "GA",
+    "HI",
+    "IA",
+    "ID",
+    "IL",
+    "IN",
+    "KS",
+    "KY",
+    "LA",
+    "MA",
+    "MD",
+    "ME",
+    "MI",
+    "MN",
+    "MO",
+    "MS",
+    "MT",
+    "NC",
+    "ND",
+    "NE",
+    "NH",
+    "NJ",
+    "NM",
+    "NV",
+    "NY",
+    "OH",
+    "OK",
+    "OR",
+    "PA",
+    "RI",
+    "SC",
+    "SD",
+    "TN",
+    "TX",
+    "UT",
+    "VA",
+    "VT",
+    "WA",
+    "WI",
+    "WV",
+    "WY",
+]
 
-ALL_AGE_GROUPS = ['U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U19']
-ALL_GENDERS = ['Male', 'Female']
+ALL_AGE_GROUPS = ["U10", "U11", "U12", "U13", "U14", "U15", "U16", "U17", "U19"]
+ALL_GENDERS = ["Male", "Female"]
 
 
 def normalize_cohort_age_group(age_group: str) -> str:
     """Map legacy U18 requests into the merged U19 scan cohort."""
-    age_num = re.sub(r'[^0-9]', '', age_group or '')
+    age_num = re.sub(r"[^0-9]", "", age_group or "")
     if not age_num:
-        raise ValueError('age_group must contain digits')
-    if age_num in {'18', '19'}:
-        return 'U19'
-    return f'U{int(age_num)}'
+        raise ValueError("age_group must contain digits")
+    if age_num in {"18", "19"}:
+        return "U19"
+    return f"U{int(age_num)}"
 
 
 def build_age_group_filter(age_group: str) -> str:
     """Build a Supabase OR clause for cohort fetching."""
     normalized_age = normalize_cohort_age_group(age_group)
-    if normalized_age == 'U19':
-        values = ('U18', 'u18', 'U19', 'u19')
+    if normalized_age == "U19":
+        values = ("U18", "u18", "U19", "u19")
     else:
         values = (normalized_age, normalized_age.lower())
-    return ','.join(f'age_group.eq.{value}' for value in values)
+    return ",".join(f"age_group.eq.{value}" for value in values)
 
 
 def normalize_stored_age_group(age_group: str | None) -> str | None:
     """Normalize a stored team age_group without merging cohorts."""
     if not age_group:
         return None
-    digits = re.sub(r'[^0-9]', '', age_group)
+    digits = re.sub(r"[^0-9]", "", age_group)
     if not digits:
         return None
-    return f'u{int(digits)}'
+    return f"u{int(digits)}"
 
 
 def get_team_division(team_id: str, provider_team_id: str = None) -> str:
     """Check team's provider_team_id for division suffixes (AD, HD, EA, etc.)
-    
+
     IMPORTANT: Check teams.provider_team_id FIRST, then fall back to alias table.
     The primary division marker is in the teams table itself.
     """
@@ -73,26 +121,27 @@ def get_team_division(team_id: str, provider_team_id: str = None) -> str:
         pid = provider_team_id.upper()
         for suffix in ALIAS_DIVISION_SUFFIXES:
             if pid.endswith(suffix.upper()):
-                return suffix.strip('_').upper()
-    
+                return suffix.strip("_").upper()
+
     # Fall back to alias table
     try:
-        aliases = supabase.table('team_alias_map').select('provider_team_id').eq('team_id_master', team_id).execute()
+        aliases = supabase.table("team_alias_map").select("provider_team_id").eq("team_id_master", team_id).execute()
         for a in aliases.data or []:
-            pid = (a.get('provider_team_id') or '').upper()
+            pid = (a.get("provider_team_id") or "").upper()
             for suffix in ALIAS_DIVISION_SUFFIXES:
                 if pid.endswith(suffix.upper()):
-                    return suffix.strip('_').upper()
-    except:
+                    return suffix.strip("_").upper()
+    except Exception:
         pass
     return None
 
 
 def pick_canonical(teams: list) -> tuple:
     """Pick which team should be canonical vs deprecated."""
+
     def score_team(t):
-        name = t['name']
-        club = t['club'] or ''
+        name = t["name"]
+        club = t["club"] or ""
         score = 0
         if club and club.lower() in name.lower():
             score += 100
@@ -100,7 +149,7 @@ def pick_canonical(teams: list) -> tuple:
             score += 10
         score += len(name) / 100
         return score
-    
+
     sorted_teams = sorted(teams, key=score_team, reverse=True)
     return sorted_teams[0], sorted_teams[1:]
 
@@ -108,271 +157,287 @@ def pick_canonical(teams: list) -> tuple:
 def find_duplicates_for_cohort(state: str, gender: str, age_group: str):
     """Find duplicates for a specific cohort."""
     age_group = normalize_cohort_age_group(age_group)
-    
+
     try:
-        teams = supabase.table('teams').select(
-            'team_id_master, team_name, club_name, provider_team_id, age_group'
-        ).eq('state_code', state).eq('gender', gender).eq('is_deprecated', False).or_(
-            build_age_group_filter(age_group)
-        ).execute()
-    except Exception as e:
+        teams = (
+            supabase.table("teams")
+            .select("team_id_master, team_name, club_name, provider_team_id, age_group")
+            .eq("state_code", state)
+            .eq("gender", gender)
+            .eq("is_deprecated", False)
+            .or_(build_age_group_filter(age_group))
+            .execute()
+        )
+    except Exception:
         return [], 0
-    
+
     if not teams.data:
         return [], 0
-    
+
     # Group by normalized name
     groups = defaultdict(list)
     for t in teams.data:
-        parsed = parse_team_name(t['team_name'], t['club_name'])
-        stored_age = normalize_stored_age_group(t.get('age_group')) or 'unknown_age'
-        key = (parsed['normalized'] or 'UNPARSED', stored_age)
-        groups[key].append({
-            'id': t['team_id_master'],
-            'name': t['team_name'],
-            'club': t['club_name'],
-            'provider_team_id': t.get('provider_team_id'),
-            'age_group': t.get('age_group')
-        })
-    
+        parsed = parse_team_name(t["team_name"], t["club_name"])
+        stored_age = normalize_stored_age_group(t.get("age_group")) or "unknown_age"
+        key = (parsed["normalized"] or "UNPARSED", stored_age)
+        groups[key].append(
+            {
+                "id": t["team_id_master"],
+                "name": t["team_name"],
+                "club": t["club_name"],
+                "provider_team_id": t.get("provider_team_id"),
+                "age_group": t.get("age_group"),
+            }
+        )
+
     # Find duplicates
     duplicates = []
-    
+
     # Skip teams with these markers - they need manual review
-    MANUAL_REVIEW_MARKERS = {'ad', 'hd', 'mls next', 'mls-next', 'mlsnext'}
-    
+    MANUAL_REVIEW_MARKERS = {"ad", "hd", "mls next", "mls-next", "mlsnext"}
+
     for key, group in groups.items():
-        unique_ids = list(set(t['id'] for t in group))
+        unique_ids = list(set(t["id"] for t in group))
         if len(unique_ids) < 2:
             continue
-        
+
         # Skip if any team has AD/HD/MLS NEXT markers (manual review required)
         has_manual_marker = False
         for t in group:
-            name_lower = t['name'].lower()
+            name_lower = t["name"].lower()
             for marker in MANUAL_REVIEW_MARKERS:
                 # Check for marker as whole word (not part of another word)
-                if f' {marker} ' in f' {name_lower} ' or name_lower.endswith(f' {marker}') or name_lower.startswith(f'{marker} '):
+                if (
+                    f" {marker} " in f" {name_lower} "
+                    or name_lower.endswith(f" {marker}")
+                    or name_lower.startswith(f"{marker} ")
+                ):
                     has_manual_marker = True
                     break
             if has_manual_marker:
                 break
-        
+
         if has_manual_marker:
             continue  # Skip - needs manual review
-        
+
         # Check for division conflicts in provider_team_id (CRITICAL: AD vs HD are different teams!)
-        divisions = {t['id']: get_team_division(t['id'], t.get('provider_team_id')) for t in group}
+        divisions = {t["id"]: get_team_division(t["id"], t.get("provider_team_id")) for t in group}
         unique_divs = set(d for d in divisions.values() if d)
-        
+
         if len(unique_divs) > 1:
             # Different divisions (e.g., AD vs HD) - these are DIFFERENT teams, skip!
             continue
-        
+
         # Also skip if ANY team has a division marker - safer to not auto-merge MLS NEXT teams
         if unique_divs:
             continue
-        
+
         canonical, deprecated = pick_canonical(group)
         for dep in deprecated:
-            duplicates.append({
-                'deprecated_id': dep['id'],
-                'deprecated_name': dep['name'],
-                'canonical_id': canonical['id'],
-                'canonical_name': canonical['name'],
-                'club': canonical['club']
-            })
-    
+            duplicates.append(
+                {
+                    "deprecated_id": dep["id"],
+                    "deprecated_name": dep["name"],
+                    "canonical_id": canonical["id"],
+                    "canonical_name": canonical["name"],
+                    "club": canonical["club"],
+                }
+            )
+
     return duplicates, len(teams.data)
 
 
 def execute_merge(deprecated_id: str, canonical_id: str) -> dict:
     """Execute a single merge and return result."""
     try:
-        result = supabase.rpc('execute_team_merge', {
-            'p_deprecated_team_id': deprecated_id,
-            'p_canonical_team_id': canonical_id,
-            'p_merged_by': 'pitchrank-bot',
-            'p_merge_reason': 'Auto-merge: duplicate team (weekly scan)'
-        }).execute()
-        
+        result = supabase.rpc(
+            "execute_team_merge",
+            {
+                "p_deprecated_team_id": deprecated_id,
+                "p_canonical_team_id": canonical_id,
+                "p_merged_by": "pitchrank-bot",
+                "p_merge_reason": "Auto-merge: duplicate team (weekly scan)",
+            },
+        ).execute()
+
         # Parse the response (handles the JSON parsing quirk)
         if result.data:
             if isinstance(result.data, dict):
                 return result.data
             # Try to extract from error details
-            return {'success': True}
-        return {'success': False, 'error': 'No response'}
+            return {"success": True}
+        return {"success": False, "error": "No response"}
     except Exception as e:
         error_str = str(e)
         # Check if it actually succeeded despite the error
         if '"success": true' in error_str or "'success': True" in error_str:
-            return {'success': True}
-        return {'success': False, 'error': error_str[:100]}
+            return {"success": True}
+        return {"success": False, "error": error_str[:100]}
 
 
 def run_all_merges(dry_run=False):
     """Run duplicate detection and merges for all cohorts."""
-    
+
     print("=" * 70)
     print("PITCHRANK DUPLICATE TEAM MERGER")
     print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 70)
     print()
-    
+
     # Results tracking
     results = {
-        'run_date': datetime.now().isoformat(),
-        'dry_run': dry_run,
-        'by_state': defaultdict(lambda: {'teams': 0, 'duplicates': 0, 'merged': 0}),
-        'by_gender': defaultdict(lambda: {'teams': 0, 'duplicates': 0, 'merged': 0}),
-        'by_age': defaultdict(lambda: {'teams': 0, 'duplicates': 0, 'merged': 0}),
-        'total_teams': 0,
-        'total_duplicates': 0,
-        'total_merged': 0,
-        'failed_merges': []
+        "run_date": datetime.now().isoformat(),
+        "dry_run": dry_run,
+        "by_state": defaultdict(lambda: {"teams": 0, "duplicates": 0, "merged": 0}),
+        "by_gender": defaultdict(lambda: {"teams": 0, "duplicates": 0, "merged": 0}),
+        "by_age": defaultdict(lambda: {"teams": 0, "duplicates": 0, "merged": 0}),
+        "total_teams": 0,
+        "total_duplicates": 0,
+        "total_merged": 0,
+        "failed_merges": [],
     }
-    
+
     all_merges = []
-    
+
     # Scan all cohorts
     for gender in ALL_GENDERS:
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print(f"SCANNING {gender.upper()}")
-        print(f"{'='*70}")
-        
+        print(f"{'=' * 70}")
+
         for age in ALL_AGE_GROUPS:
             print(f"\n  {age}:", end=" ", flush=True)
             age_dupes = 0
             age_teams = 0
-            
+
             for state in ALL_STATES:
                 duplicates, team_count = find_duplicates_for_cohort(state, gender, age)
-                
-                results['by_state'][state]['teams'] += team_count
-                results['by_state'][state]['duplicates'] += len(duplicates)
-                results['by_gender'][gender]['teams'] += team_count
-                results['by_gender'][gender]['duplicates'] += len(duplicates)
-                results['by_age'][age]['teams'] += team_count
-                results['by_age'][age]['duplicates'] += len(duplicates)
-                results['total_teams'] += team_count
-                results['total_duplicates'] += len(duplicates)
-                
+
+                results["by_state"][state]["teams"] += team_count
+                results["by_state"][state]["duplicates"] += len(duplicates)
+                results["by_gender"][gender]["teams"] += team_count
+                results["by_gender"][gender]["duplicates"] += len(duplicates)
+                results["by_age"][age]["teams"] += team_count
+                results["by_age"][age]["duplicates"] += len(duplicates)
+                results["total_teams"] += team_count
+                results["total_duplicates"] += len(duplicates)
+
                 age_dupes += len(duplicates)
                 age_teams += team_count
-                
+
                 for d in duplicates:
-                    d['state'] = state
-                    d['gender'] = gender
-                    d['age'] = age
+                    d["state"] = state
+                    d["gender"] = gender
+                    d["age"] = age
                     all_merges.append(d)
-            
+
             print(f"{age_dupes} dupes / {age_teams} teams")
-    
-    print(f"\n{'='*70}")
+
+    print(f"\n{'=' * 70}")
     print(f"SCAN COMPLETE: {results['total_duplicates']} duplicates found in {results['total_teams']} teams")
-    print(f"{'='*70}")
-    
+    print(f"{'=' * 70}")
+
     if dry_run:
         print("\n[DRY RUN - No merges executed]")
     elif all_merges:
         print(f"\nExecuting {len(all_merges)} merges...")
-        
+
         for i, merge in enumerate(all_merges):
-            result = execute_merge(merge['deprecated_id'], merge['canonical_id'])
-            
-            if result.get('success'):
-                results['total_merged'] += 1
-                results['by_state'][merge['state']]['merged'] += 1
-                results['by_gender'][merge['gender']]['merged'] += 1
-                results['by_age'][merge['age']]['merged'] += 1
-                print(f"  ✓ {i+1}/{len(all_merges)}: {merge['club']} - {merge['deprecated_name'][:30]}")
+            result = execute_merge(merge["deprecated_id"], merge["canonical_id"])
+
+            if result.get("success"):
+                results["total_merged"] += 1
+                results["by_state"][merge["state"]]["merged"] += 1
+                results["by_gender"][merge["gender"]]["merged"] += 1
+                results["by_age"][merge["age"]]["merged"] += 1
+                print(f"  ✓ {i + 1}/{len(all_merges)}: {merge['club']} - {merge['deprecated_name'][:30]}")
             else:
-                results['failed_merges'].append({
-                    **merge,
-                    'error': result.get('error', 'Unknown')
-                })
-                print(f"  ✗ {i+1}/{len(all_merges)}: {merge['deprecated_name'][:30]} - {result.get('error', 'Unknown')[:50]}")
-        
+                results["failed_merges"].append({**merge, "error": result.get("error", "Unknown")})
+                print(
+                    f"  ✗ {i + 1}/{len(all_merges)}: {merge['deprecated_name'][:30]} "
+                    f"- {result.get('error', 'Unknown')[:50]}"
+                )
+
         print(f"\nMerges complete: {results['total_merged']} succeeded, {len(results['failed_merges'])} failed")
-    
+
     # Convert defaultdicts to regular dicts for JSON
-    results['by_state'] = dict(results['by_state'])
-    results['by_gender'] = dict(results['by_gender'])
-    results['by_age'] = dict(results['by_age'])
-    
+    results["by_state"] = dict(results["by_state"])
+    results["by_gender"] = dict(results["by_gender"])
+    results["by_age"] = dict(results["by_age"])
+
     return results
 
 
 def save_tracker(results: dict):
     """Save results to tracker file."""
-    tracker_path = '/Users/pitchrankio-dev/Projects/PitchRank/scripts/merges/merge_tracker.json'
-    
+    tracker_path = "/Users/pitchrankio-dev/Projects/PitchRank/scripts/merges/merge_tracker.json"
+
     # Load existing tracker or create new
     if os.path.exists(tracker_path):
-        with open(tracker_path, 'r') as f:
+        with open(tracker_path, "r") as f:
             tracker = json.load(f)
     else:
-        tracker = {'runs': []}
-    
+        tracker = {"runs": []}
+
     # Add this run
-    tracker['runs'].append(results)
-    tracker['last_run'] = results['run_date']
-    
+    tracker["runs"].append(results)
+    tracker["last_run"] = results["run_date"]
+
     # Save
-    with open(tracker_path, 'w') as f:
+    with open(tracker_path, "w") as f:
         json.dump(tracker, f, indent=2)
-    
+
     print(f"\nTracker saved to: {tracker_path}")
-    
+
     # Also save a human-readable summary
-    summary_path = '/Users/pitchrankio-dev/Projects/PitchRank/scripts/merges/MERGE_SUMMARY.md'
-    with open(summary_path, 'w') as f:
-        f.write(f"# Team Merge Summary\n\n")
+    summary_path = "/Users/pitchrankio-dev/Projects/PitchRank/scripts/merges/MERGE_SUMMARY.md"
+    with open(summary_path, "w") as f:
+        f.write("# Team Merge Summary\n\n")
         f.write(f"**Last Run:** {results['run_date']}\n\n")
-        f.write(f"## Totals\n\n")
-        f.write(f"| Metric | Count |\n")
-        f.write(f"|--------|-------|\n")
+        f.write("## Totals\n\n")
+        f.write("| Metric | Count |\n")
+        f.write("|--------|-------|\n")
         f.write(f"| Teams Scanned | {results['total_teams']:,} |\n")
         f.write(f"| Duplicates Found | {results['total_duplicates']:,} |\n")
         f.write(f"| Merges Executed | {results['total_merged']:,} |\n")
         f.write(f"| Failed Merges | {len(results['failed_merges']):,} |\n\n")
-        
-        f.write(f"## By State\n\n")
-        f.write(f"| State | Teams | Dupes | Merged |\n")
-        f.write(f"|-------|-------|-------|--------|\n")
-        for state in sorted(results['by_state'].keys()):
-            s = results['by_state'][state]
-            if s['teams'] > 0:
+
+        f.write("## By State\n\n")
+        f.write("| State | Teams | Dupes | Merged |\n")
+        f.write("|-------|-------|-------|--------|\n")
+        for state in sorted(results["by_state"].keys()):
+            s = results["by_state"][state]
+            if s["teams"] > 0:
                 f.write(f"| {state} | {s['teams']:,} | {s['duplicates']} | {s['merged']} |\n")
-        
-        f.write(f"\n## By Gender\n\n")
-        f.write(f"| Gender | Teams | Dupes | Merged |\n")
-        f.write(f"|--------|-------|-------|--------|\n")
-        for gender in results['by_gender']:
-            g = results['by_gender'][gender]
+
+        f.write("\n## By Gender\n\n")
+        f.write("| Gender | Teams | Dupes | Merged |\n")
+        f.write("|--------|-------|-------|--------|\n")
+        for gender in results["by_gender"]:
+            g = results["by_gender"][gender]
             f.write(f"| {gender} | {g['teams']:,} | {g['duplicates']} | {g['merged']} |\n")
-        
-        f.write(f"\n## By Age Group\n\n")
-        f.write(f"| Age | Teams | Dupes | Merged |\n")
-        f.write(f"|-----|-------|-------|--------|\n")
+
+        f.write("\n## By Age Group\n\n")
+        f.write("| Age | Teams | Dupes | Merged |\n")
+        f.write("|-----|-------|-------|--------|\n")
         for age in ALL_AGE_GROUPS:
-            if age in results['by_age']:
-                a = results['by_age'][age]
+            if age in results["by_age"]:
+                a = results["by_age"][age]
                 f.write(f"| {age} | {a['teams']:,} | {a['duplicates']} | {a['merged']} |\n")
-    
+
     print(f"Summary saved to: {summary_path}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description='Run all team merges')
-    parser.add_argument('--dry-run', action='store_true', help='Scan only, do not execute merges')
+
+    parser = argparse.ArgumentParser(description="Run all team merges")
+    parser.add_argument("--dry-run", action="store_true", help="Scan only, do not execute merges")
     args = parser.parse_args()
-    
+
     results = run_all_merges(dry_run=args.dry_run)
     save_tracker(results)
-    
+
     print("\n" + "=" * 70)
     print("COMPLETE!")
     print("=" * 70)

@@ -1,7 +1,7 @@
 /**
  * Seed Agent Tasks
  * Pre-populate Mission Control with recurring scheduled agent tasks
- * 
+ *
  * Usage: npx tsx scripts/seed-agent-tasks.ts
  */
 
@@ -69,11 +69,7 @@ async function seedAgentTasks() {
       continue;
     }
 
-    const { data, error } = await supabase
-      .from('agent_tasks')
-      .insert(task)
-      .select()
-      .single();
+    const { data, error } = await supabase.from('agent_tasks').insert(task).select().single();
 
     if (error) {
       console.error(`❌ Failed to create "${task.title}":`, error);

@@ -11,30 +11,33 @@ This script:
 Usage:
     python3 scripts/find_queue_matches.py [--dry-run] [--limit 100] [--execute]
 """
-import os
-import sys
+
 import argparse
+import os
 import re
-from pathlib import Path
-from dotenv import load_dotenv
-from supabase import create_client
 from difflib import SequenceMatcher
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+from supabase import create_client
 
 # Load .env.local if it exists, otherwise fall back to .env
-env_path = Path(__file__).parent.parent / '.env.local'
+env_path = Path(__file__).parent.parent / ".env.local"
 if env_path.exists():
     load_dotenv(env_path, override=True)
 else:
     load_dotenv()
 
+
 def get_supabase():
     """Create Supabase client - same pattern as all other scripts."""
-    supabase_url = os.getenv('SUPABASE_URL')
-    supabase_key = os.getenv('SUPABASE_KEY')
-    
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_KEY")
+
     if not supabase_url or not supabase_key:
         raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set")
-    
+
     return create_client(supabase_url, supabase_key)
 
 
@@ -42,7 +45,7 @@ def normalize_filter_age_group(age_group):
     """Normalize an age group value without merging U18/U19."""
     if not age_group:
         return None
-    digits = re.sub(r'[^0-9]', '', str(age_group))
+    digits = re.sub(r"[^0-9]", "", str(age_group))
     if not digits:
         return None
     return f"u{int(digits)}"
@@ -54,40 +57,41 @@ def build_age_group_filter_clause(age_group):
     if not normalized:
         return None
     values = (normalized, normalized.upper())
-    return ','.join(f"age_group.eq.{value}" for value in values)
+    return ",".join(f"age_group.eq.{value}" for value in values)
 
 
 def normalize_team_name(name):
     """Normalize team name for matching."""
     if not name:
         return ""
-    
+
     # Lowercase
     n = name.lower().strip()
-    
+
     # Remove common suffixes/prefixes
-    n = re.sub(r'\s*(ecnl|ecnl-rl|rl|pre-ecnl|mls next|ga|academy)\s*', ' ', n)
-    n = re.sub(r'\s*-\s*', ' ', n)  # Replace dashes with spaces
-    
+    n = re.sub(r"\s*(ecnl|ecnl-rl|rl|pre-ecnl|mls next|ga|academy)\s*", " ", n)
+    n = re.sub(r"\s*-\s*", " ", n)  # Replace dashes with spaces
+
     # Normalize age formats
-    n = re.sub(r'\b(b|g)\s*(\d{2,4})\b', r'\2', n)  # B2014 -> 2014
-    n = re.sub(r'\b(\d{2,4})\s*(b|g)\b', r'\1', n)  # 2014B -> 2014
-    n = re.sub(r'\bu\s*(\d+)\b', r'u\1', n)  # U 14 -> u14
-    
+    n = re.sub(r"\b(b|g)\s*(\d{2,4})\b", r"\2", n)  # B2014 -> 2014
+    n = re.sub(r"\b(\d{2,4})\s*(b|g)\b", r"\1", n)  # 2014B -> 2014
+    n = re.sub(r"\bu\s*(\d+)\b", r"u\1", n)  # U 14 -> u14
+
     # Remove extra whitespace
-    n = ' '.join(n.split())
-    
+    n = " ".join(n.split())
+
     return n
+
 
 def extract_club_from_name(provider_team_name):
     """Extract club name from provider team name.
-    
+
     Logic:
     1. Split on age/year patterns (2014, U14, B2014, etc.)
     2. Take the first part as club name
     3. Remove duplicate words (e.g., "Kingman SC Kingman SC" → "Kingman SC")
     4. Strip common suffixes (ECNL, RL, PRE, COMP)
-    
+
     Examples:
         "FC Tampa Rangers FCTS 2015 Falcons" → "FC Tampa Rangers FCTS"
         "Phoenix Rising FC B2014 Black" → "Phoenix Rising FC"
@@ -96,146 +100,343 @@ def extract_club_from_name(provider_team_name):
     """
     if not provider_team_name:
         return None
-    
+
     name = provider_team_name.strip()
-    
+
     # Age/year patterns to split on (from team_name_normalizer.py)
     # Match: U14, U-14, 2014, B2014, 2014B, G2015, 15B, B15, etc.
     age_patterns = [
-        r'\bU-?\d{1,2}\b',           # U14, U-14
-        r'\b[BG]?\d{4}[BG]?\b',      # 2014, B2014, 2014B, G2015, 2015G
-        r'\b[BG]\d{2}(?!\d)\b',      # B14, G15 (not followed by more digits)
-        r'\b\d{2}[BG](?!\d)\b',      # 14B, 15G (not followed by more digits)
+        r"\bU-?\d{1,2}\b",  # U14, U-14
+        r"\b[BG]?\d{4}[BG]?\b",  # 2014, B2014, 2014B, G2015, 2015G
+        r"\b[BG]\d{2}(?!\d)\b",  # B14, G15 (not followed by more digits)
+        r"\b\d{2}[BG](?!\d)\b",  # 14B, 15G (not followed by more digits)
     ]
-    
+
     # Find the earliest age pattern match
     earliest_pos = len(name)
     for pattern in age_patterns:
         match = re.search(pattern, name, re.IGNORECASE)
         if match and match.start() < earliest_pos:
             earliest_pos = match.start()
-    
+
     # Extract club name before the age pattern
     if earliest_pos < len(name):
         club_name = name[:earliest_pos].strip()
     else:
         # No age pattern found, use whole name
         club_name = name
-    
+
     # Remove common suffixes (case insensitive)
     suffixes = [
-        r'\s+(ECNL-RL|ECNL RL|ECRL)\s*$',
-        r'\s+ECNL\s*$',
-        r'\s+RL\s*$',
-        r'\s+PRE-ECNL\s*$',
-        r'\s+PRE\s*$',
-        r'\s+COMP\s*$',
-        r'\s+GA\s*$',
-        r'\s+MLS NEXT\s*$',
-        r'\s+ACADEMY\s*$',
-        r'\s+SELECT\s*$',
-        r'\s+PREMIER\s*$',
-        r'\s+ELITE\s*$',
+        r"\s+(ECNL-RL|ECNL RL|ECRL)\s*$",
+        r"\s+ECNL\s*$",
+        r"\s+RL\s*$",
+        r"\s+PRE-ECNL\s*$",
+        r"\s+PRE\s*$",
+        r"\s+COMP\s*$",
+        r"\s+GA\s*$",
+        r"\s+MLS NEXT\s*$",
+        r"\s+ACADEMY\s*$",
+        r"\s+SELECT\s*$",
+        r"\s+PREMIER\s*$",
+        r"\s+ELITE\s*$",
     ]
-    
+
     for suffix_pattern in suffixes:
-        club_name = re.sub(suffix_pattern, '', club_name, flags=re.IGNORECASE)
-    
+        club_name = re.sub(suffix_pattern, "", club_name, flags=re.IGNORECASE)
+
     # Remove trailing hyphens, dots, and extra whitespace
-    club_name = club_name.strip(' -.')
-    
+    club_name = club_name.strip(" -.")
+
     # Remove duplicate words (e.g., "Kingman SC Kingman SC" → "Kingman SC")
     words = club_name.split()
     if len(words) >= 4:  # Only check if at least 4 words
         # Check if first half == second half
         mid = len(words) // 2
-        first_half = ' '.join(words[:mid])
-        second_half = ' '.join(words[mid:mid*2])
+        first_half = " ".join(words[:mid])
+        second_half = " ".join(words[mid : mid * 2])
         if first_half.lower() == second_half.lower():
             club_name = first_half
-    
+
     # Final cleanup
-    club_name = ' '.join(club_name.split())
-    
+    club_name = " ".join(club_name.split())
+
     # Don't return empty or too-short club names
     if not club_name or len(club_name) < 3:
         return None
-    
+
     return club_name
 
+
 # Common team colors and variants that indicate DIFFERENT teams
-TEAM_COLORS = {'red', 'blue', 'white', 'black', 'gold', 'grey', 'gray', 'green', 
-               'orange', 'purple', 'yellow', 'navy', 'maroon', 'silver', 'pink', 'sky'}
+TEAM_COLORS = {
+    "red",
+    "blue",
+    "white",
+    "black",
+    "gold",
+    "grey",
+    "gray",
+    "green",
+    "orange",
+    "purple",
+    "yellow",
+    "navy",
+    "maroon",
+    "silver",
+    "pink",
+    "sky",
+}
 
 # Direction/location variants that indicate different teams
-TEAM_DIRECTIONS = {'north', 'south', 'east', 'west', 'central'}
+TEAM_DIRECTIONS = {"north", "south", "east", "west", "central"}
+
 
 def extract_team_variant(name):
     """Extract team variant (color, direction, coach name, roman numeral) from team name.
-    
+
     Teams like 'FC Dallas 2014 Blue' and 'FC Dallas 2014 Gold' are DIFFERENT teams.
     Also 'Select North' and 'Select South' are DIFFERENT teams.
     Coach names like 'Atletico Dallas 15G Riedell' and 'Atletico Dallas 15G Davis' are DIFFERENT teams.
     """
     if not name:
         return None
-    
+
     name_lower = name.lower()
     words = name_lower.split()
-    
+
     # Check for color ANYWHERE in name (not just at end)
     for word in words:
-        word_clean = word.strip('-()[]')
+        word_clean = word.strip("-()[]")
         if word_clean in TEAM_COLORS:
             return word_clean
-    
+
     # Check for direction variants (North, South, East, West, Central)
     for word in words:
-        word_clean = word.strip('-()[]')
+        word_clean = word.strip("-()[]")
         if word_clean in TEAM_DIRECTIONS:
             return word_clean
-    
+
     # Check for roman numerals or letter variants (I, II, III, A, B)
-    roman_match = re.search(r'\b(i{1,3}|iv|v|vi{0,3})\b', name_lower)
+    roman_match = re.search(r"\b(i{1,3}|iv|v|vi{0,3})\b", name_lower)
     if roman_match:
         return roman_match.group(1)
-    
+
     # === ENHANCED COACH NAME DETECTION ===
     # Coach names typically appear AFTER age/year but BEFORE regions/programs
     # Pattern: "Club [Age] [CoachName] (Region)" or "Club [Age] [CoachName] Region"
     # Examples: "15G Riedell (CTX)", "2015 Davis CTX", "2014 Thompson", "U14 Blanton"
 
     # Known non-coach words to filter out
-    common_words = {'ecnl', 'boys', 'girls', 'academy', 'united', 'elite', 'club', 'futbol',
-                    'soccer', 'youth', 'rush', 'surf', 'select', 'premier', 'gold', 'blue',
-                    'white', 'black', 'grey', 'gray', 'green', 'maroon', 'navy', 'lafc', 'futeca',
-                    'selection', 'fire', 'storm', 'fusion', 'athletico', 'atletico', 'fc', 'sc',
-                    'real', 'inter', 'sporting', 'united'}
+    common_words = {
+        "ecnl",
+        "boys",
+        "girls",
+        "academy",
+        "united",
+        "elite",
+        "club",
+        "futbol",
+        "soccer",
+        "youth",
+        "rush",
+        "surf",
+        "select",
+        "premier",
+        "gold",
+        "blue",
+        "white",
+        "black",
+        "grey",
+        "gray",
+        "green",
+        "maroon",
+        "navy",
+        "lafc",
+        "futeca",
+        "selection",
+        "fire",
+        "storm",
+        "fusion",
+        "athletico",
+        "atletico",
+        "fc",
+        "sc",
+        "real",
+        "inter",
+        "sporting",
+        "united",
+    }
 
     # Known region codes (3-letter abbreviations, typically in parens or at end)
-    region_codes = {'ctx', 'phx', 'atx', 'dal', 'hou', 'san', 'sdg', 'sfv', 'oc', 'ie',
-                   'la', 'bay', 'nyc', 'nj', 'dmv', 'pnw', 'sea', 'pdx', 'slc', 'den',
-                   'chi', 'stl', 'kc', 'min', 'det', 'cle', 'pit', 'atl', 'mia', 'orl',
-                   'tam', 'ral', 'cha', 'dc', 'md', 'va', 'pa', 'ma', 'ct', 'ri', 'vt',
-                   'nh', 'me', 'az', 'ca', 'tx', 'fl', 'ny', 'nj', 'ga', 'nc', 'sc',
-                   'co', 'ut', 'nv', 'wa', 'or', 'id', 'mt', 'wy', 'nm', 'ok', 'ks',
-                   'ne', 'sd', 'nd', 'mn', 'wi', 'mi', 'il', 'in', 'oh', 'ky', 'tn',
-                   'al', 'ms', 'la', 'ar', 'mo', 'ia', 'ecnl', 'rl', 'ga', 'ea', 'npl',
-                   'usys', 'ayso', 'scdsl', 'dpl', 'mls', 'ussda', 'pre'}
+    region_codes = {
+        "ctx",
+        "phx",
+        "atx",
+        "dal",
+        "hou",
+        "san",
+        "sdg",
+        "sfv",
+        "oc",
+        "ie",
+        "la",
+        "bay",
+        "nyc",
+        "nj",
+        "dmv",
+        "pnw",
+        "sea",
+        "pdx",
+        "slc",
+        "den",
+        "chi",
+        "stl",
+        "kc",
+        "min",
+        "det",
+        "cle",
+        "pit",
+        "atl",
+        "mia",
+        "orl",
+        "tam",
+        "ral",
+        "cha",
+        "dc",
+        "md",
+        "va",
+        "pa",
+        "ma",
+        "ct",
+        "ri",
+        "vt",
+        "nh",
+        "me",
+        "az",
+        "ca",
+        "tx",
+        "fl",
+        "ny",
+        "nj",
+        "ga",
+        "nc",
+        "sc",
+        "co",
+        "ut",
+        "nv",
+        "wa",
+        "or",
+        "id",
+        "mt",
+        "wy",
+        "nm",
+        "ok",
+        "ks",
+        "ne",
+        "sd",
+        "nd",
+        "mn",
+        "wi",
+        "mi",
+        "il",
+        "in",
+        "oh",
+        "ky",
+        "tn",
+        "al",
+        "ms",
+        "la",
+        "ar",
+        "mo",
+        "ia",
+        "ecnl",
+        "rl",
+        "ga",
+        "ea",
+        "npl",
+        "usys",
+        "ayso",
+        "scdsl",
+        "dpl",
+        "mls",
+        "ussda",
+        "pre",
+    }
 
     # Program/league names that aren't coach names
-    program_names = {'aspire', 'rise', 'revolution', 'evolution', 'dynasty', 'legacy', 'impact',
-                    'force', 'thunder', 'lightning', 'blaze', 'inferno', 'phoenix', 'predators',
-                    'raptors', 'lions', 'tigers', 'bears', 'eagles', 'hawks', 'falcons', 'united',
-                    'strikers', 'raiders', 'warriors', 'knights', 'spartans', 'titans', 'trojans',
-                    # League/program abbreviations (synced from find_fuzzy_duplicate_teams.PROGRAM_WORDS)
-                    'stxcl', 'scdsl', 'dpl', 'dplo', 'npl', 'tal', 'fdl', 'copa', 'nal',
-                    'comp', 'recreational', 'reserve', 'classic', 'division', 'ecrl', 'regional',
-                    'showcase', 'challenge', 'development', 'competitive',
-                    # Common squad/mascot names that appear in team names
-                    'royal', 'cosmos', 'celtic', 'rovers', 'arsenal', 'mustangs', 'wolves',
-                    'coyotes', 'cobras', 'vipers', 'hurricanes', 'cyclones', 'rebels',
-                    'chargers', 'bulldogs', 'wildcats', 'jaguars', 'panthers', 'mustang'}
+    program_names = {
+        "aspire",
+        "rise",
+        "revolution",
+        "evolution",
+        "dynasty",
+        "legacy",
+        "impact",
+        "force",
+        "thunder",
+        "lightning",
+        "blaze",
+        "inferno",
+        "phoenix",
+        "predators",
+        "raptors",
+        "lions",
+        "tigers",
+        "bears",
+        "eagles",
+        "hawks",
+        "falcons",
+        "united",
+        "strikers",
+        "raiders",
+        "warriors",
+        "knights",
+        "spartans",
+        "titans",
+        "trojans",
+        # League/program abbreviations (synced from find_fuzzy_duplicate_teams.PROGRAM_WORDS)
+        "stxcl",
+        "scdsl",
+        "dpl",
+        "dplo",
+        "npl",
+        "tal",
+        "fdl",
+        "copa",
+        "nal",
+        "comp",
+        "recreational",
+        "reserve",
+        "classic",
+        "division",
+        "ecrl",
+        "regional",
+        "showcase",
+        "challenge",
+        "development",
+        "competitive",
+        # Common squad/mascot names that appear in team names
+        "royal",
+        "cosmos",
+        "celtic",
+        "rovers",
+        "arsenal",
+        "mustangs",
+        "wolves",
+        "coyotes",
+        "cobras",
+        "vipers",
+        "hurricanes",
+        "cyclones",
+        "rebels",
+        "chargers",
+        "bulldogs",
+        "wildcats",
+        "jaguars",
+        "panthers",
+        "mustang",
+    }
 
     # All non-variant words (union of all exclusion sets)
     _skip_words = common_words | region_codes | program_names | TEAM_COLORS | TEAM_DIRECTIONS
@@ -244,14 +445,14 @@ def extract_team_variant(name):
         """Find the first unknown word in *text* that looks like a coach/squad name."""
         # Normalize hyphens to spaces so "PRE-ECNL" → "PRE ECNL"
         # (each part checked individually against _skip_words)
-        text = text.replace('-', ' ')
+        text = text.replace("-", " ")
         for word in text.split():
-            w = word.strip('-()[].,').lower()
+            w = word.strip("-()[].,").lower()
             if not w or len(w) < 3:
                 continue
             if w in _skip_words:
                 continue
-            if w.isdigit() or re.match(r'^[bug]?\d+', w):
+            if w.isdigit() or re.match(r"^[bug]?\d+", w):
                 continue
             return w
         return None
@@ -259,10 +460,10 @@ def extract_team_variant(name):
     # Find age/year position in the team name — search ALL occurrences and
     # look for a candidate word on EITHER side so word-order doesn't matter.
     age_patterns = [
-        r'\bU-?\d{1,2}\b',           # U14, U-14
-        r'\b[BG]?\d{4}[BG]?\b',      # 2014, B2014, 2014B, G2015, 2015G
-        r'\b[BG]\d{2}(?!\d)\b',      # B14, G15
-        r'\b\d{2}[BG](?!\d)\b',      # 14B, 15G
+        r"\bU-?\d{1,2}\b",  # U14, U-14
+        r"\b[BG]?\d{4}[BG]?\b",  # 2014, B2014, 2014B, G2015, 2015G
+        r"\b[BG]\d{2}(?!\d)\b",  # B14, G15
+        r"\b\d{2}[BG](?!\d)\b",  # 14B, 15G
     ]
 
     age_match = None
@@ -274,26 +475,26 @@ def extract_team_variant(name):
 
     if age_match:
         # Look AFTER the age token first (most common position for coach/squad)
-        after_age = name[age_match.end():].strip()
-        after_age_clean = re.sub(r'\s*\([^)]+\)\s*$', '', after_age).strip()
+        after_age = name[age_match.end() :].strip()
+        after_age_clean = re.sub(r"\s*\([^)]+\)\s*$", "", after_age).strip()
         candidate = _extract_candidate(after_age_clean)
         if candidate:
             return candidate
 
         # Look BEFORE the age token (handles "Arsenal 2014" word order)
-        before_age = name[:age_match.start()].strip()
+        before_age = name[: age_match.start()].strip()
         # Strip known club-name words that appear before the age
         # Only consider the last 1-2 words before the age (coach/squad names
         # sit adjacent to the age, not at the start of the name)
         before_words = before_age.split()
         if before_words:
-            tail = ' '.join(before_words[-2:])  # last 2 words before age
+            tail = " ".join(before_words[-2:])  # last 2 words before age
             candidate = _extract_candidate(tail)
             if candidate:
                 return candidate
 
     # Check for coach names in parentheses: "2014 (Holohan)" but NOT regions like "(CTX)"
-    coach_match = re.search(r'\(([a-z]+)\)\s*$', name_lower)
+    coach_match = re.search(r"\(([a-z]+)\)\s*$", name_lower)
     if coach_match:
         word = coach_match.group(1)
         # Only return if it's not a region code
@@ -302,6 +503,7 @@ def extract_team_variant(name):
 
     return None
 
+
 def _current_season_year():
     """Return the current season year for birth-year-to-age conversion.
 
@@ -309,6 +511,7 @@ def _current_season_year():
     calendar year directly (players born in 2014 are U12 in 2026).
     """
     from datetime import date
+
     return date.today().year
 
 
@@ -318,80 +521,87 @@ def extract_age_group(name, details):
     season_year = _current_season_year()
 
     # Priority 1: U-age format (U13, U14, etc)
-    match = re.search(r'\bu(\d+)\b', name_lower)
+    match = re.search(r"\bu(\d+)\b", name_lower)
     if match:
         return normalize_filter_age_group(match.group(1))
 
     # Priority 2: Birth year with gender prefix (G13, B2014, 2013G, etc)
     # G13/B13 = 2013 birth year, G2014/B2014 = 2014 birth year
-    match = re.search(r'[bg](\d{2})(?!\d)', name_lower)  # G13, B14 (2-digit)
+    match = re.search(r"[bg](\d{2})(?!\d)", name_lower)  # G13, B14 (2-digit)
     if match:
         short_year = int(match.group(1))
         year = 2000 + short_year if short_year < 50 else 1900 + short_year
         age = season_year - year
         return normalize_filter_age_group(age)
 
-    match = re.search(r'[bg](20\d{2})', name_lower)  # G2013, B2014 (4-digit)
+    match = re.search(r"[bg](20\d{2})", name_lower)  # G2013, B2014 (4-digit)
     if match:
         year = int(match.group(1))
         age = season_year - year
         return normalize_filter_age_group(age)
 
     # Priority 3: Standalone 4-digit birth year
-    match = re.search(r'\b(20\d{2})\b', name)
+    match = re.search(r"\b(20\d{2})\b", name)
     if match:
         year = int(match.group(1))
         age = season_year - year
         return normalize_filter_age_group(age)
 
     # Fallback: use metadata only if nothing found in name
-    if details and details.get('age_group'):
-        return normalize_filter_age_group(details['age_group'])
+    if details and details.get("age_group"):
+        return normalize_filter_age_group(details["age_group"])
 
     return None
+
 
 def extract_gender(name, details):
     """Extract gender from name or details."""
-    if details and details.get('gender'):
-        return details['gender'].lower()
-    
+    if details and details.get("gender"):
+        return details["gender"].lower()
+
     name_lower = name.lower()
-    if ' g20' in name_lower or ' g1' in name_lower or 'girls' in name_lower:
-        return 'female'
-    if ' b20' in name_lower or ' b1' in name_lower or 'boys' in name_lower:
-        return 'male'
-    
+    if " g20" in name_lower or " g1" in name_lower or "girls" in name_lower:
+        return "female"
+    if " b20" in name_lower or " b1" in name_lower or "boys" in name_lower:
+        return "male"
+
     return None
+
 
 # League / program / tier tokens that distinguish teams within the same club.
 # Order matters: longer tokens must come first so "pre-ecnl" is matched before "ecnl".
 PROGRAM_TIERS = [
-    'ecnl-rl', 'ecnl rl', 'ecrl',
-    'pre-ecnl', 'pre ecnl',
-    'ecnl',
-    'mls next', 'mlsnext',
-    'ga',
-    'pre-dplo', 'dplo',
-    'dpl',
-    'npl',
-    'rl',
-    'elite',
-    'premier',
-    'select',
-    'academy',
-    'classic',
-    'comp',
-    'recreational',
-    'reserve',
-    'showcase',
-    'challenge',
-    'competitive',
-    'development',
+    "ecnl-rl",
+    "ecnl rl",
+    "ecrl",
+    "pre-ecnl",
+    "pre ecnl",
+    "ecnl",
+    "mls next",
+    "mlsnext",
+    "ga",
+    "pre-dplo",
+    "dplo",
+    "dpl",
+    "npl",
+    "rl",
+    "elite",
+    "premier",
+    "select",
+    "academy",
+    "classic",
+    "comp",
+    "recreational",
+    "reserve",
+    "showcase",
+    "challenge",
+    "competitive",
+    "development",
 ]
 
 # Short tokens (2 chars) that appear after age group and distinguish teams
 # e.g. "Chelsea SC - B2014 OG" vs "Chelsea SC DC 2014"
-SHORT_BRANCH_TOKENS = {'og', 'dc', 'ac', 'sc', 'fc', 'sa', 'sb'}
+SHORT_BRANCH_TOKENS = {"og", "dc", "ac", "sc", "fc", "sa", "sb"}
 
 
 def extract_program_tier(name):
@@ -407,16 +617,16 @@ def extract_program_tier(name):
 
     for token in PROGRAM_TIERS:
         # Use word-boundary matching to avoid partial matches
-        pattern = r'\b' + re.escape(token).replace(r'\ ', r'[\s-]') + r'\b'
+        pattern = r"\b" + re.escape(token).replace(r"\ ", r"[\s-]") + r"\b"
         if re.search(pattern, name_lower):
             return token
 
     # Check for short branch tokens that appear AFTER an age/year pattern
     age_patterns = [
-        r'\bU-?\d{1,2}\b',
-        r'\b[BG]?\d{4}[BG]?\b',
-        r'\b[BG]\d{2}(?!\d)\b',
-        r'\b\d{2}[BG](?!\d)\b',
+        r"\bU-?\d{1,2}\b",
+        r"\b[BG]?\d{4}[BG]?\b",
+        r"\b[BG]\d{2}(?!\d)\b",
+        r"\b\d{2}[BG](?!\d)\b",
     ]
     age_end = 0
     for pattern in age_patterns:
@@ -425,10 +635,10 @@ def extract_program_tier(name):
             age_end = match.end()
 
     if age_end > 0:
-        after_age = name[age_end:].strip(' -')
+        after_age = name[age_end:].strip(" -")
         after_words = after_age.lower().split()
         if after_words:
-            first_word = after_words[0].strip('-()[].,')
+            first_word = after_words[0].strip("-()[].,")
             if first_word in SHORT_BRANCH_TOKENS:
                 return first_word
 
@@ -441,85 +651,92 @@ def has_protected_division(name):
         return False
     name_upper = name.upper()
     # Check for division markers
-    if ' AD' in name_upper or '_AD' in name_upper or '-AD' in name_upper:
+    if " AD" in name_upper or "_AD" in name_upper or "-AD" in name_upper:
         return True
-    if ' HD' in name_upper or '_HD' in name_upper or '-HD' in name_upper:
+    if " HD" in name_upper or "_HD" in name_upper or "-HD" in name_upper:
         return True
-    if 'MLS NEXT' in name_upper or 'MLSNEXT' in name_upper:
+    if "MLS NEXT" in name_upper or "MLSNEXT" in name_upper:
         return True
-    if ' EA' in name_upper or '_EA' in name_upper:  # Elite Academy
+    if " EA" in name_upper or "_EA" in name_upper:  # Elite Academy
         return True
     return False
 
+
 def find_best_match(queue_entry, supabase, teams_cache):
     """Find the best matching team for a queue entry using Supabase client."""
-    name = queue_entry['provider_team_name']
-    details = queue_entry['match_details'] or {}
-    club_name = details.get('club_name', '')
-    
+    name = queue_entry["provider_team_name"]
+    details = queue_entry["match_details"] or {}
+    club_name = details.get("club_name", "")
+
     # Skip protected divisions - need manual review
     if has_protected_division(name):
         return None, 0.0, "protected_division"
-    
+
     # If club_name is empty, try to extract it from provider_team_name
     if not club_name:
         extracted_club = extract_club_from_name(name)
         if extracted_club:
             club_name = extracted_club
-    
+
     norm_name = normalize_team_name(name)
     age_group = extract_age_group(name, details)
     gender = extract_gender(name, details)
     queue_variant = extract_team_variant(name)
     queue_program = extract_program_tier(name)
-    
+
     # Build Supabase query for candidates
     # NOTE: team_alias_map FK references team_id_master, NOT id
-    query = supabase.table('teams').select('id, team_id_master, team_name, club_name, gender, age_group, state_code')
-    
+    query = supabase.table("teams").select("id, team_id_master, team_name, club_name, gender, age_group, state_code")
+
     if gender:
-        query = query.ilike('gender', gender)
-    
+        query = query.ilike("gender", gender)
+
     if age_group:
         age_clause = build_age_group_filter_clause(age_group)
         if age_clause:
             query = query.or_(age_clause)
-    
+
     # Search by club name first if available
     state_code = None
     if club_name:
         # Look up state from club
-        state_result = supabase.table('teams').select('state_code').ilike('club_name', club_name).not_.is_('state_code', 'null').limit(1).execute()
+        state_result = (
+            supabase.table("teams")
+            .select("state_code")
+            .ilike("club_name", club_name)
+            .not_.is_("state_code", "null")
+            .limit(1)
+            .execute()
+        )
         if state_result.data:
-            state_code = state_result.data[0]['state_code']
-    
+            state_code = state_result.data[0]["state_code"]
+
     if club_name:
-        query = query.ilike('club_name', club_name)
+        query = query.ilike("club_name", club_name)
         if state_code:
-            query = query.eq('state_code', state_code)
+            query = query.eq("state_code", state_code)
         candidates = query.limit(50).execute().data
     else:
         # Fallback: search by normalized name similarity (needs gender+age to narrow)
         candidates = query.limit(100).execute().data
-    
+
     if not candidates:
         return None, 0.0, "no_candidates"
-    
+
     # Score each candidate
     best_match = None
     best_score = 0.0
-    
+
     # Check for league markers in queue name
     name_lower = name.lower()
-    has_rl = ' rl' in name_lower or '-rl' in name_lower or 'ecnl rl' in name_lower or 'ecnl-rl' in name_lower
-    has_ecnl = 'ecnl' in name_lower and not has_rl
-    has_pre_ecnl = 'pre-ecnl' in name_lower or 'pre ecnl' in name_lower
-    
+    has_rl = " rl" in name_lower or "-rl" in name_lower or "ecnl rl" in name_lower or "ecnl-rl" in name_lower
+    has_ecnl = "ecnl" in name_lower and not has_rl
+
     for team in candidates:
-        team_norm = normalize_team_name(team['team_name'])
-        team_lower = team['team_name'].lower()
-        team_variant = extract_team_variant(team['team_name'])
-        team_program = extract_program_tier(team['team_name'])
+        team_norm = normalize_team_name(team["team_name"])
+        team_lower = team["team_name"].lower()
+        team_variant = extract_team_variant(team["team_name"])
+        team_program = extract_program_tier(team["team_name"])
 
         # CRITICAL: Variants must match EXACTLY
         if queue_variant != team_variant:
@@ -529,102 +746,106 @@ def find_best_match(queue_entry, supabase, teams_cache):
         # e.g. "GA" != "PRE-ECNL", "Elite" != "Pre-DPLO"
         if queue_program != team_program:
             continue
-        
+
         # Calculate similarity
         score = SequenceMatcher(None, norm_name, team_norm).ratio()
-        
+
         # Boost if club name matches exactly
-        if club_name and team['club_name'] and club_name.lower() == team['club_name'].lower():
+        if club_name and team["club_name"] and club_name.lower() == team["club_name"].lower():
             score = min(1.0, score + 0.15)
-        
+
         # League matching: penalize mismatches, boost matches
-        team_has_rl = ' rl' in team_lower or '-rl' in team_lower or 'ecnl rl' in team_lower
-        team_has_ecnl = 'ecnl' in team_lower and not team_has_rl
-        
+        team_has_rl = " rl" in team_lower or "-rl" in team_lower or "ecnl rl" in team_lower
+        team_has_ecnl = "ecnl" in team_lower and not team_has_rl
+
         if has_rl and team_has_rl:
             score = min(1.0, score + 0.05)
         elif has_ecnl and team_has_ecnl and not team_has_rl:
             score = min(1.0, score + 0.05)
         elif has_rl != team_has_rl:
             score = max(0.0, score - 0.08)
-        
+
         if score > best_score:
             best_score = score
             best_match = {
-                'id': team['id'],
-                'team_id_master': team['team_id_master'],
-                'team_name': team['team_name'],
-                'club_name': team['club_name'],
-                'gender': team['gender'],
-                'age_group': team['age_group']
+                "id": team["id"],
+                "team_id_master": team["team_id_master"],
+                "team_name": team["team_name"],
+                "club_name": team["club_name"],
+                "gender": team["gender"],
+                "age_group": team["age_group"],
             }
-    
+
     if best_score >= 0.7:
         return best_match, best_score, "fuzzy"
-    
+
     return None, 0.0, "low_confidence"
+
 
 def analyze_queue(limit=100, min_confidence=0.90, force=False):
     """Analyze queue entries and find matches using Supabase client.
-    
+
     Args:
         limit: Max number of entries to analyze
         min_confidence: Minimum confidence score (unused, kept for compatibility)
         force: If True, ignore last_analyzed_at filter and reprocess all pending entries
     """
     supabase = get_supabase()
-    
+
     # Fetch pending queue entries with pagination (Supabase caps at 1000 per request)
     all_entries = []
     page_size = 1000
     offset = 0
-    
+
     while len(all_entries) < limit:
         fetch_size = min(page_size, limit - len(all_entries))
-        
-        query = supabase.table('team_match_review_queue').select(
-            'id, provider_id, provider_team_id, provider_team_name, match_details, confidence_score'
-        ).eq('status', 'pending').order('created_at')
-        
+
+        query = (
+            supabase.table("team_match_review_queue")
+            .select("id, provider_id, provider_team_id, provider_team_name, match_details, confidence_score")
+            .eq("status", "pending")
+            .order("created_at")
+        )
+
         if not force:
             # Skip recently analyzed entries (use or_ for NULL check)
-            query = query.or_('last_analyzed_at.is.null,last_analyzed_at.lt.now()-7d')
-        
+            query = query.or_("last_analyzed_at.is.null,last_analyzed_at.lt.now()-7d")
+
         result = query.range(offset, offset + fetch_size - 1).execute()
-        
+
         if not result.data:
             break
-        
+
         all_entries.extend(result.data)
-        
+
         if len(result.data) < fetch_size:
             break
-        
+
         offset += fetch_size
         print(f"  Fetched {len(all_entries)} entries so far...")
-    
+
     entries = all_entries[:limit]
-    
+
     results = {
-        'exact': [],      # 95%+ match
-        'high': [],       # 90-94% match  
-        'medium': [],     # 80-89% match
-        'low': [],        # 70-79% match
-        'no_match': []    # < 70% or no candidates
+        "exact": [],  # 95%+ match
+        "high": [],  # 90-94% match
+        "medium": [],  # 80-89% match
+        "low": [],  # 70-79% match
+        "no_match": [],  # < 70% or no candidates
     }
-    
+
     print(f"Analyzing {len(entries)} queue entries...")
     print()
-    
+
     for i, entry in enumerate(entries):
         if (i + 1) % 50 == 0:
             print(f"  Processed {i + 1}/{len(entries)}...")
-        
+
         # Refresh Supabase client every 1000 entries to avoid HTTP/2 connection timeout
         if i > 0 and i % 1000 == 0:
             supabase = get_supabase()
             print(f"  🔄 Refreshed Supabase connection at entry {i}")
-        
+
         # Retry logic for transient connection errors
         max_retries = 3
         for attempt in range(max_retries):
@@ -634,46 +855,44 @@ def analyze_queue(limit=100, min_confidence=0.90, force=False):
             except Exception as e:
                 if attempt < max_retries - 1:
                     import time
+
                     print(f"  ⚠️  Connection error at entry {i}, retrying ({attempt + 1}/{max_retries})...")
                     supabase = get_supabase()  # Fresh connection
                     time.sleep(2)
                 else:
                     print(f"  ❌ Failed after {max_retries} retries at entry {i}: {e}")
                     match, score, method = None, 0.0, "error"
-        
-        result = {
-            'queue_entry': entry,
-            'match': match,
-            'score': score,
-            'method': method
-        }
-        
+
+        result = {"queue_entry": entry, "match": match, "score": score, "method": method}
+
         if score >= 0.95:
-            results['exact'].append(result)
+            results["exact"].append(result)
         elif score >= 0.90:
-            results['high'].append(result)
+            results["high"].append(result)
         elif score >= 0.80:
-            results['medium'].append(result)
+            results["medium"].append(result)
         elif score >= 0.70:
-            results['low'].append(result)
+            results["low"].append(result)
         else:
-            results['no_match'].append(result)
-    
+            results["no_match"].append(result)
+
     # Mark ALL analyzed entries with timestamp so we skip them next run
-    analyzed_ids = [e['id'] for e in entries]
+    analyzed_ids = [e["id"] for e in entries]
     if analyzed_ids:
         from datetime import datetime, timezone
+
         now_iso = datetime.now(timezone.utc).isoformat()
         # Update in batches (Supabase has limits on IN clauses)
         batch_size = 100
         for i in range(0, len(analyzed_ids), batch_size):
-            batch = analyzed_ids[i:i + batch_size]
-            supabase.table('team_match_review_queue').update(
-                {'last_analyzed_at': now_iso}
-            ).in_('id', batch).eq('status', 'pending').execute()
+            batch = analyzed_ids[i : i + batch_size]
+            supabase.table("team_match_review_queue").update({"last_analyzed_at": now_iso}).in_("id", batch).eq(
+                "status", "pending"
+            ).execute()
         print(f"  Marked {len(analyzed_ids)} entries as analyzed")
-    
+
     return results
+
 
 def display_results(results, verbose=False):
     """Display analysis results."""
@@ -686,125 +905,133 @@ def display_results(results, verbose=False):
     print(f"🟠 LOW (70-79%):    {len(results['low']):>5} - Manual review needed")
     print(f"❌ NO MATCH:        {len(results['no_match']):>5} - Need to create new team")
     print()
-    
+
     # Show exact matches
-    if results['exact']:
+    if results["exact"]:
         print("=" * 70)
         print("✅ EXACT MATCHES (Safe to auto-merge)")
         print("=" * 70)
-        for r in results['exact'][:15]:
-            q = r['queue_entry']
-            m = r['match']
+        for r in results["exact"][:15]:
+            q = r["queue_entry"]
+            m = r["match"]
             print(f"  [{q['id']}] {q['provider_team_name']}")
             print(f"       → {m['team_name']} ({m['club_name']})")
             print(f"       Score: {r['score']:.1%} | {q['provider_id']}")
             print()
-        
-        if len(results['exact']) > 15:
+
+        if len(results["exact"]) > 15:
             print(f"  ... and {len(results['exact']) - 15} more")
         print()
-    
+
     # Show high matches
-    if results['high'] and verbose:
+    if results["high"] and verbose:
         print("=" * 70)
         print("🟢 HIGH CONFIDENCE MATCHES")
         print("=" * 70)
-        for r in results['high'][:10]:
-            q = r['queue_entry']
-            m = r['match']
+        for r in results["high"][:10]:
+            q = r["queue_entry"]
+            m = r["match"]
             print(f"  [{q['id']}] {q['provider_team_name']}")
             print(f"       → {m['team_name']} ({m['club_name']})")
             print(f"       Score: {r['score']:.1%}")
             print()
 
+
 def execute_merges(results, dry_run=True, min_confidence=0.95):
     """Execute auto-merges for high-confidence matches using Supabase client."""
-    candidates = results['exact']
+    candidates = results["exact"]
     if min_confidence < 0.95:
-        candidates = candidates + results['high']
-    
+        candidates = candidates + results["high"]
+
     if not candidates:
         print("No candidates to merge.")
         return 0, 0
-    
+
     if dry_run:
         print(f"\n🔍 DRY RUN - Would merge {len(candidates)} entries\n")
     else:
         print(f"\n⚡ EXECUTING {len(candidates)} merges\n")
-    
+
     supabase = get_supabase()
-    
+
     # Cache provider lookups
     provider_cache = {}
-    
+
     approved = 0
     failed = 0
-    
+
     for r in candidates:
-        q = r['queue_entry']
-        m = r['match']
-        
+        q = r["queue_entry"]
+        m = r["match"]
+
         try:
             if not dry_run:
                 # Get provider UUID (cached)
-                provider_code = q['provider_id']
+                provider_code = q["provider_id"]
                 if provider_code not in provider_cache:
-                    provider_result = supabase.table('providers').select('id').eq('code', provider_code).limit(1).execute()
+                    provider_result = (
+                        supabase.table("providers").select("id").eq("code", provider_code).limit(1).execute()
+                    )
                     if not provider_result.data:
                         raise ValueError(f"Provider not found: {provider_code}")
-                    provider_cache[provider_code] = provider_result.data[0]['id']
+                    provider_cache[provider_code] = provider_result.data[0]["id"]
                 provider_uuid = provider_cache[provider_code]
-                
+
                 # Cap score at 0.99 for alias table
-                db_score = min(0.99, r['score'])
-                
+                db_score = min(0.99, r["score"])
+
                 # Create alias - use team_id_master (FK target), NOT id
-                supabase.table('team_alias_map').upsert({
-                    'team_id_master': m['team_id_master'],
-                    'provider_id': provider_uuid,
-                    'provider_team_id': q['provider_team_id'],
-                    'match_confidence': db_score,
-                    'match_method': 'fuzzy_auto',
-                    'review_status': 'approved'
-                }, on_conflict='provider_id,provider_team_id', ignore_duplicates=True).execute()
-                
+                supabase.table("team_alias_map").upsert(
+                    {
+                        "team_id_master": m["team_id_master"],
+                        "provider_id": provider_uuid,
+                        "provider_team_id": q["provider_team_id"],
+                        "match_confidence": db_score,
+                        "match_method": "fuzzy_auto",
+                        "review_status": "approved",
+                    },
+                    on_conflict="provider_id,provider_team_id",
+                    ignore_duplicates=True,
+                ).execute()
+
                 # Update queue - suggested_master_team_id uses teams.id
                 from datetime import datetime, timezone
-                supabase.table('team_match_review_queue').update({
-                    'status': 'approved',
-                    'suggested_master_team_id': m['id'],
-                    'reviewed_by': 'auto-merge-script',
-                    'reviewed_at': datetime.now(timezone.utc).isoformat()
-                }).eq('id', q['id']).execute()
-            
+
+                supabase.table("team_match_review_queue").update(
+                    {
+                        "status": "approved",
+                        "suggested_master_team_id": m["id"],
+                        "reviewed_by": "auto-merge-script",
+                        "reviewed_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                ).eq("id", q["id"]).execute()
+
             approved += 1
             action = "Would merge" if dry_run else "Merged"
             print(f"  ✅ {action}: {q['provider_team_name']} → {m['team_name']} ({r['score']:.1%})")
-            
+
         except Exception as e:
             failed += 1
             print(f"  ❌ Failed [{q['id']}]: {e}")
-    
+
     return approved, failed
 
+
 def main():
-    parser = argparse.ArgumentParser(description='Find matches for queue entries')
-    parser.add_argument('--limit', type=int, default=200,
-                        help='Max entries to analyze (default: 200)')
-    parser.add_argument('--verbose', '-v', action='store_true',
-                        help='Show more details')
-    parser.add_argument('--dry-run', action='store_true', default=True,
-                        help='Show what would be merged (default)')
-    parser.add_argument('--execute', action='store_true',
-                        help='Actually execute merges')
-    parser.add_argument('--include-high', action='store_true',
-                        help='Include 90%+ matches in auto-merge (not just 95%+)')
-    parser.add_argument('--yes', '-y', action='store_true',
-                        help='Skip confirmation prompt (for CI/automation)')
-    parser.add_argument('--force', action='store_true',
-                        help='Reprocess all pending entries (ignore last_analyzed_at filter)')
+    parser = argparse.ArgumentParser(description="Find matches for queue entries")
+    parser.add_argument("--limit", type=int, default=200, help="Max entries to analyze (default: 200)")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Show more details")
+    parser.add_argument("--dry-run", action="store_true", default=True, help="Show what would be merged (default)")
+    parser.add_argument("--execute", action="store_true", help="Actually execute merges")
+    parser.add_argument(
+        "--include-high", action="store_true", help="Include 90%+ matches in auto-merge (not just 95%+)"
+    )
+    parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt (for CI/automation)")
+    parser.add_argument(
+        "--force", action="store_true", help="Reprocess all pending entries (ignore last_analyzed_at filter)"
+    )
     args = parser.parse_args()
-    
+
     print("=" * 70)
     print("🔍 QUEUE MATCH FINDER")
     print("=" * 70)
@@ -812,25 +1039,25 @@ def main():
     if args.force:
         print("⚡ FORCE mode: Reprocessing all pending entries")
     print()
-    
+
     results = analyze_queue(limit=args.limit, force=args.force)
     display_results(results, verbose=args.verbose)
-    
+
     # Execute if requested
     min_conf = 0.90 if args.include_high else 0.95
-    
+
     if args.execute:
-        total = len(results['exact'])
+        total = len(results["exact"])
         if args.include_high:
-            total += len(results['high'])
-        
+            total += len(results["high"])
+
         if args.yes:
             print(f"\n⚠️  Auto-confirming merge of {total} entries (--yes flag)")
             approved, failed = execute_merges(results, dry_run=False, min_confidence=min_conf)
             print(f"\n✅ Approved: {approved}, ❌ Failed: {failed}")
         else:
             confirm = input(f"\n⚠️  Merge {total} entries? Type 'yes' to confirm: ")
-            if confirm.lower() == 'yes':
+            if confirm.lower() == "yes":
                 approved, failed = execute_merges(results, dry_run=False, min_confidence=min_conf)
                 print(f"\n✅ Approved: {approved}, ❌ Failed: {failed}")
             else:
@@ -840,5 +1067,6 @@ def main():
         print(f"\n📊 DRY RUN: {approved} would be merged")
         print("\nTo execute, run with --execute")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

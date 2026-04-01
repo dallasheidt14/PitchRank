@@ -51,8 +51,8 @@ from typing import Any, DefaultDict, Dict, List, Optional, Set, Tuple
 
 import requests
 from dotenv import load_dotenv
-from supabase import create_client
 
+from supabase import create_client
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Constants
@@ -65,23 +65,70 @@ NEEDS_REVIEW_THRESHOLD = 0.60
 
 # Suffix words stripped when building a "short" club name for additional queries
 CLUB_SUFFIXES: Set[str] = {
-    "sc", "fc", "sa", "fa", "united", "soccer", "club", "academy",
-    "sporting", "athletic", "athletics", "association", "youth",
-    "select", "af", "ac", "football",
+    "sc",
+    "fc",
+    "sa",
+    "fa",
+    "united",
+    "soccer",
+    "club",
+    "academy",
+    "sporting",
+    "athletic",
+    "athletics",
+    "association",
+    "youth",
+    "select",
+    "af",
+    "ac",
+    "football",
 }
 
 # Tier / division words common in youth soccer
 TIER_WORDS: Set[str] = {
-    "ecnl", "rl", "elite", "pre", "premier", "select", "classic",
-    "npl", "dpl", "ga", "hd", "ad", "flagship", "national",
+    "ecnl",
+    "rl",
+    "elite",
+    "pre",
+    "premier",
+    "select",
+    "classic",
+    "npl",
+    "dpl",
+    "ga",
+    "hd",
+    "ad",
+    "flagship",
+    "national",
 }
 
 # Instagram pages that are system paths, not team accounts
 INSTAGRAM_SYSTEM_PAGES: Set[str] = {
-    "explore", "accounts", "p", "reel", "stories", "tv", "direct",
-    "ar", "about", "legal", "privacy", "help", "press", "api",
-    "download", "lite", "web", "tags", "locations", "directory",
-    "contact", "login", "signup", "challenge", "embed",
+    "explore",
+    "accounts",
+    "p",
+    "reel",
+    "stories",
+    "tv",
+    "direct",
+    "ar",
+    "about",
+    "legal",
+    "privacy",
+    "help",
+    "press",
+    "api",
+    "download",
+    "lite",
+    "web",
+    "tags",
+    "locations",
+    "directory",
+    "contact",
+    "login",
+    "signup",
+    "challenge",
+    "embed",
 }
 
 GENDER_WORDS: Dict[str, List[str]] = {
@@ -100,6 +147,7 @@ INSTAGRAM_HANDLE_RE = re.compile(r"instagram\.com/([A-Za-z0-9_.]+)(?:[/?#]|$)")
 # ──────────────────────────────────────────────────────────────────────────────
 # Text / scoring helpers  (stdlib only — no extra dependencies)
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def _normalize_text(text: str) -> str:
     """Lowercase, keep only alphanumeric and spaces."""
@@ -190,9 +238,7 @@ def _club_score(club_name: str, handle: str, title: str, team_name: str = "") ->
     # Gate check uses only meaningful tokens (no generic suffixes)
     meaningful = _meaningful_club_tokens(club_name)
     cand_toks = _tokens(candidate)
-    meaningful_coverage = (
-        len(meaningful & cand_toks) / len(meaningful) if meaningful else 0.0
-    )
+    meaningful_coverage = len(meaningful & cand_toks) / len(meaningful) if meaningful else 0.0
 
     CLUB_GATE = 0.30
     if team_name and team_name.lower() != club_name.lower() and meaningful_coverage >= CLUB_GATE:
@@ -203,15 +249,13 @@ def _club_score(club_name: str, handle: str, title: str, team_name: str = "") ->
     return club_base
 
 
-def _year_score(
-    birth_year: Optional[int], handle: str, title: str, snippet: str
-) -> float:
+def _year_score(birth_year: Optional[int], handle: str, title: str, snippet: str) -> float:
     """Presence of birth-year markers in handle / title / snippet. 0.0–1.0."""
     if not birth_year:
         return 0.5  # Neutral — we can't penalise what we don't know
 
-    year_full = str(birth_year)            # "2011"
-    year_short = year_full[-2:]            # "11"
+    year_full = str(birth_year)  # "2011"
+    year_short = year_full[-2:]  # "11"
     combined = f"{handle} {title} {snippet}".lower()
 
     if year_full in combined:
@@ -266,9 +310,7 @@ def _gender_score(
     return 0.5  # Neutral — no marker detected either way
 
 
-def _tier_score(
-    team_name: str, club_name: str, handle: str, title: str, snippet: str
-) -> float:
+def _tier_score(team_name: str, club_name: str, handle: str, title: str, snippet: str) -> float:
     """Match tier/division words between team and candidate. 0.0–1.0."""
     combined = f"{handle} {title} {snippet}".lower()
     team_combined = f"{team_name} {club_name}".lower()
@@ -276,17 +318,18 @@ def _tier_score(
     cand_tiers = {t for t in TIER_WORDS if t in combined}
 
     if not team_tiers:
-        return 0.5        # No tier in team name — neutral regardless
+        return 0.5  # No tier in team name — neutral regardless
     if team_tiers & cand_tiers:
-        return 1.0        # Matching tier word found
+        return 1.0  # Matching tier word found
     if cand_tiers:
-        return 0.20       # Different tier present — mild penalty
-    return 0.35           # Team has tier, candidate doesn't mention it
+        return 0.20  # Different tier present — mild penalty
+    return 0.35  # Team has tier, candidate doesn't mention it
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # InstagramScorer
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def _handle_identity_score(
     club_name: str,
@@ -400,6 +443,7 @@ class InstagramScorer:
 # QueryGenerator
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class QueryGenerator:
     """
     Generate site:instagram.com search query variations for a team.
@@ -421,9 +465,26 @@ class QueryGenerator:
         return " ".join(kept) if kept else club_name
 
     _LOCATION_WORDS: Set[str] = {
-        "north", "south", "east", "west", "central", "northern", "southern",
-        "eastern", "western", "northeast", "northwest", "southeast", "southwest",
-        "valley", "bay", "coast", "county", "region", "area", "metro",
+        "north",
+        "south",
+        "east",
+        "west",
+        "central",
+        "northern",
+        "southern",
+        "eastern",
+        "western",
+        "northeast",
+        "northwest",
+        "southeast",
+        "southwest",
+        "valley",
+        "bay",
+        "coast",
+        "county",
+        "region",
+        "area",
+        "metro",
     }
 
     @classmethod
@@ -476,8 +537,7 @@ class QueryGenerator:
         if birth_year:
             yf = str(birth_year)
             ys = yf[-2:]
-            year_strs = {yf, ys, f"{ys}b", f"{ys}g", f"b{ys}", f"g{ys}",
-                         f"{yf}b", f"{yf}g", f"b{yf}", f"g{yf}"}
+            year_strs = {yf, ys, f"{ys}b", f"{ys}g", f"b{ys}", f"g{ys}", f"{yf}b", f"{yf}g", f"b{yf}", f"g{yf}"}
         gender_strs = set()
         for words in GENDER_WORDS.values():
             gender_strs.update(w.lower() for w in words)
@@ -501,9 +561,9 @@ class QueryGenerator:
         club_short = cls._short_club(club)
         year_full = str(birth_year) if birth_year else ""
         year_short = year_full[-2:] if len(year_full) == 4 else ""
-        g_word = GENDER_WORDS.get(gender, [""])[0]   # "girls" / "boys"
-        g_abbr = GENDER_ABBRS.get(gender, "")         # "g" / "b"
-        suffix = cls._team_suffix(team_name, club)     # "2015 Elite", "2015 Conroy", etc.
+        g_word = GENDER_WORDS.get(gender, [""])[0]  # "girls" / "boys"
+        g_abbr = GENDER_ABBRS.get(gender, "")  # "g" / "b"
+        suffix = cls._team_suffix(team_name, club)  # "2015 Elite", "2015 Conroy", etc.
         dist = cls._distinction(suffix, birth_year, gender)  # "Elite", "AChacon", "Red", etc.
 
         queries: List[str] = []
@@ -537,13 +597,9 @@ class QueryGenerator:
         if initials and year_short:
             state_lc = state_code.lower() if state_code else ""
             if state_lc and g_word:
-                queries.append(
-                    f'site:instagram.com {initials} {state_lc} {year_short} {g_word}'
-                )
+                queries.append(f"site:instagram.com {initials} {state_lc} {year_short} {g_word}")
             if g_word:
-                queries.append(
-                    f'site:instagram.com {initials} {year_short} {g_word}'
-                )
+                queries.append(f"site:instagram.com {initials} {year_short} {g_word}")
 
         # ── Year only (some accounts omit gender) ─────────────────────────
         if year_full:
@@ -565,6 +621,7 @@ class QueryGenerator:
 # ──────────────────────────────────────────────────────────────────────────────
 # ClubQueryGenerator  (Phase 1 — club-level, no year/gender)
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 class ClubQueryGenerator:
     """
@@ -606,6 +663,7 @@ class ClubQueryGenerator:
 # SerperClient
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class SerperClient:
     """
     Thin wrapper around the Serper.dev Google Search JSON API.
@@ -622,9 +680,7 @@ class SerperClient:
         self.timeout = timeout
         self.delay_seconds = delay_seconds
         self.session = requests.Session()
-        self.session.headers.update(
-            {"X-API-KEY": api_key, "Content-Type": "application/json"}
-        )
+        self.session.headers.update({"X-API-KEY": api_key, "Content-Type": "application/json"})
 
     def search(self, query: str, num_results: int = 5) -> List[Dict[str, Any]]:
         """
@@ -654,6 +710,7 @@ class SerperClient:
 # Handle extraction
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def extract_instagram_handle(url: str) -> Optional[str]:
     """Extract @handle from an Instagram URL. Returns None for system pages."""
     if not url:
@@ -673,6 +730,7 @@ def extract_instagram_handle(url: str) -> Optional[str]:
 # Supabase helpers  (same patterns as backfill_missing_club_names.py)
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def load_env() -> None:
     env_local = Path(".env.local")
     if env_local.exists():
@@ -683,21 +741,13 @@ def load_env() -> None:
 
 def get_supabase():
     url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-    key = (
-        os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-        or os.getenv("SUPABASE_SERVICE_KEY")
-        or os.getenv("SUPABASE_KEY")
-    )
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
     if not url or not key:
-        raise ValueError(
-            "Missing Supabase credentials. Need SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY."
-        )
+        raise ValueError("Missing Supabase credentials. Need SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.")
     return create_client(url, key)
 
 
-def fetch_already_processed_ids(
-    supabase, re_check: bool, phase: int = 1
-) -> Set[str]:
+def fetch_already_processed_ids(supabase, re_check: bool, phase: int = 1) -> Set[str]:
     """
     Return team_ids that already have a finalized record for this phase.
     Phase 1 checks for existing club-level handles.
@@ -796,11 +846,7 @@ def fetch_power_scores(supabase, team_ids: List[str]) -> Dict[str, float]:
     for i in range(0, len(team_ids), 500):
         batch = team_ids[i : i + 500]
         rows = (
-            supabase.table("rankings_full")
-            .select("team_id,power_score_final")
-            .in_("team_id", batch)
-            .execute()
-            .data
+            supabase.table("rankings_full").select("team_id,power_score_final").in_("team_id", batch).execute().data
             or []
         )
         for r in rows:
@@ -829,19 +875,13 @@ def fetch_teams_to_enrich(
     while True:
         query = (
             supabase.table("teams")
-            .select(
-                "team_id_master,team_name,club_name,birth_year,gender,age_group,state_code"
-            )
+            .select("team_id_master,team_name,club_name,birth_year,gender,age_group,state_code")
             .eq("is_deprecated", False)
         )
         if args.state:
             query = query.eq("state_code", args.state.upper())
         if args.gender:
-            g = (
-                "Male"
-                if args.gender.upper() in ("M", "MALE", "B", "BOYS")
-                else "Female"
-            )
+            g = "Male" if args.gender.upper() in ("M", "MALE", "B", "BOYS") else "Female"
             query = query.eq("gender", g)
         if args.age_group:
             query = _apply_age_group_filter(query, args.age_group)
@@ -964,9 +1004,7 @@ def fetch_teams_by_ids(supabase, team_ids: List[str]) -> List[Dict[str, Any]]:
         batch = team_ids[i : i + 500]
         batch_rows = (
             supabase.table("teams")
-            .select(
-                "team_id_master,team_name,club_name,birth_year,gender,age_group,state_code"
-            )
+            .select("team_id_master,team_name,club_name,birth_year,gender,age_group,state_code")
             .in_("team_id_master", batch)
             .eq("is_deprecated", False)
             .execute()
@@ -1163,6 +1201,7 @@ def upsert_result(
 # Core per-team processing
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def process_team(
     team: Dict[str, Any],
     api_key: str,
@@ -1234,10 +1273,9 @@ def process_team(
 # main
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Discover Instagram handles for PitchRank teams via Serper.dev"
-    )
+    parser = argparse.ArgumentParser(description="Discover Instagram handles for PitchRank teams via Serper.dev")
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -1434,22 +1472,13 @@ def main() -> None:
 
         if workers <= 1:
             for i, club in enumerate(clubs, start=1):
-                handle, confidence, query_used, details = process_club(
-                    club, serper_key, delay
-                )
+                handle, confidence, query_used, details = process_club(club, serper_key, delay)
                 handle_club_result(club, handle, confidence, query_used, details)
                 if i % 50 == 0:
-                    log(
-                        f"  Progress: {i}/{len(clubs)}"
-                        f"  found={p1_found}"
-                        f"  approved={p1_auto}"
-                        f"  review={p1_review}"
-                    )
+                    log(f"  Progress: {i}/{len(clubs)}  found={p1_found}  approved={p1_auto}  review={p1_review}")
         else:
             with ThreadPoolExecutor(max_workers=workers) as ex:
-                futures = {
-                    ex.submit(process_club, c, serper_key, delay): c for c in clubs
-                }
+                futures = {ex.submit(process_club, c, serper_key, delay): c for c in clubs}
                 done = 0
                 for future in as_completed(futures):
                     done += 1
@@ -1462,10 +1491,7 @@ def main() -> None:
                         log(f"  Worker exception [{club['display_name'][:35]}]: {e}")
                     if done % 100 == 0:
                         log(
-                            f"  Progress: {done}/{len(clubs)}"
-                            f"  found={p1_found}"
-                            f"  approved={p1_auto}"
-                            f"  review={p1_review}"
+                            f"  Progress: {done}/{len(clubs)}  found={p1_found}  approved={p1_auto}  review={p1_review}"
                         )
 
         log("")
@@ -1493,10 +1519,7 @@ def main() -> None:
     # ── Team selection ────────────────────────────────────────────────────────
     if args.top_n_per_cohort:
         grouping = "(age_group × gender) nationally" if args.national else "(state × age_group × gender)"
-        log(
-            f"Cohort mode: top {args.top_n_per_cohort} teams per "
-            f"{grouping} cohort..."
-        )
+        log(f"Cohort mode: top {args.top_n_per_cohort} teams per {grouping} cohort...")
         cohort_ids, cohort_counts = fetch_top_n_per_cohort_ids(
             supabase,
             args.top_n_per_cohort,
@@ -1557,9 +1580,7 @@ def main() -> None:
         team_ids_list = [t["team_id_master"] for t in teams]
         log(f"Fetching power scores for sort order ({len(team_ids_list):,} teams)...")
         power_scores = fetch_power_scores(supabase, team_ids_list)
-        teams.sort(
-            key=lambda t: power_scores.get(t["team_id_master"], 0.0), reverse=True
-        )
+        teams.sort(key=lambda t: power_scores.get(t["team_id_master"], 0.0), reverse=True)
 
     # ── Fetch ALL club-level handles to exclude from Phase 2 results ─────────
     log("Fetching all club-level handles to exclude from team results...")
@@ -1626,9 +1647,7 @@ def main() -> None:
         }
 
         prefix = "[DRY-RUN] " if args.dry_run else ""
-        log(
-            f"  {prefix}[{status_tag}] {label:<45}  @{handle:<30}  {conf:.3f}"
-        )
+        log(f"  {prefix}[{status_tag}] {label:<45}  @{handle:<30}  {conf:.3f}")
 
         ok = upsert_result(
             supabase,
@@ -1647,22 +1666,18 @@ def main() -> None:
     # ── Processing loop ───────────────────────────────────────────────────────
     if workers <= 1:
         for i, team in enumerate(teams, start=1):
-            team_id, best, err = process_team(
-                team, serper_key, delay, club_handles=club_handles_global
-            )
+            team_id, best, err = process_team(team, serper_key, delay, club_handles=club_handles_global)
             handle_result(team, best, err)
             if i % 50 == 0:
-                log(
-                    f"  Progress: {i}/{len(teams)}"
-                    f"  found={found}"
-                    f"  approved={auto_approved}"
-                    f"  review={needs_review}"
-                )
+                log(f"  Progress: {i}/{len(teams)}  found={found}  approved={auto_approved}  review={needs_review}")
     else:
         with ThreadPoolExecutor(max_workers=workers) as ex:
             futures = {
                 ex.submit(
-                    process_team, t, serper_key, delay,
+                    process_team,
+                    t,
+                    serper_key,
+                    delay,
                     club_handles=club_handles_global,
                 ): t
                 for t in teams

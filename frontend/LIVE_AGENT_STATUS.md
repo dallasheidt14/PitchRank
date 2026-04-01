@@ -17,6 +17,7 @@ When an agent spawns via OpenClaw, the agent-webhook creates a session record. M
 ### 1. Database Table: `agent_sessions`
 
 Tracks every agent session with:
+
 - `session_key` - OpenClaw session ID (unique)
 - `agent_name` - Which agent (codey, movy, etc.)
 - `task_description` - What the agent is working on
@@ -26,10 +27,12 @@ Tracks every agent session with:
 - `completed_at` - When it finished (null if active)
 
 **View:** `active_agent_sessions`
+
 - Shows agents active in the last 5 minutes
 - Used by Mission Control status endpoint
 
 **Function:** `get_agent_status(agent_name)`
+
 - Quick lookup for a single agent's status
 
 ### 2. Agent Webhook Updates
@@ -37,18 +40,22 @@ Tracks every agent session with:
 `/app/api/agent-webhook/route.ts` now tracks sessions:
 
 **On `spawn` action:**
+
 - Creates `agent_sessions` record with status='active'
 - Logs: `[AgentWebhook] Created session record for {agent}`
 
 **On `progress` action:**
+
 - Updates `updated_at` timestamp (keeps session "active")
 - Updates `task_description` with latest progress
 
 **On `complete` action:**
+
 - Sets status='completed', completed_at=NOW()
 - Stores result message
 
 **On `error` action:**
+
 - Sets status='error', completed_at=NOW()
 - Stores error message
 
@@ -97,8 +104,8 @@ Tracks every agent session with:
 4. **Mission Control refreshes** (every 30s)
 5. **Status endpoint queries:**
    ```sql
-   SELECT * FROM agent_sessions 
-   WHERE status = 'active' 
+   SELECT * FROM agent_sessions
+   WHERE status = 'active'
      AND started_at > NOW() - INTERVAL '5 minutes';
    ```
 6. **Finds Codey's session** → Shows "Active" with task!
@@ -109,6 +116,7 @@ Tracks every agent session with:
 curl -X POST /api/agent-webhook \
   -d '{"action": "progress", "sessionKey": "abc-123-xyz", ...}'
 ```
+
 - Updates `updated_at` timestamp
 - Keeps session in "active" window
 
@@ -118,6 +126,7 @@ curl -X POST /api/agent-webhook \
 curl -X POST /api/agent-webhook \
   -d '{"action": "complete", "sessionKey": "abc-123-xyz", "result": "All bugs fixed!"}'
 ```
+
 - Sets status='completed', completed_at=NOW()
 - Next status check won't show as active
 - Card returns to "idle" (or WORKING file status)
@@ -134,7 +143,7 @@ CREATE TABLE agent_sessions (
   session_key TEXT NOT NULL UNIQUE,
   agent_name TEXT NOT NULL,
   task_description TEXT,
-  status TEXT DEFAULT 'active' 
+  status TEXT DEFAULT 'active'
     CHECK (status IN ('active', 'completed', 'error')),
   started_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -144,15 +153,15 @@ CREATE TABLE agent_sessions (
 
 -- View: active sessions (last 5 min)
 CREATE VIEW active_agent_sessions AS
-SELECT 
+SELECT
   agent_name,
   session_key,
   task_description,
   started_at,
   EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER AS duration_seconds
 FROM agent_sessions
-WHERE 
-  status = 'active' 
+WHERE
+  status = 'active'
   AND started_at > NOW() - INTERVAL '5 minutes';
 
 -- Function: get single agent status
@@ -214,8 +223,8 @@ SELECT * FROM active_agent_sessions;
 SELECT * FROM get_agent_status('codey');
 
 -- See all sessions (last 24h)
-SELECT agent_name, status, task_description, started_at 
-FROM agent_sessions 
+SELECT agent_name, status, task_description, started_at
+FROM agent_sessions
 WHERE started_at > NOW() - INTERVAL '24 hours'
 ORDER BY started_at DESC;
 ```
@@ -234,6 +243,7 @@ ORDER BY started_at DESC;
 ## Logs to Watch
 
 ### Agent Webhook
+
 ```
 [AgentWebhook] spawn - codey (abc-123-x)
 [AgentWebhook] Created session record for codey
@@ -242,6 +252,7 @@ ORDER BY started_at DESC;
 ```
 
 ### Mission Control Status
+
 ```
 [MissionControl] Found 2 active agent sessions
 [MissionControl] Error fetching active sessions: <error>
@@ -256,7 +267,7 @@ ORDER BY started_at DESC;
 ✅ **Historical tracking** - Can see what agents did recently  
 ✅ **Auto-cleanup** - Old sessions purged after 24h  
 ✅ **Fallback graceful** - Still works if database is down (uses WORKING files)  
-✅ **Session correlation** - Can link status to tasks in task board  
+✅ **Session correlation** - Can link status to tasks in task board
 
 ---
 
@@ -279,6 +290,7 @@ File: supabase/migrations/003_agent_sessions_tracking.sql
 ```
 
 Creates:
+
 - `agent_sessions` table
 - `active_agent_sessions` view
 - `get_agent_status()` function

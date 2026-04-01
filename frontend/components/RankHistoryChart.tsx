@@ -26,7 +26,7 @@ interface RankHistoryChartProps {
  * Y-axis is inverted (rank #1 at top). Displays above MomentumMeter on team detail page.
  */
 export function RankHistoryChart({ teamId }: RankHistoryChartProps) {
-  const { data: history, isLoading, isError, error, refetch } = useRankHistory(teamId);
+  const { data: history, isLoading, isError, error: _error, refetch } = useRankHistory(teamId);
   const hasTrackedView = useRef(false);
 
   useEffect(() => {
@@ -91,10 +91,7 @@ export function RankHistoryChart({ teamId }: RankHistoryChartProps) {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <ErrorDisplay
-            error="Unable to load ranking history"
-            retry={() => refetch()}
-          />
+          <ErrorDisplay error="Unable to load ranking history" retry={() => refetch()} />
         </CardContent>
       </Card>
     );
@@ -173,7 +170,13 @@ export function RankHistoryChart({ teamId }: RankHistoryChartProps) {
                 allowDecimals={false}
               />
               <RechartsTooltip
-                content={({ active, payload }: { active?: boolean; payload?: ReadonlyArray<{ payload?: (typeof chartData)[0] }> }) => {
+                content={({
+                  active,
+                  payload,
+                }: {
+                  active?: boolean;
+                  payload?: ReadonlyArray<{ payload?: (typeof chartData)[0] }>;
+                }) => {
                   if (!active || !payload?.[0]?.payload) return null;
                   const d = payload[0].payload;
                   return (

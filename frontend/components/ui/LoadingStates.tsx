@@ -52,4 +52,3 @@ export function ContentLoader({ rows = 5, className }: ContentLoaderProps) {
     </div>
   );
 }
-

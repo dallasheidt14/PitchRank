@@ -62,11 +62,10 @@ export function ReportCardForm() {
           <div className="text-4xl mb-4">⚽</div>
           <h2 className="text-xl font-bold mb-2">Check your inbox!</h2>
           <p className="text-muted-foreground mb-1">
-            Your report card for <span className="font-semibold text-foreground">{selectedTeam?.team_name}</span> is on its way.
+            Your report card for <span className="font-semibold text-foreground">{selectedTeam?.team_name}</span> is on
+            its way.
           </p>
-          <p className="text-sm text-muted-foreground">
-            Don&apos;t see it? Check your spam folder.
-          </p>
+          <p className="text-sm text-muted-foreground">Don&apos;t see it? Check your spam folder.</p>
           <Button
             variant="outline"
             className="mt-6"
@@ -89,11 +88,7 @@ export function ReportCardForm() {
     <Card className="shadow-xl border-0">
       <CardContent className="p-6">
         <form onSubmit={handleSubmit} className="space-y-4">
-          <TeamSelector
-            label="Find your team"
-            value={selectedTeamId}
-            onChange={handleTeamChange}
-          />
+          <TeamSelector label="Find your team" value={selectedTeamId} onChange={handleTeamChange} />
 
           <div>
             <label htmlFor="report-card-email" className="text-sm font-medium mb-2 block">
@@ -127,9 +122,7 @@ export function ReportCardForm() {
             </select>
           </div>
 
-          {formState === 'error' && (
-            <p className="text-sm text-destructive">{errorMessage}</p>
-          )}
+          {formState === 'error' && <p className="text-sm text-destructive">{errorMessage}</p>}
 
           <Button
             type="submit"
@@ -139,9 +132,7 @@ export function ReportCardForm() {
             {formState === 'loading' ? 'Generating...' : 'Send My Report Card'}
           </Button>
 
-          <p className="text-xs text-center text-muted-foreground">
-            Free. No credit card. Unsubscribe anytime.
-          </p>
+          <p className="text-xs text-center text-muted-foreground">Free. No credit card. Unsubscribe anytime.</p>
         </form>
       </CardContent>
     </Card>

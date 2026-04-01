@@ -67,4 +67,3 @@ export interface RankingRow {
   /** @deprecated Use sos_norm instead */
   sos_rank?: never;
 }
-

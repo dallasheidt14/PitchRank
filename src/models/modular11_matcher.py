@@ -13,21 +13,16 @@ Key features:
 - Creates new teams when no confident match found
 """
 
-from typing import Dict, List, Optional, Tuple, Any
-from datetime import datetime
-from difflib import SequenceMatcher
 import logging
-import uuid
-import string
-import time
 import re
+import uuid
 from dataclasses import dataclass
-
-from supabase import Client
-from config.settings import MATCHING_CONFIG
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 # Import base matcher for shared functionality
-from src.models.game_matcher import GameHistoryMatcher, GAME_UID_NAMESPACE
+from src.models.game_matcher import GameHistoryMatcher
+from supabase import Client
 
 logger = logging.getLogger(__name__)
 
@@ -317,7 +312,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
 
         # Also check for 2-digit years (e.g., '08', '10', '11', '12')
         # Extract 2-digit from correct birth year
-        correct_2digit = str(correct_birth_year)[-2:]
+        str(correct_birth_year)[-2:]
         # Look for 2-digit years that could be birth years (avoid matching random numbers)
         # Pattern: b08, 08b, (08), -08, _08, or standalone 08 in context
         year_2digit_pattern = r"\b([0-9]{2})\b"
@@ -368,7 +363,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 print(f"   Age: {detail['age']}, Division: {detail['division'] or 'N/A'}")
                 print(f"   Score: {detail['score']:.4f} (threshold: 0.93) ✅")
                 print(f"   Gap: {detail['gap']:.4f} (threshold: 0.07) ✅")
-                print(f"   ─" * 30)
+                print("   ─" * 30)
 
         if self.summary["fuzzy_reject_details"]:
             print("\n" + "=" * 60)
@@ -378,7 +373,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 print(f"\n{i}. {detail['incoming']}")
                 print(f"   Age: {detail['age']}, Division: {detail['division'] or 'N/A'}")
                 print(f"   Rejection Reason: {detail['reason']}")
-                print(f"\n   Top Candidates:")
+                print("\n   Top Candidates:")
                 if detail.get("top_candidates"):
                     for idx, candidate in enumerate(detail["top_candidates"][:3], 1):
                         div_info = f" (div: {candidate.get('division', 'N/A')})" if candidate.get("division") else ""
@@ -393,7 +388,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
                             gap_status = "PASS" if detail["score_gap"] >= 0.07 else "FAIL"
                             print(f"       Gap to 2nd: {detail['score_gap']:.4f} [{gap_status}] (need >= 0.07)")
                         print()
-                print(f"   ─" * 30)
+                print("   ─" * 30)
 
         if self.summary["new_team_details"]:
             print("\nNEW TEAMS CREATED:")
@@ -446,7 +441,8 @@ class Modular11GameMatcher(GameHistoryMatcher):
 
         # Log incoming team info
         self._dlog(
-            f"Incoming team: {team_name} (age={age_group}, gender={gender}, division={division}, provider_team_id={provider_team_id})"
+            f"Incoming team: {team_name} (age={age_group}, gender={gender}, "
+            f"division={division}, provider_team_id={provider_team_id})"
         )
 
         # Track processed teams
@@ -478,7 +474,8 @@ class Modular11GameMatcher(GameHistoryMatcher):
                             f"Alias found: provider_team_id={provider_team_id} maps to team_id_master={team_id_master}"
                         )
                         self._dlog(
-                            f"Alias info: team_name={team_name_db}, age={team_age}, gender={team_gender}, match_method={match_type}"
+                            f"Alias info: team_name={team_name_db}, age={team_age}, "
+                            f"gender={team_gender}, match_method={match_type}"
                         )
 
                         # Validate age group
@@ -726,7 +723,8 @@ class Modular11GameMatcher(GameHistoryMatcher):
         else:
             # Only return None if we truly can't create (missing required fields)
             logger.warning(
-                f"[Modular11] Cannot create team - missing required fields: name={team_name}, age={age_group}, gender={gender}"
+                f"[Modular11] Cannot create team - missing required fields: "
+                f"name={team_name}, age={age_group}, gender={gender}"
             )
             return {"matched": False, "team_id": None, "method": None, "confidence": 0.0}
 
@@ -756,7 +754,8 @@ class Modular11GameMatcher(GameHistoryMatcher):
             if birth_year:
                 birth_year_tokens = self._candidate_birth_year_tokens(birth_year)
                 self._dlog(
-                    f"[BY] Incoming {incoming_name} expects birth year {birth_year} (tokens: {birth_year_tokens[:3]}...)"
+                    f"[BY] Incoming {incoming_name} expects birth year {birth_year} "
+                    f"(tokens: {birth_year_tokens[:3]}...)"
                 )
             else:
                 self._dlog(f"[BY] Could not determine birth year from age_group={age_group}")
@@ -825,7 +824,8 @@ class Modular11GameMatcher(GameHistoryMatcher):
 
                 if not has_overlap:
                     self._dlog(
-                        f"Candidate: {cand_name} | Age={cand_age} | Score={base_score:.4f} | TokenOverlap=False (REJECTED)"
+                        f"Candidate: {cand_name} | Age={cand_age} | "
+                        f"Score={base_score:.4f} | TokenOverlap=False (REJECTED)"
                     )
                     logger.debug(f"[Modular11] No token overlap: '{incoming_name}' vs '{cand_name}'")
                     continue  # Skip candidates without token overlap
@@ -833,7 +833,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 # Add small bonus for synonym overlap
                 if has_overlap:
                     base_score += 0.03  # Small safe boost for synonym overlap
-                    self._dlog(f"[SYN] Synonym overlap bonus: +0.03")
+                    self._dlog("[SYN] Synonym overlap bonus: +0.03")
 
                 # Apply birth year scoring (HARD FILTER for wrong birth years)
                 birth_year_match = False
@@ -932,7 +932,8 @@ class Modular11GameMatcher(GameHistoryMatcher):
             # Division mismatch is no longer a hard requirement (still affects scoring via bonus/penalty)
             if best["score"] >= MODULAR11_MIN_CONFIDENCE and score_gap >= MODULAR11_MIN_GAP and best["token_overlap"]:
                 self._dlog(
-                    f"Fuzzy match ACCEPTED: {incoming_name} -> {best['team_name']} (score: {best['score']:.4f}, gap: {score_gap:.4f})"
+                    f"Fuzzy match ACCEPTED: {incoming_name} -> {best['team_name']} "
+                    f"(score: {best['score']:.4f}, gap: {score_gap:.4f})"
                 )
                 logger.info(
                     f"[Modular11] High-confidence match: {incoming_name} → {best['team_name']} "
@@ -1857,7 +1858,10 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 team2_str = normalize_team_id(team2_id)
                 sorted_teams = sorted([team1_str, team2_str])
 
-                game_uid = f"{provider_code}:{game_data.get('game_date', '')}:{sorted_teams[0]}:{sorted_teams[1]}:{age_group}:{division}"
+                game_uid = (
+                    f"{provider_code}:{game_data.get('game_date', '')}:"
+                    f"{sorted_teams[0]}:{sorted_teams[1]}:{age_group}:{division}"
+                )
             elif age_group:
                 # Fallback: include age_group only if division not available
                 team1_id = home_provider_id or game_data.get("team_id", "")
@@ -2088,7 +2092,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
                                 )
                                 if team_result.data:
                                     team_age = team_result.data.get("age_group", "Unknown")
-                                    team_gender = team_result.data.get("gender", "Unknown")
+                                    team_result.data.get("gender", "Unknown")
                                     self._dlog(
                                         f"Alias rejected: age mismatch (incoming {age_group} vs team {team_age})"
                                     )
@@ -2148,7 +2152,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
                                     )
                                     if team_result.data:
                                         team_age = team_result.data.get("age_group", "Unknown")
-                                        team_gender = team_result.data.get("gender", "Unknown")
+                                        team_result.data.get("gender", "Unknown")
                                         self._dlog(
                                             f"Alias rejected: age mismatch (incoming {age_group} vs team {team_age})"
                                         )
@@ -2197,7 +2201,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
                                     )
                                     if team_result.data:
                                         team_age = team_result.data.get("age_group", "Unknown")
-                                        team_gender = team_result.data.get("gender", "Unknown")
+                                        team_result.data.get("gender", "Unknown")
                                         self._dlog(
                                             f"Alias rejected: age mismatch (incoming {age_group} vs team {team_age})"
                                         )

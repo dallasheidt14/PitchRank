@@ -31,4 +31,3 @@ export function launchConfetti() {
     });
   }, 250);
 }
-

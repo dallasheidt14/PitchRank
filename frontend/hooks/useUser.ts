@@ -1,14 +1,14 @@
-"use client";
+'use client';
 
-import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { createClientSupabase } from "@/lib/supabase/client";
-import type { User, Session, AuthChangeEvent } from "@supabase/supabase-js";
+import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { createClientSupabase } from '@/lib/supabase/client';
+import type { User, Session, AuthChangeEvent } from '@supabase/supabase-js';
 
 export interface UserProfile {
   id: string;
   email: string | null;
-  plan: "free" | "premium" | "admin";
+  plan: 'free' | 'premium' | 'admin';
   created_at: string;
   updated_at: string;
   // Stripe subscription fields
@@ -24,7 +24,7 @@ export interface UserProfile {
  */
 export function hasPremiumAccess(profile: UserProfile | null): boolean {
   if (!profile) return false;
-  return profile.plan === "premium" || profile.plan === "admin";
+  return profile.plan === 'premium' || profile.plan === 'admin';
 }
 
 /**
@@ -33,9 +33,7 @@ export function hasPremiumAccess(profile: UserProfile | null): boolean {
 export function isSubscriptionActive(profile: UserProfile | null): boolean {
   if (!profile) return false;
   return (
-    profile.subscription_status === "active" ||
-    profile.subscription_status === "trialing" ||
-    profile.plan === "admin"
+    profile.subscription_status === 'active' || profile.subscription_status === 'trialing' || profile.plan === 'admin'
   );
 }
 
@@ -60,38 +58,44 @@ export function useUser(): UseUserReturn {
   // Get singleton client
   const supabase = createClientSupabase();
 
-  const fetchProfile = useCallback(async (userId: string) => {
-    try {
-      const { data, error: profileError } = await supabase
-        .from("user_profiles")
-        .select("*")
-        .eq("id", userId)
-        .single();
+  const fetchProfile = useCallback(
+    async (userId: string) => {
+      try {
+        const { data, error: profileError } = await supabase
+          .from('user_profiles')
+          .select('*')
+          .eq('id', userId)
+          .single();
 
-      if (profileError) {
-        console.warn("Error fetching profile:", profileError.message);
+        if (profileError) {
+          console.warn('Error fetching profile:', profileError.message);
+          return null;
+        }
+        return data as UserProfile;
+      } catch (e) {
+        console.warn('Profile fetch error:', e);
         return null;
       }
-      return data as UserProfile;
-    } catch (e) {
-      console.warn("Profile fetch error:", e);
-      return null;
-    }
-  }, [supabase]);
+    },
+    [supabase]
+  );
 
   const refreshUser = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
-      const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
+      const {
+        data: { user: currentUser },
+        error: userError,
+      } = await supabase.auth.getUser();
 
       if (userError) {
-        if (userError.name !== "AuthSessionMissingError") {
-          console.warn("Auth error:", userError.message);
+        if (userError.name !== 'AuthSessionMissingError') {
+          console.warn('Auth error:', userError.message);
         }
         setUser(null);
         setProfile(null);
-        setError(userError instanceof Error ? userError : new Error("Failed to refresh user"));
+        setError(userError instanceof Error ? userError : new Error('Failed to refresh user'));
         return;
       }
 
@@ -103,7 +107,7 @@ export function useUser(): UseUserReturn {
         setProfile(null);
       }
     } catch (e) {
-      setError(e instanceof Error ? e : new Error("Unknown error"));
+      setError(e instanceof Error ? e : new Error('Unknown error'));
     } finally {
       setIsLoading(false);
     }
@@ -117,7 +121,7 @@ export function useUser(): UseUserReturn {
       setProfile(null);
       setSession(null);
     } catch (e) {
-      setError(e instanceof Error ? e : new Error("Sign out failed"));
+      setError(e instanceof Error ? e : new Error('Sign out failed'));
       throw e;
     }
   }, [supabase]);
@@ -128,10 +132,13 @@ export function useUser(): UseUserReturn {
 
     // Get initial session and profile
     const initializeUser = async () => {
-      console.log("[useUser] Starting initialization...");
+      console.log('[useUser] Starting initialization...');
       try {
-        const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
-        console.log("[useUser] Session result:", {
+        const {
+          data: { session: currentSession },
+          error: sessionError,
+        } = await supabase.auth.getSession();
+        console.log('[useUser] Session result:', {
           hasSession: !!currentSession,
           userId: currentSession?.user?.id,
           error: sessionError?.message,
@@ -144,26 +151,26 @@ export function useUser(): UseUserReturn {
 
         if (currentSession?.user) {
           // Wait for profile to load before setting isLoading to false
-          console.log("[useUser] Fetching profile for user:", currentSession.user.id);
+          console.log('[useUser] Fetching profile for user:', currentSession.user.id);
           const userProfile = await fetchProfile(currentSession.user.id);
-          console.log("[useUser] Profile result:", userProfile ? { plan: userProfile.plan } : null);
+          console.log('[useUser] Profile result:', userProfile ? { plan: userProfile.plan } : null);
           if (isMounted) {
             setProfile(userProfile);
           }
         } else {
-          console.log("[useUser] No session, skipping profile fetch");
+          console.log('[useUser] No session, skipping profile fetch');
           if (isMounted) {
             setProfile(null);
           }
         }
       } catch (e) {
-        console.error("[useUser] Error initializing user:", e);
+        console.error('[useUser] Error initializing user:', e);
         if (isMounted) {
-          setError(e instanceof Error ? e : new Error("Failed to initialize user"));
+          setError(e instanceof Error ? e : new Error('Failed to initialize user'));
         }
       } finally {
         if (isMounted) {
-          console.log("[useUser] Initialization complete, setting isLoading to false");
+          console.log('[useUser] Initialization complete, setting isLoading to false');
           setIsLoading(false);
           isInitialized = true;
         }
@@ -173,41 +180,41 @@ export function useUser(): UseUserReturn {
     initializeUser();
 
     // Listen for auth changes - but only process updates after initial load completes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event: AuthChangeEvent, currentSession: Session | null) => {
-        // When a recovery token is exchanged via PKCE, Supabase fires PASSWORD_RECOVERY.
-        // The server-side callback may have lost the ?next=/reset-password param during
-        // the redirect chain, so we catch it here and redirect to the reset page.
-        // This must run before the isInitialized check so it's never skipped.
-        if (event === "PASSWORD_RECOVERY" && isMounted) {
-          router.push("/reset-password");
-          return;
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event: AuthChangeEvent, currentSession: Session | null) => {
+      // When a recovery token is exchanged via PKCE, Supabase fires PASSWORD_RECOVERY.
+      // The server-side callback may have lost the ?next=/reset-password param during
+      // the redirect chain, so we catch it here and redirect to the reset page.
+      // This must run before the isInitialized check so it's never skipped.
+      if (event === 'PASSWORD_RECOVERY' && isMounted) {
+        router.push('/reset-password');
+        return;
+      }
+
+      // Skip processing auth changes until initial load is complete to avoid race conditions
+      if (!isInitialized) {
+        console.log('[useUser] Skipping auth state change - initial load not complete:', event);
+        return;
+      }
+
+      console.log('Auth state changed:', event);
+      if (!isMounted) return;
+
+      setSession(currentSession);
+      setUser(currentSession?.user ?? null);
+
+      if (currentSession?.user) {
+        const userProfile = await fetchProfile(currentSession.user.id);
+        if (isMounted) {
+          setProfile(userProfile);
         }
-
-        // Skip processing auth changes until initial load is complete to avoid race conditions
-        if (!isInitialized) {
-          console.log("[useUser] Skipping auth state change - initial load not complete:", event);
-          return;
-        }
-
-        console.log("Auth state changed:", event);
-        if (!isMounted) return;
-
-        setSession(currentSession);
-        setUser(currentSession?.user ?? null);
-
-        if (currentSession?.user) {
-          const userProfile = await fetchProfile(currentSession.user.id);
-          if (isMounted) {
-            setProfile(userProfile);
-          }
-        } else {
-          if (isMounted) {
-            setProfile(null);
-          }
+      } else {
+        if (isMounted) {
+          setProfile(null);
         }
       }
-    );
+    });
 
     return () => {
       isMounted = false;

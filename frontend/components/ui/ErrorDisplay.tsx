@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertCircle, Wifi, WifiOff } from 'lucide-react';
+import { AlertCircle, WifiOff } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { getErrorMessage, isNetworkError } from '@/lib/errors';
@@ -78,4 +78,3 @@ export function ErrorDisplay({ error, retry, compact = false, fallback }: ErrorD
     </Card>
   );
 }
-

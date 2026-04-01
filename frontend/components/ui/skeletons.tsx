@@ -1,5 +1,4 @@
 import { Skeleton } from './skeleton';
-import { cn } from '@/lib/utils';
 
 /**
  * Shared skeleton components for consistent loading states
@@ -66,4 +65,3 @@ export function TeamCardSkeleton() {
     </div>
   );
 }
-

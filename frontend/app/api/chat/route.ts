@@ -15,10 +15,7 @@ export async function GET() {
 
     if (error) {
       console.error('Error fetching chat messages:', error);
-      return NextResponse.json(
-        { error: 'Failed to fetch messages' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Failed to fetch messages' }, { status: 500 });
     }
 
     // Reverse to show oldest first
@@ -27,10 +24,7 @@ export async function GET() {
     return NextResponse.json({ messages });
   } catch (e) {
     console.error('Unexpected error:', e);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
@@ -45,17 +39,11 @@ export async function POST(request: NextRequest) {
     const { author, author_type = 'human', content } = body;
 
     if (!author || !content) {
-      return NextResponse.json(
-        { error: 'Missing required fields: author and content' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Missing required fields: author and content' }, { status: 400 });
     }
 
     if (author_type !== 'human' && author_type !== 'agent') {
-      return NextResponse.json(
-        { error: 'author_type must be either "human" or "agent"' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'author_type must be either "human" or "agent"' }, { status: 400 });
     }
 
     const { data, error } = await supabase
@@ -72,18 +60,12 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error('Error inserting chat message:', error);
-      return NextResponse.json(
-        { error: 'Failed to send message' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Failed to send message' }, { status: 500 });
     }
 
     return NextResponse.json({ message: data });
   } catch (e) {
     console.error('Unexpected error:', e);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

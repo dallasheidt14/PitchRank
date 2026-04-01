@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     if (rankingError || !ranking || ranking.power_score_final == null) {
       return NextResponse.json(
         { error: 'Not enough ranking data for this team. Check back after they have played more games.' },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -70,9 +70,9 @@ export async function POST(request: NextRequest) {
     // Resolve opponent names
     const games: ReportCardGame[] = [];
     if (rawGames && rawGames.length > 0) {
-      const opponentIds = rawGames.map((g) =>
-        g.home_team_master_id === teamId ? g.away_team_master_id : g.home_team_master_id,
-      ).filter(Boolean) as string[];
+      const opponentIds = rawGames
+        .map((g) => (g.home_team_master_id === teamId ? g.away_team_master_id : g.home_team_master_id))
+        .filter(Boolean) as string[];
 
       const { data: opponents } = await supabase
         .from('teams')
@@ -94,7 +94,9 @@ export async function POST(request: NextRequest) {
           else result = 'D';
         }
         games.push({
-          game_date: g.game_date ? new Date(g.game_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—',
+          game_date: g.game_date
+            ? new Date(g.game_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+            : '—',
           opponent_name: (opId ? nameMap.get(opId) : null) || 'Unknown',
           score: `${teamScore ?? 0}-${oppScore ?? 0}`,
           result,
@@ -132,53 +134,55 @@ export async function POST(request: NextRequest) {
     });
 
     const pdfElement = React.createElement(TeamReportCard, {
-        team: {
-          team_name: team.team_name,
-          club_name: team.club_name,
-          state: team.state_code,
-          age: ageNum,
-          gender: genderCode,
-        },
-        ranking: {
-          power_score_final: ranking.power_score_final,
-          rank_in_cohort_final: ranking.rank_in_cohort_final,
-          rank_in_state_final: ranking.rank_in_state_final ?? null,
-          offense_norm: ranking.offense_norm ?? null,
-          defense_norm: ranking.defense_norm ?? null,
-          sos_norm: ranking.sos_norm ?? 0,
-          rank_change_7d: ranking.rank_change_7d ?? null,
-          rank_change_30d: ranking.rank_change_30d ?? null,
-          rank_change_state_7d: ranking.rank_change_state_7d ?? null,
-          rank_change_state_30d: ranking.rank_change_state_30d ?? null,
-          perf_centered: ranking.perf_centered ?? null,
-          wins: ranking.wins ?? 0,
-          losses: ranking.losses ?? 0,
-          draws: ranking.draws ?? 0,
-          games_played: ranking.games_played ?? 0,
-          total_wins: ranking.total_wins ?? 0,
-          total_losses: ranking.total_losses ?? 0,
-          total_draws: ranking.total_draws ?? 0,
-          total_games_played: ranking.total_games_played ?? 0,
-          win_percentage: ranking.win_percentage ?? null,
-        },
-        games,
-        cohortTotal: totalNational,
-        stateCohortTotal: totalState,
-        generatedDate,
-      });
+      team: {
+        team_name: team.team_name,
+        club_name: team.club_name,
+        state: team.state_code,
+        age: ageNum,
+        gender: genderCode,
+      },
+      ranking: {
+        power_score_final: ranking.power_score_final,
+        rank_in_cohort_final: ranking.rank_in_cohort_final,
+        rank_in_state_final: ranking.rank_in_state_final ?? null,
+        offense_norm: ranking.offense_norm ?? null,
+        defense_norm: ranking.defense_norm ?? null,
+        sos_norm: ranking.sos_norm ?? 0,
+        rank_change_7d: ranking.rank_change_7d ?? null,
+        rank_change_30d: ranking.rank_change_30d ?? null,
+        rank_change_state_7d: ranking.rank_change_state_7d ?? null,
+        rank_change_state_30d: ranking.rank_change_state_30d ?? null,
+        perf_centered: ranking.perf_centered ?? null,
+        wins: ranking.wins ?? 0,
+        losses: ranking.losses ?? 0,
+        draws: ranking.draws ?? 0,
+        games_played: ranking.games_played ?? 0,
+        total_wins: ranking.total_wins ?? 0,
+        total_losses: ranking.total_losses ?? 0,
+        total_draws: ranking.total_draws ?? 0,
+        total_games_played: ranking.total_games_played ?? 0,
+        win_percentage: ranking.win_percentage ?? null,
+      },
+      games,
+      cohortTotal: totalNational,
+      stateCohortTotal: totalState,
+      generatedDate,
+    });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const pdfBuffer = await renderToBuffer(pdfElement as any);
 
     // Save lead to database (non-blocking pattern)
     supabase
       .from('report_card_leads')
-      .insert([{
-        email: normalizedEmail,
-        team_id: teamId,
-        team_name: team.team_name,
-        role: role || null,
-        source: 'report-card',
-      }])
+      .insert([
+        {
+          email: normalizedEmail,
+          team_id: teamId,
+          team_name: team.team_name,
+          role: role || null,
+          source: 'report-card',
+        },
+      ])
       .then(({ error: insertError }) => {
         if (insertError) console.error('Failed to save report card lead:', insertError);
       });
@@ -197,20 +201,14 @@ export async function POST(request: NextRequest) {
       percentile > 0 ? percentile : 1,
       record,
       ranking.rank_change_30d ?? null,
-      Buffer.from(pdfBuffer),
+      Buffer.from(pdfBuffer)
     ).catch((err) => {
       console.error('Failed to send report card email:', err);
     });
 
-    return NextResponse.json(
-      { success: true, message: 'Report card sent! Check your inbox.' },
-      { status: 201 },
-    );
+    return NextResponse.json({ success: true, message: 'Report card sent! Check your inbox.' }, { status: 201 });
   } catch (error) {
     console.error('Report card API error:', error);
-    return NextResponse.json(
-      { error: 'An unexpected error occurred. Please try again.' },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: 'An unexpected error occurred. Please try again.' }, { status: 500 });
   }
 }

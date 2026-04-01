@@ -17,7 +17,3 @@ This directory contains the following logo files:
 ## Note
 
 Copy your logo files from `PitchRank/logos/` to this directory before building/deploying.
-
-
-
-

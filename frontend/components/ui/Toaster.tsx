@@ -51,7 +51,7 @@ export function Toaster() {
   const [, setToasts] = useState<ToastData[]>([]);
 
   useEffect(() => {
-    setMounted(true);
+    setMounted(true); // eslint-disable-line react-hooks/set-state-in-effect -- Portal hydration pattern requires setState in effect
     const updateToasts = () => {
       setToasts([...toasts]);
     };
@@ -66,14 +66,9 @@ export function Toaster() {
   return createPortal(
     <div className="fixed bottom-0 right-0 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px]">
       {toasts.map((toastData) => (
-        <Toast
-          key={toastData.id}
-          {...toastData}
-          onClose={() => dismiss(toastData.id)}
-        />
+        <Toast key={toastData.id} {...toastData} onClose={() => dismiss(toastData.id)} />
       ))}
     </div>,
     document.body
   );
 }
-

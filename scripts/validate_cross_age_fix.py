@@ -29,11 +29,10 @@ if env_local.exists():
 else:
     load_dotenv()
 
-from supabase import create_client
-
-from src.etl.v53e import V53EConfig, compute_rankings
-from src.rankings.data_adapter import age_group_to_age
-from src.rankings.shared import normalize_gender
+from src.etl.v53e import V53EConfig, compute_rankings  # noqa: E402
+from src.rankings.data_adapter import age_group_to_age  # noqa: E402
+from src.rankings.shared import normalize_gender  # noqa: E402
+from supabase import create_client  # noqa: E402
 
 # ── Constants ─────────────────────────────────────────────────────────
 PHOENIX_TEAM_ID = "691eb36d-95b2-4a08-bd59-13c1b0e830bb"
@@ -44,12 +43,18 @@ SEP = "=" * 80
 THIN = "-" * 80
 
 COMPARE_COLS = [
-    "off_raw", "off_norm", "def_norm", "sos_norm",
-    "powerscore_adj", "abs_strength", "power_presos",
+    "off_raw",
+    "off_norm",
+    "def_norm",
+    "sos_norm",
+    "powerscore_adj",
+    "abs_strength",
+    "power_presos",
 ]
 
 
 # ── Supabase helpers ──────────────────────────────────────────────────
+
 
 def setup_supabase():
     """Create Supabase client."""
@@ -61,8 +66,7 @@ def setup_supabase():
     return create_client(url, key)
 
 
-def paginated_fetch(sb, table: str, select: str, filters: dict | None = None,
-                    limit: int = 1000) -> list:
+def paginated_fetch(sb, table: str, select: str, filters: dict | None = None, limit: int = 1000) -> list:
     """Fetch all rows from a Supabase table with offset-based pagination."""
     all_rows: list = []
     offset = 0
@@ -93,7 +97,8 @@ def fetch_teams_for_age_groups(sb, age_groups: list[str], gender: str) -> pd.Dat
     all_teams = []
     for ag in age_groups:
         rows = paginated_fetch(
-            sb, "teams",
+            sb,
+            "teams",
             "team_id_master, age_group, gender, team_name, is_deprecated",
             filters={"age_group": ag, "gender": db_gender},
         )
@@ -101,7 +106,7 @@ def fetch_teams_for_age_groups(sb, age_groups: list[str], gender: str) -> pd.Dat
     df = pd.DataFrame(all_teams) if all_teams else pd.DataFrame()
     if not df.empty:
         # Filter out deprecated teams
-        df = df[df.get("is_deprecated", False) != True].copy()
+        df = df[not df.get("is_deprecated", False)].copy()
         df["age"] = df["age_group"].apply(age_group_to_age)
         df["gender_norm"] = normalize_gender(df["gender"])
     print(f"  Found {len(df)} teams")
@@ -119,7 +124,7 @@ def fetch_games_for_teams(sb, team_ids: set[str], lookback_days: int = 365) -> p
     batch_size = 80  # Keep batches small to avoid URI length limits
 
     for i in range(0, len(team_ids_list), batch_size):
-        batch = team_ids_list[i:i + batch_size]
+        batch = team_ids_list[i : i + batch_size]
         # Fetch games where team is home
         offset = 0
         while True:
@@ -187,7 +192,9 @@ def build_v53e_format(games_df: pd.DataFrame, team_meta: pd.DataFrame) -> pd.Dat
     team_gender_map = dict(zip(team_meta["team_id_master"].astype(str), team_meta["gender_norm"]))
 
     games = games_df.copy()
-    games["_game_id"] = games["game_uid"].fillna(games["id"]).astype(str) if "game_uid" in games.columns else games["id"].astype(str)
+    games["_game_id"] = (
+        games["game_uid"].fillna(games["id"]).astype(str) if "game_uid" in games.columns else games["id"].astype(str)
+    )
     games["_date"] = pd.to_datetime(games["game_date"])
 
     # Map age/gender for home and away teams
@@ -198,50 +205,59 @@ def build_v53e_format(games_df: pd.DataFrame, team_meta: pd.DataFrame) -> pd.Dat
 
     # Keep only games where both teams have metadata
     mask = (
-        games["_home_age"].notna() & (games["_home_age"] != "")
-        & games["_home_gender"].notna() & (games["_home_gender"] != "")
-        & games["_away_age"].notna() & (games["_away_age"] != "")
-        & games["_away_gender"].notna() & (games["_away_gender"] != "")
+        games["_home_age"].notna()
+        & (games["_home_age"] != "")
+        & games["_home_gender"].notna()
+        & (games["_home_gender"] != "")
+        & games["_away_age"].notna()
+        & (games["_away_age"] != "")
+        & games["_away_gender"].notna()
+        & (games["_away_gender"] != "")
     )
     games = games[mask]
 
     # Build home perspective
-    home_df = pd.DataFrame({
-        "game_id": games["_game_id"].values,
-        "id": games["id"].values,
-        "date": games["_date"].values,
-        "team_id": games["home_team_master_id"].astype(str).values,
-        "opp_id": games["away_team_master_id"].astype(str).values,
-        "home_team_master_id": games["home_team_master_id"].astype(str).values,
-        "age": games["_home_age"].values,
-        "gender": games["_home_gender"].values,
-        "opp_age": games["_away_age"].values,
-        "opp_gender": games["_away_gender"].values,
-        "gf": pd.to_numeric(games["home_score"], errors="coerce").values,
-        "ga": pd.to_numeric(games["away_score"], errors="coerce").values,
-    })
+    home_df = pd.DataFrame(
+        {
+            "game_id": games["_game_id"].values,
+            "id": games["id"].values,
+            "date": games["_date"].values,
+            "team_id": games["home_team_master_id"].astype(str).values,
+            "opp_id": games["away_team_master_id"].astype(str).values,
+            "home_team_master_id": games["home_team_master_id"].astype(str).values,
+            "age": games["_home_age"].values,
+            "gender": games["_home_gender"].values,
+            "opp_age": games["_away_age"].values,
+            "opp_gender": games["_away_gender"].values,
+            "gf": pd.to_numeric(games["home_score"], errors="coerce").values,
+            "ga": pd.to_numeric(games["away_score"], errors="coerce").values,
+        }
+    )
 
     # Build away perspective
-    away_df = pd.DataFrame({
-        "game_id": games["_game_id"].values,
-        "id": games["id"].values,
-        "date": games["_date"].values,
-        "team_id": games["away_team_master_id"].astype(str).values,
-        "opp_id": games["home_team_master_id"].astype(str).values,
-        "home_team_master_id": games["home_team_master_id"].astype(str).values,
-        "age": games["_away_age"].values,
-        "gender": games["_away_gender"].values,
-        "opp_age": games["_home_age"].values,
-        "opp_gender": games["_home_gender"].values,
-        "gf": pd.to_numeric(games["away_score"], errors="coerce").values,
-        "ga": pd.to_numeric(games["home_score"], errors="coerce").values,
-    })
+    away_df = pd.DataFrame(
+        {
+            "game_id": games["_game_id"].values,
+            "id": games["id"].values,
+            "date": games["_date"].values,
+            "team_id": games["away_team_master_id"].astype(str).values,
+            "opp_id": games["home_team_master_id"].astype(str).values,
+            "home_team_master_id": games["home_team_master_id"].astype(str).values,
+            "age": games["_away_age"].values,
+            "gender": games["_away_gender"].values,
+            "opp_age": games["_home_age"].values,
+            "opp_gender": games["_home_gender"].values,
+            "gf": pd.to_numeric(games["away_score"], errors="coerce").values,
+            "ga": pd.to_numeric(games["home_score"], errors="coerce").values,
+        }
+    )
 
     v53e_df = pd.concat([home_df, away_df], ignore_index=True)
     return v53e_df
 
 
 # ── Core logic ────────────────────────────────────────────────────────
+
 
 def fetch_cohort_data(sb, ages: list[int], gender: str) -> pd.DataFrame:
     """Fetch games and build v53e format for given age groups."""
@@ -276,16 +292,19 @@ def fetch_cohort_data(sb, ages: list[int], gender: str) -> pd.DataFrame:
         extra_teams = []
         batch_size = 100
         for i in range(0, len(missing_list), batch_size):
-            batch = missing_list[i:i + batch_size]
-            result = sb.table("teams").select(
-                "team_id_master, age_group, gender, team_name, is_deprecated"
-            ).in_("team_id_master", batch).execute()
+            batch = missing_list[i : i + batch_size]
+            result = (
+                sb.table("teams")
+                .select("team_id_master, age_group, gender, team_name, is_deprecated")
+                .in_("team_id_master", batch)
+                .execute()
+            )
             if result.data:
                 extra_teams.extend(result.data)
 
         if extra_teams:
             extra_df = pd.DataFrame(extra_teams)
-            extra_df = extra_df[extra_df.get("is_deprecated", False) != True].copy()
+            extra_df = extra_df[not extra_df.get("is_deprecated", False)].copy()
             extra_df["age"] = extra_df["age_group"].apply(age_group_to_age)
             extra_df["gender_norm"] = normalize_gender(extra_df["gender"])
             team_meta = pd.concat([team_meta, extra_df], ignore_index=True)
@@ -318,10 +337,12 @@ def build_global_strength_map(games_df: pd.DataFrame, cfg: V53EConfig) -> dict:
     teams_df = result["teams"]
     strength_map = {}
     if not teams_df.empty and "abs_strength" in teams_df.columns:
-        strength_map = dict(zip(
-            teams_df["team_id"].astype(str),
-            teams_df["abs_strength"].astype(float),
-        ))
+        strength_map = dict(
+            zip(
+                teams_df["team_id"].astype(str),
+                teams_df["abs_strength"].astype(float),
+            )
+        )
     print(f"  Global strength map: {len(strength_map):,} teams from U{FEEDER_AGE}M")
     return strength_map
 
@@ -415,10 +436,12 @@ def show_top_movers(before_df: pd.DataFrame, after_df: pd.DataFrame, n: int = 10
     # Get team names if available
     name_col = "team_name" if "team_name" in before_df.columns else None
     if name_col:
-        name_map = dict(zip(
-            before_df["team_id"].astype(str),
-            before_df[name_col].astype(str),
-        ))
+        name_map = dict(
+            zip(
+                before_df["team_id"].astype(str),
+                before_df[name_col].astype(str),
+            )
+        )
         merged["name"] = merged["team_id"].astype(str).map(name_map).fillna("Unknown")
     else:
         merged["name"] = merged["team_id"].astype(str).str[:12] + "..."

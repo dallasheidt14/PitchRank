@@ -1,4 +1,4 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card';
 import { FAQSchema } from '@/components/FAQSchema';
 import {
   Star,
@@ -40,9 +40,9 @@ export function MethodologySection() {
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground leading-relaxed">
-              PitchRank was built for one purpose: to create the fairest, most accurate youth soccer rankings in the country.
-              We do that using a two-part rating system that looks at every game from multiple angles while staying stable,
-              consistent, and extremely hard to manipulate.
+              PitchRank was built for one purpose: to create the fairest, most accurate youth soccer rankings in the
+              country. We do that using a two-part rating system that looks at every game from multiple angles while
+              staying stable, consistent, and extremely hard to manipulate.
             </p>
           </CardContent>
         </Card>
@@ -54,24 +54,24 @@ export function MethodologySection() {
               <Brain className="size-6 text-primary" />
               Part 1: The Core Rating Engine
             </h2>
-            <CardDescription>
-              The foundation of every PitchRank score
-            </CardDescription>
+            <CardDescription>The foundation of every PitchRank score</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <p className="text-muted-foreground leading-relaxed">
-              At the heart of PitchRank is a powerful engine that understands the game the way coaches do —
-              by looking deeper than scores. Here&apos;s what it takes into account:
+              At the heart of PitchRank is a powerful engine that understands the game the way coaches do — by looking
+              deeper than scores. Here&apos;s what it takes into account:
             </p>
 
             <div className="grid gap-4">
               <div className="flex items-start gap-3 p-4 rounded-lg bg-muted/50">
                 <CheckCircle className="size-5 text-primary mt-0.5 shrink-0" />
                 <div>
-                  <h4 className="font-display font-semibold uppercase tracking-wide text-sm mb-1">Quality of Opponents</h4>
+                  <h4 className="font-display font-semibold uppercase tracking-wide text-sm mb-1">
+                    Quality of Opponents
+                  </h4>
                   <p className="text-sm text-muted-foreground">
-                    Your results are measured through the lens of who you played. Beat a top team? That matters.
-                    Roll over a struggling one? Not as much.
+                    Your results are measured through the lens of who you played. Beat a top team? That matters. Roll
+                    over a struggling one? Not as much.
                   </p>
                 </div>
               </div>
@@ -79,7 +79,9 @@ export function MethodologySection() {
               <div className="flex items-start gap-3 p-4 rounded-lg bg-muted/50">
                 <Activity className="size-5 text-primary mt-0.5 shrink-0" />
                 <div>
-                  <h4 className="font-display font-semibold uppercase tracking-wide text-sm mb-1">How Competitive You Were</h4>
+                  <h4 className="font-display font-semibold uppercase tracking-wide text-sm mb-1">
+                    How Competitive You Were
+                  </h4>
                   <p className="text-sm text-muted-foreground">
                     A 1–0 battle against a powerhouse says more than a 10–0 cruise.
                   </p>
@@ -89,7 +91,9 @@ export function MethodologySection() {
               <div className="flex items-start gap-3 p-4 rounded-lg bg-muted/50">
                 <TrendingUp className="size-5 text-primary mt-0.5 shrink-0" />
                 <div>
-                  <h4 className="font-display font-semibold uppercase tracking-wide text-sm mb-1">Strength of Schedule (SOS)</h4>
+                  <h4 className="font-display font-semibold uppercase tracking-wide text-sm mb-1">
+                    Strength of Schedule (SOS)
+                  </h4>
                   <p className="text-sm text-muted-foreground">
                     Your record is only half the story. Who you earned it against is the rest.
                   </p>
@@ -99,7 +103,9 @@ export function MethodologySection() {
               <div className="flex items-start gap-3 p-4 rounded-lg bg-muted/50">
                 <Shield className="size-5 text-primary mt-0.5 shrink-0" />
                 <div>
-                  <h4 className="font-display font-semibold uppercase tracking-wide text-sm mb-1">Offensive & Defensive Behavior</h4>
+                  <h4 className="font-display font-semibold uppercase tracking-wide text-sm mb-1">
+                    Offensive & Defensive Behavior
+                  </h4>
                   <p className="text-sm text-muted-foreground">
                     Your performance patterns matter — not just the scoreboard.
                   </p>
@@ -129,7 +135,8 @@ export function MethodologySection() {
 
             <div className="mt-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
               <p className="text-sm font-medium text-foreground">
-                <strong>The result?</strong> A true, data-driven measure of team strength — not just a tally of wins and losses.
+                <strong>The result?</strong> A true, data-driven measure of team strength — not just a tally of wins and
+                losses.
               </p>
             </div>
           </CardContent>
@@ -142,19 +149,17 @@ export function MethodologySection() {
               <Cpu className="size-6 text-primary" />
               Part 2: The Machine Learning Layer
             </h2>
-            <CardDescription>
-              The &quot;smarts&quot; that identify rising teams
-            </CardDescription>
+            <CardDescription>The &quot;smarts&quot; that identify rising teams</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-muted-foreground leading-relaxed">
-              Once we understand how strong a team is, our system evaluates how a team is trending.
-              This is where machine learning comes in.
+              Once we understand how strong a team is, our system evaluates how a team is trending. This is where
+              machine learning comes in.
             </p>
 
             <p className="text-muted-foreground leading-relaxed">
-              It looks at every game and asks: <em>&quot;Given what we know about both teams…
-              did this result feel expected, or surprising?&quot;</em>
+              It looks at every game and asks:{' '}
+              <em>&quot;Given what we know about both teams… did this result feel expected, or surprising?&quot;</em>
             </p>
 
             <div className="space-y-3 my-4">
@@ -173,8 +178,8 @@ export function MethodologySection() {
             </div>
 
             <p className="text-muted-foreground leading-relaxed">
-              This adjustment is intentionally small, but incredibly powerful.
-              It helps surface underrated teams — and filter out misleading results.
+              This adjustment is intentionally small, but incredibly powerful. It helps surface underrated teams — and
+              filter out misleading results.
             </p>
           </CardContent>
         </Card>
@@ -188,9 +193,7 @@ export function MethodologySection() {
             </h2>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-muted-foreground leading-relaxed">
-              Our final rankings combine both components:
-            </p>
+            <p className="text-muted-foreground leading-relaxed">Our final rankings combine both components:</p>
 
             <div className="grid sm:grid-cols-2 gap-4 my-4">
               <div className="p-4 rounded-lg bg-background border">
@@ -203,9 +206,7 @@ export function MethodologySection() {
               </div>
             </div>
 
-            <p className="text-muted-foreground leading-relaxed">
-              This blend creates a ranking that&apos;s:
-            </p>
+            <p className="text-muted-foreground leading-relaxed">This blend creates a ranking that&apos;s:</p>
 
             <ul className="grid sm:grid-cols-2 gap-2 text-sm text-muted-foreground">
               <li className="flex items-center gap-2">
@@ -266,9 +267,7 @@ export function MethodologySection() {
                 Machine learning picks up new trends
               </li>
             </ul>
-            <p className="text-foreground font-medium mt-4">
-              The rankings get sharper every single week.
-            </p>
+            <p className="text-foreground font-medium mt-4">The rankings get sharper every single week.</p>
           </CardContent>
         </Card>
 
@@ -282,12 +281,12 @@ export function MethodologySection() {
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground leading-relaxed">
-              One of PitchRank&apos;s biggest strengths is how quickly the system builds connections.
-              Tournament in Arizona meets tournament in Texas. Teams cross into California.
-              National events tie everything together.
+              One of PitchRank&apos;s biggest strengths is how quickly the system builds connections. Tournament in
+              Arizona meets tournament in Texas. Teams cross into California. National events tie everything together.
             </p>
             <p className="text-foreground font-medium mt-4">
-              The more teams play, the more accurate — and nationally interconnected — the entire ranking ecosystem becomes.
+              The more teams play, the more accurate — and nationally interconnected — the entire ranking ecosystem
+              becomes.
             </p>
           </CardContent>
         </Card>
@@ -302,9 +301,8 @@ export function MethodologySection() {
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground leading-relaxed">
-              New teams start conservatively, then rise as results come in.
-              No inflated placements. No artificial penalties.
-              Just a fair runway to show who you really are.
+              New teams start conservatively, then rise as results come in. No inflated placements. No artificial
+              penalties. Just a fair runway to show who you really are.
             </p>
           </CardContent>
         </Card>
@@ -319,8 +317,8 @@ export function MethodologySection() {
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground leading-relaxed">
-              We tell you what matters — opponents, schedule strength, consistency, and performance trends —
-              but we do not share the exact formulas, weights, or internal parameters.
+              We tell you what matters — opponents, schedule strength, consistency, and performance trends — but we do
+              not share the exact formulas, weights, or internal parameters.
             </p>
             <p className="text-foreground font-medium mt-4">
               That&apos;s our secret sauce. And it&apos;s what keeps PitchRank ahead of the curve.
@@ -350,9 +348,7 @@ export function MethodologySection() {
               <h4 className="font-display font-semibold uppercase tracking-wide text-sm mb-2">
                 Does winning by a lot help?
               </h4>
-              <p className="text-sm text-muted-foreground">
-                Only when the opponent is strong. Context is everything.
-              </p>
+              <p className="text-sm text-muted-foreground">Only when the opponent is strong. Context is everything.</p>
             </div>
 
             <div>
@@ -390,8 +386,8 @@ export function MethodologySection() {
               <p className="text-lg font-display font-semibold uppercase tracking-wide">Real rankings.</p>
             </div>
             <p className="text-muted-foreground leading-relaxed">
-              PitchRank blends statistical truth with real-world performance to show where teams actually stand —
-              not where inflated scores or easy schedules would put them.
+              PitchRank blends statistical truth with real-world performance to show where teams actually stand — not
+              where inflated scores or easy schedules would put them.
             </p>
           </CardContent>
         </Card>

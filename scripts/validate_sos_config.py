@@ -3,6 +3,7 @@
 Validate SOS configuration without requiring dependencies.
 This script checks the configuration files directly.
 """
+
 import re
 import sys
 from pathlib import Path
@@ -26,38 +27,14 @@ def validate_v53e_config():
     print("=" * 60)
 
     # Extract values
-    transitivity_lambda = extract_value_from_file(
-        file_path,
-        r'SOS_TRANSITIVITY_LAMBDA:\s*float\s*=\s*([\d.]+)'
-    )
-    sos_iterations = extract_value_from_file(
-        file_path,
-        r'SOS_ITERATIONS:\s*int\s*=\s*(\d+)'
-    )
-    sos_repeat_cap = extract_value_from_file(
-        file_path,
-        r'SOS_REPEAT_CAP:\s*int\s*=\s*(\d+)'
-    )
-    unranked_sos_base = extract_value_from_file(
-        file_path,
-        r'UNRANKED_SOS_BASE:\s*float\s*=\s*([\d.]+)'
-    )
-    off_weight = extract_value_from_file(
-        file_path,
-        r'OFF_WEIGHT:\s*float\s*=\s*([\d.]+)'
-    )
-    def_weight = extract_value_from_file(
-        file_path,
-        r'DEF_WEIGHT:\s*float\s*=\s*([\d.]+)'
-    )
-    sos_weight = extract_value_from_file(
-        file_path,
-        r'SOS_WEIGHT:\s*float\s*=\s*([\d.]+)'
-    )
-    perf_blend_weight = extract_value_from_file(
-        file_path,
-        r'PERF_BLEND_WEIGHT:\s*float\s*=\s*([\d.]+)'
-    )
+    transitivity_lambda = extract_value_from_file(file_path, r"SOS_TRANSITIVITY_LAMBDA:\s*float\s*=\s*([\d.]+)")
+    sos_iterations = extract_value_from_file(file_path, r"SOS_ITERATIONS:\s*int\s*=\s*(\d+)")
+    sos_repeat_cap = extract_value_from_file(file_path, r"SOS_REPEAT_CAP:\s*int\s*=\s*(\d+)")
+    unranked_sos_base = extract_value_from_file(file_path, r"UNRANKED_SOS_BASE:\s*float\s*=\s*([\d.]+)")
+    off_weight = extract_value_from_file(file_path, r"OFF_WEIGHT:\s*float\s*=\s*([\d.]+)")
+    def_weight = extract_value_from_file(file_path, r"DEF_WEIGHT:\s*float\s*=\s*([\d.]+)")
+    sos_weight = extract_value_from_file(file_path, r"SOS_WEIGHT:\s*float\s*=\s*([\d.]+)")
+    perf_blend_weight = extract_value_from_file(file_path, r"PERF_BLEND_WEIGHT:\s*float\s*=\s*([\d.]+)")
 
     print(f"  SOS_TRANSITIVITY_LAMBDA: {transitivity_lambda}")
     print(f"  SOS_ITERATIONS: {sos_iterations}")
@@ -74,24 +51,24 @@ def validate_v53e_config():
     if float(transitivity_lambda) != 0.0:
         errors.append(f"❌ SOS_TRANSITIVITY_LAMBDA should be 0.0 (disabled), got {transitivity_lambda}")
     else:
-        print(f"  ✅ SOS_TRANSITIVITY_LAMBDA is correct (0.0 - disabled)")
+        print("  ✅ SOS_TRANSITIVITY_LAMBDA is correct (0.0 - disabled)")
 
     if int(sos_iterations) != 1:
         errors.append(f"❌ SOS_ITERATIONS should be 1 (single-pass), got {sos_iterations}")
     else:
-        print(f"  ✅ SOS_ITERATIONS is correct (1 - single-pass)")
+        print("  ✅ SOS_ITERATIONS is correct (1 - single-pass)")
 
     # Check PowerScore weights sum to 1.0
     weight_sum = float(off_weight) + float(def_weight) + float(sos_weight)
     if abs(weight_sum - 1.0) > 0.0001:
         errors.append(f"❌ PowerScore weights should sum to 1.0, got {weight_sum}")
     else:
-        print(f"  ✅ PowerScore weights sum to 1.0")
+        print("  ✅ PowerScore weights sum to 1.0")
 
     if float(sos_weight) != 0.50:
         errors.append(f"❌ SOS_WEIGHT should be 0.50, got {sos_weight}")
     else:
-        print(f"  ✅ SOS_WEIGHT is correct (50%)")
+        print("  ✅ SOS_WEIGHT is correct (50%)")
 
     print()
     return errors
@@ -106,10 +83,7 @@ def validate_settings_config():
     print("=" * 60)
 
     # Extract default value for sos_transitivity_lambda
-    transitivity_lambda = extract_value_from_file(
-        file_path,
-        r"'sos_transitivity_lambda'.*?getenv.*?[\",]([\d.]+)"
-    )
+    transitivity_lambda = extract_value_from_file(file_path, r"'sos_transitivity_lambda'.*?getenv.*?[\",]([\d.]+)")
 
     print(f"  sos_transitivity_lambda default: {transitivity_lambda}")
 
@@ -118,7 +92,7 @@ def validate_settings_config():
     if transitivity_lambda and float(transitivity_lambda) != 0.20:
         errors.append(f"❌ settings.py default should be 0.20, got {transitivity_lambda}")
     else:
-        print(f"  ✅ settings.py default is correct (0.20)")
+        print("  ✅ settings.py default is correct (0.20)")
 
     print()
     return errors
@@ -138,7 +112,7 @@ def validate_documentation():
 
     # Check for disabled transitivity (SOS_TRANSITIVITY_LAMBDA = 0.0 or SOS_ITERATIONS = 1)
     if "SOS_ITERATIONS" in content:
-        print(f"  ✅ Documentation references SOS_ITERATIONS")
+        print("  ✅ Documentation references SOS_ITERATIONS")
     else:
         errors.append("❌ Documentation doesn't reference SOS_ITERATIONS")
 
@@ -165,17 +139,17 @@ def validate_transitivity_calculation():
     if abs(direct_weight - 0.80) > 0.0001:
         errors.append(f"❌ Direct weight should be 0.80, got {direct_weight}")
     else:
-        print(f"  ✅ Direct weight is 80%")
+        print("  ✅ Direct weight is 80%")
 
     if abs(transitive_weight - 0.20) > 0.0001:
         errors.append(f"❌ Transitive weight should be 0.20, got {transitive_weight}")
     else:
-        print(f"  ✅ Transitive weight is 20%")
+        print("  ✅ Transitive weight is 20%")
 
     if abs(direct_weight + transitive_weight - 1.0) > 0.0001:
-        errors.append(f"❌ Weights should sum to 1.0")
+        errors.append("❌ Weights should sum to 1.0")
     else:
-        print(f"  ✅ Weights sum to 1.0")
+        print("  ✅ Weights sum to 1.0")
 
     print()
     return errors
@@ -221,5 +195,5 @@ def main():
         sys.exit(0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

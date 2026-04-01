@@ -13,7 +13,7 @@ export function NewsletterSubscribe() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     // Basic email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
@@ -65,7 +65,8 @@ export function NewsletterSubscribe() {
         </div>
         <CardTitle>Get weekly insights on youth soccer rankings</CardTitle>
         <CardDescription>
-          Subscribe to receive new blog posts and updates about youth soccer rankings, tournament results, and algorithm insights.
+          Subscribe to receive new blog posts and updates about youth soccer rankings, tournament results, and algorithm
+          insights.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -80,11 +81,7 @@ export function NewsletterSubscribe() {
               className="flex-1"
               required
             />
-            <Button 
-              type="submit" 
-              disabled={status === 'loading' || status === 'success'}
-              className="sm:w-auto w-full"
-            >
+            <Button type="submit" disabled={status === 'loading' || status === 'success'} className="sm:w-auto w-full">
               {status === 'loading' ? 'Subscribing...' : 'Subscribe'}
             </Button>
           </div>
@@ -103,9 +100,7 @@ export function NewsletterSubscribe() {
             </div>
           )}
 
-          <p className="text-xs text-muted-foreground text-center">
-            We respect your privacy. Unsubscribe at any time.
-          </p>
+          <p className="text-xs text-muted-foreground text-center">We respect your privacy. Unsubscribe at any time.</p>
         </form>
       </CardContent>
     </Card>

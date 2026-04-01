@@ -1,11 +1,11 @@
-"use client";
+'use client';
 
-import { useEffect, useRef } from "react";
-import type { UserProfile } from "./useUser";
-import { hasPremiumAccess } from "./useUser";
+import { useEffect, useRef } from 'react';
+import type { UserProfile } from './useUser';
+import { hasPremiumAccess } from './useUser';
 
-const WATCHLIST_KEY = "pitchrank_watchedTeams";
-const MIGRATION_DONE_KEY = "pitchrank_watchlist_migrated";
+const WATCHLIST_KEY = 'pitchrank_watchedTeams';
+const MIGRATION_DONE_KEY = 'pitchrank_watchlist_migrated';
 
 /**
  * Hook to migrate localStorage watchlist to Supabase on premium login.
@@ -19,15 +19,12 @@ const MIGRATION_DONE_KEY = "pitchrank_watchlist_migrated";
  * @param profile - User profile from useUser hook (null if not logged in)
  * @param userId - User's ID for tracking migration status
  */
-export function useWatchlistMigration(
-  profile: UserProfile | null,
-  userId: string | null
-): void {
+export function useWatchlistMigration(profile: UserProfile | null, userId: string | null): void {
   const migrationAttempted = useRef(false);
 
   useEffect(() => {
     // Only run on client side
-    if (typeof window === "undefined") return;
+    if (typeof window === 'undefined') return;
 
     // Only run once per session
     if (migrationAttempted.current) return;
@@ -38,13 +35,13 @@ export function useWatchlistMigration(
     // Check if migration already done for this user
     const migrationKey = `${MIGRATION_DONE_KEY}_${userId}`;
     const alreadyMigrated = localStorage.getItem(migrationKey);
-    if (alreadyMigrated === "true") return;
+    if (alreadyMigrated === 'true') return;
 
     // Get localStorage watchlist
     const localWatchlist = getLocalStorageWatchlist();
     if (localWatchlist.length === 0) {
       // No local watchlist to migrate, mark as done
-      localStorage.setItem(migrationKey, "true");
+      localStorage.setItem(migrationKey, 'true');
       return;
     }
 
@@ -72,10 +69,7 @@ function getLocalStorageWatchlist(): string[] {
 /**
  * Migrate watchlist items to Supabase
  */
-async function migrateWatchlist(
-  teamIds: string[],
-  migrationKey: string
-): Promise<void> {
+async function migrateWatchlist(teamIds: string[], migrationKey: string): Promise<void> {
   console.log(`[Watchlist Migration] Starting migration of ${teamIds.length} teams`);
 
   let successCount = 0;
@@ -83,12 +77,12 @@ async function migrateWatchlist(
 
   // First, ensure watchlist is initialized
   try {
-    await fetch("/api/watchlist/init", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+    await fetch('/api/watchlist/init', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error("[Watchlist Migration] Failed to init watchlist:", error);
+    console.error('[Watchlist Migration] Failed to init watchlist:', error);
     return; // Don't mark as migrated if init failed
   }
 
@@ -99,15 +93,15 @@ async function migrateWatchlist(
 
     const results = await Promise.allSettled(
       batch.map(async (teamIdMaster) => {
-        const response = await fetch("/api/watchlist/add", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+        const response = await fetch('/api/watchlist/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ teamIdMaster }),
         });
 
         if (!response.ok) {
           const data = await response.json().catch(() => ({}));
-          throw new Error(data.error || "Failed to add team");
+          throw new Error(data.error || 'Failed to add team');
         }
 
         return teamIdMaster;
@@ -115,24 +109,22 @@ async function migrateWatchlist(
     );
 
     for (const result of results) {
-      if (result.status === "fulfilled") {
+      if (result.status === 'fulfilled') {
         successCount++;
       } else {
         failCount++;
-        console.warn("[Watchlist Migration] Failed to migrate team:", result.reason);
+        console.warn('[Watchlist Migration] Failed to migrate team:', result.reason);
       }
     }
   }
 
-  console.log(
-    `[Watchlist Migration] Complete: ${successCount} succeeded, ${failCount} failed`
-  );
+  console.log(`[Watchlist Migration] Complete: ${successCount} succeeded, ${failCount} failed`);
 
   // Mark migration as done and clear localStorage
   if (successCount > 0 || failCount === 0) {
-    localStorage.setItem(migrationKey, "true");
+    localStorage.setItem(migrationKey, 'true');
     localStorage.removeItem(WATCHLIST_KEY);
-    console.log("[Watchlist Migration] LocalStorage cleared");
+    console.log('[Watchlist Migration] LocalStorage cleared');
   }
 }
 
@@ -155,9 +147,9 @@ export async function forceWatchlistMigration(userId: string): Promise<{
   let failed = 0;
 
   try {
-    await fetch("/api/watchlist/init", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+    await fetch('/api/watchlist/init', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
     });
   } catch {
     return { success: false, migrated: 0, failed: localWatchlist.length };
@@ -165,9 +157,9 @@ export async function forceWatchlistMigration(userId: string): Promise<{
 
   for (const teamIdMaster of localWatchlist) {
     try {
-      const response = await fetch("/api/watchlist/add", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const response = await fetch('/api/watchlist/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ teamIdMaster }),
       });
 
@@ -183,7 +175,7 @@ export async function forceWatchlistMigration(userId: string): Promise<{
 
   if (migrated > 0) {
     const migrationKey = `${MIGRATION_DONE_KEY}_${userId}`;
-    localStorage.setItem(migrationKey, "true");
+    localStorage.setItem(migrationKey, 'true');
     localStorage.removeItem(WATCHLIST_KEY);
   }
 

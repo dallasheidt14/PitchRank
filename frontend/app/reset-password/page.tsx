@@ -1,26 +1,19 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Loader2, Lock, CheckCircle2 } from "lucide-react";
-import { updatePassword } from "./actions";
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Loader2, Lock, CheckCircle2 } from 'lucide-react';
+import { updatePassword } from './actions';
 
 export default function ResetPasswordPage() {
   const router = useRouter();
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -30,12 +23,12 @@ export default function ResetPasswordPage() {
     setError(null);
 
     if (password !== confirmPassword) {
-      setError("Passwords do not match.");
+      setError('Passwords do not match.');
       return;
     }
 
     if (password.length < 6) {
-      setError("Password must be at least 6 characters long.");
+      setError('Password must be at least 6 characters long.');
       return;
     }
 
@@ -51,7 +44,7 @@ export default function ResetPasswordPage() {
 
       setIsSuccess(true);
     } catch {
-      setError("Failed to reset password. Please try again.");
+      setError('Failed to reset password. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -65,15 +58,16 @@ export default function ResetPasswordPage() {
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-500/10">
               <CheckCircle2 className="h-6 w-6 text-green-600" />
             </div>
-            <CardTitle className="text-2xl font-bold tracking-tight">
-              Password updated
-            </CardTitle>
-            <CardDescription className="text-base">
-              Your password has been successfully reset.
-            </CardDescription>
+            <CardTitle className="text-2xl font-bold tracking-tight">Password updated</CardTitle>
+            <CardDescription className="text-base">Your password has been successfully reset.</CardDescription>
           </CardHeader>
           <CardFooter className="flex justify-center">
-            <Button onClick={() => { router.push("/rankings"); router.refresh(); }}>
+            <Button
+              onClick={() => {
+                router.push('/rankings');
+                router.refresh();
+              }}
+            >
               Go to rankings
             </Button>
           </CardFooter>
@@ -86,20 +80,12 @@ export default function ResetPasswordPage() {
     <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center px-4 py-12">
       <Card className="w-full max-w-md" variant="elevated">
         <CardHeader className="space-y-1 text-center">
-          <CardTitle className="text-2xl font-bold tracking-tight">
-            Set new password
-          </CardTitle>
-          <CardDescription>
-            Enter your new password below
-          </CardDescription>
+          <CardTitle className="text-2xl font-bold tracking-tight">Set new password</CardTitle>
+          <CardDescription>Enter your new password below</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
-            {error && (
-              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-                {error}
-              </div>
-            )}
+            {error && <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
 
             <div className="space-y-2">
               <Label htmlFor="password">New password</Label>
@@ -145,15 +131,12 @@ export default function ResetPasswordPage() {
                   Updating password...
                 </>
               ) : (
-                "Update password"
+                'Update password'
               )}
             </Button>
 
             <p className="text-center text-sm text-muted-foreground">
-              <Link
-                href="/login"
-                className="font-medium text-primary underline-offset-4 hover:underline"
-              >
+              <Link href="/login" className="font-medium text-primary underline-offset-4 hover:underline">
                 Back to login
               </Link>
             </p>

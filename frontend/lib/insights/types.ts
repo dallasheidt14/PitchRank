@@ -7,12 +7,7 @@
  * Form signal derived from v53e perf_centered metric
  * Indicates whether team is over/underperforming expectations
  */
-export type FormSignal =
-  | "hot_streak"
-  | "overperforming"
-  | "meeting_expectations"
-  | "underperforming"
-  | "cold_streak";
+export type FormSignal = 'hot_streak' | 'overperforming' | 'meeting_expectations' | 'underperforming' | 'cold_streak';
 
 /**
  * Rank trajectory derived from v53e perf_centered
@@ -23,24 +18,24 @@ export type FormSignal =
  * We should NOT use SOS to question the rank - instead we use
  * perf_centered (recent form) to predict rank movement.
  */
-export type RankTrajectory = "rising" | "falling" | "stable";
+export type RankTrajectory = 'rising' | 'falling' | 'stable';
 
 /**
  * Play style derived from offense_norm vs defense_norm
  */
 export type PlayStyle =
-  | "Two-Way Powerhouse"
-  | "High-Octane Attack"
-  | "Defensive Wall"
-  | "Balanced Squad"
-  | "Rebuilding";
+  | 'Two-Way Powerhouse'
+  | 'High-Octane Attack'
+  | 'Defensive Wall'
+  | 'Balanced Squad'
+  | 'Rebuilding';
 
 /**
  * Season Truth Summary - narrative evaluation of team's season
  * Uses v53e perf_centered to predict rank trajectory
  */
 export interface SeasonTruthInsight {
-  type: "season_truth";
+  type: 'season_truth';
   text: string;
   details: {
     /** Rank trajectory based on recent form (perf_centered) */
@@ -70,9 +65,9 @@ export interface SeasonTruthInsight {
  * Consistency Score - measure of team reliability
  */
 export interface ConsistencyInsight {
-  type: "consistency_score";
+  type: 'consistency_score';
   score: number; // 0-100
-  label: "very reliable" | "moderately reliable" | "unpredictable" | "highly volatile";
+  label: 'very reliable' | 'moderately reliable' | 'unpredictable' | 'highly volatile';
   details: {
     goalDifferentialStdDev: number;
     streakFragmentation: number;
@@ -84,8 +79,8 @@ export interface ConsistencyInsight {
  * Persona Label - team archetype based on performance patterns
  */
 export interface PersonaInsight {
-  type: "persona";
-  label: "Giant Killer" | "Flat Track Bully" | "Gatekeeper" | "Wildcard";
+  type: 'persona';
+  label: 'Giant Killer' | 'Flat Track Bully' | 'Gatekeeper' | 'Wildcard';
   explanation: string;
   details: {
     winsVsHigherRanked: number;
@@ -123,7 +118,7 @@ export interface InsightInputData {
     team_name: string;
     state: string | null;
     age: number | null;
-    gender: "M" | "F" | "B" | "G";
+    gender: 'M' | 'F' | 'B' | 'G';
   };
   ranking: {
     rank_in_cohort_final: number | null;

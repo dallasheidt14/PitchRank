@@ -26,6 +26,7 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 from scipy import stats as sp_stats
+
 from supabase import create_client
 
 # ── Setup ────────────────────────────────────────────────────────────────
@@ -51,6 +52,7 @@ MIN_GAMES = 8
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
+
 
 def paginated_fetch(table: str, select: str, filters: dict | None = None, limit: int = 1000) -> list:
     """Fetch all rows from a table using offset-based pagination."""
@@ -169,24 +171,28 @@ for g in games_rows:
 
     # Home perspective
     if hid in team_ids:
-        perspectives.append({
-            "game_id": gid,
-            "team_id": hid,
-            "opp_id": aid,
-            "gf": hs,
-            "ga": as_,
-            "game_date": gd,
-        })
+        perspectives.append(
+            {
+                "game_id": gid,
+                "team_id": hid,
+                "opp_id": aid,
+                "gf": hs,
+                "ga": as_,
+                "game_date": gd,
+            }
+        )
     # Away perspective
     if aid in team_ids:
-        perspectives.append({
-            "game_id": gid,
-            "team_id": aid,
-            "opp_id": hid,
-            "gf": as_,
-            "ga": hs,
-            "game_date": gd,
-        })
+        perspectives.append(
+            {
+                "game_id": gid,
+                "team_id": aid,
+                "opp_id": hid,
+                "gf": as_,
+                "ga": hs,
+                "game_date": gd,
+            }
+        )
 
 games_df = pd.DataFrame(perspectives)
 games_df = games_df.drop_duplicates(subset=["game_id", "team_id"])
@@ -205,7 +211,7 @@ games_df.loc[mask_known & (games_df["opp_age"] == games_df["team_age"]), "opp_cl
 games_df.loc[mask_known & (games_df["opp_age"] > games_df["team_age"]), "opp_class"] = "up"
 games_df.loc[mask_known & (games_df["opp_age"] < games_df["team_age"]), "opp_class"] = "down"
 
-print(f"  Classification counts:")
+print("  Classification counts:")
 for cls, cnt in games_df["opp_class"].value_counts().items():
     print(f"    {cls:>8}: {cnt:>8,}")
 
@@ -219,32 +225,46 @@ print(SEP)
 # Filter out unknown-class games for stats (but count them in total)
 known_games = games_df[games_df["opp_class"] != "unknown"].copy()
 
-team_stats = known_games.groupby("team_id").agg(
-    total_games=("game_id", "count"),
-    games_same=("opp_class", lambda x: (x == "same").sum()),
-    games_up=("opp_class", lambda x: (x == "up").sum()),
-    games_down=("opp_class", lambda x: (x == "down").sum()),
-).reset_index()
+team_stats = (
+    known_games.groupby("team_id")
+    .agg(
+        total_games=("game_id", "count"),
+        games_same=("opp_class", lambda x: (x == "same").sum()),
+        games_up=("opp_class", lambda x: (x == "up").sum()),
+        games_down=("opp_class", lambda x: (x == "down").sum()),
+    )
+    .reset_index()
+)
 
 # Goal/margin/win stats by class
 for cls_key, cls_label in [("same", "same_age"), ("up", "playing_up"), ("down", "playing_down")]:
     sub = known_games[known_games["opp_class"] == cls_key]
-    cls_agg = sub.groupby("team_id").agg(
-        **{f"avg_gf_{cls_label}": ("gf", "mean"),
-           f"avg_ga_{cls_label}": ("ga", "mean"),
-           f"avg_margin_{cls_label}": ("margin", "mean"),
-           f"win_rate_{cls_label}": ("win", "mean")},
-    ).reset_index()
+    cls_agg = (
+        sub.groupby("team_id")
+        .agg(
+            **{
+                f"avg_gf_{cls_label}": ("gf", "mean"),
+                f"avg_ga_{cls_label}": ("ga", "mean"),
+                f"avg_margin_{cls_label}": ("margin", "mean"),
+                f"win_rate_{cls_label}": ("win", "mean"),
+            },
+        )
+        .reset_index()
+    )
     team_stats = team_stats.merge(cls_agg, on="team_id", how="left")
 
 # Cross-age stats for combined cross-age games
 cross_games = known_games[known_games["opp_class"].isin(["up", "down"])]
-cross_agg = cross_games.groupby("team_id").agg(
-    avg_gf_cross=("gf", "mean"),
-    avg_ga_cross=("ga", "mean"),
-    avg_margin_cross=("margin", "mean"),
-    win_rate_cross=("win", "mean"),
-).reset_index()
+cross_agg = (
+    cross_games.groupby("team_id")
+    .agg(
+        avg_gf_cross=("gf", "mean"),
+        avg_ga_cross=("ga", "mean"),
+        avg_margin_cross=("margin", "mean"),
+        win_rate_cross=("win", "mean"),
+    )
+    .reset_index()
+)
 team_stats = team_stats.merge(cross_agg, on="team_id", how="left")
 
 # Percentages
@@ -254,10 +274,23 @@ team_stats["pct_playing_down"] = team_stats["games_down"] / team_stats["total_ga
 
 # Merge rankings
 analysis = team_stats.merge(
-    rankings[["team_id", "age_group", "gender", "age_int", "off_norm", "def_norm",
-              "sos_norm", "powerscore_adj", "win_percentage", "rank_in_cohort",
-              "games_played"]],
-    on="team_id", how="inner",
+    rankings[
+        [
+            "team_id",
+            "age_group",
+            "gender",
+            "age_int",
+            "off_norm",
+            "def_norm",
+            "sos_norm",
+            "powerscore_adj",
+            "win_percentage",
+            "rank_in_cohort",
+            "games_played",
+        ]
+    ],
+    on="team_id",
+    how="inner",
 )
 
 # Normalize win_percentage to 0-1 if stored as 0-100
@@ -282,19 +315,22 @@ print(f"\n{SEP}")
 print("  PART 2A: All-Cohort Bucket Analysis — by pct_cross_age")
 print(SEP)
 
+
 def print_bucket_table(df, bucket_col, title=None):
     """Print a standard bucket analysis table."""
     if title:
         print(f"\n  {title}")
         print(f"  {THIN}")
 
-    header = (f"  {'Bucket':>12}  {'N':>6}  {'Avg Off':>7}  {'Avg Def':>7}  {'Avg Win%':>8}  "
-              f"{'Avg SOS':>7}  {'Avg PwrAdj':>10}  {'Misalign':>8}  "
-              f"{'Margin Same':>11}  {'Margin Cross':>12}")
+    header = (
+        f"  {'Bucket':>12}  {'N':>6}  {'Avg Off':>7}  {'Avg Def':>7}  {'Avg Win%':>8}  "
+        f"{'Avg SOS':>7}  {'Avg PwrAdj':>10}  {'Misalign':>8}  "
+        f"{'Margin Same':>11}  {'Margin Cross':>12}"
+    )
     print(header)
     print("  " + "-" * 110)
 
-    for bkt in df[bucket_col].cat.categories if hasattr(df[bucket_col], 'cat') else sorted(df[bucket_col].unique()):
+    for bkt in df[bucket_col].cat.categories if hasattr(df[bucket_col], "cat") else sorted(df[bucket_col].unique()):
         sub = df[df[bucket_col] == bkt]
         if len(sub) == 0:
             continue
@@ -307,9 +343,12 @@ def print_bucket_table(df, bucket_col, title=None):
         mis = sub["misalignment"].mean()
         margin_same = sub["avg_margin_same_age"].mean() if "avg_margin_same_age" in sub.columns else np.nan
         margin_cross = sub["avg_margin_cross"].mean() if "avg_margin_cross" in sub.columns else np.nan
-        print(f"  {str(bkt):>12}  {n:>6}  {avg_off:>7.4f}  {avg_def:>7.4f}  {avg_wp:>8.4f}  "
-              f"{avg_sos:>7.4f}  {avg_pwr:>10.4f}  {mis:>+8.4f}  "
-              f"{margin_same:>+11.3f}  {margin_cross:>+12.3f}")
+        print(
+            f"  {str(bkt):>12}  {n:>6}  {avg_off:>7.4f}  {avg_def:>7.4f}  {avg_wp:>8.4f}  "
+            f"{avg_sos:>7.4f}  {avg_pwr:>10.4f}  {mis:>+8.4f}  "
+            f"{margin_same:>+11.3f}  {margin_cross:>+12.3f}"
+        )
+
 
 # Overall cross-age buckets
 analysis["xage_bucket"] = pd.cut(
@@ -351,21 +390,31 @@ print(f"\n{SEP}")
 print("  PART 3A: Per-Cohort Summary")
 print(SEP)
 
-cohort_summary = analysis.groupby(["age_group", "gender"]).agg(
-    n_teams=("team_id", "count"),
-    avg_pct_cross=("pct_cross_age", "mean"),
-    avg_pct_up=("pct_playing_up", "mean"),
-    avg_pct_down=("pct_playing_down", "mean"),
-    avg_off_norm=("off_norm", "mean"),
-    avg_win_pct=("win_pct_01", "mean"),
-).reset_index().sort_values(["gender", "age_group"])
+cohort_summary = (
+    analysis.groupby(["age_group", "gender"])
+    .agg(
+        n_teams=("team_id", "count"),
+        avg_pct_cross=("pct_cross_age", "mean"),
+        avg_pct_up=("pct_playing_up", "mean"),
+        avg_pct_down=("pct_playing_down", "mean"),
+        avg_off_norm=("off_norm", "mean"),
+        avg_win_pct=("win_pct_01", "mean"),
+    )
+    .reset_index()
+    .sort_values(["gender", "age_group"])
+)
 
-print(f"\n  {'Cohort':<12}  {'Gender':>6}  {'N':>5}  {'Avg XAge%':>9}  {'Avg Up%':>7}  {'Avg Down%':>9}  {'Avg Off':>7}  {'Avg Win%':>8}")
+print(
+    f"\n  {'Cohort':<12}  {'Gender':>6}  {'N':>5}  {'Avg XAge%':>9}  "
+    f"{'Avg Up%':>7}  {'Avg Down%':>9}  {'Avg Off':>7}  {'Avg Win%':>8}"
+)
 print("  " + "-" * 85)
 for _, row in cohort_summary.iterrows():
-    print(f"  {row['age_group']:<12}  {row['gender']:>6}  {int(row['n_teams']):>5}  "
-          f"{100*row['avg_pct_cross']:>8.1f}%  {100*row['avg_pct_up']:>6.1f}%  {100*row['avg_pct_down']:>8.1f}%  "
-          f"{row['avg_off_norm']:>7.4f}  {row['avg_win_pct']:>8.4f}")
+    print(
+        f"  {row['age_group']:<12}  {row['gender']:>6}  {int(row['n_teams']):>5}  "
+        f"{100 * row['avg_pct_cross']:>8.1f}%  {100 * row['avg_pct_up']:>6.1f}%  {100 * row['avg_pct_down']:>8.1f}%  "
+        f"{row['avg_off_norm']:>7.4f}  {row['avg_win_pct']:>8.4f}"
+    )
 
 # --- Part 3B: Within-cohort bucket analysis ---
 print(f"\n{SEP}")
@@ -409,7 +458,7 @@ for (ag, gend), cohort_df in analysis.groupby(["age_group", "gender"]):
 
     # Monotonicity check
     if len(bucket_offs) >= 2:
-        decreasing_steps = sum(1 for i in range(1, len(bucket_offs)) if bucket_offs[i] < bucket_offs[i-1])
+        decreasing_steps = sum(1 for i in range(1, len(bucket_offs)) if bucket_offs[i] < bucket_offs[i - 1])
         total_steps = len(bucket_offs) - 1
         if decreasing_steps == total_steps:
             mono = "YES"
@@ -420,13 +469,15 @@ for (ag, gend), cohort_df in analysis.groupby(["age_group", "gender"]):
     else:
         mono = "N/A"
 
-    cohort_mono_results.append({
-        "cohort": cohort_label,
-        "n_teams": len(cohort_df),
-        "n_buckets": len(bucket_offs),
-        "off_decreases": mono,
-        "bucket_progression": " → ".join(f"{v:.4f}" for v in bucket_offs),
-    })
+    cohort_mono_results.append(
+        {
+            "cohort": cohort_label,
+            "n_teams": len(cohort_df),
+            "n_buckets": len(bucket_offs),
+            "off_decreases": mono,
+            "bucket_progression": " → ".join(f"{v:.4f}" for v in bucket_offs),
+        }
+    )
 
 # Summary table
 print(f"\n{SEP}")
@@ -438,7 +489,10 @@ print("  " + "-" * 90)
 yes_count = 0
 total_count = 0
 for r in cohort_mono_results:
-    print(f"  {r['cohort']:<18}  {r['n_teams']:>5}  {r['n_buckets']:>4}  {r['off_decreases']:>14}  {r['bucket_progression']}")
+    print(
+        f"  {r['cohort']:<18}  {r['n_teams']:>5}  {r['n_buckets']:>4}  "
+        f"{r['off_decreases']:>14}  {r['bucket_progression']}"
+    )
     total_count += 1
     if r["off_decreases"] == "YES":
         yes_count += 1
@@ -460,37 +514,43 @@ up_games["opp_age"] = up_games["opp_id"].map(opp_age_lookup)
 up_games = up_games.dropna(subset=["team_age", "opp_age"]).copy()
 up_games["team_age"] = up_games["team_age"].astype(int)
 up_games["opp_age"] = up_games["opp_age"].astype(int)
-up_games["boundary"] = up_games.apply(
-    lambda r: f"U{r['team_age']} vs U{r['opp_age']}", axis=1
-)
+up_games["boundary"] = up_games.apply(lambda r: f"U{r['team_age']} vs U{r['opp_age']}", axis=1)
 
 # Same-age baseline by cohort
 same_games = known_games[known_games["opp_class"] == "same"].copy()
 same_games["team_age"] = same_games["team_id"].map(team_age_map)
-same_baseline = same_games.groupby("team_age").agg(
-    baseline_gf=("gf", "mean"),
-    baseline_ga=("ga", "mean"),
-    baseline_margin=("margin", "mean"),
-    baseline_winrate=("win", "mean"),
-).reset_index()
+same_baseline = (
+    same_games.groupby("team_age")
+    .agg(
+        baseline_gf=("gf", "mean"),
+        baseline_ga=("ga", "mean"),
+        baseline_margin=("margin", "mean"),
+        baseline_winrate=("win", "mean"),
+    )
+    .reset_index()
+)
 baseline_dict = {int(r["team_age"]): r for _, r in same_baseline.iterrows()}
 
 # Boundary stats
-boundary_stats = up_games.groupby("boundary").agg(
-    n_games=("game_id", "count"),
-    avg_gf=("gf", "mean"),
-    avg_ga=("ga", "mean"),
-    avg_margin=("margin", "mean"),
-    win_rate=("win", "mean"),
-).reset_index()
-
-# Extract team_age from boundary for baseline comparison
-boundary_stats["team_age"] = boundary_stats["boundary"].apply(
-    lambda x: int(x.split(" vs ")[0].replace("U", ""))
+boundary_stats = (
+    up_games.groupby("boundary")
+    .agg(
+        n_games=("game_id", "count"),
+        avg_gf=("gf", "mean"),
+        avg_ga=("ga", "mean"),
+        avg_margin=("margin", "mean"),
+        win_rate=("win", "mean"),
+    )
+    .reset_index()
 )
 
-print(f"\n  {'Boundary':<16}  {'N Games':>7}  {'Avg GF':>6}  {'Avg GA':>6}  {'Margin':>7}  {'Win%':>6}  "
-      f"│ {'Base Margin':>11}  {'Base Win%':>9}  {'Margin Δ':>8}  {'Win% Δ':>7}")
+# Extract team_age from boundary for baseline comparison
+boundary_stats["team_age"] = boundary_stats["boundary"].apply(lambda x: int(x.split(" vs ")[0].replace("U", "")))
+
+print(
+    f"\n  {'Boundary':<16}  {'N Games':>7}  {'Avg GF':>6}  {'Avg GA':>6}  {'Margin':>7}  {'Win%':>6}  "
+    f"│ {'Base Margin':>11}  {'Base Win%':>9}  {'Margin Δ':>8}  {'Win% Δ':>7}"
+)
 print("  " + "-" * 115)
 
 # Sort by team_age then opp_age
@@ -501,8 +561,16 @@ for _, row in boundary_stats.iterrows():
         continue
     ta = row["team_age"]
     bl = baseline_dict.get(ta, {})
-    bl_margin = bl.get("baseline_margin", np.nan) if isinstance(bl, dict) is False else (bl["baseline_margin"] if isinstance(bl, pd.Series) else np.nan)
-    bl_wr = bl.get("baseline_winrate", np.nan) if isinstance(bl, dict) is False else (bl["baseline_winrate"] if isinstance(bl, pd.Series) else np.nan)
+    bl_margin = (
+        bl.get("baseline_margin", np.nan)
+        if isinstance(bl, dict) is False
+        else (bl["baseline_margin"] if isinstance(bl, pd.Series) else np.nan)
+    )
+    bl_wr = (
+        bl.get("baseline_winrate", np.nan)
+        if isinstance(bl, dict) is False
+        else (bl["baseline_winrate"] if isinstance(bl, pd.Series) else np.nan)
+    )
 
     # Handle pd.Series from baseline_dict
     if ta in baseline_dict:
@@ -517,13 +585,15 @@ for _, row in boundary_stats.iterrows():
     wr_delta = row["win_rate"] - bl_wr if not np.isnan(bl_wr) else np.nan
 
     bl_margin_str = f"{bl_margin:>+11.3f}" if not np.isnan(bl_margin) else f"{'N/A':>11}"
-    bl_wr_str = f"{100*bl_wr:>8.1f}%" if not np.isnan(bl_wr) else f"{'N/A':>9}"
+    bl_wr_str = f"{100 * bl_wr:>8.1f}%" if not np.isnan(bl_wr) else f"{'N/A':>9}"
     md_str = f"{margin_delta:>+8.3f}" if not np.isnan(margin_delta) else f"{'N/A':>8}"
-    wrd_str = f"{100*wr_delta:>+6.1f}%" if not np.isnan(wr_delta) else f"{'N/A':>7}"
+    wrd_str = f"{100 * wr_delta:>+6.1f}%" if not np.isnan(wr_delta) else f"{'N/A':>7}"
 
-    print(f"  {row['boundary']:<16}  {int(row['n_games']):>7}  {row['avg_gf']:>6.2f}  {row['avg_ga']:>6.2f}  "
-          f"{row['avg_margin']:>+7.3f}  {100*row['win_rate']:>5.1f}%  "
-          f"│ {bl_margin_str}  {bl_wr_str}  {md_str}  {wrd_str}")
+    print(
+        f"  {row['boundary']:<16}  {int(row['n_games']):>7}  {row['avg_gf']:>6.2f}  {row['avg_ga']:>6.2f}  "
+        f"{row['avg_margin']:>+7.3f}  {100 * row['win_rate']:>5.1f}%  "
+        f"│ {bl_margin_str}  {bl_wr_str}  {md_str}  {wrd_str}"
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -545,17 +615,19 @@ for i, (bkt, mean, n) in enumerate(bucket_means):
     if i == 0:
         step = "   ---"
     else:
-        delta = mean - bucket_means[i-1][1]
+        delta = mean - bucket_means[i - 1][1]
         step = f"{delta:>+8.4f}" + (" ↓" if delta < 0 else " ↑")
     print(f"  {bkt:>8}  {n:>6}  {mean:>12.4f}  {step}")
 
-strictly_decreasing = all(
-    bucket_means[i][1] > bucket_means[i+1][1] for i in range(len(bucket_means)-1)
-) if len(bucket_means) >= 2 else False
+strictly_decreasing = (
+    all(bucket_means[i][1] > bucket_means[i + 1][1] for i in range(len(bucket_means) - 1))
+    if len(bucket_means) >= 2
+    else False
+)
 print(f"\n  Strictly monotonically decreasing? {'YES' if strictly_decreasing else 'NO'}")
 
 # Same for pct_playing_up
-print(f"\n  ── pct_playing_UP buckets vs off_norm ──")
+print("\n  ── pct_playing_UP buckets vs off_norm ──")
 up_bucket_means = []
 for bkt in ["0%", "1-10%", "10-25%", "25-50%", "50%+"]:
     sub = analysis[analysis["up_bucket"] == bkt]
@@ -568,13 +640,15 @@ for i, (bkt, mean, n) in enumerate(up_bucket_means):
     if i == 0:
         step = "   ---"
     else:
-        delta = mean - up_bucket_means[i-1][1]
+        delta = mean - up_bucket_means[i - 1][1]
         step = f"{delta:>+8.4f}" + (" ↓" if delta < 0 else " ↑")
     print(f"  {bkt:>8}  {n:>6}  {mean:>12.4f}  {step}")
 
-up_strictly_decreasing = all(
-    up_bucket_means[i][1] > up_bucket_means[i+1][1] for i in range(len(up_bucket_means)-1)
-) if len(up_bucket_means) >= 2 else False
+up_strictly_decreasing = (
+    all(up_bucket_means[i][1] > up_bucket_means[i + 1][1] for i in range(len(up_bucket_means) - 1))
+    if len(up_bucket_means) >= 2
+    else False
+)
 print(f"\n  Strictly monotonically decreasing? {'YES' if up_strictly_decreasing else 'NO'}")
 
 
@@ -584,7 +658,11 @@ print("  PART 5B: Spearman Rank Correlations")
 print(SEP)
 
 print(f"\n  ALL TEAMS (n={len(analysis)})")
-for x_col, x_label in [("pct_playing_up", "pct_playing_up"), ("pct_cross_age", "pct_cross_age"), ("pct_playing_down", "pct_playing_down")]:
+for x_col, x_label in [
+    ("pct_playing_up", "pct_playing_up"),
+    ("pct_cross_age", "pct_cross_age"),
+    ("pct_playing_down", "pct_playing_down"),
+]:
     for y_col in ["off_norm", "def_norm", "powerscore_adj"]:
         valid = analysis.dropna(subset=[x_col, y_col])
         if len(valid) < 10:
@@ -593,7 +671,7 @@ for x_col, x_label in [("pct_playing_up", "pct_playing_up"), ("pct_cross_age", "
         sig = "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else ""
         print(f"    {x_label:>18} vs {y_col:<15}: rho={rho:+.4f}  p={p:.6f} {sig}")
 
-print(f"\n  PER-COHORT Spearman (pct_playing_up vs off_norm)")
+print("\n  PER-COHORT Spearman (pct_playing_up vs off_norm)")
 print(f"  {'Cohort':<18}  {'N':>5}  {'Rho':>7}  {'p-value':>9}  {'Sig':>3}")
 print("  " + "-" * 50)
 for (ag, gend), cohort_df in analysis.groupby(["age_group", "gender"]):
@@ -654,21 +732,21 @@ if len(bucket_means) >= 2:
         analysis.dropna(subset=["pct_cross_age", "off_norm"])["off_norm"],
     )
     q1_answer = "YES" if suppression > 0.01 and p_overall < 0.05 else "WEAK/NO"
-    print(f"\n  1. Is off_norm suppression associated with cross-age exposure?")
+    print("\n  1. Is off_norm suppression associated with cross-age exposure?")
     print(f"     Answer: {q1_answer}")
     print(f"     Evidence: Lowest-exposure bucket off_norm = {first_off:.4f}, highest = {last_off:.4f}")
     print(f"              Δ = {suppression:+.4f}")
     print(f"              Spearman rho = {rho_overall:+.4f}, p = {p_overall:.6f}")
 
 # Q2: Monotonic?
-print(f"\n  2. Is the effect monotonic?")
+print("\n  2. Is the effect monotonic?")
 print(f"     pct_cross_age buckets: {'YES' if strictly_decreasing else 'NO'}")
 print(f"     Progression: {' → '.join(f'{m[1]:.4f}' for m in bucket_means)}")
 print(f"     pct_playing_up buckets: {'YES' if up_strictly_decreasing else 'NO'}")
 print(f"     Progression: {' → '.join(f'{m[1]:.4f}' for m in up_bucket_means)}")
 
 # Q3: Directional?
-print(f"\n  3. Is it directional (playing up vs down asymmetry)?")
+print("\n  3. Is it directional (playing up vs down asymmetry)?")
 if len(primarily_up) > 0 and len(primarily_down) > 0 and len(mostly_same) > 0:
     up_off = primarily_up["off_norm"].mean()
     down_off = primarily_down["off_norm"].mean()
@@ -677,32 +755,41 @@ if len(primarily_up) > 0 and len(primarily_down) > 0 and len(mostly_same) > 0:
     print(f"     Primarily DOWN off_norm: {down_off:.4f}  (n={len(primarily_down)})")
     print(f"     Mostly Same off_norm:    {same_off:.4f}  (n={len(mostly_same)})")
     if up_off < same_off and down_off > same_off:
-        print(f"     → YES: Playing UP suppresses off_norm, playing DOWN does not")
+        print("     → YES: Playing UP suppresses off_norm, playing DOWN does not")
     elif up_off < same_off and down_off < same_off:
-        print(f"     → BOTH directions show suppression vs same-age")
+        print("     → BOTH directions show suppression vs same-age")
     elif up_off > same_off:
-        print(f"     → NO: Playing UP does NOT suppress off_norm")
+        print("     → NO: Playing UP does NOT suppress off_norm")
     else:
-        print(f"     → MIXED: See numbers above")
+        print("     → MIXED: See numbers above")
 else:
-    print(f"     Insufficient data for comparison")
+    print("     Insufficient data for comparison")
 
 # Q4: Strongest boundary
-print(f"\n  4. Which age boundaries show the strongest effect?")
+print("\n  4. Which age boundaries show the strongest effect?")
 if len(boundary_stats) > 0:
     valid_boundaries = boundary_stats[boundary_stats["n_games"] >= 10].copy()
     if len(valid_boundaries) > 0:
         valid_boundaries = valid_boundaries.sort_values("avg_margin")
         worst = valid_boundaries.iloc[0]
         best = valid_boundaries.iloc[-1]
-        print(f"     Worst margin for younger team: {worst['boundary']} (margin={worst['avg_margin']:+.3f}, n={int(worst['n_games'])})")
-        print(f"     Best margin for younger team:  {best['boundary']} (margin={best['avg_margin']:+.3f}, n={int(best['n_games'])})")
-        print(f"\n     All boundaries (10+ games, sorted by margin):")
+        print(
+            f"     Worst margin for younger team: {worst['boundary']} "
+            f"(margin={worst['avg_margin']:+.3f}, n={int(worst['n_games'])})"
+        )
+        print(
+            f"     Best margin for younger team:  {best['boundary']} "
+            f"(margin={best['avg_margin']:+.3f}, n={int(best['n_games'])})"
+        )
+        print("\n     All boundaries (10+ games, sorted by margin):")
         for _, row in valid_boundaries.iterrows():
-            print(f"       {row['boundary']:<16}  margin={row['avg_margin']:>+7.3f}  win%={100*row['win_rate']:>5.1f}%  n={int(row['n_games'])}")
+            print(
+                f"       {row['boundary']:<16}  margin={row['avg_margin']:>+7.3f}  "
+                f"win%={100 * row['win_rate']:>5.1f}%  n={int(row['n_games'])}"
+            )
 
 # Q5: How many cohorts show the pattern?
-print(f"\n  5. How many cohorts show the pattern vs don't?")
+print("\n  5. How many cohorts show the pattern vs don't?")
 print(f"     {yes_count}/{total_count} cohorts show strictly decreasing off_norm with cross-age exposure")
 mixed = sum(1 for r in cohort_mono_results if r["off_decreases"] == "MIXED")
 no_count = sum(1 for r in cohort_mono_results if "NO" in r["off_decreases"])

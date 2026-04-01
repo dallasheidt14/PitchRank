@@ -2,7 +2,7 @@
 
 import re
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Optional
 
 
 def _soccer_season_year() -> int:
@@ -45,7 +45,7 @@ def extract_birth_year_from_name(team_name: str) -> Optional[int]:
         return None
 
     # Match years like 2010-2018 (valid youth soccer birth years)
-    match = re.search(r'\b(20\d{2})\b', team_name)
+    match = re.search(r"\b(20\d{2})\b", team_name)
     if match:
         year = int(match.group(1))
         # Validate it's a reasonable birth year for youth soccer
@@ -79,5 +79,3 @@ def calculate_age_group_from_birth_year(birth_year: int, current_year: int = CUR
     if 7 <= age <= 19:  # Valid youth soccer age range
         return f"U{age}"
     return None
-
-

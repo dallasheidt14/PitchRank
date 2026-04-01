@@ -34,8 +34,7 @@ export function MissingGamesForm({ teamId, teamName }: MissingGamesFormProps) {
   useScrapeRequestNotifications();
 
   // Calculate if user can submit (rate limiting: 60 seconds)
-  const canSubmit = !lastSubmission || 
-    (new Date().getTime() - lastSubmission.getTime() > 60000);
+  const canSubmit = !lastSubmission || new Date().getTime() - lastSubmission.getTime() > 60000;
 
   // Get today's date in YYYY-MM-DD format for max attribute
   const today = new Date().toISOString().split('T')[0];
@@ -67,7 +66,7 @@ export function MissingGamesForm({ teamId, teamName }: MissingGamesFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!canSubmit) {
       setError('Please wait before submitting another request');
       return;
@@ -127,7 +126,10 @@ export function MissingGamesForm({ teamId, teamName }: MissingGamesFormProps) {
   const [timeUntilCanSubmit, setTimeUntilCanSubmit] = useState(0);
 
   useEffect(() => {
-    if (!lastSubmission) { setTimeUntilCanSubmit(0); return; }
+    if (!lastSubmission) {
+      setTimeUntilCanSubmit(0);
+      return;
+    }
     const update = () => {
       const remaining = Math.ceil((60000 - (Date.now() - lastSubmission.getTime())) / 1000);
       setTimeUntilCanSubmit(Math.max(0, remaining));
@@ -149,7 +151,8 @@ export function MissingGamesForm({ teamId, teamName }: MissingGamesFormProps) {
         <DialogHeader>
           <DialogTitle>Report Missing Game</DialogTitle>
           <DialogDescription>
-            If you notice a game is missing from {teamName}'s history, let us know the date and we'll fetch it.
+            If you notice a game is missing from {teamName}&apos;s history, let us know the date and we&apos;ll fetch
+            it.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
@@ -175,11 +178,7 @@ export function MissingGamesForm({ teamId, teamName }: MissingGamesFormProps) {
                 </p>
               )}
             </div>
-            {error && (
-              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-                {error}
-              </div>
-            )}
+            {error && <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
             {success && (
               <div className="rounded-md bg-green-500/10 p-3 text-sm text-green-600">
                 Game data requested! It should appear in 1-2 minutes.
@@ -187,18 +186,10 @@ export function MissingGamesForm({ teamId, teamName }: MissingGamesFormProps) {
             )}
           </div>
           <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setOpen(false)}
-              disabled={isSubmitting}
-            >
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isSubmitting}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              disabled={isSubmitting || !canSubmit || !gameDate}
-            >
+            <Button type="submit" disabled={isSubmitting || !canSubmit || !gameDate}>
               {isSubmitting ? 'Submitting...' : 'Submit'}
             </Button>
           </DialogFooter>
@@ -207,4 +198,3 @@ export function MissingGamesForm({ teamId, teamName }: MissingGamesFormProps) {
     </Dialog>
   );
 }
-

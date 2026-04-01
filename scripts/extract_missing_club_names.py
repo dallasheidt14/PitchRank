@@ -26,8 +26,8 @@ from pathlib import Path
 from typing import DefaultDict, Dict, List, Optional, Set
 
 from dotenv import load_dotenv
-from supabase import create_client
 
+from supabase import create_client
 
 NO_CLUB_VALUES: Set[str] = {
     "",
@@ -156,14 +156,10 @@ def load_env() -> None:
 def get_supabase():
     supabase_url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
     supabase_key = (
-        os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-        or os.getenv("SUPABASE_SERVICE_KEY")
-        or os.getenv("SUPABASE_KEY")
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
     )
     if not supabase_url or not supabase_key:
-        raise ValueError(
-            "Missing Supabase credentials. Need SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY."
-        )
+        raise ValueError("Missing Supabase credentials. Need SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.")
     return create_client(supabase_url, supabase_key)
 
 
@@ -202,9 +198,7 @@ def fetch_teams_without_club(supabase, limit: Optional[int]) -> List[Dict]:
                 .select("team_id_master,team_name,club_name,state_code,age_group,gender")
                 .eq("is_deprecated", False)
             )
-            batch = (
-                filter_fn(query).range(offset, offset + page_size - 1).execute().data or []
-            )
+            batch = filter_fn(query).range(offset, offset + page_size - 1).execute().data or []
             if not batch:
                 break
             for row in batch:
@@ -344,9 +338,7 @@ def find_conservative_match(extracted: Optional[str], existing_clubs: Counter) -
     return None
 
 
-def get_risk_flags(
-    team_name: str, extracted: Optional[str], matched_club: Optional[str]
-) -> List[str]:
+def get_risk_flags(team_name: str, extracted: Optional[str], matched_club: Optional[str]) -> List[str]:
     """Return risk flags used to keep Step 2 in safe-only mode."""
     if not extracted or not matched_club:
         return []
@@ -372,9 +364,7 @@ def get_risk_flags(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Conservatively backfill missing club names from team_name"
-    )
+    parser = argparse.ArgumentParser(description="Conservatively backfill missing club names from team_name")
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -445,18 +435,13 @@ def main() -> None:
 
         if args.dry_run:
             if sample_count < 25:
-                print(
-                    f"  [DRY-RUN] {state_code} | {team_name[:45]}... -> "
-                    f"'{extracted}' => '{matched_club}'"
-                )
+                print(f"  [DRY-RUN] {state_code} | {team_name[:45]}... -> '{extracted}' => '{matched_club}'")
                 sample_count += 1
             updated += 1
             continue
 
         try:
-            supabase.table("teams").update({"club_name": matched_club}).eq(
-                "team_id_master", team_id
-            ).execute()
+            supabase.table("teams").update({"club_name": matched_club}).eq("team_id_master", team_id).execute()
             updated += 1
             if updated <= 25 or updated % 100 == 0:
                 print(

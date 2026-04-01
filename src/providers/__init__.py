@@ -1,18 +1,1 @@
 """AthleteOne/TGS provider modules"""
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

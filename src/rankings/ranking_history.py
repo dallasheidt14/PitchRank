@@ -19,9 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 async def save_ranking_snapshot(
-    supabase_client,
-    rankings_df: pd.DataFrame,
-    snapshot_date: Optional[date] = None
+    supabase_client, rankings_df: pd.DataFrame, snapshot_date: Optional[date] = None
 ) -> int:
     """
     Save a daily snapshot of rankings to ranking_history table.
@@ -38,7 +36,8 @@ async def save_ranking_snapshot(
         Number of records saved
 
     Example:
-        >>> snapshot_df = teams_df[['team_id', 'age', 'gender', 'rank_in_cohort', 'rank_in_cohort_ml', 'power_score_final', 'powerscore_ml', 'state_code']]
+        >>> snapshot_df = teams_df[['team_id', 'age', 'gender', 'rank_in_cohort',
+        ...     'rank_in_cohort_ml', 'power_score_final', 'powerscore_ml', 'state_code']]
         >>> count = await save_ranking_snapshot(supabase, snapshot_df)
         >>> logger.info(f"Saved {count} ranking snapshots")
     """
@@ -53,37 +52,44 @@ async def save_ranking_snapshot(
     df = rankings_df.copy()
 
     # Derive age_group from 'age' field if not already present
-    if 'age_group' not in df.columns or df['age_group'].isna().all():
-        if 'age' in df.columns:
-            df['age_group'] = df['age'].apply(
-                lambda x: f"u{int(float(x))}" if pd.notna(x) else ""
-            )
+    if "age_group" not in df.columns or df["age_group"].isna().all():
+        if "age" in df.columns:
+            df["age_group"] = df["age"].apply(lambda x: f"u{int(float(x))}" if pd.notna(x) else "")
 
     # Calculate state ranks within each (state_code, age_group, gender) cohort
     # Only Active teams get state ranks — consistent with v53e and state_rankings_view
-    if 'state_code' in df.columns and 'power_score_final' in df.columns:
+    if "state_code" in df.columns and "power_score_final" in df.columns:
         # Use ML score if available, otherwise fall back to power_score_final
-        score_col = 'powerscore_ml' if 'powerscore_ml' in df.columns and df['powerscore_ml'].notna().any() else 'power_score_final'
+        score_col = (
+            "powerscore_ml"
+            if "powerscore_ml" in df.columns and df["powerscore_ml"].notna().any()
+            else "power_score_final"
+        )
 
         # Initialize all state ranks as NULL
-        df['rank_in_state'] = pd.array([pd.NA] * len(df), dtype='Int64')
+        df["rank_in_state"] = pd.array([pd.NA] * len(df), dtype="Int64")
 
         # Only rank Active teams (8+ games) to match ranking engine behavior
-        if 'status' in df.columns:
-            active_mask = df['status'] == 'Active'
+        if "status" in df.columns:
+            active_mask = df["status"] == "Active"
         else:
             logger.warning("⚠️ 'status' column missing in snapshot — all teams treated as Active for state ranking")
             active_mask = pd.Series(True, index=df.index)
         if active_mask.any():
-            active_ranks = df.loc[active_mask].groupby(['state_code', 'age_group', 'gender'])[score_col].rank(
-                method='min', ascending=False, na_option='bottom'
-            ).astype('Int64')
-            df.loc[active_mask, 'rank_in_state'] = active_ranks
+            active_ranks = (
+                df.loc[active_mask]
+                .groupby(["state_code", "age_group", "gender"])[score_col]
+                .rank(method="min", ascending=False, na_option="bottom")
+                .astype("Int64")
+            )
+            df.loc[active_mask, "rank_in_state"] = active_ranks
 
-        state_count = df.loc[active_mask, 'state_code'].notna().sum() if active_mask.any() else 0
-        logger.info(f"📍 Calculated state ranks for {state_count:,} Active teams across {df['state_code'].nunique()} states")
+        state_count = df.loc[active_mask, "state_code"].notna().sum() if active_mask.any() else 0
+        logger.info(
+            f"📍 Calculated state ranks for {state_count:,} Active teams across {df['state_code'].nunique()} states"
+        )
     else:
-        df['rank_in_state'] = None
+        df["rank_in_state"] = None
         logger.warning("⚠️ state_code or power_score_final not available - state ranks will be NULL")
 
     # Prepare data for insertion
@@ -103,7 +109,9 @@ async def save_ranking_snapshot(
             "gender": str(row.get("gender", "")),
             "rank_in_cohort": int(row.get("rank_in_cohort")) if pd.notna(row.get("rank_in_cohort")) else None,
             "rank_in_cohort_ml": int(row.get("rank_in_cohort_ml")) if pd.notna(row.get("rank_in_cohort_ml")) else None,
-            "power_score_final": float(row.get("power_score_final")) if pd.notna(row.get("power_score_final")) else None,
+            "power_score_final": float(row.get("power_score_final"))
+            if pd.notna(row.get("power_score_final"))
+            else None,
             "powerscore_ml": float(row.get("powerscore_ml")) if pd.notna(row.get("powerscore_ml")) else None,
             # NEW: State rank tracking
             "state_code": str(row.get("state_code")) if pd.notna(row.get("state_code")) else None,
@@ -128,16 +136,17 @@ async def save_ranking_snapshot(
         failed_batches = []
 
         for i in range(0, total_records, batch_size):
-            batch = snapshot_records[i:i + batch_size]
+            batch = snapshot_records[i : i + batch_size]
             batch_num = (i // batch_size) + 1
             total_batches = (total_records + batch_size - 1) // batch_size
 
             for attempt in range(max_retries + 1):
                 try:
-                    response = supabase_client.table("ranking_history").upsert(
-                        batch,
-                        on_conflict="team_id,snapshot_date"
-                    ).execute()
+                    response = (
+                        supabase_client.table("ranking_history")
+                        .upsert(batch, on_conflict="team_id,snapshot_date")
+                        .execute()
+                    )
 
                     batch_saved = len(response.data) if response.data else len(batch)
                     saved_count += batch_saved
@@ -158,7 +167,10 @@ async def save_ranking_snapshot(
                         )
                         time.sleep(wait)
                     else:
-                        logger.error(f"❌ Batch {batch_num}/{total_batches} failed after {max_retries + 1} attempts: {batch_error}")
+                        logger.error(
+                            f"❌ Batch {batch_num}/{total_batches} failed after "
+                            f"{max_retries + 1} attempts: {batch_error}"
+                        )
                         failed_batches.append(batch_num)
 
         # Verify saved count matches expected count
@@ -169,9 +181,7 @@ async def save_ranking_snapshot(
             )
 
         if saved_count < total_records:
-            logger.warning(
-                f"⚠️ Snapshot count mismatch: saved {saved_count:,} vs expected {total_records:,}"
-            )
+            logger.warning(f"⚠️ Snapshot count mismatch: saved {saved_count:,} vs expected {total_records:,}")
 
         logger.info(f"✅ Saved {saved_count:,}/{total_records:,} ranking snapshots")
         return saved_count
@@ -182,10 +192,7 @@ async def save_ranking_snapshot(
 
 
 async def get_historical_ranks(
-    supabase_client,
-    team_ids: list[str],
-    days_ago: int,
-    reference_date: Optional[date] = None
+    supabase_client, team_ids: list[str], days_ago: int, reference_date: Optional[date] = None
 ) -> Dict[str, Optional[int]]:
     """
     Get historical ranks for multiple teams from N days ago.
@@ -222,25 +229,29 @@ async def get_historical_ranks(
         all_records = []
 
         for i in range(0, len(team_ids), batch_size):
-            batch = team_ids[i:i+batch_size]
+            batch = team_ids[i : i + batch_size]
             try:
                 # Query snapshots within date range for this batch
-                response = supabase_client.table("ranking_history").select(
-                    "team_id, snapshot_date, rank_in_cohort, rank_in_cohort_ml"
-                ).in_("team_id", batch).gte(
-                    "snapshot_date", date_range_start.isoformat()
-                ).lte(
-                    "snapshot_date", date_range_end.isoformat()
-                ).execute()
+                response = (
+                    supabase_client.table("ranking_history")
+                    .select("team_id, snapshot_date, rank_in_cohort, rank_in_cohort_ml")
+                    .in_("team_id", batch)
+                    .gte("snapshot_date", date_range_start.isoformat())
+                    .lte("snapshot_date", date_range_end.isoformat())
+                    .execute()
+                )
 
                 if response.data:
                     all_records.extend(response.data)
             except Exception as batch_error:
-                logger.warning(f"❌ Error fetching historical ranks for batch {i//batch_size + 1}: {batch_error}")
+                logger.warning(f"❌ Error fetching historical ranks for batch {i // batch_size + 1}: {batch_error}")
                 continue
 
         if not all_records:
-            logger.info(f"📍 No historical national rankings found for {len(team_ids)} teams around {target_date} ({days_ago}d ago)")
+            logger.info(
+                f"📍 No historical national rankings found for {len(team_ids)} teams "
+                f"around {target_date} ({days_ago}d ago)"
+            )
             return {team_id: None for team_id in team_ids}
 
         # Build mapping of team_id -> rank (prefer ML rank, fallback to cohort rank)
@@ -259,11 +270,7 @@ async def get_historical_ranks(
 
             # Keep closest snapshot for each team
             if team_id not in snapshots_by_team or distance < snapshots_by_team[team_id]["distance"]:
-                snapshots_by_team[team_id] = {
-                    "rank": rank,
-                    "distance": distance,
-                    "snapshot_date": snapshot_date
-                }
+                snapshots_by_team[team_id] = {"rank": rank, "distance": distance, "snapshot_date": snapshot_date}
 
         # Extract ranks from best snapshots
         for team_id in team_ids:
@@ -284,10 +291,7 @@ async def get_historical_ranks(
 
 
 async def get_historical_state_ranks(
-    supabase_client,
-    team_ids: list[str],
-    days_ago: int,
-    reference_date: Optional[date] = None
+    supabase_client, team_ids: list[str], days_ago: int, reference_date: Optional[date] = None
 ) -> Dict[str, Optional[int]]:
     """
     Get historical STATE ranks for multiple teams from N days ago.
@@ -323,26 +327,33 @@ async def get_historical_state_ranks(
         all_records = []
 
         for i in range(0, len(team_ids), batch_size):
-            batch = team_ids[i:i+batch_size]
+            batch = team_ids[i : i + batch_size]
             try:
                 # Query snapshots within date range for this batch
                 # Include state_code and rank_in_state
-                response = supabase_client.table("ranking_history").select(
-                    "team_id, snapshot_date, state_code, rank_in_state"
-                ).in_("team_id", batch).gte(
-                    "snapshot_date", date_range_start.isoformat()
-                ).lte(
-                    "snapshot_date", date_range_end.isoformat()
-                ).not_.is_("rank_in_state", "null").execute()  # Only get records with state rank
+                response = (
+                    supabase_client.table("ranking_history")
+                    .select("team_id, snapshot_date, state_code, rank_in_state")
+                    .in_("team_id", batch)
+                    .gte("snapshot_date", date_range_start.isoformat())
+                    .lte("snapshot_date", date_range_end.isoformat())
+                    .not_.is_("rank_in_state", "null")
+                    .execute()
+                )  # Only get records with state rank
 
                 if response.data:
                     all_records.extend(response.data)
             except Exception as batch_error:
-                logger.warning(f"❌ Error fetching historical state ranks for batch {i//batch_size + 1}: {batch_error}")
+                logger.warning(
+                    f"❌ Error fetching historical state ranks for batch {i // batch_size + 1}: {batch_error}"
+                )
                 continue
 
         if not all_records:
-            logger.info(f"📍 No historical state rankings found for {len(team_ids)} teams around {target_date} ({days_ago}d ago)")
+            logger.info(
+                f"📍 No historical state rankings found for {len(team_ids)} teams "
+                f"around {target_date} ({days_ago}d ago)"
+            )
             return {team_id: None for team_id in team_ids}
 
         # Build mapping of team_id -> state rank
@@ -367,7 +378,7 @@ async def get_historical_state_ranks(
                     "rank": state_rank,
                     "distance": distance,
                     "snapshot_date": snapshot_date_val,
-                    "state_code": record.get("state_code")
+                    "state_code": record.get("state_code"),
                 }
 
         # Extract ranks from best snapshots
@@ -389,9 +400,7 @@ async def get_historical_state_ranks(
 
 
 async def calculate_rank_changes(
-    supabase_client,
-    current_rankings_df: pd.DataFrame,
-    reference_date: Optional[date] = None
+    supabase_client, current_rankings_df: pd.DataFrame, reference_date: Optional[date] = None
 ) -> pd.DataFrame:
     """
     Calculate rank changes (7-day and 30-day) for current rankings.
@@ -400,7 +409,8 @@ async def calculate_rank_changes(
 
     Args:
         supabase_client: Supabase client instance
-        current_rankings_df: DataFrame with current rankings (must have 'team_id' and 'rank_in_cohort_ml' or 'rank_in_cohort')
+        current_rankings_df: DataFrame with current rankings
+            (must have 'team_id' and 'rank_in_cohort_ml' or 'rank_in_cohort')
         reference_date: Reference date for calculating changes (defaults to today)
 
     Returns:
@@ -444,38 +454,47 @@ async def calculate_rank_changes(
     ranks_30d_ago = await get_historical_ranks(supabase_client, team_ids, days_ago=30, reference_date=reference_date)
 
     # Get historical STATE ranks
-    state_ranks_7d_ago = await get_historical_state_ranks(supabase_client, team_ids, days_ago=7, reference_date=reference_date)
-    state_ranks_30d_ago = await get_historical_state_ranks(supabase_client, team_ids, days_ago=30, reference_date=reference_date)
+    state_ranks_7d_ago = await get_historical_state_ranks(
+        supabase_client, team_ids, days_ago=7, reference_date=reference_date
+    )
+    state_ranks_30d_ago = await get_historical_state_ranks(
+        supabase_client, team_ids, days_ago=30, reference_date=reference_date
+    )
 
     # Calculate current state ranks if not already present
     # This matches the logic in save_ranking_snapshot()
-    has_state_data = 'state_code' in current_rankings_df.columns and 'power_score_final' in current_rankings_df.columns
+    has_state_data = "state_code" in current_rankings_df.columns and "power_score_final" in current_rankings_df.columns
     if has_state_data:
         # Derive age_group from 'age' field if not already present
         df = current_rankings_df.copy()
-        if 'age_group' not in df.columns or df['age_group'].isna().all():
-            if 'age' in df.columns:
-                df['age_group'] = df['age'].apply(
-                    lambda x: f"u{int(float(x))}" if pd.notna(x) else ""
-                )
+        if "age_group" not in df.columns or df["age_group"].isna().all():
+            if "age" in df.columns:
+                df["age_group"] = df["age"].apply(lambda x: f"u{int(float(x))}" if pd.notna(x) else "")
 
         # Use ML score if available, otherwise fall back to power_score_final
-        score_col = 'powerscore_ml' if 'powerscore_ml' in df.columns and df['powerscore_ml'].notna().any() else 'power_score_final'
+        score_col = (
+            "powerscore_ml"
+            if "powerscore_ml" in df.columns and df["powerscore_ml"].notna().any()
+            else "power_score_final"
+        )
 
         # Calculate current rank within state for each cohort — Active teams only
-        current_rankings_df['current_state_rank'] = pd.array([pd.NA] * len(current_rankings_df), dtype='Int64')
-        if 'status' in df.columns:
-            active_mask = df['status'] == 'Active'
+        current_rankings_df["current_state_rank"] = pd.array([pd.NA] * len(current_rankings_df), dtype="Int64")
+        if "status" in df.columns:
+            active_mask = df["status"] == "Active"
         else:
             logger.warning("⚠️ 'status' column missing — all teams treated as Active for state rank changes")
             active_mask = pd.Series(True, index=df.index)
         if active_mask.any():
-            active_ranks = df.loc[active_mask].groupby(['state_code', 'age_group', 'gender'])[score_col].rank(
-                method='min', ascending=False, na_option='bottom'
-            ).astype('Int64')
-            current_rankings_df.loc[active_mask, 'current_state_rank'] = active_ranks
+            active_ranks = (
+                df.loc[active_mask]
+                .groupby(["state_code", "age_group", "gender"])[score_col]
+                .rank(method="min", ascending=False, na_option="bottom")
+                .astype("Int64")
+            )
+            current_rankings_df.loc[active_mask, "current_state_rank"] = active_ranks
     else:
-        current_rankings_df['current_state_rank'] = None
+        current_rankings_df["current_state_rank"] = None
 
     # Calculate changes for each team
     def calculate_change(row) -> Tuple[Optional[int], Optional[int], Optional[int], Optional[int]]:
@@ -516,12 +535,12 @@ async def calculate_rank_changes(
     current_rankings_df["rank_change_state_30d"] = changes[3]
 
     # Clean up temporary column
-    if 'current_state_rank' in current_rankings_df.columns:
-        current_rankings_df.drop(columns=['current_state_rank'], inplace=True)
+    if "current_state_rank" in current_rankings_df.columns:
+        current_rankings_df.drop(columns=["current_state_rank"], inplace=True)
 
     # Convert to numeric dtype to ensure .nlargest() works properly
     for col in ["rank_change_7d", "rank_change_30d", "rank_change_state_7d", "rank_change_state_30d"]:
-        current_rankings_df[col] = pd.to_numeric(current_rankings_df[col], errors='coerce')
+        current_rankings_df[col] = pd.to_numeric(current_rankings_df[col], errors="coerce")
 
     # Log statistics
     total_teams = len(current_rankings_df)
@@ -531,17 +550,17 @@ async def calculate_rank_changes(
     teams_with_state_30d = current_rankings_df["rank_change_state_30d"].notna().sum()
 
     logger.info(
-        f"✅ Rank changes: national 7d={teams_with_7d:,}/{total_teams:,} ({teams_with_7d/total_teams*100:.0f}%), "
-        f"30d={teams_with_30d:,}/{total_teams:,} ({teams_with_30d/total_teams*100:.0f}%) | "
-        f"state 7d={teams_with_state_7d:,}/{total_teams:,} ({teams_with_state_7d/total_teams*100:.0f}%), "
-        f"30d={teams_with_state_30d:,}/{total_teams:,} ({teams_with_state_30d/total_teams*100:.0f}%)"
+        f"✅ Rank changes: national 7d={teams_with_7d:,}/{total_teams:,} ({teams_with_7d / total_teams * 100:.0f}%), "
+        f"30d={teams_with_30d:,}/{total_teams:,} ({teams_with_30d / total_teams * 100:.0f}%) | "
+        f"state 7d={teams_with_state_7d:,}/{total_teams:,} ({teams_with_state_7d / total_teams * 100:.0f}%), "
+        f"30d={teams_with_state_30d:,}/{total_teams:,} ({teams_with_state_30d / total_teams * 100:.0f}%)"
     )
 
     # Show examples of big movers (only if we have data)
     if teams_with_7d > 0:
-        big_movers_7d = current_rankings_df[
-            current_rankings_df["rank_change_7d"].notna()
-        ].nlargest(3, "rank_change_7d", keep="first")
+        big_movers_7d = current_rankings_df[current_rankings_df["rank_change_7d"].notna()].nlargest(
+            3, "rank_change_7d", keep="first"
+        )
     else:
         big_movers_7d = pd.DataFrame()
 
@@ -557,5 +576,3 @@ async def calculate_rank_changes(
             logger.info(f"   - {team_name}: moved up {change:.0f} spots (now rank #{current:.0f}){state_info}")
 
     return current_rankings_df
-
-

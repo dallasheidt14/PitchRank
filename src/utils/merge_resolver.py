@@ -10,7 +10,7 @@ Part of Phase 2 of the team merge implementation (Option 1 architecture).
 
 import hashlib
 import logging
-from typing import Dict, Optional, Set, List
+from typing import Dict, List, Optional, Set
 
 import pandas as pd
 
@@ -66,9 +66,12 @@ class MergeResolver:
             offset = 0
 
             while True:
-                response = self.client.table('team_merge_map').select(
-                    'deprecated_team_id, canonical_team_id'
-                ).range(offset, offset + page_size - 1).execute()
+                response = (
+                    self.client.table("team_merge_map")
+                    .select("deprecated_team_id, canonical_team_id")
+                    .range(offset, offset + page_size - 1)
+                    .execute()
+                )
 
                 if not response.data:
                     break
@@ -85,14 +88,11 @@ class MergeResolver:
                 logger.warning("team_merge_map query returned no data")
                 self._merge_map = {}
             else:
-                self._merge_map = {
-                    str(row['deprecated_team_id']): str(row['canonical_team_id'])
-                    for row in all_data
-                }
+                self._merge_map = {str(row["deprecated_team_id"]): str(row["canonical_team_id"]) for row in all_data}
 
             # Compute version hash for cache invalidation
             if self._merge_map:
-                map_str = ''.join(sorted(f"{k}:{v}" for k, v in self._merge_map.items()))
+                map_str = "".join(sorted(f"{k}:{v}" for k, v in self._merge_map.items()))
                 self._version = hashlib.md5(map_str.encode()).hexdigest()[:8]
             else:
                 self._version = "no_merges"
@@ -146,7 +146,7 @@ class MergeResolver:
         if not self._merge_map:
             return series
 
-        return series.astype(str).map(lambda x: self._merge_map.get(x, x) if pd.notna(x) and x != 'nan' else x)
+        return series.astype(str).map(lambda x: self._merge_map.get(x, x) if pd.notna(x) and x != "nan" else x)
 
     def resolve_dataframe(self, df: pd.DataFrame, columns: List[str]) -> pd.DataFrame:
         """
@@ -270,9 +270,9 @@ class MergeResolver:
         team_id_str = str(team_id)
         if team_id_str in self._merge_map:
             return {
-                'deprecated_team_id': team_id_str,
-                'canonical_team_id': self._merge_map[team_id_str],
-                'is_merged': True
+                "deprecated_team_id": team_id_str,
+                "canonical_team_id": self._merge_map[team_id_str],
+                "is_merged": True,
             }
         return None
 

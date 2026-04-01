@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
     let homeUpdated = 0;
     let awayUpdated = 0;
     let specificGameUpdated = false;
-    let verificationResult: { home_team_master_id?: string | null; away_team_master_id?: string | null } | null = null;
+    let _verificationResult: { home_team_master_id?: string | null; away_team_master_id?: string | null } | null = null;
 
     // Note: isOpponentHome, isOpponentAway are already defined above
     // At this point, we know the opponent needs linking (validated in early check)
@@ -175,7 +175,7 @@ export async function POST(request: NextRequest) {
         .eq('id', gameId)
         .single();
 
-      verificationResult = verifyGame;
+      _verificationResult = verifyGame;
       // Use String() comparison to handle potential UUID format differences
       const updateActuallyWorked = String(verifyGame?.home_team_master_id) === String(teamIdMaster);
 
@@ -250,7 +250,7 @@ export async function POST(request: NextRequest) {
         .eq('id', gameId)
         .single();
 
-      verificationResult = verifyGame;
+      _verificationResult = verifyGame;
       // Use String() comparison to handle potential UUID format differences
       const updateActuallyWorked = String(verifyGame?.away_team_master_id) === String(teamIdMaster);
 

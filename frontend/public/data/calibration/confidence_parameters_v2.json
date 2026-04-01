@@ -1,13 +1,13 @@
 {
   "weights": {
     "composite_diff": 16.580185793897275,
-    "variance": -0.10,
-    "sample_strength": 0.40
+    "variance": -0.1,
+    "sample_strength": 0.4
   },
-  "intercept": -0.80,
+  "intercept": -0.8,
   "thresholds": {
     "high": 0.65,
-    "medium": 0.50
+    "medium": 0.5
   },
   "accuracy_improvement": 0.21399999999999997,
   "fitted_accuracy": 0.697,

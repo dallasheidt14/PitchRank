@@ -18,7 +18,7 @@ interface HeadToHeadOptions {
  * Renders a Head-to-Head comparison graphic between two teams.
  */
 export async function renderHeadToHeadToCanvas(options: HeadToHeadOptions): Promise<HTMLCanvasElement> {
-  const { team1, team2, platform, ageGroup, gender, regionName, generatedDate, allGames = [] } = options;
+  const { team1, team2, platform, ageGroup, gender, regionName: _regionName, generatedDate, allGames = [] } = options;
   const dimensions = PLATFORM_DIMENSIONS[platform];
   const isVertical = platform === 'instagramStory';
   const isSquare = platform === 'instagram';
@@ -107,7 +107,7 @@ export async function renderHeadToHeadToCanvas(options: HeadToHeadOptions): Prom
   const genderLabel = gender === 'M' ? 'BOYS' : 'GIRLS';
   ctx.fillText(`HEAD TO HEAD • ${ageGroup.toUpperCase()} ${genderLabel}`, centerX, currentY);
 
-  currentY += (isVertical ? 60 : isSquare ? 50 : 45);
+  currentY += isVertical ? 60 : isSquare ? 50 : 45;
 
   // ===== VS BADGE =====
   const vsY = isVertical ? dimensions.height * 0.42 : dimensions.height * 0.5;
@@ -243,8 +243,8 @@ export async function renderHeadToHeadToCanvas(options: HeadToHeadOptions): Prom
 
   // ===== PROJECTED SCORE =====
   const matchPrediction = predictMatch(
-    { ...team1, team_id_master: team1.team_id_master || '' } as any,
-    { ...team2, team_id_master: team2.team_id_master || '' } as any,
+    { ...team1, team_id_master: team1.team_id_master || '' } as RankingRow,
+    { ...team2, team_id_master: team2.team_id_master || '' } as RankingRow,
     allGames
   );
   const prediction = {
@@ -339,7 +339,7 @@ function getWinPct(team: RankingRow): string {
   return `${Math.round((w / total) * 100)}%`;
 }
 
-function getTotalGames(team: RankingRow): number {
+function _getTotalGames(team: RankingRow): number {
   const w = team.total_wins ?? team.wins ?? 0;
   const l = team.total_losses ?? team.losses ?? 0;
   const d = team.total_draws ?? team.draws ?? 0;

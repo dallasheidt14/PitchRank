@@ -5,14 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { TableSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { LastUpdated } from '@/components/ui/LastUpdated';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useTeamGames, useTeam } from '@/lib/hooks';
 import { formatGameDate } from '@/lib/dateUtils';
 import Link from 'next/link';
@@ -103,8 +96,8 @@ function UnlinkOpponentButton({
           <DialogHeader>
             <DialogTitle>Unlink Opponent</DialogTitle>
             <DialogDescription>
-              Are you sure you want to unlink <strong>{opponentName || 'this opponent'}</strong> from this game?
-              This will also unlink all other games with the same provider ID and remove the alias mapping.
+              Are you sure you want to unlink <strong>{opponentName || 'this opponent'}</strong> from this game? This
+              will also unlink all other games with the same provider ID and remove the alias mapping.
             </DialogDescription>
           </DialogHeader>
           <div className="bg-muted/50 rounded-lg p-3 text-sm">
@@ -156,11 +149,11 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
   const gamesLimit = limit ?? 100;
   const { data, isLoading, isError, error, refetch } = useTeamGames(teamId, gamesLimit);
   const prefetchTeam = usePrefetchTeam();
-  
+
   // Fetch team name if not provided (React Query will reuse cached data from TeamHeader)
   const { data: team } = useTeam(teamId);
   const displayTeamName = teamName || team?.team_name || 'this team';
-  
+
   // Extract games and lastScrapedAt from data with proper typing
   type TeamGamesData = { games: GameWithTeams[]; lastScrapedAt: string | null };
   const gamesData = data as TeamGamesData | undefined;
@@ -191,10 +184,10 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
    */
   const scoreColor = useCallback((ml_overperformance: number | null): string => {
     if (ml_overperformance !== null && ml_overperformance !== undefined) {
-      if (ml_overperformance >= 2) return "bg-green-100 dark:bg-green-900/30 px-2 py-1 rounded font-bold";
-      if (ml_overperformance <= -2) return "bg-red-100 dark:bg-red-900/30 px-2 py-1 rounded font-bold";
+      if (ml_overperformance >= 2) return 'bg-green-100 dark:bg-green-900/30 px-2 py-1 rounded font-bold';
+      if (ml_overperformance <= -2) return 'bg-red-100 dark:bg-red-900/30 px-2 py-1 rounded font-bold';
     }
-    return ""; // no highlight for neutral performance
+    return ''; // no highlight for neutral performance
   }, []);
 
   const getResult = useCallback((game: GameWithTeams, currentTeamId: string) => {
@@ -247,9 +240,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <CardTitle>Game History</CardTitle>
-              <CardDescription>
-                {limit ? `Latest ${limit} match results` : 'All match results'}
-              </CardDescription>
+              <CardDescription>{limit ? `Latest ${limit} match results` : 'All match results'}</CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
               <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
@@ -279,9 +270,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <CardTitle>Game History</CardTitle>
-              <CardDescription>
-                {limit ? `Latest ${limit} match results` : 'All match results'}
-              </CardDescription>
+              <CardDescription>{limit ? `Latest ${limit} match results` : 'All match results'}</CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
               <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
@@ -298,11 +287,15 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
           </div>
         </CardHeader>
         <CardContent>
-          <ErrorDisplay error={error} retry={refetch} fallback={
-            <div className="text-center py-8 text-muted-foreground">
-              <p>No game history available</p>
-            </div>
-          } />
+          <ErrorDisplay
+            error={error}
+            retry={refetch}
+            fallback={
+              <div className="text-center py-8 text-muted-foreground">
+                <p>No game history available</p>
+              </div>
+            }
+          />
         </CardContent>
       </Card>
     );
@@ -315,9 +308,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <CardTitle>Game History</CardTitle>
-              <CardDescription>
-                {limit ? `Latest ${limit} match results` : 'All match results'}
-              </CardDescription>
+              <CardDescription>{limit ? `Latest ${limit} match results` : 'All match results'}</CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
               <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
@@ -348,9 +339,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <CardTitle className="font-display uppercase tracking-wide">Game History</CardTitle>
-            <CardDescription>
-              {limit ? `Latest ${limit} match results` : 'All match results'}
-            </CardDescription>
+            <CardDescription>{limit ? `Latest ${limit} match results` : 'All match results'}</CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
             <LastUpdated date={lastScrapedAt} label="Data updated" />
@@ -435,12 +424,12 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                         />
                       ) : (
                         // No team ID and no provider ID - truly unknown
-                        <span className="text-muted-foreground truncate sm:whitespace-normal">{opponent || 'Unknown'}</span>
+                        <span className="text-muted-foreground truncate sm:whitespace-normal">
+                          {opponent || 'Unknown'}
+                        </span>
                       )}
                     </TableCell>
-                    <TableCell className="text-center">
-                      {result.text}
-                    </TableCell>
+                    <TableCell className="text-center">{result.text}</TableCell>
                     <TableCell className="text-right font-mono">
                       {score.team !== null && score.opponent !== null ? (
                         <span className={scoreColor(getTeamPerspectiveOverperformance(game, teamId))}>
@@ -466,4 +455,3 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
     </Card>
   );
 }
-

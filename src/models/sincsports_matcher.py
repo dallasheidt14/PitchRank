@@ -16,15 +16,15 @@ SincSports naming patterns:
 import logging
 import re
 import uuid
-from typing import Dict, Optional, Set
 from datetime import datetime
-from supabase import Client
+from typing import Dict, Optional, Set
 
-from src.models.game_matcher import GameHistoryMatcher, MATCHING_CONFIG
+from src.models.game_matcher import MATCHING_CONFIG, GameHistoryMatcher
+from supabase import Client
 
 # Import rapidfuzz for similarity scoring
 try:
-    from rapidfuzz import fuzz as rapidfuzz_fuzz
+    import rapidfuzz  # noqa: F401
 
     HAVE_RAPIDFUZZ = True
 except ImportError:
@@ -33,11 +33,13 @@ except ImportError:
 # Import shared team-name utilities
 try:
     from src.utils.team_name_utils import (
-        extract_distinctions,
-        extract_team_variant as extract_variant_shared,
         extract_club_from_team_name as extract_club_structured,
-        has_ecnl_rl,
-        has_ecnl_only,
+    )
+    from src.utils.team_name_utils import (
+        extract_distinctions,
+    )
+    from src.utils.team_name_utils import (
+        extract_team_variant as extract_variant_shared,
     )
 
     HAVE_TEAM_NAME_UTILS = True
@@ -48,6 +50,8 @@ except ImportError:
 try:
     from src.utils.club_normalizer import (
         normalize_to_club,
+    )
+    from src.utils.club_normalizer import (
         similarity_score as club_similarity_score,
     )
 

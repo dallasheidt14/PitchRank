@@ -19,14 +19,7 @@ interface RankingsSchemaProps {
  * Rankings structured data for ranking pages
  * Helps Google understand ranking information for rich results
  */
-export function RankingsSchema({
-  region,
-  ageGroup,
-  gender,
-  topTeams,
-  totalTeams,
-  lastUpdated,
-}: RankingsSchemaProps) {
+export function RankingsSchema({ region, ageGroup, gender, topTeams, totalTeams, lastUpdated }: RankingsSchemaProps) {
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
   const genderDisplay = gender === 'male' ? 'Boys' : 'Girls';
   const regionDisplay = region === 'national' ? 'National' : region.toUpperCase();
@@ -46,14 +39,14 @@ export function RankingsSchema({
         name: team.teamName,
         sport: 'Soccer',
       };
-      
+
       if (team.clubName) {
         item.memberOf = {
           '@type': 'SportsOrganization',
           name: team.clubName,
         };
       }
-      
+
       if (team.state) {
         item.location = {
           '@type': 'Place',
@@ -64,7 +57,7 @@ export function RankingsSchema({
           },
         };
       }
-      
+
       return {
         '@type': 'ListItem',
         position: team.rank ?? index + 1,

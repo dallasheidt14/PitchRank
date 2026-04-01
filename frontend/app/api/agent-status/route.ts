@@ -41,19 +41,16 @@ function formatRelativeTime(date: Date): string {
 }
 
 // Calculate next run time based on schedule
-function calculateNextRun(agentId: string, schedule: string): string | null {
+function calculateNextRun(_agentId: string, schedule: string): string | null {
   // For on-demand agents, no next run
   if (schedule.toLowerCase().includes('on-demand') || schedule.toLowerCase().includes('always on')) {
     return null;
   }
 
-  const now = new Date();
-
   // Simple heuristic: if it's a daily schedule, show "Tomorrow at [time]"
   if (schedule.toLowerCase().includes('daily')) {
     const timeMatch = schedule.match(/(\d+):?(\d+)?\s*(am|pm)/i);
     if (timeMatch) {
-      const hour = parseInt(timeMatch[1]) + (timeMatch[3].toLowerCase() === 'pm' && timeMatch[1] !== '12' ? 12 : 0);
       return `Tomorrow at ${timeMatch[1]}:${timeMatch[2] || '00'} ${timeMatch[3].toUpperCase()}`;
     }
   }

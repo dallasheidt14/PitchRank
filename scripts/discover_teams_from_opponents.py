@@ -43,6 +43,7 @@ from typing import Dict, List, Optional, Tuple
 
 import requests
 from dotenv import load_dotenv
+
 from supabase import create_client
 
 
@@ -63,7 +64,7 @@ def _execute_with_retry(query_func, max_retries: int = 3, base_delay: float = 1.
             )
             if not is_transient or attempt >= max_retries:
                 raise
-            delay = base_delay * (2 ** attempt)
+            delay = base_delay * (2**attempt)
             print(f"  [retry {attempt + 1}/{max_retries}] Transient error, retrying in {delay:.1f}s: {e}")
             time.sleep(delay)
     raise last_exception
@@ -80,9 +81,7 @@ def load_env() -> None:
 def get_supabase():
     supabase_url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
     supabase_key = (
-        os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-        or os.getenv("SUPABASE_SERVICE_KEY")
-        or os.getenv("SUPABASE_KEY")
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
     )
     if not supabase_url or not supabase_key:
         raise ValueError(
@@ -194,14 +193,19 @@ def _has_minimum_metadata(meta: Dict[str, Optional[str]]) -> bool:
 
 def _alias_exists(supabase, provider_id: str, provider_team_id: str) -> Optional[str]:
     """Check if an alias already exists. Returns team_id_master if found, None otherwise."""
-    existing = _execute_with_retry(
-        lambda: supabase.table("team_alias_map")
-        .select("team_id_master")
-        .eq("provider_id", provider_id)
-        .eq("provider_team_id", provider_team_id)
-        .limit(1)
-        .execute()
-    ).data or []
+    existing = (
+        _execute_with_retry(
+            lambda: (
+                supabase.table("team_alias_map")
+                .select("team_id_master")
+                .eq("provider_id", provider_id)
+                .eq("provider_team_id", provider_team_id)
+                .limit(1)
+                .execute()
+            )
+        ).data
+        or []
+    )
     if existing:
         return existing[0].get("team_id_master")
     return None
@@ -209,14 +213,19 @@ def _alias_exists(supabase, provider_id: str, provider_team_id: str) -> Optional
 
 def _team_exists_by_provider(supabase, provider_id: str, provider_team_id: str) -> Optional[str]:
     """Check if a team already exists for this provider+provider_team_id combo."""
-    existing = _execute_with_retry(
-        lambda: supabase.table("teams")
-        .select("team_id_master")
-        .eq("provider_id", provider_id)
-        .eq("provider_team_id", provider_team_id)
-        .limit(1)
-        .execute()
-    ).data or []
+    existing = (
+        _execute_with_retry(
+            lambda: (
+                supabase.table("teams")
+                .select("team_id_master")
+                .eq("provider_id", provider_id)
+                .eq("provider_team_id", provider_team_id)
+                .limit(1)
+                .execute()
+            )
+        ).data
+        or []
+    )
     if existing:
         return existing[0].get("team_id_master")
     return None
@@ -260,9 +269,7 @@ def create_team_and_alias(
     }
 
     try:
-        result = _execute_with_retry(
-            lambda: supabase.table("teams").insert(team_record).execute()
-        )
+        result = _execute_with_retry(lambda: supabase.table("teams").insert(team_record).execute())
         if not result.data:
             return "", "error"
         team_id_master = result.data[0]["team_id_master"]
@@ -293,9 +300,11 @@ def create_team_and_alias(
 
     try:
         _execute_with_retry(
-            lambda: supabase.table("team_alias_map")
-            .upsert(alias_record, on_conflict="provider_id,provider_team_id")
-            .execute()
+            lambda: (
+                supabase.table("team_alias_map")
+                .upsert(alias_record, on_conflict="provider_id,provider_team_id")
+                .execute()
+            )
         )
     except Exception as e:
         error_str = str(e).lower()
@@ -314,53 +323,61 @@ def backfill_games(
     """Backfill NULL home/away_team_master_id in games. Returns (home_count, away_count)."""
     home_count = (
         _execute_with_retry(
-            lambda: supabase.table("games")
-            .select("id", count="exact", head=True)
-            .eq("provider_id", provider_id)
-            .eq("home_provider_id", provider_team_id)
-            .is_("home_team_master_id", "null")
-            .execute()
-        ).count or 0
+            lambda: (
+                supabase.table("games")
+                .select("id", count="exact", head=True)
+                .eq("provider_id", provider_id)
+                .eq("home_provider_id", provider_team_id)
+                .is_("home_team_master_id", "null")
+                .execute()
+            )
+        ).count
+        or 0
     )
 
     away_count = (
         _execute_with_retry(
-            lambda: supabase.table("games")
-            .select("id", count="exact", head=True)
-            .eq("provider_id", provider_id)
-            .eq("away_provider_id", provider_team_id)
-            .is_("away_team_master_id", "null")
-            .execute()
-        ).count or 0
+            lambda: (
+                supabase.table("games")
+                .select("id", count="exact", head=True)
+                .eq("provider_id", provider_id)
+                .eq("away_provider_id", provider_team_id)
+                .is_("away_team_master_id", "null")
+                .execute()
+            )
+        ).count
+        or 0
     )
 
     if home_count > 0:
         _execute_with_retry(
-            lambda: supabase.table("games")
-            .update({"home_team_master_id": team_id_master})
-            .eq("provider_id", provider_id)
-            .eq("home_provider_id", provider_team_id)
-            .is_("home_team_master_id", "null")
-            .execute()
+            lambda: (
+                supabase.table("games")
+                .update({"home_team_master_id": team_id_master})
+                .eq("provider_id", provider_id)
+                .eq("home_provider_id", provider_team_id)
+                .is_("home_team_master_id", "null")
+                .execute()
+            )
         )
 
     if away_count > 0:
         _execute_with_retry(
-            lambda: supabase.table("games")
-            .update({"away_team_master_id": team_id_master})
-            .eq("provider_id", provider_id)
-            .eq("away_provider_id", provider_team_id)
-            .is_("away_team_master_id", "null")
-            .execute()
+            lambda: (
+                supabase.table("games")
+                .update({"away_team_master_id": team_id_master})
+                .eq("provider_id", provider_id)
+                .eq("away_provider_id", provider_team_id)
+                .is_("away_team_master_id", "null")
+                .execute()
+            )
         )
 
     return home_count, away_count
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Discover and create new teams from unmatched unknown opponents"
-    )
+    parser = argparse.ArgumentParser(description="Discover and create new teams from unmatched unknown opponents")
     parser.add_argument(
         "--match-report",
         required=True,
@@ -402,9 +419,7 @@ def main() -> None:
     supabase = get_supabase()
 
     # Look up provider ID
-    providers = _execute_with_retry(
-        lambda: supabase.table("providers").select("id,code,name").execute()
-    ).data or []
+    providers = _execute_with_retry(lambda: supabase.table("providers").select("id,code,name").execute()).data or []
     code_to_id = {p["code"]: p["id"] for p in providers}
 
     provider_code = args.provider.lower()
@@ -418,7 +433,8 @@ def main() -> None:
 
     # Filter for no_match rows from the specified provider
     no_match_rows = [
-        r for r in all_rows
+        r
+        for r in all_rows
         if (r.get("action") or "").strip() == "no_match"
         and (r.get("provider_code") or "").strip().lower() == provider_code
     ]
@@ -441,13 +457,10 @@ def main() -> None:
 
     # Filter by minimum games
     if args.min_games > 1:
-        unique_rows = [
-            r for r in unique_rows
-            if int(r.get("games_count") or 0) >= args.min_games
-        ]
+        unique_rows = [r for r in unique_rows if int(r.get("games_count") or 0) >= args.min_games]
 
     if args.limit:
-        unique_rows = unique_rows[:args.limit]
+        unique_rows = unique_rows[: args.limit]
 
     print(f"Provider: {provider_code} ({provider_id})")
     print(f"Total match report rows: {len(all_rows):,}")
@@ -484,65 +497,69 @@ def main() -> None:
 
         if not meta.get("team_name"):
             stats["skipped_api_empty"] += 1
-            report_rows.append({
-                "unknown_provider_team_id": unknown_pid,
-                "games_count": games_count,
-                "action": "skipped_api_empty",
-                "team_name": "",
-                "club_name": "",
-                "age_group": "",
-                "gender": "",
-                "state_code": "",
-                "team_id_master": "",
-                "games_backfilled": 0,
-                "reason": "GotSport API returned no team name",
-            })
+            report_rows.append(
+                {
+                    "unknown_provider_team_id": unknown_pid,
+                    "games_count": games_count,
+                    "action": "skipped_api_empty",
+                    "team_name": "",
+                    "club_name": "",
+                    "age_group": "",
+                    "gender": "",
+                    "state_code": "",
+                    "team_id_master": "",
+                    "games_backfilled": 0,
+                    "reason": "GotSport API returned no team name",
+                }
+            )
             continue
 
         if not _has_minimum_metadata(meta):
             stats["skipped_metadata"] += 1
-            report_rows.append({
-                "unknown_provider_team_id": unknown_pid,
-                "games_count": games_count,
-                "action": "skipped_metadata",
-                "team_name": meta.get("team_name") or "",
-                "club_name": meta.get("club_name") or "",
-                "age_group": meta.get("age_group") or "",
-                "gender": meta.get("gender") or "",
-                "state_code": meta.get("state_code") or "",
-                "team_id_master": "",
-                "games_backfilled": 0,
-                "reason": f"Missing: {', '.join(k for k in ('team_name', 'age_group', 'gender') if not meta.get(k))}",
-            })
+            report_rows.append(
+                {
+                    "unknown_provider_team_id": unknown_pid,
+                    "games_count": games_count,
+                    "action": "skipped_metadata",
+                    "team_name": meta.get("team_name") or "",
+                    "club_name": meta.get("club_name") or "",
+                    "age_group": meta.get("age_group") or "",
+                    "gender": meta.get("gender") or "",
+                    "state_code": meta.get("state_code") or "",
+                    "team_id_master": "",
+                    "games_backfilled": 0,
+                    "reason": (
+                        f"Missing: {', '.join(k for k in ('team_name', 'age_group', 'gender') if not meta.get(k))}"
+                    ),
+                }
+            )
             continue
 
         if args.execute:
-            team_id_master, status = create_team_and_alias(
-                supabase, provider_id, unknown_pid, meta
-            )
+            team_id_master, status = create_team_and_alias(supabase, provider_id, unknown_pid, meta)
             stats[status] = stats.get(status, 0) + 1
 
             home_bf, away_bf = 0, 0
             if status == "created" and team_id_master:
-                home_bf, away_bf = backfill_games(
-                    supabase, provider_id, unknown_pid, team_id_master
-                )
+                home_bf, away_bf = backfill_games(supabase, provider_id, unknown_pid, team_id_master)
                 stats["games_backfilled_home"] += home_bf
                 stats["games_backfilled_away"] += away_bf
 
-            report_rows.append({
-                "unknown_provider_team_id": unknown_pid,
-                "games_count": games_count,
-                "action": status,
-                "team_name": meta.get("team_name") or "",
-                "club_name": meta.get("club_name") or "",
-                "age_group": meta.get("age_group") or "",
-                "gender": meta.get("gender") or "",
-                "state_code": meta.get("state_code") or "",
-                "team_id_master": team_id_master or "",
-                "games_backfilled": home_bf + away_bf,
-                "reason": "",
-            })
+            report_rows.append(
+                {
+                    "unknown_provider_team_id": unknown_pid,
+                    "games_count": games_count,
+                    "action": status,
+                    "team_name": meta.get("team_name") or "",
+                    "club_name": meta.get("club_name") or "",
+                    "age_group": meta.get("age_group") or "",
+                    "gender": meta.get("gender") or "",
+                    "state_code": meta.get("state_code") or "",
+                    "team_id_master": team_id_master or "",
+                    "games_backfilled": home_bf + away_bf,
+                    "reason": "",
+                }
+            )
 
             if status == "created":
                 print(
@@ -565,28 +582,28 @@ def main() -> None:
                     stats["created"] += 1  # would-be-created
                     status = "would_create"
 
-            report_rows.append({
-                "unknown_provider_team_id": unknown_pid,
-                "games_count": games_count,
-                "action": status,
-                "team_name": meta.get("team_name") or "",
-                "club_name": meta.get("club_name") or "",
-                "age_group": meta.get("age_group") or "",
-                "gender": meta.get("gender") or "",
-                "state_code": meta.get("state_code") or "",
-                "team_id_master": existing or "",
-                "games_backfilled": 0,
-                "reason": "",
-            })
+            report_rows.append(
+                {
+                    "unknown_provider_team_id": unknown_pid,
+                    "games_count": games_count,
+                    "action": status,
+                    "team_name": meta.get("team_name") or "",
+                    "club_name": meta.get("club_name") or "",
+                    "age_group": meta.get("age_group") or "",
+                    "gender": meta.get("gender") or "",
+                    "state_code": meta.get("state_code") or "",
+                    "team_id_master": existing or "",
+                    "games_backfilled": 0,
+                    "reason": "",
+                }
+            )
 
         if idx % 100 == 0:
             print(f"  Processed {idx}/{len(unique_rows)} rows...")
 
     # Write report CSV
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = Path(
-        args.output or f"data/exports/team_discovery_report_{timestamp}.csv"
-    )
+    output_path = Path(args.output or f"data/exports/team_discovery_report_{timestamp}.csv")
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     if report_rows:

@@ -1,8 +1,8 @@
-'use client'
+'use client';
 
-import { useWebVitals } from '@/hooks/usePerformance'
+import { useWebVitals } from '@/hooks/usePerformance';
 
 export function WebVitalsReporter() {
-  useWebVitals()
-  return null
+  useWebVitals();
+  return null;
 }

@@ -20,7 +20,7 @@ interface StateChampionsPreviewProps {
 
 export const StateChampionsPreview = forwardRef<HTMLDivElement, StateChampionsPreviewProps>(
   ({ champions, platform, scale = 0.5, generatedDate, ageGroup, gender }, ref) => {
-    const dimensions = PLATFORM_DIMENSIONS[platform];
+    const _dimensions = PLATFORM_DIMENSIONS[platform];
     const isVertical = platform === 'instagramStory';
     const isSquare = platform === 'instagram';
 

@@ -81,8 +81,7 @@ export const api = {
     while (hasMore) {
       const batchSize = fetchLimit ? Math.min(fetchLimit - allResults.length, BATCH_SIZE) : BATCH_SIZE;
 
-      let query = supabase.from('rankings_view').select('*')
-        .in('status', ['Active', 'Not Enough Ranked Games']);
+      let query = supabase.from('rankings_view').select('*').in('status', ['Active', 'Not Enough Ranked Games']);
 
       if (normalizedAge !== null) {
         query = query.eq('age', normalizedAge);
@@ -92,9 +91,7 @@ export const api = {
         query = query.eq('gender', gender);
       }
 
-      query = query
-        .order('power_score_final', { ascending: false })
-        .range(offset, offset + batchSize - 1);
+      query = query.order('power_score_final', { ascending: false }).range(offset, offset + batchSize - 1);
 
       const { data, error } = await query;
 
@@ -149,7 +146,9 @@ export const api = {
     }
 
     // National rankings: use rankings_view directly
-    let query = supabase.from('rankings_view').select('*', { count: 'exact', head: true })
+    let query = supabase
+      .from('rankings_view')
+      .select('*', { count: 'exact', head: true })
       .in('status', ['Active', 'Not Enough Ranked Games']);
 
     if (normalizedAge !== null) {
@@ -200,7 +199,10 @@ export const api = {
       console.warn('[api.getTeam] rankings_view error, continuing without ranking data:', rankingError.message);
     }
     if (stateRankError) {
-      console.warn('[api.getTeam] state_rankings_view error, continuing without state ranking data:', stateRankError.message);
+      console.warn(
+        '[api.getTeam] state_rankings_view error, continuing without state ranking data:',
+        stateRankError.message
+      );
     }
 
     // Fallback: If either view returned no data, try rankings_full and/or state rank RPC.
@@ -217,12 +219,8 @@ export const api = {
       const needsStateRank = !stateRankData;
 
       const [rankingsFullResult, stateRankRpcResult] = await Promise.all([
-        needsRankingsFull
-          ? supabase.from('rankings_full').select('*').eq('team_id', id).maybeSingle()
-          : null,
-        needsStateRank
-          ? supabase.rpc('get_team_state_rank', { p_team_id: id }).maybeSingle()
-          : null,
+        needsRankingsFull ? supabase.from('rankings_full').select('*').eq('team_id', id).maybeSingle() : null,
+        needsStateRank ? supabase.rpc('get_team_state_rank', { p_team_id: id }).maybeSingle() : null,
       ]);
 
       if (rankingsFullResult && !rankingsFullResult.error && rankingsFullResult.data) {
@@ -265,7 +263,7 @@ export const api = {
     const teamIdSet = new Set(teamIdsForGameCount);
 
     if (gamesData && gamesData.length > 0) {
-      gamesData.forEach(game => {
+      gamesData.forEach((game) => {
         if (game.home_score !== null && game.away_score !== null) {
           const isHome = teamIdSet.has(game.home_team_master_id);
           const teamScore = isHome ? game.home_score : game.away_score;
@@ -282,9 +280,8 @@ export const api = {
       });
     }
 
-    const calculatedWinPercentage = totalGamesCount > 0
-      ? ((calculatedWins + calculatedDraws * 0.5) / totalGamesCount) * 100
-      : null;
+    const calculatedWinPercentage =
+      totalGamesCount > 0 ? ((calculatedWins + calculatedDraws * 0.5) / totalGamesCount) * 100 : null;
 
     const team: Team = {
       id: teamData.id,
@@ -304,13 +301,27 @@ export const api = {
     };
 
     // Merge ranking data if available (match TeamWithRanking contract)
-    const age = rankingData?.age ??
+    const age =
+      rankingData?.age ??
       (rankingsFullData?.age_group ? normalizeAgeGroup(rankingsFullData.age_group) : null) ??
       (team.age_group ? normalizeAgeGroup(team.age_group) : null);
 
-    const genderFromRankings = rankingData?.gender ??
-      (rankingsFullData?.gender ? (rankingsFullData.gender === 'Male' ? 'M' : rankingsFullData.gender === 'Female' ? 'F' : rankingsFullData.gender === 'Boys' ? 'M' : rankingsFullData.gender === 'Girls' ? 'F' : rankingsFullData.gender) : null);
-    const gender = genderFromRankings ?? (team.gender === 'Male' ? 'M' : team.gender === 'Female' ? 'F' : 'M') as 'M' | 'F' | 'B' | 'G';
+    const genderFromRankings =
+      rankingData?.gender ??
+      (rankingsFullData?.gender
+        ? rankingsFullData.gender === 'Male'
+          ? 'M'
+          : rankingsFullData.gender === 'Female'
+            ? 'F'
+            : rankingsFullData.gender === 'Boys'
+              ? 'M'
+              : rankingsFullData.gender === 'Girls'
+                ? 'F'
+                : rankingsFullData.gender
+        : null);
+    const gender =
+      genderFromRankings ??
+      ((team.gender === 'Male' ? 'M' : team.gender === 'Female' ? 'F' : 'M') as 'M' | 'F' | 'B' | 'G');
 
     const powerScoreFinal =
       rankingData?.power_score_final ??
@@ -359,8 +370,14 @@ export const api = {
     // comparison bug: PostgreSQL casts the FLOAT8 column to NUMERIC for comparison, revealing
     // hidden binary precision (e.g., 0.497134135753087 as FLOAT8 is actually 0.49713413575308703
     // in full precision). This caused teams to count against themselves, inflating their rank by 1.
-    const rankInStateFinal: number | null = stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? stateRankFallback?.state_rank ?? null;
-    const sosRankState: number | null = stateRankData?.sos_rank_state ?? stateRankData?.state_sos_rank ?? rankingData?.sos_rank_state ?? stateRankFallback?.sos_rank_state ?? null;
+    const rankInStateFinal: number | null =
+      stateRankData?.rank_in_state_final ?? stateRankData?.state_rank ?? stateRankFallback?.state_rank ?? null;
+    const sosRankState: number | null =
+      stateRankData?.sos_rank_state ??
+      stateRankData?.state_sos_rank ??
+      rankingData?.sos_rank_state ??
+      stateRankFallback?.sos_rank_state ??
+      null;
 
     const gamesPlayed =
       rankingData?.games_played ??
@@ -370,23 +387,11 @@ export const api = {
       rankingsFullData?.games_played ??
       0;
 
-    const winsValue =
-      rankingData?.wins ??
-      stateRankData?.wins ??
-      rankingsFullData?.wins ??
-      calculatedWins;
+    const winsValue = rankingData?.wins ?? stateRankData?.wins ?? rankingsFullData?.wins ?? calculatedWins;
 
-    const lossesValue =
-      rankingData?.losses ??
-      stateRankData?.losses ??
-      rankingsFullData?.losses ??
-      calculatedLosses;
+    const lossesValue = rankingData?.losses ?? stateRankData?.losses ?? rankingsFullData?.losses ?? calculatedLosses;
 
-    const drawsValue =
-      rankingData?.draws ??
-      stateRankData?.draws ??
-      rankingsFullData?.draws ??
-      calculatedDraws;
+    const drawsValue = rankingData?.draws ?? stateRankData?.draws ?? rankingsFullData?.draws ?? calculatedDraws;
 
     const winPctValue =
       rankingData?.win_percentage ??
@@ -433,10 +438,7 @@ export const api = {
    * @param periodDays - Number of days per period (default: 30)
    * @returns Array of trajectory data points
    */
-  async getTeamTrajectory(
-    id: string,
-    periodDays: number = 30
-  ): Promise<TeamTrajectory[]> {
+  async getTeamTrajectory(id: string, periodDays: number = 30): Promise<TeamTrajectory[]> {
     // Resolve merged team IDs so trajectory includes games from deprecated teams
     const teamIdsToQuery = [id];
     const { data: mergedTeams } = await supabase
@@ -485,8 +487,7 @@ export const api = {
 
     for (const game of sortedGames) {
       const gameDate = new Date(game.game_date);
-      const daysDiff =
-        (gameDate.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24);
+      const daysDiff = (gameDate.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24);
 
       if (daysDiff >= periodDays && periodGames.length > 0) {
         // Calculate metrics for this period
@@ -494,9 +495,7 @@ export const api = {
         trajectory.push({
           team_id: id,
           period_start: periodStart.toISOString(),
-          period_end: new Date(
-            periodStart.getTime() + periodDays * 24 * 60 * 60 * 1000
-          ).toISOString(),
+          period_end: new Date(periodStart.getTime() + periodDays * 24 * 60 * 60 * 1000).toISOString(),
           ...metrics,
         });
 
@@ -528,7 +527,10 @@ export const api = {
    * @param limit - Maximum number of games to return (default: 50)
    * @returns Object with games array and lastScrapedAt date
    */
-  async getTeamGames(id: string, limit: number = 50): Promise<{
+  async getTeamGames(
+    id: string,
+    limit: number = 50
+  ): Promise<{
     games: GameWithTeams[];
     lastScrapedAt: string | null;
   }> {
@@ -539,7 +541,7 @@ export const api = {
       .select('canonical_team_id')
       .eq('deprecated_team_id', id)
       .maybeSingle();
-    
+
     if (mergeData?.canonical_team_id) {
       canonicalTeamId = mergeData.canonical_team_id;
     }
@@ -549,7 +551,7 @@ export const api = {
       .from('team_merge_map')
       .select('deprecated_team_id')
       .eq('canonical_team_id', canonicalTeamId);
-    
+
     // Build list of all team IDs to query (canonical + all deprecated teams merged into it)
     const teamIdsToQuery = [canonicalTeamId];
     if (mergedTeams && mergedTeams.length > 0) {
@@ -570,7 +572,7 @@ export const api = {
     const orConditions = teamIdsToQuery
       .map((teamId) => `home_team_master_id.eq.${teamId},away_team_master_id.eq.${teamId}`)
       .join(',');
-    
+
     const { data: games, error: gamesError } = await supabase
       .from('games')
       .select('*')
@@ -589,13 +591,14 @@ export const api = {
     }
 
     // Find the most recent scraped_at date
-    const mostRecentScrapedAt = games.reduce((latest, game) => {
-      if (!game.scraped_at) return latest;
-      if (!latest) return game.scraped_at;
-      return new Date(game.scraped_at) > new Date(latest) 
-        ? game.scraped_at 
-        : latest;
-    }, null as string | null);
+    const mostRecentScrapedAt = games.reduce(
+      (latest, game) => {
+        if (!game.scraped_at) return latest;
+        if (!latest) return game.scraped_at;
+        return new Date(game.scraped_at) > new Date(latest) ? game.scraped_at : latest;
+      },
+      null as string | null
+    );
 
     // Get team names for home and away teams
     const teamIds = new Set<string>();
@@ -639,7 +642,7 @@ export const api = {
     const teamNameMap = new Map<string, string>();
     const teamClubMap = new Map<string, string | null>();
     const teamIdResolutionMap = new Map<string, string>(); // Maps original ID -> canonical ID
-    
+
     // Build resolution map
     teamIdsArray.forEach((teamId) => {
       const canonicalId = mergeMap.get(teamId) || teamId;
@@ -655,11 +658,11 @@ export const api = {
     // Enrich games with team names and club names, resolving through merges
     const enrichedGames = games.map((game: Game) => {
       // Resolve team IDs to canonical forms
-      const homeCanonicalId = game.home_team_master_id 
-        ? (teamIdResolutionMap.get(game.home_team_master_id) || game.home_team_master_id)
+      const homeCanonicalId = game.home_team_master_id
+        ? teamIdResolutionMap.get(game.home_team_master_id) || game.home_team_master_id
         : null;
       const awayCanonicalId = game.away_team_master_id
-        ? (teamIdResolutionMap.get(game.away_team_master_id) || game.away_team_master_id)
+        ? teamIdResolutionMap.get(game.away_team_master_id) || game.away_team_master_id
         : null;
 
       return {
@@ -668,18 +671,10 @@ export const api = {
         home_team_master_id: homeCanonicalId,
         away_team_master_id: awayCanonicalId,
         // Use canonical IDs to get team names
-        home_team_name: homeCanonicalId
-          ? teamNameMap.get(homeCanonicalId)
-          : undefined,
-        away_team_name: awayCanonicalId
-          ? teamNameMap.get(awayCanonicalId)
-          : undefined,
-        home_team_club_name: homeCanonicalId
-          ? teamClubMap.get(homeCanonicalId)
-          : undefined,
-        away_team_club_name: awayCanonicalId
-          ? teamClubMap.get(awayCanonicalId)
-          : undefined,
+        home_team_name: homeCanonicalId ? teamNameMap.get(homeCanonicalId) : undefined,
+        away_team_name: awayCanonicalId ? teamNameMap.get(awayCanonicalId) : undefined,
+        home_team_club_name: homeCanonicalId ? teamClubMap.get(homeCanonicalId) : undefined,
+        away_team_club_name: awayCanonicalId ? teamClubMap.get(awayCanonicalId) : undefined,
       };
     }) as GameWithTeams[];
 
@@ -688,9 +683,10 @@ export const api = {
     const seen = new Set<string>();
     const deduplicatedGames = enrichedGames.filter((game) => {
       const teams = [game.home_team_master_id, game.away_team_master_id].sort();
-      const scores = game.home_team_master_id && teams[0] === game.home_team_master_id
-        ? [game.home_score, game.away_score]
-        : [game.away_score, game.home_score];
+      const scores =
+        game.home_team_master_id && teams[0] === game.home_team_master_id
+          ? [game.home_score, game.away_score]
+          : [game.away_score, game.home_score];
       const key = `${game.game_date}|${teams[0]}|${teams[1]}|${scores[0]}|${scores[1]}`;
       if (seen.has(key)) return false;
       seen.add(key);
@@ -728,17 +724,22 @@ export const api = {
    * @param team2Id - Second team's team_id_master UUID
    * @returns Array of common opponents with game results
    */
-  async getCommonOpponents(team1Id: string, team2Id: string): Promise<Array<{
-    opponent_id: string;
-    opponent_name: string;
-    team1_result: 'W' | 'L' | 'D' | null;
-    team2_result: 'W' | 'L' | 'D' | null;
-    team1_score: number | null;
-    team2_score: number | null;
-    opponent_score_team1: number | null;
-    opponent_score_team2: number | null;
-    game_date: string;
-  }>> {
+  async getCommonOpponents(
+    team1Id: string,
+    team2Id: string
+  ): Promise<
+    Array<{
+      opponent_id: string;
+      opponent_name: string;
+      team1_result: 'W' | 'L' | 'D' | null;
+      team2_result: 'W' | 'L' | 'D' | null;
+      team1_score: number | null;
+      team2_score: number | null;
+      opponent_score_team1: number | null;
+      opponent_score_team2: number | null;
+      game_date: string;
+    }>
+  > {
     // Resolve merged team IDs so we find games from deprecated teams too
     const resolveTeamIds = async (teamId: string): Promise<string[]> => {
       const ids = [teamId];
@@ -754,10 +755,7 @@ export const api = {
       return ids;
     };
 
-    const [team1Ids, team2Ids] = await Promise.all([
-      resolveTeamIds(team1Id),
-      resolveTeamIds(team2Id),
-    ]);
+    const [team1Ids, team2Ids] = await Promise.all([resolveTeamIds(team1Id), resolveTeamIds(team2Id)]);
 
     const team1IdSet = new Set(team1Ids);
     const team2IdSet = new Set(team2Ids);
@@ -812,12 +810,13 @@ export const api = {
 
     // Resolve opponent IDs through merge map (deprecated -> canonical)
     const opponentIdsArray = Array.from(allOpponentIds);
-    const { data: opponentMerges } = opponentIdsArray.length > 0
-      ? await supabase
-          .from('team_merge_map')
-          .select('deprecated_team_id, canonical_team_id')
-          .in('deprecated_team_id', opponentIdsArray)
-      : { data: null };
+    const { data: opponentMerges } =
+      opponentIdsArray.length > 0
+        ? await supabase
+            .from('team_merge_map')
+            .select('deprecated_team_id, canonical_team_id')
+            .in('deprecated_team_id', opponentIdsArray)
+        : { data: null };
 
     const opponentMergeMap = new Map<string, string>();
     if (opponentMerges) {
@@ -857,17 +856,13 @@ export const api = {
     });
 
     // Find intersection
-    const commonOpponentIds = Array.from(team1Opponents.keys()).filter(id =>
-      team2Opponents.has(id)
-    );
+    const commonOpponentIds = Array.from(team1Opponents.keys()).filter((id) => team2Opponents.has(id));
 
     // Get team names using canonical IDs
-    const { data: teams } = commonOpponentIds.length > 0
-      ? await supabase
-          .from('teams')
-          .select('team_id_master, team_name')
-          .in('team_id_master', commonOpponentIds)
-      : { data: null };
+    const { data: teams } =
+      commonOpponentIds.length > 0
+        ? await supabase.from('teams').select('team_id_master, team_name').in('team_id_master', commonOpponentIds)
+        : { data: null };
 
     const teamMap = new Map<string, string>();
     teams?.forEach((team: { team_id_master: string; team_name: string }) => {
@@ -875,7 +870,7 @@ export const api = {
     });
 
     // Build result
-    return commonOpponentIds.map(opponentId => {
+    return commonOpponentIds.map((opponentId) => {
       const team1Game = team1Opponents.get(opponentId)!;
       const team2Game = team2Opponents.get(opponentId)!;
 
@@ -963,10 +958,7 @@ export const api = {
       return ids;
     };
 
-    const [teamAIds, teamBIds] = await Promise.all([
-      resolveTeamIds(teamAId),
-      resolveTeamIds(teamBId),
-    ]);
+    const [teamAIds, teamBIds] = await Promise.all([resolveTeamIds(teamAId), resolveTeamIds(teamBId)]);
     const allTeamIds = [...teamAIds, ...teamBIds];
 
     // Fetch recent games for form calculation (last 60 days, only for Team A/B + merged IDs)
@@ -1019,11 +1011,16 @@ export const api = {
    * @param teamIds - Array of team_id_master UUIDs
    * @returns Map of team_id_master to ranking data
    */
-  async getTeamRankings(teamIds: string[]): Promise<Map<string, {
-    power_score_final: number;
-    rank_in_cohort_final: number;
-    sos_norm: number;
-  }>> {
+  async getTeamRankings(teamIds: string[]): Promise<
+    Map<
+      string,
+      {
+        power_score_final: number;
+        rank_in_cohort_final: number;
+        sos_norm: number;
+      }
+    >
+  > {
     if (teamIds.length === 0) {
       return new Map();
     }
@@ -1038,24 +1035,29 @@ export const api = {
       throw error;
     }
 
-    const rankingsMap = new Map<string, {
-      power_score_final: number;
-      rank_in_cohort_final: number;
-      sos_norm: number;
-    }>();
+    const rankingsMap = new Map<
+      string,
+      {
+        power_score_final: number;
+        rank_in_cohort_final: number;
+        sos_norm: number;
+      }
+    >();
 
-    data?.forEach((ranking: {
-      team_id_master: string;
-      power_score_final: number;
-      rank_in_cohort_final: number;
-      sos_norm: number;
-    }) => {
-      rankingsMap.set(ranking.team_id_master, {
-        power_score_final: ranking.power_score_final,
-        rank_in_cohort_final: ranking.rank_in_cohort_final,
-        sos_norm: ranking.sos_norm,
-      });
-    });
+    data?.forEach(
+      (ranking: {
+        team_id_master: string;
+        power_score_final: number;
+        rank_in_cohort_final: number;
+        sos_norm: number;
+      }) => {
+        rankingsMap.set(ranking.team_id_master, {
+          power_score_final: ranking.power_score_final,
+          rank_in_cohort_final: ranking.rank_in_cohort_final,
+          sos_norm: ranking.sos_norm,
+        });
+      }
+    );
 
     return rankingsMap;
   },
@@ -1189,8 +1191,7 @@ function calculatePeriodMetrics(
 
   const gamesPlayed = wins + losses + draws;
   // Use same formula as main win percentage: (wins + draws * 0.5) / total * 100
-  const winPercentage =
-    gamesPlayed > 0 ? ((wins + draws * 0.5) / gamesPlayed) * 100 : 0;
+  const winPercentage = gamesPlayed > 0 ? ((wins + draws * 0.5) / gamesPlayed) * 100 : 0;
   const avgGoalsFor = gamesPlayed > 0 ? goalsFor / gamesPlayed : 0;
   const avgGoalsAgainst = gamesPlayed > 0 ? goalsAgainst / gamesPlayed : 0;
 
@@ -1206,4 +1207,3 @@ function calculatePeriodMetrics(
     avg_goals_against: avgGoalsAgainst,
   };
 }
-

@@ -1,10 +1,7 @@
 'use client';
 
 import { TeamHeader } from '@/components/TeamHeader';
-import { TeamTrajectoryChart } from '@/components/TeamTrajectoryChart';
 import { GameHistoryTable } from '@/components/GameHistoryTable';
-import { MomentumMeter } from '@/components/MomentumMeter';
-import { TeamInsightsCard } from '@/components/TeamInsightsCard';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import dynamic from 'next/dynamic';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -16,22 +13,22 @@ import { ArrowLeft } from 'lucide-react';
 
 // Lazy-load charts for better performance
 const LazyTeamTrajectoryChart = dynamic(
-  () => import('@/components/TeamTrajectoryChart').then(mod => ({ default: mod.TeamTrajectoryChart })),
+  () => import('@/components/TeamTrajectoryChart').then((mod) => ({ default: mod.TeamTrajectoryChart })),
   { ssr: true, loading: () => <div className="h-64 animate-pulse bg-muted rounded-lg" /> }
 );
 
 const LazyMomentumMeter = dynamic(
-  () => import('@/components/MomentumMeter').then(mod => ({ default: mod.MomentumMeter })),
+  () => import('@/components/MomentumMeter').then((mod) => ({ default: mod.MomentumMeter })),
   { ssr: true, loading: () => <div className="h-32 animate-pulse bg-muted rounded-lg" /> }
 );
 
 const LazyTeamInsightsCard = dynamic(
-  () => import('@/components/TeamInsightsCard').then(mod => ({ default: mod.TeamInsightsCard })),
+  () => import('@/components/TeamInsightsCard').then((mod) => ({ default: mod.TeamInsightsCard })),
   { ssr: true, loading: () => <div className="h-40 animate-pulse bg-muted rounded-lg" /> }
 );
 
 const LazyRankHistoryChart = dynamic(
-  () => import('@/components/RankHistoryChart').then(mod => ({ default: mod.RankHistoryChart })),
+  () => import('@/components/RankHistoryChart').then((mod) => ({ default: mod.RankHistoryChart })),
   { ssr: true, loading: () => <div className="h-[240px] animate-pulse bg-muted rounded-lg" /> }
 );
 
@@ -51,16 +48,10 @@ function BackToRankingsButtonContent() {
   // Validate and sanitize parameters
   const validAgeGroups = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'u19'];
   const validGenders = ['male', 'female'];
-  
-  const sanitizedAgeGroup = validAgeGroups.includes(ageGroup.toLowerCase()) 
-    ? ageGroup.toLowerCase() 
-    : 'u12';
-  const sanitizedGender = validGenders.includes(gender.toLowerCase())
-    ? gender.toLowerCase()
-    : 'male';
-  const sanitizedRegion = region.toLowerCase() === 'national' 
-    ? 'national' 
-    : region.toLowerCase().slice(0, 2); // Ensure state codes are 2 letters
+
+  const sanitizedAgeGroup = validAgeGroups.includes(ageGroup.toLowerCase()) ? ageGroup.toLowerCase() : 'u12';
+  const sanitizedGender = validGenders.includes(gender.toLowerCase()) ? gender.toLowerCase() : 'male';
+  const sanitizedRegion = region.toLowerCase() === 'national' ? 'national' : region.toLowerCase().slice(0, 2); // Ensure state codes are 2 letters
 
   const handleBackToRankings = () => {
     try {
@@ -74,12 +65,7 @@ function BackToRankingsButtonContent() {
 
   return (
     <div className="mb-4">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={handleBackToRankings}
-        className="flex items-center gap-2"
-      >
+      <Button variant="outline" size="sm" onClick={handleBackToRankings} className="flex items-center gap-2">
         <ArrowLeft size={16} />
         Back to Rankings
       </Button>
@@ -163,4 +149,3 @@ export function TeamPageShell({ id }: TeamPageShellProps) {
     </>
   );
 }
-

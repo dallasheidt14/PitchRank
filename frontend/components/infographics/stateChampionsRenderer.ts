@@ -118,7 +118,7 @@ export async function renderStateChampionsToCanvas(options: StateChampionsOption
   const displayChamps = champions.slice(0, maxChamps);
 
   const cols = isVertical ? 2 : isSquare ? 3 : 4;
-  const rows = Math.ceil(displayChamps.length / cols);
+  const _rows = Math.ceil(displayChamps.length / cols);
 
   const cardWidth = (dimensions.width - padding * 2 - (cols - 1) * 15) / cols;
   const cardHeight = isVertical ? 150 : isSquare ? 130 : 110;
@@ -167,9 +167,7 @@ export async function renderStateChampionsToCanvas(options: StateChampionsOption
     ctx.fillText(clubName, cardX + cardWidth / 2, iconY + 75);
 
     // Power score badge
-    const score = champ.team.power_score_final
-      ? (champ.team.power_score_final * 100).toFixed(1)
-      : 'N/A';
+    const score = champ.team.power_score_final ? (champ.team.power_score_final * 100).toFixed(1) : 'N/A';
     ctx.fillStyle = 'rgba(244, 208, 63, 0.2)';
     const badgeWidth = 60;
     const badgeHeight = 22;

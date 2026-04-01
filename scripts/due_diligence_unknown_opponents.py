@@ -27,13 +27,13 @@ import os
 import re
 import time
 from collections import Counter
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import requests
 from dotenv import load_dotenv
+
 from supabase import create_client
 
 
@@ -54,7 +54,7 @@ def _execute_with_retry(query_func, max_retries: int = 3, base_delay: float = 1.
             )
             if not is_transient or attempt >= max_retries:
                 raise
-            delay = base_delay * (2 ** attempt)
+            delay = base_delay * (2**attempt)
             print(f"  [retry {attempt + 1}/{max_retries}] Transient HTTP error, retrying in {delay:.1f}s: {e}")
             time.sleep(delay)
     raise last_exception  # unreachable, but satisfies type checkers
@@ -71,13 +71,12 @@ def load_env() -> None:
 def get_supabase():
     supabase_url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
     supabase_key = (
-        os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-        or os.getenv("SUPABASE_SERVICE_KEY")
-        or os.getenv("SUPABASE_KEY")
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
     )
     if not supabase_url or not supabase_key:
         raise ValueError(
-            "Missing Supabase credentials. Need SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_KEY/SUPABASE_KEY."
+            "Missing Supabase credentials. "
+            "Need SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_KEY/SUPABASE_KEY."
         )
     return create_client(supabase_url, supabase_key)
 
@@ -107,20 +106,45 @@ def _normalize_age_group(value: Optional[str]) -> Optional[str]:
 
 
 DIVISION_TIERS = {
-    "ecnl", "ecnl-rl", "ecnl rl", "rl",
-    "ga", "ga cup",
-    "dpl", "npl",
-    "mls next", "mls next pro",
-    "hd", "ad",
-    "premier", "elite", "select", "classic",
-    "pre-ecnl", "pre ecnl",
-    "academy", "development",
-    "gold", "silver", "bronze", "platinum",
-    "division 1", "division 2", "division 3",
-    "div 1", "div 2", "div 3",
-    "d1", "d2", "d3",
-    "flight 1", "flight 2", "flight 3",
-    "tier 1", "tier 2", "tier 3",
+    "ecnl",
+    "ecnl-rl",
+    "ecnl rl",
+    "rl",
+    "ga",
+    "ga cup",
+    "dpl",
+    "npl",
+    "mls next",
+    "mls next pro",
+    "hd",
+    "ad",
+    "premier",
+    "elite",
+    "select",
+    "classic",
+    "pre-ecnl",
+    "pre ecnl",
+    "academy",
+    "development",
+    "gold",
+    "silver",
+    "bronze",
+    "platinum",
+    "division 1",
+    "division 2",
+    "division 3",
+    "div 1",
+    "div 2",
+    "div 3",
+    "d1",
+    "d2",
+    "d3",
+    "flight 1",
+    "flight 2",
+    "flight 3",
+    "tier 1",
+    "tier 2",
+    "tier 3",
 }
 
 
@@ -280,23 +304,33 @@ def main() -> None:
         matched_team_id = (best.get("matched_team_id_master") or "").strip()
 
         # Fetch matched team from DB.
-        team_data = _execute_with_retry(
-            lambda mid=matched_team_id: supabase.table("teams")
-            .select("team_id_master,team_name,club_name,age_group,gender,state_code")
-            .eq("team_id_master", mid)
-            .limit(1)
-            .execute()
-        ).data or []
+        team_data = (
+            _execute_with_retry(
+                lambda mid=matched_team_id: (
+                    supabase.table("teams")
+                    .select("team_id_master,team_name,club_name,age_group,gender,state_code")
+                    .eq("team_id_master", mid)
+                    .limit(1)
+                    .execute()
+                )
+            ).data
+            or []
+        )
         team = team_data[0] if team_data else {}
 
         # Alias conflict check.
-        alias_rows = _execute_with_retry(
-            lambda pid=provider_id, upid=unknown_pid: supabase.table("team_alias_map")
-            .select("team_id_master")
-            .eq("provider_id", pid)
-            .eq("provider_team_id", upid)
-            .execute()
-        ).data or []
+        alias_rows = (
+            _execute_with_retry(
+                lambda pid=provider_id, upid=unknown_pid: (
+                    supabase.table("team_alias_map")
+                    .select("team_id_master")
+                    .eq("provider_id", pid)
+                    .eq("provider_team_id", upid)
+                    .execute()
+                )
+            ).data
+            or []
+        )
         alias_conflict = bool(alias_rows and alias_rows[0].get("team_id_master") != matched_team_id)
 
         # Provider metadata check (currently strong coverage for gotsport).
@@ -315,7 +349,9 @@ def main() -> None:
 
         age_check = "unknown" if not unknown_age or not team_age else ("ok" if unknown_age == team_age else "mismatch")
         gender_check = (
-            "unknown" if not unknown_gender or not team_gender else ("ok" if unknown_gender == team_gender else "mismatch")
+            "unknown"
+            if not unknown_gender or not team_gender
+            else ("ok" if unknown_gender == team_gender else "mismatch")
         )
         state_check = (
             "unknown" if not unknown_state or not team_state else ("ok" if unknown_state == team_state else "mismatch")
@@ -331,13 +367,18 @@ def main() -> None:
         name_literal_check = bool(norm_full and norm_team and (norm_team in norm_full or norm_full in norm_team))
 
         # Cohort check from already linked opponents in those unresolved games.
-        games = _execute_with_retry(
-            lambda pid=provider_id, upid=unknown_pid: supabase.table("games")
-            .select("home_provider_id,away_provider_id,home_team_master_id,away_team_master_id")
-            .eq("provider_id", pid)
-            .or_(f"home_provider_id.eq.{upid},away_provider_id.eq.{upid}")
-            .execute()
-        ).data or []
+        games = (
+            _execute_with_retry(
+                lambda pid=provider_id, upid=unknown_pid: (
+                    supabase.table("games")
+                    .select("home_provider_id,away_provider_id,home_team_master_id,away_team_master_id")
+                    .eq("provider_id", pid)
+                    .or_(f"home_provider_id.eq.{upid},away_provider_id.eq.{upid}")
+                    .execute()
+                )
+            ).data
+            or []
+        )
         known_team_ids = []
         for g in games:
             if str(g.get("home_provider_id")) == unknown_pid and g.get("away_team_master_id"):
@@ -353,20 +394,27 @@ def main() -> None:
             for i in range(0, len(unique_ids), 500):
                 cohort_rows.extend(
                     _execute_with_retry(
-                        lambda batch=unique_ids[i : i + 500]: supabase.table("teams")
-                        .select("team_id_master,age_group,gender")
-                        .in_("team_id_master", batch)
-                        .execute()
-                    ).data or []
+                        lambda batch=unique_ids[i : i + 500]: (
+                            supabase.table("teams")
+                            .select("team_id_master,age_group,gender")
+                            .in_("team_id_master", batch)
+                            .execute()
+                        )
+                    ).data
+                    or []
                 )
             age_counter = Counter(_normalize_age_group(r.get("age_group")) for r in cohort_rows if r.get("age_group"))
             gen_counter = Counter(_normalize_gender(r.get("gender")) for r in cohort_rows if r.get("gender"))
             cohort_age = age_counter.most_common(1)[0][0] if age_counter else None
             cohort_gender = gen_counter.most_common(1)[0][0] if gen_counter else None
 
-        cohort_age_check = "unknown" if not cohort_age or not team_age else ("ok" if cohort_age == team_age else "mismatch")
+        cohort_age_check = (
+            "unknown" if not cohort_age or not team_age else ("ok" if cohort_age == team_age else "mismatch")
+        )
         cohort_gender_check = (
-            "unknown" if not cohort_gender or not team_gender else ("ok" if cohort_gender == team_gender else "mismatch")
+            "unknown"
+            if not cohort_gender or not team_gender
+            else ("ok" if cohort_gender == team_gender else "mismatch")
         )
 
         # Core verdict rule.
@@ -426,7 +474,9 @@ def main() -> None:
             review_rows.append(verdict_row)
 
     # Sort for readability.
-    verdict_rows.sort(key=lambda r: (r["verdict"] != "approved", -float(r["best_score"]), -int(r["total_games_impacted"])))
+    verdict_rows.sort(
+        key=lambda r: (r["verdict"] != "approved", -float(r["best_score"]), -int(r["total_games_impacted"]))
+    )
     approved_rows.sort(key=lambda r: (-float(r["best_score"]), -int(r["total_games_impacted"])))
     review_rows.sort(key=lambda r: (-float(r["best_score"]), -int(r["total_games_impacted"])))
 

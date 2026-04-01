@@ -37,4 +37,3 @@ export const supabase = new Proxy({} as SupabaseClient, {
     return value;
   },
 });
-

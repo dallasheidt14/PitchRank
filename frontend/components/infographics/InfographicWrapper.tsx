@@ -35,8 +35,8 @@ interface InfographicWrapperProps {
 export const InfographicWrapper = forwardRef<HTMLDivElement, InfographicWrapperProps>(
   ({ platform, children, scale = 0.5 }, ref) => {
     const dimensions = PLATFORM_DIMENSIONS[platform];
-    const scaledWidth = dimensions.width * scale;
-    const scaledHeight = dimensions.height * scale;
+    const _scaledWidth = dimensions.width * scale;
+    const _scaledHeight = dimensions.height * scale;
 
     return (
       <div

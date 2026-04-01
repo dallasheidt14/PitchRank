@@ -1,8 +1,8 @@
-"use client";
+'use client';
 
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import Link from "next/link";
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
 import {
   Star,
   Trophy,
@@ -21,25 +21,19 @@ import {
   CalendarDays,
   RefreshCw,
   Crown,
-} from "lucide-react";
-import { fetchWatchlist, removeFromSupabaseWatchlist, initWatchlist } from "@/lib/watchlist";
-import type { WatchlistResponse } from "@/app/api/watchlist/route";
-import { formatPowerScore, formatSOSIndex, cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { InsightModal, DeltaIndicator } from "@/components/insights";
-import { useUser, hasPremiumAccess } from "@/hooks/useUser";
-import { useWatchlistMigration } from "@/hooks/useWatchlistMigration";
+} from 'lucide-react';
+import { fetchWatchlist, removeFromSupabaseWatchlist, initWatchlist } from '@/lib/watchlist';
+import type { WatchlistResponse } from '@/app/api/watchlist/route';
+import { formatPowerScore, formatSOSIndex, cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { InsightModal, DeltaIndicator } from '@/components/insights';
+import { useUser, hasPremiumAccess } from '@/hooks/useUser';
+import { useWatchlistMigration } from '@/hooks/useWatchlistMigration';
 
 // Sort options
-type SortOption = "rank" | "power" | "name" | "record" | "movers" | "activity";
+type SortOption = 'rank' | 'power' | 'name' | 'record' | 'movers' | 'activity';
 
 export default function WatchlistPage() {
   const { user, profile, isLoading: userLoading } = useUser();
@@ -50,10 +44,10 @@ export default function WatchlistPage() {
 
   // State
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [filterAge, setFilterAge] = useState<string>("all");
-  const [filterState, setFilterState] = useState<string>("all");
-  const [filterGender, setFilterGender] = useState<string>("all");
-  const [sortBy, setSortBy] = useState<SortOption>("rank");
+  const [filterAge, setFilterAge] = useState<string>('all');
+  const [filterState, setFilterState] = useState<string>('all');
+  const [filterGender, setFilterGender] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<SortOption>('rank');
   const [insightModalTeam, setInsightModalTeam] = useState<{
     id: string;
     name: string;
@@ -78,17 +72,16 @@ export default function WatchlistPage() {
     isFetching: watchlistFetching,
     error: watchlistError,
     refetch: refetchWatchlist,
-    status: queryStatus,
-    fetchStatus,
+    status: _queryStatus,
+    fetchStatus: _fetchStatus,
   } = useQuery<WatchlistResponse | null>({
-    queryKey: ["watchlist"],
+    queryKey: ['watchlist'],
     queryFn: fetchWatchlist,
     enabled: !userLoading && isPremium && !!user,
     staleTime: 0, // Always refetch when invalidated (changed from 2 minutes)
     gcTime: 10 * 60 * 1000, // 10 minutes
     refetchOnWindowFocus: true, // Refetch when window regains focus
   });
-
 
   // Debug query status
   const teams = useMemo(() => watchlistData?.teams ?? [], [watchlistData?.teams]);
@@ -98,40 +91,36 @@ export default function WatchlistPage() {
     let result = [...teams];
 
     // Apply filters
-    if (filterAge !== "all") {
+    if (filterAge !== 'all') {
       const age = parseInt(filterAge);
       result = result.filter((t) => t.age === age);
     }
-    if (filterState !== "all") {
+    if (filterState !== 'all') {
       result = result.filter((t) => t.state === filterState);
     }
-    if (filterGender !== "all") {
+    if (filterGender !== 'all') {
       result = result.filter((t) => t.gender === filterGender);
     }
 
     // Apply sort
     switch (sortBy) {
-      case "rank":
-        result.sort(
-          (a, b) => (a.rank_in_cohort_final ?? 999) - (b.rank_in_cohort_final ?? 999)
-        );
+      case 'rank':
+        result.sort((a, b) => (a.rank_in_cohort_final ?? 999) - (b.rank_in_cohort_final ?? 999));
         break;
-      case "power":
+      case 'power':
         result.sort((a, b) => (b.power_score_final ?? 0) - (a.power_score_final ?? 0));
         break;
-      case "name":
+      case 'name':
         result.sort((a, b) => a.team_name.localeCompare(b.team_name));
         break;
-      case "record":
+      case 'record':
         result.sort((a, b) => {
-          const aWinPct =
-            a.games_played > 0 ? (a.wins + a.draws * 0.5) / a.games_played : 0;
-          const bWinPct =
-            b.games_played > 0 ? (b.wins + b.draws * 0.5) / b.games_played : 0;
+          const aWinPct = a.games_played > 0 ? (a.wins + a.draws * 0.5) / a.games_played : 0;
+          const bWinPct = b.games_played > 0 ? (b.wins + b.draws * 0.5) / b.games_played : 0;
           return bWinPct - aWinPct;
         });
         break;
-      case "movers":
+      case 'movers':
         // Sort by absolute rank change (biggest movers first)
         result.sort((a, b) => {
           const aChange = Math.abs(a.rank_change_7d ?? 0);
@@ -139,7 +128,7 @@ export default function WatchlistPage() {
           return bChange - aChange;
         });
         break;
-      case "activity":
+      case 'activity':
         // Sort by recent games count
         result.sort((a, b) => (b.new_games_count ?? 0) - (a.new_games_count ?? 0));
         break;
@@ -161,13 +150,9 @@ export default function WatchlistPage() {
 
   // Calculate dashboard stats
   const dashboardStats = useMemo(() => {
-    const bigMovers = teams.filter(
-      (t) => t.rank_change_7d !== null && Math.abs(t.rank_change_7d) >= 5
-    ).length;
+    const bigMovers = teams.filter((t) => t.rank_change_7d !== null && Math.abs(t.rank_change_7d) >= 5).length;
     const recentlyActive = teams.filter((t) => t.new_games_count > 0).length;
-    const topTenTeams = teams.filter(
-      (t) => t.rank_in_cohort_final !== null && t.rank_in_cohort_final <= 10
-    ).length;
+    const topTenTeams = teams.filter((t) => t.rank_in_cohort_final !== null && t.rank_in_cohort_final <= 10).length;
 
     return { bigMovers, recentlyActive, topTenTeams };
   }, [teams]);
@@ -199,7 +184,7 @@ export default function WatchlistPage() {
         await removeFromSupabaseWatchlist(id);
       }
       // Refetch watchlist
-      queryClient.invalidateQueries({ queryKey: ["watchlist"] });
+      queryClient.invalidateQueries({ queryKey: ['watchlist'] });
       setSelectedIds(new Set());
     },
     [queryClient]
@@ -218,24 +203,24 @@ export default function WatchlistPage() {
 
   // Rank badge styling
   const getRankBadgeClass = (rank: number | null | undefined) => {
-    if (!rank) return "bg-muted text-muted-foreground";
-    if (rank === 1) return "badge-gold";
-    if (rank === 2) return "badge-silver";
-    if (rank === 3) return "badge-bronze";
-    if (rank <= 10) return "bg-primary text-primary-foreground";
-    if (rank <= 25) return "bg-primary/80 text-primary-foreground";
-    return "bg-muted text-foreground";
+    if (!rank) return 'bg-muted text-muted-foreground';
+    if (rank === 1) return 'badge-gold';
+    if (rank === 2) return 'badge-silver';
+    if (rank === 3) return 'badge-bronze';
+    if (rank <= 10) return 'bg-primary text-primary-foreground';
+    if (rank <= 25) return 'bg-primary/80 text-primary-foreground';
+    return 'bg-muted text-foreground';
   };
 
   // Gender display
   const getGenderDisplay = (gender: string) => {
     switch (gender) {
-      case "M":
-      case "B":
-        return "Boys";
-      case "F":
-      case "G":
-        return "Girls";
+      case 'M':
+      case 'B':
+        return 'Boys';
+      case 'F':
+      case 'G':
+        return 'Girls';
       default:
         return gender;
     }
@@ -269,9 +254,7 @@ export default function WatchlistPage() {
               <Crown className="h-10 w-10 text-muted-foreground" />
             </div>
             <h1 className="text-2xl font-display mb-3">Sign In Required</h1>
-            <p className="text-muted-foreground mb-6">
-              Please sign in to access your Season Dashboard.
-            </p>
+            <p className="text-muted-foreground mb-6">Please sign in to access your Season Dashboard.</p>
             <Link href="/login">
               <Button size="lg">Sign In</Button>
             </Link>
@@ -292,8 +275,7 @@ export default function WatchlistPage() {
             </div>
             <h1 className="text-2xl font-display mb-3">Premium Feature</h1>
             <p className="text-muted-foreground mb-6">
-              Upgrade to Premium to access your Season Dashboard with persistent
-              watchlists, team insights, and more.
+              Upgrade to Premium to access your Season Dashboard with persistent watchlists, team insights, and more.
             </p>
             <Link href="/upgrade">
               <Button size="lg" className="gap-2">
@@ -317,7 +299,7 @@ export default function WatchlistPage() {
         {/* Accent diagonal */}
         <div
           className="absolute -right-20 -top-20 w-96 h-96 bg-accent/20 rotate-12 transform"
-          style={{ clipPath: "polygon(0 0, 100% 0, 100% 100%, 20% 100%)" }}
+          style={{ clipPath: 'polygon(0 0, 100% 0, 100% 100%, 20% 100%)' }}
         />
 
         <div className="container relative px-4">
@@ -331,7 +313,7 @@ export default function WatchlistPage() {
                   My Season Dashboard
                 </h1>
                 <p className="text-primary-foreground/80 font-sans text-sm sm:text-base mt-1">
-                  {teams.length} {teams.length === 1 ? "team" : "teams"} in your watchlist
+                  {teams.length} {teams.length === 1 ? 'team' : 'teams'} in your watchlist
                 </p>
               </div>
             </div>
@@ -342,8 +324,8 @@ export default function WatchlistPage() {
               disabled={watchlistFetching}
               className="gap-1.5"
             >
-              <RefreshCw className={cn("h-4 w-4", watchlistFetching && "animate-spin")} />
-              {watchlistFetching ? "Refreshing..." : "Refresh"}
+              <RefreshCw className={cn('h-4 w-4', watchlistFetching && 'animate-spin')} />
+              {watchlistFetching ? 'Refreshing...' : 'Refresh'}
             </Button>
           </div>
 
@@ -352,23 +334,17 @@ export default function WatchlistPage() {
             <div className="grid grid-cols-3 gap-4 max-w-xl">
               <div className="bg-white/10 backdrop-blur rounded-lg p-3 text-center">
                 <Zap className="h-5 w-5 text-amber-300 mx-auto mb-1" />
-                <p className="text-2xl font-bold text-primary-foreground">
-                  {dashboardStats.bigMovers}
-                </p>
+                <p className="text-2xl font-bold text-primary-foreground">{dashboardStats.bigMovers}</p>
                 <p className="text-xs text-primary-foreground/70">Big Movers</p>
               </div>
               <div className="bg-white/10 backdrop-blur rounded-lg p-3 text-center">
                 <CalendarDays className="h-5 w-5 text-green-300 mx-auto mb-1" />
-                <p className="text-2xl font-bold text-primary-foreground">
-                  {dashboardStats.recentlyActive}
-                </p>
+                <p className="text-2xl font-bold text-primary-foreground">{dashboardStats.recentlyActive}</p>
                 <p className="text-xs text-primary-foreground/70">Active This Week</p>
               </div>
               <div className="bg-white/10 backdrop-blur rounded-lg p-3 text-center">
                 <Crown className="h-5 w-5 text-yellow-300 mx-auto mb-1" />
-                <p className="text-2xl font-bold text-primary-foreground">
-                  {dashboardStats.topTenTeams}
-                </p>
+                <p className="text-2xl font-bold text-primary-foreground">{dashboardStats.topTenTeams}</p>
                 <p className="text-xs text-primary-foreground/70">Top 10 Teams</p>
               </div>
             </div>
@@ -391,9 +367,7 @@ export default function WatchlistPage() {
           <div className="text-center py-12">
             <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
             <h2 className="text-xl font-semibold mb-2">Error Loading Watchlist</h2>
-            <p className="text-muted-foreground mb-4">
-              There was a problem loading your watchlist.
-            </p>
+            <p className="text-muted-foreground mb-4">There was a problem loading your watchlist.</p>
             <Button onClick={() => refetchWatchlist()}>Try Again</Button>
           </div>
         ) : teams.length === 0 ? (
@@ -402,12 +376,10 @@ export default function WatchlistPage() {
             <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-muted mb-6 animate-in fade-in zoom-in duration-500">
               <Star className="h-12 w-12 text-muted-foreground" />
             </div>
-            <h2 className="text-2xl sm:text-3xl font-display text-foreground mb-3">
-              No Teams Yet
-            </h2>
+            <h2 className="text-2xl sm:text-3xl font-display text-foreground mb-3">No Teams Yet</h2>
             <p className="text-muted-foreground font-sans max-w-md mx-auto mb-8">
-              Start building your dashboard by adding teams from the rankings.
-              Track their performance, get insights, and never miss a move.
+              Start building your dashboard by adding teams from the rankings. Track their performance, get insights,
+              and never miss a move.
             </p>
             <Link href="/rankings">
               <Button size="lg" className="gap-2 font-semibold">
@@ -469,10 +441,7 @@ export default function WatchlistPage() {
                 {/* Sort */}
                 <div className="flex items-center gap-2 ml-2">
                   <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
-                  <Select
-                    value={sortBy}
-                    onValueChange={(v) => setSortBy(v as SortOption)}
-                  >
+                  <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
                     <SelectTrigger className="w-[130px]">
                       <SelectValue />
                     </SelectTrigger>
@@ -492,23 +461,11 @@ export default function WatchlistPage() {
               <div className="flex items-center gap-3">
                 {selectedIds.size > 0 ? (
                   <>
-                    <span className="text-sm text-muted-foreground">
-                      {selectedIds.size} selected
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={deselectAll}
-                      className="text-xs"
-                    >
+                    <span className="text-sm text-muted-foreground">{selectedIds.size} selected</span>
+                    <Button variant="outline" size="sm" onClick={deselectAll} className="text-xs">
                       Deselect
                     </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={removeSelected}
-                      className="gap-1"
-                    >
+                    <Button variant="destructive" size="sm" onClick={removeSelected} className="gap-1">
                       <Trash2 className="h-3.5 w-3.5" />
                       Remove
                     </Button>
@@ -541,9 +498,9 @@ export default function WatchlistPage() {
                 <Button
                   variant="link"
                   onClick={() => {
-                    setFilterAge("all");
-                    setFilterState("all");
-                    setFilterGender("all");
+                    setFilterAge('all');
+                    setFilterState('all');
+                    setFilterGender('all');
                   }}
                   className="mt-2"
                 >
@@ -556,24 +513,20 @@ export default function WatchlistPage() {
                   <Card
                     key={team.team_id_master}
                     className={cn(
-                      "group relative overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1",
-                      "animate-in fade-in slide-in-from-bottom-4",
-                      selectedIds.has(team.team_id_master) && "ring-2 ring-primary"
+                      'group relative overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1',
+                      'animate-in fade-in slide-in-from-bottom-4',
+                      selectedIds.has(team.team_id_master) && 'ring-2 ring-primary'
                     )}
                     style={{
                       animationDelay: `${index * 50}ms`,
-                      animationFillMode: "backwards",
+                      animationFillMode: 'backwards',
                     }}
                   >
                     {/* Selection checkbox */}
                     <button
                       onClick={() => toggleSelect(team.team_id_master)}
                       className="absolute top-3 right-3 z-10 p-1 rounded hover:bg-muted/80 transition-colors"
-                      aria-label={
-                        selectedIds.has(team.team_id_master)
-                          ? "Deselect team"
-                          : "Select team"
-                      }
+                      aria-label={selectedIds.has(team.team_id_master) ? 'Deselect team' : 'Select team'}
                     >
                       {selectedIds.has(team.team_id_master) ? (
                         <CheckSquare className="h-5 w-5 text-primary" />
@@ -598,28 +551,21 @@ export default function WatchlistPage() {
                         <div className="flex flex-col items-center gap-1">
                           <div
                             className={cn(
-                              "flex items-center justify-center w-12 h-12 rounded-lg font-display text-lg font-bold flex-shrink-0",
+                              'flex items-center justify-center w-12 h-12 rounded-lg font-display text-lg font-bold flex-shrink-0',
                               getRankBadgeClass(team.rank_in_cohort_final)
                             )}
                           >
-                            {team.rank_in_cohort_final ?? "—"}
+                            {team.rank_in_cohort_final ?? '—'}
                           </div>
                           {/* Rank delta */}
                           <DeltaIndicator value={team.rank_change_7d} inverse />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <h3 className="font-display text-lg leading-tight truncate">
-                            {team.team_name}
-                          </h3>
-                          {team.club_name && (
-                            <p className="text-sm text-muted-foreground truncate">
-                              {team.club_name}
-                            </p>
-                          )}
+                          <h3 className="font-display text-lg leading-tight truncate">{team.team_name}</h3>
+                          {team.club_name && <p className="text-sm text-muted-foreground truncate">{team.club_name}</p>}
                           <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
                             <span className="flex items-center gap-1">
-                              <Users className="h-3 w-3" />
-                              U{team.age} {getGenderDisplay(team.gender)}
+                              <Users className="h-3 w-3" />U{team.age} {getGenderDisplay(team.gender)}
                             </span>
                             {team.state && (
                               <span className="flex items-center gap-1">
@@ -634,25 +580,15 @@ export default function WatchlistPage() {
                       {/* Stats Grid */}
                       <div className="grid grid-cols-3 gap-3 mb-4">
                         <div className="text-center p-2 bg-muted/50 rounded-lg">
-                          <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                            Power
-                          </p>
-                          <p className="font-mono font-semibold text-sm">
-                            {formatPowerScore(team.power_score_final)}
-                          </p>
+                          <p className="text-xs text-muted-foreground uppercase tracking-wide">Power</p>
+                          <p className="font-mono font-semibold text-sm">{formatPowerScore(team.power_score_final)}</p>
                         </div>
                         <div className="text-center p-2 bg-muted/50 rounded-lg">
-                          <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                            SOS
-                          </p>
-                          <p className="font-mono font-semibold text-sm">
-                            {formatSOSIndex(team.sos_norm)}
-                          </p>
+                          <p className="text-xs text-muted-foreground uppercase tracking-wide">SOS</p>
+                          <p className="font-mono font-semibold text-sm">{formatSOSIndex(team.sos_norm)}</p>
                         </div>
                         <div className="text-center p-2 bg-muted/50 rounded-lg">
-                          <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                            Record
-                          </p>
+                          <p className="text-xs text-muted-foreground uppercase tracking-wide">Record</p>
                           <p className="font-mono font-semibold text-sm">
                             {team.wins}-{team.losses}-{team.draws}
                           </p>

@@ -5,17 +5,19 @@ Diagnose SOS compression issue in rankings.
 This script checks if the global min-max scaling of sos_norm
 is compressing the effective contribution of SOS to PowerScore.
 """
+
 import sys
 from pathlib import Path
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import pandas as pd
-import numpy as np
-from supabase import create_client
 import os
+
+import pandas as pd
 from dotenv import load_dotenv
+
+from supabase import create_client
 
 load_dotenv()
 
@@ -35,10 +37,15 @@ def analyze_sos_compression():
 
     # Fetch rankings data
     print("Fetching rankings data...")
-    result = client.table('rankings_full').select(
-        'team_id, age_group, gender, sos_norm, off_norm, def_norm, '
-        'powerscore_core, powerscore_adj, rank_in_cohort, games_played, status'
-    ).eq('status', 'Active').execute()
+    result = (
+        client.table("rankings_full")
+        .select(
+            "team_id, age_group, gender, sos_norm, off_norm, def_norm, "
+            "powerscore_core, powerscore_adj, rank_in_cohort, games_played, status"
+        )
+        .eq("status", "Active")
+        .execute()
+    )
 
     if not result.data:
         print("No active rankings found")
@@ -56,20 +63,20 @@ def analyze_sos_compression():
 
     issues = []
 
-    for (age, gender), cohort in df.groupby(['age_group', 'gender']):
+    for (age, gender), cohort in df.groupby(["age_group", "gender"]):
         if len(cohort) < 5:
             continue
 
-        sos_min = cohort['sos_norm'].min()
-        sos_max = cohort['sos_norm'].max()
+        sos_min = cohort["sos_norm"].min()
+        sos_max = cohort["sos_norm"].max()
         sos_range = sos_max - sos_min
 
-        off_min = cohort['off_norm'].min()
-        off_max = cohort['off_norm'].max()
+        off_min = cohort["off_norm"].min()
+        off_max = cohort["off_norm"].max()
         off_range = off_max - off_min
 
-        def_min = cohort['def_norm'].min()
-        def_max = cohort['def_norm'].max()
+        def_min = cohort["def_norm"].min()
+        def_max = cohort["def_norm"].max()
         def_range = def_max - def_min
 
         # Effective contribution to PowerScore spread
@@ -89,7 +96,10 @@ def analyze_sos_compression():
             flag = " ⚠️ LOW"
             issues.append((cohort_name, sos_pct, sos_range))
 
-        print(f"{cohort_name:<15} {len(cohort):>6} {sos_range:>11.3f}  {off_range:>11.3f}  {def_range:>11.3f}  {sos_pct:>10.1f}%{flag}")
+        print(
+            f"{cohort_name:<15} {len(cohort):>6} {sos_range:>11.3f}  {off_range:>11.3f}  "
+            f"{def_range:>11.3f}  {sos_pct:>10.1f}%{flag}"
+        )
 
     print("-" * 80)
 
@@ -98,14 +108,14 @@ def analyze_sos_compression():
     print("ANOMALY CHECK: Teams with Low SOS but High Rank")
     print("=" * 80)
 
-    for (age, gender), cohort in df.groupby(['age_group', 'gender']):
+    for (age, gender), cohort in df.groupby(["age_group", "gender"]):
         if len(cohort) < 20:
             continue
 
         cohort = cohort.copy()
         # Calculate SOS rank within cohort
-        cohort['sos_rank'] = cohort['sos_norm'].rank(ascending=False, method='min')
-        cohort['overall_rank'] = cohort['rank_in_cohort']
+        cohort["sos_rank"] = cohort["sos_norm"].rank(ascending=False, method="min")
+        cohort["overall_rank"] = cohort["rank_in_cohort"]
 
         total_teams = len(cohort)
 
@@ -113,19 +123,18 @@ def analyze_sos_compression():
         top_overall = total_teams * 0.10
         bottom_sos = total_teams * 0.70  # rank > 70th percentile = weak SOS
 
-        anomalies = cohort[
-            (cohort['overall_rank'] <= top_overall) &
-            (cohort['sos_rank'] > bottom_sos)
-        ]
+        anomalies = cohort[(cohort["overall_rank"] <= top_overall) & (cohort["sos_rank"] > bottom_sos)]
 
         if len(anomalies) > 0:
             cohort_name = f"U{age} {gender[:1].upper()}"
             print(f"\n{cohort_name} ({total_teams} teams):")
             for _, row in anomalies.iterrows():
-                print(f"  Rank #{int(row['overall_rank'])}: "
-                      f"SOS rank {int(row['sos_rank'])}/{total_teams} "
-                      f"(sos_norm={row['sos_norm']:.3f}, "
-                      f"off={row['off_norm']:.3f}, def={row['def_norm']:.3f})")
+                print(
+                    f"  Rank #{int(row['overall_rank'])}: "
+                    f"SOS rank {int(row['sos_rank'])}/{total_teams} "
+                    f"(sos_norm={row['sos_norm']:.3f}, "
+                    f"off={row['off_norm']:.3f}, def={row['def_norm']:.3f})"
+                )
 
     # Summary
     print("\n" + "=" * 80)
@@ -144,5 +153,5 @@ def analyze_sos_compression():
         print("✅ SOS contribution looks healthy across all cohorts")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     analyze_sos_compression()

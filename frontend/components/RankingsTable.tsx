@@ -29,34 +29,43 @@ const ROW_HEIGHT = 60; // Estimated row height in pixels
 /**
  * Sort button component - defined outside RankingsTable so memo() works correctly
  */
-const SortButton = memo(({ field, label, sortField, sortDirection, onSort }: {
-  field: SortField;
-  label: string | React.ReactNode;
-  sortField: SortField;
-  sortDirection: SortDirection;
-  onSort: (field: SortField) => void;
-}) => {
-  const isActive = sortField === field;
-  const labelText = typeof label === 'string' ? label : 'Sort';
-  return (
-    <button
-      onClick={() => onSort(field)}
-      className="flex items-center gap-1 hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded"
-      aria-label={`Sort by ${labelText}`}
-    >
-      {label}
-      {isActive ? (
-        sortDirection === 'asc' ? (
-          <ArrowUp className="h-3 w-3" />
+const SortButton = memo(
+  ({
+    field,
+    label,
+    sortField,
+    sortDirection,
+    onSort,
+  }: {
+    field: SortField;
+    label: string | React.ReactNode;
+    sortField: SortField;
+    sortDirection: SortDirection;
+    onSort: (field: SortField) => void;
+  }) => {
+    const isActive = sortField === field;
+    const labelText = typeof label === 'string' ? label : 'Sort';
+    return (
+      <button
+        onClick={() => onSort(field)}
+        className="flex items-center gap-1 hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded"
+        aria-label={`Sort by ${labelText}`}
+      >
+        {label}
+        {isActive ? (
+          sortDirection === 'asc' ? (
+            <ArrowUp className="h-3 w-3" />
+          ) : (
+            <ArrowDown className="h-3 w-3" />
+          )
         ) : (
-          <ArrowDown className="h-3 w-3" />
-        )
-      ) : (
-        <ArrowUpDown className="h-3 w-3 opacity-50" />
-      )}
-    </button>
-  );
-});
+          <ArrowUpDown className="h-3 w-3 opacity-50" />
+        )}
+      </button>
+    );
+  }
+);
+SortButton.displayName = 'SortButton';
 
 /**
  * Get border color class for top teams - Athletic Editorial style
@@ -104,7 +113,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     if (!rankings) return null;
     const map = new Map<string, number>();
     // Only rank Active teams (8+ games) — teams with "Not Enough Ranked Games" get no rank
-    const activeTeams = rankings.filter(t => t.status === 'Active');
+    const activeTeams = rankings.filter((t) => t.status === 'Active');
     const sorted = [...activeTeams].sort((a, b) => {
       const diff = (b.power_score_final ?? 0) - (a.power_score_final ?? 0);
       if (diff !== 0) return diff;
@@ -125,7 +134,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     if (!rankings) return null;
     const map = new Map<string, number>();
     // Only rank Active teams for SOS — same gate as power score ranks
-    const activeTeams = rankings.filter(t => t.status === 'Active');
+    const activeTeams = rankings.filter((t) => t.status === 'Active');
     const sorted = [...activeTeams].sort((a, b) => {
       const aSos = region ? (a.sos_norm_state ?? a.sos_norm ?? 0) : (a.sos_norm ?? 0);
       const bSos = region ? (b.sos_norm_state ?? b.sos_norm ?? 0) : (b.sos_norm ?? 0);
@@ -138,9 +147,12 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   }, [region, rankings]);
 
   // Helper to get the correct rank for display
-  const getDisplayRank = useCallback((team: RankingRow): number | null | undefined => {
-    return computedRanks?.get(team.team_id_master) ?? null;
-  }, [computedRanks]);
+  const getDisplayRank = useCallback(
+    (team: RankingRow): number | null | undefined => {
+      return computedRanks?.get(team.team_id_master) ?? null;
+    },
+    [computedRanks]
+  );
 
   // Sort rankings based on selected field with SOS tie-breaking
   const sortedRankings = useMemo(() => {
@@ -175,14 +187,11 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
       }
 
       if (typeof aValue === 'string' && typeof bValue === 'string') {
-        return sortDirection === 'asc'
-          ? aValue.localeCompare(bValue)
-          : bValue.localeCompare(aValue);
+        return sortDirection === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
       }
 
-      const primaryCompare = sortDirection === 'asc'
-        ? (aValue as number) - (bValue as number)
-        : (bValue as number) - (aValue as number);
+      const primaryCompare =
+        sortDirection === 'asc' ? (aValue as number) - (bValue as number) : (bValue as number) - (aValue as number);
 
       // If primary values are equal, use SOS as tie-breaker (higher SOS = harder schedule = better)
       if (primaryCompare === 0 && (sortField === 'rank' || sortField === 'powerScore')) {
@@ -198,6 +207,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   }, [rankings, sortField, sortDirection, region, computedRanks, computedSosRanks]);
 
   // Virtualizer for rendering only visible rows
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: sortedRankings.length,
     getScrollElement: () => parentRef.current,
@@ -205,27 +215,28 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     overscan: 5, // Render 5 extra rows above/below viewport
   });
 
-  const handleSort = useCallback((field: SortField) => {
-    const newDirection = sortField === field
-      ? (sortDirection === 'asc' ? 'desc' : 'asc')
-      : 'asc';
+  const handleSort = useCallback(
+    (field: SortField) => {
+      const newDirection = sortField === field ? (sortDirection === 'asc' ? 'desc' : 'asc') : 'asc';
 
-    // Track sort event
-    trackSortUsed({
-      column: field,
-      direction: newDirection,
-      region,
-      age_group: ageGroup,
-      gender,
-    });
+      // Track sort event
+      trackSortUsed({
+        column: field,
+        direction: newDirection,
+        region,
+        age_group: ageGroup,
+        gender,
+      });
 
-    if (sortField === field) {
-      setSortDirection(newDirection);
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
-    }
-  }, [sortField, sortDirection, region, ageGroup, gender]);
+      if (sortField === field) {
+        setSortDirection(newDirection);
+      } else {
+        setSortField(field);
+        setSortDirection('asc');
+      }
+    },
+    [sortField, sortDirection, region, ageGroup, gender]
+  );
 
   // Build description text
   const description = useMemo(() => {
@@ -237,7 +248,16 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
       parts.push(`Age: ${ageGroup.toUpperCase()}`);
     }
     if (gender) {
-      const genderLabel = gender === 'M' ? 'Boys' : gender === 'F' ? 'Girls' : gender === 'B' ? 'Boys' : gender === 'G' ? 'Girls' : gender;
+      const genderLabel =
+        gender === 'M'
+          ? 'Boys'
+          : gender === 'F'
+            ? 'Girls'
+            : gender === 'B'
+              ? 'Boys'
+              : gender === 'G'
+                ? 'Girls'
+                : gender;
       parts.push(genderLabel);
     }
     return parts.join(' • ');
@@ -292,7 +312,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
       </Card>
     );
   }
-  
+
   if (!rankings?.length) {
     return (
       <Card>
@@ -305,17 +325,14 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
 
   const virtualItems = virtualizer.getVirtualItems();
   const totalHeight = virtualizer.getTotalSize();
-  const paddingTop = virtualItems.length > 0 ? virtualItems[0]?.start ?? 0 : 0;
-  const paddingBottom =
-    virtualItems.length > 0
-      ? totalHeight - (virtualItems[virtualItems.length - 1]?.end ?? 0)
-      : 0;
+  const paddingTop = virtualItems.length > 0 ? (virtualItems[0]?.start ?? 0) : 0;
+  const paddingBottom = virtualItems.length > 0 ? totalHeight - (virtualItems[virtualItems.length - 1]?.end ?? 0) : 0;
 
   // Prepare top teams for schema
   const topTeamsForSchema = sortedRankings.slice(0, 10).map((team, index) => ({
     teamName: team.team_name,
     clubName: team.club_name ?? undefined,
-    rank: computedRanks?.get(team.team_id_master) ?? (index + 1),
+    rank: computedRanks?.get(team.team_id_master) ?? index + 1,
     powerScore: team.power_score_final ?? undefined,
     state: team.state ?? undefined,
   }));
@@ -332,50 +349,83 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
         lastUpdated={rankings?.[0]?.last_calculated}
       />
       <Card data-testid="rankings-table-card" className="overflow-hidden border-0 shadow-lg">
-      <CardHeader className="bg-gradient-to-r from-primary to-[oklch(0.28_0.08_165)] text-primary-foreground relative">
-        <div className="absolute right-0 top-0 w-2 h-full bg-accent -skew-x-12" aria-hidden="true" />
-        <CardTitle data-testid="rankings-title" className="text-2xl sm:text-3xl font-bold uppercase tracking-wide flex items-center gap-2">
-          Complete Rankings
-          {/* Show loading indicator when fetching new data (but not initial load) */}
-          {isFetching && !isLoading && (
-            <span className="inline-block w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" aria-label="Loading..." />
-          )}
-        </CardTitle>
-        <CardDescription className="text-primary-foreground/90 text-sm sm:text-base">
-          {description}
-          {formattedLastCalculated && (
-            <span className="block sm:inline sm:ml-2 text-xs mt-1 sm:mt-0">
-              • Last updated: {formattedLastCalculated}
-            </span>
-          )}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="px-2 sm:px-6">
-        {sortedRankings.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-8">
-            No rankings found for the selected filters
-          </p>
-        ) : (
-          <div className="rounded-md border overflow-hidden">
-            {/* Table wrapper - no horizontal scroll on mobile, columns flex to fit */}
-            <div className="touch-pan-y">
+        <CardHeader className="bg-gradient-to-r from-primary to-[oklch(0.28_0.08_165)] text-primary-foreground relative">
+          <div className="absolute right-0 top-0 w-2 h-full bg-accent -skew-x-12" aria-hidden="true" />
+          <CardTitle
+            data-testid="rankings-title"
+            className="text-2xl sm:text-3xl font-bold uppercase tracking-wide flex items-center gap-2"
+          >
+            Complete Rankings
+            {/* Show loading indicator when fetching new data (but not initial load) */}
+            {isFetching && !isLoading && (
+              <span
+                className="inline-block w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin"
+                aria-label="Loading..."
+              />
+            )}
+          </CardTitle>
+          <CardDescription className="text-primary-foreground/90 text-sm sm:text-base">
+            {description}
+            {formattedLastCalculated && (
+              <span className="block sm:inline sm:ml-2 text-xs mt-1 sm:mt-0">
+                • Last updated: {formattedLastCalculated}
+              </span>
+            )}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-2 sm:px-6">
+          {sortedRankings.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">No rankings found for the selected filters</p>
+          ) : (
+            <div className="rounded-md border overflow-hidden">
+              {/* Table wrapper - no horizontal scroll on mobile, columns flex to fit */}
+              <div className="touch-pan-y">
                 {/* Table Header */}
-                <div data-testid="rankings-table-header" className="grid grid-cols-[44px_1fr_58px_50px] sm:grid-cols-[70px_2fr_1fr_1fr] border-b-2 border-primary bg-secondary/50 sticky top-0 z-10">
+                <div
+                  data-testid="rankings-table-header"
+                  className="grid grid-cols-[44px_1fr_58px_50px] sm:grid-cols-[70px_2fr_1fr_1fr] border-b-2 border-primary bg-secondary/50 sticky top-0 z-10"
+                >
                   <div className="px-1.5 sm:px-4 py-2 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
-                    <SortButton field="rank" label="Rank" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
+                    <SortButton
+                      field="rank"
+                      label="Rank"
+                      sortField={sortField}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
                   </div>
                   <div className="px-1.5 sm:px-4 py-2 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
-                    <SortButton field="team" label="Team" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
+                    <SortButton
+                      field="team"
+                      label="Team"
+                      sortField={sortField}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
                   </div>
                   <div className="px-1.5 sm:px-4 py-2 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className="min-w-0 overflow-hidden">
-                          <SortButton field="powerScore" label={<><span className="hidden sm:inline">PowerScore (ML Adjusted)</span><span className="sm:hidden">PS</span></>} sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
+                          <SortButton
+                            field="powerScore"
+                            label={
+                              <>
+                                <span className="hidden sm:inline">PowerScore (ML Adjusted)</span>
+                                <span className="sm:hidden">PS</span>
+                              </>
+                            }
+                            sortField={sortField}
+                            sortDirection={sortDirection}
+                            onSort={handleSort}
+                          />
                         </div>
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p>A machine-learning-enhanced ranking score that measures overall team strength based on offense, defense, schedule difficulty, and predictive performance patterns.</p>
+                        <p>
+                          A machine-learning-enhanced ranking score that measures overall team strength based on
+                          offense, defense, schedule difficulty, and predictive performance patterns.
+                        </p>
                       </TooltipContent>
                     </Tooltip>
                   </div>
@@ -383,21 +433,31 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className="min-w-0 overflow-hidden">
-                          <SortButton field="sosRank" label={<><span className="hidden sm:inline">SOS Rank</span><span className="sm:hidden">SOS R</span></>} sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
+                          <SortButton
+                            field="sosRank"
+                            label={
+                              <>
+                                <span className="hidden sm:inline">SOS Rank</span>
+                                <span className="sm:hidden">SOS R</span>
+                              </>
+                            }
+                            sortField={sortField}
+                            sortDirection={sortDirection}
+                            onSort={handleSort}
+                          />
                         </div>
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p>Strength of Schedule — how tough the opponents are. #1 = hardest schedule in this age group.</p>
+                        <p>
+                          Strength of Schedule — how tough the opponents are. #1 = hardest schedule in this age group.
+                        </p>
                       </TooltipContent>
                     </Tooltip>
                   </div>
                 </div>
 
                 {/* Virtualized Table Body */}
-                <div
-                  ref={parentRef}
-                  className="overflow-auto h-[400px] sm:h-[500px] md:h-[600px]"
-                >
+                <div ref={parentRef} className="overflow-auto h-[400px] sm:h-[500px] md:h-[600px]">
                   <div
                     style={{
                       height: `${totalHeight}px`,
@@ -405,9 +465,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                       position: 'relative',
                     }}
                   >
-                    {paddingTop > 0 && (
-                      <div style={{ height: `${paddingTop}px` }} />
-                    )}
+                    {paddingTop > 0 && <div style={{ height: `${paddingTop}px` }} />}
                     {virtualItems.map((virtualRow) => {
                       const team = sortedRankings[virtualRow.index];
                       const displayRank = getDisplayRank(team);
@@ -448,13 +506,22 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                                   {change != null && change !== 0 && (
                                     <Tooltip>
                                       <TooltipTrigger asChild>
-                                        <span className={`inline-flex items-center text-[10px] sm:text-xs font-medium ${change > 0 ? 'text-green-600' : 'text-red-500'}`}>
-                                          {change > 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+                                        <span
+                                          className={`inline-flex items-center text-[10px] sm:text-xs font-medium ${change > 0 ? 'text-green-600' : 'text-red-500'}`}
+                                        >
+                                          {change > 0 ? (
+                                            <ArrowUp className="h-3 w-3" />
+                                          ) : (
+                                            <ArrowDown className="h-3 w-3" />
+                                          )}
                                           <span className="hidden sm:inline">{Math.abs(change)}</span>
                                         </span>
                                       </TooltipTrigger>
                                       <TooltipContent>
-                                        <p>{change > 0 ? `Up ${change} spots` : `Down ${Math.abs(change)} spots`} in the last 7 days</p>
+                                        <p>
+                                          {change > 0 ? `Up ${change} spots` : `Down ${Math.abs(change)} spots`} in the
+                                          last 7 days
+                                        </p>
                                       </TooltipContent>
                                     </Tooltip>
                                   )}
@@ -466,16 +533,18 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                             <Link
                               href={`/teams/${team.team_id_master}?region=${region || 'national'}&ageGroup=${ageGroup}&gender=${gender?.toLowerCase() || 'male'}`}
                               onMouseEnter={() => prefetchTeam(team.team_id_master)}
-                              onClick={() => trackTeamRowClicked({
-                                team_id_master: team.team_id_master,
-                                team_name: team.team_name,
-                                club_name: team.club_name,
-                                state: team.state,
-                                age: team.age,
-                                gender: team.gender,
-                                rank_in_cohort_final: team.rank_in_cohort_final,
-                                rank_in_state_final: getDisplayRank(team) ?? undefined,
-                              })}
+                              onClick={() =>
+                                trackTeamRowClicked({
+                                  team_id_master: team.team_id_master,
+                                  team_name: team.team_name,
+                                  club_name: team.club_name,
+                                  state: team.state,
+                                  age: team.age,
+                                  gender: team.gender,
+                                  rank_in_cohort_final: team.rank_in_cohort_final,
+                                  rank_in_state_final: getDisplayRank(team) ?? undefined,
+                                })
+                              }
                               className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block text-xs sm:text-sm truncate block w-full"
                               aria-label={`View ${team.team_name} team details`}
                             >
@@ -502,7 +571,10 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                                     <span className="truncate cursor-help">#{sosRank}</span>
                                   </TooltipTrigger>
                                   <TooltipContent>
-                                    <p>#{sosRank} toughest schedule{totalTeams > 0 ? ` out of ${totalTeams} teams` : ''}{pct != null ? ` — harder than ${pct}%` : ''}</p>
+                                    <p>
+                                      #{sosRank} toughest schedule{totalTeams > 0 ? ` out of ${totalTeams} teams` : ''}
+                                      {pct != null ? ` — harder than ${pct}%` : ''}
+                                    </p>
                                   </TooltipContent>
                                 </Tooltip>
                               );
@@ -511,16 +583,14 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                         </div>
                       );
                     })}
-                  {paddingBottom > 0 && (
-                    <div style={{ height: `${paddingBottom}px` }} />
-                  )}
+                    {paddingBottom > 0 && <div style={{ height: `${paddingBottom}px` }} />}
                   </div>
                 </div>
+              </div>
             </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          )}
+        </CardContent>
+      </Card>
     </>
   );
 }

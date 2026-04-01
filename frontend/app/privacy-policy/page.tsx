@@ -41,31 +41,23 @@ const sections = [
 export default function PrivacyPolicyPage() {
   return (
     <div className="container mx-auto py-8 px-4">
-      <BreadcrumbSchema
-        items={[{ name: 'Privacy Policy', href: '/privacy-policy' }]}
-      />
-      <PageHeader
-        title="Privacy Policy"
-        description="Effective Date: March 3, 2026"
-        showBackButton
-        backHref="/"
-      />
+      <BreadcrumbSchema items={[{ name: 'Privacy Policy', href: '/privacy-policy' }]} />
+      <PageHeader title="Privacy Policy" description="Effective Date: March 3, 2026" showBackButton backHref="/" />
 
       <div className="max-w-3xl mx-auto">
         {/* Introduction */}
         <Card variant="flat" className="mb-8">
           <CardContent>
             <p className="text-muted-foreground leading-relaxed">
-              PitchRank LLC (&quot;PitchRank,&quot; &quot;we,&quot; &quot;us,&quot; &quot;our&quot;) respects your privacy. This policy explains how we collect, use, and protect your information when you use PitchRank.io.
+              PitchRank LLC (&quot;PitchRank,&quot; &quot;we,&quot; &quot;us,&quot; &quot;our&quot;) respects your
+              privacy. This policy explains how we collect, use, and protect your information when you use PitchRank.io.
             </p>
           </CardContent>
         </Card>
 
         {/* Table of Contents */}
         <nav aria-label="Table of contents" className="mb-10">
-          <h2 className="font-display text-lg font-semibold uppercase tracking-wide mb-3">
-            Contents
-          </h2>
+          <h2 className="font-display text-lg font-semibold uppercase tracking-wide mb-3">Contents</h2>
           <ol className="grid grid-cols-1 sm:grid-cols-2 gap-1">
             {sections.map((section, i) => (
               <li key={section.id}>
@@ -107,9 +99,7 @@ export default function PrivacyPolicyPage() {
               Payments are processed by Stripe. We do not store full credit card numbers.
             </p>
 
-            <h3 className="font-display text-base font-semibold uppercase tracking-wide mt-5 mb-2">
-              Usage Data
-            </h3>
+            <h3 className="font-display text-base font-semibold uppercase tracking-wide mt-5 mb-2">Usage Data</h3>
             <ul className="list-disc list-inside space-y-1 text-muted-foreground leading-relaxed ml-2">
               <li>IP address</li>
               <li>Browser type</li>
@@ -124,9 +114,7 @@ export default function PrivacyPolicyPage() {
             <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-3 scroll-mt-24">
               2. Public Team Data
             </h2>
-            <p className="text-muted-foreground leading-relaxed mb-3">
-              PitchRank displays:
-            </p>
+            <p className="text-muted-foreground leading-relaxed mb-3">PitchRank displays:</p>
             <ul className="list-disc list-inside space-y-1 text-muted-foreground leading-relaxed ml-2">
               <li>Team names</li>
               <li>Club names</li>
@@ -143,9 +131,7 @@ export default function PrivacyPolicyPage() {
             <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-3 scroll-mt-24">
               3. How We Use Information
             </h2>
-            <p className="text-muted-foreground leading-relaxed mb-3">
-              We use information to:
-            </p>
+            <p className="text-muted-foreground leading-relaxed mb-3">We use information to:</p>
             <ul className="list-disc list-inside space-y-1 text-muted-foreground leading-relaxed ml-2">
               <li>Provide and maintain the Service</li>
               <li>Process subscriptions</li>
@@ -160,9 +146,7 @@ export default function PrivacyPolicyPage() {
             <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-3 scroll-mt-24">
               4. Data Sharing
             </h2>
-            <p className="text-muted-foreground leading-relaxed mb-3">
-              We may share data with:
-            </p>
+            <p className="text-muted-foreground leading-relaxed mb-3">We may share data with:</p>
             <ul className="list-disc list-inside space-y-1 text-muted-foreground leading-relaxed ml-2">
               <li>Payment processors (Stripe)</li>
               <li>Hosting providers</li>
@@ -201,12 +185,8 @@ export default function PrivacyPolicyPage() {
 
           {/* 7. Your Rights */}
           <section id="your-rights">
-            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-3 scroll-mt-24">
-              7. Your Rights
-            </h2>
-            <p className="text-muted-foreground leading-relaxed mb-3">
-              You may request:
-            </p>
+            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-3 scroll-mt-24">7. Your Rights</h2>
+            <p className="text-muted-foreground leading-relaxed mb-3">You may request:</p>
             <ul className="list-disc list-inside space-y-1 text-muted-foreground leading-relaxed ml-2">
               <li>Access to your account data</li>
               <li>Corrections</li>
@@ -226,7 +206,8 @@ export default function PrivacyPolicyPage() {
               8. Children&apos;s Privacy
             </h2>
             <p className="text-muted-foreground leading-relaxed">
-              PitchRank is not directed toward children under 13. We do not knowingly collect personal information from children under 13.
+              PitchRank is not directed toward children under 13. We do not knowingly collect personal information from
+              children under 13.
             </p>
           </section>
 
@@ -236,19 +217,21 @@ export default function PrivacyPolicyPage() {
               9. Changes to This Policy
             </h2>
             <p className="text-muted-foreground leading-relaxed">
-              We may update this Privacy Policy periodically. Continued use of the Service indicates acceptance of updates.
+              We may update this Privacy Policy periodically. Continued use of the Service indicates acceptance of
+              updates.
             </p>
           </section>
 
           {/* 10. Contact */}
           <section id="contact">
-            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-3 scroll-mt-24">
-              10. Contact
-            </h2>
+            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-3 scroll-mt-24">10. Contact</h2>
             <address className="not-italic text-muted-foreground leading-relaxed">
-              <strong className="text-foreground">PitchRank LLC</strong><br />
-              14426 N 50th St<br />
-              Scottsdale, AZ 85254<br />
+              <strong className="text-foreground">PitchRank LLC</strong>
+              <br />
+              14426 N 50th St
+              <br />
+              Scottsdale, AZ 85254
+              <br />
               Email:{' '}
               <a href="mailto:pitchrankio@gmail.com" className="text-primary underline-offset-4 hover:underline">
                 pitchrankio@gmail.com

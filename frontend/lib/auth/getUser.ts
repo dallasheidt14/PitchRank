@@ -1,5 +1,5 @@
-import { createServerSupabase } from "@/lib/supabase/server";
-import type { User } from "@supabase/supabase-js";
+import { createServerSupabase } from '@/lib/supabase/server';
+import type { User } from '@supabase/supabase-js';
 
 /**
  * User profile from user_profiles table
@@ -7,7 +7,7 @@ import type { User } from "@supabase/supabase-js";
 export interface UserProfile {
   id: string;
   email: string | null;
-  plan: "free" | "premium" | "admin";
+  plan: 'free' | 'premium' | 'admin';
   created_at: string;
   updated_at: string;
 }
@@ -50,14 +50,14 @@ export async function getUser(): Promise<AuthUser | null> {
 
   // Fetch the user's profile from user_profiles table
   const { data: profile, error: profileError } = await supabase
-    .from("user_profiles")
-    .select("*")
-    .eq("id", user.id)
+    .from('user_profiles')
+    .select('*')
+    .eq('id', user.id)
     .single();
 
   if (profileError) {
     // Log the error but don't fail - profile might not exist yet
-    console.warn("Error fetching user profile:", profileError.message);
+    console.warn('Error fetching user profile:', profileError.message);
   }
 
   return {
@@ -78,7 +78,7 @@ export async function getSession() {
   } = await supabase.auth.getSession();
 
   if (error) {
-    console.warn("Error getting session:", error.message);
+    console.warn('Error getting session:', error.message);
     return null;
   }
 

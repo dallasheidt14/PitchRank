@@ -9,7 +9,7 @@ import { toast } from '@/components/ui/Toaster';
  * Tracks request IDs from localStorage (submitted from this browser session)
  */
 export function useScrapeRequestNotifications() {
-  const subscriptionRef = useRef<any>(null);
+  const subscriptionRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const processedRequestsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -52,7 +52,7 @@ export function useScrapeRequestNotifications() {
           (payload) => {
             try {
               const requestId = payload.new.id as string;
-              const requestData = payload.new as any;
+              const requestData = payload.new as Record<string, unknown>;
 
               // Only notify if:
               // 1. We haven't already processed this request
@@ -127,4 +127,3 @@ export function trackScrapeRequest(requestId: string) {
     console.error('Failed to track scrape request:', error);
   }
 }
-

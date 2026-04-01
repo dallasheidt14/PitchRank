@@ -1,16 +1,17 @@
+import argparse
+import csv
+import hashlib
 import os
 import re
-import csv
-import uuid
-import time
-import argparse
-import hashlib
-import requests
 import sys
-from pathlib import Path
-from datetime import datetime, timezone
-from typing import List, Dict, Optional, Tuple
+import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+import requests
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
@@ -50,7 +51,7 @@ REQUIRED_COLUMNS = [
     "result",
     "venue",
     "source_url",
-    "scraped_at"
+    "scraped_at",
 ]
 
 # Removed - using get-schedules-by-flight endpoint directly
@@ -59,6 +60,7 @@ REQUIRED_COLUMNS = [
 # -----------------------------
 # CONFIG LOADER
 # -----------------------------
+
 
 def resolve_config():
     """Load configuration with precedence: CLI > ENV > Defaults"""
@@ -83,7 +85,7 @@ def resolve_config():
         "end_event": end_event,
         "output_dir": output_dir,
         "dry_run": args.dry_run,
-        "max_workers": max_workers
+        "max_workers": max_workers,
     }
 
 
@@ -91,13 +93,14 @@ def resolve_config():
 # HELPER FUNCTIONS
 # -----------------------------
 
+
 def extract_year(division_name: str) -> Optional[int]:
     """Extract birth year from division name (e.g., 'B2012' -> 2012).
 
     Only returns years in the valid range for tracked age groups:
     - U10-U19 corresponds to birth years 2007-2016 (for 2026 season)
     """
-    match = re.search(r'(\d{4})', division_name)
+    match = re.search(r"(\d{4})", division_name)
     if match:
         year = int(match.group(1))
         # Only accept birth years 2007-2016 (U19-U10 for 2026 season)
@@ -119,19 +122,19 @@ def extract_gender(division_name: str, event_name: Optional[str] = None) -> Opti
     """
     # Try division name prefix first (e.g., "B2014", "G2013")
     division_upper = division_name.upper()
-    if division_upper.startswith('B'):
-        return 'Boys'
-    elif division_upper.startswith('G'):
-        return 'Girls'
+    if division_upper.startswith("B"):
+        return "Boys"
+    elif division_upper.startswith("G"):
+        return "Girls"
 
     # Fallback: search event name for gender keywords
     # e.g., "Pre-ECNL Boys Northern Cal 2025-2026"
     if event_name:
         event_upper = event_name.upper()
-        if re.search(r'\bBOYS?\b|\bMALE\b|\bMEN\b', event_upper):
-            return 'Boys'
-        elif re.search(r'\bGIRLS?\b|\bFEMALE\b|\bWOMEN\b', event_upper):
-            return 'Girls'
+        if re.search(r"\bBOYS?\b|\bMALE\b|\bMEN\b", event_upper):
+            return "Boys"
+        elif re.search(r"\bGIRLS?\b|\bFEMALE\b|\bWOMEN\b", event_upper):
+            return "Girls"
 
     return None
 
@@ -184,27 +187,27 @@ def is_future_game(game_date_str: str) -> bool:
 def parse_team_name(full_name: str) -> tuple[str, str]:
     """
     Parse team name in format "Club Name - Team Name" into club_name and team_name.
-    
+
     Examples:
-        "Next Level Soccer - Next Level Soccer 12 Black" 
+        "Next Level Soccer - Next Level Soccer 12 Black"
         -> ("Next Level Soccer", "Next Level Soccer 12 Black")
-        
+
         "Arizona Arsenal ECNL G12" (no dash)
         -> ("", "Arizona Arsenal ECNL G12")
-    
+
     Returns:
         Tuple of (club_name, team_name)
     """
     if not full_name or not full_name.strip():
         return ("", "")
-    
+
     # Look for " - " pattern (dash with spaces on both sides)
     if " - " in full_name:
         parts = full_name.split(" - ", 1)
         club_name = parts[0].strip()
         team_name = parts[1].strip() if len(parts) > 1 else ""
         return (club_name, team_name)
-    
+
     # No dash found - entire string is team name, no club name
     return ("", full_name.strip())
 
@@ -212,6 +215,7 @@ def parse_team_name(full_name: str) -> tuple[str, str]:
 # -----------------------------
 # API FUNCTIONS
 # -----------------------------
+
 
 def get_event_nav(event_id: int) -> Optional[Dict]:
     """Get event navigation settings to discover flights"""
@@ -221,7 +225,10 @@ def get_event_nav(event_id: int) -> Optional[Dict]:
         "Referer": "https://public.totalglobalsports.com/",
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "en-US,en;q=0.9",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+        ),
     }
     try:
         r = requests.get(url, headers=headers, timeout=20)
@@ -242,7 +249,10 @@ def get_event_details(event_id: int) -> Optional[Dict]:
         "Referer": "https://public.totalglobalsports.com/",
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "en-US,en;q=0.9",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+        ),
     }
     try:
         r = requests.get(url, headers=headers, timeout=20)
@@ -264,14 +274,17 @@ def get_flight_division(flight_id: int) -> Optional[Dict]:
         "Referer": "https://public.totalglobalsports.com/",
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "en-US,en;q=0.9",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+        ),
     }
     try:
         r = requests.get(url, headers=headers, timeout=20)
         if r.status_code == 200:
             data = r.json()
             return data.get("data", {}) if isinstance(data, dict) else data
-    except Exception as e:
+    except Exception:
         pass
     return None
 
@@ -284,7 +297,10 @@ def get_games_for_flight(event_id: int, flight_id: int) -> List[Dict]:
         "Referer": "https://public.totalglobalsports.com/",
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "en-US,en;q=0.9",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+        ),
     }
     try:
         r = requests.get(url, headers=headers, timeout=20)
@@ -296,14 +312,14 @@ def get_games_for_flight(event_id: int, flight_id: int) -> List[Dict]:
                     data = data["data"]
                 elif "result" in data and "data" in data:
                     data = data["data"]
-            
+
             if isinstance(data, list):
                 return data
             elif isinstance(data, dict) and "schedules" in data:
                 return data["schedules"]
             elif isinstance(data, dict) and "games" in data:
                 return data["games"]
-    except Exception as e:
+    except Exception:
         pass
     return []
 
@@ -315,23 +331,18 @@ def get_games_for_flight(event_id: int, flight_id: int) -> List[Dict]:
 # NORMALIZATION
 # -----------------------------
 
+
 def normalize_api_game(
-    game: Dict,
-    event_id: int,
-    event_name: str,
-    division: Dict,
-    home_away: str,
-    scrape_run_id: str,
-    scrape_ts: str
+    game: Dict, event_id: int, event_name: str, division: Dict, home_away: str, scrape_run_id: str, scrape_ts: str
 ) -> Dict:
     """Map API game data to canonical CSV schema"""
     division_id = division.get("divisionID")
     division_name = division.get("divisionName", "")
-    
+
     # Extract age_year and gender from division name (fall back to event name)
     age_year = extract_year(division_name)
     gender = extract_gender(division_name, event_name=event_name)
-    
+
     # Calculate age_group from age_year
     age_group = ""
     if age_year:
@@ -342,33 +353,33 @@ def normalize_api_game(
                 age_group = age_group_calculated.lower()  # Normalize to lowercase (u12 instead of U12)
         except (ValueError, TypeError):
             pass  # Keep age_group empty if conversion fails
-    
+
     # Get scores - API uses hometeamscore and awayteamscore
     # IMPORTANT: Use explicit None check, not 'or', because 0 is a valid score!
     home_score_raw = game.get("hometeamscore")
     if home_score_raw is None:
         home_score_raw = game.get("homeScore")
-    
+
     away_score_raw = game.get("awayteamscore")
     if away_score_raw is None:
         away_score_raw = game.get("awayScore")
-    
+
     # Convert to int, handling None and empty strings (but 0 is valid!)
     home_score = None
     away_score = None
-    
+
     if home_score_raw is not None and home_score_raw != "":
         try:
             home_score = int(home_score_raw)
         except (ValueError, TypeError):
             home_score = None
-    
+
     if away_score_raw is not None and away_score_raw != "":
         try:
             away_score = int(away_score_raw)
         except (ValueError, TypeError):
             away_score = None
-    
+
     # Helper function to safely get and strip string values
     def safe_get_str(key: str, default: str = "") -> str:
         """Safely get a value from game dict and convert to string, handling None"""
@@ -376,7 +387,7 @@ def normalize_api_game(
         if value is None:
             return default
         return str(value).strip() if value else default
-    
+
     # Determine team/opponent based on perspective
     if home_away == "H":
         team_full_name = safe_get_str("homeTeam", "")
@@ -400,20 +411,20 @@ def normalize_api_game(
         opponent_club_name = safe_get_str("homeTeamClub", "")
         goals_for = away_score
         goals_against = home_score
-    
+
     # Use full team name as team_name (no parsing needed since we have club from API)
     team_name = team_full_name.strip() if team_full_name else ""
     opponent_name = opponent_full_name.strip() if opponent_full_name else ""
-    
+
     # Compute result from perspective
     result = compute_result(goals_for, goals_against)
-    
+
     # Use official provider team IDs (allows matching to existing teams in database)
     # This is critical - using official IDs allows the system to match teams that
     # already exist from other providers (GotSport, etc.) instead of creating duplicates
     team_id = team_provider_id if team_provider_id else ""
     opponent_id = opponent_provider_id if opponent_provider_id else ""
-    
+
     # Extract date from ISO datetime format (e.g., "2025-12-06T07:45:00" -> "2025-12-06")
     game_date_raw = game.get("gameDate", "")
     game_date = ""
@@ -423,7 +434,7 @@ def normalize_api_game(
             game_date = game_date_raw.split("T")[0]
         else:
             game_date = game_date_raw[:10] if len(game_date_raw) >= 10 else game_date_raw
-    
+
     # Extract time from ISO datetime or use gameTime field
     game_time = game.get("gameTime", "")
     if not game_time and game_date_raw and "T" in game_date_raw:
@@ -432,14 +443,14 @@ def normalize_api_game(
         if time_part:
             # Convert "07:45:00" to "07:45" or keep as is
             game_time = time_part[:5] if len(time_part) >= 5 else time_part
-    
+
     # Build source URL
     source_url = f"https://public.totalglobalsports.com/public/event/{event_id}"
-    
+
     # State and state_code will be matched later via club name script
     state = ""
     state_code = ""
-    
+
     return {
         "provider": "tgs",  # Add provider field for import pipeline
         "scrape_run_id": scrape_run_id,
@@ -467,7 +478,7 @@ def normalize_api_game(
         "result": result,
         "venue": game.get("venue", ""),
         "source_url": source_url,
-        "scraped_at": scrape_ts
+        "scraped_at": scrape_ts,
     }
 
 
@@ -475,11 +486,9 @@ def normalize_api_game(
 # SCRAPER CORE
 # -----------------------------
 
+
 def process_single_flight(
-    flight_info: Dict,
-    event_id: int,
-    event_name: str,
-    parent_division_name: str
+    flight_info: Dict, event_id: int, event_name: str, parent_division_name: str
 ) -> Tuple[List[Dict], str]:
     """
     Process a single flight: get division info, get games, normalize records.
@@ -523,10 +532,7 @@ def process_single_flight(
         return [], f"⚠️  {division_name_from_api} - {flight_name}: no games"
 
     # Create division info for normalization
-    division_info = {
-        "divisionID": flight_id,
-        "divisionName": division_name_from_api
-    }
+    division_info = {"divisionID": flight_id, "divisionName": division_name_from_api}
 
     # Step 3: Generate records for each game (both home and away perspectives)
     games_added = 0
@@ -534,10 +540,7 @@ def process_single_flight(
 
     for game in games:
         # Home perspective
-        home_record = normalize_api_game(
-            game, event_id, event_name, division_info, "H",
-            SCRAPE_RUN_ID, SCRAPE_TS
-        )
+        home_record = normalize_api_game(game, event_id, event_name, division_info, "H", SCRAPE_RUN_ID, SCRAPE_TS)
 
         # Skip future games (haven't been played yet)
         if is_future_game(home_record.get("game_date", "")):
@@ -547,16 +550,15 @@ def process_single_flight(
         records.append(home_record)
 
         # Away perspective (same game, so we know it's not future)
-        away_record = normalize_api_game(
-            game, event_id, event_name, division_info, "A",
-            SCRAPE_RUN_ID, SCRAPE_TS
-        )
+        away_record = normalize_api_game(game, event_id, event_name, division_info, "A", SCRAPE_RUN_ID, SCRAPE_TS)
         records.append(away_record)
         games_added += 1
 
     # Build status message
     if games_skipped_future > 0:
-        status = f"✅ {division_name_from_api} - {flight_name}: {games_added} games (+{games_skipped_future} future skipped)"
+        status = (
+            f"✅ {division_name_from_api} - {flight_name}: {games_added} games (+{games_skipped_future} future skipped)"
+        )
     else:
         status = f"✅ {division_name_from_api} - {flight_name}: {games_added} games"
 
@@ -618,15 +620,12 @@ def scrape_event(event_id: int, config: Dict, records: List[Dict]) -> None:
 
         for flight in flight_list:
             if flight.get("hasActiveSchedule", False):
-                active_flights.append({
-                    "flight": flight,
-                    "division_name": division_name
-                })
+                active_flights.append({"flight": flight, "division_name": division_name})
 
     print(f"✅ Found {len(all_divisions)} divisions, {len(active_flights)} active flights")
 
     if not active_flights:
-        print(f"  ⚠️ No active flights to process")
+        print("  ⚠️ No active flights to process")
         return
 
     # Process flights in PARALLEL using ThreadPoolExecutor
@@ -638,11 +637,7 @@ def scrape_event(event_id: int, config: Dict, records: List[Dict]) -> None:
         # Submit all flight processing tasks
         future_to_flight = {
             executor.submit(
-                process_single_flight,
-                flight_info["flight"],
-                event_id,
-                event_name,
-                flight_info["division_name"]
+                process_single_flight, flight_info["flight"], event_id, event_name, flight_info["division_name"]
             ): flight_info
             for flight_info in active_flights
         }
@@ -667,18 +662,22 @@ def scrape_event(event_id: int, config: Dict, records: List[Dict]) -> None:
 
     event_duration = time.time() - event_start
     games_count = len(flight_records) // 2  # Divide by 2 since each game has home+away records
-    print(f"⏱️  Event {event_id} completed in {event_duration:.1f}s ({games_count} games from {len(active_flights)} flights)")
+    print(
+        f"⏱️  Event {event_id} completed in {event_duration:.1f}s "
+        f"({games_count} games from {len(active_flights)} flights)"
+    )
 
 
 # -----------------------------
 # VALIDATION + OUTPUT
 # -----------------------------
 
+
 def validate_records(records: List[Dict]) -> None:
     """Validate all records have required columns"""
     if not records:
         return
-    
+
     for i, r in enumerate(records):
         missing = [col for col in REQUIRED_COLUMNS if col not in r]
         if missing:
@@ -688,23 +687,24 @@ def validate_records(records: List[Dict]) -> None:
 def write_output(records: List[Dict], output_dir: str, start_event: int, end_event: int) -> None:
     """Write records to CSV file"""
     os.makedirs(output_dir, exist_ok=True)
-    
+
     # Format timestamp for filename
     timestamp = SCRAPE_TS.replace(":", "-").replace(".", "-")
     fname = f"tgs_events_{start_event}_{end_event}_{timestamp}.csv"
     path = os.path.join(output_dir, fname)
-    
+
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=REQUIRED_COLUMNS)
         writer.writeheader()
         writer.writerows(records)
-    
+
     print(f"\n✅ OUTPUT: {path}")
 
 
 # -----------------------------
 # ENTRYPOINT
 # -----------------------------
+
 
 def main():
     """Main entry point"""
@@ -722,7 +722,7 @@ def main():
     max_workers = config.get("max_workers", 8)
     total_events = end_event - start_event + 1
 
-    print(f"🚀 TGS API Scraper (PARALLEL MODE)")
+    print("🚀 TGS API Scraper (PARALLEL MODE)")
     print(f"📅 Event range: {start_event} - {end_event} ({total_events} events)")
     print(f"🔄 Max parallel workers: {max_workers}")
     print(f"🆔 Scrape run ID: {SCRAPE_RUN_ID}")
@@ -740,8 +740,10 @@ def main():
             events_per_min = (i / elapsed) * 60
             remaining_events = total_events - i
             eta_min = remaining_events / events_per_min if events_per_min > 0 else 0
-            print(f"\n📊 Progress: {i}/{total_events} events ({i/total_events*100:.0f}%) | "
-                  f"{len(records)//2} games | {events_per_min:.1f} events/min | ETA: {eta_min:.1f} min")
+            print(
+                f"\n📊 Progress: {i}/{total_events} events ({i / total_events * 100:.0f}%) | "
+                f"{len(records) // 2} games | {events_per_min:.1f} events/min | ETA: {eta_min:.1f} min"
+            )
 
         time.sleep(0.3)  # Reduced delay between events (was 0.5)
 
@@ -762,26 +764,29 @@ def main():
 
     # Exit early with summary if no records
     if not records:
-        print(f"\n{'='*60}")
-        print(f"⚠️  SCRAPE COMPLETE — NO GAMES FOUND")
-        print(f"{'='*60}")
+        print(f"\n{'=' * 60}")
+        print("⚠️  SCRAPE COMPLETE — NO GAMES FOUND")
+        print(f"{'=' * 60}")
         print(f"  📅 Events scraped: {total_events}")
         print(f"  ⏱️  Total time: {scrape_duration:.1f}s")
-        print(f"  💡 Possible reasons: no active flights, all divisions outside U10-U19,")
-        print(f"     all games are future-dated, or event IDs don't exist")
-        print(f"{'='*60}")
+        print("  💡 Possible reasons: no active flights, all divisions outside U10-U19,")
+        print("     all games are future-dated, or event IDs don't exist")
+        print(f"{'=' * 60}")
         return
 
     # Final summary
     games_count = len(records) // 2  # Each game has home + away records
-    print(f"\n{'='*60}")
-    print(f"✅ SCRAPE COMPLETE")
-    print(f"{'='*60}")
+    print(f"\n{'=' * 60}")
+    print("✅ SCRAPE COMPLETE")
+    print(f"{'=' * 60}")
     print(f"  📊 Total records: {len(records)} ({games_count} games × 2 perspectives)")
     print(f"  📅 Events scraped: {total_events}")
-    print(f"  ⏱️  Total time: {scrape_duration:.1f}s ({scrape_duration/60:.1f} min)")
-    print(f"  ⚡ Rate: {total_events/scrape_duration*60:.1f} events/min, {games_count/scrape_duration:.1f} games/sec")
-    print(f"{'='*60}")
+    print(f"  ⏱️  Total time: {scrape_duration:.1f}s ({scrape_duration / 60:.1f} min)")
+    print(
+        f"  ⚡ Rate: {total_events / scrape_duration * 60:.1f} events/min, "
+        f"{games_count / scrape_duration:.1f} games/sec"
+    )
+    print(f"{'=' * 60}")
 
 
 if __name__ == "__main__":

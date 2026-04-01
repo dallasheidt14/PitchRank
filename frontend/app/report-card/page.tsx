@@ -13,7 +13,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'Free Team Report Card | PitchRank',
     description:
-      "See how your team stacks up. Rankings, strength profile, and recent results — powered by 25K+ teams and a 13-layer algorithm.",
+      'See how your team stacks up. Rankings, strength profile, and recent results — powered by 25K+ teams and a 13-layer algorithm.',
     url: `${baseUrl}/report-card`,
     siteName: 'PitchRank',
     type: 'website',
@@ -59,7 +59,8 @@ export default function ReportCardPage() {
           </div>
         </div>
         <p className="text-sm text-muted-foreground max-w-md mx-auto">
-          Your report card includes national rank, state rank, PowerScore, strength profile, season record, and recent results. All from real game data.
+          Your report card includes national rank, state rank, PowerScore, strength profile, season record, and recent
+          results. All from real game data.
         </p>
       </section>
     </main>

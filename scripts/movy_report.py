@@ -5,19 +5,19 @@ Movy Report - Generate weekly movers and content suggestions
 Run: python3 scripts/movy_report.py [--cohort <age_group> <gender>] [--state <state>]
 """
 
-import os
-import sys
 import argparse
-from datetime import datetime
+import os
+
 from dotenv import load_dotenv
 
-load_dotenv('/Users/pitchrankio-dev/Projects/PitchRank/.env')
+load_dotenv("/Users/pitchrankio-dev/Projects/PitchRank/.env")
 
-DATABASE_URL = os.getenv('DATABASE_URL')
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 
 def get_connection():
     import psycopg2
+
     return psycopg2.connect(DATABASE_URL)
 
 
@@ -30,12 +30,12 @@ def get_instagram_handles(cur, team_ids):
     """
     if not team_ids:
         return {}
-    
+
     # Convert to list of strings for query
     team_id_list = [str(tid) for tid in team_ids if tid]
     if not team_id_list:
         return {}
-    
+
     query = """
     SELECT DISTINCT ON (team_id)
         team_id::text,
@@ -45,18 +45,15 @@ def get_instagram_handles(cur, team_ids):
     WHERE team_id::text = ANY(%s)
       AND review_status = 'auto_approved'
       AND handle IS NOT NULL
-    ORDER BY team_id, 
+    ORDER BY team_id,
              CASE profile_level WHEN 'team' THEN 1 ELSE 2 END,
              confidence_score DESC
     """
-    
+
     cur.execute(query, (team_id_list,))
     results = cur.fetchall()
-    
-    return {
-        row[0]: {'handle': f"@{row[1]}", 'level': row[2]}
-        for row in results
-    }
+
+    return {row[0]: {"handle": f"@{row[1]}", "level": row[2]} for row in results}
 
 
 def get_team_ids_for_movers(cur, team_names_clubs):
@@ -66,28 +63,31 @@ def get_team_ids_for_movers(cur, team_names_clubs):
     """
     if not team_names_clubs:
         return {}
-    
+
     results = {}
     for team_name, club_name in team_names_clubs:
-        cur.execute("""
+        cur.execute(
+            """
             SELECT team_id_master::text
             FROM teams
             WHERE team_name = %s AND club_name = %s
             LIMIT 1
-        """, (team_name, club_name))
+        """,
+            (team_name, club_name),
+        )
         row = cur.fetchone()
         if row:
             results[(team_name, club_name)] = row[0]
-    
+
     return results
 
 
 def get_biggest_climbers(cur, days=7, limit=10, age_group=None, gender=None, state=None):
     """Get teams that climbed the most in national rankings."""
-    
+
     filters = []
     params = [days, limit]
-    
+
     if age_group:
         filters.append("cr.age_group = %s")
         params.insert(-1, age_group)
@@ -97,10 +97,10 @@ def get_biggest_climbers(cur, days=7, limit=10, age_group=None, gender=None, sta
     if state:
         filters.append("t.state_code = %s")
         params.insert(-1, state)
-    
+
     filter_sql = f"AND {' AND '.join(filters)}" if filters else ""
-    
-    query = f'''
+
+    query = f"""
     WITH current_rank AS (
         SELECT team_id, rank_in_cohort, age_group, gender, power_score_final
         FROM ranking_history
@@ -109,13 +109,13 @@ def get_biggest_climbers(cur, days=7, limit=10, age_group=None, gender=None, sta
     past_rank AS (
         SELECT DISTINCT ON (team_id, age_group, gender) team_id, rank_in_cohort, age_group, gender, snapshot_date
         FROM ranking_history
-        WHERE snapshot_date BETWEEN 
+        WHERE snapshot_date BETWEEN
             (SELECT MAX(snapshot_date) FROM ranking_history) - INTERVAL '14 days'
             AND (SELECT MAX(snapshot_date) FROM ranking_history) - INTERVAL '%s days'
         ORDER BY team_id, age_group, gender, snapshot_date DESC
     )
-    SELECT 
-        t.team_name, 
+    SELECT
+        t.team_name,
         t.club_name,
         cr.age_group,
         cr.gender,
@@ -134,18 +134,18 @@ def get_biggest_climbers(cur, days=7, limit=10, age_group=None, gender=None, sta
     {filter_sql}
     ORDER BY rank_change DESC
     LIMIT %s
-    '''
-    
+    """
+
     cur.execute(query, params)
     return cur.fetchall()
 
 
 def get_biggest_fallers(cur, days=7, limit=10, age_group=None, gender=None, state=None):
     """Get teams that dropped the most in national rankings."""
-    
+
     filters = []
     params = [days, limit]
-    
+
     if age_group:
         filters.append("cr.age_group = %s")
         params.insert(-1, age_group)
@@ -155,10 +155,10 @@ def get_biggest_fallers(cur, days=7, limit=10, age_group=None, gender=None, stat
     if state:
         filters.append("t.state_code = %s")
         params.insert(-1, state)
-    
+
     filter_sql = f"AND {' AND '.join(filters)}" if filters else ""
-    
-    query = f'''
+
+    query = f"""
     WITH current_rank AS (
         SELECT team_id, rank_in_cohort, age_group, gender, power_score_final
         FROM ranking_history
@@ -167,13 +167,13 @@ def get_biggest_fallers(cur, days=7, limit=10, age_group=None, gender=None, stat
     past_rank AS (
         SELECT DISTINCT ON (team_id, age_group, gender) team_id, rank_in_cohort, age_group, gender, snapshot_date
         FROM ranking_history
-        WHERE snapshot_date BETWEEN 
+        WHERE snapshot_date BETWEEN
             (SELECT MAX(snapshot_date) FROM ranking_history) - INTERVAL '14 days'
             AND (SELECT MAX(snapshot_date) FROM ranking_history) - INTERVAL '%s days'
         ORDER BY team_id, age_group, gender, snapshot_date DESC
     )
-    SELECT 
-        t.team_name, 
+    SELECT
+        t.team_name,
         t.club_name,
         cr.age_group,
         cr.gender,
@@ -192,8 +192,8 @@ def get_biggest_fallers(cur, days=7, limit=10, age_group=None, gender=None, stat
     {filter_sql}
     ORDER BY rank_drop DESC
     LIMIT %s
-    '''
-    
+    """
+
     cur.execute(query, params)
     return cur.fetchall()
 
@@ -201,9 +201,9 @@ def get_biggest_fallers(cur, days=7, limit=10, age_group=None, gender=None, stat
 def get_snapshot_dates(cur):
     """Get available snapshot dates."""
     cur.execute("""
-        SELECT DISTINCT snapshot_date 
-        FROM ranking_history 
-        ORDER BY snapshot_date DESC 
+        SELECT DISTINCT snapshot_date
+        FROM ranking_history
+        ORDER BY snapshot_date DESC
         LIMIT 10
     """)
     return [row[0] for row in cur.fetchall()]
@@ -219,78 +219,95 @@ def format_team(row):
 def generate_social_caption(climbers, period="week"):
     """Generate a social media caption for biggest movers."""
     lines = [f"📈 BIGGEST CLIMBERS THIS {period.upper()}!", ""]
-    
+
     for i, row in enumerate(climbers[:5], 1):
         team_name, club_name, age_group, gender, state, old_rank, new_rank, change, _, team_id = row
         gender_emoji = "👦" if gender == "male" else "👧"
         lines.append(f"{i}. {team_name} {gender_emoji}")
         lines.append(f"   #{old_rank} → #{new_rank} (+{change} spots)")
         lines.append("")
-    
+
     lines.append("#YouthSoccer #Rankings #PitchRank")
-    
+
     if climbers:
         age = climbers[0][2].upper()
         gender = "Boys" if climbers[0][3] == "male" else "Girls"
         lines.append(f"#{age} #{gender}Soccer")
-    
+
     return "\n".join(lines)
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Movy Report - Weekly Movers')
-    parser.add_argument('--days', type=int, default=7, help='Days to look back (default: 7)')
-    parser.add_argument('--age-group', type=str, help='Filter by age group (e.g., u14)')
-    parser.add_argument('--gender', type=str, help='Filter by gender (male/female)')
-    parser.add_argument('--state', type=str, help='Filter by state code (e.g., TX)')
-    parser.add_argument('--limit', type=int, default=10, help='Number of results (default: 10)')
-    parser.add_argument('--caption', action='store_true', help='Generate social media caption')
-    parser.add_argument('--json', action='store_true', help='Output as JSON')
+    parser = argparse.ArgumentParser(description="Movy Report - Weekly Movers")
+    parser.add_argument("--days", type=int, default=7, help="Days to look back (default: 7)")
+    parser.add_argument("--age-group", type=str, help="Filter by age group (e.g., u14)")
+    parser.add_argument("--gender", type=str, help="Filter by gender (male/female)")
+    parser.add_argument("--state", type=str, help="Filter by state code (e.g., TX)")
+    parser.add_argument("--limit", type=int, default=10, help="Number of results (default: 10)")
+    parser.add_argument("--caption", action="store_true", help="Generate social media caption")
+    parser.add_argument("--json", action="store_true", help="Output as JSON")
     args = parser.parse_args()
-    
+
     conn = get_connection()
     cur = conn.cursor()
-    
+
     # Get snapshot info
     dates = get_snapshot_dates(cur)
-    
+
     # Get movers
     climbers = get_biggest_climbers(
-        cur, 
-        days=args.days, 
-        limit=args.limit,
-        age_group=args.age_group,
-        gender=args.gender,
-        state=args.state
+        cur, days=args.days, limit=args.limit, age_group=args.age_group, gender=args.gender, state=args.state
     )
-    
+
     fallers = get_biggest_fallers(
-        cur, 
-        days=args.days, 
-        limit=args.limit,
-        age_group=args.age_group,
-        gender=args.gender,
-        state=args.state
+        cur, days=args.days, limit=args.limit, age_group=args.age_group, gender=args.gender, state=args.state
     )
-    
+
     conn.close()
-    
+
     if args.json:
         import json
-        print(json.dumps({
-            'snapshot_dates': [str(d) for d in dates],
-            'period_days': args.days,
-            'climbers': [{'team': r[0], 'club': r[1], 'age': r[2], 'gender': r[3], 
-                         'state': r[4], 'old_rank': r[5], 'new_rank': r[6], 
-                         'change': r[7], 'power_score': float(r[8]) if r[8] else None} 
-                        for r in climbers],
-            'fallers': [{'team': r[0], 'club': r[1], 'age': r[2], 'gender': r[3], 
-                        'state': r[4], 'old_rank': r[5], 'new_rank': r[6], 
-                        'drop': r[7], 'power_score': float(r[8]) if r[8] else None} 
-                       for r in fallers],
-        }, indent=2, default=str))
+
+        print(
+            json.dumps(
+                {
+                    "snapshot_dates": [str(d) for d in dates],
+                    "period_days": args.days,
+                    "climbers": [
+                        {
+                            "team": r[0],
+                            "club": r[1],
+                            "age": r[2],
+                            "gender": r[3],
+                            "state": r[4],
+                            "old_rank": r[5],
+                            "new_rank": r[6],
+                            "change": r[7],
+                            "power_score": float(r[8]) if r[8] else None,
+                        }
+                        for r in climbers
+                    ],
+                    "fallers": [
+                        {
+                            "team": r[0],
+                            "club": r[1],
+                            "age": r[2],
+                            "gender": r[3],
+                            "state": r[4],
+                            "old_rank": r[5],
+                            "new_rank": r[6],
+                            "drop": r[7],
+                            "power_score": float(r[8]) if r[8] else None,
+                        }
+                        for r in fallers
+                    ],
+                },
+                indent=2,
+                default=str,
+            )
+        )
         return
-    
+
     # Header
     period = f"{args.days}-day"
     filters = []
@@ -301,11 +318,11 @@ def main():
     if args.state:
         filters.append(args.state.upper())
     filter_str = f" ({', '.join(filters)})" if filters else ""
-    
+
     print(f"📈 **Movy {period.title()} Movers Report{filter_str}**")
     print(f"Latest snapshot: {dates[0] if dates else 'N/A'}")
     print()
-    
+
     # Climbers
     print(f"**🚀 Top {len(climbers)} Climbers:**")
     for i, row in enumerate(climbers, 1):
@@ -313,9 +330,9 @@ def main():
         old_rank, new_rank, change = row[5], row[6], row[7]
         print(f"  {i}. {team_info}")
         print(f"     #{old_rank} → #{new_rank} (+{change})")
-    
+
     print()
-    
+
     # Fallers
     print(f"**📉 Top {len(fallers)} Fallers:**")
     for i, row in enumerate(fallers, 1):
@@ -323,7 +340,7 @@ def main():
         old_rank, new_rank, drop = row[5], row[6], row[7]
         print(f"  {i}. {team_info}")
         print(f"     #{old_rank} → #{new_rank} (-{drop})")
-    
+
     # Social caption
     if args.caption and climbers:
         print()
@@ -333,5 +350,5 @@ def main():
         print(generate_social_caption(climbers, "week" if args.days <= 7 else "month"))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -25,9 +25,7 @@ function GoogleAnalyticsContent({ measurementId }: GoogleAnalyticsProps) {
     }
 
     // Construct full URL with search params
-    const url = searchParams?.toString()
-      ? `${pathname}?${searchParams.toString()}`
-      : pathname;
+    const url = searchParams?.toString() ? `${pathname}?${searchParams.toString()}` : pathname;
 
     // Send pageview event to GA4
     if (window.gtag) {
@@ -45,10 +43,7 @@ function GoogleAnalyticsContent({ measurementId }: GoogleAnalyticsProps) {
   return (
     <>
       {/* Global Site Tag (gtag.js) - Google Analytics */}
-      <Script
-        src={`https://www.googletagmanager.com/gtag/js?id=${measurementId}`}
-        strategy="afterInteractive"
-      />
+      <Script src={`https://www.googletagmanager.com/gtag/js?id=${measurementId}`} strategy="afterInteractive" />
       <Script id="google-analytics" strategy="afterInteractive">
         {`
           window.dataLayer = window.dataLayer || [];

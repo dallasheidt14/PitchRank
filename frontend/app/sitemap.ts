@@ -5,7 +5,7 @@ import { getAllBlogSlugs } from '@/lib/blog';
 /**
  * Dynamic sitemap generation for PitchRank
  * Generates URLs for all PUBLIC pages only
- * 
+ *
  * NOTE: Auth-gated pages (/teams, /compare, /watchlist) are excluded
  * because Googlebot cannot authenticate and will get redirected.
  * This causes "Page with redirect" issues in Search Console.
@@ -20,7 +20,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const genders = ['male', 'female'];
 
   // Regions: national + all US states
-  const regions = ['national', ...US_STATES.map(state => state.code)];
+  const regions = ['national', ...US_STATES.map((state) => state.code)];
 
   // Static PUBLIC pages only (no auth-gated pages)
   const staticPages: MetadataRoute.Sitemap = [
@@ -53,7 +53,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   // Blog post pages
   const blogSlugs = getAllBlogSlugs();
-  const blogPages: MetadataRoute.Sitemap = blogSlugs.map(slug => ({
+  const blogPages: MetadataRoute.Sitemap = blogSlugs.map((slug) => ({
     url: `${baseUrl}/blog/${slug}`,
     lastModified: new Date(),
     changeFrequency: 'monthly' as const,

@@ -13,7 +13,7 @@
  * - Power score is the normalized metric v53e uses for team strength
  */
 
-import type { InsightInputData, PersonaInsight } from "./types";
+import type { InsightInputData, PersonaInsight } from './types';
 
 /**
  * Base power score difference threshold for opponent categorization (in powerscore_adj space, [0-1])
@@ -33,11 +33,11 @@ const BASE_POWER_DIFF_THRESHOLD = 0.08;
  * Younger age groups have compressed power_score_final ranges
  */
 const AGE_TO_ANCHOR: Record<number, number> = {
-  10: 0.40,
+  10: 0.4,
   11: 0.475,
   12: 0.55,
   13: 0.625,
-  14: 0.70,
+  14: 0.7,
   15: 0.775,
   16: 0.85,
   17: 0.925,
@@ -56,7 +56,7 @@ const BIG_MARGIN_THRESHOLD = 3;
  * Threshold is scaled by age anchor to maintain consistent sensitivity across age groups
  */
 function analyzePerformanceByTier(
-  games: InsightInputData["games"],
+  games: InsightInputData['games'],
   teamId: string,
   teamPower: number | null,
   powerDiffThreshold: number
@@ -136,23 +136,14 @@ function analyzePerformanceByTier(
  * Determine persona based on performance patterns
  */
 function determinePersona(stats: ReturnType<typeof analyzePerformanceByTier>): {
-  label: PersonaInsight["label"];
+  label: PersonaInsight['label'];
   explanation: string;
 } {
-  const {
-    winsVsHigherRanked,
-    totalVsHigherRanked,
-    winsVsLowerRanked,
-    totalVsLowerRanked,
-    bigWins,
-    bigLosses,
-  } = stats;
+  const { winsVsHigherRanked, totalVsHigherRanked, winsVsLowerRanked, totalVsLowerRanked, bigWins, bigLosses } = stats;
 
   // Calculate win rates
-  const winRateVsTop =
-    totalVsHigherRanked > 0 ? winsVsHigherRanked / totalVsHigherRanked : 0;
-  const winRateVsBottom =
-    totalVsLowerRanked > 0 ? winsVsLowerRanked / totalVsLowerRanked : 0;
+  const winRateVsTop = totalVsHigherRanked > 0 ? winsVsHigherRanked / totalVsHigherRanked : 0;
+  const winRateVsBottom = totalVsLowerRanked > 0 ? winsVsLowerRanked / totalVsLowerRanked : 0;
 
   // Minimum games threshold for reliable patterns
   const hasEnoughTopGames = totalVsHigherRanked >= 2;
@@ -161,32 +152,23 @@ function determinePersona(stats: ReturnType<typeof analyzePerformanceByTier>): {
   // Giant Killer: Strong performance against stronger teams (40%+ win rate)
   if (hasEnoughTopGames && winRateVsTop >= 0.4 && winsVsHigherRanked >= 2) {
     return {
-      label: "Giant Killer",
+      label: 'Giant Killer',
       explanation: `Won ${winsVsHigherRanked} of ${totalVsHigherRanked} games against stronger opponents (by power score). This team rises to the occasion against elite competition and shouldn't be underestimated in big matchups.`,
     };
   }
 
   // Flat Track Bully: Dominates weaker teams but struggles against stronger
-  if (
-    hasEnoughTopGames &&
-    hasEnoughBottomGames &&
-    winRateVsTop < 0.25 &&
-    winRateVsBottom > 0.8
-  ) {
+  if (hasEnoughTopGames && hasEnoughBottomGames && winRateVsTop < 0.25 && winRateVsBottom > 0.8) {
     return {
-      label: "Flat Track Bully",
+      label: 'Flat Track Bully',
       explanation: `Dominant against weaker competition (${Math.round(winRateVsBottom * 100)}% win rate vs lower-powered teams) but struggles against elite opponents (${Math.round(winRateVsTop * 100)}% vs stronger teams). Their record may be inflated by favorable scheduling.`,
     };
   }
 
   // Gatekeeper: Beats weaker teams reliably, competitive but rarely beats stronger
-  if (
-    hasEnoughBottomGames &&
-    winRateVsBottom > 0.65 &&
-    (winRateVsTop < 0.3 || !hasEnoughTopGames)
-  ) {
+  if (hasEnoughBottomGames && winRateVsBottom > 0.65 && (winRateVsTop < 0.3 || !hasEnoughTopGames)) {
     return {
-      label: "Gatekeeper",
+      label: 'Gatekeeper',
       explanation: `A reliable gatekeeper who consistently handles weaker opponents (${Math.round(winRateVsBottom * 100)}% win rate) but hasn't broken through against top-tier teams. They define the line between contenders and pretenders.`,
     };
   }
@@ -198,7 +180,7 @@ function determinePersona(stats: ReturnType<typeof analyzePerformanceByTier>): {
 
   if (hasVolatileResults) {
     return {
-      label: "Wildcard",
+      label: 'Wildcard',
       explanation: `Unpredictable results with ${bigWins} blowout wins and ${bigLosses} heavy defeats. On any given day, this team can beat anyone or lose to anyone. Their floor-to-ceiling range makes them dangerous but unreliable.`,
     };
   }
@@ -206,13 +188,13 @@ function determinePersona(stats: ReturnType<typeof analyzePerformanceByTier>): {
   // Default Wildcard for insufficient data or genuinely mixed patterns
   if (totalGames < 4) {
     return {
-      label: "Wildcard",
+      label: 'Wildcard',
       explanation: `With limited games against varied competition, it's difficult to establish a clear pattern. This team's true identity is still emerging.`,
     };
   }
 
   return {
-    label: "Wildcard",
+    label: 'Wildcard',
     explanation: `This team defies easy categorization with mixed results across different opponent tiers. They're neither consistently dominant nor consistently vulnerable, making them a true wildcard in any matchup.`,
   };
 }
@@ -221,10 +203,7 @@ function determinePersona(stats: ReturnType<typeof analyzePerformanceByTier>): {
  * Finds the most impressive win: highest-ranked opponent beaten by the largest margin.
  * Returns a string like "Beat #3 opponent 4-1" or null if no notable wins.
  */
-function findSignatureResult(
-  games: InsightInputData["games"],
-  teamId: string
-): string | null {
+function findSignatureResult(games: InsightInputData['games'], teamId: string): string | null {
   let bestScore = -Infinity;
   let bestResult: string | null = null;
 
@@ -266,27 +245,18 @@ export function generatePersonaInsight(data: InsightInputData): PersonaInsight {
   const scaledThreshold = BASE_POWER_DIFF_THRESHOLD * anchor;
 
   // Use power score for tier analysis (cohort-size independent)
-  const stats = analyzePerformanceByTier(
-    games,
-    team.team_id_master,
-    ranking.power_score_final,
-    scaledThreshold
-  );
+  const stats = analyzePerformanceByTier(games, team.team_id_master, ranking.power_score_final, scaledThreshold);
 
   const { label, explanation } = determinePersona(stats);
   const signatureResult = findSignatureResult(games, team.team_id_master);
 
   const winRateVsTop =
-    stats.totalVsHigherRanked > 0
-      ? Math.round((stats.winsVsHigherRanked / stats.totalVsHigherRanked) * 100)
-      : 0;
+    stats.totalVsHigherRanked > 0 ? Math.round((stats.winsVsHigherRanked / stats.totalVsHigherRanked) * 100) : 0;
   const winRateVsBottom =
-    stats.totalVsLowerRanked > 0
-      ? Math.round((stats.winsVsLowerRanked / stats.totalVsLowerRanked) * 100)
-      : 0;
+    stats.totalVsLowerRanked > 0 ? Math.round((stats.winsVsLowerRanked / stats.totalVsLowerRanked) * 100) : 0;
 
   return {
-    type: "persona",
+    type: 'persona',
     label,
     explanation,
     details: {

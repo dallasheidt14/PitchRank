@@ -7,75 +7,72 @@ export const contentType = 'image/png';
 
 export default async function Image() {
   return new ImageResponse(
-    (
+    <div
+      style={{
+        background: 'linear-gradient(135deg, #052E27 0%, #0A4A3F 50%, #0D5C4E 100%)',
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontFamily: 'system-ui, sans-serif',
+      }}
+    >
       <div
         style={{
-          background: 'linear-gradient(135deg, #052E27 0%, #0A4A3F 50%, #0D5C4E 100%)',
-          width: '100%',
-          height: '100%',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          justifyContent: 'center',
-          fontFamily: 'system-ui, sans-serif',
+          gap: '24px',
         }}
       >
         <div
           style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '24px',
+            fontSize: '72px',
+            fontWeight: 800,
+            color: '#C8FF00',
+            letterSpacing: '-2px',
+            textTransform: 'uppercase',
           }}
         >
-          <div
-            style={{
-              fontSize: '72px',
-              fontWeight: 800,
-              color: '#C8FF00',
-              letterSpacing: '-2px',
-              textTransform: 'uppercase',
-            }}
-          >
-            PitchRank
-          </div>
-          <div
-            style={{
-              fontSize: '32px',
-              fontWeight: 400,
-              color: '#E0E0E0',
-              letterSpacing: '4px',
-              textTransform: 'uppercase',
-            }}
-          >
-            Youth Soccer Rankings
-          </div>
-          <div
-            style={{
-              marginTop: '16px',
-              fontSize: '20px',
-              color: '#A0A0A0',
-              maxWidth: '700px',
-              textAlign: 'center',
-              lineHeight: 1.5,
-            }}
-          >
-            Data-powered team rankings and performance analytics.
-            U10–U19 Boys & Girls across all 50 states.
-          </div>
+          PitchRank
         </div>
         <div
           style={{
-            position: 'absolute',
-            bottom: '32px',
-            fontSize: '16px',
-            color: '#666',
+            fontSize: '32px',
+            fontWeight: 400,
+            color: '#E0E0E0',
+            letterSpacing: '4px',
+            textTransform: 'uppercase',
           }}
         >
-          pitchrank.io
+          Youth Soccer Rankings
+        </div>
+        <div
+          style={{
+            marginTop: '16px',
+            fontSize: '20px',
+            color: '#A0A0A0',
+            maxWidth: '700px',
+            textAlign: 'center',
+            lineHeight: 1.5,
+          }}
+        >
+          Data-powered team rankings and performance analytics. U10–U19 Boys & Girls across all 50 states.
         </div>
       </div>
-    ),
+      <div
+        style={{
+          position: 'absolute',
+          bottom: '32px',
+          fontSize: '16px',
+          color: '#666',
+        }}
+      >
+        pitchrank.io
+      </div>
+    </div>,
     { ...size }
   );
 }

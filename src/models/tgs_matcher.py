@@ -8,15 +8,15 @@ specifically for TGS teams, allowing better matching to existing teams in the da
 import logging
 import re
 import uuid
-from typing import Dict, Optional, Set
 from datetime import datetime
-from supabase import Client
+from typing import Dict, Optional, Set
 
-from src.models.game_matcher import GameHistoryMatcher, MATCHING_CONFIG
+from src.models.game_matcher import MATCHING_CONFIG, GameHistoryMatcher
+from supabase import Client
 
 # Import rapidfuzz for similarity scoring
 try:
-    from rapidfuzz import fuzz as rapidfuzz_fuzz
+    import rapidfuzz  # noqa: F401
 
     HAVE_RAPIDFUZZ = True
 except ImportError:
@@ -25,11 +25,13 @@ except ImportError:
 # Import shared team-name utilities
 try:
     from src.utils.team_name_utils import (
-        extract_distinctions,
-        extract_team_variant as extract_variant_shared,
         extract_club_from_team_name as extract_club_structured,
-        has_ecnl_rl,
-        has_ecnl_only,
+    )
+    from src.utils.team_name_utils import (
+        extract_distinctions,
+    )
+    from src.utils.team_name_utils import (
+        extract_team_variant as extract_variant_shared,
     )
 
     HAVE_TEAM_NAME_UTILS = True
@@ -40,6 +42,8 @@ except ImportError:
 try:
     from src.utils.club_normalizer import (
         normalize_to_club,
+    )
+    from src.utils.club_normalizer import (
         similarity_score as club_similarity_score,
     )
 
@@ -73,7 +77,8 @@ class TGSGameMatcher(GameHistoryMatcher):
         self.review_threshold = 0.70  # Lower review threshold (was 0.75)
         logger.info(
             f"Initialized TGSGameMatcher with enhanced fuzzy matching "
-            f"(fuzzy: {self.fuzzy_threshold}, auto-approve: {self.auto_approve_threshold}, review: {self.review_threshold})"
+            f"(fuzzy: {self.fuzzy_threshold}, auto-approve: {self.auto_approve_threshold}, "
+            f"review: {self.review_threshold})"
         )
 
     def _extract_age_tokens(self, name: str) -> Set[str]:
@@ -320,7 +325,7 @@ class TGSGameMatcher(GameHistoryMatcher):
 
             provider_team = {"team_name": team_name, "club_name": club_name, "age_group": age_group, "state_code": None}
 
-            club_variant_boost = MATCHING_CONFIG.get("club_variant_match_boost", 0.15)
+            MATCHING_CONFIG.get("club_variant_match_boost", 0.15)
 
             for team in result.data if result else []:
                 cand_name = team.get("team_name", "")

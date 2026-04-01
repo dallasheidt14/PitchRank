@@ -1,17 +1,17 @@
 """Enhanced data validation for PitchRank imports"""
 
-from typing import Dict, List, Tuple, Any, Optional
-from datetime import datetime, date
 import re
 import sys
+from datetime import date, datetime
 from pathlib import Path
+from typing import Any, Dict, List, Tuple
 
 # Ensure project root is on path (needed for direct script execution only)
 _project_root = str(Path(__file__).parent.parent.parent)
 if _project_root not in sys.path:
     sys.path.append(_project_root)
 
-from config.settings import AGE_GROUPS
+from config.settings import AGE_GROUPS  # noqa: E402
 
 
 def parse_game_date(date_str: str) -> date:
@@ -256,7 +256,8 @@ class EnhancedDataValidator:
             game_uid = str(game["game_uid"]).strip()
             if not re.match(r"^[\w\-:]{10,}$", game_uid):
                 errors.append(
-                    f"Invalid game_uid format: '{game_uid}' (must be at least 10 alphanumeric characters, dashes, colons, or underscores)"
+                    f"Invalid game_uid format: '{game_uid}' (must be at least 10 "
+                    f"alphanumeric characters, dashes, colons, or underscores)"
                 )
 
         # Validate date (common for both formats)

@@ -26,10 +26,11 @@ export function HomeStats({ fallbackGames = 16000, fallbackTeams = 2800 }: HomeS
         } else {
           // Fallback to direct queries
           const [gamesRes, teamsRes] = await Promise.all([
-            supabase.from('games').select('*', { count: 'exact', head: true })
-              .not('home_score', 'is', null),
-            supabase.from('rankings_full').select('*', { count: 'exact', head: true })
-              .not('power_score_final', 'is', null)
+            supabase.from('games').select('*', { count: 'exact', head: true }).not('home_score', 'is', null),
+            supabase
+              .from('rankings_full')
+              .select('*', { count: 'exact', head: true })
+              .not('power_score_final', 'is', null),
           ]);
 
           if (!gamesRes.error && gamesRes.count) setTotalGames(gamesRes.count);
@@ -56,25 +57,17 @@ export function HomeStats({ fallbackGames = 16000, fallbackTeams = 2800 }: HomeS
           <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">
             {formatNumber(totalGames)}
           </div>
-          <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">
-            Games Analyzed
-          </div>
+          <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">Games Analyzed</div>
         </div>
         <div className="text-center">
           <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">
             {formatNumber(totalTeams)}
           </div>
-          <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">
-            Teams Ranked
-          </div>
+          <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">Teams Ranked</div>
         </div>
         <div className="text-center">
-          <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">
-            50
-          </div>
-          <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">
-            States Covered
-          </div>
+          <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">50</div>
+          <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">States Covered</div>
         </div>
       </div>
     );
@@ -86,25 +79,17 @@ export function HomeStats({ fallbackGames = 16000, fallbackTeams = 2800 }: HomeS
         <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">
           {formatNumber(totalGames)}
         </div>
-        <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">
-          Games Analyzed
-        </div>
+        <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">Games Analyzed</div>
       </div>
       <div className="text-center">
         <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">
           {formatNumber(totalTeams)}
         </div>
-        <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">
-          Teams Ranked
-        </div>
+        <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">Teams Ranked</div>
       </div>
       <div className="text-center">
-        <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">
-          50
-        </div>
-        <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">
-          States Covered
-        </div>
+        <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">50</div>
+        <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">States Covered</div>
       </div>
     </div>
   );

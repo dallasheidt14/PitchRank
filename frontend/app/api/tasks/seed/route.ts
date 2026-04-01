@@ -46,7 +46,7 @@ export async function POST() {
     const results = {
       created: 0,
       skipped: 0,
-      tasks: [] as any[],
+      tasks: [] as Record<string, unknown>[],
     };
 
     for (const task of seedTasks) {
@@ -66,18 +66,11 @@ export async function POST() {
       }
 
       // Create new task
-      const { data, error } = await supabase
-        .from('agent_tasks')
-        .insert(task)
-        .select()
-        .single();
+      const { data, error } = await supabase.from('agent_tasks').insert(task).select().single();
 
       if (error) {
         console.error(`Failed to create "${task.title}":`, error);
-        return NextResponse.json(
-          { error: `Failed to create task: ${task.title}`, details: error },
-          { status: 500 }
-        );
+        return NextResponse.json({ error: `Failed to create task: ${task.title}`, details: error }, { status: 500 });
       }
 
       console.log(`Created "${task.title}"`);
@@ -92,10 +85,7 @@ export async function POST() {
     });
   } catch (e) {
     console.error('Seed API error:', e);
-    return NextResponse.json(
-      { error: 'Internal server error', details: String(e) },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Internal server error', details: String(e) }, { status: 500 });
   }
 }
 

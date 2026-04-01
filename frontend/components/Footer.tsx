@@ -81,8 +81,8 @@ export function Footer() {
               <span className="font-display text-xl font-bold uppercase tracking-wide">PitchRank</span>
             </Link>
             <p className="text-sm text-muted-foreground mb-4 max-w-md">
-              Data-powered youth soccer team rankings and performance analytics.
-              Compare U10-U19 boys and girls teams nationally and across all 50 states.
+              Data-powered youth soccer team rankings and performance analytics. Compare U10-U19 boys and girls teams
+              nationally and across all 50 states.
             </p>
 
             {/* Social Media Links */}
@@ -189,9 +189,7 @@ export function Footer() {
         {/* Bottom Bar */}
         <div className="pt-8 border-t border-border">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-            <p className="text-sm text-muted-foreground">
-              © {currentYear} PitchRank. All rights reserved.
-            </p>
+            <p className="text-sm text-muted-foreground">© {currentYear} PitchRank. All rights reserved.</p>
             <div className="flex gap-6">
               <Link
                 href="/terms-of-service"

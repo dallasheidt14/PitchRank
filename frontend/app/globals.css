@@ -1,5 +1,5 @@
-@import "tailwindcss";
-@import "tw-animate-css";
+@import 'tailwindcss';
+@import 'tw-animate-css';
 
 @theme inline {
   --color-background: var(--background);
@@ -112,13 +112,16 @@
   }
 
   /* Tabular numbers for better alignment in tables and stats */
-  .font-mono, [class*="tabular-nums"] {
+  .font-mono,
+  [class*='tabular-nums'] {
     font-variant-numeric: tabular-nums;
   }
 
   /* Reduced motion support for accessibility */
   @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after {
+    *,
+    *::before,
+    *::after {
       animation-duration: 0.01ms !important;
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
@@ -134,7 +137,9 @@
   }
 
   /* Mobile-optimized touch interactions */
-  button, a, [role="button"] {
+  button,
+  a,
+  [role='button'] {
     /* Remove tap highlight on mobile for custom styling */
     -webkit-tap-highlight-color: transparent;
     /* Ensure touch events work properly */
@@ -149,7 +154,9 @@
   }
 
   /* Optimize scrollable containers for mobile */
-  .overflow-auto, .overflow-x-auto, .overflow-y-auto {
+  .overflow-auto,
+  .overflow-x-auto,
+  .overflow-y-auto {
     /* Momentum scrolling on iOS */
     -webkit-overflow-scrolling: touch;
     /* Prevent overscroll on mobile */
@@ -173,18 +180,27 @@
   }
 
   /* Prevent iOS zoom on input focus - ensure inputs are at least 16px */
-  input, select, textarea {
+  input,
+  select,
+  textarea {
     font-size: 16px; /* Prevents iOS zoom on focus */
   }
 
   @media (min-width: 640px) {
-    input, select, textarea {
+    input,
+    select,
+    textarea {
       font-size: 14px; /* Smaller on desktop */
     }
   }
 
   /* Athletic Editorial Typography */
-  h1, h2, h3, h4, h5, h6 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     font-family: var(--font-oswald), sans-serif;
     font-weight: 700;
     letter-spacing: 0.025em;
@@ -212,7 +228,8 @@
     @apply mb-4 text-muted-foreground leading-relaxed;
   }
 
-  .blog-content ul, .blog-content ol {
+  .blog-content ul,
+  .blog-content ol {
     @apply mb-4 ml-6 space-y-2;
   }
 

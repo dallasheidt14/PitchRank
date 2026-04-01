@@ -24,7 +24,7 @@ export async function generateMetadata({ params }: TeamPageProps): Promise<Metad
 
   try {
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
-    
+
     // In Next.js 15, params might be a Promise - await it if needed
     const resolvedParams = await params;
 
@@ -139,7 +139,7 @@ export default async function Page({ params }: TeamPageProps) {
 
         if (team.is_deprecated) {
           // Team is deprecated - find canonical redirect
-          const canonicalRow = mergeRows?.find(r => r.deprecated_team_id === resolvedParams.id);
+          const canonicalRow = mergeRows?.find((r) => r.deprecated_team_id === resolvedParams.id);
           if (canonicalRow?.canonical_team_id) {
             redirect(`/teams/${canonicalRow.canonical_team_id}`);
           }

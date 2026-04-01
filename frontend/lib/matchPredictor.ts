@@ -58,7 +58,7 @@ interface AgeGroupParameters {
 interface ProbabilityParameters {
   sensitivity: number;
   calibration_error: number;
-  bucket_accuracy?: Record<string, any>;
+  bucket_accuracy?: Record<string, number>;
 }
 
 // Margin calibration v2 parameters
@@ -98,7 +98,7 @@ async function loadAgeGroupParameters(): Promise<Record<string, AgeGroupParamete
         // Fallback to defaults if file not found
         ageGroupParams = {};
       }
-    } catch (error) {
+    } catch (_error) {
       // Fallback to defaults on error
       ageGroupParams = {};
     }
@@ -131,7 +131,7 @@ async function loadProbabilityParameters(): Promise<ProbabilityParameters | null
         // File not found - will use defaults
         probabilityParams = null;
       }
-    } catch (error) {
+    } catch (_error) {
       // Fallback to defaults on error
       probabilityParams = null;
     }
@@ -164,7 +164,7 @@ async function loadMarginParametersV2(): Promise<MarginParametersV2 | null> {
         // File not found - will use defaults
         marginParamsV2 = null;
       }
-    } catch (error) {
+    } catch (_error) {
       // Fallback to defaults on error
       marginParamsV2 = null;
     }
@@ -225,7 +225,7 @@ function getSensitivity(): number {
 }
 
 // Confidence thresholds
-const CONFIDENCE_THRESHOLDS = {
+const _CONFIDENCE_THRESHOLDS = {
   HIGH: 0.7, // >70% probability = high confidence
   MEDIUM: 0.6, // 60-70% = medium confidence
   // <60% = low confidence

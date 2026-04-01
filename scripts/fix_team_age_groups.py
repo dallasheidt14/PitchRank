@@ -10,10 +10,10 @@ Usage:
     python scripts/fix_team_age_groups.py            # Apply fixes
 """
 
-import os
-import sys
-import re
 import argparse
+import os
+import re
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -23,14 +23,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dotenv import load_dotenv
 
 # Load .env.local first if it exists
-env_local = Path('.env.local')
+env_local = Path(".env.local")
 if env_local.exists():
     load_dotenv(env_local, override=True)
 else:
     load_dotenv()
 
-from supabase import create_client
-from src.utils.team_utils import CURRENT_YEAR
+from src.utils.team_utils import CURRENT_YEAR  # noqa: E402
+from supabase import create_client  # noqa: E402
 
 
 def calculate_age_group(birth_year: int) -> str:
@@ -53,13 +53,13 @@ def extract_birth_year(team_name: str) -> int:
     - Two years with slash: "Team 2013/2014" → 2013 (use older/first year)
     - Two years with dash: "Team 2009-2010" → 2009 (use older/first year)
     - Two years after letter: "B2013/2014" → 2013 (use older/first year)
-    
+
     Returns the birth year if found and valid, None otherwise.
     """
     # First, check for two-year patterns like "2013/2014" or "2009-2010" or "B2013/2014"
     # Use the FIRST (older) year in these cases
     # Note: Using (?<![0-9]) instead of \b to allow patterns like "B2013/2014"
-    two_year_match = re.search(r'(?<![0-9])(20\d{2})[/-](20\d{2})(?![0-9])', team_name)
+    two_year_match = re.search(r"(?<![0-9])(20\d{2})[/-](20\d{2})(?![0-9])", team_name)
     if two_year_match:
         year1 = int(two_year_match.group(1))
         year2 = int(two_year_match.group(2))
@@ -67,9 +67,9 @@ def extract_birth_year(team_name: str) -> int:
         year = min(year1, year2)
         if 2005 <= year <= 2018:
             return year
-    
+
     # Also check for patterns like "2013/14" or "2009/10" or "B2007/08" (short second year)
-    short_year_match = re.search(r'(?<![0-9])(20\d{2})[/-](\d{2})(?![0-9])', team_name)
+    short_year_match = re.search(r"(?<![0-9])(20\d{2})[/-](\d{2})(?![0-9])", team_name)
     if short_year_match:
         year1 = int(short_year_match.group(1))
         year2_short = int(short_year_match.group(2))
@@ -79,9 +79,9 @@ def extract_birth_year(team_name: str) -> int:
         year = min(year1, year2)
         if 2005 <= year <= 2018:
             return year
-    
+
     # Fall back to single year match
-    match = re.search(r'(?<![0-9])(20\d{2})(?![0-9])', team_name)
+    match = re.search(r"(?<![0-9])(20\d{2})(?![0-9])", team_name)
     if match:
         year = int(match.group(1))
         # Validate it's a reasonable birth year (2005-2018 for youth soccer)
@@ -92,8 +92,8 @@ def extract_birth_year(team_name: str) -> int:
 
 def main():
     parser = argparse.ArgumentParser(description="Fix team age_groups based on birth year in names")
-    parser.add_argument('--dry-run', action='store_true', help="Preview changes without applying")
-    parser.add_argument('--team-name', type=str, help="Fix only teams matching this name (partial match)")
+    parser.add_argument("--dry-run", action="store_true", help="Preview changes without applying")
+    parser.add_argument("--team-name", type=str, help="Fix only teams matching this name (partial match)")
     args = parser.parse_args()
 
     # Initialize Supabase client
@@ -121,25 +121,27 @@ def main():
     batch_size = 1000
 
     while True:
-        query = client.table('teams').select(
-            'team_id_master, team_name, age_group, birth_year, gender, state_code'
-        ).eq('is_deprecated', False)
+        query = (
+            client.table("teams")
+            .select("team_id_master, team_name, age_group, birth_year, gender, state_code")
+            .eq("is_deprecated", False)
+        )
 
         if args.team_name:
-            query = query.ilike('team_name', f'%{args.team_name}%')
+            query = query.ilike("team_name", f"%{args.team_name}%")
 
         query = query.range(offset, offset + batch_size - 1)
         result = query.execute()
-        
+
         if not result.data:
             break
-        
+
         teams.extend(result.data)
         print(f"   Fetched {len(teams)} teams...")
-        
+
         if len(result.data) < batch_size:
             break
-        
+
         offset += batch_size
 
     print(f"✅ Found {len(teams)} teams total")
@@ -149,8 +151,8 @@ def main():
     mismatches = []
 
     for team in teams:
-        team_name = team.get('team_name', '')
-        current_age_group = (team.get('age_group') or '').lower()
+        team_name = team.get("team_name", "")
+        current_age_group = (team.get("age_group") or "").lower()
 
         # Extract birth year from team name
         birth_year = extract_birth_year(team_name)
@@ -159,15 +161,17 @@ def main():
             expected_age_group = calculate_age_group(birth_year)
 
             if expected_age_group and expected_age_group != current_age_group:
-                mismatches.append({
-                    'team_id_master': team['team_id_master'],
-                    'team_name': team_name,
-                    'current_age_group': current_age_group,
-                    'expected_age_group': expected_age_group,
-                    'birth_year': birth_year,
-                    'gender': team.get('gender'),
-                    'state_code': team.get('state_code')
-                })
+                mismatches.append(
+                    {
+                        "team_id_master": team["team_id_master"],
+                        "team_name": team_name,
+                        "current_age_group": current_age_group,
+                        "expected_age_group": expected_age_group,
+                        "birth_year": birth_year,
+                        "gender": team.get("gender"),
+                        "state_code": team.get("state_code"),
+                    }
+                )
 
     if not mismatches:
         print("✅ No age group mismatches found!")
@@ -179,7 +183,7 @@ def main():
     print("-" * 70)
 
     for m in mismatches[:50]:  # Show first 50
-        name = m['team_name'][:38] + '..' if len(m['team_name']) > 40 else m['team_name']
+        name = m["team_name"][:38] + ".." if len(m["team_name"]) > 40 else m["team_name"]
         print(f"{name:<40} {m['current_age_group']:^10} {m['expected_age_group']:^10} {m['birth_year']:^10}")
 
     if len(mismatches) > 50:
@@ -201,11 +205,13 @@ def main():
     for m in mismatches:
         try:
             # Update team's age_group and birth_year
-            client.table('teams').update({
-                'age_group': m['expected_age_group'],
-                'birth_year': m['birth_year'],
-                'updated_at': datetime.now().isoformat()
-            }).eq('team_id_master', m['team_id_master']).execute()
+            client.table("teams").update(
+                {
+                    "age_group": m["expected_age_group"],
+                    "birth_year": m["birth_year"],
+                    "updated_at": datetime.now().isoformat(),
+                }
+            ).eq("team_id_master", m["team_id_master"]).execute()
 
             fixed_count += 1
             print(f"  ✓ Fixed: {m['team_name'][:50]} ({m['current_age_group']} → {m['expected_age_group']})")

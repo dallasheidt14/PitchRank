@@ -20,7 +20,7 @@ import logging
 import pstats
 import time
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 

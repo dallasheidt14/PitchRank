@@ -1,17 +1,11 @@
-"use client";
+'use client';
 
-import { useState, useEffect, useRef } from "react";
-import { useRouter, usePathname } from "next/navigation";
-import { Card, CardContent } from "@/components/ui/card";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/select";
-import { US_STATES } from "@/lib/constants";
-import { trackFilterApplied } from "@/lib/events";
+import { useState, useEffect, useRef, startTransition } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
+import { Card, CardContent } from '@/components/ui/card';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import { US_STATES } from '@/lib/constants';
+import { trackFilterApplied } from '@/lib/events';
 
 interface RankingsFilterProps {
   onFilterChange?: (region: string, ageGroup: string, gender: string) => void;
@@ -29,10 +23,10 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
   const hasUserInteractedRef = useRef(false);
 
   // Extract current URL parts → /rankings/[region]/[ageGroup]/[gender]
-  const pathParts = pathname.split("/").filter(Boolean);
-  const currentRegion = pathParts[1] || "national";
-  const currentAgeGroup = pathParts[2] || "u12";
-  const currentGender = pathParts[3] || "male";
+  const pathParts = pathname.split('/').filter(Boolean);
+  const currentRegion = pathParts[1] || 'national';
+  const currentAgeGroup = pathParts[2] || 'u12';
+  const currentGender = pathParts[3] || 'male';
 
   const [region, setRegion] = useState(currentRegion);
   const [ageGroup, setAgeGroup] = useState(currentAgeGroup);
@@ -84,14 +78,12 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
     }
 
     // Only sync if URL params actually changed (external navigation, e.g. back/forward or link)
-    if (
-      currentRegion !== region ||
-      currentAgeGroup !== ageGroup ||
-      currentGender !== gender
-    ) {
-      setRegion(currentRegion);
-      setAgeGroup(currentAgeGroup);
-      setGender(currentGender);
+    if (currentRegion !== region || currentAgeGroup !== ageGroup || currentGender !== gender) {
+      startTransition(() => {
+        setRegion(currentRegion);
+        setAgeGroup(currentAgeGroup);
+        setGender(currentGender);
+      });
     }
   }, [currentRegion, currentAgeGroup, currentGender, region, ageGroup, gender, pathname]);
 
@@ -115,12 +107,12 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
 
     const targetPath = `/rankings/${region}/${ageGroup}/${gender}`;
     const currentPath = pathname;
-    
+
     // Prevent navigation if we're already on the target route
     if (currentPath === targetPath) {
       return;
     }
-    
+
     // Mark that we're navigating internally and set target
     isNavigatingRef.current = true;
     targetPathRef.current = targetPath;
@@ -187,4 +179,3 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
     </Card>
   );
 }
-

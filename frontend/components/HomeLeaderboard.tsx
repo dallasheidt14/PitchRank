@@ -44,31 +44,33 @@ export function HomeLeaderboard() {
   // Check for watched teams reaching #1 and trigger confetti
   useEffect(() => {
     if (!rankings || rankings.length === 0) return;
-    
+
     const watchedTeams = getWatchedTeams();
     const topTeam = rankings[0];
-    
-    if (topTeam && computedNationalRanks.get(topTeam.team_id_master) === 1 && watchedTeams.includes(topTeam.team_id_master)) {
+
+    if (
+      topTeam &&
+      computedNationalRanks.get(topTeam.team_id_master) === 1 &&
+      watchedTeams.includes(topTeam.team_id_master)
+    ) {
       // Check if we've already triggered confetti for this team in this session
       const sessionKey = `confetti_${topTeam.team_id_master}`;
       const lastConfettiTeamId = sessionStorage.getItem('lastConfettiTeamId');
-      
+
       if (lastConfettiTeamId !== topTeam.team_id_master && !confettiTriggeredRef.current.has(sessionKey)) {
         launchConfetti();
         sessionStorage.setItem('lastConfettiTeamId', topTeam.team_id_master);
         confettiTriggeredRef.current.add(sessionKey);
       }
     }
-  }, [rankings]);
+  }, [rankings, computedNationalRanks]);
 
   return (
     <Card className="overflow-hidden border-0 shadow-lg">
       {/* Header with gradient background */}
       <CardHeader className="bg-gradient-to-r from-primary to-[oklch(0.28_0.08_165)] text-primary-foreground relative overflow-hidden">
         <div className="absolute right-0 top-0 w-2 h-full bg-accent -skew-x-12" aria-hidden="true" />
-        <CardTitle className="text-2xl sm:text-3xl font-bold uppercase tracking-wide">
-          Top 10 Rankings
-        </CardTitle>
+        <CardTitle className="text-2xl sm:text-3xl font-bold uppercase tracking-wide">Top 10 Rankings</CardTitle>
         <CardDescription className="text-primary-foreground/80 text-base">
           U12 Male • National • Power Score
         </CardDescription>
@@ -76,9 +78,7 @@ export function HomeLeaderboard() {
       <CardContent className="p-0">
         {isLoading && <ListSkeleton items={5} />}
 
-        {isError && (
-          <ErrorDisplay error={error} retry={refetch} />
-        )}
+        {isError && <ErrorDisplay error={error} retry={refetch} />}
 
         {!isLoading && !isError && (
           <div className="divide-y divide-border">
@@ -86,15 +86,10 @@ export function HomeLeaderboard() {
               <div className="text-sm text-muted-foreground text-center py-8 px-4">
                 <p>No rankings data available</p>
                 <p className="text-xs mt-2">
-                  Rankings count: {rankings?.length || 0} |
-                  Loading: {isLoading ? 'Yes' : 'No'} |
-                  Error: {isError ? 'Yes' : 'No'}
+                  Rankings count: {rankings?.length || 0} | Loading: {isLoading ? 'Yes' : 'No'} | Error:{' '}
+                  {isError ? 'Yes' : 'No'}
                 </p>
-                {error && (
-                  <p className="text-xs text-red-500 mt-2">
-                    Error: {getErrorMessage(error)}
-                  </p>
-                )}
+                {error && <p className="text-xs text-red-500 mt-2">Error: {getErrorMessage(error)}</p>}
               </div>
             ) : (
               topTeams.map((team, index) => {
@@ -122,7 +117,9 @@ export function HomeLeaderboard() {
                     tabIndex={0}
                   >
                     <div className="flex items-center gap-4 sm:gap-6 flex-1 min-w-0">
-                      <div className={`flex-shrink-0 w-10 sm:w-12 h-10 sm:h-12 rounded-full flex items-center justify-center font-bold text-lg sm:text-xl ${getBadgeClass(index)}`}>
+                      <div
+                        className={`flex-shrink-0 w-10 sm:w-12 h-10 sm:h-12 rounded-full flex items-center justify-center font-bold text-lg sm:text-xl ${getBadgeClass(index)}`}
+                      >
                         {computedNationalRanks.get(team.team_id_master) ?? '—'}
                       </div>
                       <div className="flex-1 min-w-0">
@@ -131,24 +128,18 @@ export function HomeLeaderboard() {
                         </div>
                         <div className="text-sm text-muted-foreground truncate">
                           {team.club_name && <span className="font-medium">{team.club_name}</span>}
-                          {team.state && (
-                            <span className={team.club_name ? ' • ' : ''}>
-                              {team.state}
-                            </span>
-                          )}
+                          {team.state && <span className={team.club_name ? ' • ' : ''}>{team.state}</span>}
                         </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-3 sm:gap-6 flex-shrink-0">
                       {rankChange !== 0 && (
-                        <div className={`flex items-center gap-1 text-sm font-semibold ${
-                          rankChange > 0 ? 'text-green-600' : 'text-red-600'
-                        }`}>
-                          {rankChange > 0 ? (
-                            <ArrowUp className="h-4 w-4" />
-                          ) : (
-                            <ArrowDown className="h-4 w-4" />
-                          )}
+                        <div
+                          className={`flex items-center gap-1 text-sm font-semibold ${
+                            rankChange > 0 ? 'text-green-600' : 'text-red-600'
+                          }`}
+                        >
+                          {rankChange > 0 ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
                           {Math.abs(rankChange)}
                         </div>
                       )}

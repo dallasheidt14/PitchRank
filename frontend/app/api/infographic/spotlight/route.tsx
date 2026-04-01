@@ -175,7 +175,9 @@ export async function GET(request: Request) {
             >
               {stat.value}
             </div>
-            <div style={{ fontSize: isStory ? 14 : 12, color: 'rgba(255,255,255,0.6)', marginTop: 4, letterSpacing: 1 }}>
+            <div
+              style={{ fontSize: isStory ? 14 : 12, color: 'rgba(255,255,255,0.6)', marginTop: 4, letterSpacing: 1 }}
+            >
               {stat.label}
             </div>
           </div>

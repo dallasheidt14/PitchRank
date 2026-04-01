@@ -14,12 +14,10 @@ Usage:
 
 from __future__ import annotations
 
-import functools
 import logging
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Optional, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -121,13 +119,15 @@ class TimingReport:
             yield
         finally:
             end = time.perf_counter()
-            self.entries.append(TimingEntry(
-                name=name,
-                elapsed=end - start,
-                start_time=start,
-                end_time=end,
-                metadata=metadata,
-            ))
+            self.entries.append(
+                TimingEntry(
+                    name=name,
+                    elapsed=end - start,
+                    start_time=start,
+                    end_time=end,
+                    metadata=metadata,
+                )
+            )
 
     @property
     def total_elapsed(self) -> float:
@@ -152,10 +152,7 @@ class TimingReport:
             bar_len = int(pct / 2)
             bar = "█" * bar_len + "░" * (50 - bar_len)
             elapsed_str = _format_time(entry.elapsed)
-            lines.append(
-                f"  {entry.name:<{max_name_len}}  {elapsed_str:>10}  "
-                f"{pct:5.1f}%  {bar}"
-            )
+            lines.append(f"  {entry.name:<{max_name_len}}  {elapsed_str:>10}  {pct:5.1f}%  {bar}")
 
         lines.append(f"{'─' * 60}")
         lines.append(f"  {'TOTAL':<{max_name_len}}  {_format_time(total):>10}  100.0%")

@@ -3,8 +3,70 @@
 import React, { forwardRef } from 'react';
 import { InfographicWrapper, Platform, BRAND_COLORS, PLATFORM_DIMENSIONS } from './InfographicWrapper';
 import type { RankingRow } from '@/types/RankingRow';
-import { predictMatch, type MatchPrediction } from '@/lib/matchPredictor';
+import { predictMatch } from '@/lib/matchPredictor';
 import type { Game } from '@/lib/types';
+
+interface TeamCardProps {
+  team: RankingRow;
+  rank: number;
+  side: 'left' | 'right';
+  rankSize: number;
+  teamNameSize: number;
+  smallTextSize: number;
+  maxWidth: number;
+}
+
+function TeamCard({ team, rank, side, rankSize, teamNameSize, smallTextSize, maxWidth }: TeamCardProps) {
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: side === 'left' ? 'flex-start' : 'flex-end',
+        textAlign: side === 'left' ? 'left' : 'right',
+      }}
+    >
+      <div
+        style={{
+          fontFamily: "Oswald, 'Arial Black', sans-serif",
+          fontSize: `${rankSize}px`,
+          fontWeight: 800,
+          color: BRAND_COLORS.electricYellow,
+          lineHeight: 1,
+        }}
+      >
+        #{rank}
+      </div>
+      <div
+        style={{
+          fontFamily: "Oswald, 'Arial Black', sans-serif",
+          fontSize: `${teamNameSize}px`,
+          fontWeight: 700,
+          color: BRAND_COLORS.brightWhite,
+          textTransform: 'uppercase',
+          marginTop: 8,
+          maxWidth,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {team.team_name}
+      </div>
+      <div
+        style={{
+          fontFamily: "'DM Sans', Arial, sans-serif",
+          fontSize: `${smallTextSize}px`,
+          color: '#888888',
+          marginTop: 4,
+        }}
+      >
+        {team.state || 'N/A'}
+      </div>
+    </div>
+  );
+}
 
 interface HeadToHeadPreviewProps {
   team1: RankingRow & { rank?: number };
@@ -19,7 +81,10 @@ interface HeadToHeadPreviewProps {
 }
 
 export const HeadToHeadPreview = forwardRef<HTMLDivElement, HeadToHeadPreviewProps>(
-  ({ team1, team2, platform, scale = 0.5, generatedDate, ageGroup, gender, regionName, allGames = [] }, ref) => {
+  (
+    { team1, team2, platform, scale = 0.5, generatedDate, ageGroup, gender, regionName: _regionName, allGames = [] },
+    ref
+  ) => {
     const dimensions = PLATFORM_DIMENSIONS[platform];
     const isVertical = platform === 'instagramStory';
     const isSquare = platform === 'instagram';
@@ -63,8 +128,8 @@ export const HeadToHeadPreview = forwardRef<HTMLDivElement, HeadToHeadPreviewPro
 
     // Get prediction using the same logic as compare tab
     const matchPrediction = predictMatch(
-      { ...team1, team_id_master: team1.team_id_master || '' } as any,
-      { ...team2, team_id_master: team2.team_id_master || '' } as any,
+      { ...team1, team_id_master: team1.team_id_master || '' } as RankingRow,
+      { ...team2, team_id_master: team2.team_id_master || '' } as RankingRow,
       allGames
     );
     const prediction = {
@@ -80,55 +145,7 @@ export const HeadToHeadPreview = forwardRef<HTMLDivElement, HeadToHeadPreviewPro
       { label: 'WIN %', team1: getWinPct(team1), team2: getWinPct(team2) },
     ];
 
-    const TeamCard = ({ team, rank, side }: { team: RankingRow; rank: number; side: 'left' | 'right' }) => (
-      <div
-        style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: side === 'left' ? 'flex-start' : 'flex-end',
-          textAlign: side === 'left' ? 'left' : 'right',
-        }}
-      >
-        <div
-          style={{
-            fontFamily: "Oswald, 'Arial Black', sans-serif",
-            fontSize: `${rankSize}px`,
-            fontWeight: 800,
-            color: BRAND_COLORS.electricYellow,
-            lineHeight: 1,
-          }}
-        >
-          #{rank}
-        </div>
-        <div
-          style={{
-            fontFamily: "Oswald, 'Arial Black', sans-serif",
-            fontSize: `${teamNameSize}px`,
-            fontWeight: 700,
-            color: BRAND_COLORS.brightWhite,
-            textTransform: 'uppercase',
-            marginTop: 8,
-            maxWidth: (dimensions.width - padding * 2) / 2 - 40,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {team.team_name}
-        </div>
-        <div
-          style={{
-            fontFamily: "'DM Sans', Arial, sans-serif",
-            fontSize: `${smallTextSize}px`,
-            color: '#888888',
-            marginTop: 4,
-          }}
-        >
-          {team.state || 'N/A'}
-        </div>
-      </div>
-    );
+    const teamCardMaxWidth = (dimensions.width - padding * 2) / 2 - 40;
 
     return (
       <InfographicWrapper ref={ref} platform={platform} scale={scale}>
@@ -200,7 +217,15 @@ export const HeadToHeadPreview = forwardRef<HTMLDivElement, HeadToHeadPreviewPro
               marginBottom: isVertical ? 50 : 40,
             }}
           >
-            <TeamCard team={team1} rank={team1.rank || 1} side="left" />
+            <TeamCard
+              team={team1}
+              rank={team1.rank || 1}
+              side="left"
+              rankSize={rankSize}
+              teamNameSize={teamNameSize}
+              smallTextSize={smallTextSize}
+              maxWidth={teamCardMaxWidth}
+            />
 
             {/* VS Badge */}
             <div
@@ -228,7 +253,15 @@ export const HeadToHeadPreview = forwardRef<HTMLDivElement, HeadToHeadPreviewPro
               </span>
             </div>
 
-            <TeamCard team={team2} rank={team2.rank || 2} side="right" />
+            <TeamCard
+              team={team2}
+              rank={team2.rank || 2}
+              side="right"
+              rankSize={rankSize}
+              teamNameSize={teamNameSize}
+              smallTextSize={smallTextSize}
+              maxWidth={teamCardMaxWidth}
+            />
           </div>
 
           {/* Stats Comparison */}
@@ -349,7 +382,8 @@ export const HeadToHeadPreview = forwardRef<HTMLDivElement, HeadToHeadPreviewPro
                 marginTop: 4,
               }}
             >
-              Win Probability: {Math.round(prediction.winProbability1 * 100)}% - {Math.round(prediction.winProbability2 * 100)}%
+              Win Probability: {Math.round(prediction.winProbability1 * 100)}% -{' '}
+              {Math.round(prediction.winProbability2 * 100)}%
             </div>
           </div>
 

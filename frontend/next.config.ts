@@ -1,4 +1,4 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next';
 import bundleAnalyzer from '@next/bundle-analyzer';
 
 const withBundleAnalyzer = bundleAnalyzer({
@@ -10,11 +10,12 @@ const nextConfig: NextConfig = {
 
   // Remove console.logs in production builds (keep error/warn for debugging)
   compiler: {
-    removeConsole: process.env.NODE_ENV === 'production'
-      ? {
-          exclude: ['error', 'warn'],
-        }
-      : false,
+    removeConsole:
+      process.env.NODE_ENV === 'production'
+        ? {
+            exclude: ['error', 'warn'],
+          }
+        : false,
   },
 
   // Experimental optimizations for better tree-shaking and bundle size
@@ -76,7 +77,8 @@ const nextConfig: NextConfig = {
           },
           {
             key: 'Content-Security-Policy',
-            value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self' data:; connect-src 'self' https:; frame-ancestors 'none';",
+            value:
+              "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self' data:; connect-src 'self' https:; frame-ancestors 'none';",
           },
         ],
       },

@@ -146,7 +146,10 @@ export async function renderTeamSpotlightToCanvas(options: TeamSpotlightOptions)
 
   // ===== STATS GRID =====
   const stats = [
-    { label: 'RECORD', value: `${team.total_wins ?? team.wins ?? 0}-${team.total_losses ?? team.losses ?? 0}-${team.total_draws ?? team.draws ?? 0}` },
+    {
+      label: 'RECORD',
+      value: `${team.total_wins ?? team.wins ?? 0}-${team.total_losses ?? team.losses ?? 0}-${team.total_draws ?? team.draws ?? 0}`,
+    },
     { label: 'POWER SCORE', value: team.power_score_final ? (team.power_score_final * 100).toFixed(1) : 'N/A' },
     { label: 'WIN %', value: calculateWinPct(team) },
     { label: 'GAMES', value: String(calculateTotalGames(team)) },

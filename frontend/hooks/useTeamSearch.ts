@@ -25,7 +25,7 @@ export function useTeamSearch() {
         const { data, error } = await supabase
           .from('teams')
           .select('team_id_master, team_name, club_name, state_code, age_group, gender')
-          .eq('is_deprecated', false)  // Filter out deprecated/merged teams
+          .eq('is_deprecated', false) // Filter out deprecated/merged teams
           .order('team_name', { ascending: true })
           .range(offset, offset + BATCH_SIZE - 1);
 
@@ -40,9 +40,10 @@ export function useTeamSearch() {
         }
 
         // Transform batch to RankingRow format
-        const transformedBatch = data.map(team => {
+        const transformedBatch = data.map((team) => {
           // Convert gender from database format ('Male'|'Female') to API format ('M'|'F')
-          const genderCode = team.gender === 'Male' ? 'M' : team.gender === 'Female' ? 'F' : 'M' as 'M' | 'F' | 'B' | 'G';
+          const genderCode =
+            team.gender === 'Male' ? 'M' : team.gender === 'Female' ? 'F' : ('M' as 'M' | 'F' | 'B' | 'G');
 
           // Create searchable name that combines team name + club name for cross-field matching
           // This allows "rebels san diego romero" to match team "B2014 Pre-ECNL (Romero)" from club "Rebels San Diego"
@@ -113,4 +114,3 @@ export function useTeamSearch() {
     throwOnError: false, // Never throw to error boundaries (React 19 compat)
   });
 }
-

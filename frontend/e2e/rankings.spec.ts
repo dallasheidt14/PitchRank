@@ -17,7 +17,7 @@ test.describe('Rankings Page', () => {
   test('displays rankings table with data', async ({ page }) => {
     await page.goto('/rankings/national/u12/male');
 
-    const tableCard = await waitForRankingsTable(page);
+    await waitForRankingsTable(page);
 
     // Title should show
     const title = page.locator('[data-testid="rankings-title"]');

@@ -11,7 +11,6 @@ Output: formatted tables + diagnostic narrative for inclusion in a report.
 
 import os
 import sys
-from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -19,6 +18,7 @@ import numpy as np
 sys.path.append(str(Path(__file__).parent.parent))
 
 from dotenv import load_dotenv
+
 from supabase import create_client
 
 load_dotenv(Path(__file__).parent.parent / ".env.local")
@@ -38,8 +38,16 @@ sb = create_client(url, key)
 
 # ─── Constants from v53e source code ─────────────────────────────────────────
 AGE_TO_ANCHOR = {
-    10: 0.400, 11: 0.475, 12: 0.550, 13: 0.625, 14: 0.700,
-    15: 0.775, 16: 0.850, 17: 0.925, 18: 1.000, 19: 1.000,
+    10: 0.400,
+    11: 0.475,
+    12: 0.550,
+    13: 0.625,
+    14: 0.700,
+    15: 0.775,
+    16: 0.850,
+    17: 0.925,
+    18: 1.000,
+    19: 1.000,
 }
 SHRINK_TAU = 8.0
 RIDGE_GA = 0.25
@@ -85,27 +93,31 @@ away = (
 # Build unified game list
 games = []
 for g in home.data:
-    games.append({
-        "game_id": g["id"],
-        "game_date": g["game_date"],
-        "gf": g["home_score"] or 0,
-        "ga": g["away_score"] or 0,
-        "opp_id": g["away_team_master_id"],
-        "age_group": g["age_group"],
-        "ml_overperformance": g.get("ml_overperformance"),
-        "side": "home",
-    })
+    games.append(
+        {
+            "game_id": g["id"],
+            "game_date": g["game_date"],
+            "gf": g["home_score"] or 0,
+            "ga": g["away_score"] or 0,
+            "opp_id": g["away_team_master_id"],
+            "age_group": g["age_group"],
+            "ml_overperformance": g.get("ml_overperformance"),
+            "side": "home",
+        }
+    )
 for g in away.data:
-    games.append({
-        "game_id": g["id"],
-        "game_date": g["game_date"],
-        "gf": g["away_score"] or 0,
-        "ga": g["home_score"] or 0,
-        "opp_id": g["home_team_master_id"],
-        "age_group": g["age_group"],
-        "ml_overperformance": g.get("ml_overperformance"),
-        "side": "away",
-    })
+    games.append(
+        {
+            "game_id": g["id"],
+            "game_date": g["game_date"],
+            "gf": g["away_score"] or 0,
+            "ga": g["home_score"] or 0,
+            "opp_id": g["home_team_master_id"],
+            "age_group": g["age_group"],
+            "ml_overperformance": g.get("ml_overperformance"),
+            "side": "away",
+        }
+    )
 
 games.sort(key=lambda x: x["game_date"] or "", reverse=True)
 
@@ -114,8 +126,13 @@ opp_ids = list({g["opp_id"] for g in games if g["opp_id"]})
 opp_map = {}
 if opp_ids:
     for i in range(0, len(opp_ids), 50):
-        batch = opp_ids[i:i + 50]
-        res = sb.table("teams").select("team_id_master, team_name, age_group, gender").in_("team_id_master", batch).execute()
+        batch = opp_ids[i : i + 50]
+        res = (
+            sb.table("teams")
+            .select("team_id_master, team_name, age_group, gender")
+            .in_("team_id_master", batch)
+            .execute()
+        )
         for t in res.data:
             opp_map[t["team_id_master"]] = t
 
@@ -123,7 +140,7 @@ if opp_ids:
 opp_rankings = {}
 if opp_ids:
     for i in range(0, len(opp_ids), 50):
-        batch = opp_ids[i:i + 50]
+        batch = opp_ids[i : i + 50]
         res = (
             sb.table("rankings_full")
             .select("team_id, abs_strength, off_norm, def_norm, powerscore_adj, power_presos, sos_norm, games_played")
@@ -304,17 +321,17 @@ print(f"  def_raw = 1 / (sad_raw + {RIDGE_GA}) = 1 / ({sad_raw:.4f} + {RIDGE_GA}
 
 # --- Layer 7: Bayesian shrinkage ---
 print("\n--- LAYER 7: Bayesian Shrinkage ---")
-print(f"  Formula: off_shrunk = (off_raw * gp + mu_cohort * tau) / (gp + tau)")
+print("  Formula: off_shrunk = (off_raw * gp + mu_cohort * tau) / (gp + tau)")
 print(f"  gp = {n_games}, tau = {SHRINK_TAU}")
 print(f"  off_raw = {off_raw:.4f}")
-print(f"  Note: We don't have the exact U12M cohort mean (mu_off) from this script,")
+print("  Note: We don't have the exact U12M cohort mean (mu_off) from this script,")
 print(f"  but with gp={n_games} and tau={SHRINK_TAU}, the shrinkage factor is:")
 shrink_factor = n_games / (n_games + SHRINK_TAU)
 prior_factor = SHRINK_TAU / (n_games + SHRINK_TAU)
 print(f"    weight on team data: {n_games}/({n_games}+{SHRINK_TAU}) = {shrink_factor:.3f}")
 print(f"    weight on cohort prior: {SHRINK_TAU}/({n_games}+{SHRINK_TAU}) = {prior_factor:.3f}")
 print(f"  With 30 games, Phoenix keeps {shrink_factor:.1%} of its own off_raw.")
-print(f"  Shrinkage pulls slightly toward cohort mean — but Phoenix has max games, so effect is minimal.")
+print("  Shrinkage pulls slightly toward cohort mean — but Phoenix has max games, so effect is minimal.")
 
 # --- Layer 9: Opponent Adjustment ---
 print("\n--- LAYER 9: Opponent-Adjusted Offense/Defense ---")
@@ -348,19 +365,24 @@ print("""
 
 # Calculate actual adjustment multipliers for each game
 print("  Per-game opponent adjustment multipliers:")
-print(f"  {'Date':12s} {'GF':>3s} {'GFcap':>5s} {'OppAge':>6s} {'OppAbsStr':>10s} {'Multiplier':>10s} {'GF_adj':>7s}  Opponent")
+print(
+    f"  {'Date':12s} {'GF':>3s} {'GFcap':>5s} {'OppAge':>6s} "
+    f"{'OppAbsStr':>10s} {'Multiplier':>10s} {'GF_adj':>7s}  Opponent"
+)
 print("  " + "-" * 100)
 
 # We need to estimate the baseline (mean abs_strength across all teams)
 # Fetch a sample of abs_strength values to estimate
-all_abs = [opp_rankings[oid].get("abs_strength") for oid in opp_rankings if opp_rankings[oid].get("abs_strength") is not None]
+all_abs = [
+    opp_rankings[oid].get("abs_strength") for oid in opp_rankings if opp_rankings[oid].get("abs_strength") is not None
+]
 if all_abs:
     est_baseline = sum(all_abs) / len(all_abs)
 else:
     est_baseline = 0.50
 
 print(f"  (Estimated baseline from Phoenix's opponents: {est_baseline:.4f})")
-print(f"  (Actual system baseline uses ALL teams; this is an approximation)")
+print("  (Actual system baseline uses ALL teams; this is an approximation)")
 print()
 
 gf_adj_sum = 0.0
@@ -398,14 +420,14 @@ print(f"  Actual off_norm from DB: {phoenix.get('off_norm', 'N/A')}")
 
 # --- Layer 9b: Normalization ---
 print("\n--- LAYER 9b: Percentile Normalization ---")
-print(f"  off_norm = percentile rank of adjusted offense within U12M cohort")
+print("  off_norm = percentile rank of adjusted offense within U12M cohort")
 print(f"  Phoenix off_norm = {phoenix.get('off_norm', 'N/A')}")
 print(f"  This means Phoenix's adjusted offense is at the {phoenix.get('off_norm', 0) * 100:.1f}th percentile")
-print(f"  among ALL U12M teams nationally.")
-print(f"\n  The key issue: Phoenix is compared to U12M teams who mostly play same-age.")
-print(f"  Those teams score 4-5 goals/game against U12 opponents.")
-print(f"  Phoenix scores 2.44 against U13 opponents (73% of schedule).")
-print(f"  Even with opponent adjustment, the compensation is incomplete.")
+print("  among ALL U12M teams nationally.")
+print("\n  The key issue: Phoenix is compared to U12M teams who mostly play same-age.")
+print("  Those teams score 4-5 goals/game against U12 opponents.")
+print("  Phoenix scores 2.44 against U13 opponents (73% of schedule).")
+print("  Even with opponent adjustment, the compensation is incomplete.")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -493,17 +515,26 @@ if cross_age_abs:
 if same_age_abs and cross_age_abs:
     abs_diff = avg_ca - avg_sa
     print(f"\n  Difference in avg abs_strength (U13 - U12): {abs_diff:+.4f}")
-    print(f"  This is the ONLY differentiation the adjustment provides.")
-    print(f"  It does NOT capture the age-inherent difficulty gap.")
+    print("  This is the ONLY differentiation the adjustment provides.")
+    print("  It does NOT capture the age-inherent difficulty gap.")
 
     # What WOULD the adjustment be if abs_strength incorporated age anchors?
     # A U13 with power_presos=P would have age-adjusted abs = P * (anchor_13/anchor_12)
     age_scale = AGE_TO_ANCHOR[13] / AGE_TO_ANCHOR[12]
-    print(f"\n  If abs_strength incorporated age anchors:")
+    print("\n  If abs_strength incorporated age anchors:")
     print(f"    U13/U12 anchor ratio = {AGE_TO_ANCHOR[13]}/{AGE_TO_ANCHOR[12]} = {age_scale:.4f}")
-    print(f"    U13 opponents would have effective abs_strength = {avg_ca:.4f} * {age_scale:.4f} = {avg_ca * age_scale:.4f}")
-    print(f"    Multiplier would be: {avg_ca * age_scale / est_baseline:.3f} instead of {mult_ca:.3f}")
-    print(f"    This would give Phoenix ~{(avg_ca * age_scale / est_baseline - mult_ca) * 100:.0f}% MORE credit for cross-age goals")
+    print(
+        f"    U13 opponents would have effective abs_strength = "
+        f"{avg_ca:.4f} * {age_scale:.4f} = {avg_ca * age_scale:.4f}"
+    )
+    print(
+        f"    Multiplier would be: {avg_ca * age_scale / est_baseline:.3f} "
+        f"instead of {mult_ca:.3f}"
+    )
+    print(
+        f"    This would give Phoenix ~"
+        f"{(avg_ca * age_scale / est_baseline - mult_ca) * 100:.0f}% MORE credit for cross-age goals"
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -532,14 +563,14 @@ n_same = len(same_age_gf)
 n_cross = len(cross_age_gf)
 n_total = n_same + n_cross
 
-print(f"\n  Current schedule:")
+print("\n  Current schedule:")
 print(f"    Same-age (U12) games: {n_same}, avg GF (capped): {sa_avg_gf:.2f}")
 print(f"    Cross-age (U13+) games: {n_cross}, avg GF (capped): {ca_avg_gf:.2f}")
 print(f"    Blended off_raw ≈ {off_raw:.4f}")
 
 # Counterfactual: if cross-age games had same-age GF production
 cf_off_raw = sa_avg_gf  # if all games produced same-age level output
-print(f"\n  Counterfactual (all same-age schedule):")
+print("\n  Counterfactual (all same-age schedule):")
 print(f"    off_raw would be ≈ {cf_off_raw:.2f} (all games at same-age GF level)")
 print(f"    Current off_raw: {off_raw:.4f}")
 print(f"    Difference: {cf_off_raw - off_raw:+.2f} goals/game")
@@ -548,10 +579,10 @@ print(f"    Difference: {cf_off_raw - off_raw:+.2f} goals/game")
 # off_norm is a percentile rank within U12M cohort
 # If off_raw increases from ~current to ~same-age level, Phoenix would move from
 # 32nd percentile to somewhere much higher
-print(f"\n  Percentile estimation:")
+print("\n  Percentile estimation:")
 print(f"    Current off_norm: {current_off_norm:.3f} (32nd percentile)")
 print(f"    A team scoring {sa_avg_gf:.1f} GF/game in U12M would likely be in the 70-90th percentile")
-print(f"    Estimated counterfactual off_norm: ~0.75-0.90")
+print("    Estimated counterfactual off_norm: ~0.75-0.90")
 
 # Conservative and aggressive estimates
 for cf_off_label, cf_off in [("Conservative (0.70)", 0.70), ("Moderate (0.80)", 0.80), ("Aggressive (0.90)", 0.90)]:
@@ -559,7 +590,10 @@ for cf_off_label, cf_off in [("Conservative (0.70)", 0.70), ("Moderate (0.80)", 
     current_power = OFF_WEIGHT * current_off_norm + DEF_WEIGHT * current_def_norm + SOS_WEIGHT * current_sos_norm
     delta_power = cf_power - current_power
     print(f"\n    {cf_off_label}:")
-    print(f"      powerscore = {OFF_WEIGHT}*{cf_off:.2f} + {DEF_WEIGHT}*{current_def_norm:.3f} + {SOS_WEIGHT}*{current_sos_norm:.3f}")
+    print(
+        f"      powerscore = {OFF_WEIGHT}*{cf_off:.2f} + {DEF_WEIGHT}*{current_def_norm:.3f} "
+        f"+ {SOS_WEIGHT}*{current_sos_norm:.3f}"
+    )
     print(f"      = {cf_power:.4f} (vs current {current_power:.4f}, delta = {delta_power:+.4f})")
 
 
@@ -571,16 +605,22 @@ print("PART 6: POWERSCORE DECOMPOSITION — WHY SOS AND DEF DON'T COMPENSATE")
 print("=" * 120)
 
 current_power = OFF_WEIGHT * current_off_norm + DEF_WEIGHT * current_def_norm + SOS_WEIGHT * current_sos_norm
-print(f"\n  CURRENT POWERSCORE CALCULATION:")
+print("\n  CURRENT POWERSCORE CALCULATION:")
 print(f"    off_norm  = {current_off_norm:.3f}  (weight: {OFF_WEIGHT})")
 print(f"    def_norm  = {current_def_norm:.3f}  (weight: {DEF_WEIGHT})")
 print(f"    sos_norm  = {current_sos_norm:.3f}  (weight: {SOS_WEIGHT})")
-print(f"    powerscore_core = {OFF_WEIGHT}*{current_off_norm:.3f} + {DEF_WEIGHT}*{current_def_norm:.3f} + {SOS_WEIGHT}*{current_sos_norm:.3f}")
-print(f"                    = {OFF_WEIGHT * current_off_norm:.4f} + {DEF_WEIGHT * current_def_norm:.4f} + {SOS_WEIGHT * current_sos_norm:.4f}")
+print(
+    f"    powerscore_core = {OFF_WEIGHT}*{current_off_norm:.3f} + "
+    f"{DEF_WEIGHT}*{current_def_norm:.3f} + {SOS_WEIGHT}*{current_sos_norm:.3f}"
+)
+print(
+    f"                    = {OFF_WEIGHT * current_off_norm:.4f} + "
+    f"{DEF_WEIGHT * current_def_norm:.4f} + {SOS_WEIGHT * current_sos_norm:.4f}"
+)
 print(f"                    = {current_power:.4f}")
 print(f"    powerscore_adj (from DB): {phoenix.get('powerscore_adj', 'N/A')}")
 
-print(f"\n  SCENARIO ANALYSIS:")
+print("\n  SCENARIO ANALYSIS:")
 scenarios = [
     ("Current", current_off_norm),
     ("off_norm = 0.50 (median)", 0.50),
@@ -596,10 +636,13 @@ for label, off_n in scenarios:
     print(f"    {label:35s} {off_n:.3f} {current_def_norm:.3f} {current_sos_norm:.3f} {p:8.4f} {d:+8.4f}")
 
 # --- Top 10 AZ U12M comparison ---
-print(f"\n  TOP 10 AZ U12M TEAMS (for comparison):")
+print("\n  TOP 10 AZ U12M TEAMS (for comparison):")
 top10 = (
     sb.table("rankings_full")
-    .select("team_id, rank_in_cohort, off_norm, def_norm, sos_norm, powerscore_adj, powerscore_ml, games_played, national_rank, state_rank")
+    .select(
+        "team_id, rank_in_cohort, off_norm, def_norm, sos_norm, "
+        "powerscore_adj, powerscore_ml, games_played, national_rank, state_rank"
+    )
     .eq("age_group", "u12")
     .eq("gender", "Male")
     .eq("state_code", "AZ")
@@ -612,12 +655,15 @@ top10_ids = [t["team_id"] for t in top10.data]
 top10_names = {}
 if top10_ids:
     for i in range(0, len(top10_ids), 50):
-        batch = top10_ids[i:i + 50]
+        batch = top10_ids[i : i + 50]
         res = sb.table("teams").select("team_id_master, team_name").in_("team_id_master", batch).execute()
         for t in res.data:
             top10_names[t["team_id_master"]] = t["team_name"]
 
-print(f"\n    {'#':>3s} {'Team':35s} {'Off':>6s} {'Def':>6s} {'SOS':>6s} {'PwrAdj':>8s} {'PwrML':>8s} {'NatRk':>6s} {'GP':>4s} {'PhxDiff':>8s}")
+print(
+    f"\n    {'#':>3s} {'Team':35s} {'Off':>6s} {'Def':>6s} {'SOS':>6s} "
+    f"{'PwrAdj':>8s} {'PwrML':>8s} {'NatRk':>6s} {'GP':>4s} {'PhxDiff':>8s}"
+)
 print(f"    {'-' * 100}")
 
 phoenix_in_top10 = False
@@ -635,18 +681,25 @@ for i, t in enumerate(top10.data, 1):
         phoenix_in_top10 = True
     off_diff = off - current_off_norm
     print(
-        f"    {i:3d} {tname:35s} {off:6.3f} {def_:6.3f} {sos:6.3f} {ps:8.4f} {ps_ml:8.4f} {nr:6d} {gp:4d} {off_diff:+8.3f}{marker}"
+        f"    {i:3d} {tname:35s} {off:6.3f} {def_:6.3f} {sos:6.3f} "
+        f"{ps:8.4f} {ps_ml:8.4f} {nr:6d} {gp:4d} {off_diff:+8.3f}{marker}"
     )
 
 if not phoenix_in_top10:
-    print(f"\n    ** Phoenix NOT in top 15 AZ by powerscore_adj **")
-    print(f"    Phoenix metrics: off={current_off_norm:.3f} def={current_def_norm:.3f} sos={current_sos_norm:.3f} pwr={phoenix.get('powerscore_adj', 0):.4f}")
+    print("\n    ** Phoenix NOT in top 15 AZ by powerscore_adj **")
+    print(
+        f"    Phoenix metrics: off={current_off_norm:.3f} def={current_def_norm:.3f} "
+        f"sos={current_sos_norm:.3f} pwr={phoenix.get('powerscore_adj', 0):.4f}"
+    )
 
-print(f"\n  KEY OBSERVATION:")
+print("\n  KEY OBSERVATION:")
 print(f"    Phoenix has def_norm = {current_def_norm:.3f} and sos_norm = {current_sos_norm:.3f}")
 print(f"    These are elite-tier metrics. But off_norm = {current_off_norm:.3f} is a massive outlier.")
 print(f"    Off_norm contributes only {OFF_WEIGHT * current_off_norm:.4f} to powerscore (20% weight).")
-print(f"    If off_norm were 0.80, the contribution would be {OFF_WEIGHT * 0.80:.4f} — a gain of {OFF_WEIGHT * (0.80 - current_off_norm):.4f}.")
+print(
+    f"    If off_norm were 0.80, the contribution would be {OFF_WEIGHT * 0.80:.4f} "
+    f"— a gain of {OFF_WEIGHT * (0.80 - current_off_norm):.4f}."
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -664,15 +717,18 @@ national_rank = phoenix.get("national_rank", 0) or 0
 nat_rank_ml = phoenix.get("rank_in_cohort_ml")  # ML rank
 state_rank = phoenix.get("state_rank", 0) or 0
 
-print(f"\n  PHOENIX ML METRICS:")
+print("\n  PHOENIX ML METRICS:")
 print(f"    ml_overperf (raw residual, goals):  {ml_overperf:+.4f}")
 print(f"    ml_norm (cohort-normalized):         {ml_norm:+.4f}")
 print(f"    powerscore_adj (pre-ML):             {powerscore_adj:.4f}")
 print(f"    powerscore_ml  (post-ML):            {powerscore_ml:.4f}")
 print(f"    ML adjustment = alpha * ml_norm = {ML_ALPHA} * {ml_norm:+.4f} = {ML_ALPHA * ml_norm:+.6f}")
-print(f"    Computed powerscore_ml = {powerscore_adj:.4f} + {ML_ALPHA * ml_norm:+.6f} = {powerscore_adj + ML_ALPHA * ml_norm:.4f}")
+print(
+    f"    Computed powerscore_ml = {powerscore_adj:.4f} + {ML_ALPHA * ml_norm:+.6f} "
+    f"= {powerscore_adj + ML_ALPHA * ml_norm:.4f}"
+)
 
-print(f"\n  RANK IMPACT:")
+print("\n  RANK IMPACT:")
 print(f"    National rank (adj):  #{national_rank}")
 # Try to find ML national rank
 rank_ml_field = phoenix.get("national_rank_ml") or phoenix.get("rank_in_cohort_ml") or "N/A"
@@ -680,30 +736,33 @@ print(f"    National rank (ML):   #{rank_ml_field}")
 if isinstance(rank_ml_field, (int, float)) and isinstance(national_rank, (int, float)):
     print(f"    ML rank improvement:  {national_rank - int(rank_ml_field)} positions")
 
-print(f"\n  ML MODEL FEATURES (from source code, layer13_predictive_adjustment.py):")
-print(f"    - team_power:   team's power_presos")
-print(f"    - opp_power:    opponent's power_presos")
-print(f"    - power_diff:   team_power - opp_power")
-print(f"    - age_gap:      abs(team_age - opp_age)  ** THIS IS THE KEY FEATURE **")
-print(f"    - cross_gender: binary flag for cross-gender matchups")
+print("\n  ML MODEL FEATURES (from source code, layer13_predictive_adjustment.py):")
+print("    - team_power:   team's power_presos")
+print("    - opp_power:    opponent's power_presos")
+print("    - power_diff:   team_power - opp_power")
+print("    - age_gap:      abs(team_age - opp_age)  ** THIS IS THE KEY FEATURE **")
+print("    - cross_gender: binary flag for cross-gender matchups")
 
-print(f"\n  HOW ML PARTIALLY CORRECTS:")
-print(f"    The ML model includes age_gap as a feature. When predicting goal_margin,")
-print(f"    the model learns that positive age_gap (playing older) predicts lower margins.")
-print(f"    Phoenix's games vs U13 opponents have age_gap = 1.")
-print(f"    The model's predicted margin for these games is lower than for same-age games.")
-print(f"    The residual (actual - predicted) is therefore higher when Phoenix does well")
-print(f"    against older opponents — the model 'expects' fewer goals and gives credit")
-print(f"    for the actual performance.")
+print("\n  HOW ML PARTIALLY CORRECTS:")
+print("    The ML model includes age_gap as a feature. When predicting goal_margin,")
+print("    the model learns that positive age_gap (playing older) predicts lower margins.")
+print("    Phoenix's games vs U13 opponents have age_gap = 1.")
+print("    The model's predicted margin for these games is lower than for same-age games.")
+print("    The residual (actual - predicted) is therefore higher when Phoenix does well")
+print("    against older opponents — the model 'expects' fewer goals and gives credit")
+print("    for the actual performance.")
 
-print(f"\n  WHY ML CORRECTION IS INCOMPLETE:")
+print("\n  WHY ML CORRECTION IS INCOMPLETE:")
 print(f"    1. ML alpha = {ML_ALPHA} — very conservative blend weight")
 print(f"       Max ML adjustment = +-({ML_ALPHA} * 0.5) = +-{ML_ALPHA * 0.5:.4f}")
-print(f"       This is a tiny fraction of the powerscore range")
+print("       This is a tiny fraction of the powerscore range")
 print(f"    2. The off_norm penalty is {OFF_WEIGHT * (0.80 - current_off_norm):.4f} in powerscore terms")
-print(f"       ML can recover at most {ML_ALPHA * 0.5:.4f}, covering ~{ML_ALPHA * 0.5 / max(OFF_WEIGHT * (0.80 - current_off_norm), 0.0001) * 100:.0f}% of the gap")
-print(f"    3. The ML residual is per-game, not per-pipeline-stage")
-print(f"       It can't directly fix the normalization-within-cohort problem")
+print(
+    f"       ML can recover at most {ML_ALPHA * 0.5:.4f}, covering "
+    f"~{ML_ALPHA * 0.5 / max(OFF_WEIGHT * (0.80 - current_off_norm), 0.0001) * 100:.0f}% of the gap"
+)
+print("    3. The ML residual is per-game, not per-pipeline-stage")
+print("       It can't directly fix the normalization-within-cohort problem")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

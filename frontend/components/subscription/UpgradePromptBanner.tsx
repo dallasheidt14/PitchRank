@@ -1,10 +1,10 @@
-"use client";
+'use client';
 
-import Link from "next/link";
-import { Crown, ArrowRight, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { useState } from "react";
-import { trackPaywallUpgradeClicked } from "@/lib/events";
+import Link from 'next/link';
+import { Crown, ArrowRight, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { useState } from 'react';
+import { trackPaywallUpgradeClicked } from '@/lib/events';
 
 interface UpgradePromptBannerProps {
   /** The feature being gated */
@@ -23,7 +23,7 @@ interface UpgradePromptBannerProps {
 
 export function UpgradePromptBanner({
   feature,
-  headline = "Unlock Premium Features",
+  headline = 'Unlock Premium Features',
   description,
   location,
   dismissible = false,
@@ -41,9 +41,7 @@ export function UpgradePromptBanner({
     return (
       <div className="flex items-center gap-3 px-4 py-2.5 bg-primary/5 border border-primary/10 rounded-lg">
         <Crown className="w-4 h-4 text-primary flex-shrink-0" />
-        <span className="text-sm text-muted-foreground flex-1">
-          {description || `${feature} is a premium feature`}
-        </span>
+        <span className="text-sm text-muted-foreground flex-1">{description || `${feature} is a premium feature`}</span>
         <Link href={`/upgrade?source=${encodeURIComponent(location)}`} onClick={handleClick}>
           <Button size="sm" variant="outline" className="text-xs whitespace-nowrap">
             Upgrade
@@ -68,8 +66,7 @@ export function UpgradePromptBanner({
       <Crown className="w-8 h-8 text-primary mx-auto mb-3" />
       <h3 className="font-semibold text-lg mb-2">{headline}</h3>
       <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">
-        {description ||
-          `Get full access to ${feature.toLowerCase()} and all premium analytics with PitchRank+.`}
+        {description || `Get full access to ${feature.toLowerCase()} and all premium analytics with PitchRank+.`}
       </p>
       <Link href={`/upgrade?source=${encodeURIComponent(location)}`} onClick={handleClick}>
         <Button size="default">
@@ -78,9 +75,7 @@ export function UpgradePromptBanner({
           <ArrowRight className="w-4 h-4 ml-2" />
         </Button>
       </Link>
-      <p className="text-xs text-muted-foreground mt-3">
-        Starting at $5.75/mo. Cancel anytime.
-      </p>
+      <p className="text-xs text-muted-foreground mt-3">Starting at $5.75/mo. Cancel anytime.</p>
     </div>
   );
 }

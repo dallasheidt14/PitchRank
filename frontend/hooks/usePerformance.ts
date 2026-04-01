@@ -1,4 +1,4 @@
-'use client'
+'use client';
 
 /**
  * React hooks for performance monitoring.
@@ -14,31 +14,27 @@
  *   useApiPerformance()
  */
 
-import { useEffect, useRef } from 'react'
-import {
-  trackWebVitals,
-  measureRender,
-  printPerfReport,
-} from '@/lib/performance'
+import { useEffect, useRef } from 'react';
+import { trackWebVitals, measureRender, printPerfReport } from '@/lib/performance';
 
 /**
  * Initialize Web Vitals tracking. Call once in your root layout.
  */
 export function useWebVitals() {
   useEffect(() => {
-    trackWebVitals()
+    trackWebVitals();
 
     // Print report on page hide (tab switch / close)
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
-        printPerfReport()
+        printPerfReport();
       }
-    }
-    document.addEventListener('visibilitychange', handleVisibilityChange)
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
-  }, [])
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
 }
 
 /**
@@ -47,19 +43,19 @@ export function useWebVitals() {
  * @param componentName - Name for the measurement
  * @returns Render duration in ms (0 until mount completes)
  */
-function useRenderTime(componentName: string) {
-  const durationRef = useRef(0)
+export function useRenderTime(componentName: string) {
+  const durationRef = useRef(0);
 
   useEffect(() => {
-    const m = measureRender(componentName)
+    const m = measureRender(componentName);
     // requestAnimationFrame ensures we measure after paint
     const raf = requestAnimationFrame(() => {
-      durationRef.current = m.end()
-    })
-    return () => cancelAnimationFrame(raf)
-  }, [componentName])
+      durationRef.current = m.end();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [componentName]);
 
-  return durationRef
+  return durationRef;
 }
 
 /**
@@ -68,25 +64,25 @@ function useRenderTime(componentName: string) {
  *
  * @param componentName - Name for logging
  */
-function useRenderCount(componentName: string) {
-  const count = useRef(0)
-  const lastRender = useRef(Date.now())
+export function useRenderCount(componentName: string) {
+  const count = useRef(0);
+  const lastRender = useRef(0);
 
   useEffect(() => {
-    count.current += 1
-    const now = Date.now()
-    const delta = now - lastRender.current
+    count.current += 1;
+    const now = Date.now();
+    const delta = now - lastRender.current;
 
     if (process.env.NODE_ENV === 'development' && count.current > 1) {
       if (delta < 100) {
         console.warn(
           `[RenderCount] ${componentName}: render #${count.current} ` +
-          `(${delta}ms since last — possible unnecessary re-render)`
-        )
+            `(${delta}ms since last — possible unnecessary re-render)`
+        );
       }
     }
-    lastRender.current = now
-  })
+    lastRender.current = now;
+  });
 
-  return count
+  return count;
 }

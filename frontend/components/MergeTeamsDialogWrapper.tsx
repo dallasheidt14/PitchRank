@@ -15,10 +15,7 @@ interface ErrorBoundaryState {
   hasError: boolean;
 }
 
-class ErrorBoundary extends Component<
-  { children: ReactNode },
-  ErrorBoundaryState
-> {
+class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
   constructor(props: { children: ReactNode }) {
     super(props);
     this.state = { hasError: false };
@@ -58,4 +55,3 @@ export function MergeTeamsDialogWrapper(props: MergeTeamsDialogWrapperProps) {
     </ErrorBoundary>
   );
 }
-

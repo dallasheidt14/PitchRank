@@ -38,7 +38,7 @@ export function RecentMovers({
   ageGroup = 'u12',
   gender = 'M',
   maxItems = 5,
-  defaultTimeWindow = '7d'
+  defaultTimeWindow = '7d',
 }: RecentMoversProps) {
   // Load time window preference from localStorage
   const [timeWindow, setTimeWindow] = useState<TimeWindow>(() => {
@@ -79,7 +79,7 @@ export function RecentMovers({
     const rankChangeField = timeWindow === '7d' ? 'rank_change_7d' : 'rank_change_30d';
 
     return rankings
-      .filter(team => {
+      .filter((team) => {
         const change = team[rankChangeField];
         // Must have a non-zero rank change
         if (change === null || change === undefined || Math.abs(change) === 0) return false;
@@ -148,9 +148,7 @@ export function RecentMovers({
             ) : (
               <div className="space-y-1">
                 {recentMovers.map((team) => {
-                  const rankChange = timeWindow === '7d'
-                    ? team.rank_change_7d ?? 0
-                    : team.rank_change_30d ?? 0;
+                  const rankChange = timeWindow === '7d' ? (team.rank_change_7d ?? 0) : (team.rank_change_30d ?? 0);
                   const isImprovement = rankChange > 0;
 
                   return (
@@ -167,7 +165,9 @@ export function RecentMovers({
                           {team.team_name}
                         </div>
                         <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-                          <span className="font-mono">#{computedNationalRanks.get(team.team_id_master) ?? team.rank_in_cohort_final}</span>
+                          <span className="font-mono">
+                            #{computedNationalRanks.get(team.team_id_master) ?? team.rank_in_cohort_final}
+                          </span>
                           {team.state && (
                             <>
                               <span>•</span>
@@ -178,9 +178,7 @@ export function RecentMovers({
                       </div>
                       <div
                         className={`flex items-center gap-1.5 text-sm font-bold px-2 py-1 rounded ${
-                          isImprovement
-                            ? 'bg-green-100 text-green-600'
-                            : 'bg-red-100 text-red-600'
+                          isImprovement ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
                         }`}
                         aria-label={`${isImprovement ? 'Improved' : 'Declined'} by ${Math.abs(rankChange)} ranks`}
                       >

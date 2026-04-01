@@ -19,9 +19,9 @@ from pathlib import Path
 from typing import Optional
 
 from src.profiling.cpu_profiler import CpuProfiler
+from src.profiling.db_profiler import QueryProfiler
 from src.profiling.memory_profiler import MemoryProfiler
 from src.profiling.timer import TimingReport
-from src.profiling.db_profiler import QueryProfiler
 
 logger = logging.getLogger(__name__)
 

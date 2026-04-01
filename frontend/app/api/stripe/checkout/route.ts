@@ -41,7 +41,10 @@ export async function POST(req: Request) {
     }
 
     // Check if user already has active or trialing subscription
-    if (profile?.plan === 'premium' && (profile?.subscription_status === 'active' || profile?.subscription_status === 'trialing')) {
+    if (
+      profile?.plan === 'premium' &&
+      (profile?.subscription_status === 'active' || profile?.subscription_status === 'trialing')
+    ) {
       return NextResponse.json({ error: 'You already have an active subscription' }, { status: 400 });
     }
 

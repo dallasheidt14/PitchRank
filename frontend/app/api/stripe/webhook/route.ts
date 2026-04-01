@@ -104,7 +104,10 @@ export async function POST(req: Request) {
     if (isPermanentError(error)) {
       // No matching user — retrying won't help. Acknowledge so Stripe stops.
       console.warn(`[webhook] Permanent error, returning 200 to stop retries`);
-      return NextResponse.json({ received: true, error: 'Permanent webhook error', detail: errorMessage }, { status: 200 });
+      return NextResponse.json(
+        { received: true, error: 'Permanent webhook error', detail: errorMessage },
+        { status: 200 }
+      );
     }
 
     // Transient error (DB timeout, network issue) — return 500 so Stripe retries
@@ -149,11 +152,11 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
   await notifyAdmin(
     `<b>New Signup!</b>\n` +
-    `${statusLabel}\n` +
-    `<b>Name:</b> ${customerName}\n` +
-    `<b>Email:</b> ${customerEmail}\n` +
-    `<b>Plan:</b> ${planLabel}\n` +
-    `<b>Status:</b> ${subscription.status}`
+      `${statusLabel}\n` +
+      `<b>Name:</b> ${customerName}\n` +
+      `<b>Email:</b> ${customerEmail}\n` +
+      `<b>Plan:</b> ${planLabel}\n` +
+      `<b>Status:</b> ${subscription.status}`
   );
 
   // Set subscriber tier to premium in Beehiiv (gates welcome sequence pitch emails)
@@ -226,8 +229,11 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
   const parentSub = invoice.parent?.subscription_details?.subscription;
   const legacySub = (invoice as unknown as Record<string, unknown>).subscription;
   const subscriptionId =
-    (typeof parentSub === 'string' ? parentSub : typeof parentSub === 'object' && parentSub !== null ? (parentSub as { id: string }).id : null)
-    ?? (typeof legacySub === 'string' ? legacySub : null);
+    (typeof parentSub === 'string'
+      ? parentSub
+      : typeof parentSub === 'object' && parentSub !== null
+        ? (parentSub as { id: string }).id
+        : null) ?? (typeof legacySub === 'string' ? legacySub : null);
 
   if (!subscriptionId) {
     // One-time payment, not a subscription

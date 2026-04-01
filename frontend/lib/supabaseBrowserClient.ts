@@ -24,4 +24,3 @@ export function createSupabaseBrowserClient(): SupabaseClient {
   supabaseBrowserInstance = createBrowserClient(supabaseUrl, supabaseAnonKey);
   return supabaseBrowserInstance;
 }
-

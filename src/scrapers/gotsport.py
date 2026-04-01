@@ -1,25 +1,28 @@
 """GotSport scraper implementation using API"""
+
+import logging
+import os
+import random
+import time
+from datetime import date, datetime, timezone
+from typing import Dict, List, Optional
+
 import requests
 from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-from urllib3.exceptions import SSLError as Urllib3SSLError
 from requests.exceptions import SSLError as RequestsSSLError
-from typing import List, Optional, Dict
-from datetime import datetime, date, timedelta, timezone
-import logging
-import time
-import random
-import os
+from urllib3.exceptions import SSLError as Urllib3SSLError
+from urllib3.util.retry import Retry
 
 try:
     import certifi
+
     CERTIFI_AVAILABLE = True
 except ImportError:
     CERTIFI_AVAILABLE = False
     certifi = None
 
-from src.scrapers.base import BaseScraper
 from src.base import GameData
+from src.scrapers.base import BaseScraper
 from src.utils.team_utils import CURRENT_YEAR
 
 logger = logging.getLogger(__name__)
@@ -27,7 +30,8 @@ logger = logging.getLogger(__name__)
 
 class TeamNotFoundError(Exception):
     """Raised when a team ID returns 404 from the provider API"""
-    def __init__(self, team_id, provider='gotsport'):
+
+    def __init__(self, team_id, provider="gotsport"):
         self.team_id = team_id
         self.provider = provider
         super().__init__(f"Team {team_id} not found on {provider} (404)")
@@ -35,92 +39,94 @@ class TeamNotFoundError(Exception):
 
 class GotSportScraper(BaseScraper):
     """Scraper for GotSport using their API endpoint"""
-    
+
     BASE_URL = "https://system.gotsport.com/api/v1"
     RANKINGS_BASE = "https://rankings.gotsport.com"
-    
-    def __init__(self, supabase_client, provider_code: str = 'gotsport'):
+
+    def __init__(self, supabase_client, provider_code: str = "gotsport"):
         super().__init__(supabase_client, provider_code)
-        
+
         # Configuration
-        self.delay_min = float(os.getenv('GOTSPORT_DELAY_MIN', '1.5'))
-        self.delay_max = float(os.getenv('GOTSPORT_DELAY_MAX', '2.5'))
-        self.max_retries = int(os.getenv('GOTSPORT_MAX_RETRIES', '3'))
-        self.timeout = int(os.getenv('GOTSPORT_TIMEOUT', '30'))
-        self.retry_delay = float(os.getenv('GOTSPORT_RETRY_DELAY', '2.0'))
-        
+        self.delay_min = float(os.getenv("GOTSPORT_DELAY_MIN", "1.5"))
+        self.delay_max = float(os.getenv("GOTSPORT_DELAY_MAX", "2.5"))
+        self.max_retries = int(os.getenv("GOTSPORT_MAX_RETRIES", "3"))
+        self.timeout = int(os.getenv("GOTSPORT_TIMEOUT", "30"))
+        self.retry_delay = float(os.getenv("GOTSPORT_RETRY_DELAY", "2.0"))
+
         # ZenRows configuration (optional)
-        self.zenrows_api_key = os.getenv('ZENROWS_API_KEY')
+        self.zenrows_api_key = os.getenv("ZENROWS_API_KEY")
         self.use_zenrows = bool(self.zenrows_api_key)
-        
+
         # Session setup
         self.session = self._init_http_session()
-        
+
         # Club name cache
         self.club_cache: Dict[str, str] = {}
-        
+
         logger.info(f"Initialized GotSportScraper (ZenRows: {'enabled' if self.use_zenrows else 'disabled'})")
-    
+
     def _init_http_session(self) -> requests.Session:
         """
         Initialize HTTP session with optimized connection pool for concurrent scraping
-        
+
         SSL improvements:
         - Uses certifi for up-to-date certificates
         - Configures urllib3 SSL context for better stability
         - Connection pool recycling to avoid stale SSL connections
-        
+
         Returns:
             Configured requests.Session with HTTPAdapter supporting up to 100 concurrent connections
         """
         session = requests.Session()
-        
+
         # SSL configuration: use certifi if available for better certificate handling
         verify_ssl = True
         if CERTIFI_AVAILABLE:
             verify_ssl = certifi.where()
             logger.debug(f"Using certifi certificates: {verify_ssl}")
-        
+
         # Configure HTTPAdapter with larger connection pool and SSL improvements
         adapter = HTTPAdapter(
-            pool_connections=100,   # number of connection pools
-            pool_maxsize=100,       # total concurrent connections
+            pool_connections=100,  # number of connection pools
+            pool_maxsize=100,  # total concurrent connections
             max_retries=Retry(
                 total=3,
                 backoff_factor=0.3,
                 status_forcelist=[500, 502, 503, 504],  # Retry on server errors
                 # Retry on SSL errors (will be caught and retried)
-                allowed_methods=["GET", "HEAD"]
-            )
+                allowed_methods=["GET", "HEAD"],
+            ),
         )
-        
+
         # Mount adapter for both HTTPS and HTTP
         session.mount("https://", adapter)
         session.mount("http://", adapter)
-        
+
         # Set SSL verification (use certifi if available)
         session.verify = verify_ssl
-        
+
         # Set headers
-        session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Origin': self.RANKINGS_BASE,
-            'Referer': f'{self.RANKINGS_BASE}/',
-            'Connection': 'keep-alive',
-        })
-        
+        session.headers.update(
+            {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",  # noqa: E501
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Origin": self.RANKINGS_BASE,
+                "Referer": f"{self.RANKINGS_BASE}/",
+                "Connection": "keep-alive",
+            }
+        )
+
         return session
-    
+
     def scrape_team_games(self, team_id: str, since_date: Optional[datetime] = None) -> List[GameData]:
         """
         Scrape games for a specific GotSport team using API
-        
+
         Args:
             team_id: GotSport team ID
             since_date: Only scrape games after this date (for incremental updates)
-        
+
         Returns:
             List of GameData objects
         """
@@ -130,14 +136,14 @@ class GotSportScraper(BaseScraper):
         except (ValueError, TypeError):
             logger.error(f"Invalid team_id: {team_id}")
             return []
-        
+
         # For incremental scraping: use last scrape date if available
         # For first-time scraping: use October 17, 2025 baseline
         # If since_date is explicitly None, get all games
         if since_date is None:
             # Explicitly None means get all games (no date filter)
             since_date_obj = None
-            logger.debug(f"Fetching all games (no date filter)")
+            logger.debug("Fetching all games (no date filter)")
         elif since_date:
             # Use the last scrape date (incremental update)
             since_date_obj = since_date.date() if isinstance(since_date, datetime) else since_date
@@ -146,25 +152,25 @@ class GotSportScraper(BaseScraper):
             # First-time scrape: use October 17, 2025 baseline
             since_date_obj = date(2025, 10, 17)
             logger.debug(f"First-time scrape: fetching games since {since_date_obj} (Oct 17, 2025 baseline)")
-        
+
         # API endpoint
         api_url = f"{self.BASE_URL}/teams/{normalized_team_id}/matches"
-        params = {'past': 'true'}
-        
+        params = {"past": "true"}
+
         # Try to add date filtering at API level (if supported)
         # Common parameter names: since_date, from_date, date_from, since
         # Format: YYYY-MM-DD or ISO format
         if since_date_obj:
-            since_date_str = since_date_obj.strftime('%Y-%m-%d')
+            since_date_str = since_date_obj.strftime("%Y-%m-%d")
             # Try common date parameter names (API may ignore if not supported)
-            params['since_date'] = since_date_str
-            params['from_date'] = since_date_str
-        
+            params["since_date"] = since_date_str
+            params["from_date"] = since_date_str
+
         # Fetch club name first
         club_name = self._extract_club_name(normalized_team_id)
-        
+
         games = []
-        
+
         # Retry logic
         for attempt in range(self.max_retries):
             try:
@@ -173,61 +179,64 @@ class GotSportScraper(BaseScraper):
                     response = self._make_zenrows_request(api_url, params)
                 else:
                     response = self.session.get(api_url, params=params, timeout=self.timeout)
-                
+
                 response.raise_for_status()
                 data = response.json()
-                
+
                 # API returns a list directly
                 if isinstance(data, list) and data:
                     matches = data
                     # Sort by date (newest first) and cap to most recent 30
                     try:
-                        matches.sort(key=lambda m: m.get('match_date') or '', reverse=True)
+                        matches.sort(key=lambda m: m.get("match_date") or "", reverse=True)
                     except Exception:
                         pass
-                    
+
                     logger.info(f"API returned {len(matches)} matches for team {normalized_team_id}")
-                    
+
                     # OPTIMIZATION: Parse matches with early exit
                     # Since matches are sorted newest first, we can stop parsing once we hit a date before our cutoff
                     for match in matches[:30]:  # Cap to 30 most recent
                         # Quick date check before full parsing (early exit optimization)
-                        match_date_str = match.get('match_date', '')
+                        match_date_str = match.get("match_date", "")
                         if match_date_str:
                             try:
                                 # Parse date in UTC to avoid timezone conversion issues
-                                if 'T' in match_date_str:
-                                    dt = datetime.fromisoformat(match_date_str.replace('Z', '+00:00'))
+                                if "T" in match_date_str:
+                                    dt = datetime.fromisoformat(match_date_str.replace("Z", "+00:00"))
                                     if dt.tzinfo is not None:
                                         game_date = dt.astimezone(timezone.utc).date()
                                     else:
                                         game_date = dt.date()
                                 else:
-                                    game_date = datetime.strptime(match_date_str, '%Y-%m-%d').date()
+                                    game_date = datetime.strptime(match_date_str, "%Y-%m-%d").date()
                                 # If this game is before our cutoff, stop parsing (all remaining will be older)
                                 if since_date_obj is not None and game_date < since_date_obj:
-                                    logger.debug(f"Reached date cutoff at {game_date}, stopping parse for team {normalized_team_id}")
+                                    logger.debug(
+                                        f"Reached date cutoff at {game_date}, "
+                        f"stopping parse for team {normalized_team_id}"
+                                    )
                                     break
                             except (ValueError, TypeError):
                                 # If date parsing fails, continue to full parse (will be filtered there)
                                 pass
-                        
+
                         # Full parse (includes date filtering as backup)
                         game = self._parse_api_match(match, normalized_team_id, since_date_obj, club_name)
                         if game:
                             games.append(game)
-                    
+
                     break  # Success, exit retry loop
                 else:
                     logger.info(f"No matches found for team {normalized_team_id}")
                     break
-                    
+
             except requests.exceptions.HTTPError as e:
                 # Raise TeamNotFoundError on 404 so callers can handle it
                 if e.response is not None and e.response.status_code == 404:
                     logger.warning(f"Team {normalized_team_id} not found (404)")
                     raise TeamNotFoundError(normalized_team_id)
-                
+
                 # Retry for other HTTP errors
                 if attempt < self.max_retries - 1:
                     logger.warning(f"API attempt {attempt + 1} failed: {e}, retrying...")
@@ -236,16 +245,19 @@ class GotSportScraper(BaseScraper):
                 else:
                     logger.error(f"API failed after {self.max_retries} attempts: {e}")
                     raise
-                    
+
             except (RequestsSSLError, Urllib3SSLError) as e:
                 # SSL-specific error handling with exponential backoff
                 ssl_error_msg = str(e).lower()
-                if 'bad record mac' in ssl_error_msg or 'sslv3_alert' in ssl_error_msg:
+                if "bad record mac" in ssl_error_msg or "sslv3_alert" in ssl_error_msg:
                     # Common SSL errors that can be retried
                     if attempt < self.max_retries - 1:
                         # Exponential backoff for SSL errors (longer wait)
-                        wait_time = self.retry_delay * (2 ** attempt) + random.uniform(0, 1.0)
-                        logger.warning(f"SSL error (attempt {attempt + 1}/{self.max_retries}): {e}, retrying in {wait_time:.1f}s...")
+                        wait_time = self.retry_delay * (2**attempt) + random.uniform(0, 1.0)
+                        logger.warning(
+                            f"SSL error (attempt {attempt + 1}/{self.max_retries}): "
+                            f"{e}, retrying in {wait_time:.1f}s..."
+                        )
                         time.sleep(wait_time)
                         # Close the session to force new connection
                         self.session.close()
@@ -257,14 +269,17 @@ class GotSportScraper(BaseScraper):
                 else:
                     # Other SSL errors - still retry but log differently
                     if attempt < self.max_retries - 1:
-                        wait_time = self.retry_delay * (1.5 ** attempt)
-                        logger.warning(f"SSL error (attempt {attempt + 1}/{self.max_retries}): {e}, retrying in {wait_time:.1f}s...")
+                        wait_time = self.retry_delay * (1.5**attempt)
+                        logger.warning(
+                            f"SSL error (attempt {attempt + 1}/{self.max_retries}): "
+                            f"{e}, retrying in {wait_time:.1f}s..."
+                        )
                         time.sleep(wait_time)
                         continue
                     else:
                         logger.error(f"SSL error failed after {self.max_retries} attempts: {e}")
                         raise
-                        
+
             except requests.exceptions.RequestException as e:
                 if attempt < self.max_retries - 1:
                     logger.warning(f"Request attempt {attempt + 1} failed: {e}, retrying...")
@@ -273,83 +288,84 @@ class GotSportScraper(BaseScraper):
                 else:
                     logger.error(f"Request failed after {self.max_retries} attempts: {e}")
                     raise
-        
+
         # Rate limiting
         if self.delay_min > 0 or self.delay_max > 0:
             time.sleep(random.uniform(self.delay_min, self.delay_max))
-        
+
         logger.info(f"Found {len(games)} games for team {normalized_team_id}")
         return games
-    
+
     def _make_zenrows_request(self, url: str, params: Dict) -> requests.Response:
         """Make request through ZenRows proxy"""
         zenrows_url = "https://api.zenrows.com/v1/"
         zenrows_params = {
-            'apikey': self.zenrows_api_key,
-            'url': url,
-            'js_render': 'false',
-            'premium_proxy': 'true',
-            'proxy_country': 'us'
+            "apikey": self.zenrows_api_key,
+            "url": url,
+            "js_render": "false",
+            "premium_proxy": "true",
+            "proxy_country": "us",
         }
         # Merge original params into URL
         if params:
             from urllib.parse import urlencode
+
             url_with_params = f"{url}?{urlencode(params)}"
-            zenrows_params['url'] = url_with_params
-        
+            zenrows_params["url"] = url_with_params
+
         return self.session.get(zenrows_url, params=zenrows_params, timeout=self.timeout)
-    
+
     def _extract_club_name(self, team_id: int) -> str:
         """Extract club name from team details API"""
         try:
             api_url = f"{self.BASE_URL}/team_ranking_data/team_details"
-            params = {'team_id': team_id}
-            
+            params = {"team_id": team_id}
+
             response = self.session.get(api_url, params=params, timeout=15)
             response.raise_for_status()
-            
+
             data = response.json()
-            club_name = data.get('club_name', '')
-            
+            club_name = data.get("club_name", "")
+
             if club_name:
                 self.club_cache[str(team_id)] = club_name
                 logger.debug(f"Extracted club name for team {team_id}: '{club_name}'")
-            
+
             return club_name
-            
+
         except Exception as e:
             logger.debug(f"Failed to extract club name for team {team_id}: {e}")
-            return self.club_cache.get(str(team_id), '')
-    
-    def _parse_api_match(self, match: Dict, team_id: int, since_date: date, club_name: str = '') -> Optional[GameData]:
+            return self.club_cache.get(str(team_id), "")
+
+    def _parse_api_match(self, match: Dict, team_id: int, since_date: date, club_name: str = "") -> Optional[GameData]:
         """Parse a match from the GotSport API response"""
         try:
             # Extract team info
-            home_team = match.get('homeTeam', {})
-            away_team = match.get('awayTeam', {})
-            
+            home_team = match.get("homeTeam", {})
+            away_team = match.get("awayTeam", {})
+
             # Determine if our team is home or away
             is_home = False
             opponent = {}
-            
-            if home_team.get('team_id') == team_id:
+
+            if home_team.get("team_id") == team_id:
                 is_home = True
                 opponent = away_team
-            elif away_team.get('team_id') == team_id:
+            elif away_team.get("team_id") == team_id:
                 is_home = False
                 opponent = home_team
             else:
                 logger.debug(f"Team {team_id} not found in match")
                 return None
-            
+
             # Filter out U20+ games (PitchRank supports U10-U19)
             # Check age_group field in match or team objects
             for team_obj in [home_team, away_team]:
-                age_group = team_obj.get('age_group', '').upper().strip()
-                birth_year = team_obj.get('birth_year')
+                age_group = team_obj.get("age_group", "").upper().strip()
+                birth_year = team_obj.get("birth_year")
 
                 # Skip if age_group indicates U20+
-                if age_group in ['U20', 'U-20', '20U', 'U21', 'U-21', '21U']:
+                if age_group in ["U20", "U-20", "20U", "U21", "U-21", "21U"]:
                     logger.debug(f"Skipping U20+ game (age_group={age_group})")
                     return None
 
@@ -362,19 +378,19 @@ class GotSportScraper(BaseScraper):
                             return None
                     except (ValueError, TypeError):
                         pass
-            
+
             # Parse date
-            match_date = match.get('match_date', '')
+            match_date = match.get("match_date", "")
             if not match_date:
                 return None
-            
+
             try:
                 # Parse the date string - handle both ISO format with timezone and date-only format
                 # IMPORTANT: Extract date in UTC to avoid timezone conversion issues
-                if 'T' in match_date:
+                if "T" in match_date:
                     # ISO format with time: "2025-11-07T00:00:00Z" or "2025-11-07T00:00:00+00:00"
                     # Parse as UTC and extract date without timezone conversion
-                    dt = datetime.fromisoformat(match_date.replace('Z', '+00:00'))
+                    dt = datetime.fromisoformat(match_date.replace("Z", "+00:00"))
                     # Use UTC date directly (don't convert to local timezone)
                     # If timezone-aware, convert to UTC first, then get date
                     if dt.tzinfo is not None:
@@ -383,19 +399,19 @@ class GotSportScraper(BaseScraper):
                         game_date = dt.date()
                 else:
                     # Date-only format: "2025-11-07"
-                    game_date = datetime.strptime(match_date, '%Y-%m-%d').date()
+                    game_date = datetime.strptime(match_date, "%Y-%m-%d").date()
             except (ValueError, TypeError) as e:
                 logger.warning(f"Invalid date format: {match_date}, error: {e}")
                 return None
-            
+
             # Apply date filter
             if since_date is not None and game_date < since_date:
                 return None
-            
+
             # Extract scores
-            home_score = match.get('home_score')
-            away_score = match.get('away_score')
-            
+            home_score = match.get("home_score")
+            away_score = match.get("away_score")
+
             # Determine goals for/against
             if is_home:
                 goals_for = home_score
@@ -403,117 +419,117 @@ class GotSportScraper(BaseScraper):
             else:
                 goals_for = away_score
                 goals_against = home_score
-            
+
             # Extract opponent info
-            opponent_name = opponent.get('full_name', 'Unknown')
-            opponent_id = str(opponent.get('team_id', ''))
-            
+            opponent_name = opponent.get("full_name", "Unknown")
+            opponent_id = str(opponent.get("team_id", ""))
+
             # Extract opponent club
-            opponent_club_name = ''
+            opponent_club_name = ""
             try:
-                club_obj = opponent.get('club')
+                club_obj = opponent.get("club")
                 if isinstance(club_obj, dict):
-                    opponent_club_name = str(club_obj.get('name', '')).strip()
+                    opponent_club_name = str(club_obj.get("name", "")).strip()
             except Exception:
                 pass
-            
+
             # If missing, try to fetch
             if not opponent_club_name and opponent_id:
                 opponent_club_name = self._fetch_club_name_for_team_id(opponent_id)
-            
+
             # Extract venue
-            venue = match.get('venue', {})
-            venue_name = venue.get('name', '') if isinstance(venue, dict) else ''
-            
+            venue = match.get("venue", {})
+            venue_name = venue.get("name", "") if isinstance(venue, dict) else ""
+
             # Extract competition info
-            competition_name = match.get('competition_name', '')
-            division_name = match.get('division_name', '')
-            event_name = match.get('event_name', '')
-            
+            competition_name = match.get("competition_name", "")
+            division_name = match.get("division_name", "")
+            event_name = match.get("event_name", "")
+
             # Determine result
             result = self._determine_result(goals_for, goals_against)
-            
+
             return GameData(
                 provider_id=self.provider_code,
                 team_id=str(team_id),
                 opponent_id=opponent_id,
-                team_name='',  # Will be filled from team data
+                team_name="",  # Will be filled from team data
                 opponent_name=opponent_name,
-                game_date=game_date.strftime('%Y-%m-%d'),
-                home_away='H' if is_home else 'A',
+                game_date=game_date.strftime("%Y-%m-%d"),
+                home_away="H" if is_home else "A",
                 goals_for=goals_for,
                 goals_against=goals_against,
                 result=result,
                 competition=competition_name or division_name or event_name,
                 venue=venue_name,
                 meta={
-                    'source_url': f"{self.RANKINGS_BASE}/teams/{team_id}/game-history",
-                    'scraped_at': datetime.now().isoformat(),
-                    'club_name': club_name,
-                    'opponent_club_name': opponent_club_name
-                }
+                    "source_url": f"{self.RANKINGS_BASE}/teams/{team_id}/game-history",
+                    "scraped_at": datetime.now().isoformat(),
+                    "club_name": club_name,
+                    "opponent_club_name": opponent_club_name,
+                },
             )
-            
+
         except Exception as e:
             logger.warning(f"Error parsing API match: {e}")
             return None
-    
+
     def _fetch_club_name_for_team_id(self, team_id: str) -> str:
         """Fetch club name for a given team ID via team details API"""
         try:
             tid = int(float(str(team_id)))
         except Exception:
-            return ''
-        
+            return ""
+
         # Check cache first
         if team_id in self.club_cache:
             return self.club_cache[team_id]
-        
+
         try:
             api_url = f"{self.BASE_URL}/team_ranking_data/team_details"
-            params = {'team_id': tid}
-            
+            params = {"team_id": tid}
+
             response = self.session.get(api_url, params=params, timeout=15)
             response.raise_for_status()
-            
+
             data = response.json()
-            club_name = str(data.get('club_name', '')).strip()
-            
+            club_name = str(data.get("club_name", "")).strip()
+
             if club_name:
                 self.club_cache[team_id] = club_name
-            
+
             return club_name
         except Exception:
-            return ''
-    
+            return ""
+
     def _determine_result(self, goals_for: Optional[int], goals_against: Optional[int]) -> str:
         """Determine game result based on scores"""
         if goals_for is None or goals_against is None:
-            return 'U'  # Unknown
-        
+            return "U"  # Unknown
+
         if goals_for > goals_against:
-            return 'W'  # Win
+            return "W"  # Win
         elif goals_for < goals_against:
-            return 'L'  # Loss
+            return "L"  # Loss
         else:
-            return 'D'  # Draw
-    
+            return "D"  # Draw
+
     def _game_data_to_dict(self, game: GameData, team_id: str) -> Dict:
         """Convert GameData to import format dictionary, including club names"""
         meta = game.meta or {}
         base_dict = super()._game_data_to_dict(game, team_id)
         # Add club names from meta
-        base_dict['club_name'] = meta.get('club_name', '')
-        base_dict['opponent_club_name'] = meta.get('opponent_club_name', '')
+        base_dict["club_name"] = meta.get("club_name", "")
+        base_dict["opponent_club_name"] = meta.get("opponent_club_name", "")
         return base_dict
-    
+
     def validate_team_id(self, team_id: str) -> bool:
         """Validate if team ID exists in GotSport"""
         try:
             normalized_team_id = int(float(str(team_id)))
             api_url = f"{self.BASE_URL}/teams/{normalized_team_id}/matches"
-            params = {'past': 'true'}
-            
+            params = {"past": "true"}
+
             response = self.session.get(api_url, params=params, timeout=10)
             return response.status_code == 200
         except Exception:

@@ -23,11 +23,7 @@ function ConfidenceBadge({ confidence }: { confidence: 'high' | 'medium' | 'low'
     low: 'bg-gray-100 text-gray-800',
   };
 
-  return (
-    <Badge className={styles[confidence]}>
-      {confidence.toUpperCase()} CONFIDENCE
-    </Badge>
-  );
+  return <Badge className={styles[confidence]}>{confidence.toUpperCase()} CONFIDENCE</Badge>;
 }
 
 /**
@@ -68,12 +64,7 @@ function ExplanationFactor({
  * - Top explanation factors
  * - Key insights
  */
-export function EnhancedPredictionCard({
-  teamAName,
-  teamBName,
-  prediction,
-  explanation,
-}: EnhancedPredictionCardProps) {
+export function EnhancedPredictionCard({ teamAName, teamBName, prediction, explanation }: EnhancedPredictionCardProps) {
   const { predictedWinner, winProbabilityA, winProbabilityB, expectedScore, confidence } = prediction;
   const { summary, factors, keyInsights, predictionQuality } = explanation;
 
@@ -93,16 +84,12 @@ export function EnhancedPredictionCard({
       <CardContent className="space-y-6">
         {/* Summary */}
         <div className="text-center">
-          <p className="text-lg font-semibold text-foreground">
-            {summary}
-          </p>
+          <p className="text-lg font-semibold text-foreground">{summary}</p>
         </div>
 
         {/* Expected Score */}
         <div>
-          <h4 className="text-sm font-medium text-muted-foreground mb-2 text-center">
-            Expected Score
-          </h4>
+          <h4 className="text-sm font-medium text-muted-foreground mb-2 text-center">Expected Score</h4>
           <div className="grid grid-cols-3 text-center items-center">
             <div>
               <div className="text-sm font-medium truncate mb-1">{teamAName}</div>
@@ -133,9 +120,7 @@ export function EnhancedPredictionCard({
                   style={{ width: `${winProbabilityA * 100}%` }}
                 />
               </div>
-              <span className="text-sm font-semibold w-14 text-right">
-                {(winProbabilityA * 100).toFixed(0)}%
-              </span>
+              <span className="text-sm font-semibold w-14 text-right">{(winProbabilityA * 100).toFixed(0)}%</span>
             </div>
             {/* Team B */}
             <div className="flex items-center gap-2">
@@ -146,9 +131,7 @@ export function EnhancedPredictionCard({
                   style={{ width: `${winProbabilityB * 100}%` }}
                 />
               </div>
-              <span className="text-sm font-semibold w-14 text-right">
-                {(winProbabilityB * 100).toFixed(0)}%
-              </span>
+              <span className="text-sm font-semibold w-14 text-right">{(winProbabilityB * 100).toFixed(0)}%</span>
             </div>
           </div>
         </div>
@@ -189,9 +172,7 @@ export function EnhancedPredictionCard({
 
         {/* Prediction Quality Footer */}
         <div className="pt-4 border-t text-center">
-          <p className="text-xs text-muted-foreground">
-            {predictionQuality.reliability}
-          </p>
+          <p className="text-xs text-muted-foreground">{predictionQuality.reliability}</p>
         </div>
       </CardContent>
     </Card>

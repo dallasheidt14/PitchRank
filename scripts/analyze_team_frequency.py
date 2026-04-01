@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """Analyze how many games each team played"""
+
 import csv
 from collections import Counter
 from pathlib import Path
 
-csv_path = Path('data/raw/tgs/tgs_events_4066_4066_2025-12-11T20-26-36-840795+00-00.csv')
+csv_path = Path("data/raw/tgs/tgs_events_4066_4066_2025-12-11T20-26-36-840795+00-00.csv")
 
 team_games = Counter()
 
-with open(csv_path, 'r', encoding='utf-8') as f:
+with open(csv_path, "r", encoding="utf-8") as f:
     reader = csv.DictReader(f)
     for row in reader:
-        team_id = row.get('team_id', '')
-        team_name = row.get('team_name', '')
+        team_id = row.get("team_id", "")
+        team_name = row.get("team_name", "")
         if team_id:
             team_games[(team_id, team_name)] += 1
 
@@ -34,13 +35,4 @@ print("\n" + "=" * 80)
 print("Sample teams:")
 print("=" * 80)
 for (team_id, team_name), count in team_games.most_common(10):
-    print(f"{team_name:<50} ({team_id}): {count} appearances ({count//2} games)")
-
-
-
-
-
-
-
-
-
+    print(f"{team_name:<50} ({team_id}): {count} appearances ({count // 2} games)")

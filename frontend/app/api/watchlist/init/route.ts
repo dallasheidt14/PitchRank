@@ -16,12 +16,14 @@ export async function POST() {
     const { user, supabase } = auth;
 
     // Check if user already has a default watchlist
-    let { data: existingWatchlist, error: fetchError } = await supabase
+    const fetchResult = await supabase
       .from('watchlists')
       .select('*')
       .eq('user_id', user.id)
       .eq('is_default', true)
       .single();
+    const fetchError = fetchResult.error;
+    let existingWatchlist = fetchResult.data;
 
     if (fetchError && fetchError.code !== 'PGRST116') {
       // PGRST116 = no rows returned, which is expected if no watchlist exists

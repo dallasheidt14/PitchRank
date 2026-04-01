@@ -12,9 +12,7 @@ export function BlogCard({ post }: BlogCardProps) {
     <Link href={`/blog/${post.slug}`} className="group">
       <Card className="h-full transition-all duration-200 hover:shadow-lg hover:scale-[1.02]">
         <CardHeader>
-          <CardTitle className="group-hover:text-primary transition-colors">
-            {post.title}
-          </CardTitle>
+          <CardTitle className="group-hover:text-primary transition-colors">{post.title}</CardTitle>
           <CardDescription>{post.excerpt}</CardDescription>
         </CardHeader>
         <CardContent>
@@ -39,10 +37,7 @@ export function BlogCard({ post }: BlogCardProps) {
           {post.tags && post.tags.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-3">
               {post.tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="text-xs px-2 py-1 rounded-full bg-primary/10 text-primary font-medium"
-                >
+                <span key={tag} className="text-xs px-2 py-1 rounded-full bg-primary/10 text-primary font-medium">
                   {tag}
                 </span>
               ))}

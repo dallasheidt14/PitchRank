@@ -56,12 +56,16 @@ export function NotificationBell() {
           });
         }
         setPushEnabled(false);
-        toast({ title: 'Notifications disabled', description: 'You won\'t receive push alerts', variant: 'default' });
+        toast({ title: 'Notifications disabled', description: "You won't receive push alerts", variant: 'default' });
       } else {
         // Subscribe
         const permission = await Notification.requestPermission();
         if (permission !== 'granted') {
-          toast({ title: 'Permission denied', description: 'Please enable notifications in your browser settings', variant: 'warning' });
+          toast({
+            title: 'Permission denied',
+            description: 'Please enable notifications in your browser settings',
+            variant: 'warning',
+          });
           return;
         }
 
@@ -72,7 +76,11 @@ export function NotificationBell() {
         const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
         if (!vapidKey) {
           console.error('VAPID public key not configured');
-          toast({ title: 'Setup required', description: 'Push notifications are not yet configured', variant: 'error' });
+          toast({
+            title: 'Setup required',
+            description: 'Push notifications are not yet configured',
+            variant: 'error',
+          });
           return;
         }
 
@@ -92,7 +100,11 @@ export function NotificationBell() {
         });
 
         setPushEnabled(true);
-        toast({ title: 'Notifications enabled!', description: 'You\'ll be notified when your teams\' rankings change', variant: 'success' });
+        toast({
+          title: 'Notifications enabled!',
+          description: "You'll be notified when your teams' rankings change",
+          variant: 'success',
+        });
       }
     } catch (err) {
       console.error('Push notification error:', err);
@@ -116,16 +128,12 @@ export function NotificationBell() {
           className={`gap-2 ${pushEnabled ? 'bg-accent/10 border-accent text-accent' : ''}`}
           aria-label={pushEnabled ? 'Disable notifications' : 'Enable notifications'}
         >
-          {pushEnabled ? (
-            <Bell className="h-4 w-4 fill-current" />
-          ) : (
-            <BellOff className="h-4 w-4" />
-          )}
+          {pushEnabled ? <Bell className="h-4 w-4 fill-current" /> : <BellOff className="h-4 w-4" />}
           <span className="hidden sm:inline">{loading ? 'Saving...' : pushEnabled ? 'Alerts On' : 'Get Alerts'}</span>
         </Button>
       </TooltipTrigger>
       <TooltipContent>
-        <p>{pushEnabled ? 'Turn off push notifications' : 'Get notified when your teams\' rankings change'}</p>
+        <p>{pushEnabled ? 'Turn off push notifications' : "Get notified when your teams' rankings change"}</p>
       </TooltipContent>
     </Tooltip>
   );

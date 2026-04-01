@@ -13,11 +13,7 @@ import { test, expect, type APIRequestContext } from '@playwright/test';
  * Retry a GET request up to `maxRetries` times with exponential backoff.
  * Live Supabase endpoints can transiently 500 under concurrent load.
  */
-async function fetchWithRetry(
-  request: APIRequestContext,
-  url: string,
-  maxRetries = 2
-) {
+async function fetchWithRetry(request: APIRequestContext, url: string, maxRetries = 2) {
   let lastResponse;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     lastResponse = await request.get(url);
@@ -86,19 +82,10 @@ test.describe('Team Search API @api', () => {
   });
 
   test('handles special characters without 500 error', async ({ request }) => {
-    const queries = [
-      "O'Brien",
-      'test"injection',
-      'a & b',
-      '<script>alert(1)</script>',
-      "'; DROP TABLE teams; --",
-    ];
+    const queries = ["O'Brien", 'test"injection', 'a & b', '<script>alert(1)</script>', "'; DROP TABLE teams; --"];
 
     for (const q of queries) {
-      const response = await fetchWithRetry(
-        request,
-        `/api/teams/search?q=${encodeURIComponent(q)}`
-      );
+      const response = await fetchWithRetry(request, `/api/teams/search?q=${encodeURIComponent(q)}`);
       expect(response.status()).toBeLessThan(500);
     }
   });

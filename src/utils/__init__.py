@@ -2,18 +2,19 @@
 
 # Club normalizer (no external dependencies beyond standard library + optional rapidfuzz)
 from .club_normalizer import (
+    ClubNormResult,
+    are_same_club,
+    get_matches_needing_review,
+    group_by_club,
     normalize_club_name,
     normalize_to_club,
-    are_same_club,
     similarity_score,
-    group_by_club,
-    get_matches_needing_review,
-    ClubNormResult,
 )
 
 # Conditional imports for pandas-dependent modules
 try:
     from .merge_resolver import MergeResolver
+
     _HAVE_PANDAS_DEPS = True
 except ImportError:
     MergeResolver = None
@@ -21,13 +22,13 @@ except ImportError:
 
 __all__ = [
     # Club normalizer (always available)
-    'normalize_club_name',
-    'normalize_to_club',
-    'are_same_club',
-    'similarity_score',
-    'group_by_club',
-    'get_matches_needing_review',
-    'ClubNormResult',
+    "normalize_club_name",
+    "normalize_to_club",
+    "are_same_club",
+    "similarity_score",
+    "group_by_club",
+    "get_matches_needing_review",
+    "ClubNormResult",
     # Merge utilities (require pandas)
-    'MergeResolver',
+    "MergeResolver",
 ]

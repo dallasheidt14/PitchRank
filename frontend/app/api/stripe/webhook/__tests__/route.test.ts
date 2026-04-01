@@ -25,7 +25,7 @@ vi.mock('@/lib/stripe/server', () => ({
   },
   extractPeriodEnd: vi.fn(() => new Date().toISOString()),
   mapStatusToPlan: vi.fn((status: string) =>
-    status === 'active' || status === 'trialing' || status === 'past_due' ? 'premium' : 'free',
+    status === 'active' || status === 'trialing' || status === 'past_due' ? 'premium' : 'free'
   ),
   updateUserProfile: vi.fn().mockResolvedValue([{ id: '1' }]),
 }));
@@ -64,9 +64,7 @@ describe('POST /api/stripe/webhook', () => {
   });
 
   it('returns 400 when stripe-signature header is missing', async () => {
-    vi.mocked(headers).mockResolvedValue(
-      new Map([]) as unknown as Awaited<ReturnType<typeof headers>>,
-    );
+    vi.mocked(headers).mockResolvedValue(new Map([]) as unknown as Awaited<ReturnType<typeof headers>>);
 
     const res = await POST(makeRequest());
 
@@ -79,7 +77,7 @@ describe('POST /api/stripe/webhook', () => {
     delete process.env.STRIPE_WEBHOOK_SECRET;
 
     vi.mocked(headers).mockResolvedValue(
-      new Map([['stripe-signature', 'sig_test']]) as unknown as Awaited<ReturnType<typeof headers>>,
+      new Map([['stripe-signature', 'sig_test']]) as unknown as Awaited<ReturnType<typeof headers>>
     );
 
     const res = await POST(makeRequest());
@@ -91,9 +89,7 @@ describe('POST /api/stripe/webhook', () => {
 
   it('returns 400 with generic message on signature verification failure', async () => {
     vi.mocked(headers).mockResolvedValue(
-      new Map([['stripe-signature', 'sig_invalid']]) as unknown as Awaited<
-        ReturnType<typeof headers>
-      >,
+      new Map([['stripe-signature', 'sig_invalid']]) as unknown as Awaited<ReturnType<typeof headers>>
     );
 
     vi.mocked(stripe.webhooks.constructEvent).mockImplementation(() => {
@@ -111,9 +107,7 @@ describe('POST /api/stripe/webhook', () => {
 
   it('returns 200 for known event types', async () => {
     vi.mocked(headers).mockResolvedValue(
-      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<
-        ReturnType<typeof headers>
-      >,
+      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<ReturnType<typeof headers>>
     );
 
     const fakeEvent = {
@@ -138,9 +132,7 @@ describe('POST /api/stripe/webhook', () => {
 
   it('returns 500 on transient errors so Stripe retries', async () => {
     vi.mocked(headers).mockResolvedValue(
-      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<
-        ReturnType<typeof headers>
-      >,
+      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<ReturnType<typeof headers>>
     );
 
     const fakeEvent = {
@@ -167,9 +159,7 @@ describe('POST /api/stripe/webhook', () => {
 
   it('returns 200 on permanent errors (missing user) to stop retries', async () => {
     vi.mocked(headers).mockResolvedValue(
-      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<
-        ReturnType<typeof headers>
-      >,
+      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<ReturnType<typeof headers>>
     );
 
     const fakeEvent = {
@@ -186,7 +176,7 @@ describe('POST /api/stripe/webhook', () => {
 
     vi.mocked(stripe.webhooks.constructEvent).mockReturnValue(fakeEvent);
     vi.mocked(updateUserProfile).mockRejectedValueOnce(
-      new Error('No user profile found for Stripe customer cus_orphan'),
+      new Error('No user profile found for Stripe customer cus_orphan')
     );
 
     const res = await POST(makeRequest('valid body'));
@@ -198,9 +188,7 @@ describe('POST /api/stripe/webhook', () => {
 
   it('tracks cancel_at_period_end on subscription updates', async () => {
     vi.mocked(headers).mockResolvedValue(
-      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<
-        ReturnType<typeof headers>
-      >,
+      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<ReturnType<typeof headers>>
     );
 
     const fakeEvent = {
@@ -226,15 +214,13 @@ describe('POST /api/stripe/webhook', () => {
     expect(vi.mocked(updateUserProfile)).toHaveBeenCalledWith(
       expect.anything(),
       'cus_123',
-      expect.objectContaining({ cancel_at_period_end: true }),
+      expect.objectContaining({ cancel_at_period_end: true })
     );
   });
 
   it('returns 200 for unknown event types (acknowledge receipt)', async () => {
     vi.mocked(headers).mockResolvedValue(
-      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<
-        ReturnType<typeof headers>
-      >,
+      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<ReturnType<typeof headers>>
     );
 
     const fakeEvent = {

@@ -7,13 +7,15 @@ const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
 
 export const metadata: Metadata = {
   title: 'Methodology',
-  description: 'Learn how PitchRank calculates youth soccer team rankings and power scores using cross-age game support, unified scoring, and data-driven analytics.',
+  description:
+    'Learn how PitchRank calculates youth soccer team rankings and power scores using cross-age game support, unified scoring, and data-driven analytics.',
   alternates: {
     canonical: `${baseUrl}/methodology`,
   },
   openGraph: {
     title: 'Ranking Methodology | PitchRank',
-    description: 'Learn how PitchRank calculates youth soccer team rankings and power scores using data-driven analytics.',
+    description:
+      'Learn how PitchRank calculates youth soccer team rankings and power scores using data-driven analytics.',
     url: `${baseUrl}/methodology`,
     siteName: 'PitchRank',
     type: 'website',
@@ -37,11 +39,7 @@ export const metadata: Metadata = {
 export default function MethodologyPage() {
   return (
     <div className="container mx-auto py-8 px-4">
-      <BreadcrumbSchema
-        items={[
-          { name: 'Methodology', href: '/methodology' },
-        ]}
-      />
+      <BreadcrumbSchema items={[{ name: 'Methodology', href: '/methodology' }]} />
       <PageHeader
         title="Ranking Methodology"
         description="Understanding how PitchRank calculates team rankings and power scores"
@@ -55,4 +53,3 @@ export default function MethodologyPage() {
     </div>
   );
 }
-

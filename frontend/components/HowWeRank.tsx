@@ -15,25 +15,29 @@ const methodologyPoints: MethodologyPoint[] = [
     icon: <Scale className="h-6 w-6" />,
     title: 'Schedule Strength First',
     description: 'Your opponents matter more than your record',
-    detail: 'SOS accounts for 50% of power score. Beat strong teams to rise—padding records against weak opponents won\'t help.',
+    detail:
+      "SOS accounts for 50% of power score. Beat strong teams to rise—padding records against weak opponents won't help.",
   },
   {
     icon: <Layers className="h-6 w-6" />,
     title: 'Cross-Age Intelligence',
     description: 'Unified rankings across U10-U19',
-    detail: 'Age-anchored power scaling lets us fairly evaluate cross-age matchups. When U13 plays U14, both teams get proper credit.',
+    detail:
+      'Age-anchored power scaling lets us fairly evaluate cross-age matchups. When U13 plays U14, both teams get proper credit.',
   },
   {
     icon: <TrendingUp className="h-6 w-6" />,
     title: 'ML Trend Detection',
     description: 'We catch rising teams early',
-    detail: 'Machine learning analyzes game residuals to identify teams consistently overperforming expectations—before the standings show it.',
+    detail:
+      'Machine learning analyzes game residuals to identify teams consistently overperforming expectations—before the standings show it.',
   },
   {
     icon: <Shield className="h-6 w-6" />,
     title: 'Stability by Design',
     description: 'No wild swings from one game',
-    detail: 'Bayesian shrinkage, outlier clipping, and exponential decay prevent single results from derailing accurate rankings.',
+    detail:
+      'Bayesian shrinkage, outlier clipping, and exponential decay prevent single results from derailing accurate rankings.',
   },
 ];
 
@@ -49,9 +53,7 @@ export function HowWeRank() {
         <CardTitle className="text-2xl sm:text-3xl font-display font-bold uppercase tracking-wide">
           Why Our Rankings Are Different
         </CardTitle>
-        <p className="text-primary-foreground/80 text-sm sm:text-base">
-          Built to be accurate, not gameable
-        </p>
+        <p className="text-primary-foreground/80 text-sm sm:text-base">Built to be accurate, not gameable</p>
       </CardHeader>
       <CardContent className="p-4 sm:p-6">
         {/* Methodology Points */}
@@ -77,12 +79,8 @@ export function HowWeRank() {
                   <h3 className="font-display font-bold text-sm sm:text-base uppercase tracking-wide text-foreground mb-0.5">
                     {point.title}
                   </h3>
-                  <p className="text-xs sm:text-sm font-medium text-primary mb-1.5">
-                    {point.description}
-                  </p>
-                  <p className="text-[11px] sm:text-xs text-muted-foreground leading-relaxed">
-                    {point.detail}
-                  </p>
+                  <p className="text-xs sm:text-sm font-medium text-primary mb-1.5">{point.description}</p>
+                  <p className="text-[11px] sm:text-xs text-muted-foreground leading-relaxed">{point.detail}</p>
                 </div>
               </div>
             </div>

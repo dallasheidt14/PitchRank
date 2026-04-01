@@ -29,8 +29,8 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import requests
 from dotenv import load_dotenv
-from supabase import create_client
 
+from supabase import create_client
 
 # Values from GotSport that mean "no club" - do not update
 NO_CLUB_VALUES: Set[str] = {
@@ -122,14 +122,10 @@ def load_env() -> None:
 def get_supabase():
     supabase_url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
     supabase_key = (
-        os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-        or os.getenv("SUPABASE_SERVICE_KEY")
-        or os.getenv("SUPABASE_KEY")
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
     )
     if not supabase_url or not supabase_key:
-        raise ValueError(
-            "Missing Supabase credentials. Need SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY."
-        )
+        raise ValueError("Missing Supabase credentials. Need SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.")
     return create_client(supabase_url, supabase_key)
 
 
@@ -179,9 +175,7 @@ def fetch_gotsport_provider_id(supabase) -> Optional[str]:
     return providers[0]["id"]
 
 
-def fetch_gotsport_ids(
-    supabase, team_ids: List[str], gotsport_provider_id: str
-) -> Dict[str, str]:
+def fetch_gotsport_ids(supabase, team_ids: List[str], gotsport_provider_id: str) -> Dict[str, str]:
     """Map team_id_master -> GotSport provider_team_id.
     Sources: team_alias_map (approved), then teams.provider_team_id when provider_id=gotsport.
     """
@@ -234,9 +228,7 @@ def fetch_gotsport_ids(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Backfill missing club names from GotSport API"
-    )
+    parser = argparse.ArgumentParser(description="Backfill missing club names from GotSport API")
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -344,9 +336,7 @@ def main() -> None:
                 continue
 
             try:
-                supabase.table("teams").update({"club_name": club}).eq(
-                    "team_id_master", team_id
-                ).execute()
+                supabase.table("teams").update({"club_name": club}).eq("team_id_master", team_id).execute()
                 updated += 1
                 if updated <= 20 or updated % 100 == 0:
                     log(f"  Updated {team_name[:35]}... -> {club}")
@@ -389,9 +379,7 @@ def main() -> None:
                 updated += 1
                 continue
             try:
-                supabase.table("teams").update({"club_name": club}).eq(
-                    "team_id_master", team_id
-                ).execute()
+                supabase.table("teams").update({"club_name": club}).eq("team_id_master", team_id).execute()
                 updated += 1
                 if updated <= 20 or updated % 100 == 0:
                     team_name = team_by_id.get(team_id, {}).get("team_name", "")[:35]

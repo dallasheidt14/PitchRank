@@ -55,46 +55,47 @@ export function MergeTeamsDialog({
   const queryClient = useQueryClient();
   const router = useRouter();
 
-  const performSearch = useCallback(async (query: string) => {
-    setIsSearching(true);
-    setError(null);
+  const performSearch = useCallback(
+    async (query: string) => {
+      setIsSearching(true);
+      setError(null);
 
-    try {
-      const params = new URLSearchParams({
-        q: query,
-        limit: '20',
-      });
+      try {
+        const params = new URLSearchParams({
+          q: query,
+          limit: '20',
+        });
 
-      // Add filters to narrow results
-      if (currentTeamAgeGroup) {
-        params.append('ageGroup', currentTeamAgeGroup);
+        // Add filters to narrow results
+        if (currentTeamAgeGroup) {
+          params.append('ageGroup', currentTeamAgeGroup);
+        }
+        if (currentTeamGender) {
+          params.append('gender', currentTeamGender);
+        }
+        if (currentTeamStateCode) {
+          params.append('stateCode', currentTeamStateCode);
+        }
+
+        const response = await fetch(`/api/teams/search?${params}`);
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Search failed');
+        }
+
+        // Filter out the current team from results
+        const filtered = (data.teams || []).filter((team: Team) => team.team_id_master !== currentTeamId);
+        setSearchResults(filtered);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Search failed');
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
       }
-      if (currentTeamGender) {
-        params.append('gender', currentTeamGender);
-      }
-      if (currentTeamStateCode) {
-        params.append('stateCode', currentTeamStateCode);
-      }
-
-      const response = await fetch(`/api/teams/search?${params}`);
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Search failed');
-      }
-
-      // Filter out the current team from results
-      const filtered = (data.teams || []).filter(
-        (team: Team) => team.team_id_master !== currentTeamId
-      );
-      setSearchResults(filtered);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Search failed');
-      setSearchResults([]);
-    } finally {
-      setIsSearching(false);
-    }
-  }, [currentTeamId, currentTeamAgeGroup, currentTeamGender, currentTeamStateCode]);
+    },
+    [currentTeamId, currentTeamAgeGroup, currentTeamGender, currentTeamStateCode]
+  );
 
   // Debounced search
   useEffect(() => {
@@ -141,7 +142,7 @@ export function MergeTeamsDialog({
       }
 
       setSuccess(true);
-      
+
       // Invalidate queries to refresh data
       queryClient.invalidateQueries({ queryKey: ['team', currentTeamId] });
       queryClient.invalidateQueries({ queryKey: ['team-games', currentTeamId] });
@@ -195,9 +196,7 @@ export function MergeTeamsDialog({
             <div className="flex items-center gap-3 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
               <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
               <div>
-                <p className="font-medium text-green-900 dark:text-green-100">
-                  Successfully merged!
-                </p>
+                <p className="font-medium text-green-900 dark:text-green-100">Successfully merged!</p>
                 <p className="text-sm text-green-700 dark:text-green-300 mt-1">
                   Redirecting to {selectedTeam?.team_name}...
                 </p>
@@ -225,11 +224,14 @@ export function MergeTeamsDialog({
                 </div>
                 {currentTeamAgeGroup || currentTeamGender || currentTeamStateCode ? (
                   <p className="text-xs text-muted-foreground">
-                    Filtering by: {[
+                    Filtering by:{' '}
+                    {[
                       currentTeamAgeGroup && `Age: ${currentTeamAgeGroup}`,
                       currentTeamGender && `Gender: ${currentTeamGender}`,
                       currentTeamStateCode && `State: ${currentTeamStateCode}`,
-                    ].filter(Boolean).join(', ')}
+                    ]
+                      .filter(Boolean)
+                      .join(', ')}
                   </p>
                 ) : null}
               </div>
@@ -261,11 +263,7 @@ export function MergeTeamsDialog({
                         <div className="text-sm text-muted-foreground mt-1">
                           {team.club_name && <span>{team.club_name}</span>}
                           {team.club_name && (team.age_group || team.gender || team.state_code) && ' • '}
-                          {[
-                            team.age_group,
-                            team.gender,
-                            team.state_code,
-                          ].filter(Boolean).join(' • ')}
+                          {[team.age_group, team.gender, team.state_code].filter(Boolean).join(' • ')}
                         </div>
                       </button>
                     ))}
@@ -284,12 +282,10 @@ export function MergeTeamsDialog({
                   <p className="text-sm font-medium mb-2">Merge Preview:</p>
                   <div className="space-y-1 text-sm">
                     <div>
-                      <span className="text-muted-foreground">From:</span>{' '}
-                      <strong>{currentTeamName}</strong>
+                      <span className="text-muted-foreground">From:</span> <strong>{currentTeamName}</strong>
                     </div>
                     <div>
-                      <span className="text-muted-foreground">Into:</span>{' '}
-                      <strong>{selectedTeam.team_name}</strong>
+                      <span className="text-muted-foreground">Into:</span> <strong>{selectedTeam.team_name}</strong>
                     </div>
                     <p className="text-xs text-muted-foreground mt-2">
                       All games from {currentTeamName} will be combined with {selectedTeam.team_name}.
@@ -300,19 +296,10 @@ export function MergeTeamsDialog({
             </div>
 
             <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setOpen(false)}
-                disabled={isMerging}
-              >
+              <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isMerging}>
                 Cancel
               </Button>
-              <Button
-                type="button"
-                onClick={handleMerge}
-                disabled={!selectedTeam || isMerging || !user?.email}
-              >
+              <Button type="button" onClick={handleMerge} disabled={!selectedTeam || isMerging || !user?.email}>
                 {isMerging ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -332,4 +319,3 @@ export function MergeTeamsDialog({
     </Dialog>
   );
 }
-

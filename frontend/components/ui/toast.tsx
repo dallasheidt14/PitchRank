@@ -14,7 +14,7 @@ export interface ToastProps {
 }
 
 const Toast = React.forwardRef<HTMLDivElement, ToastProps & { className?: string }>(
-  ({ className, id, title, description, variant = 'default', onClose, ...props }, ref) => {
+  ({ className, id: _id, title, description, variant = 'default', onClose, ...props }, ref) => {
     return (
       <div
         ref={ref}
@@ -32,30 +32,37 @@ const Toast = React.forwardRef<HTMLDivElement, ToastProps & { className?: string
       >
         <div className="grid gap-1">
           {title && (
-            <div className={cn('text-sm font-semibold', {
-              'text-green-900': variant === 'success',
-              'text-red-900': variant === 'error',
-              'text-yellow-900': variant === 'warning',
-            })}>
+            <div
+              className={cn('text-sm font-semibold', {
+                'text-green-900': variant === 'success',
+                'text-red-900': variant === 'error',
+                'text-yellow-900': variant === 'warning',
+              })}
+            >
               {title}
             </div>
           )}
           {description && (
-            <div className={cn('text-sm opacity-90', {
-              'text-green-800': variant === 'success',
-              'text-red-800': variant === 'error',
-              'text-yellow-800': variant === 'warning',
-            })}>
+            <div
+              className={cn('text-sm opacity-90', {
+                'text-green-800': variant === 'success',
+                'text-red-800': variant === 'error',
+                'text-yellow-800': variant === 'warning',
+              })}
+            >
               {description}
             </div>
           )}
         </div>
         <button
-          className={cn('absolute right-2 top-2 rounded-md p-2 min-w-[44px] min-h-[44px] flex items-center justify-center opacity-0 transition-opacity hover:opacity-100 focus:opacity-100 focus:outline-none group-hover:opacity-100', {
-            'text-green-600': variant === 'success',
-            'text-red-600': variant === 'error',
-            'text-yellow-600': variant === 'warning',
-          })}
+          className={cn(
+            'absolute right-2 top-2 rounded-md p-2 min-w-[44px] min-h-[44px] flex items-center justify-center opacity-0 transition-opacity hover:opacity-100 focus:opacity-100 focus:outline-none group-hover:opacity-100',
+            {
+              'text-green-600': variant === 'success',
+              'text-red-600': variant === 'error',
+              'text-yellow-600': variant === 'warning',
+            }
+          )}
           onClick={onClose}
         >
           <X className="h-5 w-5" />
@@ -67,4 +74,3 @@ const Toast = React.forwardRef<HTMLDivElement, ToastProps & { className?: string
 Toast.displayName = 'Toast';
 
 export { Toast };
-

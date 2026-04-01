@@ -12,13 +12,13 @@ interface LastUpdatedProps {
  * LastUpdated component - displays day-based relative time
  * Shows "Today", "Yesterday", or the formatted date
  */
-export function LastUpdated({ date, label = "Last updated" }: LastUpdatedProps) {
+export function LastUpdated({ date, label = 'Last updated' }: LastUpdatedProps) {
   if (!date) return null;
 
+  let displayText: string | null = null;
   try {
     const dateObj = typeof date === 'string' ? parseISO(date) : new Date(date);
-    
-    let displayText: string;
+
     if (isToday(dateObj)) {
       displayText = 'Today';
     } else if (isYesterday(dateObj)) {
@@ -27,17 +27,20 @@ export function LastUpdated({ date, label = "Last updated" }: LastUpdatedProps) 
       // Show date in readable format (e.g., "Nov 7, 2025")
       displayText = format(dateObj, 'MMM d, yyyy');
     }
-
-    return (
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Clock className="h-3 w-3" />
-        <span>{label}: {displayText}</span>
-      </div>
-    );
   } catch (error) {
     // If date parsing fails, return null
     console.error('Error formatting date:', error);
     return null;
   }
-}
 
+  if (!displayText) return null;
+
+  return (
+    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      <Clock className="h-3 w-3" />
+      <span>
+        {label}: {displayText}
+      </span>
+    </div>
+  );
+}

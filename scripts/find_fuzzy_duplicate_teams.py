@@ -11,20 +11,22 @@ Usage:
     python scripts/find_fuzzy_duplicate_teams.py --age-group u16 --gender male --state OR --min-score 0.95
     python scripts/find_fuzzy_duplicate_teams.py --age-group u16 --gender male --auto-merge
 """
+
 import argparse
 import re
 import sys
-from pathlib import Path
 from collections import defaultdict
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from find_queue_matches import (
-    get_supabase,
-    normalize_team_name,
-    extract_team_variant,
-    has_protected_division,
-)
 from difflib import SequenceMatcher
+
+from find_queue_matches import (
+    extract_team_variant,
+    get_supabase,
+    has_protected_division,
+    normalize_team_name,
+)
 
 # ─────────────────────────────────────────────────────────────────────
 # STRUCTURED DISTINCTION EXTRACTION
@@ -39,61 +41,198 @@ from difflib import SequenceMatcher
 # ─────────────────────────────────────────────────────────────────────
 
 # ── Colors ──────────────────────────────────────────────────────────
-TEAM_COLORS = frozenset({
-    "red", "blue", "white", "black", "gold", "grey", "gray", "green",
-    "orange", "purple", "yellow", "navy", "maroon", "silver", "pink",
-    "sky", "royal", "crimson",
-})
+TEAM_COLORS = frozenset(
+    {
+        "red",
+        "blue",
+        "white",
+        "black",
+        "gold",
+        "grey",
+        "gray",
+        "green",
+        "orange",
+        "purple",
+        "yellow",
+        "navy",
+        "maroon",
+        "silver",
+        "pink",
+        "sky",
+        "royal",
+        "crimson",
+    }
+)
 
 # ── Directions (full words + abbreviations → canonical) ─────────────
 DIRECTION_CANONICAL = {
-    "north": "north", "south": "south", "east": "east", "west": "west",
+    "north": "north",
+    "south": "south",
+    "east": "east",
+    "west": "west",
     "central": "central",
-    "n": "north", "s": "south", "e": "east", "w": "west",
-    "nw": "northwest", "ne": "northeast", "sw": "southwest", "se": "southeast",
-    "nth": "north", "sth": "south",
+    "n": "north",
+    "s": "south",
+    "e": "east",
+    "w": "west",
+    "nw": "northwest",
+    "ne": "northeast",
+    "sw": "southwest",
+    "se": "southeast",
+    "nth": "north",
+    "sth": "south",
 }
 
 # ── Programs / leagues ──────────────────────────────────────────────
-PROGRAM_WORDS = frozenset({
-    "academy", "premier", "select", "elite", "ecnl", "ecrl", "npl",
-    "ga", "rl", "comp", "recreational", "tal", "stxcl", "dpl", "scdsl",
-    "next", "copa", "nal", "reserve", "classic", "division", "fdl",
-    "pre",  # qualifier in PRE-ECNL
-    "regional",  # alternate name for RL (ECNL Regional League)
-})
+PROGRAM_WORDS = frozenset(
+    {
+        "academy",
+        "premier",
+        "select",
+        "elite",
+        "ecnl",
+        "ecrl",
+        "npl",
+        "ga",
+        "rl",
+        "comp",
+        "recreational",
+        "tal",
+        "stxcl",
+        "dpl",
+        "scdsl",
+        "next",
+        "copa",
+        "nal",
+        "reserve",
+        "classic",
+        "division",
+        "fdl",
+        "pre",  # qualifier in PRE-ECNL
+        "regional",  # alternate name for RL (ECNL Regional League)
+    }
+)
 
 # ── Location / region codes (sub-club branches) ────────────────────
-LOCATION_CODES = frozenset({
-    # Texas sub-regions
-    "ctx", "ntx", "stx", "etx", "wtx",
-    # AZ sub-regions
-    "phx", "sev", "wv", "ev",
-    # CA sub-regions
-    "sm", "av", "mv", "le", "hb", "nb", "lb", "oc", "ie", "sfv",
-    # General location codes (within-club branches)
-    "cp", "wc", "up", "rc", "go", "sl", "tw", "tt",
-    "cy",
-})
+LOCATION_CODES = frozenset(
+    {
+        # Texas sub-regions
+        "ctx",
+        "ntx",
+        "stx",
+        "etx",
+        "wtx",
+        # AZ sub-regions
+        "phx",
+        "sev",
+        "wv",
+        "ev",
+        # CA sub-regions
+        "sm",
+        "av",
+        "mv",
+        "le",
+        "hb",
+        "nb",
+        "lb",
+        "oc",
+        "ie",
+        "sfv",
+        # General location codes (within-club branches)
+        "cp",
+        "wc",
+        "up",
+        "rc",
+        "go",
+        "sl",
+        "tw",
+        "tt",
+        "cy",
+    }
+)
 
 # ── Noise words (never differentiate teams) ─────────────────────────
-NOISE_WORDS = frozenset({
-    "fc", "sc", "sa", "ac", "cf", "fcs", "ysa",
-    "soccer", "club", "futbol", "football", "youth",
-    "boys", "girls", "the", "of", "and",
-    # NOTE: standalone "b"/"g"/"m"/"f" removed — they are team letters
-    # (e.g. "Team A" vs "Team B"), not gender markers.  Age+gender combos
-    # like "B2014" or "G15" are handled by AGE_PATTERN.
-})
+NOISE_WORDS = frozenset(
+    {
+        "fc",
+        "sc",
+        "sa",
+        "ac",
+        "cf",
+        "fcs",
+        "ysa",
+        "soccer",
+        "club",
+        "futbol",
+        "football",
+        "youth",
+        "boys",
+        "girls",
+        "the",
+        "of",
+        "and",
+        # NOTE: standalone "b"/"g"/"m"/"f" removed — they are team letters
+        # (e.g. "Team A" vs "Team B"), not gender markers.  Age+gender combos
+        # like "B2014" or "G15" are handled by AGE_PATTERN.
+    }
+)
 
 # US state codes — not differentiating (just the team's state)
-US_STATES = frozenset({
-    "al", "ak", "az", "ar", "ca", "co", "ct", "de", "fl", "ga",
-    "hi", "id", "il", "in", "ia", "ks", "ky", "la", "me", "md",
-    "ma", "mi", "mn", "ms", "mo", "mt", "ne", "nv", "nh", "nj",
-    "nm", "ny", "nc", "nd", "oh", "ok", "or", "pa", "ri", "sc",
-    "sd", "tn", "tx", "ut", "vt", "va", "wa", "wv", "wi", "wy", "dc",
-})
+US_STATES = frozenset(
+    {
+        "al",
+        "ak",
+        "az",
+        "ar",
+        "ca",
+        "co",
+        "ct",
+        "de",
+        "fl",
+        "ga",
+        "hi",
+        "id",
+        "il",
+        "in",
+        "ia",
+        "ks",
+        "ky",
+        "la",
+        "me",
+        "md",
+        "ma",
+        "mi",
+        "mn",
+        "ms",
+        "mo",
+        "mt",
+        "ne",
+        "nv",
+        "nh",
+        "nj",
+        "nm",
+        "ny",
+        "nc",
+        "nd",
+        "oh",
+        "ok",
+        "or",
+        "pa",
+        "ri",
+        "sc",
+        "sd",
+        "tn",
+        "tx",
+        "ut",
+        "vt",
+        "va",
+        "wa",
+        "wv",
+        "wi",
+        "wy",
+        "dc",
+    }
+)
 
 # Age/year patterns
 AGE_PATTERN = re.compile(r"\b(20\d{2})\b|'(\d{2})(?:/(\d{2}))?|\b[Uu]-?(\d{1,2})\b")
@@ -123,9 +262,15 @@ def extract_distinctions(name: str, club_name: str = "") -> dict:
         secondary_nums: tuple of numbers appearing AFTER the first age token
     """
     empty = {
-        "colors": frozenset(), "directions": frozenset(), "programs": frozenset(),
-        "team_number": None, "location_codes": frozenset(), "state_codes": frozenset(),
-        "squad_words": frozenset(), "age_tokens": (), "secondary_nums": (),
+        "colors": frozenset(),
+        "directions": frozenset(),
+        "programs": frozenset(),
+        "team_number": None,
+        "location_codes": frozenset(),
+        "state_codes": frozenset(),
+        "squad_words": frozenset(),
+        "age_tokens": (),
+        "secondary_nums": (),
     }
     if not name:
         return empty
@@ -183,7 +328,7 @@ def extract_distinctions(name: str, club_name: str = "") -> dict:
     secondary_nums = []
     first_age = AGE_PATTERN.search(name)
     if first_age:
-        after = name[first_age.end():]
+        after = name[first_age.end() :]
         secondary_nums = re.findall(r"\d+", after)
 
     # ── Pass 3: classify age-token indices ──
@@ -191,15 +336,9 @@ def extract_distinctions(name: str, club_name: str = "") -> dict:
         if idx in classified:
             continue
         # Age+gender combo (15m, 16m, b06, b08, b2010, u16b) — extract age part
-        age_gender_match = re.fullmatch(
-            r"(\d{1,4})u?[bgmf]|[bgmf](\d{1,4})u?|u(\d{1,2})[bgmf]", tok
-        )
+        age_gender_match = re.fullmatch(r"(\d{1,4})u?[bgmf]|[bgmf](\d{1,4})u?|u(\d{1,2})[bgmf]", tok)
         if age_gender_match:
-            age_num = (
-                age_gender_match.group(1)
-                or age_gender_match.group(2)
-                or age_gender_match.group(3)
-            )
+            age_num = age_gender_match.group(1) or age_gender_match.group(2) or age_gender_match.group(3)
             if age_num:
                 age_tokens.append(age_num)
             classified.add(idx)
@@ -334,8 +473,8 @@ def score_team_pair(team_a: dict, team_b: dict) -> float | None:
         # handles "FC PRE-ECNL 2014 Mee" vs "Fever United 2014 Mee"
         # where the club name appears differently in each team name
         club_words = set(club_a.split()) | NOISE_WORDS
-        stripped_a = ' '.join(w for w in norm_a.split() if w not in club_words)
-        stripped_b = ' '.join(w for w in norm_b.split() if w not in club_words)
+        stripped_a = " ".join(w for w in norm_a.split() if w not in club_words)
+        stripped_b = " ".join(w for w in norm_b.split() if w not in club_words)
         if stripped_a and stripped_b:
             stripped_score = SequenceMatcher(None, stripped_a, stripped_b).ratio()
             # Use the better of the two scores (with club boost already applied)
@@ -359,9 +498,10 @@ def score_team_pair(team_a: dict, team_b: dict) -> float | None:
 
 def pick_canonical_pair(team_a: dict, team_b: dict) -> tuple[dict, dict]:
     """Pick which team to keep (canonical) vs merge into it (deprecated). Same logic as run_all_merges."""
+
     def score_team(t):
-        name = (t.get("team_name") or "")
-        club = (t.get("club_name") or "")
+        name = t.get("team_name") or ""
+        club = t.get("club_name") or ""
         s = 0
         if club and club.lower() in name.lower():
             s += 100
@@ -520,6 +660,7 @@ def run_fuzzy_duplicates(
 
     if auto_merge and suggestions and not dry_run:
         from run_all_merges import execute_merge
+
         print(f"Auto-merging {len(suggestions)} pairs...")
         merged, failed = 0, 0
         for s in suggestions:

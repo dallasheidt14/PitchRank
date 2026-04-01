@@ -52,11 +52,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     // Check if task exists
-    const { data: task, error: taskError } = await supabase
-      .from('agent_tasks')
-      .select('id')
-      .eq('id', taskId)
-      .single();
+    const { data: task, error: taskError } = await supabase.from('agent_tasks').select('id').eq('id', taskId).single();
 
     if (taskError || !task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });

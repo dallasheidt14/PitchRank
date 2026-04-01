@@ -8,17 +8,17 @@ function buildReportCardHtml(
   powerScore: number | null,
   percentile: number,
   record: string,
-  rankChange30d: number | null,
+  rankChange30d: number | null
 ): string {
-  const rankChangeText = rankChange30d != null && rankChange30d !== 0
-    ? rankChange30d > 0
-      ? `<span style="color: #10B981;">▲${rankChange30d} this month</span>`
-      : `<span style="color: #EF4444;">▼${Math.abs(rankChange30d)} this month</span>`
-    : '';
+  const rankChangeText =
+    rankChange30d != null && rankChange30d !== 0
+      ? rankChange30d > 0
+        ? `<span style="color: #10B981;">▲${rankChange30d} this month</span>`
+        : `<span style="color: #EF4444;">▼${Math.abs(rankChange30d)} this month</span>`
+      : '';
 
-  const stateRankLine = rankState != null && state
-    ? `State Rank: <strong>#${rankState}</strong> in ${state.toUpperCase()}<br>`
-    : '';
+  const stateRankLine =
+    rankState != null && state ? `State Rank: <strong>#${rankState}</strong> in ${state.toUpperCase()}<br>` : '';
 
   return `
 <!DOCTYPE html>
@@ -88,7 +88,7 @@ export async function sendReportCardEmail(
   percentile: number,
   record: string,
   rankChange30d: number | null,
-  pdfBuffer: Buffer,
+  pdfBuffer: Buffer
 ): Promise<boolean> {
   if (!resend) {
     console.warn('Resend not configured - skipping report card email');
@@ -108,7 +108,7 @@ export async function sendReportCardEmail(
         powerScore,
         percentile,
         record,
-        rankChange30d,
+        rankChange30d
       ),
       attachments: [
         {

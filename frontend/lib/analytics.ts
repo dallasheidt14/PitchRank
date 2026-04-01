@@ -9,11 +9,7 @@
  * Check if analytics is available and not in development mode
  */
 function isAnalyticsEnabled(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    typeof window.gtag === 'function' &&
-    process.env.NODE_ENV !== 'development'
-  );
+  return typeof window !== 'undefined' && typeof window.gtag === 'function' && process.env.NODE_ENV !== 'development';
 }
 
 /**
@@ -39,11 +35,7 @@ export function gtagEvent(
 
   // Filter out null/undefined values from params
   const cleanParams = eventParams
-    ? Object.fromEntries(
-        Object.entries(eventParams).filter(
-          ([, value]) => value !== null && value !== undefined
-        )
-      )
+    ? Object.fromEntries(Object.entries(eventParams).filter(([, value]) => value !== null && value !== undefined))
     : undefined;
 
   window.gtag!('event', eventName, cleanParams);

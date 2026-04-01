@@ -1,62 +1,63 @@
-import type { Metadata, Viewport } from "next";
-import { Oswald, DM_Sans, JetBrains_Mono } from "next/font/google";
-import "./globals.css";
-import { Providers } from "./providers";
-import { Navigation } from "@/components/Navigation";
-import { Toaster } from "@/components/ui/Toaster";
-import { StructuredData } from "@/components/StructuredData";
-import { Footer } from "@/components/Footer";
-import { GoogleAnalytics } from "@/components/GoogleAnalytics";
-import { WebVitalsReporter } from "@/components/WebVitalsReporter";
+import type { Metadata, Viewport } from 'next';
+import { Oswald, DM_Sans, JetBrains_Mono } from 'next/font/google';
+import './globals.css';
+import { Providers } from './providers';
+import { Navigation } from '@/components/Navigation';
+import { Toaster } from '@/components/ui/Toaster';
+import { StructuredData } from '@/components/StructuredData';
+import { Footer } from '@/components/Footer';
+import { GoogleAnalytics } from '@/components/GoogleAnalytics';
+import { WebVitalsReporter } from '@/components/WebVitalsReporter';
 
 // Athletic Editorial Typography
 const oswald = Oswald({
-  variable: "--font-oswald",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  fallback: ["system-ui", "sans-serif"],
-  display: "swap",
+  variable: '--font-oswald',
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  fallback: ['system-ui', 'sans-serif'],
+  display: 'swap',
 });
 
 const dmSans = DM_Sans({
-  variable: "--font-dm-sans",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  fallback: ["system-ui", "sans-serif"],
-  display: "swap",
+  variable: '--font-dm-sans',
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  fallback: ['system-ui', 'sans-serif'],
+  display: 'swap',
 });
 
 const jetbrainsMono = JetBrains_Mono({
-  variable: "--font-jetbrains-mono",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  fallback: ["ui-monospace", "monospace"],
-  display: "swap",
+  variable: '--font-jetbrains-mono',
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  fallback: ['ui-monospace', 'monospace'],
+  display: 'swap',
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://www.pitchrank.io"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://www.pitchrank.io'),
   title: {
-    default: "PitchRank — Youth Soccer Rankings",
-    template: "%s | PitchRank",
+    default: 'PitchRank — Youth Soccer Rankings',
+    template: '%s | PitchRank',
   },
-  description: "Data-powered youth soccer team rankings and performance analytics. Compare U10-U19 boys and girls teams nationally and across all 50 states.",
+  description:
+    'Data-powered youth soccer team rankings and performance analytics. Compare U10-U19 boys and girls teams nationally and across all 50 states.',
   keywords: [
-    "youth soccer rankings",
-    "soccer team rankings",
-    "youth soccer",
-    "club soccer rankings",
-    "soccer power rankings",
-    "U10 soccer",
-    "U12 soccer",
-    "U14 soccer",
-    "U16 soccer",
-    "U18 soccer",
-    "soccer analytics",
+    'youth soccer rankings',
+    'soccer team rankings',
+    'youth soccer',
+    'club soccer rankings',
+    'soccer power rankings',
+    'U10 soccer',
+    'U12 soccer',
+    'U14 soccer',
+    'U16 soccer',
+    'U18 soccer',
+    'soccer analytics',
   ],
-  authors: [{ name: "PitchRank" }],
-  creator: "PitchRank",
-  publisher: "PitchRank",
+  authors: [{ name: 'PitchRank' }],
+  creator: 'PitchRank',
+  publisher: 'PitchRank',
   formatDetection: {
     email: false,
     address: false,
@@ -64,40 +65,42 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/logos/favicon.ico", sizes: "48x48" },
-      { url: "/logos/favicon-32x32.png", sizes: "32x32", type: "image/png" },
-      { url: "/logos/favicon-16x16.png", sizes: "16x16", type: "image/png" },
-      { url: "/logos/logo-icon.svg", type: "image/svg+xml" },
+      { url: '/logos/favicon.ico', sizes: '48x48' },
+      { url: '/logos/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/logos/favicon-16x16.png', sizes: '16x16', type: 'image/png' },
+      { url: '/logos/logo-icon.svg', type: 'image/svg+xml' },
     ],
-    shortcut: "/logos/favicon.ico",
-    apple: "/logos/apple-touch-icon.png",
+    shortcut: '/logos/favicon.ico',
+    apple: '/logos/apple-touch-icon.png',
   },
   alternates: {
-    canonical: process.env.NEXT_PUBLIC_SITE_URL || "https://www.pitchrank.io",
+    canonical: process.env.NEXT_PUBLIC_SITE_URL || 'https://www.pitchrank.io',
   },
   openGraph: {
-    type: "website",
-    locale: "en_US",
-    url: "/",
-    siteName: "PitchRank",
-    title: "PitchRank — Youth Soccer Rankings",
-    description: "Data-powered youth soccer team rankings and performance analytics. Compare U10-U19 boys and girls teams nationally and across all 50 states.",
+    type: 'website',
+    locale: 'en_US',
+    url: '/',
+    siteName: 'PitchRank',
+    title: 'PitchRank — Youth Soccer Rankings',
+    description:
+      'Data-powered youth soccer team rankings and performance analytics. Compare U10-U19 boys and girls teams nationally and across all 50 states.',
     images: [
       {
-        url: "/opengraph-image.png",
+        url: '/opengraph-image.png',
         width: 1200,
         height: 630,
-        alt: "PitchRank — Youth Soccer Rankings",
+        alt: 'PitchRank — Youth Soccer Rankings',
       },
     ],
   },
   twitter: {
-    card: "summary_large_image",
-    title: "PitchRank — Youth Soccer Rankings",
-    description: "Data-powered youth soccer team rankings and performance analytics. Compare U10-U19 boys and girls teams nationally and across all 50 states.",
-    images: ["/opengraph-image.png"],
-    creator: "@pitchrank",
-    site: "@pitchrank",
+    card: 'summary_large_image',
+    title: 'PitchRank — Youth Soccer Rankings',
+    description:
+      'Data-powered youth soccer team rankings and performance analytics. Compare U10-U19 boys and girls teams nationally and across all 50 states.',
+    images: ['/opengraph-image.png'],
+    creator: '@pitchrank',
+    site: '@pitchrank',
   },
   robots: {
     index: true,
@@ -105,20 +108,20 @@ export const metadata: Metadata = {
     googleBot: {
       index: true,
       follow: true,
-      "max-video-preview": -1,
-      "max-image-preview": "large",
-      "max-snippet": -1,
+      'max-video-preview': -1,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
     },
   },
 };
 
 export const viewport: Viewport = {
-  width: "device-width",
+  width: 'device-width',
   initialScale: 1,
   maximumScale: 5,
   userScalable: true,
-  themeColor: "#052E27", // Athletic Editorial dark green
-  viewportFit: "cover",
+  themeColor: '#052E27', // Athletic Editorial dark green
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({
@@ -141,9 +144,7 @@ export default function RootLayout({
         <Providers>
           <WebVitalsReporter />
           <Navigation />
-          <main className="flex-1 bg-background text-foreground">
-            {children}
-          </main>
+          <main className="flex-1 bg-background text-foreground">{children}</main>
           <Footer />
           <Toaster />
         </Providers>

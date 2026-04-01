@@ -35,12 +35,11 @@ export function ShareButtons({
   variant = 'default',
 }: ShareButtonsProps) {
   const [copied, setCopied] = useState(false);
-  const [canNativeShare, setCanNativeShare] = useState(false);
+  const canNativeShare = typeof navigator !== 'undefined' && !!navigator.share;
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Check for Web Share API support on mount
+  // Clean up timeout on unmount
   useEffect(() => {
-    setCanNativeShare(typeof navigator !== 'undefined' && !!navigator.share);
     return () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
@@ -57,7 +56,7 @@ export function ShareButtons({
   const nativeShare = async () => {
     try {
       await navigator.share({ title, text: title, url: shareUrl });
-    } catch (err) {
+    } catch (_err) {
       // User cancelled or share failed — ignore
     }
   };
@@ -115,19 +114,11 @@ export function ShareButtons({
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      {variant === 'default' && (
-        <span className="text-sm text-muted-foreground mr-2">Share:</span>
-      )}
+      {variant === 'default' && <span className="text-sm text-muted-foreground mr-2">Share:</span>}
 
       {/* Native share — shows iOS/Android share sheet (iMessage, Instagram, SMS, etc.) */}
       {canNativeShare && (
-        <Button
-          variant="outline"
-          size={buttonSize}
-          onClick={nativeShare}
-          className="gap-2"
-          aria-label="Share"
-        >
+        <Button variant="outline" size={buttonSize} onClick={nativeShare} className="gap-2" aria-label="Share">
           <Share2 className="h-4 w-4" />
           {variant === 'default' && 'Share'}
         </Button>
@@ -166,13 +157,7 @@ export function ShareButtons({
         {variant === 'default' && 'Twitter'}
       </Button>
 
-      <Button
-        variant="outline"
-        size={buttonSize}
-        onClick={copyToClipboard}
-        className="gap-2"
-        aria-label="Copy link"
-      >
+      <Button variant="outline" size={buttonSize} onClick={copyToClipboard} className="gap-2" aria-label="Copy link">
         <LinkIcon className="h-4 w-4" />
         {copied ? 'Copied!' : variant === 'default' ? 'Copy Link' : ''}
       </Button>

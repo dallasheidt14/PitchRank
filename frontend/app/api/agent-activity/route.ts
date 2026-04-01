@@ -1,17 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabaseClient';
 import { requireAdmin } from '@/lib/supabase/admin';
-
-interface AgentMessage {
-  id: string;
-  session_key: string;
-  agent_name: string;
-  agent_emoji: string;
-  message_preview: string;
-  full_message: string;
-  message_type: string;
-  created_at: string;
-}
 
 // GET - fetch recent agent activity from Supabase
 export async function GET() {
@@ -40,7 +29,7 @@ export async function GET() {
     }
 
     // Transform to match frontend expectations
-    const messages = (data || []).map((row: any) => ({
+    const messages = (data || []).map((row: Record<string, string | null>) => ({
       timestamp: row.created_at,
       agentName: row.agent_name,
       agentEmoji: row.agent_emoji,

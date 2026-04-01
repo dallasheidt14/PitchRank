@@ -1,69 +1,56 @@
-"use client";
+'use client';
 
-import { useState, useEffect, Suspense } from "react";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import {
-  Check,
-  Zap,
-  Crown,
-  Shield,
-  TrendingUp,
-  Star,
-  Pencil,
-  BarChart3,
-  Eye,
-  ArrowRight,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { startCheckout } from "@/lib/stripe/client";
-import { useUser } from "@/hooks/useUser";
-import { trackUpgradePageViewed, trackPlanSelected, trackCheckoutInitiated } from "@/lib/events";
+import { useState, useEffect, Suspense } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { Check, Zap, Crown, Shield, TrendingUp, Star, Pencil, BarChart3, Eye, ArrowRight } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { startCheckout } from '@/lib/stripe/client';
+import { useUser } from '@/hooks/useUser';
+import { trackUpgradePageViewed, trackPlanSelected, trackCheckoutInitiated } from '@/lib/events';
 
 // Price IDs from Stripe Dashboard (configured via environment variables)
 const PRICE_IDS = {
-  MONTHLY: process.env.NEXT_PUBLIC_STRIPE_PRICE_MONTHLY || "",
-  YEARLY: process.env.NEXT_PUBLIC_STRIPE_PRICE_YEARLY || "",
+  MONTHLY: process.env.NEXT_PUBLIC_STRIPE_PRICE_MONTHLY || '',
+  YEARLY: process.env.NEXT_PUBLIC_STRIPE_PRICE_YEARLY || '',
 };
 
 const FEATURES = [
-  { icon: TrendingUp, title: "Full Rankings Access", text: "See every team's PowerScore, national & state rank across all age groups" },
-  { icon: Star, title: "Team Comparisons", text: "Head-to-head comparison tool with win probability predictions" },
-  { icon: BarChart3, title: "AI Insights", text: "Season Truth, consistency scores, and team persona analysis" },
-  { icon: Eye, title: "Watchlist", text: "Track your favorite teams with real-time rank change alerts" },
-  { icon: Pencil, title: "Edit Access", text: "Merge duplicate teams and find missing game history" },
+  {
+    icon: TrendingUp,
+    title: 'Full Rankings Access',
+    text: "See every team's PowerScore, national & state rank across all age groups",
+  },
+  { icon: Star, title: 'Team Comparisons', text: 'Head-to-head comparison tool with win probability predictions' },
+  { icon: BarChart3, title: 'AI Insights', text: 'Season Truth, consistency scores, and team persona analysis' },
+  { icon: Eye, title: 'Watchlist', text: 'Track your favorite teams with real-time rank change alerts' },
+  { icon: Pencil, title: 'Edit Access', text: 'Merge duplicate teams and find missing game history' },
 ];
 
 const SOCIAL_PROOF_STATS = [
-  { value: "25,000+", label: "Teams Ranked" },
-  { value: "500+", label: "Clubs Covered" },
-  { value: "Weekly", label: "Updated Rankings" },
+  { value: '25,000+', label: 'Teams Ranked' },
+  { value: '500+', label: 'Clubs Covered' },
+  { value: 'Weekly', label: 'Updated Rankings' },
 ];
 
 const TESTIMONIALS = [
   {
-    quote: "PitchRank+ gave us the edge to find the right competition level for our son. The insights are incredible.",
-    author: "Soccer Parent",
-    detail: "ECNL U14 Boys",
+    quote: 'PitchRank+ gave us the edge to find the right competition level for our son. The insights are incredible.',
+    author: 'Soccer Parent',
+    detail: 'ECNL U14 Boys',
   },
   {
-    quote: "I use the comparison tool every week before games. Knowing our opponent's consistency score helps us prepare.",
-    author: "Club Coach",
-    detail: "GA Premier",
+    quote:
+      "I use the comparison tool every week before games. Knowing our opponent's consistency score helps us prepare.",
+    author: 'Club Coach',
+    detail: 'GA Premier',
   },
   {
-    quote: "The watchlist feature saves me hours of research. I can track every team in our bracket from one place.",
-    author: "Tournament Director",
-    detail: "Southwest Region",
+    quote: 'The watchlist feature saves me hours of research. I can track every team in our bracket from one place.',
+    author: 'Tournament Director',
+    detail: 'Southwest Region',
   },
 ];
 
@@ -78,18 +65,18 @@ export default function UpgradePage() {
 function UpgradePageContent() {
   const { user, isLoading: userLoading } = useUser();
   const searchParams = useSearchParams();
-  const [loadingPlan, setLoadingPlan] = useState<"monthly" | "yearly" | null>(null);
+  const [loadingPlan, setLoadingPlan] = useState<'monthly' | 'yearly' | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedPlan, setSelectedPlan] = useState<"monthly" | "yearly">("yearly");
+  const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('yearly');
 
-  const source = searchParams.get("next") || searchParams.get("source") || "direct";
+  const source = searchParams.get('next') || searchParams.get('source') || 'direct';
 
   // Track page view on mount
   useEffect(() => {
     trackUpgradePageViewed({ source });
   }, [source]);
 
-  const handleUpgrade = async (plan: "monthly" | "yearly") => {
+  const handleUpgrade = async (plan: 'monthly' | 'yearly') => {
     // Wait for auth state to load before checking
     if (userLoading) return;
 
@@ -101,7 +88,7 @@ function UpgradePageContent() {
 
     trackPlanSelected({
       plan,
-      price: plan === "monthly" ? 6.99 : 69.99,
+      price: plan === 'monthly' ? 6.99 : 69.99,
       source,
     });
 
@@ -109,15 +96,18 @@ function UpgradePageContent() {
     setError(null);
 
     try {
-      const priceId = plan === "monthly" ? PRICE_IDS.MONTHLY : PRICE_IDS.YEARLY;
+      const priceId = plan === 'monthly' ? PRICE_IDS.MONTHLY : PRICE_IDS.YEARLY;
       if (!priceId) {
-        console.error("[UpgradePage] Missing Stripe price ID for plan:", plan, { monthly: !!PRICE_IDS.MONTHLY, yearly: !!PRICE_IDS.YEARLY });
-        throw new Error("Pricing is not configured. Please contact support.");
+        console.error('[UpgradePage] Missing Stripe price ID for plan:', plan, {
+          monthly: !!PRICE_IDS.MONTHLY,
+          yearly: !!PRICE_IDS.YEARLY,
+        });
+        throw new Error('Pricing is not configured. Please contact support.');
       }
-      trackCheckoutInitiated({ plan, price: plan === "monthly" ? 6.99 : 69.99 });
+      trackCheckoutInitiated({ plan, price: plan === 'monthly' ? 6.99 : 69.99 });
       await startCheckout(priceId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(err instanceof Error ? err.message : 'Something went wrong');
       setLoadingPlan(null);
     }
   };
@@ -131,12 +121,10 @@ function UpgradePageContent() {
             <Crown className="w-3 h-3 mr-1" />
             Premium
           </Badge>
-          <h1 className="text-4xl md:text-5xl font-bold font-display mb-4">
-            Upgrade to PitchRank+
-          </h1>
+          <h1 className="text-4xl md:text-5xl font-bold font-display mb-4">Upgrade to PitchRank+</h1>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            The most comprehensive youth soccer analytics platform. Make smarter decisions
-            for your player&apos;s journey with data that coaches and parents trust.
+            The most comprehensive youth soccer analytics platform. Make smarter decisions for your player&apos;s
+            journey with data that coaches and parents trust.
           </p>
         </div>
 
@@ -144,9 +132,7 @@ function UpgradePageContent() {
         <div className="flex items-center justify-center gap-8 md:gap-12 mb-10">
           {SOCIAL_PROOF_STATS.map((stat) => (
             <div key={stat.label} className="text-center">
-              <div className="text-2xl md:text-3xl font-bold font-display text-primary">
-                {stat.value}
-              </div>
+              <div className="text-2xl md:text-3xl font-bold font-display text-primary">{stat.value}</div>
               <div className="text-xs text-muted-foreground">{stat.label}</div>
             </div>
           ))}
@@ -155,14 +141,10 @@ function UpgradePageContent() {
         {/* Not Authenticated Message */}
         {!userLoading && !user && (
           <div className="max-w-md mx-auto mb-8 p-4 bg-primary/10 border border-primary/20 rounded-lg text-center">
-            <p className="text-sm mb-3">
-              Sign up for a free account to upgrade to Premium
-            </p>
+            <p className="text-sm mb-3">Sign up for a free account to upgrade to Premium</p>
             <div className="flex gap-3 justify-center">
               <Link href="/signup?next=/upgrade">
-                <Button size="sm">
-                  Create Free Account
-                </Button>
+                <Button size="sm">Create Free Account</Button>
               </Link>
               <Link href="/login?next=/upgrade">
                 <Button size="sm" variant="outline">
@@ -183,21 +165,21 @@ function UpgradePageContent() {
         {/* Plan Toggle (Mobile-Friendly) */}
         <div className="flex items-center justify-center gap-2 mb-8">
           <button
-            onClick={() => setSelectedPlan("monthly")}
+            onClick={() => setSelectedPlan('monthly')}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              selectedPlan === "monthly"
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground hover:bg-muted/80"
+              selectedPlan === 'monthly'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground hover:bg-muted/80'
             }`}
           >
             Monthly
           </button>
           <button
-            onClick={() => setSelectedPlan("yearly")}
+            onClick={() => setSelectedPlan('yearly')}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors relative ${
-              selectedPlan === "yearly"
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground hover:bg-muted/80"
+              selectedPlan === 'yearly'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground hover:bg-muted/80'
             }`}
           >
             Yearly
@@ -213,9 +195,9 @@ function UpgradePageContent() {
           <Card
             variant="elevated"
             className={`relative cursor-pointer transition-all ${
-              selectedPlan === "monthly" ? "ring-2 ring-primary" : ""
+              selectedPlan === 'monthly' ? 'ring-2 ring-primary' : ''
             }`}
-            onClick={() => setSelectedPlan("monthly")}
+            onClick={() => setSelectedPlan('monthly')}
           >
             <CardHeader>
               <CardTitle className="text-2xl">Monthly</CardTitle>
@@ -246,14 +228,14 @@ function UpgradePageContent() {
               <Button
                 className="w-full"
                 size="lg"
-                variant={selectedPlan === "monthly" ? "default" : "outline"}
+                variant={selectedPlan === 'monthly' ? 'default' : 'outline'}
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleUpgrade("monthly");
+                  handleUpgrade('monthly');
                 }}
                 disabled={loadingPlan !== null || userLoading}
               >
-                {loadingPlan === "monthly" ? (
+                {loadingPlan === 'monthly' ? (
                   <span className="flex items-center gap-2">
                     <span className="animate-spin">&#9696;</span>
                     Processing...
@@ -272,14 +254,12 @@ function UpgradePageContent() {
           <Card
             variant="primary"
             className={`relative cursor-pointer transition-all ${
-              selectedPlan === "yearly" ? "ring-2 ring-primary" : ""
+              selectedPlan === 'yearly' ? 'ring-2 ring-primary' : ''
             }`}
-            onClick={() => setSelectedPlan("yearly")}
+            onClick={() => setSelectedPlan('yearly')}
           >
             <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-              <Badge className="bg-green-600 text-white shadow-lg">
-                Most Popular - Save 17%
-              </Badge>
+              <Badge className="bg-green-600 text-white shadow-lg">Most Popular - Save 17%</Badge>
             </div>
             <CardHeader>
               <CardTitle className="text-2xl">Yearly</CardTitle>
@@ -290,8 +270,7 @@ function UpgradePageContent() {
                 <span className="text-4xl font-bold">$69.99</span>
                 <span className="text-muted-foreground">/year</span>
                 <div className="text-sm text-muted-foreground mt-1">
-                  That&apos;s just <span className="font-semibold text-foreground">$5.83/mo</span>
-                  {" "}
+                  That&apos;s just <span className="font-semibold text-foreground">$5.83/mo</span>{' '}
                   <span className="line-through">$83.88</span>
                   <span className="text-green-600 font-medium ml-1">Save $13.89</span>
                 </div>
@@ -318,11 +297,11 @@ function UpgradePageContent() {
                 size="lg"
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleUpgrade("yearly");
+                  handleUpgrade('yearly');
                 }}
                 disabled={loadingPlan !== null || userLoading}
               >
-                {loadingPlan === "yearly" ? (
+                {loadingPlan === 'yearly' ? (
                   <span className="flex items-center gap-2">
                     <span className="animate-spin">&#9696;</span>
                     Processing...
@@ -340,9 +319,7 @@ function UpgradePageContent() {
 
         {/* Trust Badges */}
         <div className="mt-10 text-center">
-          <p className="text-sm text-muted-foreground mb-4">
-            Secure payment powered by Stripe
-          </p>
+          <p className="text-sm text-muted-foreground mb-4">Secure payment powered by Stripe</p>
           <div className="flex items-center justify-center gap-6 text-muted-foreground">
             <div className="flex items-center gap-2">
               <Shield className="w-4 h-4" />
@@ -361,9 +338,7 @@ function UpgradePageContent() {
 
         {/* Testimonials Section */}
         <div className="mt-16 max-w-4xl mx-auto">
-          <h2 className="text-2xl font-bold text-center mb-8 font-display">
-            Trusted by Soccer Families Nationwide
-          </h2>
+          <h2 className="text-2xl font-bold text-center mb-8 font-display">Trusted by Soccer Families Nationwide</h2>
           <div className="grid md:grid-cols-3 gap-6">
             {TESTIMONIALS.map((testimonial, index) => (
               <Card key={index} variant="elevated" className="text-left">
@@ -373,9 +348,7 @@ function UpgradePageContent() {
                       <Star key={i} className="w-4 h-4 fill-yellow-400 text-yellow-400" />
                     ))}
                   </div>
-                  <p className="text-sm text-muted-foreground mb-4 italic">
-                    &ldquo;{testimonial.quote}&rdquo;
-                  </p>
+                  <p className="text-sm text-muted-foreground mb-4 italic">&ldquo;{testimonial.quote}&rdquo;</p>
                   <div>
                     <p className="text-sm font-medium">{testimonial.author}</p>
                     <p className="text-xs text-muted-foreground">{testimonial.detail}</p>
@@ -388,9 +361,7 @@ function UpgradePageContent() {
 
         {/* Feature Comparison: Free vs Premium */}
         <div className="mt-16 max-w-2xl mx-auto">
-          <h2 className="text-2xl font-bold text-center mb-8 font-display">
-            Free vs PitchRank+
-          </h2>
+          <h2 className="text-2xl font-bold text-center mb-8 font-display">Free vs PitchRank+</h2>
           <div className="border rounded-lg overflow-hidden">
             <div className="grid grid-cols-3 bg-muted/50 px-4 py-3 text-sm font-medium">
               <span>Feature</span>
@@ -398,19 +369,17 @@ function UpgradePageContent() {
               <span className="text-center text-primary">PitchRank+</span>
             </div>
             {[
-              { feature: "View Rankings", free: true, premium: true },
-              { feature: "Team Detail Pages", free: false, premium: true },
-              { feature: "AI Insights", free: false, premium: true },
-              { feature: "Team Comparisons", free: false, premium: true },
-              { feature: "Watchlist", free: false, premium: true },
-              { feature: "Match Predictions", free: false, premium: true },
-              { feature: "Edit/Merge Teams", free: false, premium: true },
+              { feature: 'View Rankings', free: true, premium: true },
+              { feature: 'Team Detail Pages', free: false, premium: true },
+              { feature: 'AI Insights', free: false, premium: true },
+              { feature: 'Team Comparisons', free: false, premium: true },
+              { feature: 'Watchlist', free: false, premium: true },
+              { feature: 'Match Predictions', free: false, premium: true },
+              { feature: 'Edit/Merge Teams', free: false, premium: true },
             ].map((row, index) => (
               <div
                 key={index}
-                className={`grid grid-cols-3 px-4 py-3 text-sm ${
-                  index % 2 === 0 ? "bg-background" : "bg-muted/20"
-                }`}
+                className={`grid grid-cols-3 px-4 py-3 text-sm ${index % 2 === 0 ? 'bg-background' : 'bg-muted/20'}`}
               >
                 <span>{row.feature}</span>
                 <span className="text-center">
@@ -430,55 +399,41 @@ function UpgradePageContent() {
 
         {/* FAQ Section */}
         <div className="mt-16 max-w-2xl mx-auto">
-          <h2 className="text-2xl font-bold text-center mb-8 font-display">
-            Frequently Asked Questions
-          </h2>
+          <h2 className="text-2xl font-bold text-center mb-8 font-display">Frequently Asked Questions</h2>
           <div className="space-y-6">
             <div>
               <h3 className="font-semibold mb-2">Can I cancel anytime?</h3>
               <p className="text-muted-foreground text-sm">
-                Yes! You can cancel your subscription at any time. Your premium
-                access will continue until the end of your current billing
-                period. No questions asked.
+                Yes! You can cancel your subscription at any time. Your premium access will continue until the end of
+                your current billing period. No questions asked.
               </p>
             </div>
             <div>
-              <h3 className="font-semibold mb-2">
-                What payment methods do you accept?
-              </h3>
+              <h3 className="font-semibold mb-2">What payment methods do you accept?</h3>
               <p className="text-muted-foreground text-sm">
-                We accept all major credit cards (Visa, MasterCard, American
-                Express) through our secure payment processor, Stripe.
+                We accept all major credit cards (Visa, MasterCard, American Express) through our secure payment
+                processor, Stripe.
               </p>
             </div>
             <div>
-              <h3 className="font-semibold mb-2">
-                Will I be charged automatically?
-              </h3>
+              <h3 className="font-semibold mb-2">Will I be charged automatically?</h3>
               <p className="text-muted-foreground text-sm">
-                Yes, your subscription will automatically renew at the end of
-                each billing period. You&apos;ll receive an email reminder before each
-                renewal.
+                Yes, your subscription will automatically renew at the end of each billing period. You&apos;ll receive
+                an email reminder before each renewal.
               </p>
             </div>
             <div>
-              <h3 className="font-semibold mb-2">
-                How often are rankings updated?
-              </h3>
+              <h3 className="font-semibold mb-2">How often are rankings updated?</h3>
               <p className="text-muted-foreground text-sm">
-                Rankings are recalculated every Monday using our 13-layer algorithm
-                (v53e + ML). We process data from 25,000+ teams across all major
-                youth soccer platforms weekly.
+                Rankings are recalculated every Monday using our 13-layer algorithm (v53e + ML). We process data from
+                25,000+ teams across all major youth soccer platforms weekly.
               </p>
             </div>
             <div>
-              <h3 className="font-semibold mb-2">
-                Can I switch between monthly and yearly?
-              </h3>
+              <h3 className="font-semibold mb-2">Can I switch between monthly and yearly?</h3>
               <p className="text-muted-foreground text-sm">
-                Yes! You can switch plans at any time from your account settings.
-                If you switch to yearly, you&apos;ll receive a prorated credit for any
-                remaining time on your monthly plan.
+                Yes! You can switch plans at any time from your account settings. If you switch to yearly, you&apos;ll
+                receive a prorated credit for any remaining time on your monthly plan.
               </p>
             </div>
           </div>
@@ -486,9 +441,7 @@ function UpgradePageContent() {
 
         {/* Final CTA */}
         <div className="mt-16 text-center pb-8">
-          <h2 className="text-2xl md:text-3xl font-bold font-display mb-4">
-            Ready to get the full picture?
-          </h2>
+          <h2 className="text-2xl md:text-3xl font-bold font-display mb-4">Ready to get the full picture?</h2>
           <p className="text-muted-foreground mb-6 max-w-lg mx-auto">
             Join thousands of soccer families using PitchRank+ to make smarter decisions.
           </p>

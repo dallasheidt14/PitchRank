@@ -42,9 +42,8 @@ export async function renderStoryTemplateToCanvas(options: StoryTemplateOptions)
   const { type, platform, ageGroup, gender, regionName, customHeadline, customSubtext } = options;
 
   // Force story dimensions for this template
-  const dimensions = platform === 'instagramStory'
-    ? PLATFORM_DIMENSIONS.instagramStory
-    : PLATFORM_DIMENSIONS.instagramStory; // Always use story dimensions
+  const dimensions =
+    platform === 'instagramStory' ? PLATFORM_DIMENSIONS.instagramStory : PLATFORM_DIMENSIONS.instagramStory; // Always use story dimensions
 
   const content = STORY_CONTENT[type];
 
@@ -90,7 +89,7 @@ export async function renderStoryTemplateToCanvas(options: StoryTemplateOptions)
   const centerX = dimensions.width / 2;
 
   // ===== TOP LOGO =====
-  let currentY = padding + 40;
+  const currentY = padding + 40;
   const logoSize = 52;
 
   ctx.font = `800 ${logoSize}px Oswald, "Arial Black", sans-serif`;
@@ -134,7 +133,7 @@ export async function renderStoryTemplateToCanvas(options: StoryTemplateOptions)
   ctx.font = `800 ${headlineSize}px Oswald, "Arial Black", sans-serif`;
 
   headlineLines.forEach((line, i) => {
-    const lineY = centerY - 20 + (i * headlineSize);
+    const lineY = centerY - 20 + i * headlineSize;
     ctx.fillText(line, centerX, lineY);
   });
 

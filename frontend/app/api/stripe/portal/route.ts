@@ -1,6 +1,6 @@
-import { stripe } from "@/lib/stripe/server";
-import { createServerSupabase } from "@/lib/supabase/server";
-import { NextResponse } from "next/server";
+import { stripe } from '@/lib/stripe/server';
+import { createServerSupabase } from '@/lib/supabase/server';
+import { NextResponse } from 'next/server';
 
 /**
  * Create a Stripe Customer Portal session
@@ -14,21 +14,18 @@ export async function POST() {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
     // Get user profile with Stripe customer ID
     const { data: profile, error: profileError } = await supabase
-      .from("user_profiles")
-      .select("stripe_customer_id")
-      .eq("id", user.id)
+      .from('user_profiles')
+      .select('stripe_customer_id')
+      .eq('id', user.id)
       .single();
 
     if (profileError || !profile?.stripe_customer_id) {
-      return NextResponse.json(
-        { error: "No billing account found" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'No billing account found' }, { status: 400 });
     }
 
     // Create Stripe Customer Portal session
@@ -39,10 +36,7 @@ export async function POST() {
 
     return NextResponse.json({ url: session.url });
   } catch (error) {
-    console.error("Customer portal error:", error);
-    return NextResponse.json(
-      { error: "Failed to create portal session" },
-      { status: 500 }
-    );
+    console.error('Customer portal error:', error);
+    return NextResponse.json({ error: 'Failed to create portal session' }, { status: 500 });
   }
 }

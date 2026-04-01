@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from dotenv import load_dotenv
+
 from supabase import create_client
 
 
@@ -34,13 +35,12 @@ def load_env() -> None:
 def get_supabase():
     supabase_url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
     supabase_key = (
-        os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-        or os.getenv("SUPABASE_SERVICE_KEY")
-        or os.getenv("SUPABASE_KEY")
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
     )
     if not supabase_url or not supabase_key:
         raise ValueError(
-            "Missing Supabase credentials. Need SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_KEY/SUPABASE_KEY."
+            "Missing Supabase credentials. "
+            "Need SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_KEY/SUPABASE_KEY."
         )
     return create_client(supabase_url, supabase_key)
 
@@ -110,7 +110,8 @@ def main() -> None:
         if existing_alias and existing_alias[0].get("team_id_master") != team_id:
             stats["rows_conflict"] += 1
             print(
-                f"CONFLICT unknown_pid={unknown_pid}: existing team_id_master={existing_alias[0].get('team_id_master')} "
+                f"CONFLICT unknown_pid={unknown_pid}: "
+                f"existing team_id_master={existing_alias[0].get('team_id_master')} "
                 f"!= proposed {team_id}"
             )
             continue
@@ -157,13 +158,13 @@ def main() -> None:
                 or 0
             )
 
-            db.table("games").update({"home_team_master_id": team_id}).eq(
-                "provider_id", provider_id
-            ).eq("home_provider_id", unknown_pid).is_("home_team_master_id", "null").execute()
+            db.table("games").update({"home_team_master_id": team_id}).eq("provider_id", provider_id).eq(
+                "home_provider_id", unknown_pid
+            ).is_("home_team_master_id", "null").execute()
 
-            db.table("games").update({"away_team_master_id": team_id}).eq(
-                "provider_id", provider_id
-            ).eq("away_provider_id", unknown_pid).is_("away_team_master_id", "null").execute()
+            db.table("games").update({"away_team_master_id": team_id}).eq("provider_id", provider_id).eq(
+                "away_provider_id", unknown_pid
+            ).is_("away_team_master_id", "null").execute()
             stats["home_backfilled"] += home_count
             stats["away_backfilled"] += away_count
             stats["rows_applied"] += 1

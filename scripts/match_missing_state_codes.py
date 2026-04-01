@@ -21,11 +21,12 @@ import argparse
 import os
 import re
 import sys
-from collections import Counter, defaultdict
+from collections import defaultdict
 from pathlib import Path
 from typing import DefaultDict, Dict, List, Optional, Set
 
 from dotenv import load_dotenv
+
 from supabase import create_client
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -35,7 +36,6 @@ from scripts.extract_missing_club_names import (
     extract_club_name,
     get_risk_flags,
 )
-
 
 STATE_CODE_TO_NAME = {
     "AL": "Alabama",
@@ -106,14 +106,10 @@ def load_env() -> None:
 def get_supabase():
     supabase_url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
     supabase_key = (
-        os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-        or os.getenv("SUPABASE_SERVICE_KEY")
-        or os.getenv("SUPABASE_KEY")
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
     )
     if not supabase_url or not supabase_key:
-        raise ValueError(
-            "Missing Supabase credentials. Need SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY."
-        )
+        raise ValueError("Missing Supabase credentials. Need SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.")
     return create_client(supabase_url, supabase_key)
 
 
@@ -179,9 +175,7 @@ def fetch_teams_without_state(supabase, limit: Optional[int]) -> List[Dict]:
                 .select("team_id_master,team_name,club_name,state,state_code,age_group,gender")
                 .eq("is_deprecated", False)
             )
-            batch = (
-                filter_fn(query).range(offset, offset + page_size - 1).execute().data or []
-            )
+            batch = filter_fn(query).range(offset, offset + page_size - 1).execute().data or []
             if not batch:
                 break
             for row in batch:
@@ -265,9 +259,7 @@ def get_state_match_risk_flags(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Conservatively backfill missing state codes from club names"
-    )
+    parser = argparse.ArgumentParser(description="Conservatively backfill missing state codes from club names")
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -366,18 +358,15 @@ def main() -> None:
 
         if args.dry_run:
             if sample_count < 25:
-                print(
-                    f"  [DRY-RUN] {team_name[:45]}... | "
-                    f"{source_type}: '{source_club}' -> {matched_state_code}"
-                )
+                print(f"  [DRY-RUN] {team_name[:45]}... | {source_type}: '{source_club}' -> {matched_state_code}")
                 sample_count += 1
             updated += 1
             continue
 
         try:
-            supabase.table("teams").update(
-                {"state_code": matched_state_code, "state": matched_state_name}
-            ).eq("team_id_master", team_id).execute()
+            supabase.table("teams").update({"state_code": matched_state_code, "state": matched_state_name}).eq(
+                "team_id_master", team_id
+            ).execute()
             updated += 1
             if updated <= 25 or updated % 100 == 0:
                 print(

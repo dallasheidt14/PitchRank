@@ -1,21 +1,14 @@
-"use client";
+'use client';
 
-import { Suspense, useState, useMemo } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
-import { createClientSupabase } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Loader2, Mail, Lock, CheckCircle2 } from "lucide-react";
+import { Suspense, useState, useMemo } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import { createClientSupabase } from '@/lib/supabase/client';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Loader2, Mail, Lock, CheckCircle2 } from 'lucide-react';
 
 export default function LoginPage() {
   return (
@@ -29,13 +22,13 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClientSupabase(), []);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(searchParams.get("error"));
+  const [error, setError] = useState<string | null>(searchParams.get('error'));
 
   // Success message from auth callback (e.g., email confirmed)
-  const successMessage = searchParams.get("message");
+  const successMessage = searchParams.get('message');
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,7 +36,7 @@ function LoginForm() {
     setError(null);
 
     try {
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+      const { error: signInError } = await supabase.auth.signInWithPassword({
         email: email.trim().toLowerCase(),
         password,
       });
@@ -58,10 +51,10 @@ function LoginForm() {
       // Premium users can navigate to their watchlist from there
       // This avoids the confusing redirect chain for free users:
       // login -> /watchlist -> middleware redirect -> /upgrade
-      router.push("/rankings");
+      router.push('/rankings');
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Login failed. Please try again.");
+      setError(e instanceof Error ? e.message : 'Login failed. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -71,17 +64,16 @@ function LoginForm() {
     <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center px-4 py-12">
       <Card data-testid="login-card" className="w-full max-w-md" variant="elevated">
         <CardHeader className="space-y-1 text-center">
-          <CardTitle className="text-2xl font-bold tracking-tight">
-            Welcome back
-          </CardTitle>
-          <CardDescription>
-            Sign in to your PitchRank account to access your watchlist
-          </CardDescription>
+          <CardTitle className="text-2xl font-bold tracking-tight">Welcome back</CardTitle>
+          <CardDescription>Sign in to your PitchRank account to access your watchlist</CardDescription>
         </CardHeader>
         <form onSubmit={handleEmailLogin}>
           <CardContent className="space-y-4">
             {successMessage && (
-              <div data-testid="login-success" className="flex items-center gap-2 rounded-md bg-green-500/10 p-3 text-sm text-green-700 dark:text-green-400">
+              <div
+                data-testid="login-success"
+                className="flex items-center gap-2 rounded-md bg-green-500/10 p-3 text-sm text-green-700 dark:text-green-400"
+              >
                 <CheckCircle2 className="h-4 w-4 shrink-0" />
                 {successMessage}
               </div>
@@ -142,16 +134,13 @@ function LoginForm() {
                   Signing in...
                 </>
               ) : (
-                "Sign in"
+                'Sign in'
               )}
             </Button>
 
             <p className="text-center text-sm text-muted-foreground">
-              Don&apos;t have an account?{" "}
-              <Link
-                href="/signup"
-                className="font-medium text-primary underline-offset-4 hover:underline"
-              >
+              Don&apos;t have an account?{' '}
+              <Link href="/signup" className="font-medium text-primary underline-offset-4 hover:underline">
                 Sign up
               </Link>
             </p>

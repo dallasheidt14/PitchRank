@@ -1,14 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Use vi.hoisted so mock fns are available inside vi.mock factories (which are hoisted)
-const { mockGetUser, mockFrom, mockCustomersCreate, mockCheckoutSessionsCreate } = vi.hoisted(
-  () => ({
-    mockGetUser: vi.fn(),
-    mockFrom: vi.fn(),
-    mockCustomersCreate: vi.fn(),
-    mockCheckoutSessionsCreate: vi.fn(),
-  }),
-);
+const { mockGetUser, mockFrom, mockCustomersCreate, mockCheckoutSessionsCreate } = vi.hoisted(() => ({
+  mockGetUser: vi.fn(),
+  mockFrom: vi.fn(),
+  mockCustomersCreate: vi.fn(),
+  mockCheckoutSessionsCreate: vi.fn(),
+}));
 
 // Mock next/headers (needed by supabase/server)
 vi.mock('next/headers', () => ({
@@ -104,9 +102,7 @@ describe('POST /api/stripe/checkout', () => {
     });
 
     // Stripe checkout.sessions.create throws
-    mockCheckoutSessionsCreate.mockRejectedValue(
-      new Error('Your card was declined. Request req_abc123.'),
-    );
+    mockCheckoutSessionsCreate.mockRejectedValue(new Error('Your card was declined. Request req_abc123.'));
 
     const res = await POST(makeRequest({ priceId: 'price_valid123' }));
 

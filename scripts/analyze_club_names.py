@@ -21,42 +21,136 @@ SUPABASE_KEY = (
     "fOl6xuUuRzJhXe6UPHiCveZsviApipnFmcoB2Iz6Jt0"
 )
 
-SKIP_STATES = {'CA', 'AZ'}
+SKIP_STATES = {"CA", "AZ"}
 
 # Acronyms to keep uppercase
 ACRONYMS = {
-    'FC', 'SC', 'SA', 'AC', 'CF', 'CD', 'YSA', 'YSO', 'YSL', 'SL', 'CC', 'AD',
-    'AYSO', 'MLS', 'RSL', 'US', 'USA', 'USYS', 'USSF', 'USSSA', 'YFC',
-    'LA', 'NY', 'NJ', 'OC', 'DC', 'KC', 'STL', 'DMV', 'BV', 'PSL',
-    'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X',
-    'AL', 'AK', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN',
-    'IA', 'KS', 'KY', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE',
-    'NV', 'NH', 'NM', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI',
-    'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY',
-    'AFC', 'CFC', 'SFC', 'VFC', 'PFC', 'RFC', 'BFC', 'GFC', 'HFC', 'MFC', 'TFC', 'WFC',
-    'NCFC', 'NAZ', 'LLC', 'INC', 'DBA', 'LTD', 'CORP',
+    "FC",
+    "SC",
+    "SA",
+    "AC",
+    "CF",
+    "CD",
+    "YSA",
+    "YSO",
+    "YSL",
+    "SL",
+    "CC",
+    "AD",
+    "AYSO",
+    "MLS",
+    "RSL",
+    "US",
+    "USA",
+    "USYS",
+    "USSF",
+    "USSSA",
+    "YFC",
+    "LA",
+    "NY",
+    "NJ",
+    "OC",
+    "DC",
+    "KC",
+    "STL",
+    "DMV",
+    "BV",
+    "PSL",
+    "II",
+    "III",
+    "IV",
+    "V",
+    "VI",
+    "VII",
+    "VIII",
+    "IX",
+    "X",
+    "AL",
+    "AK",
+    "AR",
+    "CA",
+    "CO",
+    "CT",
+    "DE",
+    "FL",
+    "GA",
+    "HI",
+    "ID",
+    "IL",
+    "IN",
+    "IA",
+    "KS",
+    "KY",
+    "ME",
+    "MD",
+    "MA",
+    "MI",
+    "MN",
+    "MS",
+    "MO",
+    "MT",
+    "NE",
+    "NV",
+    "NH",
+    "NM",
+    "NC",
+    "ND",
+    "OH",
+    "OK",
+    "OR",
+    "PA",
+    "RI",
+    "SD",
+    "TN",
+    "TX",
+    "UT",
+    "VT",
+    "VA",
+    "WA",
+    "WV",
+    "WI",
+    "WY",
+    "AFC",
+    "CFC",
+    "SFC",
+    "VFC",
+    "PFC",
+    "RFC",
+    "BFC",
+    "GFC",
+    "HFC",
+    "MFC",
+    "TFC",
+    "WFC",
+    "NCFC",
+    "NAZ",
+    "LLC",
+    "INC",
+    "DBA",
+    "LTD",
+    "CORP",
 }
 
 # Suffixes to strip for normalization (order matters - longer first)
 SUFFIXES_TO_STRIP = [
-    ' soccer club',
-    ' futbol club',
-    ' football club',
-    ' soccer academy',
-    ' futbol academy',
-    ' football academy',
-    ' sc',
-    ' fc',
-    ' sa',
-    ' ac',
-    ' cf',
+    " soccer club",
+    " futbol club",
+    " football club",
+    " soccer academy",
+    " futbol academy",
+    " football academy",
+    " sc",
+    " fc",
+    " sa",
+    " ac",
+    " cf",
 ]
 
 # Prefixes to strip
 PREFIXES_TO_STRIP = [
-    'fc ',
-    'sc ',
-    'ac ',
+    "fc ",
+    "sc ",
+    "ac ",
 ]
 
 
@@ -67,11 +161,14 @@ def fetch_all_teams(client, state_code):
     offset = 0
 
     while True:
-        response = client.table('teams').select('id, club_name, state_code').eq(
-            'gender', 'Male'
-        ).eq(
-            'state_code', state_code
-        ).range(offset, offset + page_size - 1).execute()
+        response = (
+            client.table("teams")
+            .select("id, club_name, state_code")
+            .eq("gender", "Male")
+            .eq("state_code", state_code)
+            .range(offset, offset + page_size - 1)
+            .execute()
+        )
 
         if not response.data:
             break
@@ -88,36 +185,36 @@ def normalize_for_naming(name):
     n = name.lower().strip()
 
     # Remove parenthetical state codes
-    n = re.sub(r'\s*\([a-z]{2}\)\s*$', '', n)
+    n = re.sub(r"\s*\([a-z]{2}\)\s*$", "", n)
 
     # Remove periods
-    n = n.replace('.', '')
+    n = n.replace(".", "")
 
     # Strip suffixes
     for suffix in SUFFIXES_TO_STRIP:
         if n.endswith(suffix):
-            n = n[:-len(suffix)].strip()
+            n = n[: -len(suffix)].strip()
             break
 
     # Strip prefixes
     for prefix in PREFIXES_TO_STRIP:
         if n.startswith(prefix):
-            n = n[len(prefix):].strip()
+            n = n[len(prefix) :].strip()
             break
 
-    n = re.sub(r'\s+', ' ', n).strip()
+    n = re.sub(r"\s+", " ", n).strip()
     return n
 
 
 def is_multi_word_all_caps(name):
     """Check if name is a multi-word ALL CAPS name."""
-    words = [w for w in name.split() if re.sub(r'[^A-Za-z]', '', w)]
+    words = [w for w in name.split() if re.sub(r"[^A-Za-z]", "", w)]
     if len(words) <= 1:
         return False
 
     all_caps_words = 0
     for word in words:
-        clean = re.sub(r'[^A-Za-z]', '', word)
+        clean = re.sub(r"[^A-Za-z]", "", word)
         if clean and clean.isupper() and clean.upper() not in ACRONYMS and len(clean) > 2:
             all_caps_words += 1
 
@@ -130,7 +227,7 @@ def score_casing(name):
     score = 0
 
     for word in words:
-        clean = re.sub(r'[^A-Za-z]', '', word)
+        clean = re.sub(r"[^A-Za-z]", "", word)
         if not clean:
             continue
         if clean.upper() in ACRONYMS and clean.isupper():
@@ -151,25 +248,40 @@ def proper_title_case(name):
     result = []
 
     for i, word in enumerate(words):
-        suffix = ''
-        prefix = ''
-        if word and word[-1] in '.,;:!?)':
+        suffix = ""
+        prefix = ""
+        if word and word[-1] in ".,;:!?)":
             suffix = word[-1]
             word = word[:-1]
-        if word and word[0] in '(':
+        if word and word[0] in "(":
             prefix = word[0]
             word = word[1:]
 
-        clean = re.sub(r'[^A-Za-z0-9]', '', word)
+        clean = re.sub(r"[^A-Za-z0-9]", "", word)
 
         if clean.upper() in ACRONYMS:
             result.append(prefix + clean.upper() + suffix)
-        elif re.match(r'^[A-Za-z]\.[A-Za-z]\.?$', word):
+        elif re.match(r"^[A-Za-z]\.[A-Za-z]\.?$", word):
             result.append(prefix + word.upper() + suffix)
         elif (
-            word.lower() in (
-                'del', 'de', 'la', 'el', 'los', 'las', 'y',
-                'the', 'of', 'and', 'at', 'in', 'on', 'for', 'to', 'by',
+            word.lower()
+            in (
+                "del",
+                "de",
+                "la",
+                "el",
+                "los",
+                "las",
+                "y",
+                "the",
+                "of",
+                "and",
+                "at",
+                "in",
+                "on",
+                "for",
+                "to",
+                "by",
             )
             and i > 0
         ):
@@ -177,13 +289,13 @@ def proper_title_case(name):
         else:
             result.append(prefix + word.capitalize() + suffix)
 
-    return ' '.join(result)
+    return " ".join(result)
 
 
 def has_full_suffix(name):
     """Check if name has full suffix like 'Soccer Club'."""
     lower = name.lower()
-    return any(lower.endswith(s) for s in [' soccer club', ' futbol club', ' football club', ' soccer academy'])
+    return any(lower.endswith(s) for s in [" soccer club", " futbol club", " football club", " soccer academy"])
 
 
 def analyze_state(client, state_code):
@@ -196,7 +308,7 @@ def analyze_state(client, state_code):
     # Count all club names
     name_counts = defaultdict(int)
     for team in teams:
-        club = team['club_name']
+        club = team["club_name"]
         if club:
             name_counts[club] += 1
 
@@ -288,17 +400,13 @@ def analyze_state(client, state_code):
         if final != original_name:
             # Determine type
             if original_name.lower() == final.lower():
-                fix_type = 'caps'
+                fix_type = "caps"
             else:
-                fix_type = 'naming'
+                fix_type = "naming"
 
-            all_fixes.append({
-                'from': original_name,
-                'to': final,
-                'count': count,
-                'type': fix_type,
-                'state': state_code
-            })
+            all_fixes.append(
+                {"from": original_name, "to": final, "count": count, "type": fix_type, "state": state_code}
+            )
 
     return all_fixes, len(teams)
 
@@ -312,26 +420,26 @@ def generate_sql(all_fixes):
         "-- IMPORTANT: Each UPDATE is filtered by state_code to avoid cross-state conflicts",
         "",
         "BEGIN;",
-        ""
+        "",
     ]
 
     by_state = defaultdict(list)
     for fix in all_fixes:
-        by_state[fix['state']].append(fix)
+        by_state[fix["state"]].append(fix)
 
     for state in sorted(by_state.keys()):
         state_fixes = by_state[state]
         lines.append(f"-- ========== {state} ==========")
 
-        caps = [f for f in state_fixes if f['type'] == 'caps']
-        naming = [f for f in state_fixes if f['type'] == 'naming']
+        caps = [f for f in state_fixes if f["type"] == "caps"]
+        naming = [f for f in state_fixes if f["type"] == "naming"]
 
         if caps:
             lines.append("-- Capitalization fixes:")
-            for fix in sorted(caps, key=lambda x: x['from']):
-                lines.append(f"-- \"{fix['from']}\" → \"{fix['to']}\" ({fix['count']} teams)")
-                from_escaped = fix['from'].replace("'", "''")
-                to_escaped = fix['to'].replace("'", "''")
+            for fix in sorted(caps, key=lambda x: x["from"]):
+                lines.append(f'-- "{fix["from"]}" → "{fix["to"]}" ({fix["count"]} teams)')
+                from_escaped = fix["from"].replace("'", "''")
+                to_escaped = fix["to"].replace("'", "''")
                 sql = (
                     f"UPDATE teams SET club_name = '{to_escaped}'"
                     f" WHERE club_name = '{from_escaped}'"
@@ -342,10 +450,10 @@ def generate_sql(all_fixes):
 
         if naming:
             lines.append("-- Naming variations:")
-            for fix in sorted(naming, key=lambda x: x['from']):
-                lines.append(f"-- \"{fix['from']}\" → \"{fix['to']}\" ({fix['count']} teams)")
-                from_escaped = fix['from'].replace("'", "''")
-                to_escaped = fix['to'].replace("'", "''")
+            for fix in sorted(naming, key=lambda x: x["from"]):
+                lines.append(f'-- "{fix["from"]}" → "{fix["to"]}" ({fix["count"]} teams)')
+                from_escaped = fix["from"].replace("'", "''")
+                to_escaped = fix["to"].replace("'", "''")
                 sql = (
                     f"UPDATE teams SET club_name = '{to_escaped}'"
                     f" WHERE club_name = '{from_escaped}'"
@@ -357,15 +465,15 @@ def generate_sql(all_fixes):
         lines.append("")
 
     lines.append("COMMIT;")
-    return '\n'.join(lines)
+    return "\n".join(lines)
 
 
 def main():
     client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
     print("Fetching distinct states...")
-    states_response = client.table('teams').select('state_code').eq('gender', 'Male').execute()
-    all_states = set(t['state_code'] for t in states_response.data if t['state_code'])
+    states_response = client.table("teams").select("state_code").eq("gender", "Male").execute()
+    all_states = set(t["state_code"] for t in states_response.data if t["state_code"])
     states_to_process = sorted(all_states - SKIP_STATES)
 
     print(f"Found {len(all_states)} states total, processing {len(states_to_process)} (skipping CA, AZ)")
@@ -378,37 +486,34 @@ def main():
         fixes, total_teams = analyze_state(client, state)
         all_fixes.extend(fixes)
 
-        caps_count = sum(1 for f in fixes if f['type'] == 'caps')
-        naming_count = sum(1 for f in fixes if f['type'] == 'naming')
-        teams_affected = sum(f['count'] for f in fixes)
+        caps_count = sum(1 for f in fixes if f["type"] == "caps")
+        naming_count = sum(1 for f in fixes if f["type"] == "naming")
+        teams_affected = sum(f["count"] for f in fixes)
 
         if teams_affected > 0:
             summary[state] = {
-                'caps_fixes': caps_count,
-                'naming_fixes': naming_count,
-                'teams_affected': teams_affected,
-                'total_teams': total_teams
+                "caps_fixes": caps_count,
+                "naming_fixes": naming_count,
+                "teams_affected": teams_affected,
+                "total_teams": total_teams,
             }
             total = caps_count + naming_count
-            print(
-                f"  → {caps_count} caps + {naming_count} naming"
-                f" = {total} fixes ({teams_affected} teams)"
-            )
+            print(f"  → {caps_count} caps + {naming_count} naming = {total} fixes ({teams_affected} teams)")
         else:
             print("  → No fixes needed")
 
     if all_fixes:
         sql = generate_sql(all_fixes)
-        output_path = '/Users/pitchrankio-dev/Projects/PitchRank/scripts/club_name_fixes_male_all_states.sql'
-        with open(output_path, 'w') as f:
+        output_path = "/Users/pitchrankio-dev/Projects/PitchRank/scripts/club_name_fixes_male_all_states.sql"
+        with open(output_path, "w") as f:
             f.write(sql)
         print(f"\nSQL written to: {output_path}")
     else:
         print("\nNo fixes needed!")
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("SUMMARY")
-    print("="*60)
+    print("=" * 60)
 
     total_caps = 0
     total_naming = 0
@@ -416,26 +521,23 @@ def main():
 
     for state in sorted(summary.keys()):
         s = summary[state]
-        total = s['caps_fixes'] + s['naming_fixes']
+        total = s["caps_fixes"] + s["naming_fixes"]
         print(
             f"{state}: {s['caps_fixes']} caps + {s['naming_fixes']} naming"
             f" = {total} fixes, {s['teams_affected']} teams"
             f" (of {s['total_teams']})"
         )
-        total_caps += s['caps_fixes']
-        total_naming += s['naming_fixes']
-        total_teams += s['teams_affected']
+        total_caps += s["caps_fixes"]
+        total_naming += s["naming_fixes"]
+        total_teams += s["teams_affected"]
 
     if summary:
-        print("-"*60)
+        print("-" * 60)
         total = total_caps + total_naming
-        print(
-            f"TOTAL: {total_caps} caps + {total_naming} naming"
-            f" = {total} fixes, {total_teams} teams affected"
-        )
+        print(f"TOTAL: {total_caps} caps + {total_naming} naming = {total} fixes, {total_teams} teams affected")
 
     return summary, all_fixes
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

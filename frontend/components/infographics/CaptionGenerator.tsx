@@ -36,46 +36,27 @@ const HOOK_TEMPLATES: Record<InfographicType, string[]> = {
     '⚽ TOP {N} TEAMS IN {STATE}',
     '🔥 WHO MADE THE CUT?',
     '📊 DATA DROP',
-    '👀 WHO\'S #1 IN {STATE}?',
+    "👀 WHO'S #1 IN {STATE}?",
     '🚨 RANKINGS JUST DROPPED',
     '⚡ THE TOP {N} ARE HERE',
   ],
-  spotlight: [
-    '🌟 TEAM SPOTLIGHT',
-    '👏 SHOUTOUT TO {TEAM}',
-    '📈 WATCH THIS TEAM',
-    '🔥 {TEAM} IS ON FIRE',
-  ],
+  spotlight: ['🌟 TEAM SPOTLIGHT', '👏 SHOUTOUT TO {TEAM}', '📈 WATCH THIS TEAM', '🔥 {TEAM} IS ON FIRE'],
   movers: [
     '🔥 BIGGEST RISERS THIS WEEK',
-    '📈📉 WHO\'S MOVING?',
+    "📈📉 WHO'S MOVING?",
     '🚀 RANKINGS SHAKE-UP',
     '⬆️⬇️ BIG MOVERS ALERT',
     '👀 WHO CLIMBED? WHO FELL?',
   ],
-  headToHead: [
-    '🆚 HEAD TO HEAD',
-    '📊 TALE OF THE TAPE',
-    '⚡ THE MATCHUP EVERYONE\'S WATCHING',
-    '🔥 WHO WINS THIS ONE?',
-  ],
+  headToHead: ['🆚 HEAD TO HEAD', '📊 TALE OF THE TAPE', "⚡ THE MATCHUP EVERYONE'S WATCHING", '🔥 WHO WINS THIS ONE?'],
   stateChampions: [
     '🏆 STATE CHAMPIONS',
     '👑 THE BEST IN EVERY STATE',
     '🗺️ #1 RANKED BY STATE',
     '⚽ STATE-BY-STATE LEADERS',
   ],
-  stories: [
-    '🚨 NEW RANKINGS LIVE',
-    '📊 RANKINGS UPDATE',
-    '⚡ JUST DROPPED',
-    '🔥 SWIPE FOR RANKINGS',
-  ],
-  covers: [
-    '🏆 WELCOME TO PITCHRANK',
-    '⚽ YOUR RANKING SOURCE',
-    '📊 POWERED BY DATA',
-  ],
+  stories: ['🚨 NEW RANKINGS LIVE', '📊 RANKINGS UPDATE', '⚡ JUST DROPPED', '🔥 SWIPE FOR RANKINGS'],
+  covers: ['🏆 WELCOME TO PITCHRANK', '⚽ YOUR RANKING SOURCE', '📊 POWERED BY DATA'],
 };
 
 // ---------------------------------------------------------------------------
@@ -98,7 +79,7 @@ const CONTEXT_TEMPLATES: Record<InfographicType, string[]> = {
     'The {CATEGORY} {REGION} rankings saw some big shake-ups this week.',
   ],
   headToHead: [
-    'Breaking down the matchup everyone\'s talking about in {CATEGORY} {REGION}.',
+    "Breaking down the matchup everyone's talking about in {CATEGORY} {REGION}.",
     'Two top {CATEGORY} teams {REGION} go head to head. Who has the edge?',
   ],
   stateChampions: [
@@ -132,7 +113,7 @@ const ENGAGEMENT_TEMPLATES: Record<InfographicType, string[]> = {
     'Which team is underrated?',
     'Who moves up next week?',
     'Tag your team 👇',
-    'Who\'s missing from this list? 👇',
+    "Who's missing from this list? 👇",
     'Agree or disagree? Drop a comment 👇',
     'Which team surprises you the most?',
   ],
@@ -148,24 +129,14 @@ const ENGAGEMENT_TEMPLATES: Record<InfographicType, string[]> = {
     'Is your team trending up or down? 👇',
     'Tag a team that should be rising 👇',
   ],
-  headToHead: [
-    'Who wins this one? 👇',
-    'Pick a side — who\'s better?',
-    'Who has the edge? Drop your take 👇',
-  ],
+  headToHead: ['Who wins this one? 👇', "Pick a side — who's better?", 'Who has the edge? Drop your take 👇'],
   stateChampions: [
     'Find your state — did we get it right?',
     'Which state has the best #1 team?',
-    'Tag your state\'s champion 👇',
+    "Tag your state's champion 👇",
   ],
-  stories: [
-    'Where does YOUR team rank?',
-    'Check the link to find out 👇',
-  ],
-  covers: [
-    'Follow for weekly ranking updates!',
-    'Hit follow to never miss a drop!',
-  ],
+  stories: ['Where does YOUR team rank?', 'Check the link to find out 👇'],
+  covers: ['Follow for weekly ranking updates!', 'Hit follow to never miss a drop!'],
 };
 
 // ---------------------------------------------------------------------------
@@ -188,22 +159,10 @@ const CTA_TEMPLATES: Record<InfographicType, string[]> = {
     'Track your team at pitchrank.io/rankings',
     '🔗 Full rankings → pitchrank.io/rankings',
   ],
-  headToHead: [
-    'Compare any two teams at pitchrank.io',
-    '🔗 Try it → pitchrank.io/rankings',
-  ],
-  stateChampions: [
-    'Explore every state at pitchrank.io',
-    '🔗 Full rankings → pitchrank.io/rankings',
-  ],
-  stories: [
-    '👆 Tap the link to see full rankings',
-    '🔗 pitchrank.io/rankings',
-  ],
-  covers: [
-    '🔗 pitchrank.io',
-    'Visit pitchrank.io for the latest rankings',
-  ],
+  headToHead: ['Compare any two teams at pitchrank.io', '🔗 Try it → pitchrank.io/rankings'],
+  stateChampions: ['Explore every state at pitchrank.io', '🔗 Full rankings → pitchrank.io/rankings'],
+  stories: ['👆 Tap the link to see full rankings', '🔗 pitchrank.io/rankings'],
+  covers: ['🔗 pitchrank.io', 'Visit pitchrank.io for the latest rankings'],
 };
 
 // ---------------------------------------------------------------------------
@@ -215,34 +174,81 @@ const GENDER_HASHTAGS: Record<string, string[]> = {
   F: ['GirlsSoccer'],
 };
 const AGE_HASHTAGS: Record<string, string> = {
-  u10: 'U10Soccer', u11: 'U11Soccer', u12: 'U12Soccer',
-  u13: 'U13Soccer', u14: 'U14Soccer', u15: 'U15Soccer',
-  u16: 'U16Soccer', u17: 'U17Soccer', u19: 'U19Soccer',
+  u10: 'U10Soccer',
+  u11: 'U11Soccer',
+  u12: 'U12Soccer',
+  u13: 'U13Soccer',
+  u14: 'U14Soccer',
+  u15: 'U15Soccer',
+  u16: 'U16Soccer',
+  u17: 'U17Soccer',
+  u19: 'U19Soccer',
 };
 const ROTATING_HASHTAGS = [
-  'SoccerParents', 'FutureStars', 'SoccerFamily', 'SoccerLife',
-  'ECNL', 'GALeague', 'MLSNext', 'DPL', 'SoccerMom', 'SoccerDad',
+  'SoccerParents',
+  'FutureStars',
+  'SoccerFamily',
+  'SoccerLife',
+  'ECNL',
+  'GALeague',
+  'MLSNext',
+  'DPL',
+  'SoccerMom',
+  'SoccerDad',
 ];
 
 // State hashtag mapping
 const STATE_HASHTAGS: Record<string, string> = {
-  Alabama: 'AlabamaSoccer', Alaska: 'AlaskaSoccer', Arizona: 'ArizonaSoccer',
-  Arkansas: 'ArkansasSoccer', California: 'CaliforniaSoccer', Colorado: 'ColoradoSoccer',
-  Connecticut: 'ConnecticutSoccer', Delaware: 'DelawareSoccer', Florida: 'FloridaSoccer',
-  Georgia: 'GeorgiaSoccer', Hawaii: 'HawaiiSoccer', Idaho: 'IdahoSoccer',
-  Illinois: 'IllinoisSoccer', Indiana: 'IndianaSoccer', Iowa: 'IowaSoccer',
-  Kansas: 'KansasSoccer', Kentucky: 'KentuckySoccer', Louisiana: 'LouisianaSoccer',
-  Maine: 'MaineSoccer', Maryland: 'MarylandSoccer', Massachusetts: 'MassachusettsSoccer',
-  Michigan: 'MichiganSoccer', Minnesota: 'MinnesotaSoccer', Mississippi: 'MississippiSoccer',
-  Missouri: 'MissouriSoccer', Montana: 'MontanaSoccer', Nebraska: 'NebraskaSoccer',
-  Nevada: 'NevadaSoccer', 'New Hampshire': 'NewHampshireSoccer', 'New Jersey': 'NewJerseySoccer',
-  'New Mexico': 'NewMexicoSoccer', 'New York': 'NewYorkSoccer', 'North Carolina': 'NorthCarolinaSoccer',
-  'North Dakota': 'NorthDakotaSoccer', Ohio: 'OhioSoccer', Oklahoma: 'OklahomaSoccer',
-  Oregon: 'OregonSoccer', Pennsylvania: 'PennsylvaniaSoccer', 'Rhode Island': 'RhodeIslandSoccer',
-  'South Carolina': 'SouthCarolinaSoccer', 'South Dakota': 'SouthDakotaSoccer',
-  Tennessee: 'TennesseeSoccer', Texas: 'TexasSoccer', Utah: 'UtahSoccer',
-  Vermont: 'VermontSoccer', Virginia: 'VirginiaSoccer', Washington: 'WashingtonSoccer',
-  'West Virginia': 'WestVirginiaSoccer', Wisconsin: 'WisconsinSoccer', Wyoming: 'WyomingSoccer',
+  Alabama: 'AlabamaSoccer',
+  Alaska: 'AlaskaSoccer',
+  Arizona: 'ArizonaSoccer',
+  Arkansas: 'ArkansasSoccer',
+  California: 'CaliforniaSoccer',
+  Colorado: 'ColoradoSoccer',
+  Connecticut: 'ConnecticutSoccer',
+  Delaware: 'DelawareSoccer',
+  Florida: 'FloridaSoccer',
+  Georgia: 'GeorgiaSoccer',
+  Hawaii: 'HawaiiSoccer',
+  Idaho: 'IdahoSoccer',
+  Illinois: 'IllinoisSoccer',
+  Indiana: 'IndianaSoccer',
+  Iowa: 'IowaSoccer',
+  Kansas: 'KansasSoccer',
+  Kentucky: 'KentuckySoccer',
+  Louisiana: 'LouisianaSoccer',
+  Maine: 'MaineSoccer',
+  Maryland: 'MarylandSoccer',
+  Massachusetts: 'MassachusettsSoccer',
+  Michigan: 'MichiganSoccer',
+  Minnesota: 'MinnesotaSoccer',
+  Mississippi: 'MississippiSoccer',
+  Missouri: 'MissouriSoccer',
+  Montana: 'MontanaSoccer',
+  Nebraska: 'NebraskaSoccer',
+  Nevada: 'NevadaSoccer',
+  'New Hampshire': 'NewHampshireSoccer',
+  'New Jersey': 'NewJerseySoccer',
+  'New Mexico': 'NewMexicoSoccer',
+  'New York': 'NewYorkSoccer',
+  'North Carolina': 'NorthCarolinaSoccer',
+  'North Dakota': 'NorthDakotaSoccer',
+  Ohio: 'OhioSoccer',
+  Oklahoma: 'OklahomaSoccer',
+  Oregon: 'OregonSoccer',
+  Pennsylvania: 'PennsylvaniaSoccer',
+  'Rhode Island': 'RhodeIslandSoccer',
+  'South Carolina': 'SouthCarolinaSoccer',
+  'South Dakota': 'SouthDakotaSoccer',
+  Tennessee: 'TennesseeSoccer',
+  Texas: 'TexasSoccer',
+  Utah: 'UtahSoccer',
+  Vermont: 'VermontSoccer',
+  Virginia: 'VirginiaSoccer',
+  Washington: 'WashingtonSoccer',
+  'West Virginia': 'WestVirginiaSoccer',
+  Wisconsin: 'WisconsinSoccer',
+  Wyoming: 'WyomingSoccer',
 };
 
 // ---------------------------------------------------------------------------
@@ -282,15 +288,18 @@ export function CaptionGenerator({
   const n = String(teamCount);
 
   // Replace template variables
-  const fillVars = useCallback((template: string) => {
-    return template
-      .replace(/\{CATEGORY\}/g, category)
-      .replace(/\{REGION\}/g, regionPhrase)
-      .replace(/\{STATE\}/g, stateDisplay)
-      .replace(/\{TEAM\}/g, teamName || 'Team')
-      .replace(/\{RANK\}/g, String(rank || 1))
-      .replace(/\{N\}/g, n);
-  }, [category, regionPhrase, stateDisplay, teamName, rank, n]);
+  const fillVars = useCallback(
+    (template: string) => {
+      return template
+        .replace(/\{CATEGORY\}/g, category)
+        .replace(/\{REGION\}/g, regionPhrase)
+        .replace(/\{STATE\}/g, stateDisplay)
+        .replace(/\{TEAM\}/g, teamName || 'Team')
+        .replace(/\{RANK\}/g, String(rank || 1))
+        .replace(/\{N\}/g, n);
+    },
+    [category, regionPhrase, stateDisplay, teamName, rank, n]
+  );
 
   // Build hashtags (Block 5)
   const hashtags = useMemo(() => {
@@ -308,7 +317,10 @@ export function CaptionGenerator({
     tags.push(ROTATING_HASHTAGS[rotIdx % ROTATING_HASHTAGS.length]);
     tags.push(ROTATING_HASHTAGS[(rotIdx + 1) % ROTATING_HASHTAGS.length]);
     // Cap at 10 hashtags
-    return tags.slice(0, 10).map(t => `#${t}`).join(' ');
+    return tags
+      .slice(0, 10)
+      .map((t) => `#${t}`)
+      .join(' ');
   }, [ageGroup, gender, regionName, blockSeeds.rotatingHashtag]);
 
   // Assemble the 5-block caption
@@ -324,15 +336,7 @@ export function CaptionGenerator({
     const engagement = fillVars(pickTemplate(engagementTemplates, blockSeeds.engagement));
     const cta = fillVars(pickTemplate(ctaTemplates, blockSeeds.cta));
 
-    const parts = [
-      hook,
-      '',
-      `${context}\n${contextSuffix}`,
-      '',
-      engagement,
-      '',
-      `👇 ${cta}`,
-    ];
+    const parts = [hook, '', `${context}\n${contextSuffix}`, '', engagement, '', `👇 ${cta}`];
 
     // Add Instagram handles if available
     if (instagramHandles.length > 0) {
@@ -436,11 +440,15 @@ export function CaptionGenerator({
           </div>
           <div className="flex items-center gap-1">
             <Instagram className="h-4 w-4" />
-            <span>{caption.length}/{charCounts.instagram}</span>
+            <span>
+              {caption.length}/{charCounts.instagram}
+            </span>
           </div>
           <div className="flex items-center gap-1">
             <Facebook className="h-4 w-4" />
-            <span>{caption.length}/{charCounts.facebook}</span>
+            <span>
+              {caption.length}/{charCounts.facebook}
+            </span>
           </div>
         </div>
 
@@ -481,15 +489,18 @@ export function CaptionGenerator({
         <div>
           <p className="text-xs font-medium text-muted-foreground mb-2">Quick Copy Hashtags:</p>
           <div className="flex flex-wrap gap-1">
-            {[...BASE_HASHTAGS, ...GENDER_HASHTAGS[gender], AGE_HASHTAGS[ageGroup]].filter(Boolean).slice(0, 8).map((tag) => (
-              <button
-                key={tag}
-                onClick={() => navigator.clipboard.writeText(`#${tag}`)}
-                className="text-xs bg-primary/10 hover:bg-primary/20 text-primary px-2 py-1 rounded transition-colors"
-              >
-                #{tag}
-              </button>
-            ))}
+            {[...BASE_HASHTAGS, ...GENDER_HASHTAGS[gender], AGE_HASHTAGS[ageGroup]]
+              .filter(Boolean)
+              .slice(0, 8)
+              .map((tag) => (
+                <button
+                  key={tag}
+                  onClick={() => navigator.clipboard.writeText(`#${tag}`)}
+                  className="text-xs bg-primary/10 hover:bg-primary/20 text-primary px-2 py-1 rounded transition-colors"
+                >
+                  #{tag}
+                </button>
+              ))}
           </div>
         </div>
       </CardContent>

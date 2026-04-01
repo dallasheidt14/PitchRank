@@ -67,9 +67,7 @@ export function FeatureShowcase() {
                 <h3 className="font-display font-bold text-sm sm:text-base uppercase tracking-wide text-foreground mb-1 group-hover:text-primary transition-colors">
                   {feature.title}
                 </h3>
-                <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed mb-3">
-                  {feature.description}
-                </p>
+                <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed mb-3">{feature.description}</p>
                 <Button
                   variant="outline"
                   size="sm"

@@ -12,21 +12,21 @@ Usage:
 
 import os
 import sys
-from pathlib import Path
 from collections import defaultdict
-from datetime import datetime, timezone
+from pathlib import Path
 
 from dotenv import load_dotenv
+
 from supabase import create_client
 
-env_path = Path(__file__).parent.parent / '.env.local'
+env_path = Path(__file__).parent.parent / ".env.local"
 if env_path.exists():
     load_dotenv(env_path, override=True)
 else:
     load_dotenv()
 
-supabase_url = os.getenv('SUPABASE_URL') or os.getenv('NEXT_PUBLIC_SUPABASE_URL')
-supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('SUPABASE_SERVICE_KEY') or os.getenv('SUPABASE_KEY')
+supabase_url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
 
 if not supabase_url or not supabase_key:
     print("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set")
@@ -54,7 +54,7 @@ def paginated_fetch(table, select_fields, filters=None, page_size=1000):
 
 
 def main():
-    dry_run = '--execute' not in sys.argv
+    dry_run = "--execute" not in sys.argv
 
     print("=" * 70)
     print("CLEANUP DUPLICATE GAMES BY COMPOSITE KEY")
@@ -62,28 +62,28 @@ def main():
     print("=" * 70)
 
     # Get modular11 provider
-    provider_result = supabase.table('providers').select('id').eq('code', 'modular11').single().execute()
-    provider_id = provider_result.data['id']
+    provider_result = supabase.table("providers").select("id").eq("code", "modular11").single().execute()
+    provider_id = provider_result.data["id"]
     print(f"\nModular11 provider_id: {provider_id}")
 
     # Fetch ALL modular11 games
     print("\nFetching all Modular11 games...")
     all_games = paginated_fetch(
-        'games',
-        'id, game_uid, game_date, home_team_master_id, away_team_master_id, home_score, away_score, created_at',
-        filters=[('provider_id', provider_id)]
+        "games",
+        "id, game_uid, game_date, home_team_master_id, away_team_master_id, home_score, away_score, created_at",
+        filters=[("provider_id", provider_id)],
     )
     print(f"Total games: {len(all_games)}")
 
     # Group by composite key
     games_by_key = defaultdict(list)
     for game in all_games:
-        home = game.get('home_team_master_id', '')
-        away = game.get('away_team_master_id', '')
-        date = game.get('game_date', '')
-        hs = game.get('home_score')
-        as_ = game.get('away_score')
-        
+        home = game.get("home_team_master_id", "")
+        away = game.get("away_team_master_id", "")
+        date = game.get("game_date", "")
+        hs = game.get("home_score")
+        as_ = game.get("away_score")
+
         # Normalize: sort team IDs so (A vs B) and (B vs A) aren't treated differently
         # Actually for home/away it matters, keep as-is
         key = (home, away, date, hs, as_)
@@ -101,22 +101,22 @@ def main():
 
     # Collect IDs to delete
     ids_to_delete = []
-    
+
     for i, (key, games) in enumerate(dupe_groups.items()):
         # Sort by created_at, keep oldest
-        games_sorted = sorted(games, key=lambda g: g.get('created_at', '') or '')
+        games_sorted = sorted(games, key=lambda g: g.get("created_at", "") or "")
         keep = games_sorted[0]
         delete = games_sorted[1:]
 
         if i < 15:
             home, away, date, hs, as_ = key
-            print(f"\n  {i+1}. {date}: score {hs}-{as_} ({len(games)} copies)")
+            print(f"\n  {i + 1}. {date}: score {hs}-{as_} ({len(games)} copies)")
             print(f"     Keep:   {keep['game_uid'][:60]} (created {keep.get('created_at', '?')[:19]})")
             for d in delete:
                 print(f"     Delete: {d['game_uid'][:60]} (created {d.get('created_at', '?')[:19]})")
 
         for d in delete:
-            ids_to_delete.append(d['id'])
+            ids_to_delete.append(d["id"])
 
     if len(dupe_groups) > 15:
         print(f"\n  ... and {len(dupe_groups) - 15} more groups")
@@ -125,7 +125,7 @@ def main():
 
     if not dry_run:
         confirm = input(f"\n  ⚠️  About to delete {len(ids_to_delete)} records. Continue? (y/N): ")
-        if confirm.lower() != 'y':
+        if confirm.lower() != "y":
             print("  Aborted.")
             return
         print("\n  Deleting...")
@@ -134,16 +134,16 @@ def main():
         batch_size = 50
 
         for i in range(0, len(ids_to_delete), batch_size):
-            batch = ids_to_delete[i:i + batch_size]
+            batch = ids_to_delete[i : i + batch_size]
             try:
-                supabase.table('games').delete().in_('id', batch).execute()
+                supabase.table("games").delete().in_("id", batch).execute()
                 deleted += len(batch)
                 if deleted % 200 == 0 or i + batch_size >= len(ids_to_delete):
                     print(f"    Deleted {deleted}/{len(ids_to_delete)}...")
             except Exception:
                 for gid in batch:
                     try:
-                        supabase.table('games').delete().eq('id', gid).execute()
+                        supabase.table("games").delete().eq("id", gid).execute()
                         deleted += 1
                     except Exception as e:
                         failed += 1
@@ -152,11 +152,11 @@ def main():
 
         print(f"\n  Done: {deleted} deleted, {failed} failed")
     else:
-        print(f"\n  Run with --execute to delete:")
-        print(f"    python scripts/cleanup_dupe_games_by_composite.py --execute")
+        print("\n  Run with --execute to delete:")
+        print("    python scripts/cleanup_dupe_games_by_composite.py --execute")
 
     print("=" * 70)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

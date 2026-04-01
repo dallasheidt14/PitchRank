@@ -11,7 +11,7 @@
  * - Uses similar weighting philosophy to ranking components
  */
 
-import type { InsightInputData, ConsistencyInsight } from "./types";
+import type { InsightInputData, ConsistencyInsight } from './types';
 
 /**
  * v53e GOAL_DIFF_CAP constant - blowout games beyond ±6 goals
@@ -23,10 +23,7 @@ const GOAL_DIFF_CAP = 6;
  * Calculate standard deviation of goal differentials
  * Caps goal differential at ±6 to match v53e engine
  */
-function calculateGoalDiffStdDev(
-  games: InsightInputData["games"],
-  teamId: string
-): number {
+function calculateGoalDiffStdDev(games: InsightInputData['games'], teamId: string): number {
   const goalDiffs: number[] = [];
 
   for (const game of games) {
@@ -45,9 +42,7 @@ function calculateGoalDiffStdDev(
   if (goalDiffs.length < 2) return 0;
 
   const mean = goalDiffs.reduce((a, b) => a + b, 0) / goalDiffs.length;
-  const variance =
-    goalDiffs.reduce((sum, gd) => sum + Math.pow(gd - mean, 2), 0) /
-    goalDiffs.length;
+  const variance = goalDiffs.reduce((sum, gd) => sum + Math.pow(gd - mean, 2), 0) / goalDiffs.length;
 
   return Math.sqrt(variance);
 }
@@ -57,11 +52,8 @@ function calculateGoalDiffStdDev(
  * Higher value = more fragmented (more result changes)
  * Returns value between 0 and 1
  */
-function calculateStreakFragmentation(
-  games: InsightInputData["games"],
-  teamId: string
-): number {
-  const results: ("W" | "L" | "D")[] = [];
+function calculateStreakFragmentation(games: InsightInputData['games'], teamId: string): number {
+  const results: ('W' | 'L' | 'D')[] = [];
 
   for (const game of games) {
     const isHome = game.home_team_master_id === teamId;
@@ -69,9 +61,9 @@ function calculateStreakFragmentation(
     const oppScore = isHome ? game.away_score : game.home_score;
 
     if (teamScore !== null && oppScore !== null) {
-      if (teamScore > oppScore) results.push("W");
-      else if (teamScore < oppScore) results.push("L");
-      else results.push("D");
+      if (teamScore > oppScore) results.push('W');
+      else if (teamScore < oppScore) results.push('L');
+      else results.push('D');
     }
   }
 
@@ -93,20 +85,15 @@ function calculateStreakFragmentation(
  * Calculate PowerScore volatility from ranking history
  * Returns coefficient of variation (std dev / mean)
  */
-function calculatePowerScoreVolatility(
-  rankingHistory: InsightInputData["rankingHistory"]
-): number {
-  const scores = rankingHistory
-    .map((h) => h.power_score_final)
-    .filter((s): s is number => s !== null);
+function calculatePowerScoreVolatility(rankingHistory: InsightInputData['rankingHistory']): number {
+  const scores = rankingHistory.map((h) => h.power_score_final).filter((s): s is number => s !== null);
 
   if (scores.length < 2) return 0;
 
   const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
   if (mean === 0) return 0;
 
-  const variance =
-    scores.reduce((sum, s) => sum + Math.pow(s - mean, 2), 0) / scores.length;
+  const variance = scores.reduce((sum, s) => sum + Math.pow(s - mean, 2), 0) / scores.length;
   const stdDev = Math.sqrt(variance);
 
   // Return coefficient of variation (CV)
@@ -151,9 +138,7 @@ function calculateConsistencyScore(
   // - Stable ranking (< 0.05): very consistent -> high score
   // - Volatile ranking (> 0.15): jumping around -> low score
   // If no history data (volatility = 0), use neutral 60
-  const pvScore = powerScoreVolatility === 0
-    ? 60
-    : Math.max(0, Math.min(100, 100 - powerScoreVolatility * 400));
+  const pvScore = powerScoreVolatility === 0 ? 60 : Math.max(0, Math.min(100, 100 - powerScoreVolatility * 400));
 
   // Weighted average
   const weightedScore = gdScore * 0.5 + sfScore * 0.3 + pvScore * 0.2;
@@ -164,22 +149,17 @@ function calculateConsistencyScore(
 /**
  * Determine consistency label based on score
  */
-function getConsistencyLabel(
-  score: number
-): ConsistencyInsight["label"] {
-  if (score >= 75) return "very reliable";
-  if (score >= 55) return "moderately reliable";
-  if (score >= 35) return "unpredictable";
-  return "highly volatile";
+function getConsistencyLabel(score: number): ConsistencyInsight['label'] {
+  if (score >= 75) return 'very reliable';
+  if (score >= 55) return 'moderately reliable';
+  if (score >= 35) return 'unpredictable';
+  return 'highly volatile';
 }
 
 /**
  * Count games with valid scores for a team
  */
-function countScoredGames(
-  games: InsightInputData["games"],
-  teamId: string
-): number {
+function countScoredGames(games: InsightInputData['games'], teamId: string): number {
   let count = 0;
   for (const game of games) {
     const isHome = game.home_team_master_id === teamId;
@@ -196,9 +176,7 @@ const MIN_GAMES_FOR_CONSISTENCY = 3;
 /**
  * Generate the Consistency Score insight
  */
-export function generateConsistencyScore(
-  data: InsightInputData
-): ConsistencyInsight {
+export function generateConsistencyScore(data: InsightInputData): ConsistencyInsight {
   const { team, games, rankingHistory } = data;
 
   const scoredGames = countScoredGames(games, team.team_id_master);
@@ -207,9 +185,9 @@ export function generateConsistencyScore(
   // instead of inflating the score from near-zero variance
   if (scoredGames < MIN_GAMES_FOR_CONSISTENCY) {
     return {
-      type: "consistency_score",
+      type: 'consistency_score',
       score: 50,
-      label: "unpredictable",
+      label: 'unpredictable',
       details: {
         goalDifferentialStdDev: 0,
         streakFragmentation: 0,
@@ -222,16 +200,12 @@ export function generateConsistencyScore(
   const streakFragmentation = calculateStreakFragmentation(games, team.team_id_master);
   const powerScoreVolatility = calculatePowerScoreVolatility(rankingHistory);
 
-  const score = calculateConsistencyScore(
-    goalDifferentialStdDev,
-    streakFragmentation,
-    powerScoreVolatility
-  );
+  const score = calculateConsistencyScore(goalDifferentialStdDev, streakFragmentation, powerScoreVolatility);
 
   const label = getConsistencyLabel(score);
 
   return {
-    type: "consistency_score",
+    type: 'consistency_score',
     score,
     label,
     details: {

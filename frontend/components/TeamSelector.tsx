@@ -79,7 +79,7 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
 
   const selectedTeam = useMemo(() => {
     if (!value || !allTeams) return null;
-    return allTeams.find(r => r.team_id_master === value) || null;
+    return allTeams.find((r) => r.team_id_master === value) || null;
   }, [value, allTeams]);
 
   // Configure Fuse.js for fuzzy search with optimized settings
@@ -87,9 +87,7 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
     if (!allTeams || !FuseClass) return null;
 
     // Filter out excluded team before creating Fuse instance
-    const teamsToSearch = excludeTeamId
-      ? allTeams.filter(team => team.team_id_master !== excludeTeamId)
-      : allTeams;
+    const teamsToSearch = excludeTeamId ? allTeams.filter((team) => team.team_id_master !== excludeTeamId) : allTeams;
 
     return new FuseClass(teamsToSearch, {
       keys: [
@@ -112,25 +110,26 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
   const filteredTeams = useMemo(() => {
     if (!deferredSearchQuery || !allTeams || deferredSearchQuery.length < 2) return [];
 
-    const queryWords = deferredSearchQuery.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+    const queryWords = deferredSearchQuery
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 0);
 
     // Get teams to search (excluding the excluded team)
-    const teamsToSearch = excludeTeamId
-      ? allTeams.filter(team => team.team_id_master !== excludeTeamId)
-      : allTeams;
+    const teamsToSearch = excludeTeamId ? allTeams.filter((team) => team.team_id_master !== excludeTeamId) : allTeams;
 
     // Filter teams where ALL query words appear in searchable_name or club_name
-    const matchingTeams = teamsToSearch.filter(team => {
+    const matchingTeams = teamsToSearch.filter((team) => {
       const searchText = ((team.searchable_name || team.team_name) + ' ' + (team.club_name || '')).toLowerCase();
-      return queryWords.every(word => searchText.includes(word));
+      return queryWords.every((word) => searchText.includes(word));
     });
 
     // Sort by how early the first match appears (better relevance)
     matchingTeams.sort((a, b) => {
       const aText = ((a.searchable_name || a.team_name) + ' ' + (a.club_name || '')).toLowerCase();
       const bText = ((b.searchable_name || b.team_name) + ' ' + (b.club_name || '')).toLowerCase();
-      const aIndex = Math.min(...queryWords.map(w => aText.indexOf(w)));
-      const bIndex = Math.min(...queryWords.map(w => bText.indexOf(w)));
+      const aIndex = Math.min(...queryWords.map((w) => aText.indexOf(w)));
+      const bIndex = Math.min(...queryWords.map((w) => bText.indexOf(w)));
       return aIndex - bIndex;
     });
 
@@ -236,27 +235,15 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
                       key={team.team_id_master}
                       onClick={() => handleSelect(team)}
                       className={`w-full text-left p-2 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary ${
-                        index === selectedIndex
-                          ? 'bg-accent font-semibold'
-                          : 'hover:bg-accent/50'
+                        index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
                       }`}
                       aria-label={`Select ${team.team_name}`}
                     >
-                      <div className="font-medium">
-                        {highlightMatch(team.team_name, deferredSearchQuery)}
-                      </div>
+                      <div className="font-medium">{highlightMatch(team.team_name, deferredSearchQuery)}</div>
                       <div className="text-xs text-muted-foreground">
-                        {team.club_name && (
-                          <span>{highlightMatch(team.club_name, deferredSearchQuery)}</span>
-                        )}
-                        {team.state && (
-                          <span className={team.club_name ? ' • ' : ''}>
-                            {team.state.toUpperCase()}
-                          </span>
-                        )}
-                        {team.rank_in_cohort_final && (
-                          <span> • Rank #{team.rank_in_cohort_final}</span>
-                        )}
+                        {team.club_name && <span>{highlightMatch(team.club_name, deferredSearchQuery)}</span>}
+                        {team.state && <span className={team.club_name ? ' • ' : ''}>{team.state.toUpperCase()}</span>}
+                        {team.rank_in_cohort_final && <span> • Rank #{team.rank_in_cohort_final}</span>}
                       </div>
                     </button>
                   ))}

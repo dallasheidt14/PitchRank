@@ -4,7 +4,8 @@ const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
 
 export const metadata: Metadata = {
   title: 'Social Media Infographics',
-  description: 'Generate shareable youth soccer rankings graphics for Instagram, Twitter, and Facebook. Create top 10 leaderboards, team spotlights, and more.',
+  description:
+    'Generate shareable youth soccer rankings graphics for Instagram, Twitter, and Facebook. Create top 10 leaderboards, team spotlights, and more.',
   alternates: {
     canonical: `${baseUrl}/infographics`,
   },
@@ -22,10 +23,6 @@ export const metadata: Metadata = {
   },
 };
 
-export default function InfographicsLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function InfographicsLayout({ children }: { children: React.ReactNode }) {
   return children;
 }

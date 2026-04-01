@@ -13,21 +13,24 @@ Outputs a detailed opponent-by-opponent SOS breakdown for each team:
 - Manual SOS calculation vs database SOS
 - Sanity check summary
 """
+
 import asyncio
-import sys
-from pathlib import Path
-import pandas as pd
-import numpy as np
-from supabase import create_client
+import json
 import os
 import shutil
+import sys
+from collections import deque
+from datetime import datetime
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
 from dotenv import load_dotenv
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
-from datetime import datetime, timedelta
-import json
-from collections import deque
+from rich.table import Table
+
+from supabase import create_client
 
 sys.path.append(str(Path(__file__).parent.parent))
 from src.etl.v53e import V53EConfig
@@ -41,7 +44,7 @@ _rich_width = max(_rich_width, 300)
 console = Console(width=_rich_width, force_terminal=True)
 
 # Load environment variables
-env_local = Path('.env.local')
+env_local = Path(".env.local")
 if env_local.exists():
     load_dotenv(env_local, override=True)
 else:
@@ -64,10 +67,10 @@ async def get_merged_team_ids(supabase, canonical_id: str) -> list:
 
         while q:
             current = q.popleft()
-            result = supabase.table('team_merge_map').select('deprecated_team_id').eq(
-                'canonical_team_id', current
-            ).execute()
-            deprecated_ids = [r['deprecated_team_id'] for r in (result.data or [])]
+            result = (
+                supabase.table("team_merge_map").select("deprecated_team_id").eq("canonical_team_id", current).execute()
+            )
+            deprecated_ids = [r["deprecated_team_id"] for r in (result.data or [])]
             for dep in deprecated_ids:
                 if dep not in visited:
                     visited.add(dep)
@@ -82,8 +85,8 @@ async def get_merged_team_ids(supabase, canonical_id: str) -> list:
 
 
 async def run_audit():
-    supabase_url = os.getenv('SUPABASE_URL')
-    supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
     if not supabase_url or not supabase_key:
         console.print("[red]Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set[/red]")
@@ -93,11 +96,11 @@ async def run_audit():
     cfg = V53EConfig()
     today = pd.Timestamp.now()
     cutoff = today - pd.Timedelta(days=365)
-    cutoff_str = cutoff.strftime('%Y-%m-%d')
+    cutoff_str = cutoff.strftime("%Y-%m-%d")
 
-    reports_dir = Path('reports')
+    reports_dir = Path("reports")
     reports_dir.mkdir(parents=True, exist_ok=True)
-    run_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     games_csv_path = reports_dir / f"audit_two_teams_sos_{run_ts}_games.csv"
     opponents_csv_path = reports_dir / f"audit_two_teams_sos_{run_ts}_opponents.csv"
     summary_json_path = reports_dir / f"audit_two_teams_sos_{run_ts}_summary.json"
@@ -118,10 +121,15 @@ async def run_audit():
     offset = 0
     page_size = 1000
     while True:
-        result = supabase.table('rankings_full').select(
-            'team_id, abs_strength, sos, sos_norm, sos_raw, powerscore_adj, powerscore_ml, '
-            'power_score_final, off_norm, def_norm, games_played, status, age_group, gender'
-        ).range(offset, offset + page_size - 1).execute()
+        result = (
+            supabase.table("rankings_full")
+            .select(
+                "team_id, abs_strength, sos, sos_norm, sos_raw, powerscore_adj, powerscore_ml, "
+                "power_score_final, off_norm, def_norm, games_played, status, age_group, gender"
+            )
+            .range(offset, offset + page_size - 1)
+            .execute()
+        )
         if not result.data:
             break
         all_rankings.extend(result.data)
@@ -130,20 +138,23 @@ async def run_audit():
         offset += page_size
 
     rankings_df = pd.DataFrame(all_rankings)
-    strength_map = dict(zip(rankings_df['team_id'], rankings_df['abs_strength']))
+    strength_map = dict(zip(rankings_df["team_id"], rankings_df["abs_strength"]))
     console.print(f"[green]Loaded {len(rankings_df):,} teams with strength values[/green]\n")
 
     # Load merge map so opponent IDs are resolved to canonical (matches engine behavior)
     merge_map = {}
     merge_offset = 0
     while True:
-        mr = supabase.table('team_merge_map').select(
-            'deprecated_team_id, canonical_team_id'
-        ).range(merge_offset, merge_offset + 999).execute()
+        mr = (
+            supabase.table("team_merge_map")
+            .select("deprecated_team_id, canonical_team_id")
+            .range(merge_offset, merge_offset + 999)
+            .execute()
+        )
         if not mr.data:
             break
         for entry in mr.data:
-            merge_map[entry['deprecated_team_id']] = entry['canonical_team_id']
+            merge_map[entry["deprecated_team_id"]] = entry["canonical_team_id"]
         if len(mr.data) < 1000:
             break
         merge_offset += 1000
@@ -151,41 +162,47 @@ async def run_audit():
         console.print(f"[green]Loaded {len(merge_map):,} merge mappings for opponent resolution[/green]\n")
 
     for team_id in TEAM_IDS:
-        console.print(f"\n{'='*80}")
+        console.print(f"\n{'=' * 80}")
 
         # 2) Get team info
-        team_result = supabase.table('teams').select(
-            'team_name, club_name, age_group, gender, state_code'
-        ).eq('team_id_master', team_id).limit(1).execute()
+        team_result = (
+            supabase.table("teams")
+            .select("team_name, club_name, age_group, gender, state_code")
+            .eq("team_id_master", team_id)
+            .limit(1)
+            .execute()
+        )
 
         team_info = team_result.data[0] if team_result.data else {}
-        team_name = team_info.get('team_name', 'Unknown')
+        team_name = team_info.get("team_name", "Unknown")
 
-        console.print(Panel.fit(
-            f"[bold cyan]{team_name}[/bold cyan]\n"
-            f"ID: {team_id}\n"
-            f"Club: {team_info.get('club_name', '?')} | "
-            f"Age: {team_info.get('age_group', '?')} | "
-            f"Gender: {team_info.get('gender', '?')} | "
-            f"State: {team_info.get('state_code', '?')}",
-            border_style="cyan"
-        ))
+        console.print(
+            Panel.fit(
+                f"[bold cyan]{team_name}[/bold cyan]\n"
+                f"ID: {team_id}\n"
+                f"Club: {team_info.get('club_name', '?')} | "
+                f"Age: {team_info.get('age_group', '?')} | "
+                f"Gender: {team_info.get('gender', '?')} | "
+                f"State: {team_info.get('state_code', '?')}",
+                border_style="cyan",
+            )
+        )
 
         # Get this team's ranking data
-        team_ranking = rankings_df[rankings_df['team_id'] == team_id]
+        team_ranking = rankings_df[rankings_df["team_id"] == team_id]
         if not team_ranking.empty:
             tr = team_ranking.iloc[0]
-            console.print(f"\n[bold]Current Rankings Data:[/bold]")
+            console.print("\n[bold]Current Rankings Data:[/bold]")
             stats = Table.grid(padding=(0, 2))
             stats.add_column(style="cyan", justify="right", width=25)
             stats.add_column(style="white")
-            stats.add_row("Status:", str(tr.get('status', '?')))
-            stats.add_row("Games Played:", str(tr.get('games_played', '?')))
+            stats.add_row("Status:", str(tr.get("status", "?")))
+            stats.add_row("Games Played:", str(tr.get("games_played", "?")))
             stats.add_row("OFF Norm:", f"{tr.get('off_norm', 0):.4f}")
             stats.add_row("DEF Norm:", f"{tr.get('def_norm', 0):.4f}")
             stats.add_row("SOS (raw):", f"{tr.get('sos', 0):.6f}")
             stats.add_row("SOS Norm:", f"{tr.get('sos_norm', 0):.4f}")
-            stats.add_row("SOS Raw (post-shrinkage):", f"{tr.get('sos_raw', 0):.6f}" if tr.get('sos_raw') else "N/A")
+            stats.add_row("SOS Raw (post-shrinkage):", f"{tr.get('sos_raw', 0):.6f}" if tr.get("sos_raw") else "N/A")
             stats.add_row("PowerScore (adj):", f"{tr.get('powerscore_adj', 0):.4f}")
             stats.add_row("PowerScore (ML):", f"{tr.get('powerscore_ml', 0):.4f}")
             stats.add_row("Power Score Final:", f"{tr.get('power_score_final', 0):.4f}")
@@ -201,107 +218,118 @@ async def run_audit():
         games = []
         # Fetch games for all IDs (canonical + deprecated) in batches
         for tid in all_team_ids:
-            home_games = supabase.table('games').select(
-                'id, game_uid, game_date, home_team_master_id, away_team_master_id, '
-                'home_score, away_score'
-            ).eq('home_team_master_id', tid).gte('game_date', cutoff_str).not_.is_(
-                'home_score', 'null'
-            ).not_.is_('away_score', 'null').execute()
+            home_games = (
+                supabase.table("games")
+                .select("id, game_uid, game_date, home_team_master_id, away_team_master_id, home_score, away_score")
+                .eq("home_team_master_id", tid)
+                .gte("game_date", cutoff_str)
+                .not_.is_("home_score", "null")
+                .not_.is_("away_score", "null")
+                .execute()
+            )
 
-            away_games = supabase.table('games').select(
-                'id, game_uid, game_date, home_team_master_id, away_team_master_id, '
-                'home_score, away_score'
-            ).eq('away_team_master_id', tid).gte('game_date', cutoff_str).not_.is_(
-                'home_score', 'null'
-            ).not_.is_('away_score', 'null').execute()
+            away_games = (
+                supabase.table("games")
+                .select("id, game_uid, game_date, home_team_master_id, away_team_master_id, home_score, away_score")
+                .eq("away_team_master_id", tid)
+                .gte("game_date", cutoff_str)
+                .not_.is_("home_score", "null")
+                .not_.is_("away_score", "null")
+                .execute()
+            )
 
-            for game in (home_games.data or []):
+            for game in home_games.data or []:
                 # Resolve opponent to canonical ID if it's a deprecated team
-                raw_opp = game['away_team_master_id']
+                raw_opp = game["away_team_master_id"]
                 opp_id = merge_map.get(raw_opp, raw_opp)
-                games.append({
-                    'date': game['game_date'],
-                    'opp_id': opp_id,
-                    'gf': game.get('home_score', 0),
-                    'ga': game.get('away_score', 0),
-                    'source_team_id': tid,
-                })
-            for game in (away_games.data or []):
-                raw_opp = game['home_team_master_id']
+                games.append(
+                    {
+                        "date": game["game_date"],
+                        "opp_id": opp_id,
+                        "gf": game.get("home_score", 0),
+                        "ga": game.get("away_score", 0),
+                        "source_team_id": tid,
+                    }
+                )
+            for game in away_games.data or []:
+                raw_opp = game["home_team_master_id"]
                 opp_id = merge_map.get(raw_opp, raw_opp)
-                games.append({
-                    'date': game['game_date'],
-                    'opp_id': opp_id,
-                    'gf': game.get('away_score', 0),
-                    'ga': game.get('home_score', 0),
-                    'source_team_id': tid,
-                })
+                games.append(
+                    {
+                        "date": game["game_date"],
+                        "opp_id": opp_id,
+                        "gf": game.get("away_score", 0),
+                        "ga": game.get("home_score", 0),
+                        "source_team_id": tid,
+                    }
+                )
 
         if not games:
             console.print("[red]No games found in 365-day window[/red]")
             continue
 
-        g = pd.DataFrame(games).sort_values('date', ascending=False).reset_index(drop=True)
-        g['rank_recency'] = range(1, len(g) + 1)
+        g = pd.DataFrame(games).sort_values("date", ascending=False).reset_index(drop=True)
+        g["rank_recency"] = range(1, len(g) + 1)
 
         # Recency weights (exponential decay matching v53e)
         n = len(g)
         raw_weights = [np.exp(-cfg.RECENCY_DECAY_RATE * i) for i in range(n)]
         total_w = sum(raw_weights)
-        g['w_base'] = [w / total_w for w in raw_weights]
+        g["w_base"] = [w / total_w for w in raw_weights]
 
         # Adaptive K (simplified — uses strength gap)
         def adaptive_k(row):
             team_str = strength_map.get(team_id, 0.5)
-            opp_str = strength_map.get(row['opp_id'], cfg.UNRANKED_SOS_BASE)
+            opp_str = strength_map.get(row["opp_id"], cfg.UNRANKED_SOS_BASE)
             gap = abs(team_str - opp_str)
             return cfg.ADAPTIVE_K_ALPHA * (1.0 + cfg.ADAPTIVE_K_BETA * gap)
 
-        g['k_adapt'] = g.apply(adaptive_k, axis=1)
-        g['w_sos'] = g['w_base'] * g['k_adapt']
+        g["k_adapt"] = g.apply(adaptive_k, axis=1)
+        g["w_sos"] = g["w_base"] * g["k_adapt"]
 
         # Repeat cap
-        g = g.sort_values(['opp_id', 'w_sos'], ascending=[True, False])
-        g['repeat_rank'] = g.groupby('opp_id')['w_sos'].rank(ascending=False, method='first')
-        g['in_sos'] = g['repeat_rank'] <= cfg.SOS_REPEAT_CAP
+        g = g.sort_values(["opp_id", "w_sos"], ascending=[True, False])
+        g["repeat_rank"] = g.groupby("opp_id")["w_sos"].rank(ascending=False, method="first")
+        g["in_sos"] = g["repeat_rank"] <= cfg.SOS_REPEAT_CAP
 
         # Map opponent strengths
-        g['opp_strength'] = g['opp_id'].map(
-            lambda o: strength_map.get(o, cfg.UNRANKED_SOS_BASE)
-        )
+        g["opp_strength"] = g["opp_id"].map(lambda o: strength_map.get(o, cfg.UNRANKED_SOS_BASE))
 
         # Get opponent names
-        opp_ids = g['opp_id'].unique().tolist()
+        opp_ids = g["opp_id"].unique().tolist()
         opp_names = {}
         for i in range(0, len(opp_ids), 100):
-            batch = opp_ids[i:i+100]
-            result = supabase.table('teams').select(
-                'team_id_master, team_name, age_group'
-            ).in_('team_id_master', batch).execute()
+            batch = opp_ids[i : i + 100]
+            result = (
+                supabase.table("teams")
+                .select("team_id_master, team_name, age_group")
+                .in_("team_id_master", batch)
+                .execute()
+            )
             if result.data:
                 for row in result.data:
-                    opp_names[row['team_id_master']] = {
-                        'name': row['team_name'],
-                        'age_group': row.get('age_group', '?'),
+                    opp_names[row["team_id_master"]] = {
+                        "name": row["team_name"],
+                        "age_group": row.get("age_group", "?"),
                     }
 
         # Calculate manual SOS
-        g_sos = g[g['in_sos']].copy()
-        total_weight = g_sos['w_sos'].sum()
-        manual_sos = (g_sos['opp_strength'] * g_sos['w_sos']).sum() / total_weight if total_weight > 0 else 0
+        g_sos = g[g["in_sos"]].copy()
+        total_weight = g_sos["w_sos"].sum()
+        manual_sos = (g_sos["opp_strength"] * g_sos["w_sos"]).sum() / total_weight if total_weight > 0 else 0
 
         team_audit: dict = {
             "team_id": team_id,
             "team_name": team_name,
-            "club_name": team_info.get('club_name', '?'),
-            "age_group": team_info.get('age_group', '?'),
-            "gender": team_info.get('gender', '?'),
-            "state_code": team_info.get('state_code', '?'),
+            "club_name": team_info.get("club_name", "?"),
+            "age_group": team_info.get("age_group", "?"),
+            "gender": team_info.get("gender", "?"),
+            "state_code": team_info.get("state_code", "?"),
             "merged_team_ids": all_team_ids,
             "games_total": int(len(g)),
             "games_in_sos_calc": int(len(g_sos)),
             "games_repeat_capped_out": int(len(g) - len(g_sos)),
-            "unique_opponents": int(g['opp_id'].nunique()) if len(g) else 0,
+            "unique_opponents": int(g["opp_id"].nunique()) if len(g) else 0,
             "manual_sos": float(manual_sos),
             "database_sos": None,
             "sos_difference": None,
@@ -333,15 +361,15 @@ async def run_audit():
         games_table.add_column("SOS Contrib", justify="right", width=14)
         games_table.add_column("In SOS", justify="center", width=6)
 
-        g_display = g.sort_values('date', ascending=False).reset_index(drop=True)
+        g_display = g.sort_values("date", ascending=False).reset_index(drop=True)
 
         for idx, row in g_display.iterrows():
-            opp_info = opp_names.get(row['opp_id'], {'name': row['opp_id'][:12] + '...', 'age_group': '?'})
+            opp_info = opp_names.get(row["opp_id"], {"name": row["opp_id"][:12] + "...", "age_group": "?"})
             # Do not truncate opponent name here; rely on the wide column + overflow folding.
-            opp_name = opp_info['name']
-            opp_age = opp_info.get('age_group', '?')
+            opp_name = opp_info["name"]
+            opp_age = opp_info.get("age_group", "?")
 
-            gf, ga = int(row['gf']), int(row['ga'])
+            gf, ga = int(row["gf"]), int(row["ga"])
             if gf > ga:
                 result_str = "[green]W[/green]"
             elif gf < ga:
@@ -349,7 +377,7 @@ async def run_audit():
             else:
                 result_str = "[yellow]D[/yellow]"
 
-            opp_str = row['opp_strength']
+            opp_str = row["opp_strength"]
             if opp_str >= 0.50:
                 str_color = "green"
             elif opp_str >= 0.30:
@@ -358,17 +386,17 @@ async def run_audit():
                 str_color = "red"
 
             # SOS contribution (only for games included in SOS calc)
-            if row['in_sos'] and total_weight > 0:
-                contrib = (opp_str * row['w_sos']) / total_weight
+            if row["in_sos"] and total_weight > 0:
+                contrib = (opp_str * row["w_sos"]) / total_weight
                 contrib_str = f"{contrib:.6f}"
             else:
                 contrib_str = "[dim]—[/dim]"
 
-            in_sos_str = "[green]✓[/green]" if row['in_sos'] else "[red]✗ (cap)[/red]"
+            in_sos_str = "[green]✓[/green]" if row["in_sos"] else "[red]✗ (cap)[/red]"
 
             games_table.add_row(
                 str(idx + 1),
-                str(row['date'])[:10],
+                str(row["date"])[:10],
                 opp_name,
                 str(opp_age),
                 f"{gf}-{ga}",
@@ -382,37 +410,37 @@ async def run_audit():
         console.print(games_table)
 
         # Summary
-        console.print(f"\n[bold]SOS Summary:[/bold]")
+        console.print("\n[bold]SOS Summary:[/bold]")
         summary = Table.grid(padding=(0, 2))
         summary.add_column(style="cyan", justify="right", width=30)
         summary.add_column(style="white")
 
         summary.add_row("Manual SOS (Pass 1 direct):", f"{manual_sos:.6f}")
-        actual_sos = team_ranking.iloc[0].get('sos', None) if not team_ranking.empty else None
+        actual_sos = team_ranking.iloc[0].get("sos", None) if not team_ranking.empty else None
         if actual_sos is not None:
             summary.add_row("Database SOS:", f"{float(actual_sos):.6f}")
             diff = abs(manual_sos - float(actual_sos))
             color = "green" if diff < 0.01 else "yellow" if diff < 0.03 else "red"
             summary.add_row("Difference:", f"[{color}]{diff:.6f}[/{color}]")
-            summary.add_row("", f"[dim](Diff expected due to Power-SOS co-calc, SCF, PageRank dampening)[/dim]")
+            summary.add_row("", "[dim](Diff expected due to Power-SOS co-calc, SCF, PageRank dampening)[/dim]")
             team_audit["database_sos"] = float(actual_sos)
             team_audit["sos_difference"] = float(diff)
 
         summary.add_row("", "")
         summary.add_row("Total Games:", str(len(g)))
-        if 'source_team_id' in g.columns:
-            canonical_count = (g['source_team_id'] == team_id).sum()
-            merged_count = (g['source_team_id'] != team_id).sum()
+        if "source_team_id" in g.columns:
+            canonical_count = (g["source_team_id"] == team_id).sum()
+            merged_count = (g["source_team_id"] != team_id).sum()
             summary.add_row("  → From canonical ID:", str(canonical_count))
             summary.add_row("  → From merged IDs:", str(merged_count))
             team_audit["canonical_games_count"] = int(canonical_count)
             team_audit["merged_games_count"] = int(merged_count)
         summary.add_row("Games in SOS Calc:", str(len(g_sos)))
         summary.add_row("Games Repeat-Capped:", str(len(g) - len(g_sos)))
-        summary.add_row("Unique Opponents:", str(g['opp_id'].nunique()))
+        summary.add_row("Unique Opponents:", str(g["opp_id"].nunique()))
 
         # Opponent strength distribution
-        opp_strengths = g_sos['opp_strength']
+        opp_strengths = g_sos["opp_strength"]
         summary.add_row("", "")
         summary.add_row("Avg Opp Strength:", f"{opp_strengths.mean():.6f}")
         summary.add_row("Max Opp Strength:", f"{opp_strengths.max():.6f}")
@@ -423,7 +451,7 @@ async def run_audit():
         strong = (opp_strengths >= 0.40).sum()
         mid = ((opp_strengths >= 0.20) & (opp_strengths < 0.40)).sum()
         weak = (opp_strengths < 0.20).sum()
-        unranked = (g_sos['opp_strength'] == cfg.UNRANKED_SOS_BASE).sum()
+        unranked = (g_sos["opp_strength"] == cfg.UNRANKED_SOS_BASE).sum()
         summary.add_row("", "")
         summary.add_row("Strong Opps (≥0.40):", str(strong))
         summary.add_row("Mid Opps (0.20-0.40):", str(mid))
@@ -455,25 +483,27 @@ async def run_audit():
             if bool(row.get("in_sos")):
                 sos_contrib_value = float(contrib_by_idx.get(row.name)) if row.name in contrib_by_idx else None
 
-            games_rows.append({
-                "team_id": team_id,
-                "team_name": team_name,
-                "team_age_group": team_info.get("age_group", "?"),
-                "team_gender": team_info.get("gender", "?"),
-                "team_state_code": team_info.get("state_code", "?"),
-                "game_date": str(row["date"])[:10],
-                "source_team_id": row.get("source_team_id"),
-                "opp_id": row["opp_id"],
-                "opp_name": opp_names.get(row["opp_id"], {}).get("name"),
-                "score_for": gf,
-                "score_against": ga,
-                "result": result_plain,
-                "repeat_rank": int(row["repeat_rank"]) if pd.notna(row.get("repeat_rank")) else None,
-                "in_sos": bool(row.get("in_sos")),
-                "opp_strength": float(row.get("opp_strength", cfg.UNRANKED_SOS_BASE)),
-                "w_sos": float(row.get("w_sos", 0.0)),
-                "sos_contrib": sos_contrib_value,
-            })
+            games_rows.append(
+                {
+                    "team_id": team_id,
+                    "team_name": team_name,
+                    "team_age_group": team_info.get("age_group", "?"),
+                    "team_gender": team_info.get("gender", "?"),
+                    "team_state_code": team_info.get("state_code", "?"),
+                    "game_date": str(row["date"])[:10],
+                    "source_team_id": row.get("source_team_id"),
+                    "opp_id": row["opp_id"],
+                    "opp_name": opp_names.get(row["opp_id"], {}).get("name"),
+                    "score_for": gf,
+                    "score_against": ga,
+                    "result": result_plain,
+                    "repeat_rank": int(row["repeat_rank"]) if pd.notna(row.get("repeat_rank")) else None,
+                    "in_sos": bool(row.get("in_sos")),
+                    "opp_strength": float(row.get("opp_strength", cfg.UNRANKED_SOS_BASE)),
+                    "w_sos": float(row.get("w_sos", 0.0)),
+                    "sos_contrib": sos_contrib_value,
+                }
+            )
 
         # Export: per-opponent rollup (only games included in SOS calc)
         if len(g_sos) > 0 and total_weight > 0:
@@ -489,7 +519,7 @@ async def run_audit():
                 .reset_index()
             )
             opp_rollup_df["opp_name"] = opp_rollup_df["opp_id"].map(
-                lambda o: (opp_names.get(o, {}).get("name") or str(o))
+                lambda o: opp_names.get(o, {}).get("name") or str(o)
             )
             opp_rollup_df["opp_age_group"] = opp_rollup_df["opp_id"].map(
                 lambda o: opp_names.get(o, {}).get("age_group", "?")
@@ -510,8 +540,10 @@ async def run_audit():
     if opponents_rows:
         pd.DataFrame(opponents_rows).to_csv(opponents_csv_path, index=False, encoding="utf-8")
     summary_json_path.write_text(json.dumps(audit_summary, indent=2), encoding="utf-8")
-    console.print(f"\n[green]Exported audit files:[/green]\n- {games_csv_path}\n- {opponents_csv_path}\n- {summary_json_path}\n")
+    console.print(
+        f"\n[green]Exported audit files:[/green]\n- {games_csv_path}\n- {opponents_csv_path}\n- {summary_json_path}\n"
+    )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(run_audit())

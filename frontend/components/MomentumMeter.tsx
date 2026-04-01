@@ -51,11 +51,7 @@ function interpolateMomentumColor(score: number): string {
  * Calculate momentum from recent games using ml_overperformance from game data
  * Uses the same data as GameHistoryTable for consistency
  */
-function calculateMomentum(
-  teamId: string,
-  games: GameWithTeams[],
-  numberOfGames: number = 8
-): MomentumResult {
+function calculateMomentum(teamId: string, games: GameWithTeams[], numberOfGames: number = 8): MomentumResult {
   const recentGames = games.slice(0, numberOfGames);
 
   if (recentGames.length === 0) {
@@ -94,7 +90,7 @@ function calculateMomentum(
   const cappedPoints = Math.max(-4, Math.min(4, points));
 
   // Convert to 0-100 scale: 50 + (points × 12.5)
-  const score = Math.max(0, Math.min(100, 50 + (cappedPoints * 12.5)));
+  const score = Math.max(0, Math.min(100, 50 + cappedPoints * 12.5));
 
   return {
     score,
@@ -111,7 +107,13 @@ function calculateMomentum(
 export function MomentumMeter({ teamId }: MomentumMeterProps) {
   // Use same limit as GameHistoryTable (100) so React Query serves from shared cache
   // instead of firing a separate Supabase request. MomentumMeter only reads the first 8 games.
-  const { data: gamesData, isLoading: gamesLoading, isError: gamesError, error: gamesErrorObj, refetch } = useTeamGames(teamId, 100);
+  const {
+    data: gamesData,
+    isLoading: gamesLoading,
+    isError: gamesError,
+    error: gamesErrorObj,
+    refetch,
+  } = useTeamGames(teamId, 100);
 
   const [animatedScore, setAnimatedScore] = useState(50);
   const [momentumData, setMomentumData] = useState<MomentumResult | null>(null);
@@ -214,11 +216,15 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
           <CardDescription>Performance trend over last 8 games</CardDescription>
         </CardHeader>
         <CardContent>
-          <ErrorDisplay error={gamesErrorObj} retry={refetch} fallback={
-            <div className="h-20 flex items-center justify-center text-muted-foreground">
-              <p>Insufficient data to calculate momentum</p>
-            </div>
-          } />
+          <ErrorDisplay
+            error={gamesErrorObj}
+            retry={refetch}
+            fallback={
+              <div className="h-20 flex items-center justify-center text-muted-foreground">
+                <p>Insufficient data to calculate momentum</p>
+              </div>
+            }
+          />
         </CardContent>
       </Card>
     );
@@ -264,9 +270,17 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
               <p className="font-semibold mb-1">How Momentum is Calculated:</p>
               <p className="text-xs mb-2">Based on performance vs expectations in recent games.</p>
               <div className="text-xs space-y-1">
-                <p><span className="text-green-600 font-semibold">Green</span> = Overperformed (beat expectations by 2+ goals)</p>
-                <p><span className="text-red-600 font-semibold">Red</span> = Underperformed (missed expectations by 2+ goals)</p>
-                <p><span className="text-muted-foreground">Neutral</span> = Performed as expected</p>
+                <p>
+                  <span className="text-green-600 font-semibold">Green</span> = Overperformed (beat expectations by 2+
+                  goals)
+                </p>
+                <p>
+                  <span className="text-red-600 font-semibold">Red</span> = Underperformed (missed expectations by 2+
+                  goals)
+                </p>
+                <p>
+                  <span className="text-muted-foreground">Neutral</span> = Performed as expected
+                </p>
               </div>
             </TooltipContent>
           </Tooltip>

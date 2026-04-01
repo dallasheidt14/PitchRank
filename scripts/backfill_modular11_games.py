@@ -14,31 +14,47 @@ Usage:
     python scripts/backfill_modular11_games.py --events-only      # Only events data
     python scripts/backfill_modular11_games.py --league-only      # Only league data
 """
+
 import argparse
 import csv
 import logging
-import os
 import sys
 import tempfile
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-OUTPUT_DIR = Path(__file__).parent.parent / 'scrapers' / 'modular11_scraper' / 'output'
+OUTPUT_DIR = Path(__file__).parent.parent / "scrapers" / "modular11_scraper" / "output"
 
 # Expected CSV columns from Modular11 scraper
 EXPECTED_COLUMNS = [
-    'provider', 'team_id', 'team_id_source', 'team_name', 'club_name',
-    'opponent_id', 'opponent_id_source', 'opponent_name', 'opponent_club_name',
-    'age_group', 'gender', 'state', 'competition', 'division_name',
-    'event_name', 'venue', 'mls_division', 'game_date', 'home_away',
-    'goals_for', 'goals_against', 'result', 'source_url', 'scraped_at'
+    "provider",
+    "team_id",
+    "team_id_source",
+    "team_name",
+    "club_name",
+    "opponent_id",
+    "opponent_id_source",
+    "opponent_name",
+    "opponent_club_name",
+    "age_group",
+    "gender",
+    "state",
+    "competition",
+    "division_name",
+    "event_name",
+    "venue",
+    "mls_division",
+    "game_date",
+    "home_away",
+    "goals_for",
+    "goals_against",
+    "result",
+    "source_url",
+    "scraped_at",
 ]
 
 
@@ -48,16 +64,12 @@ def find_best_league_file() -> Path:
     Strategy: use modular11_results.csv (the consolidated file) if it exists,
     otherwise fall back to the newest timestamped file.
     """
-    consolidated = OUTPUT_DIR / 'modular11_results.csv'
+    consolidated = OUTPUT_DIR / "modular11_results.csv"
     if consolidated.exists() and consolidated.stat().st_size > 1000:
         return consolidated
 
     # Fall back to newest timestamped file
-    timestamped = sorted(
-        OUTPUT_DIR.glob('modular11_results_*.csv'),
-        key=lambda p: p.stat().st_size,
-        reverse=True
-    )
+    timestamped = sorted(OUTPUT_DIR.glob("modular11_results_*.csv"), key=lambda p: p.stat().st_size, reverse=True)
     # Pick the largest file (most complete scrape)
     for f in timestamped:
         if f.stat().st_size > 1000:  # Skip empty/header-only files
@@ -68,7 +80,7 @@ def find_best_league_file() -> Path:
 
 def find_events_file() -> Path:
     """Find the events data file."""
-    events_file = OUTPUT_DIR / 'modular11_events_365days.csv'
+    events_file = OUTPUT_DIR / "modular11_events_365days.csv"
     if events_file.exists() and events_file.stat().st_size > 1000:
         return events_file
     return None
@@ -77,12 +89,12 @@ def find_events_file() -> Path:
 def load_and_validate_csv(filepath: Path) -> list:
     """Load a CSV file and validate it has the expected structure."""
     rows = []
-    with open(filepath, 'r', encoding='utf-8') as f:
+    with open(filepath, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         headers = reader.fieldnames or []
 
         # Check for key columns
-        required = {'team_id', 'opponent_id', 'game_date', 'goals_for', 'goals_against', 'age_group'}
+        required = {"team_id", "opponent_id", "game_date", "goals_for", "goals_against", "age_group"}
         missing = required - set(headers)
         if missing:
             logger.warning(f"File {filepath.name} missing columns: {missing}")
@@ -90,8 +102,8 @@ def load_and_validate_csv(filepath: Path) -> list:
 
         for row in reader:
             # Skip rows with empty scores (unplayed games)
-            gf = (row.get('goals_for') or '').strip()
-            ga = (row.get('goals_against') or '').strip()
+            gf = (row.get("goals_for") or "").strip()
+            ga = (row.get("goals_against") or "").strip()
             if not gf or not ga:
                 continue
             try:
@@ -101,9 +113,9 @@ def load_and_validate_csv(filepath: Path) -> list:
                 continue
 
             # Skip rows with empty team IDs
-            if not (row.get('team_id') or '').strip():
+            if not (row.get("team_id") or "").strip():
                 continue
-            if not (row.get('opponent_id') or '').strip():
+            if not (row.get("opponent_id") or "").strip():
                 continue
 
             rows.append(row)
@@ -122,11 +134,11 @@ def deduplicate_games(rows: list) -> list:
     unique = []
 
     for row in rows:
-        team_id = (row.get('team_id') or '').strip()
-        opp_id = (row.get('opponent_id') or '').strip()
-        date = (row.get('game_date') or '').strip()
-        age = (row.get('age_group') or '').strip()
-        division = (row.get('mls_division') or '').strip()
+        team_id = (row.get("team_id") or "").strip()
+        opp_id = (row.get("opponent_id") or "").strip()
+        date = (row.get("game_date") or "").strip()
+        age = (row.get("age_group") or "").strip()
+        division = (row.get("mls_division") or "").strip()
 
         # Canonical key: sort team IDs so both perspectives map to same key
         teams = tuple(sorted([team_id, opp_id]))
@@ -155,24 +167,19 @@ def write_combined_csv(rows: list, output_path: Path):
     extras = sorted(all_keys - set(fieldnames))
     fieldnames.extend(extras)
 
-    with open(output_path, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
+    with open(output_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Backfill Modular11 game data')
-    parser.add_argument('--dry-run', action='store_true',
-                        help='Preview without importing to database')
-    parser.add_argument('--league-only', action='store_true',
-                        help='Only import league (season) games')
-    parser.add_argument('--events-only', action='store_true',
-                        help='Only import events/tournament games')
-    parser.add_argument('--batch-size', type=int, default=500,
-                        help='Import batch size (default: 500)')
-    parser.add_argument('--limit', type=int, default=None,
-                        help='Limit number of games to import (for testing)')
+    parser = argparse.ArgumentParser(description="Backfill Modular11 game data")
+    parser.add_argument("--dry-run", action="store_true", help="Preview without importing to database")
+    parser.add_argument("--league-only", action="store_true", help="Only import league (season) games")
+    parser.add_argument("--events-only", action="store_true", help="Only import events/tournament games")
+    parser.add_argument("--batch-size", type=int, default=500, help="Import batch size (default: 500)")
+    parser.add_argument("--limit", type=int, default=None, help="Limit number of games to import (for testing)")
     args = parser.parse_args()
 
     if args.league_only and args.events_only:
@@ -213,32 +220,36 @@ def main():
     logger.info(f"After deduplication: {len(unique_rows):,} unique games")
 
     if args.limit:
-        unique_rows = unique_rows[:args.limit]
+        unique_rows = unique_rows[: args.limit]
         logger.info(f"Limited to {len(unique_rows):,} games for testing")
 
     # Write combined CSV to temp file
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, prefix='modular11_backfill_') as tmp:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, prefix="modular11_backfill_") as tmp:
         tmp_path = Path(tmp.name)
 
     write_combined_csv(unique_rows, tmp_path)
     logger.info(f"Wrote combined CSV to: {tmp_path}")
 
     # Build import command
-    import_script = Path(__file__).parent / 'import_games_enhanced.py'
+    import_script = Path(__file__).parent / "import_games_enhanced.py"
     cmd_parts = [
-        sys.executable, str(import_script),
-        str(tmp_path), 'modular11',
-        '--batch-size', str(args.batch_size),
-        '--summary-only',
+        sys.executable,
+        str(import_script),
+        str(tmp_path),
+        "modular11",
+        "--batch-size",
+        str(args.batch_size),
+        "--summary-only",
     ]
 
     if args.dry_run:
-        cmd_parts.append('--dry-run')
+        cmd_parts.append("--dry-run")
 
     logger.info(f"Running import: {' '.join(cmd_parts)}")
 
     # Execute import
     import subprocess
+
     result = subprocess.run(cmd_parts, cwd=str(Path(__file__).parent.parent))
 
     # Cleanup
@@ -254,5 +265,5 @@ def main():
     logger.info("Backfill complete!")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

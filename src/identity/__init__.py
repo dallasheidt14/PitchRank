@@ -1,2 +1,1 @@
 """Team identity and matching"""
-

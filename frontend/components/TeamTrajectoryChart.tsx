@@ -4,7 +4,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { ChartSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import {
-  LineChart,
   Line,
   XAxis,
   YAxis,
@@ -64,9 +63,10 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
 
       if (index >= 2) {
         // We have at least 3 data points, calculate moving average
-        const sum = baseData[index].goalDifferential +
-                    baseData[index - 1].goalDifferential +
-                    baseData[index - 2].goalDifferential;
+        const sum =
+          baseData[index].goalDifferential +
+          baseData[index - 1].goalDifferential +
+          baseData[index - 2].goalDifferential;
         movingAvg = sum / 3;
       } else if (index === 1) {
         // Only 2 points available, use 2-point average
@@ -121,11 +121,15 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
           <CardDescription>Team performance over time</CardDescription>
         </CardHeader>
         <CardContent>
-          <ErrorDisplay error={error} retry={refetch} fallback={
-            <div className="h-64 flex items-center justify-center text-muted-foreground">
-              <p>No trajectory data available</p>
-            </div>
-          } />
+          <ErrorDisplay
+            error={error}
+            retry={refetch}
+            fallback={
+              <div className="h-64 flex items-center justify-center text-muted-foreground">
+                <p>No trajectory data available</p>
+              </div>
+            }
+          />
         </CardContent>
       </Card>
     );
@@ -191,7 +195,9 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
               <p className="text-xs mt-1">Positive values = winning by that margin on average.</p>
               <p className="text-xs">Negative values = losing by that margin on average.</p>
               <p className="text-xs mt-2 font-semibold">Trend Line</p>
-              <p className="text-xs">The bold line shows a 3-period moving average to smooth out noise and reveal the underlying trend.</p>
+              <p className="text-xs">
+                The bold line shows a 3-period moving average to smooth out noise and reveal the underlying trend.
+              </p>
             </TooltipContent>
           </Tooltip>
         </div>
@@ -200,12 +206,7 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
         <ResponsiveContainer width="100%" height={300}>
           <ComposedChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-            <XAxis
-              dataKey="period"
-              className="text-xs"
-              tick={{ fill: 'currentColor' }}
-              stroke="currentColor"
-            />
+            <XAxis dataKey="period" className="text-xs" tick={{ fill: 'currentColor' }} stroke="currentColor" />
             <YAxis
               className="text-xs"
               tick={{ fill: 'currentColor' }}
@@ -214,15 +215,13 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
                 value: 'Goal Differential',
                 angle: -90,
                 position: 'insideLeft',
-                style: { fontSize: '12px', fill: 'currentColor' }
+                style: { fontSize: '12px', fill: 'currentColor' },
               }}
             />
             <Legend
               verticalAlign="top"
               height={36}
-              formatter={(value) => (
-                <span className="text-xs text-muted-foreground">{value}</span>
-              )}
+              formatter={(value) => <span className="text-xs text-muted-foreground">{value}</span>}
             />
             <RechartsTooltip
               content={({ active, payload, label }) => {
@@ -233,37 +232,26 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
                     <p className="font-semibold mb-2">{label}</p>
                     <div className="space-y-1 text-sm">
                       <p className={`font-medium ${data.goalDifferential >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        Goal Diff: {data.goalDifferential >= 0 ? '+' : ''}{data.goalDifferential.toFixed(2)}
+                        Goal Diff: {data.goalDifferential >= 0 ? '+' : ''}
+                        {data.goalDifferential.toFixed(2)}
                       </p>
                       {data.movingAverage !== null && (
                         <p className="text-muted-foreground">
-                          Trend (3-period avg): {data.movingAverage >= 0 ? '+' : ''}{data.movingAverage.toFixed(2)}
+                          Trend (3-period avg): {data.movingAverage >= 0 ? '+' : ''}
+                          {data.movingAverage.toFixed(2)}
                         </p>
                       )}
-                      <p className="text-muted-foreground">
-                        Goals For: {data.avgGoalsFor.toFixed(2)}
-                      </p>
-                      <p className="text-muted-foreground">
-                        Goals Against: {data.avgGoalsAgainst.toFixed(2)}
-                      </p>
-                      <p className="text-muted-foreground">
-                        Win %: {data.winPercentage.toFixed(1)}%
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        ({data.gamesPlayed} games)
-                      </p>
+                      <p className="text-muted-foreground">Goals For: {data.avgGoalsFor.toFixed(2)}</p>
+                      <p className="text-muted-foreground">Goals Against: {data.avgGoalsAgainst.toFixed(2)}</p>
+                      <p className="text-muted-foreground">Win %: {data.winPercentage.toFixed(1)}%</p>
+                      <p className="text-xs text-muted-foreground mt-1">({data.gamesPlayed} games)</p>
                     </div>
                   </div>
                 );
               }}
             />
             {/* Reference line at 0 */}
-            <ReferenceLine
-              y={0}
-              stroke="var(--muted-foreground)"
-              strokeDasharray="3 3"
-              strokeWidth={1}
-            />
+            <ReferenceLine y={0} stroke="var(--muted-foreground)" strokeDasharray="3 3" strokeWidth={1} />
             {/* Area fill with gradient for positive/negative zones */}
             <defs>
               <linearGradient id="goalDiffGradient" x1="0" y1="0" x2="0" y2="1">
@@ -272,12 +260,7 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
                 <stop offset="100%" stopColor="var(--color-loss)" stopOpacity={0.3} />
               </linearGradient>
             </defs>
-            <Area
-              type="monotone"
-              dataKey="goalDifferential"
-              fill="url(#goalDiffGradient)"
-              stroke="none"
-            />
+            <Area type="monotone" dataKey="goalDifferential" fill="url(#goalDiffGradient)" stroke="none" />
             {/* Main line - actual goal differential */}
             <Line
               type="monotone"
@@ -285,21 +268,10 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
               stroke="var(--primary)"
               strokeWidth={2}
               strokeOpacity={0.5}
-              dot={(props: any) => {
+              dot={(props: { cx?: number; cy?: number; payload?: Record<string, unknown>; index?: number }) => {
                 const { cx, cy, payload } = props;
-                const color = payload.goalDifferential >= 0
-                  ? 'var(--color-win)'
-                  : 'var(--color-loss)';
-                return (
-                  <circle
-                    cx={cx}
-                    cy={cy}
-                    r={4}
-                    fill={color}
-                    stroke="var(--background)"
-                    strokeWidth={2}
-                  />
-                );
+                const color = payload.goalDifferential >= 0 ? 'var(--color-win)' : 'var(--color-loss)';
+                return <circle cx={cx} cy={cy} r={4} fill={color} stroke="var(--background)" strokeWidth={2} />;
               }}
               name="Goal Differential"
             />
@@ -319,4 +291,3 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
     </Card>
   );
 }
-

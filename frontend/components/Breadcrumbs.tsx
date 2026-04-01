@@ -23,16 +23,56 @@ interface BreadcrumbsProps {
 
 // State code to full name mapping for breadcrumbs
 const STATE_NAMES: Record<string, string> = {
-  al: 'Alabama', ak: 'Alaska', az: 'Arizona', ar: 'Arkansas', ca: 'California',
-  co: 'Colorado', ct: 'Connecticut', de: 'Delaware', fl: 'Florida', ga: 'Georgia',
-  hi: 'Hawaii', id: 'Idaho', il: 'Illinois', in: 'Indiana', ia: 'Iowa',
-  ks: 'Kansas', ky: 'Kentucky', la: 'Louisiana', me: 'Maine', md: 'Maryland',
-  ma: 'Massachusetts', mi: 'Michigan', mn: 'Minnesota', ms: 'Mississippi', mo: 'Missouri',
-  mt: 'Montana', ne: 'Nebraska', nv: 'Nevada', nh: 'New Hampshire', nj: 'New Jersey',
-  nm: 'New Mexico', ny: 'New York', nc: 'North Carolina', nd: 'North Dakota', oh: 'Ohio',
-  ok: 'Oklahoma', or: 'Oregon', pa: 'Pennsylvania', ri: 'Rhode Island', sc: 'South Carolina',
-  sd: 'South Dakota', tn: 'Tennessee', tx: 'Texas', ut: 'Utah', vt: 'Vermont',
-  va: 'Virginia', wa: 'Washington', wv: 'West Virginia', wi: 'Wisconsin', wy: 'Wyoming',
+  al: 'Alabama',
+  ak: 'Alaska',
+  az: 'Arizona',
+  ar: 'Arkansas',
+  ca: 'California',
+  co: 'Colorado',
+  ct: 'Connecticut',
+  de: 'Delaware',
+  fl: 'Florida',
+  ga: 'Georgia',
+  hi: 'Hawaii',
+  id: 'Idaho',
+  il: 'Illinois',
+  in: 'Indiana',
+  ia: 'Iowa',
+  ks: 'Kansas',
+  ky: 'Kentucky',
+  la: 'Louisiana',
+  me: 'Maine',
+  md: 'Maryland',
+  ma: 'Massachusetts',
+  mi: 'Michigan',
+  mn: 'Minnesota',
+  ms: 'Mississippi',
+  mo: 'Missouri',
+  mt: 'Montana',
+  ne: 'Nebraska',
+  nv: 'Nevada',
+  nh: 'New Hampshire',
+  nj: 'New Jersey',
+  nm: 'New Mexico',
+  ny: 'New York',
+  nc: 'North Carolina',
+  nd: 'North Dakota',
+  oh: 'Ohio',
+  ok: 'Oklahoma',
+  or: 'Oregon',
+  pa: 'Pennsylvania',
+  ri: 'Rhode Island',
+  sc: 'South Carolina',
+  sd: 'South Dakota',
+  tn: 'Tennessee',
+  tx: 'Texas',
+  ut: 'Utah',
+  vt: 'Vermont',
+  va: 'Virginia',
+  wa: 'Washington',
+  wv: 'West Virginia',
+  wi: 'Wisconsin',
+  wy: 'Wyoming',
 };
 
 /**
@@ -51,7 +91,7 @@ export function Breadcrumbs({ items, showHomeIcon = true }: BreadcrumbsProps) {
     const crumbs: BreadcrumbItem[] = [{ label: 'Home', href: '/' }];
 
     let currentPath = '';
-    paths.forEach((path, index) => {
+    paths.forEach((path) => {
       currentPath += `/${path}`;
 
       // Format label
@@ -94,9 +134,10 @@ export function Breadcrumbs({ items, showHomeIcon = true }: BreadcrumbsProps) {
 
   // Generate structured data (BreadcrumbList schema)
   const structuredData = useMemo(() => {
-    const baseUrl = typeof window !== 'undefined'
-      ? `${window.location.protocol}//${window.location.host}`
-      : process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
+    const baseUrl =
+      typeof window !== 'undefined'
+        ? `${window.location.protocol}//${window.location.host}`
+        : process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
 
     return {
       '@context': 'https://schema.org',
@@ -133,28 +174,15 @@ export function Breadcrumbs({ items, showHomeIcon = true }: BreadcrumbsProps) {
 
             return (
               <li key={crumb.href} className="flex items-center gap-2">
-                {index > 0 && (
-                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
-                )}
+                {index > 0 && <ChevronRight className="h-4 w-4" aria-hidden="true" />}
 
                 {isLast ? (
                   <span className="font-medium text-foreground" aria-current="page">
-                    {isHome && showHomeIcon ? (
-                      <Home className="h-4 w-4" aria-label="Home" />
-                    ) : (
-                      crumb.label
-                    )}
+                    {isHome && showHomeIcon ? <Home className="h-4 w-4" aria-label="Home" /> : crumb.label}
                   </span>
                 ) : (
-                  <Link
-                    href={crumb.href}
-                    className="hover:text-foreground transition-colors"
-                  >
-                    {isHome && showHomeIcon ? (
-                      <Home className="h-4 w-4" aria-label="Home" />
-                    ) : (
-                      crumb.label
-                    )}
+                  <Link href={crumb.href} className="hover:text-foreground transition-colors">
+                    {isHome && showHomeIcon ? <Home className="h-4 w-4" aria-label="Home" /> : crumb.label}
                   </Link>
                 )}
               </li>

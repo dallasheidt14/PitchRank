@@ -5,13 +5,7 @@ import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
-export default function Error({
-  error,
-  reset,
-}: {
-  error: Error & { digest?: string };
-  reset: () => void;
-}) {
+export default function Error({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   useEffect(() => {
     // Log the error to an error reporting service
     console.error('Application error:', error);
@@ -24,19 +18,13 @@ export default function Error({
           <AlertTriangle className="h-8 w-8 text-destructive" />
         </div>
 
-        <h1 className="text-2xl font-display font-bold text-foreground mb-2">
-          Something went wrong
-        </h1>
+        <h1 className="text-2xl font-display font-bold text-foreground mb-2">Something went wrong</h1>
 
         <p className="text-muted-foreground mb-6">
           We encountered an unexpected error. Please try again or return to the home page.
         </p>
 
-        {error.digest && (
-          <p className="text-xs text-muted-foreground mb-4 font-mono">
-            Error ID: {error.digest}
-          </p>
-        )}
+        {error.digest && <p className="text-xs text-muted-foreground mb-4 font-mono">Error ID: {error.digest}</p>}
 
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <Button onClick={reset} className="gap-2">

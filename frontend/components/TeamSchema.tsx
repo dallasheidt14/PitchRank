@@ -21,7 +21,7 @@ export function TeamSchema({
   state,
   ageGroup,
   gender,
-  rank,
+  rank: _rank,
   powerScore,
   wins,
   losses,
@@ -34,32 +34,39 @@ export function TeamSchema({
     '@type': 'SportsTeam',
     name: teamName,
     sport: 'Soccer',
-    ...(clubName && { memberOf: {
-      '@type': 'SportsOrganization',
-      name: clubName,
-    }}),
-    ...(state && { location: {
-      '@type': 'Place',
-      address: {
-        '@type': 'PostalAddress',
-        addressRegion: state,
-        addressCountry: 'US',
-      },
-    }}),
-    ...(ageGroup && { audience: {
-      '@type': 'PeopleAudience',
-      suggestedMaxAge: ageGroup,
-      suggestedGender: genderDisplay,
-    }}),
-    ...(wins !== undefined && losses !== undefined && {
-      aggregateRating: {
-        '@type': 'AggregateRating',
-        ratingValue: powerScore?.toFixed(2) || '0',
-        bestRating: '100',
-        worstRating: '0',
-        ratingCount: (wins || 0) + (losses || 0) + (draws || 0),
+    ...(clubName && {
+      memberOf: {
+        '@type': 'SportsOrganization',
+        name: clubName,
       },
     }),
+    ...(state && {
+      location: {
+        '@type': 'Place',
+        address: {
+          '@type': 'PostalAddress',
+          addressRegion: state,
+          addressCountry: 'US',
+        },
+      },
+    }),
+    ...(ageGroup && {
+      audience: {
+        '@type': 'PeopleAudience',
+        suggestedMaxAge: ageGroup,
+        suggestedGender: genderDisplay,
+      },
+    }),
+    ...(wins !== undefined &&
+      losses !== undefined && {
+        aggregateRating: {
+          '@type': 'AggregateRating',
+          ratingValue: powerScore?.toFixed(2) || '0',
+          bestRating: '100',
+          worstRating: '0',
+          ratingCount: (wins || 0) + (losses || 0) + (draws || 0),
+        },
+      }),
   };
 
   return (

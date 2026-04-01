@@ -1,4 +1,4 @@
-import type { SVGProps } from "react";
+import type { SVGProps } from 'react';
 
 /**
  * Brand icons removed from lucide-react v1.x

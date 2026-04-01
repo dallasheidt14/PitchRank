@@ -9,6 +9,7 @@ Usage:
     python scripts/scrape_affinity_wa_tournament.py \
         --age u12 --gender male --days-back 7 --output data/raw/affinity_wa/out.csv
 """
+
 import argparse
 import csv
 import hashlib
@@ -21,7 +22,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import requests
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup
 
 sys.path.append(str(Path(__file__).parent.parent))
 from src.utils.team_utils import calculate_age_group_from_birth_year
@@ -41,13 +42,33 @@ FALLBACK_BASE = "https://washingtonyouthsoccer.sportsaffinity.com"
 # ── CSV schema (must match import_games_enhanced expectations) ─────────────────
 
 REQUIRED_COLUMNS = [
-    "provider", "scrape_run_id", "event_id", "event_name",
-    "schedule_id", "age_year", "age_group", "gender",
-    "team_id", "team_id_source", "team_name", "club_name",
-    "opponent_id", "opponent_id_source", "opponent_name", "opponent_club_name",
-    "state", "state_code", "game_date", "game_time",
-    "home_away", "goals_for", "goals_against", "result",
-    "venue", "source_url", "scraped_at",
+    "provider",
+    "scrape_run_id",
+    "event_id",
+    "event_name",
+    "schedule_id",
+    "age_year",
+    "age_group",
+    "gender",
+    "team_id",
+    "team_id_source",
+    "team_name",
+    "club_name",
+    "opponent_id",
+    "opponent_id_source",
+    "opponent_name",
+    "opponent_club_name",
+    "state",
+    "state_code",
+    "game_date",
+    "game_time",
+    "home_away",
+    "goals_for",
+    "goals_against",
+    "result",
+    "venue",
+    "source_url",
+    "scraped_at",
 ]
 
 HEADERS = {
@@ -63,6 +84,7 @@ SCRAPE_RUN_ID = f"{SCRAPE_TS}_{uuid.uuid4().hex[:6]}"
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
 
 def _team_hash(team_name: str) -> str:
     """Deterministic provider-side team ID."""
@@ -135,10 +157,12 @@ def _gender_label_to_canonical(label: str) -> str:
 def _age_u_to_birth_year(age_u: int) -> int:
     """Derive birth year from U-age. Season year rolls over Aug 1."""
     from src.utils.team_utils import CURRENT_YEAR
+
     return CURRENT_YEAR - age_u + 1
 
 
 # ── Network ────────────────────────────────────────────────────────────────────
+
 
 def _fetch(url: str, retries: int = 3) -> Optional[str]:
     for attempt in range(retries):
@@ -156,9 +180,8 @@ def _fetch(url: str, retries: int = 3) -> Optional[str]:
 
 # ── Stage 1: Discover flights from the accepted-list page ─────────────────────
 
-def discover_flights(
-    tournament: Dict, target_age: int, target_gender: str
-) -> List[Dict]:
+
+def discover_flights(tournament: Dict, target_age: int, target_gender: str) -> List[Dict]:
     """Return list of {flight_guid, division_name, birth_year, age_u, gender}.
 
     The accepted_list page has Boys/Girls tabs.  The default view only shows
@@ -172,10 +195,7 @@ def discover_flights(
     base = tournament["base_url"]
     tguid = tournament["tournament_guid"]
     show = "boys" if target_gender == "Male" else "girls"
-    url = (
-        f"{base}/tour/public/info/accepted_list.asp"
-        f"?sessionguid=&tournamentguid={tguid}&show={show}"
-    )
+    url = f"{base}/tour/public/info/accepted_list.asp?sessionguid=&tournamentguid={tguid}&show={show}"
     html = _fetch(url)
     if not html:
         print(f"  Could not fetch accepted list for {tournament['name']}")
@@ -217,18 +237,21 @@ def discover_flights(
         if birth_year is None:
             birth_year = _age_u_to_birth_year(age_u)
 
-        flights.append({
-            "flight_guid": flight_guid,
-            "division_name": div_text,
-            "birth_year": birth_year,
-            "age_u": age_u,
-            "gender": gender,
-        })
+        flights.append(
+            {
+                "flight_guid": flight_guid,
+                "division_name": div_text,
+                "birth_year": birth_year,
+                "age_u": age_u,
+                "gender": gender,
+            }
+        )
 
     return flights
 
 
 # ── Stage 2: Scrape games from a single flight ────────────────────────────────
+
 
 def scrape_flight_games(
     tournament: Dict,
@@ -240,10 +263,7 @@ def scrape_flight_games(
     base = tournament["base_url"]
     tguid = tournament["tournament_guid"]
     fguid = flight["flight_guid"]
-    url = (
-        f"{base}/tour/public/info/schedule_results2.asp"
-        f"?sessionguid=&flightguid={fguid}&tournamentguid={tguid}"
-    )
+    url = f"{base}/tour/public/info/schedule_results2.asp?sessionguid=&flightguid={fguid}&tournamentguid={tguid}"
     html = _fetch(url)
     if not html:
         return []
@@ -360,6 +380,7 @@ def scrape_flight_games(
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
+
 def main():
     parser = argparse.ArgumentParser(description="Affinity WA game scraper")
     parser.add_argument("--age", required=True, help="Age group, e.g. u12")
@@ -378,7 +399,7 @@ def main():
     min_date = now - timedelta(days=days_back)
     max_date = now
 
-    print(f"Affinity WA Scraper")
+    print("Affinity WA Scraper")
     print(f"  Age: U{target_age}  Gender: {target_gender}")
     print(f"  Window: {min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')}")
     print(f"  Run ID: {SCRAPE_RUN_ID}")

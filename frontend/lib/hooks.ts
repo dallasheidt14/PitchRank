@@ -1,23 +1,23 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
-import type { Team, RankingWithTeam, TeamTrajectory, GameWithTeams, TeamWithRanking, RankHistoryPoint } from './types';
+import type { TeamTrajectory, GameWithTeams, TeamWithRanking, RankHistoryPoint } from './types';
 import type { TeamPredictive } from '@/types/TeamPredictive';
 
 /**
  * React Query hooks for data fetching
  * These hooks provide caching, refetching, and error handling
- * 
+ *
  * Caching Strategy:
  * - Rankings: 5 minutes stale time (data updates weekly)
  * - Team details: 10 minutes stale time
  * - Team games: 2 minutes stale time (more frequently updated)
  * - Team trajectory: 5 minutes stale time (calculated from games)
- * 
+ *
  * Error Handling:
  * - All hooks use React Query's built-in error handling
  * - Errors are available via the `error` property in the hook return value
  * - Use `isError` and `error` to handle error states in components
- * 
+ *
  * Prefetching:
  * - Use `queryClient.prefetchQuery()` to prefetch data before navigation
  * - Example: Prefetch team data when hovering over a team link
@@ -178,4 +178,3 @@ export function useDbStats() {
     gcTime: 24 * 60 * 60 * 1000, // Keep in cache for 24 hours
   });
 }
-

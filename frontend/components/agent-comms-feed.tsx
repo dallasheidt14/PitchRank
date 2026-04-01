@@ -25,14 +25,14 @@ interface AgentActivityResponse {
 function MessageBubble({ message }: { message: AgentMessage }) {
   const [expanded, setExpanded] = useState(false);
   const time = new Date(message.timestamp);
-  const timeStr = time.toLocaleTimeString('en-US', { 
-    hour: 'numeric', 
+  const timeStr = time.toLocaleTimeString('en-US', {
+    hour: 'numeric',
     minute: '2-digit',
-    hour12: true 
+    hour12: true,
   });
-  const dateStr = time.toLocaleDateString('en-US', { 
-    month: 'short', 
-    day: 'numeric' 
+  const dateStr = time.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
   });
 
   return (
@@ -120,34 +120,38 @@ export function AgentCommsFeed() {
     // Subscribe to realtime updates
     const channel = supabase
       .channel('agent-activity-feed')
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'agent_activity',
-      }, (payload) => {
-        console.log('[AgentComms] New activity:', payload.new);
-        
-        // Transform the payload to match our interface
-        const newMessage: AgentMessage = {
-          timestamp: payload.new.created_at,
-          agentName: payload.new.agent_name,
-          agentEmoji: payload.new.agent_emoji,
-          messagePreview: payload.new.message_preview,
-          fullMessage: payload.new.full_message || payload.new.message_preview,
-          sessionId: payload.new.session_key || 'unknown',
-          messageType: payload.new.message_type,
-        };
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'agent_activity',
+        },
+        (payload) => {
+          console.log('[AgentComms] New activity:', payload.new);
 
-        // Add to beginning of list and keep max 50
-        setData(prev => {
-          if (!prev) return { messages: [newMessage], count: 1, timestamp: new Date().toISOString() };
-          return {
-            messages: [newMessage, ...prev.messages].slice(0, 50),
-            count: prev.count + 1,
-            timestamp: new Date().toISOString(),
+          // Transform the payload to match our interface
+          const newMessage: AgentMessage = {
+            timestamp: payload.new.created_at,
+            agentName: payload.new.agent_name,
+            agentEmoji: payload.new.agent_emoji,
+            messagePreview: payload.new.message_preview,
+            fullMessage: payload.new.full_message || payload.new.message_preview,
+            sessionId: payload.new.session_key || 'unknown',
+            messageType: payload.new.message_type,
           };
-        });
-      })
+
+          // Add to beginning of list and keep max 50
+          setData((prev) => {
+            if (!prev) return { messages: [newMessage], count: 1, timestamp: new Date().toISOString() };
+            return {
+              messages: [newMessage, ...prev.messages].slice(0, 50),
+              count: prev.count + 1,
+              timestamp: new Date().toISOString(),
+            };
+          });
+        }
+      )
       .subscribe();
 
     return () => {
@@ -183,9 +187,7 @@ export function AgentCommsFeed() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-sm text-muted-foreground text-center py-8">
-            {error || 'No messages found'}
-          </div>
+          <div className="text-sm text-muted-foreground text-center py-8">{error || 'No messages found'}</div>
         </CardContent>
       </Card>
     );
@@ -205,9 +207,7 @@ export function AgentCommsFeed() {
       <CardContent>
         <div className="space-y-1 max-h-[600px] overflow-y-auto">
           {data.messages.length === 0 ? (
-            <div className="text-sm text-muted-foreground text-center py-8">
-              No agent messages yet
-            </div>
+            <div className="text-sm text-muted-foreground text-center py-8">No agent messages yet</div>
           ) : (
             data.messages.map((msg, idx) => (
               <MessageBubble key={`${msg.sessionId}-${msg.timestamp}-${idx}`} message={msg} />

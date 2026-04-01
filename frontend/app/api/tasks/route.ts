@@ -17,10 +17,7 @@ export interface AgentTask {
 // GET /api/tasks - List all tasks
 export async function GET() {
   try {
-    const { data, error } = await supabase
-      .from('agent_tasks')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const { data, error } = await supabase.from('agent_tasks').select('*').order('created_at', { ascending: false });
 
     if (error) {
       console.error('Error fetching tasks:', error);
@@ -41,7 +38,7 @@ export async function POST(request: NextRequest) {
     if (auth.error) return auth.error;
 
     const body = await request.json();
-    
+
     const { title, description, assigned_agent, created_by, priority } = body;
 
     if (!title || typeof title !== 'string') {

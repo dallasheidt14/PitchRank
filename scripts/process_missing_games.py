@@ -9,21 +9,22 @@ Usage:
     python scripts/process_missing_games.py [--limit 10] [--dry-run] [--continuous] [--interval 30]
 """
 
-import os
-import sys
-import json
-import tempfile
 import argparse
+import json
 import logging
+import os
 import subprocess
-from datetime import datetime, timedelta, date
-from typing import List, Dict, Optional
+import sys
+import tempfile
 import time
 import traceback
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
-from supabase import create_client, Client
+
+from supabase import Client, create_client
 
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -34,96 +35,82 @@ from src.scrapers.gotsport import GotSportScraper, TeamNotFoundError
 load_dotenv()
 
 # Load .env.local if it exists
-env_local = Path('.env.local')
+env_local = Path(".env.local")
 if env_local.exists():
     load_dotenv(env_local, override=True)
 
 # Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
 class MissingGamesProcessor:
     """Process missing game scrape requests"""
-    
+
     def __init__(self, supabase_client: Client, dry_run: bool = False):
         self.supabase = supabase_client
         self.dry_run = dry_run
-        
+
         # Initialize scrapers for different providers
         self.scrapers = {
-            'gotsport': GotSportScraper(supabase_client, 'gotsport'),
+            "gotsport": GotSportScraper(supabase_client, "gotsport"),
             # Add other scrapers as needed
         }
-        
+
         # Stats tracking
-        self.stats = {
-            'processed': 0,
-            'successful': 0,
-            'failed': 0,
-            'games_found': 0,
-            'games_imported': 0
-        }
-    
+        self.stats = {"processed": 0, "successful": 0, "failed": 0, "games_found": 0, "games_imported": 0}
+
     def get_pending_requests(self, limit: int = 10) -> List[Dict]:
         """Fetch pending scrape requests from database"""
         try:
-            result = self.supabase.table('scrape_requests')\
-                .select('*')\
-                .eq('status', 'pending')\
-                .eq('request_type', 'missing_game')\
-                .order('requested_at')\
-                .limit(limit)\
+            result = (
+                self.supabase.table("scrape_requests")
+                .select("*")
+                .eq("status", "pending")
+                .eq("request_type", "missing_game")
+                .order("requested_at")
+                .limit(limit)
                 .execute()
-            
+            )
+
             return result.data if result.data else []
         except Exception as e:
             logger.error(f"Error fetching pending requests: {e}")
             return []
-    
+
     def update_request_status(self, request_id: str, status: str, **kwargs):
         """Update scrape request status in database"""
         if self.dry_run:
             logger.info(f"[DRY RUN] Would update request {request_id} to status: {status}")
             return
-        
+
         try:
-            update_data = {'status': status}
-            
+            update_data = {"status": status}
+
             # Add timestamps based on status
-            if status == 'processing':
-                update_data['processed_at'] = datetime.now().isoformat()
-            elif status in ['completed', 'failed']:
-                update_data['completed_at'] = datetime.now().isoformat()
-            
+            if status == "processing":
+                update_data["processed_at"] = datetime.now().isoformat()
+            elif status in ["completed", "failed"]:
+                update_data["completed_at"] = datetime.now().isoformat()
+
             # Add any additional fields
             update_data.update(kwargs)
-            
-            self.supabase.table('scrape_requests')\
-                .update(update_data)\
-                .eq('id', request_id)\
-                .execute()
-                
+
+            self.supabase.table("scrape_requests").update(update_data).eq("id", request_id).execute()
+
             logger.info(f"Updated request {request_id} to status: {status}")
         except Exception as e:
             logger.error(f"Error updating request {request_id}: {e}")
-    
+
     def get_provider_code(self, provider_id: str) -> Optional[str]:
         """Get provider code from provider ID"""
         try:
-            result = self.supabase.table('providers')\
-                .select('code')\
-                .eq('id', provider_id)\
-                .single()\
-                .execute()
+            result = self.supabase.table("providers").select("code").eq("id", provider_id).single().execute()
 
-            return result.data['code'] if result.data else 'gotsport'
+            return result.data["code"] if result.data else "gotsport"
         except Exception as e:
             logger.warning(f"Error fetching provider code for {provider_id}: {e}")
-            return 'gotsport'  # Default to gotsport
+            return "gotsport"  # Default to gotsport
 
     def get_gotsport_alias(self, team_id_master: str, exclude_team_ids: Optional[List[str]] = None) -> Optional[Dict]:
         """
@@ -141,43 +128,38 @@ class MissingGamesProcessor:
         """
         try:
             # Get the GotSport provider ID
-            gotsport_result = self.supabase.table('providers')\
-                .select('id')\
-                .eq('code', 'gotsport')\
-                .single()\
-                .execute()
+            gotsport_result = self.supabase.table("providers").select("id").eq("code", "gotsport").single().execute()
 
             if not gotsport_result.data:
                 logger.warning("Could not find GotSport provider")
                 return None
 
-            gotsport_provider_id = gotsport_result.data['id']
+            gotsport_provider_id = gotsport_result.data["id"]
 
             # Check team_alias_map for a GotSport alias
-            alias_result = self.supabase.table('team_alias_map')\
-                .select('provider_id, provider_team_id')\
-                .eq('team_id_master', team_id_master)\
-                .eq('provider_id', gotsport_provider_id)\
-                .eq('review_status', 'approved')\
+            alias_result = (
+                self.supabase.table("team_alias_map")
+                .select("provider_id, provider_team_id")
+                .eq("team_id_master", team_id_master)
+                .eq("provider_id", gotsport_provider_id)
+                .eq("review_status", "approved")
                 .execute()
+            )
 
             if alias_result.data:
                 for alias in alias_result.data:
                     # Skip team IDs we already know are invalid
-                    if exclude_team_ids and str(alias['provider_team_id']) in exclude_team_ids:
+                    if exclude_team_ids and str(alias["provider_team_id"]) in exclude_team_ids:
                         logger.debug(f"Skipping excluded alias {alias['provider_team_id']}")
                         continue
                     logger.info(f"Found GotSport alias for team {team_id_master}: {alias['provider_team_id']}")
-                    return {
-                        'provider_id': alias['provider_id'],
-                        'provider_team_id': alias['provider_team_id']
-                    }
+                    return {"provider_id": alias["provider_id"], "provider_team_id": alias["provider_team_id"]}
 
             return None
         except Exception as e:
             logger.warning(f"Error finding GotSport alias for team {team_id_master}: {e}")
             return None
-    
+
     def scrape_games_for_date(self, provider_code: str, team_id: str, game_date: str) -> List[Dict]:
         """Scrape games for a specific team within a 181-day window (±90 days from selected date)"""
         scraper = self.scrapers.get(provider_code)
@@ -185,7 +167,7 @@ class MissingGamesProcessor:
             raise ValueError(f"No scraper available for provider: {provider_code}")
 
         # Parse the target date
-        target_date = datetime.strptime(game_date, '%Y-%m-%d').date()
+        target_date = datetime.strptime(game_date, "%Y-%m-%d").date()
 
         # Define the 181-day window: 90 days before, target date, 90 days after
         date_window_start = target_date - timedelta(days=90)
@@ -195,15 +177,15 @@ class MissingGamesProcessor:
         # The scraper uses since_date, so we'll scrape from 90 days before and filter
         start_date = datetime.combine(date_window_start, datetime.min.time())
 
-        logger.info(f"Scraping games for team {team_id} in 181-day window: {date_window_start} to {date_window_end} (selected date: {game_date})")
-        
+        logger.info(
+            f"Scraping games for team {team_id} in 181-day window: "
+            f"{date_window_start} to {date_window_end} (selected date: {game_date})"
+        )
+
         try:
             # Use the scraper's method to get games (only takes since_date, not until_date)
-            games = scraper.scrape_team_games(
-                team_id,
-                since_date=start_date
-            )
-            
+            games = scraper.scrape_team_games(team_id, since_date=start_date)
+
             # Filter to games within the 181-day window
             filtered_games = []
             for game in games:
@@ -211,118 +193,123 @@ class MissingGamesProcessor:
                 # IMPORTANT: Preserve the exact date string from scraper to avoid timezone issues
                 try:
                     # Parse date for comparison only (don't modify the original string)
-                    game_dt = datetime.strptime(game.game_date, '%Y-%m-%d').date()
-                    
+                    game_dt = datetime.strptime(game.game_date, "%Y-%m-%d").date()
+
                     # Include games within the 181-day window
                     if date_window_start <= game_dt <= date_window_end:
                         # Use the EXACT game_date string from the scraper (no manipulation)
                         # This ensures timezone issues don't cause date shifts
                         original_game_date = game.game_date
-                        
+
                         # Verify the date string format
                         if not isinstance(original_game_date, str) or len(original_game_date) != 10:
-                            logger.warning(f"Unexpected game_date format: {original_game_date}, type: {type(original_game_date)}")
-                        
+                            logger.warning(
+                                f"Unexpected game_date format: {original_game_date}, type: {type(original_game_date)}"
+                            )
+
                         # Convert GameData to dict format for import
                         game_dict = {
-                            'provider': provider_code,
-                            'team_id': str(game.team_id),
-                            'team_id_source': str(game.team_id),
-                            'opponent_id': str(game.opponent_id) if game.opponent_id else '',
-                            'opponent_id_source': str(game.opponent_id) if game.opponent_id else '',
-                            'team_name': game.team_name or '',
-                            'opponent_name': game.opponent_name or '',
-                            'game_date': original_game_date,  # Use exact string from scraper
-                            'home_away': game.home_away or '',
-                            'goals_for': game.goals_for,
-                            'goals_against': game.goals_against,
-                            'result': game.result or 'U',
-                            'competition': game.competition or '',
-                            'venue': game.venue or '',
-                            'source_url': game.meta.get('source_url', '') if game.meta else '',
-                            'scraped_at': datetime.now().isoformat()
+                            "provider": provider_code,
+                            "team_id": str(game.team_id),
+                            "team_id_source": str(game.team_id),
+                            "opponent_id": str(game.opponent_id) if game.opponent_id else "",
+                            "opponent_id_source": str(game.opponent_id) if game.opponent_id else "",
+                            "team_name": game.team_name or "",
+                            "opponent_name": game.opponent_name or "",
+                            "game_date": original_game_date,  # Use exact string from scraper
+                            "home_away": game.home_away or "",
+                            "goals_for": game.goals_for,
+                            "goals_against": game.goals_against,
+                            "result": game.result or "U",
+                            "competition": game.competition or "",
+                            "venue": game.venue or "",
+                            "source_url": game.meta.get("source_url", "") if game.meta else "",
+                            "scraped_at": datetime.now().isoformat(),
                         }
                         filtered_games.append(game_dict)
                         logger.info(f"Including game on {original_game_date} (within window, parsed as {game_dt})")
                     else:
-                        logger.debug(f"Skipping game on {game.game_date} (outside window: {game_dt} not in {date_window_start} to {date_window_end})")
+                        logger.debug(
+                            f"Skipping game on {game.game_date} (outside window: "
+                            f"{game_dt} not in {date_window_start} to {date_window_end})"
+                        )
                 except (ValueError, AttributeError) as e:
-                    logger.warning(f"Error parsing game date for game: {e}, game_date value: {getattr(game, 'game_date', 'MISSING')}")
+                    logger.warning(
+                        f"Error parsing game date for game: {e}, "
+                        f"game_date value: {getattr(game, 'game_date', 'MISSING')}"
+                    )
                     continue
-            
-            logger.info(f"Found {len(filtered_games)} games in 181-day window ({date_window_start} to {date_window_end})")
+
+            logger.info(
+                f"Found {len(filtered_games)} games in 181-day window ({date_window_start} to {date_window_end})"
+            )
             if filtered_games:
-                game_dates = sorted(set(g['game_date'] for g in filtered_games))
+                game_dates = sorted(set(g["game_date"] for g in filtered_games))
                 logger.info(f"Game dates found: {', '.join(game_dates)}")
-            
+
             return filtered_games
-            
+
         except Exception as e:
             logger.error(f"Error scraping games: {e}")
             raise
-    
+
     def save_games_to_temp_file(self, games: List[Dict]) -> Optional[str]:
         """Save games to temporary JSONL file for import"""
         if not games:
             return None
-        
+
         # Log the exact dates being saved (for debugging date issues)
-        game_dates_in_file = [g.get('game_date', 'MISSING') for g in games]
+        game_dates_in_file = [g.get("game_date", "MISSING") for g in games]
         logger.info(f"Saving {len(games)} games with dates: {', '.join(sorted(set(game_dates_in_file)))}")
-        
+
         # Create temporary file
-        temp_file = tempfile.NamedTemporaryFile(
-            mode='w',
-            suffix='.jsonl',
-            delete=False,
-            encoding='utf-8'
-        )
-        
+        temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False, encoding="utf-8")
+
         try:
             # Write games as JSONL (one JSON object per line)
             for idx, game in enumerate(games):
                 # Verify game_date before writing
-                game_date = game.get('game_date', '')
+                game_date = game.get("game_date", "")
                 if not game_date or len(game_date) != 10:
                     logger.warning(f"Game {idx} has invalid game_date format: {game_date}")
-                
+
                 json.dump(game, temp_file, ensure_ascii=False)
-                temp_file.write('\n')
-            
+                temp_file.write("\n")
+
             temp_file.flush()
             temp_file.close()
-            
+
             logger.info(f"Saved {len(games)} games to {temp_file.name}")
             return temp_file.name
-        except Exception as e:
+        except Exception:
             temp_file.close()
             # Clean up on error
             try:
                 os.unlink(temp_file.name)
-            except:
+            except Exception:
                 pass
             raise
-    
+
     def import_games(self, games: List[Dict], provider_code: str) -> int:
         """Import games using import_games_enhanced.py script"""
         if not games:
             return 0
-        
+
         if self.dry_run:
             logger.info(f"[DRY RUN] Would import {len(games)} games")
             return len(games)
-        
+
         # Save games to temporary file
         temp_file = None
         try:
             temp_file = self.save_games_to_temp_file(games)
             if not temp_file:
                 return 0
-            
+
             # Get the script path
             script_dir = Path(__file__).parent
-            import_script = script_dir / 'import_games_enhanced.py'
-            
+            import_script = script_dir / "import_games_enhanced.py"
+
             # Build command
             cmd = [
                 sys.executable,
@@ -330,49 +317,49 @@ class MissingGamesProcessor:
                 temp_file,
                 provider_code,
             ]
-            
+
             if self.dry_run:
-                cmd.append('--dry-run')
-            
+                cmd.append("--dry-run")
+
             logger.info(f"Running import script: {' '.join(cmd)}")
-            
+
             # Prepare environment variables for subprocess
             # The import script expects SUPABASE_SERVICE_ROLE_KEY, but we might have SUPABASE_SERVICE_KEY
             env = os.environ.copy()
-            
+
             # Map SUPABASE_SERVICE_KEY to SUPABASE_SERVICE_ROLE_KEY if needed
-            if 'SUPABASE_SERVICE_KEY' in env and 'SUPABASE_SERVICE_ROLE_KEY' not in env:
-                env['SUPABASE_SERVICE_ROLE_KEY'] = env['SUPABASE_SERVICE_KEY']
-            
+            if "SUPABASE_SERVICE_KEY" in env and "SUPABASE_SERVICE_ROLE_KEY" not in env:
+                env["SUPABASE_SERVICE_ROLE_KEY"] = env["SUPABASE_SERVICE_KEY"]
+
             # Ensure SUPABASE_URL is available
-            if 'SUPABASE_URL' not in env:
+            if "SUPABASE_URL" not in env:
                 # Try NEXT_PUBLIC_SUPABASE_URL as fallback
-                if 'NEXT_PUBLIC_SUPABASE_URL' in env:
-                    env['SUPABASE_URL'] = env['NEXT_PUBLIC_SUPABASE_URL']
-            
+                if "NEXT_PUBLIC_SUPABASE_URL" in env:
+                    env["SUPABASE_URL"] = env["NEXT_PUBLIC_SUPABASE_URL"]
+
             # Run the import script with environment variables
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 cwd=Path(__file__).parent.parent,  # Run from project root
-                env=env  # Pass environment variables explicitly
+                env=env,  # Pass environment variables explicitly
             )
-            
+
             if result.returncode != 0:
                 logger.error(f"Import script failed with return code {result.returncode}")
                 logger.error(f"STDOUT: {result.stdout}")
                 logger.error(f"STDERR: {result.stderr}")
                 raise RuntimeError(f"Import failed: {result.stderr or 'Unknown error'}")
-            
+
             # Parse machine-readable IMPORT_RESULT line from stdout
             games_accepted = len(games)  # fallback if parsing fails
             parsed_result = False
             for line in result.stdout.splitlines():
                 if line.startswith("IMPORT_RESULT:"):
                     try:
-                        import_data = json.loads(line[len("IMPORT_RESULT:"):])
-                        games_accepted = import_data.get('games_accepted', len(games))
+                        import_data = json.loads(line[len("IMPORT_RESULT:") :])
+                        games_accepted = import_data.get("games_accepted", len(games))
                         logger.info(
                             f"Import completed: {import_data.get('games_processed', '?')} processed, "
                             f"{games_accepted} accepted, "
@@ -386,11 +373,11 @@ class MissingGamesProcessor:
                         logger.warning(f"Failed to parse import result: {e}")
 
             if not parsed_result:
-                logger.info(f"Import completed successfully (could not parse detailed metrics)")
+                logger.info("Import completed successfully (could not parse detailed metrics)")
                 logger.debug(f"STDOUT: {result.stdout}")
 
             return games_accepted
-            
+
         except Exception as e:
             logger.error(f"Error importing games: {e}")
             raise
@@ -402,15 +389,15 @@ class MissingGamesProcessor:
                     logger.debug(f"Cleaned up temporary file: {temp_file}")
                 except Exception as e:
                     logger.warning(f"Failed to delete temporary file {temp_file}: {e}")
-    
+
     def process_request(self, request: Dict) -> bool:
         """Process a single scrape request"""
-        request_id = request.get('id')
-        team_name = request.get('team_name', 'Unknown')
-        game_date = request.get('game_date')
-        provider_id = request.get('provider_id')
-        provider_team_id = request.get('provider_team_id')
-        
+        request_id = request.get("id")
+        team_name = request.get("team_name", "Unknown")
+        game_date = request.get("game_date")
+        provider_id = request.get("provider_id")
+        provider_team_id = request.get("provider_team_id")
+
         # Validate required fields
         if not request_id:
             raise ValueError("Missing required field: id")
@@ -420,13 +407,13 @@ class MissingGamesProcessor:
             raise ValueError("Missing required field: provider_id")
         if not provider_team_id:
             raise ValueError("Missing required field: provider_team_id")
-        
+
         logger.info(f"Processing request {request_id} for {team_name} on {game_date}")
         logger.debug(f"Request data: provider_id={provider_id}, provider_team_id={provider_team_id}")
-        
+
         try:
             # Update status to processing
-            self.update_request_status(request_id, 'processing')
+            self.update_request_status(request_id, "processing")
 
             # Get provider code
             provider_code = self.get_provider_code(provider_id)
@@ -438,16 +425,18 @@ class MissingGamesProcessor:
 
             if provider_code not in self.scrapers:
                 logger.info(f"No scraper for provider '{provider_code}', checking for GotSport alias...")
-                team_id_master = request.get('team_id_master')
+                team_id_master = request.get("team_id_master")
 
                 if team_id_master:
                     gotsport_alias = self.get_gotsport_alias(team_id_master)
                     if gotsport_alias:
-                        scrape_provider_code = 'gotsport'
-                        scrape_team_id = gotsport_alias['provider_team_id']
+                        scrape_provider_code = "gotsport"
+                        scrape_team_id = gotsport_alias["provider_team_id"]
                         logger.info(f"Using GotSport alias: team_id={scrape_team_id}")
                     else:
-                        raise ValueError(f"No scraper available for provider '{provider_code}' and no GotSport alias found")
+                        raise ValueError(
+                            f"No scraper available for provider '{provider_code}' and no GotSport alias found"
+                        )
                 else:
                     raise ValueError(f"No scraper available for provider: {provider_code}")
 
@@ -455,66 +444,58 @@ class MissingGamesProcessor:
             # If team ID returns 404, try alternative IDs from team_alias_map
             tried_team_ids = []
             games = None
-            team_id_master = request.get('team_id_master')
+            team_id_master = request.get("team_id_master")
 
             while games is None:
                 try:
-                    games = self.scrape_games_for_date(
-                        scrape_provider_code,
-                        scrape_team_id,
-                        game_date
-                    )
+                    games = self.scrape_games_for_date(scrape_provider_code, scrape_team_id, game_date)
                 except TeamNotFoundError:
                     tried_team_ids.append(str(scrape_team_id))
-                    logger.warning(f"Team {scrape_team_id} not found on {scrape_provider_code}, "
-                                   f"checking for alternative team IDs...")
+                    logger.warning(
+                        f"Team {scrape_team_id} not found on {scrape_provider_code}, "
+                        f"checking for alternative team IDs..."
+                    )
 
                     # Try to find an alternative team ID from team_alias_map
-                    if team_id_master and scrape_provider_code == 'gotsport':
+                    if team_id_master and scrape_provider_code == "gotsport":
                         alt_alias = self.get_gotsport_alias(team_id_master, exclude_team_ids=tried_team_ids)
                         if alt_alias:
-                            scrape_team_id = alt_alias['provider_team_id']
+                            scrape_team_id = alt_alias["provider_team_id"]
                             logger.info(f"Retrying with alternative GotSport team ID: {scrape_team_id}")
                             continue
 
                     raise TeamNotFoundError(
-                        tried_team_ids[0] if len(tried_team_ids) == 1 else tried_team_ids,
-                        scrape_provider_code
+                        tried_team_ids[0] if len(tried_team_ids) == 1 else tried_team_ids, scrape_provider_code
                     )
-            
+
             # Import games if found
             games_imported = 0
             if games:
                 games_imported = self.import_games(games, scrape_provider_code)
-                self.stats['games_found'] += len(games)
-                self.stats['games_imported'] += games_imported
-            
+                self.stats["games_found"] += len(games)
+                self.stats["games_imported"] += games_imported
+
             # Update request as completed
-            self.update_request_status(
-                request_id,
-                'completed',
-                games_found=len(games)
+            self.update_request_status(request_id, "completed", games_found=len(games))
+
+            logger.info(
+                f"Successfully processed request {request_id}: "
+                f"{len(games)} games found in 181-day window, {games_imported} imported"
             )
-            
-            logger.info(f"Successfully processed request {request_id}: "
-                       f"{len(games)} games found in 181-day window, {games_imported} imported")
-            
-            self.stats['successful'] += 1
+
+            self.stats["successful"] += 1
             return True
-            
+
         except TeamNotFoundError as e:
-            team_id_master = request.get('team_id_master', 'unknown')
-            error_msg = (f"{e} — the provider_team_id in the teams table may be outdated. "
-                         f"team_id_master={team_id_master}")
+            team_id_master = request.get("team_id_master", "unknown")
+            error_msg = (
+                f"{e} — the provider_team_id in the teams table may be outdated. team_id_master={team_id_master}"
+            )
             logger.error(f"Failed to process request {request_id}: {error_msg}")
 
-            self.update_request_status(
-                request_id,
-                'failed',
-                error_message=error_msg[:500]
-            )
+            self.update_request_status(request_id, "failed", error_message=error_msg[:500])
 
-            self.stats['failed'] += 1
+            self.stats["failed"] += 1
             return False
 
         except Exception as e:
@@ -525,47 +506,47 @@ class MissingGamesProcessor:
             # Update request as failed
             self.update_request_status(
                 request_id,
-                'failed',
-                error_message=error_msg[:500]  # Truncate error message
+                "failed",
+                error_message=error_msg[:500],  # Truncate error message
             )
 
-            self.stats['failed'] += 1
+            self.stats["failed"] += 1
             return False
-    
+
     def process_all(self, limit: int = 10) -> Dict:
         """Process all pending requests up to limit"""
         logger.info(f"Starting to process missing game requests (limit: {limit})")
-        
+
         # Get pending requests
         requests = self.get_pending_requests(limit)
-        
+
         if not requests:
             logger.info("No pending requests found")
             return self.stats
-        
+
         logger.info(f"Found {len(requests)} pending requests")
-        
+
         # Process each request
         for request in requests:
-            self.stats['processed'] += 1
-            
+            self.stats["processed"] += 1
+
             try:
                 self.process_request(request)
-                
+
                 # Add a small delay between requests to be nice to the API
                 time.sleep(2)
-                
+
             except KeyboardInterrupt:
                 logger.info("Processing interrupted by user")
                 break
             except Exception as e:
                 logger.error(f"Unexpected error processing request: {e}")
                 continue
-        
+
         # Log summary
         self.log_summary()
         return self.stats
-    
+
     def log_summary(self):
         """Log processing summary"""
         logger.info("=" * 50)
@@ -580,54 +561,44 @@ class MissingGamesProcessor:
 
 def main():
     """Main entry point"""
-    parser = argparse.ArgumentParser(description='Process missing game scrape requests')
-    parser.add_argument('--limit', type=int, default=10,
-                       help='Maximum number of requests to process')
-    parser.add_argument('--dry-run', action='store_true',
-                       help='Run without making any changes')
-    parser.add_argument('--continuous', action='store_true',
-                       help='Run continuously, checking every 30 seconds')
-    parser.add_argument('--interval', type=int, default=30,
-                       help='Interval in seconds for continuous mode')
-    
+    parser = argparse.ArgumentParser(description="Process missing game scrape requests")
+    parser.add_argument("--limit", type=int, default=10, help="Maximum number of requests to process")
+    parser.add_argument("--dry-run", action="store_true", help="Run without making any changes")
+    parser.add_argument("--continuous", action="store_true", help="Run continuously, checking every 30 seconds")
+    parser.add_argument("--interval", type=int, default=30, help="Interval in seconds for continuous mode")
+
     args = parser.parse_args()
-    
+
     # Initialize Supabase client
-    supabase_url = os.getenv('SUPABASE_URL') or os.getenv('NEXT_PUBLIC_SUPABASE_URL')
-    supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('SUPABASE_SERVICE_KEY')
-    
+    supabase_url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY")
+
     if not supabase_url or not supabase_key:
         logger.error("Missing SUPABASE_URL or SUPABASE_SERVICE_KEY environment variables")
         sys.exit(1)
-    
+
     try:
         supabase = create_client(supabase_url, supabase_key)
         logger.info("Connected to Supabase")
     except Exception as e:
         logger.error(f"Failed to connect to Supabase: {e}")
         sys.exit(1)
-    
+
     # Create processor
     processor = MissingGamesProcessor(supabase, dry_run=args.dry_run)
-    
+
     if args.continuous:
         logger.info(f"Running in continuous mode (interval: {args.interval}s)")
-        
+
         while True:
             try:
                 processor.process_all(limit=args.limit)
                 logger.info(f"Sleeping for {args.interval} seconds...")
                 time.sleep(args.interval)
-                
+
                 # Reset stats for next run
-                processor.stats = {
-                    'processed': 0,
-                    'successful': 0,
-                    'failed': 0,
-                    'games_found': 0,
-                    'games_imported': 0
-                }
-                
+                processor.stats = {"processed": 0, "successful": 0, "failed": 0, "games_found": 0, "games_imported": 0}
+
             except KeyboardInterrupt:
                 logger.info("Stopped by user")
                 break
@@ -637,8 +608,8 @@ def main():
     else:
         # Single run
         try:
-            stats = processor.process_all(limit=args.limit)
-            
+            processor.process_all(limit=args.limit)
+
             # Exit with success code even if some requests failed
             # Individual request failures are logged but don't indicate script failure
             # Only exit with error code if there was a critical error preventing processing
@@ -649,5 +620,5 @@ def main():
             sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

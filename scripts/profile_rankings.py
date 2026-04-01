@@ -40,13 +40,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
 
 from src.profiling.cpu_profiler import CpuProfiler
-from src.profiling.memory_profiler import MemoryProfiler
-from src.profiling.timer import TimingReport
 from src.profiling.db_profiler import QueryProfiler
+from src.profiling.memory_profiler import MemoryProfiler
 from src.profiling.reporter import ProfileReport
+from src.profiling.timer import TimingReport
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -62,9 +61,7 @@ def parse_args():
     parser.add_argument("--ml", action="store_true", default=True, help="Include ML Layer 13")
     parser.add_argument("--no-ml", action="store_true", help="Skip ML Layer 13")
     parser.add_argument("--output", type=str, help="Output file path")
-    parser.add_argument(
-        "--verbose", "-v", action="store_true", help="Verbose logging"
-    )
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose logging")
     return parser.parse_args()
 
 
@@ -80,18 +77,20 @@ async def run_profiled_ranking(args):
 
     use_ml = args.ml and not args.no_ml
 
-    console.print(Panel(
-        f"[bold]PitchRank Performance Profiler[/bold]\n\n"
-        f"  CPU:      {'ON' if enable_cpu else 'OFF'}\n"
-        f"  Memory:   {'ON' if enable_memory else 'OFF'}\n"
-        f"  Timing:   {'ON' if enable_timing else 'OFF'}\n"
-        f"  DB:       {'ON' if enable_db else 'OFF'}\n"
-        f"  ML:       {'ON' if use_ml else 'OFF'}\n"
-        f"  Lookback: {args.lookback_days} days\n"
-        f"  Dry run:  {args.dry_run}",
-        title="Configuration",
-        border_style="green",
-    ))
+    console.print(
+        Panel(
+            f"[bold]PitchRank Performance Profiler[/bold]\n\n"
+            f"  CPU:      {'ON' if enable_cpu else 'OFF'}\n"
+            f"  Memory:   {'ON' if enable_memory else 'OFF'}\n"
+            f"  Timing:   {'ON' if enable_timing else 'OFF'}\n"
+            f"  DB:       {'ON' if enable_db else 'OFF'}\n"
+            f"  ML:       {'ON' if use_ml else 'OFF'}\n"
+            f"  Lookback: {args.lookback_days} days\n"
+            f"  Dry run:  {args.dry_run}",
+            title="Configuration",
+            border_style="green",
+        )
+    )
 
     # Initialize profilers
     timing = TimingReport("Ranking Pipeline")
@@ -105,10 +104,12 @@ async def run_profiled_ranking(args):
     with timing.section("initialize"):
         try:
             from dotenv import load_dotenv
+
             load_dotenv()
 
-            from supabase import create_client
             import os
+
+            from supabase import create_client
 
             supabase_url = os.getenv("SUPABASE_URL")
             supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
@@ -153,7 +154,8 @@ async def run_profiled_ranking(args):
     with cpu, memory:
         with timing.section("v53e_computation"):
             try:
-                from src.etl.v53e import compute_rankings, V53EConfig
+                from src.etl.v53e import V53EConfig, compute_rankings
+
                 cfg = V53EConfig()
                 rankings = compute_rankings(games_df, cfg=cfg)
                 teams_df = rankings["teams"] if rankings else None
@@ -170,10 +172,12 @@ async def run_profiled_ranking(args):
         with timing.section("ml_layer_13"):
             try:
                 from src.rankings.layer13_predictive_adjustment import (
-                    apply_predictive_adjustment, Layer13Config,
+                    Layer13Config,
+                    apply_predictive_adjustment,
                 )
+
                 ml_config = Layer13Config()
-                ml_result = await apply_predictive_adjustment(
+                await apply_predictive_adjustment(
                     supabase_client=client,
                     teams_df=teams_df,
                     games_used_df=games_df,
@@ -219,17 +223,17 @@ async def run_synthetic_profile(args, timing, cpu, memory, report):
         for _ in range(num_games):
             home = np.random.choice(team_ids)
             away = np.random.choice([t for t in team_ids if t != home])
-            games.append({
-                "home_team_id": home,
-                "away_team_id": away,
-                "home_score": int(np.random.poisson(1.5)),
-                "away_score": int(np.random.poisson(1.2)),
-                "game_date": pd.Timestamp("2025-06-01") + pd.Timedelta(
-                    days=int(np.random.uniform(0, 365))
-                ),
-                "age_group": str(np.random.choice([10, 11, 12, 13, 14, 15, 16, 17])),
-                "gender": np.random.choice(["Male", "Female"]),
-            })
+            games.append(
+                {
+                    "home_team_id": home,
+                    "away_team_id": away,
+                    "home_score": int(np.random.poisson(1.5)),
+                    "away_score": int(np.random.poisson(1.2)),
+                    "game_date": pd.Timestamp("2025-06-01") + pd.Timedelta(days=int(np.random.uniform(0, 365))),
+                    "age_group": str(np.random.choice([10, 11, 12, 13, 14, 15, 16, 17])),
+                    "gender": np.random.choice(["Male", "Female"]),
+                }
+            )
         games_df = pd.DataFrame(games)
         report.add_custom("game_count", len(games_df))
         report.add_custom("team_count", num_teams)
@@ -241,7 +245,8 @@ async def run_synthetic_profile(args, timing, cpu, memory, report):
     with cpu, memory:
         with timing.section("v53e_computation"):
             try:
-                from src.etl.v53e import compute_rankings, V53EConfig
+                from src.etl.v53e import V53EConfig, compute_rankings
+
                 cfg = V53EConfig()
                 rankings = compute_rankings(games_df, cfg=cfg)
                 teams_df = rankings["teams"] if rankings else None
@@ -285,6 +290,7 @@ def main():
         console.print(f"\n[red]Profiling error: {e}[/red]")
         if args.verbose:
             import traceback
+
             traceback.print_exc()
 
 

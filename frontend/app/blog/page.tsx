@@ -9,13 +9,15 @@ const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
 
 export const metadata: Metadata = {
   title: 'Blog',
-  description: 'Learn about youth soccer rankings, our algorithm methodology, and how PitchRank helps teams, coaches, and parents understand competitive soccer.',
+  description:
+    'Learn about youth soccer rankings, our algorithm methodology, and how PitchRank helps teams, coaches, and parents understand competitive soccer.',
   alternates: {
     canonical: `${baseUrl}/blog`,
   },
   openGraph: {
     title: 'Blog | PitchRank',
-    description: 'Educational content about youth soccer rankings, algorithm methodology, and competitive soccer insights.',
+    description:
+      'Educational content about youth soccer rankings, algorithm methodology, and competitive soccer insights.',
     url: `${baseUrl}/blog`,
     siteName: 'PitchRank',
     type: 'website',
@@ -41,18 +43,14 @@ export default function BlogPage() {
 
   return (
     <div className="container mx-auto py-8 px-4">
-      <BreadcrumbSchema
-        items={[
-          { name: 'Blog', href: '/blog' },
-        ]}
-      />
+      <BreadcrumbSchema items={[{ name: 'Blog', href: '/blog' }]} />
       <PageHeader
         title="PitchRank Blog"
         description="Educational content about youth soccer rankings, our algorithm, and competitive soccer insights"
         showBackButton
         backHref="/"
       />
-      
+
       <div className="max-w-5xl mx-auto mt-8">
         {posts.length === 0 ? (
           <div className="text-center py-12">

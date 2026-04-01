@@ -39,7 +39,7 @@ function formatGender(gender: string): string {
  * Get state name from code
  */
 function getStateName(stateCode: string): string {
-  const state = US_STATES.find(s => s.code.toLowerCase() === stateCode.toLowerCase());
+  const state = US_STATES.find((s) => s.code.toLowerCase() === stateCode.toLowerCase());
   return state ? state.name : stateCode.toUpperCase();
 }
 
@@ -51,17 +51,15 @@ export async function generateMetadata({ params }: RankingsPageProps): Promise<M
     // In Next.js 16, params is a Promise - await it
     const resolvedParams = await params;
     const { region, ageGroup, gender } = resolvedParams;
-    
+
     const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
     const canonicalUrl = `${baseUrl}/rankings/${region}/${ageGroup}/${gender}`;
-    
+
     const formattedAgeGroup = formatAgeGroup(ageGroup);
     const formattedGender = formatGender(gender);
     const isNational = region.toLowerCase() === 'national';
-    const locationText = isNational 
-      ? 'National' 
-      : getStateName(region);
-    
+    const locationText = isNational ? 'National' : getStateName(region);
+
     const title = `${locationText} ${formattedAgeGroup} ${formattedGender} Soccer Rankings | PitchRank`;
     const description = `${locationText} ${formattedAgeGroup} ${formattedGender} youth soccer team rankings. See where your team stands among 101,354 teams nationwide. Updated daily from 726,730+ real game results. Data-driven, no bias.`;
 
@@ -98,7 +96,8 @@ export async function generateMetadata({ params }: RankingsPageProps): Promise<M
     // Return fallback metadata
     return {
       title: 'Soccer Rankings | PitchRank',
-      description: 'View comprehensive soccer team rankings. Compare power scores, win percentages, and team performance metrics.',
+      description:
+        'View comprehensive soccer team rankings. Compare power scores, win percentages, and team performance metrics.',
     };
   }
 }
@@ -117,7 +116,7 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
   const formattedGender = formatGender(gender);
   const isNational = region.toLowerCase() === 'national';
   const locationText = isNational ? 'National' : getStateName(region);
-  
+
   // Sanitize route params to prevent XSS via </script> injection in JSON-LD
   const safeRegion = region.replace(/[<>"'&]/g, '');
   const safeAgeGroup = ageGroup.replace(/[<>"'&]/g, '');
@@ -126,9 +125,9 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
   const structuredData = {
     '@context': 'https://schema.org',
     '@type': 'RankingTable',
-    'name': `${locationText} ${formattedAgeGroup} ${formattedGender} Soccer Rankings`,
-    'description': 'Youth soccer team rankings by PowerScore rating, updated weekly',
-    'url': `https://pitchrank.io/rankings/${safeRegion}/${safeAgeGroup}/${safeGender}`,
+    name: `${locationText} ${formattedAgeGroup} ${formattedGender} Soccer Rankings`,
+    description: 'Youth soccer team rankings by PowerScore rating, updated weekly',
+    url: `https://pitchrank.io/rankings/${safeRegion}/${safeAgeGroup}/${safeGender}`,
   };
 
   // Escape </script> sequences to prevent XSS in JSON-LD structured data
@@ -147,10 +146,7 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
     <>
       <RankingsPageContent key={routeKey} region={region} ageGroup={ageGroup} gender={gender} />
       <BreadcrumbSchema items={breadcrumbItems} />
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: safeJsonLd }}
-      />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd }} />
     </>
   );
 }

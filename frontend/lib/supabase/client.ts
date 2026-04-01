@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import { createBrowserClient } from "@supabase/ssr";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { createBrowserClient } from '@supabase/ssr';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 // Singleton instance - ensures only ONE Supabase client exists in the browser
 let supabaseInstance: SupabaseClient | null = null;
@@ -26,9 +26,9 @@ export function createClientSupabase(): SupabaseClient {
 
   if (!supabaseUrl || !supabaseAnonKey) {
     console.error(
-      "Missing Supabase environment variables for auth client. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY"
+      'Missing Supabase environment variables for auth client. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY'
     );
-    throw new Error("Supabase environment variables not configured");
+    throw new Error('Supabase environment variables not configured');
   }
 
   // Let createBrowserClient handle cookies automatically

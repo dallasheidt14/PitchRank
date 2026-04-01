@@ -14,21 +14,24 @@ Preflight: python3 scripts/run_weekly_cleany.py --preflight
 
 import os
 import sys
-import psycopg2
-from datetime import datetime
 from collections import defaultdict
+from datetime import datetime
+
+import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
 
 from dotenv import load_dotenv
+
 _env_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_env_local = os.path.join(_env_dir, '.env.local')
+_env_local = os.path.join(_env_dir, ".env.local")
 if os.path.exists(_env_local):
     load_dotenv(_env_local, override=True)
 else:
-    load_dotenv(os.path.join(_env_dir, '.env'))
+    load_dotenv(os.path.join(_env_dir, ".env"))
 
-DATABASE_URL = os.getenv('DATABASE_URL')
+DATABASE_URL = os.getenv("DATABASE_URL")
+
 
 def run_club_case_normalization():
     """Fix club name case inconsistencies using majority rule."""
@@ -42,13 +45,13 @@ def run_club_case_normalization():
         cur = conn.cursor()
 
         # Get all club names with counts
-        cur.execute('''
+        cur.execute("""
             SELECT club_name, COUNT(*) as cnt
             FROM teams
             WHERE club_name IS NOT NULL AND club_name != ''
             GROUP BY club_name
             ORDER BY club_name
-        ''')
+        """)
         club_counts = {row[0]: row[1] for row in cur.fetchall()}
 
         # Group by lowercase
@@ -74,7 +77,7 @@ def run_club_case_normalization():
         # Apply fixes
         total_updated = 0
         for old_name, new_name, _ in fixes:
-            cur.execute('UPDATE teams SET club_name = %s WHERE club_name = %s', (new_name, old_name))
+            cur.execute("UPDATE teams SET club_name = %s WHERE club_name = %s", (new_name, old_name))
             total_updated += cur.rowcount
 
         print(f"✅ Updated {total_updated} teams")
@@ -98,12 +101,12 @@ def run_team_name_normalization():
         cur = conn.cursor()
 
         # Get teams that haven't been normalized yet
-        cur.execute('''
+        cur.execute("""
             SELECT id, team_name, club_name
             FROM teams
             WHERE team_name_original IS NULL
             LIMIT 10000
-        ''')
+        """)
         teams = cur.fetchall()
 
         if not teams:
@@ -116,31 +119,35 @@ def run_team_name_normalization():
         for team_id, team_name, club_name in teams:
             normalized = normalize_team_name(team_name, club_name)
             if normalized != team_name:
-                cur.execute('''
+                cur.execute(
+                    """
                     UPDATE teams
                     SET team_name_original = %s, team_name = %s
                     WHERE id = %s
-                ''', (team_name, normalized, team_id))
+                """,
+                    (team_name, normalized, team_id),
+                )
                 updated += 1
 
         print(f"✅ Normalized {updated} teams")
 
         # Also strip any remaining gender words from all teams
-        cur.execute('''
+        cur.execute("""
             SELECT id, team_name FROM teams
             WHERE team_name ILIKE '%% boys%%' OR team_name ILIKE '%% girls%%'
-        ''')
+        """)
         gender_teams = cur.fetchall()
 
         if gender_teams:
             import re
+
             gender_fixed = 0
             for team_id, team_name in gender_teams:
-                new_name = re.sub(r'\s+(boys|girls|boy|girl)\s*', ' ', team_name, flags=re.IGNORECASE)
-                new_name = re.sub(r'\s+(boys|girls|boy|girl)$', '', new_name, flags=re.IGNORECASE)
-                new_name = ' '.join(new_name.split())
+                new_name = re.sub(r"\s+(boys|girls|boy|girl)\s*", " ", team_name, flags=re.IGNORECASE)
+                new_name = re.sub(r"\s+(boys|girls|boy|girl)$", "", new_name, flags=re.IGNORECASE)
+                new_name = " ".join(new_name.split())
                 if new_name != team_name:
-                    cur.execute('UPDATE teams SET team_name = %s WHERE id = %s', (new_name, team_id))
+                    cur.execute("UPDATE teams SET team_name = %s WHERE id = %s", (new_name, team_id))
                     gender_fixed += 1
             print(f"✅ Stripped gender words from {gender_fixed} additional teams")
 
@@ -154,13 +161,14 @@ def run_duplicate_merges():
     print("\n" + "=" * 60)
     print("STEP 3: DUPLICATE TEAM MERGES")
     print("=" * 60)
-    
+
     # Import and run the merge script
     import run_all_merges
+
     results = run_all_merges.run_all_merges(dry_run=False)
     run_all_merges.save_tracker(results)
-    
-    return results['total_merged']
+
+    return results["total_merged"]
 
 
 def preflight_check():
@@ -170,25 +178,25 @@ def preflight_check():
         cur = conn.cursor()
 
         # Check 1: Club case inconsistencies
-        cur.execute('''
+        cur.execute("""
             SELECT COUNT(DISTINCT LOWER(club_name)) as unique_lower,
                    COUNT(DISTINCT club_name) as unique_exact
             FROM teams
             WHERE club_name IS NOT NULL AND club_name != ''
-        ''')
+        """)
         row = cur.fetchone()
         club_inconsistencies = row[1] - row[0] if row else 0
 
         # Check 2: Teams needing normalization
-        cur.execute('''
+        cur.execute("""
             SELECT COUNT(*) FROM teams
             WHERE team_name_original IS NULL
             LIMIT 1
-        ''')
+        """)
         needs_normalization = cur.fetchone()[0] > 0
 
         # Check 3: Quick duplicate estimate (same club + similar team names)
-        cur.execute('''
+        cur.execute("""
             SELECT COUNT(*) FROM (
                 SELECT club_name, LOWER(REGEXP_REPLACE(team_name, '[^a-zA-Z0-9]', '', 'g'))
                 FROM teams
@@ -197,7 +205,7 @@ def preflight_check():
                 HAVING COUNT(*) > 1
                 LIMIT 10
             ) dupes
-        ''')
+        """)
         potential_dupes = cur.fetchone()[0]
 
         if club_inconsistencies > 0:
@@ -217,19 +225,19 @@ def run_queue_auto_merge():
     print("\n" + "=" * 60)
     print("STEP 0: AUTO-APPROVE QUEUE MATCHES (GitHub Action)")
     print("=" * 60)
-    
+
     try:
         import subprocess
-        
+
         # Trigger the GitHub Action
         print("Triggering 'Auto Merge Queue' workflow...")
         result = subprocess.run(
-            ['gh', 'workflow', 'run', 'Auto Merge Queue', '--repo', 'dallasheidt14/PitchRank'],
+            ["gh", "workflow", "run", "Auto Merge Queue", "--repo", "dallasheidt14/PitchRank"],
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=30,
         )
-        
+
         if result.returncode == 0:
             print("✅ GitHub Action triggered successfully")
             print("Note: Workflow runs asynchronously. Check GitHub Actions for results.")
@@ -237,7 +245,7 @@ def run_queue_auto_merge():
         else:
             print(f"❌ Failed to trigger workflow: {result.stderr}")
             return 0
-        
+
     except subprocess.TimeoutExpired:
         print("❌ Timeout triggering workflow")
         return 0
@@ -251,11 +259,13 @@ def run_queue_auto_merge():
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description='Weekly Cleany Job')
-    parser.add_argument('--preflight', action='store_true', 
-                       help='Quick check: exit 0 if no work (skip agent), exit 1 if work needed')
+
+    parser = argparse.ArgumentParser(description="Weekly Cleany Job")
+    parser.add_argument(
+        "--preflight", action="store_true", help="Quick check: exit 0 if no work (skip agent), exit 1 if work needed"
+    )
     args = parser.parse_args()
-    
+
     # Pre-flight mode
     if args.preflight:
         needs_work, reason = preflight_check()
@@ -265,39 +275,34 @@ def main():
         else:
             print("PREFLIGHT_OK: No data hygiene work needed, skipping agent")
             sys.exit(0)
-    
+
     print("=" * 60)
     print("WEEKLY CLEANY JOB")
     print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
-    
-    results = {
-        'queue_approvals': 0,
-        'club_fixes': 0,
-        'team_normalizations': 0,
-        'merges': 0
-    }
-    
+
+    results = {"queue_approvals": 0, "club_fixes": 0, "team_normalizations": 0, "merges": 0}
+
     try:
-        results['queue_approvals'] = run_queue_auto_merge()
+        results["queue_approvals"] = run_queue_auto_merge()
     except Exception as e:
         print(f"❌ Queue auto-merge error: {e}")
-    
+
     try:
-        results['club_fixes'] = run_club_case_normalization()
+        results["club_fixes"] = run_club_case_normalization()
     except Exception as e:
         print(f"❌ Club normalization error: {e}")
-    
+
     try:
-        results['team_normalizations'] = run_team_name_normalization()
+        results["team_normalizations"] = run_team_name_normalization()
     except Exception as e:
         print(f"❌ Team normalization error: {e}")
-    
+
     try:
-        results['merges'] = run_duplicate_merges()
+        results["merges"] = run_duplicate_merges()
     except Exception as e:
         print(f"❌ Merge error: {e}")
-    
+
     print("\n" + "=" * 60)
     print("WEEKLY CLEANY COMPLETE")
     print("=" * 60)
@@ -306,9 +311,9 @@ def main():
     print(f"Team normalizations: {results['team_normalizations']}")
     print(f"Duplicate merges: {results['merges']}")
     print(f"Finished: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    
+
     return results
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

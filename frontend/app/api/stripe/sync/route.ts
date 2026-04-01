@@ -1,6 +1,6 @@
-import { stripe, extractPeriodEnd, mapStatusToPlan } from "@/lib/stripe/server";
-import { createServerSupabase } from "@/lib/supabase/server";
-import { NextResponse } from "next/server";
+import { stripe, extractPeriodEnd, mapStatusToPlan } from '@/lib/stripe/server';
+import { createServerSupabase } from '@/lib/supabase/server';
+import { NextResponse } from 'next/server';
 
 /**
  * POST /api/stripe/sync
@@ -19,26 +19,26 @@ export async function POST(req: Request) {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
     const { sessionId } = await req.json();
-    if (!sessionId || typeof sessionId !== "string") {
-      return NextResponse.json({ error: "Missing session_id" }, { status: 400 });
+    if (!sessionId || typeof sessionId !== 'string') {
+      return NextResponse.json({ error: 'Missing session_id' }, { status: 400 });
     }
 
     // Retrieve checkout session from Stripe
     const session = await stripe.checkout.sessions.retrieve(sessionId, {
-      expand: ["subscription"],
+      expand: ['subscription'],
     });
 
     if (!session.customer || !session.subscription) {
-      return NextResponse.json({ error: "Session has no subscription" }, { status: 400 });
+      return NextResponse.json({ error: 'Session has no subscription' }, { status: 400 });
     }
 
     const customerId = session.customer as string;
     const subscription =
-      typeof session.subscription === "string"
+      typeof session.subscription === 'string'
         ? await stripe.subscriptions.retrieve(session.subscription)
         : session.subscription;
 
@@ -50,22 +50,22 @@ export async function POST(req: Request) {
     const sessionUserId = session.metadata?.supabase_user_id;
     if (sessionUserId) {
       if (sessionUserId !== user.id) {
-        return NextResponse.json({ error: "Session does not belong to you" }, { status: 403 });
+        return NextResponse.json({ error: 'Session does not belong to you' }, { status: 403 });
       }
     } else {
       const { data: profile } = await supabase
-        .from("user_profiles")
-        .select("stripe_customer_id")
-        .eq("id", user.id)
+        .from('user_profiles')
+        .select('stripe_customer_id')
+        .eq('id', user.id)
         .single();
       if (profile?.stripe_customer_id && profile.stripe_customer_id !== customerId) {
-        return NextResponse.json({ error: "Session does not belong to you" }, { status: 403 });
+        return NextResponse.json({ error: 'Session does not belong to you' }, { status: 403 });
       }
     }
 
     // Update user_profiles (same fields as webhook handler)
     const { error: updateError } = await supabase
-      .from("user_profiles")
+      .from('user_profiles')
       .update({
         stripe_customer_id: customerId,
         stripe_subscription_id: subscription.id,
@@ -74,16 +74,14 @@ export async function POST(req: Request) {
         subscription_period_end: extractPeriodEnd(subscription),
         updated_at: new Date().toISOString(),
       })
-      .eq("id", user.id);
+      .eq('id', user.id);
 
     if (updateError) {
-      console.error("Sync: error updating profile:", updateError);
-      return NextResponse.json({ error: "Failed to sync" }, { status: 500 });
+      console.error('Sync: error updating profile:', updateError);
+      return NextResponse.json({ error: 'Failed to sync' }, { status: 500 });
     }
 
-    console.log(
-      `Sync: updated user ${user.id} -> plan=${plan}, status=${status}, customer=${customerId}`
-    );
+    console.log(`Sync: updated user ${user.id} -> plan=${plan}, status=${status}, customer=${customerId}`);
 
     return NextResponse.json({
       synced: true,
@@ -91,7 +89,7 @@ export async function POST(req: Request) {
       status,
     });
   } catch (error) {
-    console.error("Sync error:", error);
-    return NextResponse.json({ error: "Failed to sync subscription" }, { status: 500 });
+    console.error('Sync error:', error);
+    return NextResponse.json({ error: 'Failed to sync subscription' }, { status: 500 });
   }
 }

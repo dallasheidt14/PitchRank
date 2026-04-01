@@ -17,13 +17,14 @@ Environment:
     Requires SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables
 """
 
-import os
-import sys
 import asyncio
 import math
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional
+import os
+import sys
 from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional
+
 import numpy as np
 import pandas as pd
 
@@ -32,7 +33,7 @@ _project_root = os.path.join(os.path.dirname(__file__), "../..")
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from supabase import create_client, Client
+from supabase import Client, create_client  # noqa: E402
 
 
 @dataclass
@@ -342,22 +343,25 @@ class PredictionValidator:
         print(f"\n📊 OVERALL METRICS (n={metrics['total_games']} games)")
         print("-" * 70)
         print(
-            f"Direction Accuracy:     {metrics['direction_accuracy']:.1%} ({metrics['correct_predictions']}/{metrics['total_games']})"
+            f"Direction Accuracy:     {metrics['direction_accuracy']:.1%} "
+            f"({metrics['correct_predictions']}/{metrics['total_games']})"
         )
         print(f"MAE (Goal Margin):      {metrics['mae']:.2f} goals")
         print(f"RMSE (Goal Margin):     {metrics['rmse']:.2f} goals")
         print(f"Brier Score:            {metrics['brier_score']:.3f} (lower is better, <0.20 is good)")
 
-        print(f"\n🎯 BY CONFIDENCE LEVEL")
+        print("\n🎯 BY CONFIDENCE LEVEL")
         print("-" * 70)
         print(
-            f"High Confidence (>70%): {metrics['high_confidence_accuracy']:.1%} accurate (n={metrics['high_confidence_games']})"
+            f"High Confidence (>70%): {metrics['high_confidence_accuracy']:.1%} "
+            f"accurate (n={metrics['high_confidence_games']})"
         )
         print(
-            f"Low Confidence (50-70%): {metrics['low_confidence_accuracy']:.1%} accurate (n={metrics['low_confidence_games']})"
+            f"Low Confidence (50-70%): {metrics['low_confidence_accuracy']:.1%} "
+            f"accurate (n={metrics['low_confidence_games']})"
         )
 
-        print(f"\n📈 CALIBRATION ANALYSIS")
+        print("\n📈 CALIBRATION ANALYSIS")
         print("-" * 70)
         print(f"{'Probability Bin':<20} {'Count':<10} {'Predicted':<12} {'Actual':<12} {'Error':<10}")
         print("-" * 70)
@@ -372,7 +376,7 @@ class PredictionValidator:
             )
 
         # Sample predictions
-        print(f"\n📋 SAMPLE PREDICTIONS")
+        print("\n📋 SAMPLE PREDICTIONS")
         print("-" * 70)
 
         # Show 5 correct and 5 incorrect
@@ -383,7 +387,8 @@ class PredictionValidator:
         for p in correct_samples:
             print(f"  {p.team_a_name} vs {p.team_b_name}")
             print(
-                f"    Actual: {p.actual_score_a}-{p.actual_score_b} | Predicted: {p.predicted_win_prob_a:.0%} for {p.team_a_name}"
+                f"    Actual: {p.actual_score_a}-{p.actual_score_b} | "
+                f"Predicted: {p.predicted_win_prob_a:.0%} for {p.team_a_name}"
             )
             print(f"    Power diff: {p.power_diff:+.3f}")
 
@@ -391,7 +396,8 @@ class PredictionValidator:
         for p in incorrect_samples:
             print(f"  {p.team_a_name} vs {p.team_b_name}")
             print(
-                f"    Actual: {p.actual_score_a}-{p.actual_score_b} | Predicted: {p.predicted_win_prob_a:.0%} for {p.team_a_name}"
+                f"    Actual: {p.actual_score_a}-{p.actual_score_b} | "
+                f"Predicted: {p.predicted_win_prob_a:.0%} for {p.team_a_name}"
             )
             print(f"    Power diff: {p.power_diff:+.3f}")
 

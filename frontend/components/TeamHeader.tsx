@@ -10,7 +10,13 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Star, ChevronDown, Loader2 } from 'lucide-react';
-import { addToWatchlist, removeFromWatchlist, isWatched, addToSupabaseWatchlist, removeFromSupabaseWatchlist } from '@/lib/watchlist';
+import {
+  addToWatchlist,
+  removeFromWatchlist,
+  isWatched,
+  addToSupabaseWatchlist,
+  removeFromSupabaseWatchlist,
+} from '@/lib/watchlist';
 import type { WatchlistResponse } from '@/app/api/watchlist/route';
 import { formatPowerScore } from '@/lib/utils';
 import { useUser, hasPremiumAccess } from '@/hooks/useUser';
@@ -26,7 +32,7 @@ interface TeamAlias {
   match_method: string;
   match_confidence: number;
   review_status: string;
-  division: string | null;  // MLS NEXT: 'HD' or 'AD'
+  division: string | null; // MLS NEXT: 'HD' or 'AD'
   created_at: string;
   provider: {
     id: string;
@@ -42,8 +48,14 @@ interface TeamHeaderProps {
  * TeamHeader component - displays team information header
  */
 export function TeamHeader({ teamId }: TeamHeaderProps) {
-  const { data: team, isLoading: teamLoading, isError: teamError, error: teamErrorObj, refetch: refetchTeam } = useTeam(teamId);
-  const { profile, isLoading: userLoading, user } = useUser();
+  const {
+    data: team,
+    isLoading: teamLoading,
+    isError: _teamError,
+    error: teamErrorObj,
+    refetch: refetchTeam,
+  } = useTeam(teamId);
+  const { profile, isLoading: userLoading } = useUser();
   const queryClient = useQueryClient();
   // Wait for user loading to complete before determining premium status
   // This prevents race conditions where profile is null during initial load
@@ -110,7 +122,7 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
       const checkWatchlistCache = () => {
         const cachedWatchlist = queryClient.getQueryData<WatchlistResponse | null>(['watchlist']);
         if (cachedWatchlist?.teams) {
-          const isInWatchlist = cachedWatchlist.teams.some(t => t.team_id_master === teamId);
+          const isInWatchlist = cachedWatchlist.teams.some((t) => t.team_id_master === teamId);
           setWatched(isInWatchlist);
         }
       };
@@ -209,7 +221,7 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
           // Invalidate and refetch watchlist cache so the page shows updated data
           queryClient.invalidateQueries({ queryKey: ['watchlist'] });
           // Add small delay to ensure database commit completes before refetch
-          await new Promise(resolve => setTimeout(resolve, 200));
+          await new Promise((resolve) => setTimeout(resolve, 200));
           await queryClient.refetchQueries({ queryKey: ['watchlist'] });
         } else {
           addToWatchlist(teamId);
@@ -279,23 +291,20 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                   aria-expanded={aliasesOpen}
                 >
                   {team.team_name}
-                  <ChevronDown className={`h-4 w-4 sm:h-5 sm:w-5 opacity-70 transition-transform ${aliasesOpen ? 'rotate-180' : ''}`} />
+                  <ChevronDown
+                    className={`h-4 w-4 sm:h-5 sm:w-5 opacity-70 transition-transform ${aliasesOpen ? 'rotate-180' : ''}`}
+                  />
                 </button>
 
                 {/* Aliases Dropdown */}
                 {aliasesOpen && (
                   <>
                     {/* Backdrop to close dropdown when clicking outside */}
-                    <div
-                      className="fixed inset-0 z-40"
-                      onClick={() => setAliasesOpen(false)}
-                    />
+                    <div className="fixed inset-0 z-40" onClick={() => setAliasesOpen(false)} />
                     <Card className="absolute left-0 top-full mt-2 w-80 z-50 shadow-lg border">
                       <div className="p-3 border-b">
                         <h3 className="font-semibold text-sm">Team Aliases</h3>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          Provider IDs linked to this team
-                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Provider IDs linked to this team</p>
                       </div>
                       <div className="max-h-64 overflow-y-auto">
                         {aliasesLoading ? (
@@ -304,9 +313,7 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                             <span className="text-sm text-muted-foreground">Loading aliases...</span>
                           </div>
                         ) : aliases.length === 0 ? (
-                          <div className="p-4 text-center text-sm text-muted-foreground">
-                            No aliases found
-                          </div>
+                          <div className="p-4 text-center text-sm text-muted-foreground">No aliases found</div>
                         ) : (
                           <div className="divide-y">
                             {aliases.map((alias) => (
@@ -352,12 +359,12 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                 )}
               </div>
               <Button
-                variant={watched ? "secondary" : "outline"}
+                variant={watched ? 'secondary' : 'outline'}
                 size="sm"
                 onClick={handleWatchToggle}
                 disabled={isToggling}
                 className={`transition-colors duration-300 ${watched ? '' : 'bg-transparent border-primary-foreground text-primary-foreground hover:bg-primary-foreground hover:text-primary'}`}
-                aria-label={watched ? "Unwatch team" : "Watch team"}
+                aria-label={watched ? 'Unwatch team' : 'Watch team'}
               >
                 {isToggling ? (
                   <Loader2 className="h-4 w-4 mr-1 animate-spin" />
@@ -379,7 +386,10 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                   </div>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>A machine-learning-enhanced ranking score that measures overall team strength based on offense, defense, schedule difficulty, and predictive performance patterns.</p>
+                  <p>
+                    A machine-learning-enhanced ranking score that measures overall team strength based on offense,
+                    defense, schedule difficulty, and predictive performance patterns.
+                  </p>
                 </TooltipContent>
               </Tooltip>
             </div>
@@ -389,179 +399,199 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
         <CardContent className="pt-4 sm:pt-6 px-4 sm:px-6">
           <div className="space-y-4 sm:space-y-6">
             <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
-              {team.club_name && (
-                <span className="text-base sm:text-lg font-medium">{team.club_name}</span>
-              )}
+              {team.club_name && <span className="text-base sm:text-lg font-medium">{team.club_name}</span>}
               {team.state && (
                 <Badge variant="outline" className="ml-0 sm:ml-2">
                   {team.state}
                 </Badge>
               )}
               <Badge variant="outline">
-                {team.age != null ? `U${team.age}` : 'N/A'} {team.gender === 'M' ? 'Boys' : team.gender === 'F' ? 'Girls' : team.gender === 'B' ? 'Boys' : team.gender === 'G' ? 'Girls' : team.gender}
+                {team.age != null ? `U${team.age}` : 'N/A'}{' '}
+                {team.gender === 'M'
+                  ? 'Boys'
+                  : team.gender === 'F'
+                    ? 'Girls'
+                    : team.gender === 'B'
+                      ? 'Boys'
+                      : team.gender === 'G'
+                        ? 'Girls'
+                        : team.gender}
               </Badge>
             </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 pt-4 border-t">
-            <div>
-              <div className="text-xs sm:text-sm text-muted-foreground mb-1">National Rank</div>
-              <div className="text-xl sm:text-2xl font-semibold">
-                {teamRanking?.rank_in_cohort_final ? `#${teamRanking.rank_in_cohort_final}` : '—'}
-              </div>
-            </div>
-            <div>
-              <div className="text-xs sm:text-sm text-muted-foreground mb-1">State Rank</div>
-              <div className="text-xl sm:text-2xl font-semibold">
-                {teamRanking?.rank_in_state_final ? `#${teamRanking.rank_in_state_final}` : '—'}
-              </div>
-            </div>
-            <div>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div>
-                    <div className="text-xs sm:text-sm text-muted-foreground mb-1">Games Played</div>
-                    <div className="text-xl sm:text-2xl font-semibold">
-                      {teamRanking?.total_games_played ?? 0}
-                    </div>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Total completed games across all time</p>
-                </TooltipContent>
-              </Tooltip>
-            </div>
-            <div>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div>
-                    <div className="text-xs sm:text-sm text-muted-foreground mb-1">Ranked Games</div>
-                    <div className="text-xl sm:text-2xl font-semibold">
-                      {teamRanking?.games_played ?? 0}
-                    </div>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Recent games used in PowerScore calculation (last 365 days, max 30)</p>
-                </TooltipContent>
-              </Tooltip>
-            </div>
-            <div>
-              <div className="text-xs sm:text-sm text-muted-foreground mb-1">Win %</div>
-              <div className="text-xl sm:text-2xl font-semibold">
-                {teamRanking?.win_percentage != null ? `${teamRanking.win_percentage.toFixed(1)}%` : '—'}
-              </div>
-            </div>
-          </div>
-
-          {teamRanking && (
-            <>
-            {/* Offense / Defense Gauges */}
-            {(teamRanking.offense_norm != null || teamRanking.defense_norm != null) && (
-              <div className="pt-4 border-t">
-                <div className="grid grid-cols-2 gap-4">
-                  {teamRanking.offense_norm != null && (() => {
-                    const pct = Math.round(teamRanking.offense_norm * 100);
-                    const color = pct >= 70 ? 'bg-green-500' : pct >= 40 ? 'bg-yellow-500' : 'bg-red-500';
-                    return (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div>
-                            <div className="flex justify-between text-xs sm:text-sm mb-1">
-                              <span className="text-muted-foreground">Offense</span>
-                              <span className="font-semibold">{pct}th %ile</span>
-                            </div>
-                            <div className="h-2.5 bg-muted rounded-full overflow-hidden">
-                              <div className={`h-full ${color} rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
-                            </div>
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Offensive strength: better than {pct}% of teams in this age group</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    );
-                  })()}
-                  {teamRanking.defense_norm != null && (() => {
-                    const pct = Math.round(teamRanking.defense_norm * 100);
-                    const color = pct >= 70 ? 'bg-green-500' : pct >= 40 ? 'bg-yellow-500' : 'bg-red-500';
-                    return (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div>
-                            <div className="flex justify-between text-xs sm:text-sm mb-1">
-                              <span className="text-muted-foreground">Defense</span>
-                              <span className="font-semibold">{pct}th %ile</span>
-                            </div>
-                            <div className="h-2.5 bg-muted rounded-full overflow-hidden">
-                              <div className={`h-full ${color} rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
-                            </div>
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Defensive strength: better than {pct}% of teams in this age group</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    );
-                  })()}
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 pt-4 border-t">
+              <div>
+                <div className="text-xs sm:text-sm text-muted-foreground mb-1">National Rank</div>
+                <div className="text-xl sm:text-2xl font-semibold">
+                  {teamRanking?.rank_in_cohort_final ? `#${teamRanking.rank_in_cohort_final}` : '—'}
                 </div>
               </div>
+              <div>
+                <div className="text-xs sm:text-sm text-muted-foreground mb-1">State Rank</div>
+                <div className="text-xl sm:text-2xl font-semibold">
+                  {teamRanking?.rank_in_state_final ? `#${teamRanking.rank_in_state_final}` : '—'}
+                </div>
+              </div>
+              <div>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div>
+                      <div className="text-xs sm:text-sm text-muted-foreground mb-1">Games Played</div>
+                      <div className="text-xl sm:text-2xl font-semibold">{teamRanking?.total_games_played ?? 0}</div>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Total completed games across all time</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <div>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div>
+                      <div className="text-xs sm:text-sm text-muted-foreground mb-1">Ranked Games</div>
+                      <div className="text-xl sm:text-2xl font-semibold">{teamRanking?.games_played ?? 0}</div>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Recent games used in PowerScore calculation (last 365 days, max 30)</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <div>
+                <div className="text-xs sm:text-sm text-muted-foreground mb-1">Win %</div>
+                <div className="text-xl sm:text-2xl font-semibold">
+                  {teamRanking?.win_percentage != null ? `${teamRanking.win_percentage.toFixed(1)}%` : '—'}
+                </div>
+              </div>
+            </div>
+
+            {teamRanking && (
+              <>
+                {/* Offense / Defense Gauges */}
+                {(teamRanking.offense_norm != null || teamRanking.defense_norm != null) && (
+                  <div className="pt-4 border-t">
+                    <div className="grid grid-cols-2 gap-4">
+                      {teamRanking.offense_norm != null &&
+                        (() => {
+                          const pct = Math.round(teamRanking.offense_norm * 100);
+                          const color = pct >= 70 ? 'bg-green-500' : pct >= 40 ? 'bg-yellow-500' : 'bg-red-500';
+                          return (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div>
+                                  <div className="flex justify-between text-xs sm:text-sm mb-1">
+                                    <span className="text-muted-foreground">Offense</span>
+                                    <span className="font-semibold">{pct}th %ile</span>
+                                  </div>
+                                  <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+                                    <div
+                                      className={`h-full ${color} rounded-full transition-all duration-500`}
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Offensive strength: better than {pct}% of teams in this age group</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          );
+                        })()}
+                      {teamRanking.defense_norm != null &&
+                        (() => {
+                          const pct = Math.round(teamRanking.defense_norm * 100);
+                          const color = pct >= 70 ? 'bg-green-500' : pct >= 40 ? 'bg-yellow-500' : 'bg-red-500';
+                          return (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div>
+                                  <div className="flex justify-between text-xs sm:text-sm mb-1">
+                                    <span className="text-muted-foreground">Defense</span>
+                                    <span className="font-semibold">{pct}th %ile</span>
+                                  </div>
+                                  <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+                                    <div
+                                      className={`h-full ${color} rounded-full transition-all duration-500`}
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Defensive strength: better than {pct}% of teams in this age group</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          );
+                        })()}
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-4 border-t">
+                  <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <span className="text-muted-foreground">Record: </span>
+                      <span className="font-medium">
+                        {teamRanking.total_wins ?? 0}-{teamRanking.total_losses ?? 0}
+                        {(teamRanking.total_draws ?? 0) > 0 && `-${teamRanking.total_draws}`}
+                      </span>
+                    </div>
+                    <div>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>
+                            <span className="text-muted-foreground">State SOS: </span>
+                            <span className="font-medium">
+                              {teamRanking.sos_rank_state
+                                ? `#${teamRanking.sos_rank_state} in ${team.state || 'state'}`
+                                : '—'}
+                            </span>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>
+                            {teamRanking.sos_rank_state
+                              ? `Strength of Schedule — #${teamRanking.sos_rank_state} toughest schedule in ${team.state || 'state'} for this age group. Lower = harder opponents faced.`
+                              : 'Not enough games to calculate SOS rank.'}
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    <div>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>
+                            <span className="text-muted-foreground">National SOS: </span>
+                            <span className="font-medium">
+                              {teamRanking.sos_rank_national ? `#${teamRanking.sos_rank_national}` : '—'}
+                            </span>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>
+                            {teamRanking.sos_rank_national
+                              ? `#${teamRanking.sos_rank_national} toughest schedule nationally for this age group. Lower = harder opponents faced.`
+                              : 'Not enough games to calculate SOS rank.'}
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </div>
+                </div>
+              </>
             )}
 
+            {/* Share Buttons */}
             <div className="pt-4 border-t">
-              <div className="grid grid-cols-3 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Record: </span>
-                  <span className="font-medium">
-                    {teamRanking.total_wins ?? 0}-{teamRanking.total_losses ?? 0}
-                    {(teamRanking.total_draws ?? 0) > 0 && `-${teamRanking.total_draws}`}
-                  </span>
-                </div>
-                <div>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <span className="text-muted-foreground">State SOS: </span>
-                        <span className="font-medium">
-                          {teamRanking.sos_rank_state ? `#${teamRanking.sos_rank_state} in ${team.state || 'state'}` : '—'}
-                        </span>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{teamRanking.sos_rank_state ? `Strength of Schedule — #${teamRanking.sos_rank_state} toughest schedule in ${team.state || 'state'} for this age group. Lower = harder opponents faced.` : 'Not enough games to calculate SOS rank.'}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-                <div>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <span className="text-muted-foreground">National SOS: </span>
-                        <span className="font-medium">
-                          {teamRanking.sos_rank_national ? `#${teamRanking.sos_rank_national}` : '—'}
-                        </span>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{teamRanking.sos_rank_national ? `#${teamRanking.sos_rank_national} toughest schedule nationally for this age group. Lower = harder opponents faced.` : 'Not enough games to calculate SOS rank.'}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-              </div>
+              <ShareButtons
+                title={`⚽ ${team.team_name} is ranked #${teamRanking?.rank_in_cohort_final || 'N/A'} ${team.state ? `in ${team.state}` : 'nationally'} for ${team.age ? `U${team.age}` : ''} ${team.gender === 'M' || team.gender === 'B' ? 'Boys' : 'Girls'} on PitchRank!`}
+                hashtags={['YouthSoccer', 'PitchRank', team.age ? `U${team.age}Soccer` : 'Soccer']}
+              />
             </div>
-            </>
-          )}
-
-          {/* Share Buttons */}
-          <div className="pt-4 border-t">
-            <ShareButtons
-              title={`⚽ ${team.team_name} is ranked #${teamRanking?.rank_in_cohort_final || 'N/A'} ${team.state ? `in ${team.state}` : 'nationally'} for ${team.age ? `U${team.age}` : ''} ${team.gender === 'M' || team.gender === 'B' ? 'Boys' : 'Girls'} on PitchRank!`}
-              hashtags={['YouthSoccer', 'PitchRank', team.age ? `U${team.age}Soccer` : 'Soccer']}
-            />
           </div>
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
     </>
   );
 }
-

@@ -12,7 +12,6 @@ Examples:
     → club_norm: "PHOENIX RISING", club_id: "phoenix_rising"
 """
 
-import hashlib
 import re
 import string
 from dataclasses import dataclass
@@ -22,6 +21,7 @@ from typing import Dict, List, Optional, Tuple
 # Try to import rapidfuzz, fall back to difflib-based implementation
 try:
     from rapidfuzz import fuzz, process
+
     HAVE_RAPIDFUZZ = True
 except ImportError:
     HAVE_RAPIDFUZZ = False
@@ -43,7 +43,7 @@ except ImportError:
             best = 0
             len_s1 = len(s1)
             for i in range(len(s2) - len_s1 + 1):
-                score = SequenceMatcher(None, s1, s2[i:i + len_s1]).ratio()
+                score = SequenceMatcher(None, s1, s2[i : i + len_s1]).ratio()
                 best = max(best, score)
             return best * 100
 
@@ -57,13 +57,10 @@ except ImportError:
             if not union:
                 return 0.0
             # Jaccard-like similarity with some adjustment
-            sorted_intersection = ' '.join(sorted(intersection))
-            sorted_s1 = ' '.join(sorted(tokens1))
-            sorted_s2 = ' '.join(sorted(tokens2))
-            return max(
-                SequenceMatcher(None, sorted_s1, sorted_s2).ratio(),
-                len(intersection) / len(union)
-            ) * 100
+            " ".join(sorted(intersection))
+            sorted_s1 = " ".join(sorted(tokens1))
+            sorted_s2 = " ".join(sorted(tokens2))
+            return max(SequenceMatcher(None, sorted_s1, sorted_s2).ratio(), len(intersection) / len(union)) * 100
 
     class _ProcessFallback:
         @staticmethod
@@ -92,10 +89,11 @@ except ImportError:
 @dataclass
 class ClubNormResult:
     """Result of club name normalization"""
-    club_id: str          # Stable identifier (slug form): "phoenix_rising"
-    club_norm: str        # Canonical display name: "PHOENIX RISING"
-    original: str         # Original input string
-    confidence: float     # 0.0-1.0, how confident we are in the match
+
+    club_id: str  # Stable identifier (slug form): "phoenix_rising"
+    club_norm: str  # Canonical display name: "PHOENIX RISING"
+    original: str  # Original input string
+    confidence: float  # 0.0-1.0, how confident we are in the match
     matched_canonical: bool  # True if matched to a known canonical club
 
     @property
@@ -110,81 +108,118 @@ class ClubNormResult:
 
 # City/Location abbreviations
 CITY_ABBREVIATIONS = {
-    'phx': 'phoenix',
-    'la': 'los angeles',
-    'nyc': 'new york city',
-    'ny': 'new york',
-    'sf': 'san francisco',
-    'sd': 'san diego',
-    'dc': 'washington dc',
-    'stl': 'st louis',
-    'kc': 'kansas city',
-    'atl': 'atlanta',
-    'chi': 'chicago',
-    'det': 'detroit',
-    'dal': 'dallas',
-    'hou': 'houston',
-    'mia': 'miami',
-    'sea': 'seattle',
-    'den': 'denver',
-    'min': 'minnesota',
-    'cin': 'cincinnati',
-    'cle': 'cleveland',
-    'pit': 'pittsburgh',
-    'bal': 'baltimore',
-    'phi': 'philadelphia',
-    'bos': 'boston',
-    'lv': 'las vegas',
-    'orl': 'orlando',
-    'tb': 'tampa bay',
-    'sac': 'sacramento',
-    'slc': 'salt lake city',
-    'okc': 'oklahoma city',
-    'indy': 'indianapolis',
-    'jax': 'jacksonville',
-    'char': 'charlotte',
-    'nash': 'nashville',
-    'mem': 'memphis',
-    'nola': 'new orleans',
-    'pdx': 'portland',
-    'philly': 'philadelphia',
-    'cbus': 'columbus',
-    'rdu': 'raleigh',
-    'rva': 'richmond',
-    'dfw': 'dallas fort worth',
+    "phx": "phoenix",
+    "la": "los angeles",
+    "nyc": "new york city",
+    "ny": "new york",
+    "sf": "san francisco",
+    "sd": "san diego",
+    "dc": "washington dc",
+    "stl": "st louis",
+    "kc": "kansas city",
+    "atl": "atlanta",
+    "chi": "chicago",
+    "det": "detroit",
+    "dal": "dallas",
+    "hou": "houston",
+    "mia": "miami",
+    "sea": "seattle",
+    "den": "denver",
+    "min": "minnesota",
+    "cin": "cincinnati",
+    "cle": "cleveland",
+    "pit": "pittsburgh",
+    "bal": "baltimore",
+    "phi": "philadelphia",
+    "bos": "boston",
+    "lv": "las vegas",
+    "orl": "orlando",
+    "tb": "tampa bay",
+    "sac": "sacramento",
+    "slc": "salt lake city",
+    "okc": "oklahoma city",
+    "indy": "indianapolis",
+    "jax": "jacksonville",
+    "char": "charlotte",
+    "nash": "nashville",
+    "mem": "memphis",
+    "nola": "new orleans",
+    "pdx": "portland",
+    "philly": "philadelphia",
+    "cbus": "columbus",
+    "rdu": "raleigh",
+    "rva": "richmond",
+    "dfw": "dallas fort worth",
 }
 
 # Common soccer abbreviations
 SOCCER_ABBREVIATIONS = {
-    'fc': 'football club',
-    'sc': 'soccer club',
-    'sa': 'soccer academy',
-    'ac': 'athletic club',
-    'afc': 'association football club',
-    'cf': 'club de futbol',
-    'ys': 'youth soccer',
-    'ysc': 'youth soccer club',
-    'utd': 'united',
-    'u': 'united',  # Only when standalone
-    'fca': 'football club academy',
-    'sfc': 'soccer football club',
+    "fc": "football club",
+    "sc": "soccer club",
+    "sa": "soccer academy",
+    "ac": "athletic club",
+    "afc": "association football club",
+    "cf": "club de futbol",
+    "ys": "youth soccer",
+    "ysc": "youth soccer club",
+    "utd": "united",
+    "u": "united",  # Only when standalone
+    "fca": "football club academy",
+    "sfc": "soccer football club",
 }
 
 # State abbreviations (for removal from club names)
 STATE_ABBREVIATIONS = {
-    'al': 'alabama', 'ak': 'alaska', 'az': 'arizona', 'ar': 'arkansas',
-    'ca': 'california', 'co': 'colorado', 'ct': 'connecticut', 'de': 'delaware',
-    'fl': 'florida', 'ga': 'georgia', 'hi': 'hawaii', 'id': 'idaho',
-    'il': 'illinois', 'in': 'indiana', 'ia': 'iowa', 'ks': 'kansas',
-    'ky': 'kentucky', 'la': 'louisiana', 'me': 'maine', 'md': 'maryland',
-    'ma': 'massachusetts', 'mi': 'michigan', 'mn': 'minnesota', 'ms': 'mississippi',
-    'mo': 'missouri', 'mt': 'montana', 'ne': 'nebraska', 'nv': 'nevada',
-    'nh': 'new hampshire', 'nj': 'new jersey', 'nm': 'new mexico', 'ny': 'new york',
-    'nc': 'north carolina', 'nd': 'north dakota', 'oh': 'ohio', 'ok': 'oklahoma',
-    'or': 'oregon', 'pa': 'pennsylvania', 'ri': 'rhode island', 'sc': 'south carolina',
-    'sd': 'south dakota', 'tn': 'tennessee', 'tx': 'texas', 'ut': 'utah',
-    'vt': 'vermont', 'va': 'virginia', 'wa': 'washington', 'wv': 'west virginia',
-    'wi': 'wisconsin', 'wy': 'wyoming',
+    "al": "alabama",
+    "ak": "alaska",
+    "az": "arizona",
+    "ar": "arkansas",
+    "ca": "california",
+    "co": "colorado",
+    "ct": "connecticut",
+    "de": "delaware",
+    "fl": "florida",
+    "ga": "georgia",
+    "hi": "hawaii",
+    "id": "idaho",
+    "il": "illinois",
+    "in": "indiana",
+    "ia": "iowa",
+    "ks": "kansas",
+    "ky": "kentucky",
+    "la": "louisiana",
+    "me": "maine",
+    "md": "maryland",
+    "ma": "massachusetts",
+    "mi": "michigan",
+    "mn": "minnesota",
+    "ms": "mississippi",
+    "mo": "missouri",
+    "mt": "montana",
+    "ne": "nebraska",
+    "nv": "nevada",
+    "nh": "new hampshire",
+    "nj": "new jersey",
+    "nm": "new mexico",
+    "ny": "new york",
+    "nc": "north carolina",
+    "nd": "north dakota",
+    "oh": "ohio",
+    "ok": "oklahoma",
+    "or": "oregon",
+    "pa": "pennsylvania",
+    "ri": "rhode island",
+    "sc": "south carolina",
+    "sd": "south dakota",
+    "tn": "tennessee",
+    "tx": "texas",
+    "ut": "utah",
+    "vt": "vermont",
+    "va": "virginia",
+    "wa": "washington",
+    "wv": "west virginia",
+    "wi": "wisconsin",
+    "wy": "wyoming",
 }
 
 # =============================================================================
@@ -195,58 +230,58 @@ STATE_ABBREVIATIONS = {
 # NOTE: "united" is NOT stripped - it's part of the club name (Sacramento United, Atlanta United)
 SUFFIXES_TO_STRIP = [
     # Long forms first
-    ' soccer club',
-    ' football club',
-    ' soccer academy',
-    ' futbol club',
-    ' athletic club',
-    ' youth soccer',
-    ' youth soccer club',
-    ' academy',
-    ' soccer',
+    " soccer club",
+    " football club",
+    " soccer academy",
+    " futbol club",
+    " athletic club",
+    " youth soccer",
+    " youth soccer club",
+    " academy",
+    " soccer",
     # Short forms
-    ' fc',
-    ' sc',
-    ' sa',
-    ' ac',
-    ' cf',
-    ' afc',
-    ' ys',
-    ' ysc',
+    " fc",
+    " sc",
+    " sa",
+    " ac",
+    " cf",
+    " afc",
+    " ys",
+    " ysc",
 ]
 
 # Prefixes to strip
 PREFIXES_TO_STRIP = [
-    'fc ',
-    'sc ',
-    'cf ',
-    'ac ',
-    'afc ',
+    "fc ",
+    "sc ",
+    "cf ",
+    "ac ",
+    "afc ",
 ]
 
 # Location suffixes pattern (e.g., "- AZ", "- Arizona", "- CA")
 LOCATION_SUFFIX_PATTERN = re.compile(
-    r'\s*[-–—]\s*('
-    r'[A-Z]{2}|'  # State codes: AZ, CA, TX
-    r'Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|'
-    r'Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|'
-    r'Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|'
-    r'Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|'
-    r'New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|'
-    r'Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|'
-    r'Virginia|Washington|West Virginia|Wisconsin|Wyoming'
-    r')\s*$',
-    re.IGNORECASE
+    r"\s*[-–—]\s*("
+    r"[A-Z]{2}|"  # State codes: AZ, CA, TX
+    r"Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|"
+    r"Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|"
+    r"Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|"
+    r"Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|"
+    r"New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|"
+    r"Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|"
+    r"Virginia|Washington|West Virginia|Wisconsin|Wyoming"
+    r")\s*$",
+    re.IGNORECASE,
 )
 
 # Age group pattern (e.g., "U13", "U-14", "U15 Boys", "2012")
 AGE_GROUP_PATTERN = re.compile(
-    r'\s*(?:'
-    r'U[-]?\d{1,2}(?:\s*(?:Boys?|Girls?|[BG]|HD|AD))?|'  # U13, U-14, U13 Boys, U13B, U13 HD
-    r'\d{4}(?:\s*(?:Boys?|Girls?|[BG]))?|'  # 2012, 2012 Boys
-    r'(?:Boys?|Girls?)\s*U[-]?\d{1,2}'  # Boys U13
-    r')\s*$',
-    re.IGNORECASE
+    r"\s*(?:"
+    r"U[-]?\d{1,2}(?:\s*(?:Boys?|Girls?|[BG]|HD|AD))?|"  # U13, U-14, U13 Boys, U13B, U13 HD
+    r"\d{4}(?:\s*(?:Boys?|Girls?|[BG]))?|"  # 2012, 2012 Boys
+    r"(?:Boys?|Girls?)\s*U[-]?\d{1,2}"  # Boys U13
+    r")\s*$",
+    re.IGNORECASE,
 )
 
 
@@ -259,367 +294,275 @@ AGE_GROUP_PATTERN = re.compile(
 # IMPORTANT: Include common abbreviations like PRFC, LAFC, ATLUTD, etc.
 CANONICAL_CLUBS: Dict[str, List[str]] = {
     # MLS Clubs
-    'PHOENIX RISING': [
-        'phoenix rising', 'phx rising', 'phoenix rising fc',
-        'phoenix rising soccer club', 'pr fc', 'prfc', 'phxrfc',
-        'phoenix rising sc', 'prsc'
+    "PHOENIX RISING": [
+        "phoenix rising",
+        "phx rising",
+        "phoenix rising fc",
+        "phoenix rising soccer club",
+        "pr fc",
+        "prfc",
+        "phxrfc",
+        "phoenix rising sc",
+        "prsc",
     ],
-    'LA GALAXY': [
-        'la galaxy', 'los angeles galaxy', 'galaxy', 'lag', 'lagalaxy',
-        'la galaxy fc', 'galaxy fc', 'galaxy sc'
+    "LA GALAXY": [
+        "la galaxy",
+        "los angeles galaxy",
+        "galaxy",
+        "lag",
+        "lagalaxy",
+        "la galaxy fc",
+        "galaxy fc",
+        "galaxy sc",
     ],
-    'FC DALLAS': [
-        'fc dallas', 'dallas fc', 'fcd', 'dallas', 'fcdallas',
-        'dallas sc', 'dal fc'
+    "FC DALLAS": ["fc dallas", "dallas fc", "fcd", "dallas", "fcdallas", "dallas sc", "dal fc"],
+    "SPORTING KC": [
+        "sporting kc",
+        "sporting kansas city",
+        "skc",
+        "kansas city",
+        "sporting",
+        "kc sporting",
+        "sportingkc",
     ],
-    'SPORTING KC': [
-        'sporting kc', 'sporting kansas city', 'skc', 'kansas city',
-        'sporting', 'kc sporting', 'sportingkc'
+    "REAL SALT LAKE": ["real salt lake", "rsl", "salt lake", "real sl", "rsl fc", "salt lake fc", "slc fc"],
+    "SEATTLE SOUNDERS": [
+        "seattle sounders",
+        "sounders fc",
+        "sounders",
+        "seattle sounders fc",
+        "ssfc",
+        "sea sounders",
+        "seattle fc",
     ],
-    'REAL SALT LAKE': [
-        'real salt lake', 'rsl', 'salt lake', 'real sl',
-        'rsl fc', 'salt lake fc', 'slc fc'
+    "PORTLAND TIMBERS": ["portland timbers", "timbers", "timbers fc", "ptfc", "portland fc", "pdx timbers"],
+    "COLORADO RAPIDS": ["colorado rapids", "rapids", "rapids fc", "col rapids", "colorado fc", "corap"],
+    "AUSTIN FC": ["austin fc", "austin", "afc austin", "atxfc", "atx fc", "austin football club", "austinfc"],
+    "HOUSTON DYNAMO": [
+        "houston dynamo",
+        "dynamo",
+        "houston dynamo fc",
+        "hdfc",
+        "hou dynamo",
+        "dynamo fc",
+        "houston fc",
     ],
-    'SEATTLE SOUNDERS': [
-        'seattle sounders', 'sounders fc', 'sounders', 'seattle sounders fc',
-        'ssfc', 'sea sounders', 'seattle fc'
+    "MINNESOTA UNITED": [
+        "minnesota united",
+        "mn united",
+        "mnufc",
+        "loons",
+        "minnesota utd",
+        "minn united",
+        "minnesota fc",
     ],
-    'PORTLAND TIMBERS': [
-        'portland timbers', 'timbers', 'timbers fc', 'ptfc',
-        'portland fc', 'pdx timbers'
+    "ATLANTA UNITED": [
+        "atlanta united",
+        "atl united",
+        "atlutd",
+        "atlanta utd",
+        "atl utd",
+        "aufc",
+        "atlanta united fc",
+        "atlunitedfc",
     ],
-    'COLORADO RAPIDS': [
-        'colorado rapids', 'rapids', 'rapids fc', 'col rapids',
-        'colorado fc', 'corap'
+    "INTER MIAMI": ["inter miami", "inter miami cf", "miami", "imcf", "miami fc", "inter miami fc", "mia inter"],
+    "ORLANDO CITY": ["orlando city", "orlando city sc", "ocsc", "orlando", "orl city", "orlando sc", "orlandocity"],
+    "NASHVILLE SC": ["nashville sc", "nashville", "nsc", "nashvillesc", "nash sc", "nashville fc"],
+    "CHARLOTTE FC": ["charlotte fc", "charlotte", "cltfc", "cfc", "charlotte football club", "charlottefc", "clt fc"],
+    "DC UNITED": [
+        "dc united",
+        "d.c. united",
+        "dcu",
+        "washington dc united",
+        "dcunited",
+        "dc utd",
+        "dcfc",
+        "washington united",
     ],
-    'AUSTIN FC': [
-        'austin fc', 'austin', 'afc austin', 'atxfc', 'atx fc',
-        'austin football club', 'austinfc'
+    "NEW YORK RED BULLS": [
+        "new york red bulls",
+        "ny red bulls",
+        "red bulls",
+        "nyrb",
+        "rbny",
+        "nyredbulls",
+        "new york rb",
+        "nyrb fc",
     ],
-    'HOUSTON DYNAMO': [
-        'houston dynamo', 'dynamo', 'houston dynamo fc', 'hdfc',
-        'hou dynamo', 'dynamo fc', 'houston fc'
+    "NYCFC": ["nycfc", "new york city fc", "nyc fc", "new york city", "ny city fc", "newyorkcityfc", "nyfc"],
+    "NEW ENGLAND REVOLUTION": [
+        "new england revolution",
+        "revolution",
+        "revs",
+        "ne revolution",
+        "nerevs",
+        "new england revs",
+        "ner",
+        "ne revs",
     ],
-    'MINNESOTA UNITED': [
-        'minnesota united', 'mn united', 'mnufc', 'loons',
-        'minnesota utd', 'minn united', 'minnesota fc'
+    "PHILADELPHIA UNION": [
+        "philadelphia union",
+        "philly union",
+        "union",
+        "phl union",
+        "phila union",
+        "phi union",
+        "philaunion",
+        "doop",
     ],
-    'ATLANTA UNITED': [
-        'atlanta united', 'atl united', 'atlutd', 'atlanta utd',
-        'atl utd', 'aufc', 'atlanta united fc', 'atlunitedfc'
+    "CHICAGO FIRE": ["chicago fire", "fire fc", "chicago fire fc", "cf97", "cffc", "chi fire", "chifire"],
+    "COLUMBUS CREW": ["columbus crew", "crew", "crew sc", "the crew", "colcrew", "cbus crew", "columbus sc"],
+    "CINCINNATI FC": ["fc cincinnati", "cincinnati fc", "fcc", "cincy", "cincinatti fc", "cinci fc", "fccincy"],
+    "TORONTO FC": ["toronto fc", "tfc", "toronto", "tor fc", "torontofc", "toronto football club"],
+    "CF MONTREAL": [
+        "cf montreal",
+        "montreal",
+        "cfm",
+        "montreal impact",
+        "impact",
+        "cfmontreal",
+        "mtl fc",
+        "montreal fc",
     ],
-    'INTER MIAMI': [
-        'inter miami', 'inter miami cf', 'miami', 'imcf',
-        'miami fc', 'inter miami fc', 'mia inter'
+    "VANCOUVER WHITECAPS": [
+        "vancouver whitecaps",
+        "whitecaps",
+        "whitecaps fc",
+        "vwfc",
+        "van whitecaps",
+        "vancouver fc",
+        "vanwfc",
     ],
-    'ORLANDO CITY': [
-        'orlando city', 'orlando city sc', 'ocsc', 'orlando',
-        'orl city', 'orlando sc', 'orlandocity'
+    "SAN JOSE EARTHQUAKES": [
+        "san jose earthquakes",
+        "earthquakes",
+        "quakes",
+        "sj earthquakes",
+        "sjeq",
+        "san jose fc",
+        "sjquakes",
     ],
-    'NASHVILLE SC': [
-        'nashville sc', 'nashville', 'nsc', 'nashvillesc',
-        'nash sc', 'nashville fc'
+    "LAFC": ["lafc", "los angeles fc", "la fc", "los angeles football club", "losangelesfc", "la football club"],
+    "ST LOUIS CITY": [
+        "st louis city",
+        "stl city",
+        "st louis city sc",
+        "stl city sc",
+        "stlcity",
+        "st louis sc",
+        "stl sc",
+        "stlouiscity",
     ],
-    'CHARLOTTE FC': [
-        'charlotte fc', 'charlotte', 'cltfc', 'cfc',
-        'charlotte football club', 'charlottefc', 'clt fc'
-    ],
-    'DC UNITED': [
-        'dc united', 'd.c. united', 'dcu', 'washington dc united',
-        'dcunited', 'dc utd', 'dcfc', 'washington united'
-    ],
-    'NEW YORK RED BULLS': [
-        'new york red bulls', 'ny red bulls', 'red bulls', 'nyrb', 'rbny',
-        'nyredbulls', 'new york rb', 'nyrb fc'
-    ],
-    'NYCFC': [
-        'nycfc', 'new york city fc', 'nyc fc', 'new york city',
-        'ny city fc', 'newyorkcityfc', 'nyfc'
-    ],
-    'NEW ENGLAND REVOLUTION': [
-        'new england revolution', 'revolution', 'revs', 'ne revolution',
-        'nerevs', 'new england revs', 'ner', 'ne revs'
-    ],
-    'PHILADELPHIA UNION': [
-        'philadelphia union', 'philly union', 'union', 'phl union',
-        'phila union', 'phi union', 'philaunion', 'doop'
-    ],
-    'CHICAGO FIRE': [
-        'chicago fire', 'fire fc', 'chicago fire fc', 'cf97',
-        'cffc', 'chi fire', 'chifire'
-    ],
-    'COLUMBUS CREW': [
-        'columbus crew', 'crew', 'crew sc', 'the crew',
-        'colcrew', 'cbus crew', 'columbus sc'
-    ],
-    'CINCINNATI FC': [
-        'fc cincinnati', 'cincinnati fc', 'fcc', 'cincy',
-        'cincinatti fc', 'cinci fc', 'fccincy'
-    ],
-    'TORONTO FC': [
-        'toronto fc', 'tfc', 'toronto', 'tor fc',
-        'torontofc', 'toronto football club'
-    ],
-    'CF MONTREAL': [
-        'cf montreal', 'montreal', 'cfm', 'montreal impact', 'impact',
-        'cfmontreal', 'mtl fc', 'montreal fc'
-    ],
-    'VANCOUVER WHITECAPS': [
-        'vancouver whitecaps', 'whitecaps', 'whitecaps fc', 'vwfc',
-        'van whitecaps', 'vancouver fc', 'vanwfc'
-    ],
-    'SAN JOSE EARTHQUAKES': [
-        'san jose earthquakes', 'earthquakes', 'quakes', 'sj earthquakes',
-        'sjeq', 'san jose fc', 'sjquakes'
-    ],
-    'LAFC': [
-        'lafc', 'los angeles fc', 'la fc', 'los angeles football club',
-        'losangelesfc', 'la football club'
-    ],
-    'ST LOUIS CITY': [
-        'st louis city', 'stl city', 'st louis city sc', 'stl city sc',
-        'stlcity', 'st louis sc', 'stl sc', 'stlouiscity'
-    ],
-
     # Major Youth Clubs / Academies
-    'ALBION SC': [
-        'albion sc', 'albion', 'albion soccer club'
-    ],
-    'SOLAR SC': [
-        'solar sc', 'solar soccer club', 'solar', 'dallas solar'
-    ],
-    'SURF': [
-        'surf', 'surf sc', 'surf soccer club', 'sd surf', 'san diego surf'
-    ],
-    'BARCELONA': [
-        'barcelona', 'barca', 'barcelona usa', 'barca academy', 'barca residency'
-    ],
-    'IMG ACADEMY': [
-        'img academy', 'img', 'img soccer'
-    ],
-    'REAL SO CAL': [
-        'real so cal', 'real socal', 'rsc', 'real southern california'
-    ],
-    'CROSSFIRE': [
-        'crossfire', 'crossfire premier', 'crossfire united'
-    ],
-    'CONCORDE FIRE': [
-        'concorde fire', 'concorde', 'cfire'
-    ],
-    'FC UNITED': [
-        'fc united', 'fcu'
-    ],
-    'BALTIMORE ARMOUR': [
-        'baltimore armour', 'armour', 'balt armour'
-    ],
-    'PA CLASSICS': [
-        'pa classics', 'pennsylvania classics', 'pa classic'
-    ],
-    'MICHIGAN JAGUARS': [
-        'michigan jaguars', 'jaguars', 'mi jaguars'
-    ],
-    'SOCKERS FC': [
-        'sockers fc', 'sockers', 'chicago sockers'
-    ],
-    'LONESTAR': [
-        'lonestar', 'lonestar sc', 'lone star', 'lonestar soccer'
-    ],
-    'TOPHAT': [
-        'tophat', 'tophat sc', 'top hat', 'atlanta tophat'
-    ],
-    'BEADLING SC': [
-        'beadling sc', 'beadling', 'beadling soccer club'
-    ],
-    'LAMORINDA': [
-        'lamorinda', 'lamorinda sc', 'lamorinda soccer club', 'lamorinda united'
-    ],
-    'SACRAMENTO UNITED': [
-        'sacramento united', 'sac united', 'sacramento utd'
-    ],
-    'SC WAVE': [
-        'sc wave', 'wave sc', 'wave'
-    ],
-    'NEFC': [
-        'nefc', 'new england fc', 'new england football club'
-    ],
-    'GFI ACADEMY': [
-        'gfi academy', 'global football innovation academy', 'gfi', 'gfia'
-    ],
-    'KINGS HAMMER': [
-        'kings hammer', 'kings hammer fc', 'kings hammer academy'
-    ],
-    'HOUSTON RANGERS': [
-        'houston rangers', 'rangers houston', 'h rangers'
-    ],
-    'INTER ATLANTA': [
-        'inter atlanta', 'inter atlanta fc', 'inter atl'
-    ],
-    'IRONBOUND SC': [
-        'ironbound sc', 'ironbound', 'ironbound soccer club'
-    ],
-    'BAVARIAN UNITED': [
-        'bavarian united', 'bavarian united sc', 'bavarian'
-    ],
-    'CLUB OHIO': [
-        'club ohio', 'ohio soccer', 'ohio'
-    ],
-    'CITY SC': [
-        'city sc', 'city soccer club'
-    ],
-    'VENTURA COUNTY FUSION': [
-        'ventura county fusion', 'vc fusion', 'fusion', 'ventura fusion'
-    ],
-    'BALLISTIC UNITED': [
-        'ballistic united', 'ballistic', 'ballistic sc'
-    ],
-    'ACHILLES FC': [
-        'achilles fc', 'achilles', 'achilles football club'
-    ],
-    'ATHLETUM FC': [
-        'athletum fc', 'athletum', 'athletum fc academy'
-    ],
-    'ONE FC': [
-        'one fc', 'one football club', '1fc'
-    ],
-    'HOOSIER PREMIER': [
-        'hoosier premier', 'hoosier', 'hoosier fc'
-    ],
-    'NORTHERN VIRGINIA ALLIANCE': [
-        'northern virginia alliance', 'nova alliance', 'nva', 'nova'
-    ],
-    'OAKWOOD SC': [
-        'oakwood sc', 'oakwood', 'oakwood soccer club'
-    ],
-    'IDEASPORT SA': [
-        'ideasport sa', 'ideasport', 'idea sport'
-    ],
-    'GINGA FC': [
-        'ginga fc', 'ginga', 'ginga football club'
-    ],
-    'FC BAY AREA': [
-        'fc bay area', 'bay area fc', 'bay area surf', 'fc bay area surf'
-    ],
-    'ALEXANDRIA SA': [
-        'alexandria sa', 'alexandria', 'alexandria soccer'
-    ],
-
+    "ALBION SC": ["albion sc", "albion", "albion soccer club"],
+    "SOLAR SC": ["solar sc", "solar soccer club", "solar", "dallas solar"],
+    "SURF": ["surf", "surf sc", "surf soccer club", "sd surf", "san diego surf"],
+    "BARCELONA": ["barcelona", "barca", "barcelona usa", "barca academy", "barca residency"],
+    "IMG ACADEMY": ["img academy", "img", "img soccer"],
+    "REAL SO CAL": ["real so cal", "real socal", "rsc", "real southern california"],
+    "CROSSFIRE": ["crossfire", "crossfire premier", "crossfire united"],
+    "CONCORDE FIRE": ["concorde fire", "concorde", "cfire"],
+    "FC UNITED": ["fc united", "fcu"],
+    "BALTIMORE ARMOUR": ["baltimore armour", "armour", "balt armour"],
+    "PA CLASSICS": ["pa classics", "pennsylvania classics", "pa classic"],
+    "MICHIGAN JAGUARS": ["michigan jaguars", "jaguars", "mi jaguars"],
+    "SOCKERS FC": ["sockers fc", "sockers", "chicago sockers"],
+    "LONESTAR": ["lonestar", "lonestar sc", "lone star", "lonestar soccer"],
+    "TOPHAT": ["tophat", "tophat sc", "top hat", "atlanta tophat"],
+    "BEADLING SC": ["beadling sc", "beadling", "beadling soccer club"],
+    "LAMORINDA": ["lamorinda", "lamorinda sc", "lamorinda soccer club", "lamorinda united"],
+    "SACRAMENTO UNITED": ["sacramento united", "sac united", "sacramento utd"],
+    "SC WAVE": ["sc wave", "wave sc", "wave"],
+    "NEFC": ["nefc", "new england fc", "new england football club"],
+    "GFI ACADEMY": ["gfi academy", "global football innovation academy", "gfi", "gfia"],
+    "KINGS HAMMER": ["kings hammer", "kings hammer fc", "kings hammer academy"],
+    "HOUSTON RANGERS": ["houston rangers", "rangers houston", "h rangers"],
+    "INTER ATLANTA": ["inter atlanta", "inter atlanta fc", "inter atl"],
+    "IRONBOUND SC": ["ironbound sc", "ironbound", "ironbound soccer club"],
+    "BAVARIAN UNITED": ["bavarian united", "bavarian united sc", "bavarian"],
+    "CLUB OHIO": ["club ohio", "ohio soccer", "ohio"],
+    "CITY SC": ["city sc", "city soccer club"],
+    "VENTURA COUNTY FUSION": ["ventura county fusion", "vc fusion", "fusion", "ventura fusion"],
+    "BALLISTIC UNITED": ["ballistic united", "ballistic", "ballistic sc"],
+    "ACHILLES FC": ["achilles fc", "achilles", "achilles football club"],
+    "ATHLETUM FC": ["athletum fc", "athletum", "athletum fc academy"],
+    "ONE FC": ["one fc", "one football club", "1fc"],
+    "HOOSIER PREMIER": ["hoosier premier", "hoosier", "hoosier fc"],
+    "NORTHERN VIRGINIA ALLIANCE": ["northern virginia alliance", "nova alliance", "nva", "nova"],
+    "OAKWOOD SC": ["oakwood sc", "oakwood", "oakwood soccer club"],
+    "IDEASPORT SA": ["ideasport sa", "ideasport", "idea sport"],
+    "GINGA FC": ["ginga fc", "ginga", "ginga football club"],
+    "FC BAY AREA": ["fc bay area", "bay area fc", "bay area surf", "fc bay area surf"],
+    "ALEXANDRIA SA": ["alexandria sa", "alexandria", "alexandria soccer"],
     # =========================================================================
     # CLUBS FROM MERGE HISTORY (acronym → full name mappings)
     # =========================================================================
-    'LOS ANGELES SC': [
-        'los angeles sc', 'lasc', 'la sc', 'los angeles soccer club'
+    "LOS ANGELES SC": ["los angeles sc", "lasc", "la sc", "los angeles soccer club"],
+    "JACKSONVILLE FC": ["jacksonville fc", "jfc", "jax fc", "jacksonville"],
+    "FL PREMIER FC": ["fl premier fc", "fpfc", "florida premier fc", "florida premier"],
+    "WOODSIDE SOCCER CLUB": ["woodside soccer club", "wsc", "woodside sc", "woodside"],
+    "SILICON VALLEY SA": [
+        "silicon valley soccer academy",
+        "svsa",
+        "silicon valley sa",
+        "sv soccer academy",
+        "silicon valley",
     ],
-    'JACKSONVILLE FC': [
-        'jacksonville fc', 'jfc', 'jax fc', 'jacksonville'
+    "THE TOWN FC": ["the town fc", "ttfc", "town fc", "the town fc academy"],
+    "TOTAL FUTBOL ACADEMY": ["total futbol academy", "tfa", "tfa-pro", "tfapro", "total futbol"],
+    "WESTERN IOWA SURF": ["western iowa surf", "wi surf", "iowa surf"],
+    "RSL ARIZONA": ["rsl arizona", "rsl az", "rsl arizona mesa", "real salt lake arizona"],
+    "CEDAR STARS ACADEMY": [
+        "cedar stars academy",
+        "csa",
+        "cedar stars",
+        "cedar stars academy bergen",
+        "cedar stars academy monmouth",
+        "cedar stars academy newark",
     ],
-    'FL PREMIER FC': [
-        'fl premier fc', 'fpfc', 'florida premier fc', 'florida premier'
+    "ST LOUIS SCOTT GALLAGHER": [
+        "st louis scott gallagher",
+        "slsg",
+        "scott gallagher",
+        "st louis scott gallagher illinois",
+        "slsg illinois",
     ],
-    'WOODSIDE SOCCER CLUB': [
-        'woodside soccer club', 'wsc', 'woodside sc', 'woodside'
+    "LOU FUSZ ATHLETIC": ["lou fusz athletic", "lou fusz", "lfa", "lou fusz athletic 2"],
+    "PDA": ["players development academy", "pda", "pda hibernian"],
+    "FC DELCO": ["fc delco", "delco", "delco fc"],
+    "BETHESDA SC": ["bethesda sc", "bethesda", "bethesda soccer club"],
+    "MCLEAN YOUTH SOCCER": ["mclean youth soccer", "mys", "mclean"],
+    "CHARLOTTE INDEPENDENCE": [
+        "charlotte independence",
+        "charlotte independence soccer club",
+        "clt independence",
+        "independence",
     ],
-    'SILICON VALLEY SA': [
-        'silicon valley soccer academy', 'svsa', 'silicon valley sa',
-        'sv soccer academy', 'silicon valley'
+    "CHICAGO FC UNITED": ["chicago fc united", "cfcu", "chicago fcu"],
+    "SPORTING BLUE VALLEY": ["sporting blue valley", "sbv", "blue valley"],
+    "SPORTING OKLAHOMA": ["sporting oklahoma", "sporting ok", "sok"],
+    "MICHIGAN WOLVES": ["michigan wolves", "mi wolves", "wolves fc"],
+    "VARDAR SOCCER CLUB": ["vardar soccer club", "vardar", "vardar sc"],
+    "DE ANZA FORCE": ["de anza force", "deanza force", "de anza"],
+    "STRIKERS FC": ["strikers fc", "strikers", "irvine strikers"],
+    "WESTON FC": ["weston fc", "weston", "weston football club"],
+    "TAMPA BAY UNITED": ["tampa bay united", "tbu", "tb united", "tampa united"],
+    "FC GOLDEN STATE": ["fc golden state", "fcgs", "golden state fc", "fc golden state force"],
+    "SEACOAST UNITED": ["seacoast united", "seacoast", "seacoast utd"],
+    "COPPERMINE SC": ["coppermine sc", "coppermine", "coppermine soccer club"],
+    "TSF ACADEMY": ["tsf academy", "tsf", "the soccer factory"],
+    "INDY ELEVEN": ["indy eleven", "indianapolis eleven", "indy 11"],
+    "FORWARD MADISON FC": ["forward madison fc", "forward madison", "fmfc"],
+    "SACRAMENTO REPUBLIC": ["sacramento republic fc", "sacramento republic", "sac republic", "srfc"],
+    "SAN DIEGO FC": ["san diego fc", "sdfc", "sd fc"],
+    "BARCA RESIDENCY ACADEMY": [
+        "barca residency academy",
+        "barca residency",
+        "barcelona residency",
+        "barca academy usa",
     ],
-    'THE TOWN FC': [
-        'the town fc', 'ttfc', 'town fc', 'the town fc academy'
-    ],
-    'TOTAL FUTBOL ACADEMY': [
-        'total futbol academy', 'tfa', 'tfa-pro', 'tfapro', 'total futbol'
-    ],
-    'WESTERN IOWA SURF': [
-        'western iowa surf', 'wi surf', 'iowa surf'
-    ],
-    'RSL ARIZONA': [
-        'rsl arizona', 'rsl az', 'rsl arizona mesa', 'real salt lake arizona'
-    ],
-    'CEDAR STARS ACADEMY': [
-        'cedar stars academy', 'csa', 'cedar stars',
-        'cedar stars academy bergen', 'cedar stars academy monmouth',
-        'cedar stars academy newark'
-    ],
-    'ST LOUIS SCOTT GALLAGHER': [
-        'st louis scott gallagher', 'slsg', 'scott gallagher',
-        'st louis scott gallagher illinois', 'slsg illinois'
-    ],
-    'LOU FUSZ ATHLETIC': [
-        'lou fusz athletic', 'lou fusz', 'lfa', 'lou fusz athletic 2'
-    ],
-    'PDA': [
-        'players development academy', 'pda', 'pda hibernian'
-    ],
-    'FC DELCO': [
-        'fc delco', 'delco', 'delco fc'
-    ],
-    'BETHESDA SC': [
-        'bethesda sc', 'bethesda', 'bethesda soccer club'
-    ],
-    'MCLEAN YOUTH SOCCER': [
-        'mclean youth soccer', 'mys', 'mclean'
-    ],
-    'CHARLOTTE INDEPENDENCE': [
-        'charlotte independence', 'charlotte independence soccer club',
-        'clt independence', 'independence'
-    ],
-    'CHICAGO FC UNITED': [
-        'chicago fc united', 'cfcu', 'chicago fcu'
-    ],
-    'SPORTING BLUE VALLEY': [
-        'sporting blue valley', 'sbv', 'blue valley'
-    ],
-    'SPORTING OKLAHOMA': [
-        'sporting oklahoma', 'sporting ok', 'sok'
-    ],
-    'MICHIGAN WOLVES': [
-        'michigan wolves', 'mi wolves', 'wolves fc'
-    ],
-    'VARDAR SOCCER CLUB': [
-        'vardar soccer club', 'vardar', 'vardar sc'
-    ],
-    'DE ANZA FORCE': [
-        'de anza force', 'deanza force', 'de anza'
-    ],
-    'STRIKERS FC': [
-        'strikers fc', 'strikers', 'irvine strikers'
-    ],
-    'WESTON FC': [
-        'weston fc', 'weston', 'weston football club'
-    ],
-    'TAMPA BAY UNITED': [
-        'tampa bay united', 'tbu', 'tb united', 'tampa united'
-    ],
-    'FC GOLDEN STATE': [
-        'fc golden state', 'fcgs', 'golden state fc', 'fc golden state force'
-    ],
-    'SEACOAST UNITED': [
-        'seacoast united', 'seacoast', 'seacoast utd'
-    ],
-    'COPPERMINE SC': [
-        'coppermine sc', 'coppermine', 'coppermine soccer club'
-    ],
-    'TSF ACADEMY': [
-        'tsf academy', 'tsf', 'the soccer factory'
-    ],
-    'INDY ELEVEN': [
-        'indy eleven', 'indianapolis eleven', 'indy 11'
-    ],
-    'FORWARD MADISON FC': [
-        'forward madison fc', 'forward madison', 'fmfc'
-    ],
-    'SACRAMENTO REPUBLIC': [
-        'sacramento republic fc', 'sacramento republic', 'sac republic', 'srfc'
-    ],
-    'SAN DIEGO FC': [
-        'san diego fc', 'sdfc', 'sd fc'
-    ],
-    'BARCA RESIDENCY ACADEMY': [
-        'barca residency academy', 'barca residency', 'barcelona residency',
-        'barca academy usa'
-    ],
-    'DALLAS HORNETS': [
-        'dallas hornets', 'hornets', 'dallas hornets east', 'dallas hornets north'
-    ],
+    "DALLAS HORNETS": ["dallas hornets", "hornets", "dallas hornets east", "dallas hornets north"],
 }
 
 # Build reverse lookup: variation -> canonical
@@ -633,50 +576,51 @@ for canonical, variations in CANONICAL_CLUBS.items():
 # NORMALIZATION FUNCTIONS
 # =============================================================================
 
+
 def _clean_basic(name: str) -> str:
     """Basic cleaning: lowercase, strip, normalize whitespace, remove artifacts"""
     if not name:
-        return ''
+        return ""
 
     # Lowercase and strip
     name = name.lower().strip()
 
     # Remove trailing "..." or "…" (truncation artifacts)
-    name = re.sub(r'\.{2,}$', '', name)
-    name = re.sub(r'…$', '', name)
+    name = re.sub(r"\.{2,}$", "", name)
+    name = re.sub(r"…$", "", name)
 
     # Remove content in parentheses/brackets (often meta info like "(HFA)")
     # But keep the rest of the name
-    name = re.sub(r'\s*\([^)]*\)\s*', ' ', name)
-    name = re.sub(r'\s*\[[^\]]*\]\s*', ' ', name)
+    name = re.sub(r"\s*\([^)]*\)\s*", " ", name)
+    name = re.sub(r"\s*\[[^\]]*\]\s*", " ", name)
 
     # Normalize separators: replace /, \, _ with space
-    name = re.sub(r'[/_\\]', ' ', name)
+    name = re.sub(r"[/_\\]", " ", name)
 
     # Replace multiple spaces with single space
-    name = ' '.join(name.split())
+    name = " ".join(name.split())
 
     return name.strip()
 
 
 def _remove_age_group(name: str) -> str:
     """Remove age group suffixes (U13, 2012 Boys, etc.)"""
-    return AGE_GROUP_PATTERN.sub('', name).strip()
+    return AGE_GROUP_PATTERN.sub("", name).strip()
 
 
 def _remove_location_suffix(name: str) -> str:
     """Remove location suffixes like '- AZ', '- California'"""
-    return LOCATION_SUFFIX_PATTERN.sub('', name).strip()
+    return LOCATION_SUFFIX_PATTERN.sub("", name).strip()
 
 
 def _remove_punctuation(name: str, keep_hyphens: bool = False) -> str:
     """Remove punctuation, optionally keeping hyphens"""
     if keep_hyphens:
         # Keep hyphens but remove other punctuation
-        chars_to_remove = string.punctuation.replace('-', '')
+        chars_to_remove = string.punctuation.replace("-", "")
     else:
         chars_to_remove = string.punctuation
-    return name.translate(str.maketrans('', '', chars_to_remove))
+    return name.translate(str.maketrans("", "", chars_to_remove))
 
 
 def _expand_city_abbreviations(name: str) -> str:
@@ -689,7 +633,7 @@ def _expand_city_abbreviations(name: str) -> str:
             expanded.append(CITY_ABBREVIATIONS[word])
         else:
             expanded.append(word)
-    return ' '.join(expanded)
+    return " ".join(expanded)
 
 
 def _strip_suffixes(name: str) -> str:
@@ -697,7 +641,11 @@ def _strip_suffixes(name: str) -> str:
     # Sort by length (longest first) to avoid partial matches
     for suffix in sorted(SUFFIXES_TO_STRIP, key=len, reverse=True):
         if name.endswith(suffix):
-            name = name[:-len(suffix)].strip()
+            stripped = name[: -len(suffix)].strip()
+            # Don't strip if the remaining name is a single short word (<=3 chars)
+            # e.g., "one fc" should stay as "one fc", not become "one"
+            if len(stripped.split()) >= 2 or len(stripped) > 3:
+                name = stripped
             break
     return name
 
@@ -706,7 +654,7 @@ def _strip_prefixes(name: str) -> str:
     """Strip common prefixes (FC, SC, etc.)"""
     for prefix in PREFIXES_TO_STRIP:
         if name.startswith(prefix):
-            name = name[len(prefix):].strip()
+            name = name[len(prefix) :].strip()
             break
     return name
 
@@ -715,8 +663,8 @@ def _generate_club_id(normalized_name: str) -> str:
     """Generate a stable club_id from normalized name (slug form)"""
     # Convert to slug: lowercase, replace spaces with underscores
     club_id = normalized_name.lower().strip()
-    club_id = re.sub(r'[^a-z0-9]+', '_', club_id)
-    club_id = club_id.strip('_')
+    club_id = re.sub(r"[^a-z0-9]+", "_", club_id)
+    club_id = club_id.strip("_")
     return club_id
 
 
@@ -743,7 +691,7 @@ def normalize_club_name(
     Returns the normalized name in lowercase.
     """
     if not name:
-        return ''
+        return ""
 
     # Step 1: Basic cleaning
     result = _clean_basic(name)
@@ -771,7 +719,7 @@ def normalize_club_name(
         result = _strip_prefixes(result)
 
     # Step 8: Final whitespace normalization
-    result = ' '.join(result.split())
+    result = " ".join(result.split())
 
     return result
 
@@ -785,10 +733,7 @@ def lookup_canonical(normalized_name: str) -> Optional[str]:
     return _VARIATION_TO_CANONICAL.get(normalized_name.lower())
 
 
-def fuzzy_match_canonical(
-    normalized_name: str,
-    threshold: float = 0.85
-) -> Optional[Tuple[str, float]]:
+def fuzzy_match_canonical(normalized_name: str, threshold: float = 0.85) -> Optional[Tuple[str, float]]:
     """
     Fuzzy match against canonical club registry.
 
@@ -806,10 +751,7 @@ def fuzzy_match_canonical(
 
     # Find best match using token_set_ratio (handles word reordering)
     result = process.extractOne(
-        normalized_name.lower(),
-        all_variations,
-        scorer=fuzz.token_set_ratio,
-        score_cutoff=threshold * 100
+        normalized_name.lower(), all_variations, scorer=fuzz.token_set_ratio, score_cutoff=threshold * 100
     )
 
     if result:
@@ -820,10 +762,7 @@ def fuzzy_match_canonical(
     return None
 
 
-def normalize_to_club(
-    name: str,
-    fuzzy_threshold: float = 0.85
-) -> ClubNormResult:
+def normalize_to_club(name: str, fuzzy_threshold: float = 0.85) -> ClubNormResult:
     """
     Main entry point: Normalize a club name and return full result.
 
@@ -846,13 +785,7 @@ def normalize_to_club(
         - matched_canonical: Whether matched to a known club
     """
     if not name or not name.strip():
-        return ClubNormResult(
-            club_id='',
-            club_norm='',
-            original=name or '',
-            confidence=0.0,
-            matched_canonical=False
-        )
+        return ClubNormResult(club_id="", club_norm="", original=name or "", confidence=0.0, matched_canonical=False)
 
     original = name
 
@@ -860,13 +793,7 @@ def normalize_to_club(
     normalized = normalize_club_name(name)
 
     if not normalized:
-        return ClubNormResult(
-            club_id='',
-            club_norm='',
-            original=original,
-            confidence=0.0,
-            matched_canonical=False
-        )
+        return ClubNormResult(club_id="", club_norm="", original=original, confidence=0.0, matched_canonical=False)
 
     # Step 2: Try exact lookup
     canonical = lookup_canonical(normalized)
@@ -876,7 +803,7 @@ def normalize_to_club(
             club_norm=canonical,
             original=original,
             confidence=1.0,
-            matched_canonical=True
+            matched_canonical=True,
         )
 
     # Step 3: Try fuzzy matching
@@ -888,7 +815,7 @@ def normalize_to_club(
             club_norm=canonical,
             original=original,
             confidence=score,
-            matched_canonical=True
+            matched_canonical=True,
         )
 
     # Step 4: No match - use normalized form
@@ -901,7 +828,7 @@ def normalize_to_club(
         club_norm=club_norm,
         original=original,
         confidence=0.8,  # Decent confidence in normalization, just not canonical
-        matched_canonical=False
+        matched_canonical=False,
     )
 
 
@@ -909,10 +836,8 @@ def normalize_to_club(
 # BATCH PROCESSING
 # =============================================================================
 
-def normalize_club_names_batch(
-    names: List[str],
-    fuzzy_threshold: float = 0.85
-) -> List[ClubNormResult]:
+
+def normalize_club_names_batch(names: List[str], fuzzy_threshold: float = 0.85) -> List[ClubNormResult]:
     """
     Normalize a batch of club names.
 
@@ -926,10 +851,7 @@ def normalize_club_names_batch(
     return [normalize_to_club(name, fuzzy_threshold) for name in names]
 
 
-def build_club_mapping(
-    names: List[str],
-    fuzzy_threshold: float = 0.85
-) -> Dict[str, ClubNormResult]:
+def build_club_mapping(names: List[str], fuzzy_threshold: float = 0.85) -> Dict[str, ClubNormResult]:
     """
     Build a mapping from original names to normalized results.
 
@@ -945,10 +867,7 @@ def build_club_mapping(
     return {name: normalize_to_club(name, fuzzy_threshold) for name in names}
 
 
-def group_by_club(
-    names: List[str],
-    fuzzy_threshold: float = 0.85
-) -> Dict[str, List[str]]:
+def group_by_club(names: List[str], fuzzy_threshold: float = 0.85) -> Dict[str, List[str]]:
     """
     Group raw club names by their normalized club_id.
 
@@ -971,10 +890,7 @@ def group_by_club(
     return groups
 
 
-def get_matches_needing_review(
-    names: List[str],
-    fuzzy_threshold: float = 0.85
-) -> List[ClubNormResult]:
+def get_matches_needing_review(names: List[str], fuzzy_threshold: float = 0.85) -> List[ClubNormResult]:
     """
     Get all matches that need manual review (not 100% confident).
 
@@ -993,10 +909,10 @@ def get_matches_needing_review(
     return [r for r in results if r.needs_review]
 
 
-
 # =============================================================================
 # REGISTRY MANAGEMENT
 # =============================================================================
+
 
 def add_canonical_club(canonical: str, variations: List[str]) -> None:
     """
@@ -1040,6 +956,7 @@ def get_variations_for_club(canonical: str) -> List[str]:
 # UTILITY FUNCTIONS
 # =============================================================================
 
+
 def similarity_score(name1: str, name2: str) -> float:
     """
     Calculate similarity score between two club names.
@@ -1059,11 +976,7 @@ def similarity_score(name1: str, name2: str) -> float:
     return fuzz.token_set_ratio(norm1, norm2) / 100.0
 
 
-def are_same_club(
-    name1: str,
-    name2: str,
-    threshold: float = 0.85
-) -> bool:
+def are_same_club(name1: str, name2: str, threshold: float = 0.85) -> bool:
     """
     Check if two club names refer to the same club.
 

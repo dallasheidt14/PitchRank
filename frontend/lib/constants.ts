@@ -54,4 +54,3 @@ export const US_STATES = [
   { code: 'wi', name: 'Wisconsin' },
   { code: 'wy', name: 'Wyoming' },
 ] as const;
-

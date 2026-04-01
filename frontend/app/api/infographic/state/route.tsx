@@ -38,12 +38,30 @@ async function getStateTopTeams(state: string, limit: number = 5): Promise<State
 
 // Map state codes to full names
 const STATE_NAMES: Record<string, string> = {
-  TX: 'TEXAS', CA: 'CALIFORNIA', FL: 'FLORIDA', NJ: 'NEW JERSEY',
-  GA: 'GEORGIA', CO: 'COLORADO', NY: 'NEW YORK', IL: 'ILLINOIS',
-  MD: 'MARYLAND', VA: 'VIRGINIA', PA: 'PENNSYLVANIA', OH: 'OHIO',
-  NC: 'NORTH CAROLINA', MI: 'MICHIGAN', AZ: 'ARIZONA', WA: 'WASHINGTON',
-  MA: 'MASSACHUSETTS', MN: 'MINNESOTA', CT: 'CONNECTICUT', SC: 'SOUTH CAROLINA',
-  TN: 'TENNESSEE', MO: 'MISSOURI', IN: 'INDIANA', WI: 'WISCONSIN',
+  TX: 'TEXAS',
+  CA: 'CALIFORNIA',
+  FL: 'FLORIDA',
+  NJ: 'NEW JERSEY',
+  GA: 'GEORGIA',
+  CO: 'COLORADO',
+  NY: 'NEW YORK',
+  IL: 'ILLINOIS',
+  MD: 'MARYLAND',
+  VA: 'VIRGINIA',
+  PA: 'PENNSYLVANIA',
+  OH: 'OHIO',
+  NC: 'NORTH CAROLINA',
+  MI: 'MICHIGAN',
+  AZ: 'ARIZONA',
+  WA: 'WASHINGTON',
+  MA: 'MASSACHUSETTS',
+  MN: 'MINNESOTA',
+  CT: 'CONNECTICUT',
+  SC: 'SOUTH CAROLINA',
+  TN: 'TENNESSEE',
+  MO: 'MISSOURI',
+  IN: 'INDIANA',
+  WI: 'WISCONSIN',
 };
 
 export async function GET(request: Request) {
@@ -153,7 +171,9 @@ export async function GET(request: Request) {
 
       {/* Footer */}
       <div style={{ display: 'flex', justifyContent: 'center', marginTop: isStory ? 40 : 20 }}>
-        <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)' }}>pitchrank.io/rankings • #{stateName.toLowerCase().replace(' ', '')}soccer</div>
+        <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)' }}>
+          pitchrank.io/rankings • #{stateName.toLowerCase().replace(' ', '')}soccer
+        </div>
       </div>
     </div>,
     {

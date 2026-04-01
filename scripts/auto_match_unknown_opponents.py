@@ -22,17 +22,16 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-import sys
-from pathlib import Path
-
 import requests
 from dotenv import load_dotenv
+
 from supabase import create_client
 
 # Ensure sibling scripts are importable when invoked from repo root.
@@ -60,7 +59,7 @@ def _execute_with_retry(query_func, max_retries: int = 3, base_delay: float = 1.
             )
             if not is_transient or attempt >= max_retries:
                 raise
-            delay = base_delay * (2 ** attempt)
+            delay = base_delay * (2**attempt)
             print(f"  [retry {attempt + 1}/{max_retries}] Transient HTTP error, retrying in {delay:.1f}s: {e}")
             time.sleep(delay)
     raise last_exception  # unreachable, but satisfies type checkers
@@ -77,13 +76,12 @@ def load_env() -> None:
 def get_supabase():
     supabase_url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
     supabase_key = (
-        os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-        or os.getenv("SUPABASE_SERVICE_KEY")
-        or os.getenv("SUPABASE_KEY")
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
     )
     if not supabase_url or not supabase_key:
         raise ValueError(
-            "Missing Supabase credentials. Need SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_KEY/SUPABASE_KEY."
+            "Missing Supabase credentials. "
+            "Need SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_KEY/SUPABASE_KEY."
         )
     return create_client(supabase_url, supabase_key)
 
@@ -230,9 +228,11 @@ def fetch_candidates(
         return cache[key]
 
     # Base query
-    query = supabase.table("teams").select(
-        "team_id_master,team_name,club_name,age_group,gender,state_code,is_deprecated"
-    ).eq("is_deprecated", False)
+    query = (
+        supabase.table("teams")
+        .select("team_id_master,team_name,club_name,age_group,gender,state_code,is_deprecated")
+        .eq("is_deprecated", False)
+    )
 
     if profile.gender:
         query = query.ilike("gender", profile.gender)
@@ -246,9 +246,7 @@ def fetch_candidates(
     candidates: List[Dict] = []
     if profile.club_name:
         club_q = query.ilike("club_name", profile.club_name)
-        candidates = _execute_with_retry(
-            lambda q=club_q: q.limit(max_candidates).execute()
-        ).data or []
+        candidates = _execute_with_retry(lambda q=club_q: q.limit(max_candidates).execute()).data or []
 
     if strict_club and profile.club_name:
         cache[key] = candidates
@@ -256,9 +254,7 @@ def fetch_candidates(
 
     # Fallback broader query if strict club off and club-specific results are sparse.
     if not candidates:
-        candidates = _execute_with_retry(
-            lambda q=query: q.limit(max_candidates).execute()
-        ).data or []
+        candidates = _execute_with_retry(lambda q=query: q.limit(max_candidates).execute()).data or []
 
     cache[key] = candidates
     return candidates
@@ -333,52 +329,65 @@ def execute_auto_link(
     match_score: float,
 ) -> Tuple[str, int]:
     # Check existing alias first for safety.
-    existing = _execute_with_retry(
-        lambda: supabase.table("team_alias_map")
-        .select("id,team_id_master")
-        .eq("provider_id", provider_id)
-        .eq("provider_team_id", unknown_provider_team_id)
-        .limit(1)
-        .execute()
-    ).data or []
+    existing = (
+        _execute_with_retry(
+            lambda: (
+                supabase.table("team_alias_map")
+                .select("id,team_id_master")
+                .eq("provider_id", provider_id)
+                .eq("provider_team_id", unknown_provider_team_id)
+                .limit(1)
+                .execute()
+            )
+        ).data
+        or []
+    )
     if existing and existing[0].get("team_id_master") != match_team_id:
         return "alias_conflict", 0
 
     # Upsert alias mapping
     _execute_with_retry(
-        lambda: supabase.table("team_alias_map").upsert(
-            {
-                "provider_id": provider_id,
-                "provider_team_id": unknown_provider_team_id,
-                "team_id_master": match_team_id,
-                "match_method": "fuzzy_auto",
-                "match_confidence": float(f"{match_score:.4f}"),
-                "review_status": "approved",
-            },
-            on_conflict="provider_id,provider_team_id",
-        ).execute()
+        lambda: (
+            supabase.table("team_alias_map")
+            .upsert(
+                {
+                    "provider_id": provider_id,
+                    "provider_team_id": unknown_provider_team_id,
+                    "team_id_master": match_team_id,
+                    "match_method": "fuzzy_auto",
+                    "match_confidence": float(f"{match_score:.4f}"),
+                    "review_status": "approved",
+                },
+                on_conflict="provider_id,provider_team_id",
+            )
+            .execute()
+        )
     )
 
     # Backfill missing side only.
     if missing_side == "home":
         update = _execute_with_retry(
-            lambda: supabase.table("games")
-            .update({"home_team_master_id": match_team_id})
-            .eq("provider_id", provider_id)
-            .eq("home_provider_id", unknown_provider_team_id)
-            .is_("home_team_master_id", "null")
-            .select("id")
-            .execute()
+            lambda: (
+                supabase.table("games")
+                .update({"home_team_master_id": match_team_id})
+                .eq("provider_id", provider_id)
+                .eq("home_provider_id", unknown_provider_team_id)
+                .is_("home_team_master_id", "null")
+                .select("id")
+                .execute()
+            )
         )
     else:
         update = _execute_with_retry(
-            lambda: supabase.table("games")
-            .update({"away_team_master_id": match_team_id})
-            .eq("provider_id", provider_id)
-            .eq("away_provider_id", unknown_provider_team_id)
-            .is_("away_team_master_id", "null")
-            .select("id")
-            .execute()
+            lambda: (
+                supabase.table("games")
+                .update({"away_team_master_id": match_team_id})
+                .eq("provider_id", provider_id)
+                .eq("away_provider_id", unknown_provider_team_id)
+                .is_("away_team_master_id", "null")
+                .select("id")
+                .execute()
+            )
         )
     updated_rows = len(update.data or [])
     return "linked", updated_rows
@@ -393,7 +402,9 @@ def main() -> None:
     parser.add_argument("--review-threshold", type=float, default=0.90, help="Score threshold for review bucket")
     parser.add_argument("--strict-club", action="store_true", help="Require exact club filtering when club is known")
     parser.add_argument("--max-candidates", type=int, default=120, help="Max team candidates per unknown row")
-    parser.add_argument("--resolve-gotsport-details", action="store_true", help="Fetch missing unknown team details from GotSport API")
+    parser.add_argument(
+        "--resolve-gotsport-details", action="store_true", help="Fetch missing unknown team details from GotSport API"
+    )
     parser.add_argument("--execute", action="store_true", help="Apply auto_link rows (alias + backfill)")
     parser.add_argument(
         "--output",
@@ -408,9 +419,7 @@ def main() -> None:
     load_env()
     supabase = get_supabase()
 
-    providers = _execute_with_retry(
-        lambda: supabase.table("providers").select("id,code,name").execute()
-    ).data or []
+    providers = _execute_with_retry(lambda: supabase.table("providers").select("id,code,name").execute()).data or []
     code_to_id = {p["code"]: p["id"] for p in providers}
 
     provider_filter = args.provider.lower() if args.provider else None
@@ -472,7 +481,14 @@ def main() -> None:
         exec_status = "dry_run"
         updated_rows = 0
 
-        if args.execute and action == "auto_link" and best_match and provider_id and unknown_pid and missing_side in {"home", "away"}:
+        if (
+            args.execute
+            and action == "auto_link"
+            and best_match
+            and provider_id
+            and unknown_pid
+            and missing_side in {"home", "away"}
+        ):
             exec_status, updated_rows = execute_auto_link(
                 supabase=supabase,
                 provider_id=provider_id,
@@ -518,10 +534,7 @@ def main() -> None:
             print(f"Processed {idx}/{len(rows)} rows...")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = Path(
-        args.output
-        or f"data/exports/unknown_opponent_match_report_{timestamp}.csv"
-    )
+    output_path = Path(args.output or f"data/exports/unknown_opponent_match_report_{timestamp}.csv")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=list(report_rows[0].keys()) if report_rows else [])

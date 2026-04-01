@@ -18,13 +18,7 @@ import { InlineLoader } from '@/components/ui/LoadingStates';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { Search, AlertCircle, CheckCircle2, Users, Plus, ArrowLeft } from 'lucide-react';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type Fuse from 'fuse.js';
 import type { RankingRow } from '@/types/RankingRow';
 import type { GameWithTeams } from '@/lib/types';
@@ -48,7 +42,6 @@ interface CreateTeamForm {
   gender: 'Male' | 'Female' | '';
   stateCode: string;
 }
-
 
 /**
  * Escape special regex characters in a string
@@ -89,23 +82,56 @@ function highlightMatch(text: string, query: string): React.ReactNode {
  */
 // US States for dropdown
 const US_STATES = [
-  { code: 'AL', name: 'Alabama' }, { code: 'AK', name: 'Alaska' }, { code: 'AZ', name: 'Arizona' },
-  { code: 'AR', name: 'Arkansas' }, { code: 'CA', name: 'California' }, { code: 'CO', name: 'Colorado' },
-  { code: 'CT', name: 'Connecticut' }, { code: 'DE', name: 'Delaware' }, { code: 'FL', name: 'Florida' },
-  { code: 'GA', name: 'Georgia' }, { code: 'HI', name: 'Hawaii' }, { code: 'ID', name: 'Idaho' },
-  { code: 'IL', name: 'Illinois' }, { code: 'IN', name: 'Indiana' }, { code: 'IA', name: 'Iowa' },
-  { code: 'KS', name: 'Kansas' }, { code: 'KY', name: 'Kentucky' }, { code: 'LA', name: 'Louisiana' },
-  { code: 'ME', name: 'Maine' }, { code: 'MD', name: 'Maryland' }, { code: 'MA', name: 'Massachusetts' },
-  { code: 'MI', name: 'Michigan' }, { code: 'MN', name: 'Minnesota' }, { code: 'MS', name: 'Mississippi' },
-  { code: 'MO', name: 'Missouri' }, { code: 'MT', name: 'Montana' }, { code: 'NE', name: 'Nebraska' },
-  { code: 'NV', name: 'Nevada' }, { code: 'NH', name: 'New Hampshire' }, { code: 'NJ', name: 'New Jersey' },
-  { code: 'NM', name: 'New Mexico' }, { code: 'NY', name: 'New York' }, { code: 'NC', name: 'North Carolina' },
-  { code: 'ND', name: 'North Dakota' }, { code: 'OH', name: 'Ohio' }, { code: 'OK', name: 'Oklahoma' },
-  { code: 'OR', name: 'Oregon' }, { code: 'PA', name: 'Pennsylvania' }, { code: 'RI', name: 'Rhode Island' },
-  { code: 'SC', name: 'South Carolina' }, { code: 'SD', name: 'South Dakota' }, { code: 'TN', name: 'Tennessee' },
-  { code: 'TX', name: 'Texas' }, { code: 'UT', name: 'Utah' }, { code: 'VT', name: 'Vermont' },
-  { code: 'VA', name: 'Virginia' }, { code: 'WA', name: 'Washington' }, { code: 'WV', name: 'West Virginia' },
-  { code: 'WI', name: 'Wisconsin' }, { code: 'WY', name: 'Wyoming' },
+  { code: 'AL', name: 'Alabama' },
+  { code: 'AK', name: 'Alaska' },
+  { code: 'AZ', name: 'Arizona' },
+  { code: 'AR', name: 'Arkansas' },
+  { code: 'CA', name: 'California' },
+  { code: 'CO', name: 'Colorado' },
+  { code: 'CT', name: 'Connecticut' },
+  { code: 'DE', name: 'Delaware' },
+  { code: 'FL', name: 'Florida' },
+  { code: 'GA', name: 'Georgia' },
+  { code: 'HI', name: 'Hawaii' },
+  { code: 'ID', name: 'Idaho' },
+  { code: 'IL', name: 'Illinois' },
+  { code: 'IN', name: 'Indiana' },
+  { code: 'IA', name: 'Iowa' },
+  { code: 'KS', name: 'Kansas' },
+  { code: 'KY', name: 'Kentucky' },
+  { code: 'LA', name: 'Louisiana' },
+  { code: 'ME', name: 'Maine' },
+  { code: 'MD', name: 'Maryland' },
+  { code: 'MA', name: 'Massachusetts' },
+  { code: 'MI', name: 'Michigan' },
+  { code: 'MN', name: 'Minnesota' },
+  { code: 'MS', name: 'Mississippi' },
+  { code: 'MO', name: 'Missouri' },
+  { code: 'MT', name: 'Montana' },
+  { code: 'NE', name: 'Nebraska' },
+  { code: 'NV', name: 'Nevada' },
+  { code: 'NH', name: 'New Hampshire' },
+  { code: 'NJ', name: 'New Jersey' },
+  { code: 'NM', name: 'New Mexico' },
+  { code: 'NY', name: 'New York' },
+  { code: 'NC', name: 'North Carolina' },
+  { code: 'ND', name: 'North Dakota' },
+  { code: 'OH', name: 'Ohio' },
+  { code: 'OK', name: 'Oklahoma' },
+  { code: 'OR', name: 'Oregon' },
+  { code: 'PA', name: 'Pennsylvania' },
+  { code: 'RI', name: 'Rhode Island' },
+  { code: 'SC', name: 'South Carolina' },
+  { code: 'SD', name: 'South Dakota' },
+  { code: 'TN', name: 'Tennessee' },
+  { code: 'TX', name: 'Texas' },
+  { code: 'UT', name: 'Utah' },
+  { code: 'VT', name: 'Vermont' },
+  { code: 'VA', name: 'Virginia' },
+  { code: 'WA', name: 'Washington' },
+  { code: 'WV', name: 'West Virginia' },
+  { code: 'WI', name: 'Wisconsin' },
+  { code: 'WY', name: 'Wyoming' },
 ];
 
 // Age groups for dropdown
@@ -136,7 +162,10 @@ export function UnknownOpponentLink({
   const [createForm, setCreateForm] = useState<CreateTeamForm>(() => {
     // Convert defaultGender to full form
     const genderMap: Record<string, 'Male' | 'Female'> = {
-      'M': 'Male', 'B': 'Male', 'F': 'Female', 'G': 'Female'
+      M: 'Male',
+      B: 'Male',
+      F: 'Female',
+      G: 'Female',
     };
     return {
       teamName: '',
@@ -171,32 +200,32 @@ export function UnknownOpponentLink({
   const isHome = game.home_team_master_id === currentTeamId;
   const teamScore = isHome ? game.home_score : game.away_score;
   const opponentScore = isHome ? game.away_score : game.home_score;
-  const scoreText = teamScore !== null && opponentScore !== null
-    ? `${teamScore} - ${opponentScore}`
-    : 'No score';
-
+  const scoreText = teamScore !== null && opponentScore !== null ? `${teamScore} - ${opponentScore}` : 'No score';
 
   // Search teams using word-based matching
   const filteredTeams = useMemo(() => {
     if (!deferredSearchQuery || !allTeams || deferredSearchQuery.length < 2) return [];
 
-    const queryWords = deferredSearchQuery.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+    const queryWords = deferredSearchQuery
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 0);
 
     // Exclude the current team
-    const teamsToSearch = allTeams.filter(team => team.team_id_master !== currentTeamId);
+    const teamsToSearch = allTeams.filter((team) => team.team_id_master !== currentTeamId);
 
     // Filter teams where ALL query words appear
-    const matchingTeams = teamsToSearch.filter(team => {
+    const matchingTeams = teamsToSearch.filter((team) => {
       const searchText = ((team.searchable_name || team.team_name) + ' ' + (team.club_name || '')).toLowerCase();
-      return queryWords.every(word => searchText.includes(word));
+      return queryWords.every((word) => searchText.includes(word));
     });
 
     // Sort by relevance
     matchingTeams.sort((a, b) => {
       const aText = ((a.searchable_name || a.team_name) + ' ' + (a.club_name || '')).toLowerCase();
       const bText = ((b.searchable_name || b.team_name) + ' ' + (b.club_name || '')).toLowerCase();
-      const aIndex = Math.min(...queryWords.map(w => aText.indexOf(w)));
-      const bIndex = Math.min(...queryWords.map(w => bText.indexOf(w)));
+      const aIndex = Math.min(...queryWords.map((w) => aText.indexOf(w)));
+      const bIndex = Math.min(...queryWords.map((w) => bText.indexOf(w)));
       return aIndex - bIndex;
     });
 
@@ -272,10 +301,14 @@ export function UnknownOpponentLink({
       if (!response.ok) {
         // Handle specific error cases with user-friendly messages
         if (data.error?.includes('already linked')) {
-          throw new Error('This opponent is already linked to a team. Please refresh the page to see the updated data.');
+          throw new Error(
+            'This opponent is already linked to a team. Please refresh the page to see the updated data.'
+          );
         }
         if (data.error?.includes('does not match')) {
-          throw new Error('Unable to match this opponent. The game data may have changed. Please refresh and try again.');
+          throw new Error(
+            'Unable to match this opponent. The game data may have changed. Please refresh and try again.'
+          );
         }
         throw new Error(data.error || 'Failed to link team');
       }
@@ -299,7 +332,7 @@ export function UnknownOpponentLink({
       // This ensures the UI has the latest data when the modal closes
       await queryClient.refetchQueries({
         queryKey: ['team-games', currentTeamId],
-        type: 'active'
+        type: 'active',
       });
 
       // Also invalidate the team search cache in case a new team was somehow involved
@@ -358,7 +391,7 @@ export function UnknownOpponentLink({
       // This ensures the UI has the latest data when the modal closes
       await queryClient.refetchQueries({
         queryKey: ['team-games', currentTeamId],
-        type: 'active'
+        type: 'active',
       });
 
       // Invalidate team search cache so the new team appears in searches
@@ -389,7 +422,10 @@ export function UnknownOpponentLink({
       setIsCreating(false);
       // Reset create form with defaults
       const genderMap: Record<string, 'Male' | 'Female'> = {
-        'M': 'Male', 'B': 'Male', 'F': 'Female', 'G': 'Female'
+        M: 'Male',
+        B: 'Male',
+        F: 'Female',
+        G: 'Female',
       };
       setCreateForm({
         teamName: '',
@@ -418,21 +454,17 @@ export function UnknownOpponentLink({
               <Users className="h-5 w-5" />
               Link Unknown Opponent
             </DialogTitle>
-            <DialogDescription>
-              Search for the opponent team or create a new one
-            </DialogDescription>
+            <DialogDescription>Search for the opponent team or create a new one</DialogDescription>
           </DialogHeader>
 
           {/* Game Context */}
           <div className="bg-muted/50 rounded-lg p-3 text-sm">
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <span className="text-muted-foreground">Date:</span>{' '}
-                <span className="font-medium">{gameDate}</span>
+                <span className="text-muted-foreground">Date:</span> <span className="font-medium">{gameDate}</span>
               </div>
               <div>
-                <span className="text-muted-foreground">Score:</span>{' '}
-                <span className="font-medium">{scoreText}</span>
+                <span className="text-muted-foreground">Score:</span> <span className="font-medium">{scoreText}</span>
               </div>
               <div className="col-span-2">
                 <span className="text-muted-foreground">Competition:</span>{' '}
@@ -490,7 +522,7 @@ export function UnknownOpponentLink({
                             onClick={() => {
                               setShowCreateForm(true);
                               setIsSearchOpen(false);
-                              setCreateForm(prev => ({ ...prev, teamName: searchQuery }));
+                              setCreateForm((prev) => ({ ...prev, teamName: searchQuery }));
                             }}
                             className="gap-1"
                           >
@@ -505,27 +537,20 @@ export function UnknownOpponentLink({
                               key={team.team_id_master}
                               onClick={() => handleSelectTeam(team)}
                               className={`w-full text-left p-2 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary ${
-                                index === selectedIndex
-                                  ? 'bg-accent font-semibold'
-                                  : 'hover:bg-accent/50'
+                                index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
                               }`}
                               aria-label={`Select ${team.team_name}`}
                             >
-                              <div className="font-medium">
-                                {highlightMatch(team.team_name, deferredSearchQuery)}
-                              </div>
+                              <div className="font-medium">{highlightMatch(team.team_name, deferredSearchQuery)}</div>
                               <div className="text-xs text-muted-foreground">
-                                {team.club_name && (
-                                  <span>{highlightMatch(team.club_name, deferredSearchQuery)}</span>
-                                )}
+                                {team.club_name && <span>{highlightMatch(team.club_name, deferredSearchQuery)}</span>}
                                 {team.state && (
-                                  <span className={team.club_name ? ' • ' : ''}>
-                                    {team.state.toUpperCase()}
-                                  </span>
+                                  <span className={team.club_name ? ' • ' : ''}>{team.state.toUpperCase()}</span>
                                 )}
                                 {team.age != null && team.gender && (
                                   <span className={team.club_name || team.state ? ' • ' : ''}>
-                                    U{team.age} {team.gender === 'M' ? 'Boys' : team.gender === 'F' ? 'Girls' : team.gender}
+                                    U{team.age}{' '}
+                                    {team.gender === 'M' ? 'Boys' : team.gender === 'F' ? 'Girls' : team.gender}
                                   </span>
                                 )}
                               </div>
@@ -554,12 +579,7 @@ export function UnknownOpponentLink({
           {/* Create Team Form - shown when in create mode */}
           {showCreateForm && (
             <div className="space-y-4">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowCreateForm(false)}
-                className="gap-1 -ml-2"
-              >
+              <Button variant="ghost" size="sm" onClick={() => setShowCreateForm(false)} className="gap-1 -ml-2">
                 <ArrowLeft className="h-3 w-3" />
                 Back to search
               </Button>
@@ -570,7 +590,7 @@ export function UnknownOpponentLink({
                   <Input
                     id="teamName"
                     value={createForm.teamName}
-                    onChange={(e) => setCreateForm(prev => ({ ...prev, teamName: e.target.value }))}
+                    onChange={(e) => setCreateForm((prev) => ({ ...prev, teamName: e.target.value }))}
                     placeholder="Enter team name"
                   />
                 </div>
@@ -580,7 +600,7 @@ export function UnknownOpponentLink({
                   <Input
                     id="clubName"
                     value={createForm.clubName}
-                    onChange={(e) => setCreateForm(prev => ({ ...prev, clubName: e.target.value }))}
+                    onChange={(e) => setCreateForm((prev) => ({ ...prev, clubName: e.target.value }))}
                     placeholder="Enter club name (optional)"
                   />
                 </div>
@@ -590,7 +610,7 @@ export function UnknownOpponentLink({
                     <Label htmlFor="ageGroup">Age Group *</Label>
                     <Select
                       value={createForm.ageGroup}
-                      onValueChange={(value) => setCreateForm(prev => ({ ...prev, ageGroup: value }))}
+                      onValueChange={(value) => setCreateForm((prev) => ({ ...prev, ageGroup: value }))}
                     >
                       <SelectTrigger id="ageGroup">
                         <SelectValue placeholder="Select age" />
@@ -609,7 +629,9 @@ export function UnknownOpponentLink({
                     <Label htmlFor="gender">Gender *</Label>
                     <Select
                       value={createForm.gender}
-                      onValueChange={(value) => setCreateForm(prev => ({ ...prev, gender: value as 'Male' | 'Female' }))}
+                      onValueChange={(value) =>
+                        setCreateForm((prev) => ({ ...prev, gender: value as 'Male' | 'Female' }))
+                      }
                     >
                       <SelectTrigger id="gender">
                         <SelectValue placeholder="Select gender" />
@@ -626,7 +648,7 @@ export function UnknownOpponentLink({
                   <Label htmlFor="stateCode">State</Label>
                   <Select
                     value={createForm.stateCode}
-                    onValueChange={(value) => setCreateForm(prev => ({ ...prev, stateCode: value }))}
+                    onValueChange={(value) => setCreateForm((prev) => ({ ...prev, stateCode: value }))}
                   >
                     <SelectTrigger id="stateCode">
                       <SelectValue placeholder="Select state (optional)" />
@@ -641,7 +663,6 @@ export function UnknownOpponentLink({
                   </Select>
                 </div>
               </div>
-
             </div>
           )}
 
@@ -651,9 +672,7 @@ export function UnknownOpponentLink({
               <div className="flex items-start gap-2">
                 <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="font-medium text-green-800 dark:text-green-200">
-                    {selectedTeam.team_name}
-                  </p>
+                  <p className="font-medium text-green-800 dark:text-green-200">{selectedTeam.team_name}</p>
                   <p className="text-green-600 dark:text-green-300 text-xs">
                     {selectedTeam.club_name && `${selectedTeam.club_name} • `}
                     {selectedTeam.state?.toUpperCase()}
@@ -680,33 +699,26 @@ export function UnknownOpponentLink({
             <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-3">
               <div className="flex items-start gap-2">
                 <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-                <p className="text-green-800 dark:text-green-200 text-sm">
-                  Successfully linked! Refreshing...
-                </p>
+                <p className="text-green-800 dark:text-green-200 text-sm">Successfully linked! Refreshing...</p>
               </div>
             </div>
           )}
 
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => handleOpenChange(false)}
-              disabled={isLinking || isCreating}
-            >
+            <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={isLinking || isCreating}>
               Cancel
             </Button>
             {showCreateForm ? (
               <Button
                 onClick={handleCreateTeam}
-                disabled={!createForm.teamName || !createForm.ageGroup || !createForm.gender || isCreating || linkSuccess}
+                disabled={
+                  !createForm.teamName || !createForm.ageGroup || !createForm.gender || isCreating || linkSuccess
+                }
               >
                 {isCreating ? 'Creating...' : 'Create & Link Team'}
               </Button>
             ) : (
-              <Button
-                onClick={handleLink}
-                disabled={!selectedTeam || isLinking || linkSuccess}
-              >
+              <Button onClick={handleLink} disabled={!selectedTeam || isLinking || linkSuccess}>
                 {isLinking ? 'Linking...' : 'Link Team'}
               </Button>
             )}

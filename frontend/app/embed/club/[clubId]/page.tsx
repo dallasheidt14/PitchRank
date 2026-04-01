@@ -26,7 +26,7 @@ export async function generateMetadata({ params }: ClubEmbedPageProps): Promise<
 export default async function ClubEmbedPage({ params }: ClubEmbedPageProps) {
   const resolvedParams = await params;
   const clubName = decodeURIComponent(resolvedParams.clubId);
-  
+
   // Fetch all teams from this club
   let teams: Array<{
     team_id_master: string;
@@ -49,7 +49,9 @@ export default async function ClubEmbedPage({ params }: ClubEmbedPageProps) {
       const supabase = createClient(supabaseUrl, supabaseAnonKey);
       const { data, error: dbError } = await supabase
         .from('current_rankings')
-        .select('team_id_master, team_name, age, gender, state, power_score_final, rank_in_cohort_final, rank_in_state_final, wins, losses, draws')
+        .select(
+          'team_id_master, team_name, age, gender, state, power_score_final, rank_in_cohort_final, rank_in_state_final, wins, losses, draws'
+        )
         .ilike('club_name', clubName)
         .order('age', { ascending: true })
         .order('gender', { ascending: true })
@@ -71,7 +73,9 @@ export default async function ClubEmbedPage({ params }: ClubEmbedPageProps) {
 
   return (
     <div style={{ padding: '16px' }}>
-      <style dangerouslySetInnerHTML={{ __html: `
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
         .embed-header {
           display: flex;
           justify-content: space-between;
@@ -150,11 +154,17 @@ export default async function ClubEmbedPage({ params }: ClubEmbedPageProps) {
           font-weight: 500;
         }
         .embed-footer a:hover { text-decoration: underline; }
-      `}} />
+      `,
+        }}
+      />
 
       <div className="embed-header">
         <h1>{clubName}</h1>
-        <a href={`https://pitchrank.io/teams?club=${encodeURIComponent(clubName)}`} target="_blank" rel="noopener noreferrer">
+        <a
+          href={`https://pitchrank.io/teams?club=${encodeURIComponent(clubName)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           View on PitchRank →
         </a>
       </div>
@@ -171,12 +181,12 @@ export default async function ClubEmbedPage({ params }: ClubEmbedPageProps) {
             </tr>
           </thead>
           <tbody>
-            {teams.map(team => (
+            {teams.map((team) => (
               <tr key={team.team_id_master}>
                 <td>
-                  <a 
-                    href={`https://pitchrank.io/teams/${team.team_id_master}`} 
-                    target="_blank" 
+                  <a
+                    href={`https://pitchrank.io/teams/${team.team_id_master}`}
+                    target="_blank"
                     rel="noopener noreferrer"
                     className="team-link"
                   >
@@ -189,13 +199,14 @@ export default async function ClubEmbedPage({ params }: ClubEmbedPageProps) {
                 <td className="meta-text">
                   {team.wins}-{team.losses}-{team.draws}
                 </td>
-                <td className="score-text">
-                  {team.power_score_final.toFixed(1)}
-                </td>
+                <td className="score-text">{team.power_score_final.toFixed(1)}</td>
                 <td className="rank-text">
                   {team.rank_in_cohort_final != null ? `#${team.rank_in_cohort_final} National` : '—'}
                   {team.rank_in_state_final && team.state && (
-                    <span className="meta-text"> / #{team.rank_in_state_final} {team.state}</span>
+                    <span className="meta-text">
+                      {' '}
+                      / #{team.rank_in_state_final} {team.state}
+                    </span>
                   )}
                 </td>
               </tr>
@@ -203,14 +214,15 @@ export default async function ClubEmbedPage({ params }: ClubEmbedPageProps) {
           </tbody>
         </table>
       ) : (
-        <div className="empty-state">
-          No ranked teams found for {clubName}
-        </div>
+        <div className="empty-state">No ranked teams found for {clubName}</div>
       )}
 
       <div className="embed-footer">
-        Powered by <a href="https://pitchrank.io" target="_blank" rel="noopener noreferrer">PitchRank</a>
-        {' '}• Youth Soccer Rankings
+        Powered by{' '}
+        <a href="https://pitchrank.io" target="_blank" rel="noopener noreferrer">
+          PitchRank
+        </a>{' '}
+        • Youth Soccer Rankings
       </div>
     </div>
   );

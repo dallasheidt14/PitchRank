@@ -57,7 +57,7 @@ export async function GET() {
     // Get authenticated user
     const {
       data: { user },
-      error: authError,
+      error: _authError,
     } = await supabase.auth.getUser();
 
     if (!user) {
@@ -119,7 +119,7 @@ export async function GET() {
     // No watchlist exists - return empty response with proper structure
     if (!watchlist) {
       // Try to find ANY watchlist for this user (not just default) for debugging
-      const { data: anyWatchlist, error: anyError } = await supabase
+      const { data: _anyWatchlist, error: _anyError } = await supabase
         .from('watchlists')
         .select('*')
         .eq('user_id', user.id)
@@ -437,7 +437,6 @@ export async function GET() {
     } satisfies WatchlistResponse);
   } catch (error) {
     console.error('Watchlist GET error:', error);
-    const errorMessage = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: 'Failed to fetch watchlist' }, { status: 500 });
   }
 }

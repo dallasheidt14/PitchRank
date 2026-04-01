@@ -21,7 +21,19 @@ import { renderCoverImageToCanvas, COVER_PLATFORMS } from '@/components/infograp
 import { useRankings } from '@/hooks/useRankings';
 import { useInstagramHandles, collectHandlesForCaption } from '@/hooks/useInstagramHandles';
 import { US_STATES } from '@/lib/constants';
-import { Download, Share2, RefreshCw, ChevronDown, AlertCircle, Trophy, TrendingUp, Users, Award, Megaphone, Image } from 'lucide-react';
+import {
+  Download,
+  Share2,
+  RefreshCw,
+  ChevronDown,
+  AlertCircle,
+  Trophy,
+  TrendingUp,
+  Users,
+  Award,
+  Megaphone,
+  Image as ImageIcon,
+} from 'lucide-react';
 import { Instagram, Facebook } from '@/components/ui/brand-icons';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -49,8 +61,13 @@ const INFOGRAPHIC_TYPES: { id: InfographicType; label: string; icon: React.React
   { id: 'movers', label: 'Biggest Movers', icon: <TrendingUp size={18} />, description: 'Teams rising & falling' },
   { id: 'headToHead', label: 'Head-to-Head', icon: <Users size={18} />, description: 'Compare two teams' },
   { id: 'stateChampions', label: 'State Champions', icon: <Award size={18} />, description: '#1 team from each state' },
-  { id: 'stories', label: 'Story Templates', icon: <Megaphone size={18} />, description: 'Instagram story announcements' },
-  { id: 'covers', label: 'Cover Images', icon: <Image size={18} />, description: 'Social media headers' },
+  {
+    id: 'stories',
+    label: 'Story Templates',
+    icon: <Megaphone size={18} />,
+    description: 'Instagram story announcements',
+  },
+  { id: 'covers', label: 'Cover Images', icon: <ImageIcon size={18} />, description: 'Social media headers' },
 ];
 
 const AGE_GROUPS = [
@@ -87,7 +104,9 @@ export default function InfographicsPage() {
   const [selectedSpotlightTeamIndex, setSelectedSpotlightTeamIndex] = useState(0);
   const [headToHeadTeam1Index, setHeadToHeadTeam1Index] = useState(0);
   const [headToHeadTeam2Index, setHeadToHeadTeam2Index] = useState(1);
-  const [selectedStoryType, setSelectedStoryType] = useState<'newRankings' | 'comingSoon' | 'teamAnnouncement' | 'weeklyUpdate'>('newRankings');
+  const [selectedStoryType, setSelectedStoryType] = useState<
+    'newRankings' | 'comingSoon' | 'teamAnnouncement' | 'weeklyUpdate'
+  >('newRankings');
   const [selectedCoverPlatform, setSelectedCoverPlatform] = useState<'twitter' | 'facebook' | 'linkedin'>('twitter');
 
   // Check Web Share API availability
@@ -105,11 +124,7 @@ export default function InfographicsPage() {
   }, []);
 
   // Fetch rankings
-  const { data: rankings, isLoading, error, refetch } = useRankings(
-    selectedRegion,
-    selectedAgeGroup,
-    selectedGender
-  );
+  const { data: rankings, isLoading, error, refetch } = useRankings(selectedRegion, selectedAgeGroup, selectedGender);
 
   // Collect team IDs for Instagram handle lookup (top 25 teams)
   const relevantTeamIds = React.useMemo(() => {
@@ -150,7 +165,14 @@ export default function InfographicsPage() {
     }
 
     return collectHandlesForCaption(handleMap, teamIds);
-  }, [handleMap, rankings, selectedInfographicType, selectedSpotlightTeamIndex, headToHeadTeam1Index, headToHeadTeam2Index]);
+  }, [
+    handleMap,
+    rankings,
+    selectedInfographicType,
+    selectedSpotlightTeamIndex,
+    headToHeadTeam1Index,
+    headToHeadTeam2Index,
+  ]);
 
   // Calculate preview scale
   useEffect(() => {
@@ -167,7 +189,7 @@ export default function InfographicsPage() {
 
   const getRegionName = useCallback(() => {
     if (!selectedRegion) return 'National';
-    const state = US_STATES.find(s => s.code.toLowerCase() === selectedRegion.toLowerCase());
+    const state = US_STATES.find((s) => s.code.toLowerCase() === selectedRegion.toLowerCase());
     return state?.name || selectedRegion.toUpperCase();
   }, [selectedRegion]);
 
@@ -178,7 +200,14 @@ export default function InfographicsPage() {
     const typeLabel = selectedInfographicType === 'covers' ? selectedCoverPlatform : selectedInfographicType;
     const platformLabel = selectedInfographicType === 'covers' ? 'cover' : selectedPlatform;
     return `pitchrank-${selectedAgeGroup}-${genderLabel}-${typeLabel}-${regionLabel}-${platformLabel}-${timestamp}.png`;
-  }, [selectedAgeGroup, selectedGender, selectedRegion, selectedPlatform, selectedInfographicType, selectedCoverPlatform]);
+  }, [
+    selectedAgeGroup,
+    selectedGender,
+    selectedRegion,
+    selectedPlatform,
+    selectedInfographicType,
+    selectedCoverPlatform,
+  ]);
 
   // Generate image using Canvas API directly
   const generateImage = useCallback(async (): Promise<Blob | null> => {
@@ -290,7 +319,20 @@ export default function InfographicsPage() {
       setErrorMessage(`Failed to generate image: ${errorMsg}`);
       return null;
     }
-  }, [rankings, selectedInfographicType, selectedPlatform, selectedAgeGroup, selectedGender, selectedRegion, getRegionName, selectedSpotlightTeamIndex, headToHeadTeam1Index, headToHeadTeam2Index, selectedStoryType, selectedCoverPlatform]);
+  }, [
+    rankings,
+    selectedInfographicType,
+    selectedPlatform,
+    selectedAgeGroup,
+    selectedGender,
+    selectedRegion,
+    getRegionName,
+    selectedSpotlightTeamIndex,
+    headToHeadTeam1Index,
+    headToHeadTeam2Index,
+    selectedStoryType,
+    selectedCoverPlatform,
+  ]);
 
   // Handle download
   const handleDownload = useCallback(async () => {
@@ -410,7 +452,7 @@ export default function InfographicsPage() {
           ))}
         </div>
         <p className="text-sm text-muted-foreground mt-2">
-          {INFOGRAPHIC_TYPES.find(t => t.id === selectedInfographicType)?.description}
+          {INFOGRAPHIC_TYPES.find((t) => t.id === selectedInfographicType)?.description}
         </p>
       </div>
 
@@ -433,7 +475,9 @@ export default function InfographicsPage() {
                     className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-primary"
                   >
                     {AGE_GROUPS.map((age) => (
-                      <option key={age.value} value={age.value}>{age.label}</option>
+                      <option key={age.value} value={age.value}>
+                        {age.label}
+                      </option>
                     ))}
                   </select>
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
@@ -449,7 +493,9 @@ export default function InfographicsPage() {
                     className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-primary"
                   >
                     {GENDERS.map((g) => (
-                      <option key={g.value} value={g.value}>{g.label}</option>
+                      <option key={g.value} value={g.value}>
+                        {g.label}
+                      </option>
                     ))}
                   </select>
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
@@ -467,7 +513,9 @@ export default function InfographicsPage() {
                     <option value="">National</option>
                     <optgroup label="States">
                       {US_STATES.map((state) => (
-                        <option key={state.code} value={state.code}>{state.name}</option>
+                        <option key={state.code} value={state.code}>
+                          {state.name}
+                        </option>
                       ))}
                     </optgroup>
                   </select>
@@ -521,7 +569,9 @@ export default function InfographicsPage() {
                     className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-primary"
                   >
                     {rankings.slice(0, 25).map((team, i) => (
-                      <option key={team.team_id_master} value={i}>#{i + 1} - {team.team_name}</option>
+                      <option key={team.team_id_master} value={i}>
+                        #{i + 1} - {team.team_name}
+                      </option>
                     ))}
                   </select>
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
@@ -546,7 +596,9 @@ export default function InfographicsPage() {
                       className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-primary"
                     >
                       {rankings.slice(0, 25).map((team, i) => (
-                        <option key={team.team_id_master} value={i}>#{i + 1} - {team.team_name}</option>
+                        <option key={team.team_id_master} value={i}>
+                          #{i + 1} - {team.team_name}
+                        </option>
                       ))}
                     </select>
                     <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
@@ -561,7 +613,9 @@ export default function InfographicsPage() {
                       className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-primary"
                     >
                       {rankings.slice(0, 25).map((team, i) => (
-                        <option key={team.team_id_master} value={i}>#{i + 1} - {team.team_name}</option>
+                        <option key={team.team_id_master} value={i}>
+                          #{i + 1} - {team.team_name}
+                        </option>
                       ))}
                     </select>
                     <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
@@ -633,11 +687,15 @@ export default function InfographicsPage() {
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Type</span>
-                <span className="font-medium">{INFOGRAPHIC_TYPES.find(t => t.id === selectedInfographicType)?.label}</span>
+                <span className="font-medium">
+                  {INFOGRAPHIC_TYPES.find((t) => t.id === selectedInfographicType)?.label}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Size</span>
-                <span className="font-mono text-xs">{dimensions.width}x{dimensions.height}px</span>
+                <span className="font-mono text-xs">
+                  {dimensions.width}x{dimensions.height}px
+                </span>
               </div>
             </CardContent>
           </Card>
@@ -646,37 +704,52 @@ export default function InfographicsPage() {
           <div className="hidden lg:block space-y-3">
             <Button
               onClick={canShare ? handleShare : handleDownload}
-              disabled={isGenerating || (selectedInfographicType !== 'covers' && selectedInfographicType !== 'stories' && (isLoading || top10Teams.length === 0))}
+              disabled={
+                isGenerating ||
+                (selectedInfographicType !== 'covers' &&
+                  selectedInfographicType !== 'stories' &&
+                  (isLoading || top10Teams.length === 0))
+              }
               className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
               size="lg"
             >
               {isGenerating ? (
-                <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Generating...</>
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  Generating...
+                </>
               ) : canShare ? (
-                <><Share2 className="mr-2 h-4 w-4" />Share to Apps</>
+                <>
+                  <Share2 className="mr-2 h-4 w-4" />
+                  Share to Apps
+                </>
               ) : (
-                <><Download className="mr-2 h-4 w-4" />Download PNG</>
+                <>
+                  <Download className="mr-2 h-4 w-4" />
+                  Download PNG
+                </>
               )}
             </Button>
 
             {canShare && (
               <Button
                 onClick={handleDownload}
-                disabled={isGenerating || (selectedInfographicType !== 'covers' && selectedInfographicType !== 'stories' && (isLoading || top10Teams.length === 0))}
+                disabled={
+                  isGenerating ||
+                  (selectedInfographicType !== 'covers' &&
+                    selectedInfographicType !== 'stories' &&
+                    (isLoading || top10Teams.length === 0))
+                }
                 variant="outline"
                 className="w-full"
                 size="lg"
               >
-                <Download className="mr-2 h-4 w-4" />Save to Device
+                <Download className="mr-2 h-4 w-4" />
+                Save to Device
               </Button>
             )}
 
-            <Button
-              onClick={() => refetch()}
-              disabled={isLoading}
-              variant="outline"
-              className="w-full"
-            >
+            <Button onClick={() => refetch()} disabled={isLoading} variant="outline" className="w-full">
               <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh Data
             </Button>
@@ -686,10 +759,13 @@ export default function InfographicsPage() {
           <Card className="bg-accent/10 border-accent/30">
             <CardContent className="pt-6">
               <h4 className="font-semibold mb-2 flex items-center gap-2">
-                <Share2 size={16} />Tips
+                <Share2 size={16} />
+                Tips
               </h4>
               <ul className="text-sm space-y-2 text-muted-foreground">
-                <li>Tap the button to {canShare ? 'share directly to Instagram, Twitter, etc.' : 'download the image'}</li>
+                <li>
+                  Tap the button to {canShare ? 'share directly to Instagram, Twitter, etc.' : 'download the image'}
+                </li>
                 <li>Use hashtags: #YouthSoccer #{selectedAgeGroup.toUpperCase()}Soccer</li>
                 <li>Best posting times: Tuesday-Thursday</li>
               </ul>
@@ -704,9 +780,12 @@ export default function InfographicsPage() {
               <CardTitle className="text-lg">Preview</CardTitle>
               <CardDescription>
                 {selectedInfographicType === 'covers' || selectedInfographicType === 'stories'
-                  ? `${INFOGRAPHIC_TYPES.find(t => t.id === selectedInfographicType)?.label} - ${categoryLabel}`
-                  : isLoading ? 'Loading...' : error ? 'Error loading data' : `${INFOGRAPHIC_TYPES.find(t => t.id === selectedInfographicType)?.label} - ${categoryLabel}`
-                }
+                  ? `${INFOGRAPHIC_TYPES.find((t) => t.id === selectedInfographicType)?.label} - ${categoryLabel}`
+                  : isLoading
+                    ? 'Loading...'
+                    : error
+                      ? 'Error loading data'
+                      : `${INFOGRAPHIC_TYPES.find((t) => t.id === selectedInfographicType)?.label} - ${categoryLabel}`}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -717,13 +796,16 @@ export default function InfographicsPage() {
                 {selectedInfographicType === 'covers' || selectedInfographicType === 'stories' ? (
                   <div className="text-center text-muted-foreground">
                     <div className="mb-4">
-                      {selectedInfographicType === 'covers' ? <Image size={48} className="mx-auto opacity-50" /> : <Megaphone size={48} className="mx-auto opacity-50" />}
+                      {selectedInfographicType === 'covers' ? (
+                        <ImageIcon size={48} className="mx-auto opacity-50" />
+                      ) : (
+                        <Megaphone size={48} className="mx-auto opacity-50" />
+                      )}
                     </div>
                     <p className="font-medium mb-2">
                       {selectedInfographicType === 'covers'
-                        ? `${COVER_PLATFORMS.find(p => p.value === selectedCoverPlatform)?.label}`
-                        : `${STORY_TYPES.find(s => s.value === selectedStoryType)?.label}`
-                      }
+                        ? `${COVER_PLATFORMS.find((p) => p.value === selectedCoverPlatform)?.label}`
+                        : `${STORY_TYPES.find((s) => s.value === selectedStoryType)?.label}`}
                     </p>
                     <p className="text-sm">Click Download to generate the image</p>
                   </div>
@@ -737,7 +819,13 @@ export default function InfographicsPage() {
                     <p className="text-sm">Try a different selection</p>
                   </div>
                 ) : selectedInfographicType === 'top10' ? (
-                  <div style={{ width: dimensions.width * previewScale, height: dimensions.height * previewScale, overflow: 'hidden' }}>
+                  <div
+                    style={{
+                      width: dimensions.width * previewScale,
+                      height: dimensions.height * previewScale,
+                      overflow: 'hidden',
+                    }}
+                  >
                     <Top10Infographic
                       teams={top10Teams}
                       platform={selectedPlatform}
@@ -750,7 +838,13 @@ export default function InfographicsPage() {
                     />
                   </div>
                 ) : selectedInfographicType === 'spotlight' && rankings && rankings[selectedSpotlightTeamIndex] ? (
-                  <div style={{ width: dimensions.width * previewScale, height: dimensions.height * previewScale, overflow: 'hidden' }}>
+                  <div
+                    style={{
+                      width: dimensions.width * previewScale,
+                      height: dimensions.height * previewScale,
+                      overflow: 'hidden',
+                    }}
+                  >
                     <TeamSpotlightPreview
                       team={{ ...rankings[selectedSpotlightTeamIndex], rank: selectedSpotlightTeamIndex + 1 }}
                       platform={selectedPlatform}
@@ -762,7 +856,13 @@ export default function InfographicsPage() {
                     />
                   </div>
                 ) : selectedInfographicType === 'movers' && rankings ? (
-                  <div style={{ width: dimensions.width * previewScale, height: dimensions.height * previewScale, overflow: 'hidden' }}>
+                  <div
+                    style={{
+                      width: dimensions.width * previewScale,
+                      height: dimensions.height * previewScale,
+                      overflow: 'hidden',
+                    }}
+                  >
                     <BiggestMoversPreview
                       climbers={generateMoverData(rankings).climbers}
                       fallers={generateMoverData(rankings).fallers}
@@ -774,8 +874,17 @@ export default function InfographicsPage() {
                       regionName={getRegionName()}
                     />
                   </div>
-                ) : selectedInfographicType === 'headToHead' && rankings && rankings[headToHeadTeam1Index] && rankings[headToHeadTeam2Index] ? (
-                  <div style={{ width: dimensions.width * previewScale, height: dimensions.height * previewScale, overflow: 'hidden' }}>
+                ) : selectedInfographicType === 'headToHead' &&
+                  rankings &&
+                  rankings[headToHeadTeam1Index] &&
+                  rankings[headToHeadTeam2Index] ? (
+                  <div
+                    style={{
+                      width: dimensions.width * previewScale,
+                      height: dimensions.height * previewScale,
+                      overflow: 'hidden',
+                    }}
+                  >
                     <HeadToHeadPreview
                       team1={{ ...rankings[headToHeadTeam1Index], rank: headToHeadTeam1Index + 1 }}
                       team2={{ ...rankings[headToHeadTeam2Index], rank: headToHeadTeam2Index + 1 }}
@@ -788,7 +897,13 @@ export default function InfographicsPage() {
                     />
                   </div>
                 ) : selectedInfographicType === 'stateChampions' && rankings ? (
-                  <div style={{ width: dimensions.width * previewScale, height: dimensions.height * previewScale, overflow: 'hidden' }}>
+                  <div
+                    style={{
+                      width: dimensions.width * previewScale,
+                      height: dimensions.height * previewScale,
+                      overflow: 'hidden',
+                    }}
+                  >
                     <StateChampionsPreview
                       champions={generateStateChampions(rankings)}
                       platform={selectedPlatform}
@@ -800,10 +915,10 @@ export default function InfographicsPage() {
                   </div>
                 ) : (
                   <div className="text-center text-muted-foreground">
-                    <div className="mb-4">
-                      {INFOGRAPHIC_TYPES.find(t => t.id === selectedInfographicType)?.icon}
-                    </div>
-                    <p className="font-medium mb-2">{INFOGRAPHIC_TYPES.find(t => t.id === selectedInfographicType)?.label}</p>
+                    <div className="mb-4">{INFOGRAPHIC_TYPES.find((t) => t.id === selectedInfographicType)?.icon}</div>
+                    <p className="font-medium mb-2">
+                      {INFOGRAPHIC_TYPES.find((t) => t.id === selectedInfographicType)?.label}
+                    </p>
                     <p className="text-sm">Loading preview...</p>
                   </div>
                 )}
@@ -824,7 +939,11 @@ export default function InfographicsPage() {
                   ageGroup={selectedAgeGroup}
                   gender={selectedGender}
                   regionName={getRegionName()}
-                  teamName={selectedInfographicType === 'spotlight' && rankings ? rankings[selectedSpotlightTeamIndex]?.team_name : undefined}
+                  teamName={
+                    selectedInfographicType === 'spotlight' && rankings
+                      ? rankings[selectedSpotlightTeamIndex]?.team_name
+                      : undefined
+                  }
                   rank={selectedInfographicType === 'spotlight' ? selectedSpotlightTeamIndex + 1 : undefined}
                   teamCount={top10Teams.length}
                   instagramHandles={captionHandles}
@@ -846,11 +965,19 @@ export default function InfographicsPage() {
                       <span className="font-mono font-bold text-lg w-8 text-center text-primary">{i + 1}</span>
                       <div className="flex-1 min-w-0">
                         <div className="font-semibold truncate">{team.team_name}</div>
-                        <div className="text-sm text-muted-foreground">{team.club_name ? `${team.club_name} | ` : ''}{team.state || 'N/A'}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {team.club_name ? `${team.club_name} | ` : ''}
+                          {team.state || 'N/A'}
+                        </div>
                       </div>
                       <div className="text-right text-sm">
-                        <div className="font-mono">{team.total_wins ?? team.wins}-{team.total_losses ?? team.losses}-{team.total_draws ?? team.draws}</div>
-                        <div className="text-xs text-muted-foreground">Score: {(team.power_score_final * 100).toFixed(1)}</div>
+                        <div className="font-mono">
+                          {team.total_wins ?? team.wins}-{team.total_losses ?? team.losses}-
+                          {team.total_draws ?? team.draws}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Score: {(team.power_score_final * 100).toFixed(1)}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -866,22 +993,41 @@ export default function InfographicsPage() {
         <div className="flex gap-2">
           <Button
             onClick={canShare ? handleShare : handleDownload}
-            disabled={isGenerating || (selectedInfographicType !== 'covers' && selectedInfographicType !== 'stories' && (isLoading || top10Teams.length === 0))}
+            disabled={
+              isGenerating ||
+              (selectedInfographicType !== 'covers' &&
+                selectedInfographicType !== 'stories' &&
+                (isLoading || top10Teams.length === 0))
+            }
             className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground"
             size="lg"
           >
             {isGenerating ? (
-              <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Generating...</>
+              <>
+                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                Generating...
+              </>
             ) : canShare ? (
-              <><Share2 className="mr-2 h-4 w-4" />Share</>
+              <>
+                <Share2 className="mr-2 h-4 w-4" />
+                Share
+              </>
             ) : (
-              <><Download className="mr-2 h-4 w-4" />Download</>
+              <>
+                <Download className="mr-2 h-4 w-4" />
+                Download
+              </>
             )}
           </Button>
           {canShare && (
             <Button
               onClick={handleDownload}
-              disabled={isGenerating || (selectedInfographicType !== 'covers' && selectedInfographicType !== 'stories' && (isLoading || top10Teams.length === 0))}
+              disabled={
+                isGenerating ||
+                (selectedInfographicType !== 'covers' &&
+                  selectedInfographicType !== 'stories' &&
+                  (isLoading || top10Teams.length === 0))
+              }
               variant="outline"
               size="lg"
             >

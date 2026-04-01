@@ -16,9 +16,7 @@ test.describe('Homepage', () => {
   });
 
   test('renders hero subtitle with age range', async ({ page }) => {
-    await expect(
-      page.getByText('Data-driven performance analytics for U10-U19')
-    ).toBeVisible();
+    await expect(page.getByText('Data-driven performance analytics for U10-U19')).toBeVisible();
   });
 
   test('CTA buttons are visible and link correctly', async ({ page }) => {
@@ -59,20 +57,18 @@ test.describe('Homepage', () => {
     await page.waitForTimeout(2_000);
 
     // Filter out known benign errors (e.g., GA, third-party scripts)
-    const criticalErrors = errors.filter(
-      (e) => {
-        const normalized = e.toLowerCase();
-        return (
-          !normalized.includes('google') &&
-          !normalized.includes('analytics') &&
-          !normalized.includes('gtag') &&
-          !normalized.includes('favicon') &&
-          !normalized.includes('[useteamsearch] error fetching teams') &&
-          !normalized.includes('[userankings] error fetching national rankings') &&
-          !normalized.includes('typeerror: failed to fetch')
-        );
-      }
-    );
+    const criticalErrors = errors.filter((e) => {
+      const normalized = e.toLowerCase();
+      return (
+        !normalized.includes('google') &&
+        !normalized.includes('analytics') &&
+        !normalized.includes('gtag') &&
+        !normalized.includes('favicon') &&
+        !normalized.includes('[useteamsearch] error fetching teams') &&
+        !normalized.includes('[userankings] error fetching national rankings') &&
+        !normalized.includes('typeerror: failed to fetch')
+      );
+    });
 
     expect(criticalErrors).toHaveLength(0);
   });

@@ -13,34 +13,35 @@ Run this before game imports (added to scrape-games.yml workflow).
 Usage:
     python scripts/maintain_gotsport_direct_id_aliases.py [--dry-run]
 """
+
 import sys
 from pathlib import Path
+
 sys.path.append(str(Path(__file__).parent.parent))
 
-from supabase import create_client
 import os
-from dotenv import load_dotenv
 from collections import Counter
 
+from dotenv import load_dotenv
+
+from supabase import create_client
+
 # Load environment variables
-env_local = Path('.env.local')
+env_local = Path(".env.local")
 if env_local.exists():
     load_dotenv(env_local, override=True)
 else:
     load_dotenv()
 
-supabase = create_client(
-    os.getenv('SUPABASE_URL'),
-    os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('SUPABASE_KEY')
-)
+supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY"))
 
 
 def get_gotsport_provider_id() -> str:
     """Look up GotSport provider UUID from providers table"""
-    result = supabase.table('providers').select('id').eq('code', 'gotsport').execute()
+    result = supabase.table("providers").select("id").eq("code", "gotsport").execute()
     if not result.data:
         raise ValueError("GotSport provider not found in providers table")
-    return result.data[0]['id']
+    return result.data[0]["id"]
 
 
 def main(dry_run: bool = False):
@@ -63,13 +64,15 @@ def main(dry_run: bool = False):
     offset = 0
 
     while True:
-        result = supabase.table('team_alias_map').select(
-            'id,provider_team_id,match_method,review_status'
-        ).eq('provider_id', gotsport_provider_id).eq(
-            'review_status', 'approved'
-        ).not_.is_('provider_team_id', 'null').range(
-            offset, offset + page_size - 1
-        ).execute()
+        result = (
+            supabase.table("team_alias_map")
+            .select("id,provider_team_id,match_method,review_status")
+            .eq("provider_id", gotsport_provider_id)
+            .eq("review_status", "approved")
+            .not_.is_("provider_team_id", "null")
+            .range(offset, offset + page_size - 1)
+            .execute()
+        )
 
         if not result.data:
             break
@@ -81,10 +84,7 @@ def main(dry_run: bool = False):
     print(f"Total approved aliases with provider_team_id: {len(all_aliases)}")
 
     # Filter to those that should be direct_id but aren't
-    aliases_to_fix = [
-        r for r in all_aliases
-        if r['match_method'] != 'direct_id' and r.get('provider_team_id')
-    ]
+    aliases_to_fix = [r for r in all_aliases if r["match_method"] != "direct_id" and r.get("provider_team_id")]
 
     print(f"Found {len(aliases_to_fix)} aliases that should use direct_id")
 
@@ -93,7 +93,7 @@ def main(dry_run: bool = False):
         return
 
     # Show breakdown
-    current_methods = Counter(r['match_method'] for r in aliases_to_fix)
+    current_methods = Counter(r["match_method"] for r in aliases_to_fix)
     print("\nCurrent match_method breakdown (to be upgraded):")
     for method, count in sorted(current_methods.items()):
         print(f"  {method:20s}: {count:4d}")
@@ -109,10 +109,9 @@ def main(dry_run: bool = False):
 
     for alias in aliases_to_fix:
         try:
-            supabase.table('team_alias_map').update({
-                'match_method': 'direct_id',
-                'match_confidence': 1.0
-            }).eq('id', alias['id']).execute()
+            supabase.table("team_alias_map").update({"match_method": "direct_id", "match_confidence": 1.0}).eq(
+                "id", alias["id"]
+            ).execute()
 
             updated_count += 1
 
@@ -121,7 +120,7 @@ def main(dry_run: bool = False):
 
         except Exception as e:
             error_str = str(e).lower()
-            if 'unique' not in error_str and 'duplicate' not in error_str:
+            if "unique" not in error_str and "duplicate" not in error_str:
                 print(f"  Error updating alias {alias['id']}: {e}")
                 error_count += 1
 
@@ -135,13 +134,15 @@ def main(dry_run: bool = False):
     offset = 0
 
     while True:
-        verify_result = supabase.table('team_alias_map').select(
-            'match_method'
-        ).eq('provider_id', gotsport_provider_id).eq(
-            'review_status', 'approved'
-        ).not_.is_('provider_team_id', 'null').range(
-            offset, offset + page_size - 1
-        ).execute()
+        verify_result = (
+            supabase.table("team_alias_map")
+            .select("match_method")
+            .eq("provider_id", gotsport_provider_id)
+            .eq("review_status", "approved")
+            .not_.is_("provider_team_id", "null")
+            .range(offset, offset + page_size - 1)
+            .execute()
+        )
 
         if not verify_result.data:
             break
@@ -150,21 +151,25 @@ def main(dry_run: bool = False):
             break
         offset += page_size
 
-    final_methods = Counter(r['match_method'] for r in verify_aliases)
+    final_methods = Counter(r["match_method"] for r in verify_aliases)
     print("\nFinal match_method breakdown:")
     for method, count in sorted(final_methods.items()):
         print(f"  {method:20s}: {count:4d}")
 
-    direct_id_count = final_methods.get('direct_id', 0)
+    direct_id_count = final_methods.get("direct_id", 0)
     total_count = len(verify_aliases)
     if total_count > 0:
-        print(f"\n✅ {direct_id_count}/{total_count} ({direct_id_count/total_count*100:.1f}%) aliases now use direct_id")
+        print(
+            f"\n✅ {direct_id_count}/{total_count} "
+            f"({direct_id_count / total_count * 100:.1f}%) aliases now use direct_id"
+        )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description='Maintain GotSport direct_id aliases')
-    parser.add_argument('--dry-run', action='store_true', help='Preview changes without applying')
+
+    parser = argparse.ArgumentParser(description="Maintain GotSport direct_id aliases")
+    parser.add_argument("--dry-run", action="store_true", help="Preview changes without applying")
     args = parser.parse_args()
 
     main(dry_run=args.dry_run)

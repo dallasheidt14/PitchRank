@@ -32,12 +32,8 @@ export function BlogPostSchema({
 }: BlogPostSchemaProps) {
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
   const postUrl = `${baseUrl}/blog/${slug}`;
-  const imageUrl = image
-    ? image.startsWith('http')
-      ? image
-      : `${baseUrl}${image}`
-    : `${baseUrl}/opengraph-image.png`;
-  
+  const imageUrl = image ? (image.startsWith('http') ? image : `${baseUrl}${image}`) : `${baseUrl}/opengraph-image.png`;
+
   const schema = {
     '@context': 'https://schema.org',
     '@type': 'BlogPosting',
@@ -65,18 +61,13 @@ export function BlogPostSchema({
     },
     ...(articleSection && { articleSection }),
     ...(tags && tags.length > 0 && { keywords: tags.join(', ') }),
-    ...(readingTime && { 
+    ...(readingTime && {
       // Extract minutes from "X min read" format
       wordCount: parseInt(readingTime) * 200, // Approximate 200 words per minute
     }),
   };
 
-  return (
-    <script
-      type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
-    />
-  );
+  return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }} />;
 }
 
 // Also export as default for flexibility

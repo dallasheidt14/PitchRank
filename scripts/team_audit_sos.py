@@ -18,20 +18,22 @@ Usage:
     python scripts/team_audit_sos.py --team-name "Dallas Tigers"
     python scripts/team_audit_sos.py --team-id "abc-123-def"
 """
-import asyncio
-import sys
-from pathlib import Path
-import pandas as pd
-import numpy as np
-from supabase import create_client
-import os
+
 import argparse
+import asyncio
+import os
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+
+import pandas as pd
 from dotenv import load_dotenv
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
 from rich.prompt import Prompt
-from datetime import datetime, timedelta
+from rich.table import Table
+
+from supabase import create_client
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -40,7 +42,7 @@ from src.etl.v53e import V53EConfig
 console = Console()
 
 # Load environment variables - prioritize .env.local if it exists
-env_local = Path('.env.local')
+env_local = Path(".env.local")
 if env_local.exists():
     load_dotenv(env_local, override=True)
 else:
@@ -51,13 +53,17 @@ async def search_teams(supabase, search_term: str):
     """Search for teams by name"""
     try:
         # Search in teams table
-        result = supabase.table('teams').select(
-            'team_id_master, team_name'
-        ).ilike('team_name', f'%{search_term}%').limit(20).execute()
+        result = (
+            supabase.table("teams")
+            .select("team_id_master, team_name")
+            .ilike("team_name", f"%{search_term}%")
+            .limit(20)
+            .execute()
+        )
 
         if result.data:
             # Normalize the response to use 'name' key for consistency
-            return [{'team_id_master': t['team_id_master'], 'name': t['team_name']} for t in result.data]
+            return [{"team_id_master": t["team_id_master"], "name": t["team_name"]} for t in result.data]
         return []
     except Exception as e:
         console.print(f"[red]Error searching teams: {e}[/red]")
@@ -68,16 +74,20 @@ async def get_team_info(supabase, team_id: str):
     """Get team information including name and metadata"""
     try:
         # Get team info from teams table (single query)
-        team_result = supabase.table('teams').select(
-            'team_name, age_group, gender'
-        ).eq('team_id_master', team_id).limit(1).execute()
+        team_result = (
+            supabase.table("teams")
+            .select("team_name, age_group, gender")
+            .eq("team_id_master", team_id)
+            .limit(1)
+            .execute()
+        )
 
         if team_result.data:
             return {
-                'team_id': team_id,
-                'name': team_result.data[0].get('team_name', 'Unknown'),
-                'age_group': team_result.data[0].get('age_group', 'Unknown'),
-                'gender': team_result.data[0].get('gender', 'Unknown')
+                "team_id": team_id,
+                "name": team_result.data[0].get("team_name", "Unknown"),
+                "age_group": team_result.data[0].get("age_group", "Unknown"),
+                "gender": team_result.data[0].get("gender", "Unknown"),
             }
         return None
     except Exception as e:
@@ -88,10 +98,13 @@ async def get_team_info(supabase, team_id: str):
 async def get_merged_team_ids(supabase, canonical_id: str) -> list:
     """Get all deprecated team IDs that were merged into this canonical team."""
     try:
-        result = supabase.table('team_merge_map').select(
-            'deprecated_team_id'
-        ).eq('canonical_team_id', canonical_id).execute()
-        deprecated_ids = [r['deprecated_team_id'] for r in (result.data or [])]
+        result = (
+            supabase.table("team_merge_map")
+            .select("deprecated_team_id")
+            .eq("canonical_team_id", canonical_id)
+            .execute()
+        )
+        deprecated_ids = [r["deprecated_team_id"] for r in (result.data or [])]
         return [canonical_id] + deprecated_ids
     except Exception as e:
         console.print(f"[yellow]Warning: Could not fetch merge map: {e}[/yellow]")
@@ -102,7 +115,7 @@ async def get_team_games(supabase, team_id: str, lookback_days: int = 365):
     """Get all games for a specific team, including games from merged/deprecated team IDs"""
     try:
         cutoff = datetime.now() - timedelta(days=lookback_days)
-        cutoff_str = cutoff.strftime('%Y-%m-%d')
+        cutoff_str = cutoff.strftime("%Y-%m-%d")
 
         # Get all IDs (canonical + deprecated) that map to this team
         all_team_ids = await get_merged_team_ids(supabase, team_id)
@@ -113,44 +126,54 @@ async def get_team_games(supabase, team_id: str, lookback_days: int = 365):
 
         for tid in all_team_ids:
             # Get games where team is home
-            home_games = supabase.table('games').select(
-                'id, game_uid, game_date, home_team_master_id, away_team_master_id, '
-                'home_score, away_score'
-            ).eq('home_team_master_id', tid).gte('game_date', cutoff_str).execute()
+            home_games = (
+                supabase.table("games")
+                .select("id, game_uid, game_date, home_team_master_id, away_team_master_id, home_score, away_score")
+                .eq("home_team_master_id", tid)
+                .gte("game_date", cutoff_str)
+                .execute()
+            )
 
             # Get games where team is away
-            away_games = supabase.table('games').select(
-                'id, game_uid, game_date, home_team_master_id, away_team_master_id, '
-                'home_score, away_score'
-            ).eq('away_team_master_id', tid).gte('game_date', cutoff_str).execute()
+            away_games = (
+                supabase.table("games")
+                .select("id, game_uid, game_date, home_team_master_id, away_team_master_id, home_score, away_score")
+                .eq("away_team_master_id", tid)
+                .gte("game_date", cutoff_str)
+                .execute()
+            )
 
             # Process home games
             for game in home_games.data:
-                games.append({
-                    'game_id': game.get('game_uid') or game.get('id'),
-                    'date': game['game_date'],
-                    'team_id': team_id,  # Always use canonical ID
-                    'opp_id': game['away_team_master_id'],
-                    'gf': game.get('home_score'),
-                    'ga': game.get('away_score'),
-                    'location': 'Home',
-                    'source_team_id': tid
-                })
+                games.append(
+                    {
+                        "game_id": game.get("game_uid") or game.get("id"),
+                        "date": game["game_date"],
+                        "team_id": team_id,  # Always use canonical ID
+                        "opp_id": game["away_team_master_id"],
+                        "gf": game.get("home_score"),
+                        "ga": game.get("away_score"),
+                        "location": "Home",
+                        "source_team_id": tid,
+                    }
+                )
 
             # Process away games
             for game in away_games.data:
-                games.append({
-                    'game_id': game.get('game_uid') or game.get('id'),
-                    'date': game['game_date'],
-                    'team_id': team_id,  # Always use canonical ID
-                    'opp_id': game['home_team_master_id'],
-                    'gf': game.get('away_score'),
-                    'ga': game.get('home_score'),
-                    'location': 'Away',
-                    'source_team_id': tid
-                })
+                games.append(
+                    {
+                        "game_id": game.get("game_uid") or game.get("id"),
+                        "date": game["game_date"],
+                        "team_id": team_id,  # Always use canonical ID
+                        "opp_id": game["home_team_master_id"],
+                        "gf": game.get("away_score"),
+                        "ga": game.get("home_score"),
+                        "location": "Away",
+                        "source_team_id": tid,
+                    }
+                )
 
-        return pd.DataFrame(games).sort_values('date', ascending=False) if games else pd.DataFrame()
+        return pd.DataFrame(games).sort_values("date", ascending=False) if games else pd.DataFrame()
     except Exception as e:
         console.print(f"[red]Error fetching games: {e}[/red]")
         return pd.DataFrame()
@@ -167,14 +190,12 @@ async def get_opponent_names(supabase, opp_ids: list):
         batch_size = 100
 
         for i in range(0, len(opp_ids), batch_size):
-            batch = list(opp_ids)[i:i + batch_size]
-            result = supabase.table('teams').select(
-                'team_id_master, team_name'
-            ).in_('team_id_master', batch).execute()
+            batch = list(opp_ids)[i : i + batch_size]
+            result = supabase.table("teams").select("team_id_master, team_name").in_("team_id_master", batch).execute()
 
             if result.data:
                 for row in result.data:
-                    names[row['team_id_master']] = row['team_name']
+                    names[row["team_id_master"]] = row["team_name"]
 
         return names
     except Exception as e:
@@ -195,8 +216,8 @@ def calculate_sos_manually(games_df: pd.DataFrame, strength_map: dict, cfg: V53E
     g = games_df.copy()
 
     # Calculate recency rank (1 = most recent)
-    g = g.sort_values('date', ascending=False).reset_index(drop=True)
-    g['rank_recency'] = range(1, len(g) + 1)
+    g = g.sort_values("date", ascending=False).reset_index(drop=True)
+    g["rank_recency"] = range(1, len(g) + 1)
 
     # Simplified recency weighting: most recent games get higher weight
     # Approximates v53e Layer 3 logic
@@ -222,35 +243,33 @@ def calculate_sos_manually(games_df: pd.DataFrame, strength_map: dict, cfg: V53E
             w = 1.0
         weights.append(w)
 
-    g['w_game'] = weights
+    g["w_game"] = weights
 
     # Calculate k_adapt (strength gap adjustment)
     # Approximates v53e Layer 5 logic
-    g['gd'] = g['gf'] - g['ga']
+    g["gd"] = g["gf"] - g["ga"]
 
     # Simplified adaptive K based on goal difference (proxy for strength gap)
     # In real v53e, this uses actual strength difference, but we approximate here
-    g['k_adapt'] = cfg.ADAPTIVE_K_ALPHA * (1.0 + cfg.ADAPTIVE_K_BETA * (g['gd'].abs() / 10.0))
+    g["k_adapt"] = cfg.ADAPTIVE_K_ALPHA * (1.0 + cfg.ADAPTIVE_K_BETA * (g["gd"].abs() / 10.0))
 
     # Calculate w_sos (SOS weight)
-    g['w_sos'] = g['w_game'] * g['k_adapt']
+    g["w_sos"] = g["w_game"] * g["k_adapt"]
 
     # Apply repeat cap: for each opponent, keep only top SOS_REPEAT_CAP games by weight
-    g = g.sort_values(['opp_id', 'w_sos'], ascending=[True, False])
-    g['repeat_rank'] = g.groupby('opp_id')['w_sos'].rank(ascending=False, method='first')
-    g_sos = g[g['repeat_rank'] <= cfg.SOS_REPEAT_CAP].copy()
+    g = g.sort_values(["opp_id", "w_sos"], ascending=[True, False])
+    g["repeat_rank"] = g.groupby("opp_id")["w_sos"].rank(ascending=False, method="first")
+    g_sos = g[g["repeat_rank"] <= cfg.SOS_REPEAT_CAP].copy()
 
     # Map opponent strengths
-    g_sos['opp_strength'] = g_sos['opp_id'].map(
-        lambda o: strength_map.get(o, cfg.UNRANKED_SOS_BASE)
-    )
+    g_sos["opp_strength"] = g_sos["opp_id"].map(lambda o: strength_map.get(o, cfg.UNRANKED_SOS_BASE))
 
     # Calculate weighted average (Pass 1: Direct)
-    total_weight = g_sos['w_sos'].sum()
+    total_weight = g_sos["w_sos"].sum()
     if total_weight <= 0:
         return None, g_sos
 
-    sos_direct = (g_sos['opp_strength'] * g_sos['w_sos']).sum() / total_weight
+    sos_direct = (g_sos["opp_strength"] * g_sos["w_sos"]).sum() / total_weight
 
     # For simplicity, we'll just return Pass 1 (direct) SOS
     # Full v53e does 3 passes with transitivity, but this is good enough for verification
@@ -268,7 +287,7 @@ async def audit_team(supabase, team_id: str, team_name: str = None):
     """
     if not team_name:
         team_info = await get_team_info(supabase, team_id)
-        team_name = team_info['name'] if team_info else 'Unknown'
+        team_name = team_info["name"] if team_info else "Unknown"
 
     console.print(f"\n[bold green]Analyzing: {team_name}[/bold green]")
     console.print(f"[dim]Team ID: {team_id}[/dim]\n")
@@ -291,9 +310,12 @@ async def audit_team(supabase, team_id: str, team_name: str = None):
         offset = 0
 
         while True:
-            rankings_result = supabase.table('rankings_full').select(
-                'team_id, abs_strength, sos, sos_norm'
-            ).range(offset, offset + page_size - 1).execute()
+            rankings_result = (
+                supabase.table("rankings_full")
+                .select("team_id, abs_strength, sos, sos_norm")
+                .range(offset, offset + page_size - 1)
+                .execute()
+            )
 
             if not rankings_result.data:
                 break
@@ -313,18 +335,23 @@ async def audit_team(supabase, team_id: str, team_name: str = None):
         teams_df = pd.DataFrame(all_rankings)
 
         # Create strength map (team_id -> abs_strength)
-        strength_map = dict(zip(teams_df['team_id'], teams_df['abs_strength']))
+        strength_map = dict(zip(teams_df["team_id"], teams_df["abs_strength"]))
 
         # Get this team's actual SOS from rankings
-        team_ranking = teams_df[teams_df['team_id'] == team_id]
-        actual_sos = team_ranking['sos'].values[0] if not team_ranking.empty and 'sos' in team_ranking.columns else None
-        actual_sos_norm = team_ranking['sos_norm'].values[0] if not team_ranking.empty and 'sos_norm' in team_ranking.columns else None
+        team_ranking = teams_df[teams_df["team_id"] == team_id]
+        actual_sos = team_ranking["sos"].values[0] if not team_ranking.empty and "sos" in team_ranking.columns else None
+        actual_sos_norm = (
+            team_ranking["sos_norm"].values[0]
+            if not team_ranking.empty and "sos_norm" in team_ranking.columns
+            else None
+        )
 
         console.print(f"[green]✓ Loaded {len(teams_df):,} teams with strength values[/green]\n")
 
     except Exception as e:
         console.print(f"[red]Error loading rankings: {e}[/red]")
         import traceback
+
         traceback.print_exc()
         return
 
@@ -339,7 +366,7 @@ async def audit_team(supabase, team_id: str, team_name: str = None):
     console.print(f"[green]✓ Found {len(games_df)} games[/green]\n")
 
     # Get opponent names
-    opp_ids = games_df['opp_id'].unique().tolist()
+    opp_ids = games_df["opp_id"].unique().tolist()
     opp_names = await get_opponent_names(supabase, opp_ids)
 
     # Manual SOS calculation
@@ -370,11 +397,13 @@ async def audit_team(supabase, team_id: str, team_name: str = None):
 
     # Display game details
     if games_with_weights is not None:
-        console.print(Panel.fit(
-            "[bold]Game History with SOS Contributions[/bold]\n"
-            "[dim]Sorted by opponent strength (strongest first) to verify SOS calculation logic[/dim]",
-            border_style="cyan"
-        ))
+        console.print(
+            Panel.fit(
+                "[bold]Game History with SOS Contributions[/bold]\n"
+                "[dim]Sorted by opponent strength (strongest first) to verify SOS calculation logic[/dim]",
+                border_style="cyan",
+            )
+        )
 
         games_table = Table(show_header=True, header_style="bold cyan")
         games_table.add_column("Date", style="white", width=12)
@@ -387,15 +416,15 @@ async def audit_team(supabase, team_id: str, team_name: str = None):
         games_table.add_column("Loc", justify="center", width=6)
 
         # Sort by opponent strength (descending) to show strongest opponents first
-        games_display = games_with_weights.sort_values('opp_strength', ascending=False)
+        games_display = games_with_weights.sort_values("opp_strength", ascending=False)
 
-        total_weight = games_display['w_sos'].sum()
+        total_weight = games_display["w_sos"].sum()
 
         for _, game in games_display.iterrows():
-            opp_name = opp_names.get(game['opp_id'], 'Unknown')[:35]
-            opp_strength = game['opp_strength']
-            weight = game['w_sos']
-            included = game['repeat_rank'] <= cfg.SOS_REPEAT_CAP
+            opp_name = opp_names.get(game["opp_id"], "Unknown")[:35]
+            opp_strength = game["opp_strength"]
+            weight = game["w_sos"]
+            included = game["repeat_rank"] <= cfg.SOS_REPEAT_CAP
 
             # Calculate contribution to SOS
             contrib = (opp_strength * weight) / total_weight if total_weight > 0 else 0
@@ -409,14 +438,15 @@ async def audit_team(supabase, team_id: str, team_name: str = None):
                 strength_color = "red"
 
             games_table.add_row(
-                game['date'][:10],
+                game["date"][:10],
                 opp_name,
-                f"{int(game['gf']) if pd.notna(game['gf']) else '?'}-{int(game['ga']) if pd.notna(game['ga']) else '?'}",
+                f"{int(game['gf']) if pd.notna(game['gf']) else '?'}"
+                f"-{int(game['ga']) if pd.notna(game['ga']) else '?'}",
                 f"[{strength_color}]{opp_strength:.6f}[/{strength_color}]",
                 f"{weight:.6f}",
                 f"{contrib:.8f}",
                 "[green]✓[/green]" if included else "[red]✗[/red]",
-                game.get('location', '?')
+                game.get("location", "?"),
             )
 
         console.print(games_table)
@@ -428,13 +458,15 @@ async def audit_team(supabase, team_id: str, team_name: str = None):
         summary.add_column(style="white")
 
         summary.add_row("Total Games:", f"{len(games_df)}")
-        if 'source_team_id' in games_df.columns:
-            canonical_count = (games_df['source_team_id'] == games_df['team_id']).sum()
-            merged_count = (games_df['source_team_id'] != games_df['team_id']).sum()
+        if "source_team_id" in games_df.columns:
+            canonical_count = (games_df["source_team_id"] == games_df["team_id"]).sum()
+            merged_count = (games_df["source_team_id"] != games_df["team_id"]).sum()
             if merged_count > 0:
                 summary.add_row("  → From canonical ID:", f"{canonical_count}")
                 summary.add_row("  → From merged IDs:", f"{merged_count}")
-        summary.add_row("Games in SOS Calc:", f"{len(games_display[games_display['repeat_rank'] <= cfg.SOS_REPEAT_CAP])}")
+        summary.add_row(
+            "Games in SOS Calc:", f"{len(games_display[games_display['repeat_rank'] <= cfg.SOS_REPEAT_CAP])}"
+        )
         summary.add_row("Unique Opponents:", f"{games_display['opp_id'].nunique()}")
         summary.add_row("Avg Opponent Strength:", f"{games_display['opp_strength'].mean():.4f}")
         summary.add_row("Strongest Opponent:", f"{games_display['opp_strength'].max():.4f}")
@@ -464,7 +496,9 @@ async def audit_team(supabase, team_id: str, team_name: str = None):
             if diff < 0.01:
                 console.print("\n[green]✓ SOS calculation appears correct (difference < 0.01)[/green]")
             elif diff < 0.05:
-                console.print("\n[yellow]⚠ Small difference detected. This is expected due to transitivity passes.[/yellow]")
+                console.print(
+                    "\n[yellow]⚠ Small difference detected. This is expected due to transitivity passes.[/yellow]"
+                )
             else:
                 console.print("\n[red]✗ Large difference detected! SOS calculation may have issues.[/red]")
 
@@ -473,7 +507,7 @@ async def main():
     """Main entry point - handles both interactive and CLI modes"""
     # Parse command-line arguments
     parser = argparse.ArgumentParser(
-        description='Audit SOS calculations for a specific team',
+        description="Audit SOS calculations for a specific team",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -483,18 +517,17 @@ Examples:
   # Non-interactive mode
   python scripts/team_audit_sos.py --team-name "Dallas Tigers"
   python scripts/team_audit_sos.py --team-id "abc-123-def-456"
-        """
+        """,
     )
-    parser.add_argument('--team-name', type=str, help='Team name to search for')
-    parser.add_argument('--team-id', type=str, help='Exact team ID to audit')
-    parser.add_argument('--auto-select', action='store_true',
-                        help='Auto-select first match (for non-interactive use)')
+    parser.add_argument("--team-name", type=str, help="Team name to search for")
+    parser.add_argument("--team-id", type=str, help="Exact team ID to audit")
+    parser.add_argument("--auto-select", action="store_true", help="Auto-select first match (for non-interactive use)")
 
     args = parser.parse_args()
 
     # Initialize Supabase client
-    supabase_url = os.getenv('SUPABASE_URL')
-    supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
     if not supabase_url or not supabase_key:
         console.print("[red]Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env[/red]")
@@ -504,21 +537,23 @@ Examples:
 
     # Non-interactive mode: team ID provided
     if args.team_id:
-        console.print(Panel.fit(
-            "[bold cyan]Team SOS Audit Script[/bold cyan]\n"
-            "[dim]Running in non-interactive mode[/dim]",
-            border_style="cyan"
-        ))
+        console.print(
+            Panel.fit(
+                "[bold cyan]Team SOS Audit Script[/bold cyan]\n[dim]Running in non-interactive mode[/dim]",
+                border_style="cyan",
+            )
+        )
         await audit_team(supabase, args.team_id)
         return
 
     # Non-interactive mode: team name provided
     if args.team_name:
-        console.print(Panel.fit(
-            "[bold cyan]Team SOS Audit Script[/bold cyan]\n"
-            "[dim]Running in non-interactive mode[/dim]",
-            border_style="cyan"
-        ))
+        console.print(
+            Panel.fit(
+                "[bold cyan]Team SOS Audit Script[/bold cyan]\n[dim]Running in non-interactive mode[/dim]",
+                border_style="cyan",
+            )
+        )
 
         console.print(f"\n[yellow]Searching for teams matching '{args.team_name}'...[/yellow]")
         teams = await search_teams(supabase, args.team_name)
@@ -537,19 +572,21 @@ Examples:
             selected_team = teams[0]
             console.print(f"[green]→ {selected_team['name']}[/green]")
 
-        await audit_team(supabase, selected_team['team_id_master'], selected_team['name'])
+        await audit_team(supabase, selected_team["team_id_master"], selected_team["name"])
         return
 
     # Interactive mode
-    console.print(Panel.fit(
-        "[bold cyan]Team SOS Audit Script[/bold cyan]\n\n"
-        "This script helps you verify SOS calculations by showing:\n"
-        "• Team's complete game history\n"
-        "• Opponent strength for each game\n"
-        "• Game weights and SOS contributions\n"
-        "• Manual SOS calculation vs database value",
-        border_style="cyan"
-    ))
+    console.print(
+        Panel.fit(
+            "[bold cyan]Team SOS Audit Script[/bold cyan]\n\n"
+            "This script helps you verify SOS calculations by showing:\n"
+            "• Team's complete game history\n"
+            "• Opponent strength for each game\n"
+            "• Game weights and SOS contributions\n"
+            "• Manual SOS calculation vs database value",
+            border_style="cyan",
+        )
+    )
 
     # Get team search term
     search_term = Prompt.ask("\n[cyan]Enter team name to search[/cyan]")
@@ -569,11 +606,7 @@ Examples:
     search_table.add_column("Team ID", style="dim")
 
     for i, team in enumerate(teams, 1):
-        search_table.add_row(
-            str(i),
-            team['name'],
-            str(team['team_id_master'])[:8] + "..."
-        )
+        search_table.add_row(str(i), team["name"], str(team["team_id_master"])[:8] + "...")
 
     console.print(search_table)
 
@@ -582,10 +615,7 @@ Examples:
         selected_idx = 0
         console.print(f"\n[green]Auto-selecting only match: {teams[0]['name']}[/green]")
     else:
-        selection = Prompt.ask(
-            f"\n[cyan]Select team number (1-{len(teams)})[/cyan]",
-            default="1"
-        )
+        selection = Prompt.ask(f"\n[cyan]Select team number (1-{len(teams)})[/cyan]", default="1")
         try:
             selected_idx = int(selection) - 1
             if selected_idx < 0 or selected_idx >= len(teams):
@@ -595,11 +625,11 @@ Examples:
             console.print("[red]Invalid selection[/red]")
             return
 
-    team_id = teams[selected_idx]['team_id_master']
-    team_name = teams[selected_idx]['name']
+    team_id = teams[selected_idx]["team_id_master"]
+    team_name = teams[selected_idx]["name"]
 
     await audit_team(supabase, team_id, team_name)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(main())

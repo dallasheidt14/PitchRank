@@ -17,29 +17,27 @@ import csv
 import logging
 import sys
 import uuid
-from pathlib import Path
 from datetime import datetime
-from collections import defaultdict
+from pathlib import Path
 
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from supabase import create_client
 import os
+
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.progress import track
 
+from supabase import create_client
+
 # Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 console = Console()
 
 # Load environment (check .env.local first, then .env)
-env_local = Path('.env.local')
+env_local = Path(".env.local")
 if env_local.exists():
     load_dotenv(env_local)
 else:
@@ -53,6 +51,7 @@ def calculate_age_group_from_birth_year(birth_year: int) -> str:
     Example: 2014 → U12 (2025-26 season)
     """
     from src.utils.team_utils import CURRENT_YEAR
+
     age = CURRENT_YEAR - birth_year + 1
     return f"u{age}"
 
@@ -64,74 +63,62 @@ def normalize_gender(gender: str) -> str:
     Girls/G/Female → Female
     """
     if not gender:
-        return 'Male'  # Default
-    
+        return "Male"  # Default
+
     g = gender.strip().lower()
-    if g in ('boys', 'b', 'male', 'm'):
-        return 'Male'
-    elif g in ('girls', 'g', 'female', 'f'):
-        return 'Female'
+    if g in ("boys", "b", "male", "m"):
+        return "Male"
+    elif g in ("girls", "g", "female", "f"):
+        return "Female"
     else:
-        return 'Male'  # Default fallback
+        return "Male"  # Default fallback
 
 
 def extract_unique_teams_from_csv(csv_file: str) -> dict:
     """
     Parse games CSV and extract unique teams.
-    
+
     Returns:
         dict: {(team_id, age_year, gender): {team_name, club_name, ...}}
-        
+
     Note: TGS games CSV has perspective-based data (each game appears twice),
           so we extract both team_id and opponent_id as separate teams.
     """
     teams = {}  # (team_id, age_year, gender) → team_data
-    
-    with open(csv_file, 'r', encoding='utf-8') as f:
+
+    with open(csv_file, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
-        
+
         for row in reader:
             # Extract team 1 (from team_id columns)
-            team1_key = (
-                row['team_id'].strip(),
-                row['age_year'].strip(),
-                row['gender'].strip()
-            )
+            team1_key = (row["team_id"].strip(), row["age_year"].strip(), row["gender"].strip())
             if team1_key not in teams:
                 teams[team1_key] = {
-                    'provider_team_id': row['team_id'].strip(),
-                    'team_name': row['team_name'].strip(),
-                    'club_name': row['club_name'].strip(),
-                    'age_year': row['age_year'].strip(),
-                    'gender': row['gender'].strip(),
-                    'state_code': row.get('state_code', '').strip()
+                    "provider_team_id": row["team_id"].strip(),
+                    "team_name": row["team_name"].strip(),
+                    "club_name": row["club_name"].strip(),
+                    "age_year": row["age_year"].strip(),
+                    "gender": row["gender"].strip(),
+                    "state_code": row.get("state_code", "").strip(),
                 }
-            
+
             # Extract team 2 (from opponent columns)
-            team2_key = (
-                row['opponent_id'].strip(),
-                row['age_year'].strip(),
-                row['gender'].strip()
-            )
+            team2_key = (row["opponent_id"].strip(), row["age_year"].strip(), row["gender"].strip())
             if team2_key not in teams:
                 teams[team2_key] = {
-                    'provider_team_id': row['opponent_id'].strip(),
-                    'team_name': row['opponent_name'].strip(),
-                    'club_name': row['opponent_club_name'].strip(),
-                    'age_year': row['age_year'].strip(),
-                    'gender': row['gender'].strip(),
-                    'state_code': row.get('state_code', '').strip()
+                    "provider_team_id": row["opponent_id"].strip(),
+                    "team_name": row["opponent_name"].strip(),
+                    "club_name": row["opponent_club_name"].strip(),
+                    "age_year": row["age_year"].strip(),
+                    "gender": row["gender"].strip(),
+                    "state_code": row.get("state_code", "").strip(),
                 }
-    
+
     return teams
 
 
 def batch_create_teams_and_aliases(
-    supabase,
-    provider_id: str,
-    teams: dict,
-    dry_run: bool = False,
-    batch_size: int = 500
+    supabase, provider_id: str, teams: dict, dry_run: bool = False, batch_size: int = 500
 ):
     """
     Batch INSERT teams and aliases, skipping teams that already have a direct_id alias.
@@ -148,193 +135,191 @@ def batch_create_teams_and_aliases(
     """
     team_records = []
     alias_records = []
-    stats = {
-        'total_teams': len(teams),
-        'created': 0,
-        'skipped_existing': 0,
-        'errors': 0
-    }
+    stats = {"total_teams": len(teams), "created": 0, "skipped_existing": 0, "errors": 0}
 
     # Convert teams dict to list for progress tracking
     teams_list = list(teams.values())
 
     # Pre-check: fetch existing aliases to avoid creating duplicate teams
-    all_provider_ids = [t['provider_team_id'] for t in teams_list]
+    all_provider_ids = [t["provider_team_id"] for t in teams_list]
     existing_aliases = set()
 
     console.print(f"\n[bold]Checking {len(all_provider_ids)} teams against existing aliases...[/bold]")
     for i in range(0, len(all_provider_ids), 100):  # Batch to avoid URI length limits
-        batch_ids = all_provider_ids[i:i+100]
+        batch_ids = all_provider_ids[i : i + 100]
         try:
-            result = supabase.table('team_alias_map') \
-                .select('provider_team_id') \
-                .eq('provider_id', provider_id) \
-                .in_('provider_team_id', batch_ids) \
+            result = (
+                supabase.table("team_alias_map")
+                .select("provider_team_id")
+                .eq("provider_id", provider_id)
+                .in_("provider_team_id", batch_ids)
                 .execute()
+            )
             for row in result.data:
-                existing_aliases.add(str(row['provider_team_id']))
+                existing_aliases.add(str(row["provider_team_id"]))
         except Exception as e:
-            logger.warning(f"Error checking existing aliases (batch {i//100 + 1}): {e}")
+            logger.warning(f"Error checking existing aliases (batch {i // 100 + 1}): {e}")
 
     if existing_aliases:
         console.print(f"[yellow]  Found {len(existing_aliases)} teams already in alias map — will skip these[/yellow]")
 
     # Filter to only new teams
-    new_teams = [t for t in teams_list if t['provider_team_id'] not in existing_aliases]
-    stats['skipped_existing'] = len(teams_list) - len(new_teams)
+    new_teams = [t for t in teams_list if t["provider_team_id"] not in existing_aliases]
+    stats["skipped_existing"] = len(teams_list) - len(new_teams)
 
-    console.print(f"[bold]Preparing {len(new_teams)} new teams for import (skipping {stats['skipped_existing']} existing)...[/bold]")
+    console.print(
+        f"[bold]Preparing {len(new_teams)} new teams for import "
+        f"(skipping {stats['skipped_existing']} existing)...[/bold]"
+    )
 
     for team_data in track(new_teams, description="Processing teams"):
         try:
-            team_id = team_data['provider_team_id']
-            team_name = team_data['team_name']
-            club_name = team_data['club_name']
-            age_year = int(team_data['age_year'])
-            gender = normalize_gender(team_data['gender'])
-            state_code = team_data.get('state_code')
-            
+            team_id = team_data["provider_team_id"]
+            team_name = team_data["team_name"]
+            club_name = team_data["club_name"]
+            age_year = int(team_data["age_year"])
+            gender = normalize_gender(team_data["gender"])
+            state_code = team_data.get("state_code")
+
             # Calculate age group from birth year
             age_group = calculate_age_group_from_birth_year(age_year)
-            
+
             # Generate UUID for master team ID
             team_id_master = str(uuid.uuid4())
-            
+
             # Prepare team record
             team_record = {
-                'team_id_master': team_id_master,
-                'team_name': team_name,
-                'club_name': club_name or team_name,  # Use team_name if club_name is empty
-                'age_group': age_group,
-                'gender': gender,
-                'state_code': state_code if state_code else None,
-                'provider_id': provider_id,
-                'provider_team_id': team_id,
-                'created_at': datetime.utcnow().isoformat() + 'Z'
+                "team_id_master": team_id_master,
+                "team_name": team_name,
+                "club_name": club_name or team_name,  # Use team_name if club_name is empty
+                "age_group": age_group,
+                "gender": gender,
+                "state_code": state_code if state_code else None,
+                "provider_id": provider_id,
+                "provider_team_id": team_id,
+                "created_at": datetime.utcnow().isoformat() + "Z",
             }
-            
+
             # Prepare alias record (direct_id mapping)
             alias_record = {
-                'provider_id': provider_id,
-                'provider_team_id': team_id,
-                'team_id_master': team_id_master,
-                'match_method': 'direct_id',
-                'match_confidence': 1.0,
-                'review_status': 'approved',
-                'created_at': datetime.utcnow().isoformat() + 'Z'
+                "provider_id": provider_id,
+                "provider_team_id": team_id,
+                "team_id_master": team_id_master,
+                "match_method": "direct_id",
+                "match_confidence": 1.0,
+                "review_status": "approved",
+                "created_at": datetime.utcnow().isoformat() + "Z",
             }
-            
+
             team_records.append(team_record)
             alias_records.append(alias_record)
-            
+
         except Exception as e:
             logger.error(f"Error preparing team {team_data.get('team_name')}: {e}")
-            stats['errors'] += 1
+            stats["errors"] += 1
             continue
-    
+
     if dry_run:
         console.print(f"\n[yellow]DRY RUN - Would create {len(team_records)} teams[/yellow]")
-        console.print(f"Sample team record:")
+        console.print("Sample team record:")
         console.print(team_records[0] if team_records else "No teams to show")
         return stats
-    
+
     # Batch INSERT teams (upsert to handle partial duplicates)
     console.print(f"\n[bold green]Inserting {len(team_records)} teams...[/bold green]")
 
     for i in track(range(0, len(team_records), batch_size), description="Inserting teams"):
-        batch = team_records[i:i+batch_size]
+        batch = team_records[i : i + batch_size]
         try:
-            supabase.table('teams').insert(batch).execute()
-            stats['created'] += len(batch)
+            supabase.table("teams").insert(batch).execute()
+            stats["created"] += len(batch)
         except Exception as e:
             # Batch failed — fall back to one-by-one to save non-duplicate rows
-            if 'duplicate key' in str(e).lower() or '23505' in str(e):
+            if "duplicate key" in str(e).lower() or "23505" in str(e):
                 batch_num = i // batch_size + 1
                 logger.info(f"Batch {batch_num}: conflict detected, falling back to row-by-row insert")
                 for record in batch:
                     try:
-                        supabase.table('teams').insert(record).execute()
-                        stats['created'] += 1
+                        supabase.table("teams").insert(record).execute()
+                        stats["created"] += 1
                     except Exception as row_err:
-                        if 'duplicate key' in str(row_err).lower() or '23505' in str(row_err):
-                            stats['skipped_existing'] += 1
+                        if "duplicate key" in str(row_err).lower() or "23505" in str(row_err):
+                            stats["skipped_existing"] += 1
                         else:
                             logger.error(f"Error inserting team {record.get('team_name')}: {row_err}")
-                            stats['errors'] += 1
+                            stats["errors"] += 1
             else:
-                logger.error(f"Error inserting team batch {i//batch_size + 1}: {e}")
-                stats['errors'] += len(batch)
+                logger.error(f"Error inserting team batch {i // batch_size + 1}: {e}")
+                stats["errors"] += len(batch)
 
     # Batch INSERT aliases (with row-by-row fallback)
     console.print(f"\n[bold green]Inserting {len(alias_records)} aliases...[/bold green]")
 
     for i in track(range(0, len(alias_records), batch_size), description="Inserting aliases"):
-        batch = alias_records[i:i+batch_size]
+        batch = alias_records[i : i + batch_size]
         try:
-            supabase.table('team_alias_map').insert(batch).execute()
+            supabase.table("team_alias_map").insert(batch).execute()
         except Exception as e:
-            if 'duplicate key' in str(e).lower() or '23505' in str(e):
+            if "duplicate key" in str(e).lower() or "23505" in str(e):
                 batch_num = i // batch_size + 1
                 logger.info(f"Alias batch {batch_num}: conflict detected, falling back to row-by-row insert")
                 for record in batch:
                     try:
-                        supabase.table('team_alias_map').insert(record).execute()
+                        supabase.table("team_alias_map").insert(record).execute()
                     except Exception as row_err:
-                        if 'duplicate key' in str(row_err).lower() or '23505' in str(row_err):
+                        if "duplicate key" in str(row_err).lower() or "23505" in str(row_err):
                             pass  # Already exists, skip silently
                         else:
                             logger.error(f"Error inserting alias for {record.get('provider_team_id')}: {row_err}")
             else:
-                logger.error(f"Error inserting alias batch {i//batch_size + 1}: {e}")
-    
+                logger.error(f"Error inserting alias batch {i // batch_size + 1}: {e}")
+
     return stats
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='Extract and import TGS teams from games CSV (run BEFORE game import)'
-    )
-    parser.add_argument('csv_file', help='Games CSV file')
-    parser.add_argument('provider', help='Provider code (e.g., "tgs")')
-    parser.add_argument('--dry-run', action='store_true', help='Show what would be created without actually inserting')
-    parser.add_argument('--batch-size', type=int, default=500, help='Batch size for inserts (default: 500)')
-    
+    parser = argparse.ArgumentParser(description="Extract and import TGS teams from games CSV (run BEFORE game import)")
+    parser.add_argument("csv_file", help="Games CSV file")
+    parser.add_argument("provider", help='Provider code (e.g., "tgs")')
+    parser.add_argument("--dry-run", action="store_true", help="Show what would be created without actually inserting")
+    parser.add_argument("--batch-size", type=int, default=500, help="Batch size for inserts (default: 500)")
+
     args = parser.parse_args()
-    
+
     # Validate CSV file exists
     csv_path = Path(args.csv_file)
     if not csv_path.exists():
         console.print(f"[red]Error: File not found: {args.csv_file}[/red]")
         sys.exit(1)
-    
+
     # Initialize Supabase
-    supabase_url = os.getenv('SUPABASE_URL')
-    supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('SUPABASE_KEY')
-    
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
+
     if not supabase_url or not supabase_key:
         console.print("[red]Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set[/red]")
         sys.exit(1)
-    
+
     supabase = create_client(supabase_url, supabase_key)
-    
+
     # Get provider ID
     try:
-        result = supabase.table('providers').select('id').eq('code', args.provider).single().execute()
-        provider_id = result.data['id']
+        result = supabase.table("providers").select("id").eq("code", args.provider).single().execute()
+        provider_id = result.data["id"]
         console.print(f"[green]✓ Provider ID: {provider_id}[/green]")
     except Exception as e:
         console.print(f"[red]Error: Provider '{args.provider}' not found: {e}[/red]")
         sys.exit(1)
-    
+
     # Extract unique teams
     console.print(f"\n[bold]Extracting unique teams from {csv_path.name}...[/bold]")
     start_time = datetime.now()
-    
+
     teams = extract_unique_teams_from_csv(args.csv_file)
-    
+
     extract_time = (datetime.now() - start_time).total_seconds()
     console.print(f"[green]✓ Extracted {len(teams)} unique teams in {extract_time:.1f}s[/green]")
-    
+
     # Show sample
     sample_teams = list(teams.values())[:5]
     console.print("\n[bold]Sample teams:[/bold]")
@@ -342,16 +327,14 @@ def main():
         console.print(f"  {i}. {team['team_name']} ({team['age_year']}, {team['gender']}) - {team['club_name']}")
     if len(teams) > 5:
         console.print(f"  ... and {len(teams) - 5} more")
-    
+
     # Batch create teams and aliases
     import_start = datetime.now()
     stats = batch_create_teams_and_aliases(
-        supabase, provider_id, teams, 
-        dry_run=args.dry_run, 
-        batch_size=args.batch_size
+        supabase, provider_id, teams, dry_run=args.dry_run, batch_size=args.batch_size
     )
     import_time = (datetime.now() - import_start).total_seconds()
-    
+
     # Summary
     console.print("\n[bold green]═══════════════════════════════════════════[/bold green]")
     console.print("[bold green]          IMPORT SUMMARY[/bold green]")
@@ -364,7 +347,7 @@ def main():
     console.print(f"  Import time:     {import_time:.1f}s")
     console.print(f"  [bold]Total time:      {extract_time + import_time:.1f}s[/bold]")
     console.print("[bold green]═══════════════════════════════════════════[/bold green]\n")
-    
+
     if args.dry_run:
         console.print("[yellow]Dry run completed - no changes made[/yellow]")
     else:
@@ -373,5 +356,5 @@ def main():
         console.print(f"  python3 scripts/import_games_enhanced.py {args.csv_file} {args.provider}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

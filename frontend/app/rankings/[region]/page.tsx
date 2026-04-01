@@ -21,7 +21,7 @@ interface StateOverviewPageProps {
  * Get state info from code
  */
 function getStateInfo(stateCode: string): { code: string; name: string } | null {
-  const state = US_STATES.find(s => s.code.toLowerCase() === stateCode.toLowerCase());
+  const state = US_STATES.find((s) => s.code.toLowerCase() === stateCode.toLowerCase());
   if (state) return { code: state.code, name: state.name };
   if (stateCode.toLowerCase() === 'national') return { code: 'national', name: 'National' };
   return null;
@@ -33,7 +33,7 @@ function getStateInfo(stateCode: string): { code: string; name: string } | null 
 export async function generateMetadata({ params }: StateOverviewPageProps): Promise<Metadata> {
   const resolvedParams = await params;
   const { region } = resolvedParams;
-  
+
   const stateInfo = getStateInfo(region);
   if (!stateInfo) {
     return { title: 'Not Found | PitchRank' };
@@ -46,7 +46,7 @@ export async function generateMetadata({ params }: StateOverviewPageProps): Prom
   const title = isNational
     ? 'National Youth Soccer Rankings | PitchRank'
     : `${stateInfo.name} Youth Soccer Rankings | PitchRank`;
-    
+
   const description = isNational
     ? 'National youth soccer rankings for all age groups. 77K+ teams ranked across 700K+ games analyzed. See where your team stands. Updated weekly.'
     : `${stateInfo.name} youth soccer rankings - Find where your team ranks among 77K+ teams. PowerScore ratings updated weekly from 700K+ analyzed games. Start now!`;
@@ -78,25 +78,31 @@ export async function generateMetadata({ params }: StateOverviewPageProps): Prom
 export async function generateStaticParams() {
   // Pre-generate pages for popular states + national
   const popularStates = ['national', 'ca', 'fl', 'tx', 'az', 'ny', 'nj', 'ga', 'pa', 'il', 'nc', 'wa', 'co', 'oh'];
-  return popularStates.map(region => ({ region }));
+  return popularStates.map((region) => ({ region }));
 }
 
 export default async function StateOverviewPage({ params }: StateOverviewPageProps) {
   const resolvedParams = await params;
   const { region } = resolvedParams;
-  
+
   const stateInfo = getStateInfo(region);
   if (!stateInfo) {
     notFound();
   }
 
   const isNational = region.toLowerCase() === 'national';
-  
+
   // Fetch top teams for each gender in popular age groups (for preview)
   let boysTeamCount = 0;
   let girlsTeamCount = 0;
-  let topBoys: Array<{ age: string; teams: Array<{ team_id_master: string; team_name: string; club_name: string | null; power_score_final: number }> }> = [];
-  let topGirls: Array<{ age: string; teams: Array<{ team_id_master: string; team_name: string; club_name: string | null; power_score_final: number }> }> = [];
+  const topBoys: Array<{
+    age: string;
+    teams: Array<{ team_id_master: string; team_name: string; club_name: string | null; power_score_final: number }>;
+  }> = [];
+  const topGirls: Array<{
+    age: string;
+    teams: Array<{ team_id_master: string; team_name: string; club_name: string | null; power_score_final: number }>;
+  }> = [];
 
   try {
     const previewAges = ['u12', 'u13', 'u14'];
@@ -106,7 +112,7 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
     const [boysCount, girlsCount, ...previews] = await Promise.all([
       api.getRankingsCount(regionParam, 'u12', 'M'),
       api.getRankingsCount(regionParam, 'u12', 'F'),
-      ...previewAges.flatMap(age => [
+      ...previewAges.flatMap((age) => [
         api.getRankings(regionParam, age, 'M', { limit: 3 }),
         api.getRankings(regionParam, age, 'F', { limit: 3 }),
       ]),
@@ -122,7 +128,7 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
 
       topBoys.push({
         age,
-        teams: boysData.map(t => ({
+        teams: boysData.map((t) => ({
           team_id_master: t.team_id_master,
           team_name: t.team_name,
           club_name: t.club_name,
@@ -132,7 +138,7 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
 
       topGirls.push({
         age,
-        teams: girlsData.map(t => ({
+        teams: girlsData.map((t) => ({
           team_id_master: t.team_id_master,
           team_name: t.team_name,
           club_name: t.club_name,
@@ -148,9 +154,7 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
   const structuredData = {
     '@context': 'https://schema.org',
     '@type': 'CollectionPage',
-    name: isNational 
-      ? 'National Youth Soccer Rankings' 
-      : `${stateInfo.name} Youth Soccer Rankings`,
+    name: isNational ? 'National Youth Soccer Rankings' : `${stateInfo.name} Youth Soccer Rankings`,
     description: isNational
       ? 'Comprehensive national youth soccer rankings by age group and gender'
       : `Youth soccer rankings for ${stateInfo.name} across all age groups`,
@@ -174,7 +178,7 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
             {isNational ? 'National' : stateInfo.name} Soccer Rankings
           </h1>
           <p className="text-muted-foreground text-base sm:text-lg">
-            {isNational 
+            {isNational
               ? 'Browse youth soccer rankings across the USA'
               : `Youth soccer team rankings in ${stateInfo.name}`}
           </p>
@@ -182,8 +186,7 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
             <p className="text-sm text-muted-foreground mt-2">
               {boysTeamCount > 0 && `${boysTeamCount.toLocaleString()} Boys teams`}
               {boysTeamCount > 0 && girlsTeamCount > 0 && ' • '}
-              {girlsTeamCount > 0 && `${girlsTeamCount.toLocaleString()} Girls teams`}
-              {' '}(U12 division)
+              {girlsTeamCount > 0 && `${girlsTeamCount.toLocaleString()} Girls teams`} (U12 division)
             </p>
           )}
         </div>
@@ -192,17 +195,20 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
         <section className="mb-12">
           <h2 className="text-2xl font-bold mb-6">Browse by Age Group</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            {AGE_GROUPS.map(age => (
-              <div key={age} className="bg-card border border-border rounded-lg p-4 hover:border-primary transition-colors">
+            {AGE_GROUPS.map((age) => (
+              <div
+                key={age}
+                className="bg-card border border-border rounded-lg p-4 hover:border-primary transition-colors"
+              >
                 <h3 className="font-bold text-lg mb-2">{age.toUpperCase()}</h3>
                 <div className="space-y-1">
-                  <Link 
+                  <Link
                     href={`/rankings/${region.toLowerCase()}/${age}/male`}
                     className="block text-sm text-primary hover:underline"
                   >
                     Boys →
                   </Link>
-                  <Link 
+                  <Link
                     href={`/rankings/${region.toLowerCase()}/${age}/female`}
                     className="block text-sm text-primary hover:underline"
                   >
@@ -224,7 +230,7 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
                 <div key={age} className="bg-card border border-border rounded-lg p-4">
                   <div className="flex justify-between items-center mb-2">
                     <h3 className="font-semibold">{age} Boys</h3>
-                    <Link 
+                    <Link
                       href={`/rankings/${region.toLowerCase()}/${age.toLowerCase()}/male`}
                       className="text-xs text-primary hover:underline"
                     >
@@ -236,10 +242,7 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
                       {teams.map((team, idx) => (
                         <li key={team.team_id_master} className="text-sm flex items-center gap-2">
                           <span className="text-muted-foreground w-4">{idx + 1}.</span>
-                          <Link 
-                            href={`/teams/${team.team_id_master}`}
-                            className="hover:text-primary truncate"
-                          >
+                          <Link href={`/teams/${team.team_id_master}`} className="hover:text-primary truncate">
                             {team.team_name}
                           </Link>
                           <span className="text-xs text-muted-foreground ml-auto">
@@ -264,7 +267,7 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
                 <div key={age} className="bg-card border border-border rounded-lg p-4">
                   <div className="flex justify-between items-center mb-2">
                     <h3 className="font-semibold">{age} Girls</h3>
-                    <Link 
+                    <Link
                       href={`/rankings/${region.toLowerCase()}/${age.toLowerCase()}/female`}
                       className="text-xs text-primary hover:underline"
                     >
@@ -276,10 +279,7 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
                       {teams.map((team, idx) => (
                         <li key={team.team_id_master} className="text-sm flex items-center gap-2">
                           <span className="text-muted-foreground w-4">{idx + 1}.</span>
-                          <Link 
-                            href={`/teams/${team.team_id_master}`}
-                            className="hover:text-primary truncate"
-                          >
+                          <Link href={`/teams/${team.team_id_master}`} className="hover:text-primary truncate">
                             {team.team_name}
                           </Link>
                           <span className="text-xs text-muted-foreground ml-auto">
@@ -302,16 +302,16 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
           <section className="border-t border-border pt-8">
             <h2 className="text-xl font-bold mb-4">Rankings in Other States</h2>
             <div className="flex flex-wrap gap-2">
-              <Link 
+              <Link
                 href="/rankings/national"
                 className="px-3 py-1.5 bg-primary text-primary-foreground rounded text-sm hover:bg-primary/90"
               >
                 National
               </Link>
-              {US_STATES.filter(s => s.code.toLowerCase() !== region.toLowerCase())
+              {US_STATES.filter((s) => s.code.toLowerCase() !== region.toLowerCase())
                 .slice(0, 15)
-                .map(state => (
-                  <Link 
+                .map((state) => (
+                  <Link
                     key={state.code}
                     href={`/rankings/${state.code.toLowerCase()}`}
                     className="px-3 py-1.5 bg-muted text-foreground rounded text-sm hover:bg-muted/80"
@@ -322,13 +322,13 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
             </div>
           </section>
         )}
-        
+
         {isNational && (
           <section className="border-t border-border pt-8">
             <h2 className="text-xl font-bold mb-4">Browse by State</h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
-              {US_STATES.map(state => (
-                <Link 
+              {US_STATES.map((state) => (
+                <Link
                   key={state.code}
                   href={`/rankings/${state.code.toLowerCase()}`}
                   className="px-3 py-2 bg-muted text-foreground rounded text-sm hover:bg-muted/80 text-center"

@@ -1,8 +1,8 @@
-import { clsx, type ClassValue } from "clsx"
-import { twMerge } from "tailwind-merge"
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
 
 export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
+  return twMerge(clsx(inputs));
 }
 
 /**
@@ -12,7 +12,7 @@ export function cn(...inputs: ClassValue[]) {
  * @returns Formatted string (e.g., "41.50") or "—" if null/undefined
  */
 export function formatPowerScore(ps?: number | null): string {
-  if (ps == null) return "—";
+  if (ps == null) return '—';
   return (ps * 100).toFixed(2);
 }
 
@@ -23,7 +23,7 @@ export function formatPowerScore(ps?: number | null): string {
  * @returns Formatted string (e.g., "73.1") or "—" if null/undefined
  */
 export function formatSOSIndex(sosNorm?: number | null): string {
-  if (sosNorm == null) return "—";
+  if (sosNorm == null) return '—';
   return (sosNorm * 100).toFixed(1);
 }
 

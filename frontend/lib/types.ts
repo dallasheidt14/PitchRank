@@ -209,4 +209,3 @@ export interface ScrapeRequest {
   error_message: string | null;
   games_found: number | null;
 }
-

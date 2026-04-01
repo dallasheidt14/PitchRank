@@ -63,12 +63,12 @@ function formatPercentile(value: number): string {
   const percentile = Math.round(value * 100);
   const lastDigit = percentile % 10;
   const lastTwoDigits = percentile % 100;
-  
+
   // Handle special cases: 11th, 12th, 13th
   if (lastTwoDigits >= 11 && lastTwoDigits <= 13) {
     return `${percentile}th`;
   }
-  
+
   // Handle regular cases
   if (lastDigit === 1) return `${percentile}st`;
   if (lastDigit === 2) return `${percentile}nd`;
@@ -79,11 +79,7 @@ function formatPercentile(value: number): string {
 /**
  * Generate explanation for overall power score differential
  */
-function explainPowerScore(
-  teamA: TeamWithRanking,
-  teamB: TeamWithRanking,
-  powerDiff: number
-): Explanation | null {
+function explainPowerScore(teamA: TeamWithRanking, teamB: TeamWithRanking, powerDiff: number): Explanation | null {
   const absDiff = Math.abs(powerDiff);
   const magnitude = getMagnitude(absDiff, { significant: 0.15, moderate: 0.08 });
 
@@ -91,9 +87,9 @@ function explainPowerScore(
 
   const advantage = powerDiff > 0 ? 'team_a' : 'team_b';
   const strongerTeam = powerDiff > 0 ? teamA.team_name : teamB.team_name;
-  const weakerTeam = powerDiff > 0 ? teamB.team_name : teamA.team_name;
-  const strongerPower = powerDiff > 0 ? (teamA.power_score_final || 0.5) : (teamB.power_score_final || 0.5);
-  const weakerPower = powerDiff > 0 ? (teamB.power_score_final || 0.5) : (teamA.power_score_final || 0.5);
+  const _weakerTeam = powerDiff > 0 ? teamB.team_name : teamA.team_name;
+  const strongerPower = powerDiff > 0 ? teamA.power_score_final || 0.5 : teamB.power_score_final || 0.5;
+  const weakerPower = powerDiff > 0 ? teamB.power_score_final || 0.5 : teamA.power_score_final || 0.5;
 
   // Display power scores as ratings (not percentiles - they are composite scores, not rankings)
   const strongerRating = Math.round(strongerPower * 100);
@@ -120,21 +116,17 @@ function explainPowerScore(
 /**
  * Generate explanation for SOS differential
  */
-function explainSOS(
-  teamA: TeamWithRanking,
-  teamB: TeamWithRanking,
-  sosDiff: number
-): Explanation | null {
+function explainSOS(teamA: TeamWithRanking, teamB: TeamWithRanking, sosDiff: number): Explanation | null {
   const absDiff = Math.abs(sosDiff);
-  const magnitude = getMagnitude(absDiff, { significant: 0.20, moderate: 0.10 });
+  const magnitude = getMagnitude(absDiff, { significant: 0.2, moderate: 0.1 });
 
   if (magnitude === 'minimal') return null;
 
   const advantage = sosDiff > 0 ? 'team_a' : 'team_b';
   const strongerSOS = sosDiff > 0 ? teamA.team_name : teamB.team_name;
-  const weakerSOS = sosDiff > 0 ? teamB.team_name : teamA.team_name;
-  const strongerPercentile = formatPercentile(sosDiff > 0 ? (teamA.sos_norm || 0.5) : (teamB.sos_norm || 0.5));
-  const weakerPercentile = formatPercentile(sosDiff > 0 ? (teamB.sos_norm || 0.5) : (teamA.sos_norm || 0.5));
+  const _weakerSOS = sosDiff > 0 ? teamB.team_name : teamA.team_name;
+  const strongerPercentile = formatPercentile(sosDiff > 0 ? teamA.sos_norm || 0.5 : teamB.sos_norm || 0.5);
+  const weakerPercentile = formatPercentile(sosDiff > 0 ? teamB.sos_norm || 0.5 : teamA.sos_norm || 0.5);
 
   let description = '';
   if (magnitude === 'significant') {
@@ -221,10 +213,7 @@ function explainRecentForm(
  * Only reports a mismatch when an offense is STRONGER than the opposing defense
  * (i.e., offense percentile > defense percentile)
  */
-function explainOffensiveMatchup(
-  teamA: TeamWithRanking,
-  teamB: TeamWithRanking
-): Explanation | null {
+function explainOffensiveMatchup(teamA: TeamWithRanking, teamB: TeamWithRanking): Explanation | null {
   const offenseA = teamA.offense_norm || 0.5;
   const defenseA = teamA.defense_norm || 0.5;
   const offenseB = teamB.offense_norm || 0.5;
@@ -368,7 +357,17 @@ export function explainMatch(
   teamB: TeamWithRanking,
   prediction: MatchPrediction
 ): MatchExplanation {
-  const { components, formA, formB, winProbabilityA, confidence, confidence_score, expectedMargin, expectedScore, h2h } = prediction;
+  const {
+    components,
+    formA,
+    formB,
+    winProbabilityA,
+    confidence,
+    confidence_score,
+    expectedMargin,
+    expectedScore,
+    h2h,
+  } = prediction;
 
   // Generate all possible explanations
   const allExplanations: (Explanation | null)[] = [
@@ -384,26 +383,27 @@ export function explainMatch(
   const allFactors = allExplanations.filter((e): e is Explanation => e !== null);
 
   // Separate factors by who they favor
-  const favoredSide = prediction.predictedWinner === 'team_a' ? 'team_a' :
-                      prediction.predictedWinner === 'team_b' ? 'team_b' : null;
+  const favoredSide =
+    prediction.predictedWinner === 'team_a' ? 'team_a' : prediction.predictedWinner === 'team_b' ? 'team_b' : null;
 
   // For "Why X is Favored", only show factors that favor the predicted winner (or neutral)
   // This prevents confusing displays like "Why Excel is Favored: [Engilman has momentum]"
   const factors = allFactors
-    .filter(f => f.advantage === favoredSide || f.advantage === 'neutral')
+    .filter((f) => f.advantage === favoredSide || f.advantage === 'neutral')
     .sort((a, b) => b.score - a.score)
     .slice(0, 4);
 
   // If no factors favor the winner, fall back to showing top factors by score
   // (This can happen in very close matches)
-  const displayFactors = factors.length > 0 ? factors : allFactors
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 4);
+  const displayFactors = factors.length > 0 ? factors : allFactors.sort((a, b) => b.score - a.score).slice(0, 4);
 
   // Generate summary
-  const favoredTeam = prediction.predictedWinner === 'team_a' ? teamA.team_name :
-                      prediction.predictedWinner === 'team_b' ? teamB.team_name :
-                      'Neither team';
+  const favoredTeam =
+    prediction.predictedWinner === 'team_a'
+      ? teamA.team_name
+      : prediction.predictedWinner === 'team_b'
+        ? teamB.team_name
+        : 'Neither team';
 
   let summary = '';
   if (prediction.predictedWinner === 'draw') {
@@ -427,19 +427,21 @@ export function explainMatch(
   // 1. Enhanced confidence insight with compelling data-backed language
   const confidenceScore = confidence_score ?? 0.5;
   if (confidence === 'high') {
-    if (confidenceScore >= 0.80) {
-      keyInsights.push('🎯 Elite prediction confidence: Our model identifies this as a high-certainty outcome based on converging strength indicators');
+    if (confidenceScore >= 0.8) {
+      keyInsights.push(
+        '🎯 Elite prediction confidence: Our model identifies this as a high-certainty outcome based on converging strength indicators'
+      );
     } else {
       keyInsights.push('🎯 High confidence: Multiple validated metrics strongly favor this outcome');
     }
   } else if (confidence === 'medium') {
-    if (confidenceScore >= 0.60) {
+    if (confidenceScore >= 0.6) {
       keyInsights.push('📊 Solid prediction: Meaningful statistical edge detected with reliable underlying data');
     } else {
       keyInsights.push('📊 Moderate confidence: Analysis reveals a real but modest advantage');
     }
   } else {
-    if (confidenceScore < 0.40) {
+    if (confidenceScore < 0.4) {
       keyInsights.push('⚠️ Uncertain outcome: High variance or limited data - treat this as a true wildcard');
     } else {
       keyInsights.push('⚠️ Coin-flip territory: No meaningful statistical edge - anything can happen');
@@ -455,9 +457,13 @@ export function explainMatch(
   if (minGamesPlayed < 5) {
     // One team has very few games - highlight this limitation
     const limitedTeam = gamesA < gamesB ? teamA.team_name : teamB.team_name;
-    keyInsights.push(`📉 Limited data warning: ${limitedTeam} has only ${minGamesPlayed} games on record - expect higher prediction variance`);
+    keyInsights.push(
+      `📉 Limited data warning: ${limitedTeam} has only ${minGamesPlayed} games on record - expect higher prediction variance`
+    );
   } else if (minGamesPlayed < 10) {
-    keyInsights.push(`📉 Early season data: Both teams have ${minGamesPlayed}-${maxGamesPlayed} games each - predictions may have higher variance`);
+    keyInsights.push(
+      `📉 Early season data: Both teams have ${minGamesPlayed}-${maxGamesPlayed} games each - predictions may have higher variance`
+    );
   } else if (minGamesPlayed < 20) {
     keyInsights.push(`📈 Solid sample size: ${minGamesPlayed}+ games per team provides reliable prediction data`);
   } else {
@@ -470,13 +476,21 @@ export function explainMatch(
   const expectedWinner = expectedMargin > 0 ? teamA.team_name : teamB.team_name;
 
   if (absMargin < 0.5) {
-    keyInsights.push(`⚖️ Razor-thin margins: Model projects a near-draw scenario (±${roundedMargin.toFixed(1)} goal difference)`);
+    keyInsights.push(
+      `⚖️ Razor-thin margins: Model projects a near-draw scenario (±${roundedMargin.toFixed(1)} goal difference)`
+    );
   } else if (absMargin < 1.5) {
-    keyInsights.push(`🎲 One-goal game territory: Expect a tight, potentially dramatic finish (±${roundedMargin.toFixed(1)} goals)`);
+    keyInsights.push(
+      `🎲 One-goal game territory: Expect a tight, potentially dramatic finish (±${roundedMargin.toFixed(1)} goals)`
+    );
   } else if (absMargin < 3.0) {
-    keyInsights.push(`📐 Clear but not dominant: ${expectedWinner} projected to win by ${roundedMargin.toFixed(1)} goals - competitive but controlled`);
+    keyInsights.push(
+      `📐 Clear but not dominant: ${expectedWinner} projected to win by ${roundedMargin.toFixed(1)} goals - competitive but controlled`
+    );
   } else {
-    keyInsights.push(`💪 Mismatch detected: ${expectedWinner} projected to dominate by ${roundedMargin.toFixed(1)}+ goals`);
+    keyInsights.push(
+      `💪 Mismatch detected: ${expectedWinner} projected to dominate by ${roundedMargin.toFixed(1)}+ goals`
+    );
   }
 
   // 4. Scoreline context with age-specific calibration insights
@@ -488,11 +502,17 @@ export function explainMatch(
   if (age) {
     // Age-specific context - reference our calibration data
     if (age <= 11 && totalExpectedGoals > 5) {
-      keyInsights.push(`⚽ High-scoring expected: ${totalExpectedGoals.toFixed(1)} total goals projected - typical for U${age} matches`);
+      keyInsights.push(
+        `⚽ High-scoring expected: ${totalExpectedGoals.toFixed(1)} total goals projected - typical for U${age} matches`
+      );
     } else if (age >= 15 && totalExpectedGoals < 3) {
-      keyInsights.push(`🛡️ Defensive battle expected: Only ${totalExpectedGoals.toFixed(1)} goals projected - U${age} matches trend lower-scoring`);
+      keyInsights.push(
+        `🛡️ Defensive battle expected: Only ${totalExpectedGoals.toFixed(1)} goals projected - U${age} matches trend lower-scoring`
+      );
     } else if (age) {
-      keyInsights.push(`⚽ Age-calibrated projection: ${totalExpectedGoals.toFixed(1)} total goals expected based on U${age} historical patterns`);
+      keyInsights.push(
+        `⚽ Age-calibrated projection: ${totalExpectedGoals.toFixed(1)} total goals expected based on U${age} historical patterns`
+      );
     }
   }
 
@@ -513,7 +533,8 @@ export function explainMatch(
   let reliabilityMessage = '';
   if (confidence === 'high') {
     if (minGamesPlayed >= 20) {
-      reliabilityMessage = 'Elite-tier prediction: Probabilities calibrated on 452K+ youth soccer games with robust team-specific data';
+      reliabilityMessage =
+        'Elite-tier prediction: Probabilities calibrated on 452K+ youth soccer games with robust team-specific data';
     } else {
       reliabilityMessage = 'Strong prediction: Clear statistical advantage detected across multiple validated metrics';
     }

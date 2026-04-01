@@ -101,7 +101,11 @@ export async function renderRankingMoversToCanvas(options: RankingMoversOptions)
   const genderLabel = gender === 'M' ? 'BOYS' : 'GIRLS';
   ctx.fillStyle = '#AAAAAA';
   ctx.font = `400 ${smallTextSize}px "DM Sans", Arial, sans-serif`;
-  ctx.fillText(`${ageGroup.toUpperCase()} ${genderLabel} • ${regionName.toUpperCase()}`, dimensions.width / 2, currentY + smallTextSize);
+  ctx.fillText(
+    `${ageGroup.toUpperCase()} ${genderLabel} • ${regionName.toUpperCase()}`,
+    dimensions.width / 2,
+    currentY + smallTextSize
+  );
 
   currentY += smallTextSize + (isVertical ? 40 : 30);
 

@@ -21,7 +21,7 @@ import time
 import tracemalloc
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -73,10 +73,7 @@ class MemoryReport:
         if self.top_allocations:
             lines.append(f"\nTop {len(self.top_allocations)} allocations:")
             for alloc in self.top_allocations:
-                lines.append(
-                    f"  {alloc['size_mb']:.2f} MB  {alloc['file']}:{alloc['line']}  "
-                    f"({alloc['count']} blocks)"
-                )
+                lines.append(f"  {alloc['size_mb']:.2f} MB  {alloc['file']}:{alloc['line']}  ({alloc['count']} blocks)")
         if self.leaked_objects:
             lines.append(f"\nPotential leaks ({len(self.leaked_objects)} types with growth):")
             for leak in self.leaked_objects[:10]:
@@ -98,6 +95,7 @@ def _get_rss_mb() -> float:
     # Fallback: use resource module
     try:
         import resource
+
         rusage = resource.getrusage(resource.RUSAGE_SELF)
         # macOS returns bytes, Linux returns KB
         if sys.platform == "darwin":
@@ -178,12 +176,14 @@ class MemoryProfiler:
             stats = snapshot.statistics("lineno")
             for stat in stats[: self.top_allocations]:
                 frame = stat.traceback[0]
-                top_allocs.append({
-                    "file": frame.filename,
-                    "line": frame.lineno,
-                    "size_mb": stat.size / (1024 * 1024),
-                    "count": stat.count,
-                })
+                top_allocs.append(
+                    {
+                        "file": frame.filename,
+                        "line": frame.lineno,
+                        "size_mb": stat.size / (1024 * 1024),
+                        "count": stat.count,
+                    }
+                )
 
         # Detect potential leaks
         leaked = []
@@ -193,11 +193,13 @@ class MemoryProfiler:
                 before = self._type_counts_before.get(type_name, 0)
                 delta = count - before
                 if delta > 100:  # Only flag significant growth
-                    leaked.append({
-                        "type": type_name,
-                        "count": count,
-                        "delta": delta,
-                    })
+                    leaked.append(
+                        {
+                            "type": type_name,
+                            "count": count,
+                            "delta": delta,
+                        }
+                    )
             leaked.sort(key=lambda x: x["delta"], reverse=True)
 
         _, peak = tracemalloc.get_traced_memory()
@@ -280,6 +282,7 @@ def profile_memory(
             return result
 
         import asyncio
+
         if asyncio.iscoroutinefunction(fn):
             return async_wrapper
         return wrapper

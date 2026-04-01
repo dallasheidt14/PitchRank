@@ -16,7 +16,7 @@ export async function POST(req: Request) {
     // Get authenticated user
     const {
       data: { user },
-      error: authError,
+      error: _authError,
     } = await supabase.auth.getUser();
 
     if (!user) {
@@ -67,12 +67,15 @@ export async function POST(req: Request) {
     // Get or create default watchlist
     let watchlistId: string;
 
-    let { data: existingWatchlist, error: fetchError } = await supabase
+    const fetchResult = await supabase
       .from('watchlists')
       .select('id')
       .eq('user_id', user.id)
       .eq('is_default', true)
       .single();
+
+    const fetchError = fetchResult.error;
+    let existingWatchlist = fetchResult.data;
 
     if (fetchError && fetchError.code !== 'PGRST116') {
       console.error('[Watchlist Add] Error fetching watchlist:', fetchError);
@@ -117,7 +120,7 @@ export async function POST(req: Request) {
     }
 
     // Add team to watchlist (upsert to handle duplicates gracefully)
-    const { data: upsertData, error: addError } = await supabase
+    const { error: addError } = await supabase
       .from('watchlist_items')
       .upsert(
         {

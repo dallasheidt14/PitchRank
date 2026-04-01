@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-import { createServerSupabase } from "@/lib/supabase/server";
+import { NextResponse } from 'next/server';
+import { createServerSupabase } from '@/lib/supabase/server';
 
 /**
  * GET /logout
@@ -9,7 +9,7 @@ import { createServerSupabase } from "@/lib/supabase/server";
  */
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
-  const next = requestUrl.searchParams.get("next") ?? "/";
+  const next = requestUrl.searchParams.get('next') ?? '/';
 
   const supabase = await createServerSupabase();
   await supabase.auth.signOut();
@@ -29,5 +29,5 @@ export async function POST(request: Request) {
   const supabase = await createServerSupabase();
   await supabase.auth.signOut();
 
-  return NextResponse.redirect(new URL("/", requestUrl.origin));
+  return NextResponse.redirect(new URL('/', requestUrl.origin));
 }

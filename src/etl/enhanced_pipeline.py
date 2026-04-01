@@ -1,26 +1,23 @@
 """Enhanced ETL Pipeline with metrics tracking and bulk operations"""
 
-import asyncio
-from typing import List, Tuple, Optional, Dict, Any
-from datetime import datetime
 import logging
-from dataclasses import dataclass, field
-import copy
-import json
+import random
 import sys
 import time
-import random
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 # Ensure project root is on path (needed for direct script execution only)
 _project_root = str(Path(__file__).parent.parent.parent)
 if _project_root not in sys.path:
     sys.path.append(_project_root)
 
-from supabase import Client, create_client
-from config.settings import MATCHING_CONFIG, BUILD_ID, SUPABASE_URL, SUPABASE_KEY
-from src.models.game_matcher import GameHistoryMatcher
-from src.utils.enhanced_validators import EnhancedDataValidator, parse_game_date
+from config.settings import BUILD_ID, MATCHING_CONFIG, SUPABASE_KEY, SUPABASE_URL  # noqa: E402
+from src.models.game_matcher import GameHistoryMatcher  # noqa: E402
+from src.utils.enhanced_validators import EnhancedDataValidator, parse_game_date  # noqa: E402
+from supabase import Client, create_client  # noqa: E402
 
 # Import club normalizer for pre-match normalization
 try:
@@ -228,12 +225,16 @@ class EnhancedETLPipeline:
             from src.models.sincsports_matcher import SincSportsGameMatcher
 
             logger.info("Using SincSportsGameMatcher (with enhanced fuzzy matching)")
-            self.matcher = SincSportsGameMatcher(self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
+            self.matcher = SincSportsGameMatcher(
+                self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache
+            )
         elif self.provider_code.lower() == "affinity_wa":
             from src.models.affinity_wa_matcher import AffinityWAGameMatcher
 
             logger.info("Using AffinityWAGameMatcher (WA-specific normalization + auto-create)")
-            self.matcher = AffinityWAGameMatcher(self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
+            self.matcher = AffinityWAGameMatcher(
+                self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache
+            )
         else:
             logger.info(f"Using standard GameHistoryMatcher for provider: {self.provider_code}")
             self.matcher = GameHistoryMatcher(self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
@@ -524,19 +525,22 @@ class EnhancedETLPipeline:
             self.metrics.failed_games_count += failed_count
 
             logger.info(
-                f"Matched {len(game_records)} games (matched: {matched_count}, partial: {partial_count}, failed: {failed_count})"
+                f"Matched {len(game_records)} games "
+                f"(matched: {matched_count}, partial: {partial_count}, failed: {failed_count})"
             )
 
             # Step 3b: Check for duplicates using composite key (after team matching)
             # For Modular11: game_uid now includes age_group and division, so it's more specific than composite key.
-            # If game_uid doesn't exist, trust it (even if composite key matches, because composite key doesn't include age_group/division).
+            # If game_uid doesn't exist, trust it (even if composite key matches,
+            # because composite key doesn't include age_group/division).
             # For other providers: composite key is authoritative (includes scores).
             if self.provider_code and self.provider_code.lower() == "modular11":
                 # For Modular11, game_uid was regenerated during team matching with age_group/division.
                 # We need to check duplicates again using the regenerated game_uids.
                 existing_uids, game_uid_to_master_ids = await self._check_duplicates(game_records)
                 logger.info(
-                    f"[Pipeline] Modular11: Re-checked duplicates after team matching, found {len(existing_uids)} existing game_uids out of {len(game_records)} total games"
+                    f"[Pipeline] Modular11: Re-checked duplicates after team matching, "
+                    f"found {len(existing_uids)} existing game_uids out of {len(game_records)} total games"
                 )
 
                 # CRITICAL: Also check for LEGACY UIDs (without age_group/division suffix).
@@ -559,7 +563,8 @@ class EnhancedETLPipeline:
                 legacy_existing = set()
                 if legacy_uids_to_check:
                     logger.info(
-                        f"[Pipeline] Modular11: Checking {len(legacy_uids_to_check)} legacy UIDs for backward compatibility"
+                        f"[Pipeline] Modular11: Checking {len(legacy_uids_to_check)} "
+                        f"legacy UIDs for backward compatibility"
                     )
                     batch_size = 200
                     for chunk in self._chunks(legacy_uids_to_check, batch_size):
@@ -581,7 +586,8 @@ class EnhancedETLPipeline:
 
                     if legacy_existing:
                         logger.info(
-                            f"[Pipeline] Modular11: Found {len(legacy_existing)} games with LEGACY UIDs in DB (these are NOT new games)"
+                            f"[Pipeline] Modular11: Found {len(legacy_existing)} games "
+                        f"with LEGACY UIDs in DB (these are NOT new games)"
                         )
 
                 # For Modular11, check game_uid first (it includes age_group and division)
@@ -594,16 +600,19 @@ class EnhancedETLPipeline:
                 ]
 
                 logger.info(
-                    f"[Pipeline] Modular11: {len(games_with_new_uid)} games with NEW game_uid, {len(games_with_existing_uid)} games with EXISTING game_uid"
+                    f"[Pipeline] Modular11: {len(games_with_new_uid)} games with NEW game_uid, "
+                    f"{len(games_with_existing_uid)} games with EXISTING game_uid"
                 )
 
-                # For games with new game_uid, trust it (don't check composite key - it doesn't include age_group/division)
+                # For games with new game_uid, trust it (don't check composite key -
+                # it doesn't include age_group/division)
                 # For games with existing game_uid, check composite key to see if scores differ
                 if games_with_existing_uid:
                     existing_composite_keys = await self._check_duplicates_by_composite_key(games_with_existing_uid)
                     if existing_composite_keys:
                         logger.info(
-                            f"[Pipeline] Found {len(existing_composite_keys)} duplicate games by composite key (already in DB)"
+                            f"[Pipeline] Found {len(existing_composite_keys)} duplicate games "
+                        f"by composite key (already in DB)"
                         )
                         # Capture duplicates before filtering for backfill
                         m11_composite_dupes = [
@@ -618,17 +627,20 @@ class EnhancedETLPipeline:
                         batch_metrics.duplicates_found = len(existing_composite_keys)
                         self.metrics.duplicates_found += len(existing_composite_keys)
                         logger.info(
-                            f"[Pipeline] Filtered to {len(games_with_existing_uid)} games after composite key duplicate check"
+                            f"[Pipeline] Filtered to {len(games_with_existing_uid)} games "
+                        f"after composite key duplicate check"
                         )
                         # Backfill missing master IDs on Modular11 composite-key duplicates
                         bf = await self._backfill_duplicate_team_links(m11_composite_dupes)
                         batch_metrics.duplicate_links_backfilled += bf
                         self.metrics.duplicate_links_backfilled += bf
 
-                # Combine: games with new game_uid (trust them) + games with existing game_uid that passed composite key check
+                # Combine: games with new game_uid (trust them) + games with existing
+                # game_uid that passed composite key check
                 game_records = games_with_new_uid + games_with_existing_uid
                 logger.info(
-                    f"[Pipeline] Modular11: Final - {len(games_with_new_uid)} games with new game_uid (trusted), {len(games_with_existing_uid)} games with existing game_uid (checked), total: {len(game_records)}"
+                    f"[Pipeline] Modular11: Final - {len(games_with_new_uid)} new game_uid (trusted), "
+                    f"{len(games_with_existing_uid)} existing game_uid (checked), total: {len(game_records)}"
                 )
 
                 # CRITICAL: For Modular11, skip composite key deduplication in _bulk_insert_games
@@ -666,7 +678,8 @@ class EnhancedETLPipeline:
                 existing_composite_keys = await self._check_duplicates_by_composite_key(game_records)
                 if existing_composite_keys:
                     logger.info(
-                        f"[Pipeline] Found {len(existing_composite_keys)} duplicate games by composite key (already in DB)"
+                        f"[Pipeline] Found {len(existing_composite_keys)} duplicate games "
+                        f"by composite key (already in DB)"
                     )
                     # Capture duplicates before filtering for backfill
                     composite_dupes_list = [
@@ -780,7 +793,8 @@ class EnhancedETLPipeline:
                                 modified_game_uid = f"{provider}:{date}:{team1}:{team2}:{age_group}"
                                 game["game_uid"] = modified_game_uid
                                 logger.info(
-                                    f"[Pipeline] Modified game_uid for conflict (age only): {game_uid} -> {modified_game_uid}"
+                                    f"[Pipeline] Modified game_uid for conflict (age only): "
+                    f"{game_uid} -> {modified_game_uid}"
                                 )
                                 games_to_insert.append(game)
                             else:
@@ -884,7 +898,9 @@ class EnhancedETLPipeline:
                 logger.info("Dry run mode - games not inserted")
             elif not valid_game_records:
                 logger.warning(
-                    f"No game records to insert after matching and score validation (matched: {matched_count}, partial: {partial_count}, failed: {failed_count}, skipped scores: {skipped_count})"
+                    f"No game records to insert after matching and score validation "
+                    f"(matched: {matched_count}, partial: {partial_count}, "
+                    f"failed: {failed_count}, skipped scores: {skipped_count})"
                 )
 
             # Step 6: Process team matching statistics
@@ -905,7 +921,11 @@ class EnhancedETLPipeline:
             if self._batch_count % self._log_every_n_batches == 0 or self._batch_count == 1:
                 await self._log_build_metrics()
                 logger.info(
-                    f"📊 [DB LOG] Batch {self._batch_count} | Processed: {self.metrics.games_processed:,} | Accepted: {self.metrics.games_accepted:,} | Quarantined: {self.metrics.games_quarantined:,} | Duplicates: {self.metrics.duplicates_found:,}"
+                    f"📊 [DB LOG] Batch {self._batch_count} | "
+                    f"Processed: {self.metrics.games_processed:,} | "
+                    f"Accepted: {self.metrics.games_accepted:,} | "
+                    f"Quarantined: {self.metrics.games_quarantined:,} | "
+                    f"Duplicates: {self.metrics.duplicates_found:,}"
                 )
 
             # Log progress update to console (every 10k games)
@@ -1557,7 +1577,8 @@ class EnhancedETLPipeline:
                     if result.data:
                         updated_count += 1
                         logger.debug(
-                            f"Updated game {game_uid} with scores {update_data['home_score']}-{update_data['away_score']}"
+                            f"Updated game {game_uid} with scores "
+                            f"{update_data['home_score']}-{update_data['away_score']}"
                         )
             except Exception as e:
                 logger.warning(f"Failed to update game {game_uid}: {e}")
@@ -1748,7 +1769,9 @@ class EnhancedETLPipeline:
                 skipped_empty_provider_ids += 1
                 if skipped_empty_provider_ids <= 5:  # Log first 5 examples
                     logger.warning(
-                        f"Skipping game with empty provider IDs: home={record['home_provider_id']}, away={record['away_provider_id']}, game_uid={record['game_uid']}"
+                        f"Skipping game with empty provider IDs: "
+                        f"home={record['home_provider_id']}, "
+                        f"away={record['away_provider_id']}, game_uid={record['game_uid']}"
                     )
                 # Don't increment metrics - this is a data quality issue
                 continue
@@ -1790,7 +1813,7 @@ class EnhancedETLPipeline:
         skip_composite_dedup = self.provider_code and self.provider_code.lower() == "modular11"
 
         if skip_composite_dedup:
-            logger.info(f"[Pipeline] Modular11: Skipping composite key deduplication (game_uid is authoritative)")
+            logger.info("[Pipeline] Modular11: Skipping composite key deduplication (game_uid is authoritative)")
             deduped_records = insert_records
         else:
             seen_composite_keys = set()
@@ -1834,7 +1857,7 @@ class EnhancedETLPipeline:
             for attempt in range(max_retries):
                 try:
                     # Use Supabase insert with batch (returning='minimal' for performance)
-                    result = self.supabase.table("games").insert(chunk, returning="minimal").execute()
+                    self.supabase.table("games").insert(chunk, returning="minimal").execute()
 
                     # Supabase Python client: if no exception is raised, insert succeeded
                     # With returning='minimal', result.data is typically [] or None
@@ -1885,9 +1908,11 @@ class EnhancedETLPipeline:
                     )
 
                     if is_duplicate_error:
-                        # Duplicate key violation or 409 Conflict - fall back to individual inserts to save valid records
+                        # Duplicate key violation or 409 Conflict - fall back to
+                        # individual inserts to save valid records
                         logger.warning(
-                            f"⚠️  Duplicate key violation or 409 Conflict in batch of {len(chunk)} games - falling back to individual inserts"
+                            f"⚠️  Duplicate key violation or 409 Conflict in batch of "
+                            f"{len(chunk)} games - falling back to individual inserts"
                         )
                         logger.debug(f"Full error details: {str(e)}")
 
@@ -1952,7 +1977,8 @@ class EnhancedETLPipeline:
                                             if not uid_check.data or len(uid_check.data) == 0:
                                                 # game_uid doesn't exist = this is a FALSE duplicate
                                                 # The composite key constraint is blocking a legitimate unique game
-                                                # This happens when: same provider IDs/date/scores but different age_group/division
+                                                # This happens when: same provider IDs/date/scores but
+                                                # different age_group/division
                                                 # Example: 14_U14_HD vs 14_U15_HD playing on same date with same scores
                                                 is_modular11_false_duplicate = True
                                                 logger.error(
@@ -1973,9 +1999,11 @@ class EnhancedETLPipeline:
                                     # Count as "other error" not "duplicate"
                                     individual_other_errors += 1
                                     logger.error(
-                                        f"[Pipeline] BLOCKED: Modular11 game with unique game_uid={record.get('game_uid')} "
-                                        f"cannot be inserted due to composite key constraint. "
-                                        f"This game is UNIQUE (different age_group/division) but DB constraint blocks it."
+                                        f"[Pipeline] BLOCKED: Modular11 game with unique "
+                                        f"game_uid={record.get('game_uid')} cannot be inserted "
+                                        f"due to composite key constraint. "
+                                        f"This game is UNIQUE (different age_group/division) "
+                                        f"but DB constraint blocks it."
                                     )
                                 elif is_individual_duplicate:
                                     individual_duplicates += 1
@@ -1984,12 +2012,15 @@ class EnhancedETLPipeline:
                                 else:
                                     individual_other_errors += 1
                                     logger.warning(
-                                        f"Individual insert failed (NOT duplicate, game {idx}): {type(individual_e).__name__}: {str(individual_e)}"
+                                        f"Individual insert failed (NOT duplicate, game {idx}): "
+                                        f"{type(individual_e).__name__}: {str(individual_e)}"
                                     )
                                     if individual_status_code:
                                         logger.warning(f"  HTTP status code: {individual_status_code}")
                                     logger.debug(
-                                        f"Failed record: game_uid={record.get('game_uid')}, home_provider_id={record.get('home_provider_id')}, away_provider_id={record.get('away_provider_id')}"
+                                        f"Failed record: game_uid={record.get('game_uid')}, "
+                                        f"home_provider_id={record.get('home_provider_id')}, "
+                                        f"away_provider_id={record.get('away_provider_id')}"
                                     )
                                     logger.debug(f"Full error: {traceback.format_exc()}")
 
@@ -1999,17 +2030,20 @@ class EnhancedETLPipeline:
 
                         if individual_other_errors > 0:
                             logger.error(
-                                f"⚠️  {individual_other_errors} games failed for NON-DUPLICATE reasons! Check logs above."
+                                f"⚠️  {individual_other_errors} games failed for "
+                                f"NON-DUPLICATE reasons! Check logs above."
                             )
 
                         logger.info(
-                            f"✅ Fallback complete: {individual_inserted} inserted, {individual_duplicates} duplicates skipped, {individual_other_errors} other errors"
+                            f"✅ Fallback complete: {individual_inserted} inserted, "
+                            f"{individual_duplicates} duplicates skipped, "
+                            f"{individual_other_errors} other errors"
                         )
                         inserted_chunk = True
                         break
                     elif "429" in error_str or "rate limit" in error_str or "too many requests" in error_str:
                         # Rate limit error - wait longer and reduce batch size
-                        logger.warning(f"⚠️  Rate limit hit (429) - reducing batch size and waiting longer")
+                        logger.warning("⚠️  Rate limit hit (429) - reducing batch size and waiting longer")
                         if current_batch_size > 500:
                             new_batch_size = max(500, int(current_batch_size * 0.5))
                             logger.warning(
@@ -2021,7 +2055,8 @@ class EnhancedETLPipeline:
                         if attempt < max_retries - 1:
                             wait_time = 60 + (attempt * 20) + random.uniform(0, 10)  # 60s, 80s, 100s...
                             logger.warning(
-                                f"Rate limit error (attempt {attempt + 1}/{max_retries}), waiting {wait_time:.1f}s before retry..."
+                                f"Rate limit error (attempt {attempt + 1}/{max_retries}), "
+                                f"waiting {wait_time:.1f}s before retry..."
                             )
                             time.sleep(wait_time)
                             continue
@@ -2055,7 +2090,9 @@ class EnhancedETLPipeline:
                         if attempt < max_retries - 1:
                             wait_time = retry_delay * (2**attempt) + random.uniform(0, 0.5)  # Add jitter
                             logger.warning(
-                                f"SSL/Network error inserting batch (attempt {attempt + 1}/{max_retries}), retrying in {wait_time:.1f}s: {e}"
+                                f"SSL/Network error inserting batch "
+                                f"(attempt {attempt + 1}/{max_retries}), "
+                                f"retrying in {wait_time:.1f}s: {e}"
                             )
                             time.sleep(wait_time)
                             continue
@@ -2069,7 +2106,7 @@ class EnhancedETLPipeline:
                                 logger.info(
                                     f"Attempting to split failed batch of {len(chunk)} games into smaller chunks"
                                 )
-                                mid = len(chunk) // 2
+                                len(chunk) // 2
                                 # Recursively try smaller batches (will be handled in next iteration)
                                 # For now, just log and continue
                             break

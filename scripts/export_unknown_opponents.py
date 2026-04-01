@@ -30,6 +30,7 @@ from typing import Dict, List, Optional, Tuple
 
 import requests
 from dotenv import load_dotenv
+
 from supabase import create_client
 
 
@@ -44,13 +45,12 @@ def load_env() -> None:
 def get_supabase():
     supabase_url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
     supabase_key = (
-        os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-        or os.getenv("SUPABASE_SERVICE_KEY")
-        or os.getenv("SUPABASE_KEY")
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
     )
     if not supabase_url or not supabase_key:
         raise ValueError(
-            "Missing Supabase credentials. Need SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_KEY/SUPABASE_KEY."
+            "Missing Supabase credentials. "
+            "Need SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_KEY/SUPABASE_KEY."
         )
     return create_client(supabase_url, supabase_key)
 
@@ -157,8 +157,8 @@ def fetch_partial_games(
     rows: List[Dict] = []
 
     while True:
-        query = supabase.table("games").select(select_cols).or_(
-            "home_team_master_id.is.null,away_team_master_id.is.null"
+        query = (
+            supabase.table("games").select(select_cols).or_("home_team_master_id.is.null,away_team_master_id.is.null")
         )
 
         if provider_id:
@@ -216,7 +216,11 @@ def main() -> None:
     parser.add_argument("--provider", default=None, help="Provider code filter (e.g. gotsport, tgs)")
     parser.add_argument("--include-excluded", action="store_true", help="Include games where is_excluded=true")
     parser.add_argument("--max-rows", type=int, default=None, help="Optional cap for fetched game rows")
-    parser.add_argument("--resolve-gotsport-details", action="store_true", help="Fetch GotSport team details for unknown provider team IDs")
+    parser.add_argument(
+        "--resolve-gotsport-details",
+        action="store_true",
+        help="Fetch GotSport team details for unknown provider team IDs",
+    )
     parser.add_argument(
         "--output-prefix",
         default=None,

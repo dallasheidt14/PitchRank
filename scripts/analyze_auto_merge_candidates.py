@@ -8,6 +8,7 @@ based on confidence score and matching criteria.
 Usage:
     python3 scripts/analyze_auto_merge_candidates.py [--dry-run] [--min-confidence 0.85] [--execute]
 """
+
 import argparse
 import os
 from pathlib import Path
@@ -16,10 +17,12 @@ import psycopg2
 from dotenv import load_dotenv
 from psycopg2.extras import RealDictCursor
 
-load_dotenv(Path(__file__).parent.parent / '.env')
+load_dotenv(Path(__file__).parent.parent / ".env")
+
 
 def get_connection():
-    return psycopg2.connect(os.getenv('DATABASE_URL'))
+    return psycopg2.connect(os.getenv("DATABASE_URL"))
+
 
 def analyze_candidates(min_confidence=0.85, limit=100):
     """Find auto-merge candidates with safety checks."""
@@ -27,7 +30,8 @@ def analyze_candidates(min_confidence=0.85, limit=100):
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
     # Get candidates with suggestions above threshold
-    cur.execute('''
+    cur.execute(
+        """
         SELECT
             q.id,
             q.provider_id,
@@ -47,27 +51,30 @@ def analyze_candidates(min_confidence=0.85, limit=100):
           AND q.confidence_score >= %s
         ORDER BY q.confidence_score DESC
         LIMIT %s
-    ''', (min_confidence, limit))
+    """,
+        (min_confidence, limit),
+    )
 
     candidates = cur.fetchall()
     conn.close()
     return candidates
 
+
 def categorize_candidates(candidates):
     """Categorize candidates by safety level."""
-    safe = []      # High confidence + metadata matches
-    review = []    # Medium confidence or slight mismatches
-    risky = []     # Lower confidence or mismatches
+    safe = []  # High confidence + metadata matches
+    review = []  # Medium confidence or slight mismatches
+    risky = []  # Lower confidence or mismatches
 
     for c in candidates:
-        score = float(c['confidence_score'])
-        details = c['match_details'] or {}
+        score = float(c["confidence_score"])
+        details = c["match_details"] or {}
 
         # Check if metadata matches
-        queue_gender = details.get('gender', '').lower()
-        queue_age = details.get('age_group', '').lower()
-        master_gender = (c['master_gender'] or '').lower()
-        master_age = (c['master_age_group'] or '').lower()
+        queue_gender = details.get("gender", "").lower()
+        queue_age = details.get("age_group", "").lower()
+        master_gender = (c["master_gender"] or "").lower()
+        master_age = (c["master_age_group"] or "").lower()
 
         gender_match = not queue_gender or not master_gender or queue_gender == master_gender
         age_match = not queue_age or not master_age or queue_age == master_age
@@ -81,10 +88,11 @@ def categorize_candidates(candidates):
 
     return safe, review, risky
 
+
 def display_candidate(c, verbose=False):
     """Display a single candidate."""
-    score = float(c['confidence_score'])
-    details = c['match_details'] or {}
+    score = float(c["confidence_score"])
+    details = c["match_details"] or {}
 
     print(f"  [{c['id']}] {c['provider_team_name']}")
     print(f"       → {c['master_team_name']} ({c['master_club_name']})")
@@ -96,6 +104,7 @@ def display_candidate(c, verbose=False):
         print(f"       {queue_info}")
         print(f"       {master_info}")
     print()
+
 
 def execute_auto_merge(candidates, dry_run=True):
     """Execute auto-merge for safe candidates."""
@@ -114,22 +123,27 @@ def execute_auto_merge(candidates, dry_run=True):
         try:
             if not dry_run:
                 # Create alias linking provider team to master team
-                cur.execute('''
+                cur.execute(
+                    """
                     INSERT INTO team_alias_map (team_id, provider_id, provider_team_id, provider_team_name)
                     SELECT %s, p.id, %s, %s
                     FROM providers p WHERE p.code = %s
                     ON CONFLICT (provider_id, provider_team_id) DO NOTHING
-                ''', (c['suggested_master_team_id'], c['provider_team_id'],
-                      c['provider_team_name'], c['provider_id']))
+                """,
+                    (c["suggested_master_team_id"], c["provider_team_id"], c["provider_team_name"], c["provider_id"]),
+                )
 
                 # Update queue status
-                cur.execute('''
+                cur.execute(
+                    """
                     UPDATE team_match_review_queue
                     SET status = 'approved',
                         reviewed_by = 'auto-merge-script',
                         reviewed_at = NOW()
                     WHERE id = %s
-                ''', (c['id'],))
+                """,
+                    (c["id"],),
+                )
 
                 conn.commit()
 
@@ -146,18 +160,16 @@ def execute_auto_merge(candidates, dry_run=True):
     conn.close()
     return approved, failed
 
+
 def main():
-    parser = argparse.ArgumentParser(description='Analyze auto-merge candidates')
-    parser.add_argument('--min-confidence', type=float, default=0.85,
-                        help='Minimum confidence score (default: 0.85)')
-    parser.add_argument('--limit', type=int, default=500,
-                        help='Max candidates to analyze (default: 500)')
-    parser.add_argument('--verbose', '-v', action='store_true',
-                        help='Show detailed info')
-    parser.add_argument('--dry-run', action='store_true', default=True,
-                        help='Show what would be merged (default: True)')
-    parser.add_argument('--execute', action='store_true',
-                        help='Actually execute the merges (BE CAREFUL)')
+    parser = argparse.ArgumentParser(description="Analyze auto-merge candidates")
+    parser.add_argument("--min-confidence", type=float, default=0.85, help="Minimum confidence score (default: 0.85)")
+    parser.add_argument("--limit", type=int, default=500, help="Max candidates to analyze (default: 500)")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed info")
+    parser.add_argument(
+        "--dry-run", action="store_true", default=True, help="Show what would be merged (default: True)"
+    )
+    parser.add_argument("--execute", action="store_true", help="Actually execute the merges (BE CAREFUL)")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -211,7 +223,7 @@ def main():
     # Execute if requested
     if args.execute:
         confirm = input(f"\n⚠️  About to merge {len(safe)} SAFE candidates. Type 'yes' to confirm: ")
-        if confirm.lower() == 'yes':
+        if confirm.lower() == "yes":
             approved, failed = execute_auto_merge(safe, dry_run=False)
             print(f"\n✅ Approved: {approved}, ❌ Failed: {failed}")
         else:
@@ -222,5 +234,6 @@ def main():
         print(f"\n📊 DRY RUN SUMMARY: {approved} would be approved")
         print("\nTo execute, run with --execute flag")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

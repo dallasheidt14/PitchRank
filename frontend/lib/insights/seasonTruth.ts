@@ -21,7 +21,7 @@
  * - Neutral = rank is STABLE
  */
 
-import type { InsightInputData, SeasonTruthInsight, FormSignal, RankTrajectory, PlayStyle } from "./types";
+import type { InsightInputData, SeasonTruthInsight, FormSignal, RankTrajectory, PlayStyle } from './types';
 
 /**
  * Determines rank trajectory based on recent form (perf_centered)
@@ -37,32 +37,30 @@ import type { InsightInputData, SeasonTruthInsight, FormSignal, RankTrajectory, 
  * - If a team is consistently overperforming, their rank WILL improve
  * - If a team is consistently underperforming, their rank WILL drop
  */
-function analyzeRankTrajectory(
-  ranking: InsightInputData["ranking"]
-): RankTrajectory {
+function analyzeRankTrajectory(ranking: InsightInputData['ranking']): RankTrajectory {
   const { perf_centered } = ranking;
 
   // Without perf_centered data, we can't predict trajectory
   if (perf_centered === null) {
-    return "stable";
+    return 'stable';
   }
 
   // Thresholds based on perf_centered range [-0.5, +0.5]
   // 0.10 is a meaningful deviation from expectations
-  const RISING_THRESHOLD = 0.10;
-  const FALLING_THRESHOLD = -0.10;
+  const RISING_THRESHOLD = 0.1;
+  const FALLING_THRESHOLD = -0.1;
 
   if (perf_centered >= RISING_THRESHOLD) {
     // Team overperforming → rank likely to improve
-    return "rising";
+    return 'rising';
   }
 
   if (perf_centered <= FALLING_THRESHOLD) {
     // Team underperforming → rank likely to drop
-    return "falling";
+    return 'falling';
   }
 
-  return "stable";
+  return 'stable';
 }
 
 /**
@@ -70,42 +68,36 @@ function analyzeRankTrajectory(
  * perf_centered range: [-0.5, +0.5]
  */
 function getFormSignal(perfCentered: number | null): FormSignal {
-  if (perfCentered === null) return "meeting_expectations";
+  if (perfCentered === null) return 'meeting_expectations';
 
-  if (perfCentered >= 0.30) return "hot_streak";
-  if (perfCentered >= 0.12) return "overperforming";
-  if (perfCentered <= -0.30) return "cold_streak";
-  if (perfCentered <= -0.12) return "underperforming";
-  return "meeting_expectations";
+  if (perfCentered >= 0.3) return 'hot_streak';
+  if (perfCentered >= 0.12) return 'overperforming';
+  if (perfCentered <= -0.3) return 'cold_streak';
+  if (perfCentered <= -0.12) return 'underperforming';
+  return 'meeting_expectations';
 }
 
 /**
  * Determines play style from offense_norm and defense_norm (both 0-1 percentile)
  */
-function determinePlayStyle(
-  offenseNorm: number | null,
-  defenseNorm: number | null
-): PlayStyle | null {
+function determinePlayStyle(offenseNorm: number | null, defenseNorm: number | null): PlayStyle | null {
   if (offenseNorm === null || defenseNorm === null) return null;
 
-  if (offenseNorm >= 0.70 && defenseNorm >= 0.70) return "Two-Way Powerhouse";
-  if (offenseNorm >= 0.65 && defenseNorm < 0.45) return "High-Octane Attack";
-  if (defenseNorm >= 0.65 && offenseNorm < 0.45) return "Defensive Wall";
-  if (offenseNorm < 0.35 && defenseNorm < 0.35) return "Rebuilding";
-  return "Balanced Squad";
+  if (offenseNorm >= 0.7 && defenseNorm >= 0.7) return 'Two-Way Powerhouse';
+  if (offenseNorm >= 0.65 && defenseNorm < 0.45) return 'High-Octane Attack';
+  if (defenseNorm >= 0.65 && offenseNorm < 0.45) return 'Defensive Wall';
+  if (offenseNorm < 0.35 && defenseNorm < 0.35) return 'Rebuilding';
+  return 'Balanced Squad';
 }
 
 /**
  * Computes the current W/L/D streak from most recent games
  * Games are ordered most-recent-first
  */
-function getCurrentStreak(
-  games: InsightInputData["games"],
-  teamId: string
-): string | null {
+function getCurrentStreak(games: InsightInputData['games'], teamId: string): string | null {
   if (games.length === 0) return null;
 
-  let streakType: "W" | "L" | "D" | null = null;
+  let streakType: 'W' | 'L' | 'D' | null = null;
   let streakCount = 0;
 
   for (const game of games) {
@@ -115,10 +107,10 @@ function getCurrentStreak(
 
     if (teamScore === null || oppScore === null) continue;
 
-    let result: "W" | "L" | "D";
-    if (teamScore > oppScore) result = "W";
-    else if (teamScore < oppScore) result = "L";
-    else result = "D";
+    let result: 'W' | 'L' | 'D';
+    if (teamScore > oppScore) result = 'W';
+    else if (teamScore < oppScore) result = 'L';
+    else result = 'D';
 
     if (streakType === null) {
       streakType = result;
@@ -138,9 +130,7 @@ function getCurrentStreak(
  * Computes rank velocity from ranking history
  * Returns a human-readable string like "Climbed 42 spots in 8 weeks"
  */
-function computeRankVelocity(
-  rankingHistory: InsightInputData["rankingHistory"]
-): string | null {
+function computeRankVelocity(rankingHistory: InsightInputData['rankingHistory']): string | null {
   if (rankingHistory.length < 4) return null;
 
   // History is ordered most-recent-first
@@ -149,8 +139,7 @@ function computeRankVelocity(
 
   const rankChange = oldest.rank_in_cohort - latest.rank_in_cohort; // positive = improved
   const daySpan = Math.round(
-    (new Date(latest.snapshot_date).getTime() - new Date(oldest.snapshot_date).getTime()) /
-    (1000 * 60 * 60 * 24)
+    (new Date(latest.snapshot_date).getTime() - new Date(oldest.snapshot_date).getTime()) / (1000 * 60 * 60 * 24)
   );
 
   if (daySpan < 14) return null;
@@ -159,7 +148,7 @@ function computeRankVelocity(
 
   // Check for sustained top-10 hold
   if (latest.rank_in_cohort <= 10) {
-    const allTopTen = rankingHistory.every(h => h.rank_in_cohort <= 10);
+    const allTopTen = rankingHistory.every((h) => h.rank_in_cohort <= 10);
     if (allTopTen && rankingHistory.length >= 8) {
       return `Held a top-10 position for ${weeks}+ weeks`;
     }
@@ -179,14 +168,14 @@ function computeRankVelocity(
  * Builds a cohort context string like "12th of 347 Boys U14 teams (top 3%)"
  */
 function buildCohortContext(
-  ranking: InsightInputData["ranking"],
-  team: InsightInputData["team"],
-  cohortStats: InsightInputData["cohortStats"]
+  ranking: InsightInputData['ranking'],
+  team: InsightInputData['team'],
+  cohortStats: InsightInputData['cohortStats']
 ): string | null {
   const rank = ranking.rank_in_cohort_final;
   if (rank === null || cohortStats.totalTeams <= 1) return null;
 
-  const genderLabel = team.gender === "M" || team.gender === "B" ? "Boys" : "Girls";
+  const genderLabel = team.gender === 'M' || team.gender === 'B' ? 'Boys' : 'Girls';
   const ageLabel = team.age ? `U${team.age}` : null;
 
   const cohortLabel = ageLabel ? `${genderLabel} ${ageLabel}` : genderLabel;
@@ -198,13 +187,10 @@ function buildCohortContext(
 /**
  * Analyzes consistency patterns from game results
  */
-function analyzeConsistencyPattern(
-  games: InsightInputData["games"],
-  teamId: string
-): string {
-  if (games.length < 3) return "limited data available";
+function analyzeConsistencyPattern(games: InsightInputData['games'], teamId: string): string {
+  if (games.length < 3) return 'limited data available';
 
-  const results: ("W" | "L" | "D")[] = [];
+  const results: ('W' | 'L' | 'D')[] = [];
   const goalDiffs: number[] = [];
 
   // v53e caps goal diff at +/- 6, we should too
@@ -221,13 +207,13 @@ function analyzeConsistencyPattern(
       const cappedDiff = Math.max(-GOAL_DIFF_CAP, Math.min(GOAL_DIFF_CAP, rawDiff));
       goalDiffs.push(cappedDiff);
 
-      if (teamScore > oppScore) results.push("W");
-      else if (teamScore < oppScore) results.push("L");
-      else results.push("D");
+      if (teamScore > oppScore) results.push('W');
+      else if (teamScore < oppScore) results.push('L');
+      else results.push('D');
     }
   }
 
-  if (results.length < 3) return "limited game data";
+  if (results.length < 3) return 'limited game data';
 
   // Calculate streaks
   let maxWinStreak = 0;
@@ -236,11 +222,11 @@ function analyzeConsistencyPattern(
   let currentLossStreak = 0;
 
   for (const result of results) {
-    if (result === "W") {
+    if (result === 'W') {
       currentWinStreak++;
       currentLossStreak = 0;
       maxWinStreak = Math.max(maxWinStreak, currentWinStreak);
-    } else if (result === "L") {
+    } else if (result === 'L') {
       currentLossStreak++;
       currentWinStreak = 0;
       maxLossStreak = Math.max(maxLossStreak, currentLossStreak);
@@ -252,41 +238,39 @@ function analyzeConsistencyPattern(
 
   // Calculate goal differential standard deviation
   const avgGD = goalDiffs.reduce((a, b) => a + b, 0) / goalDiffs.length;
-  const variance =
-    goalDiffs.reduce((sum, gd) => sum + Math.pow(gd - avgGD, 2), 0) /
-    goalDiffs.length;
+  const variance = goalDiffs.reduce((sum, gd) => sum + Math.pow(gd - avgGD, 2), 0) / goalDiffs.length;
   const stdDev = Math.sqrt(variance);
 
   if (stdDev < 1.5 && maxLossStreak <= 2) {
-    return "consistent performer with minimal variance";
+    return 'consistent performer with minimal variance';
   } else if (stdDev > 3 || maxLossStreak >= 4) {
-    return "inconsistency against mid-tier opponents";
+    return 'inconsistency against mid-tier opponents';
   } else if (maxWinStreak >= 5) {
-    return "strong momentum with extended winning runs";
+    return 'strong momentum with extended winning runs';
   } else if (maxLossStreak >= 3) {
-    return "struggles to recover from defeats";
+    return 'struggles to recover from defeats';
   }
 
-  return "balanced performance with typical variance";
+  return 'balanced performance with typical variance';
 }
 
 /**
  * Generates form narrative based on perf_centered
  */
 function getFormNarrative(formSignal: FormSignal, perfCentered: number | null): string {
-  if (perfCentered === null) return "";
+  if (perfCentered === null) return '';
 
   switch (formSignal) {
-    case "hot_streak":
+    case 'hot_streak':
       return "They're currently on a hot streak, significantly exceeding performance expectations in recent games.";
-    case "overperforming":
-      return "Recent form shows them overperforming expectations, winning games by larger margins than predicted.";
-    case "cold_streak":
+    case 'overperforming':
+      return 'Recent form shows them overperforming expectations, winning games by larger margins than predicted.';
+    case 'cold_streak':
       return "They're in a cold stretch, underperforming their talent level in recent matchups.";
-    case "underperforming":
+    case 'underperforming':
       return "Recent results suggest they're leaving points on the table, performing below their expected level.";
     default:
-      return "";
+      return '';
   }
 }
 
@@ -294,15 +278,15 @@ function getFormNarrative(formSignal: FormSignal, perfCentered: number | null): 
  * Generates trajectory narrative based on perf_centered
  */
 function getTrajectoryNarrative(trajectory: RankTrajectory, perfCentered: number | null): string {
-  if (perfCentered === null) return "";
+  if (perfCentered === null) return '';
 
   switch (trajectory) {
-    case "rising":
+    case 'rising':
       return "Based on recent form, this team's rank is likely to improve in upcoming updates.";
-    case "falling":
+    case 'falling':
       return "Recent results suggest this team's rank may drop in upcoming updates.";
     default:
-      return "";
+      return '';
   }
 }
 
@@ -311,16 +295,16 @@ function getTrajectoryNarrative(trajectory: RankTrajectory, perfCentered: number
  */
 function getPlayStyleNarrative(playStyle: PlayStyle | null): string {
   switch (playStyle) {
-    case "Two-Way Powerhouse":
+    case 'Two-Way Powerhouse':
       return "They're a two-way powerhouse, elite on both sides of the ball.";
-    case "High-Octane Attack":
-      return "They win through a high-octane attack, outscoring opponents rather than shutting them down.";
-    case "Defensive Wall":
-      return "They grind out results with a defensive-first identity, conceding very little.";
-    case "Rebuilding":
-      return "Both their offensive and defensive metrics are below average, suggesting a team in transition.";
+    case 'High-Octane Attack':
+      return 'They win through a high-octane attack, outscoring opponents rather than shutting them down.';
+    case 'Defensive Wall':
+      return 'They grind out results with a defensive-first identity, conceding very little.';
+    case 'Rebuilding':
+      return 'Both their offensive and defensive metrics are below average, suggesting a team in transition.';
     default:
-      return "";
+      return '';
   }
 }
 
@@ -340,7 +324,7 @@ export function generateSeasonTruth(data: InsightInputData): SeasonTruthInsight 
   const cohortContext = buildCohortContext(ranking, team, cohortStats);
 
   // Generate narrative text
-  let narrative = "";
+  let narrative = '';
   const rank = ranking.rank_in_cohort_final;
 
   if (rank !== null) {
@@ -358,7 +342,7 @@ export function generateSeasonTruth(data: InsightInputData): SeasonTruthInsight 
       narrative += ` against a lighter schedule (${sosPercentile}th percentile SOS)`;
     }
 
-    narrative += ".";
+    narrative += '.';
 
     // Add play style identity
     const playStyleNarrative = getPlayStyleNarrative(playStyle);
@@ -370,9 +354,9 @@ export function generateSeasonTruth(data: InsightInputData): SeasonTruthInsight 
     if (currentStreak) {
       const streakType = currentStreak[0];
       const streakCount = currentStreak.slice(1);
-      if (streakType === "W") {
+      if (streakType === 'W') {
         narrative += ` Currently riding a ${streakCount}-game winning streak.`;
-      } else if (streakType === "L") {
+      } else if (streakType === 'L') {
         narrative += ` Currently winless in their last ${streakCount} games.`;
       } else {
         narrative += ` Have drawn their last ${streakCount} games.`;
@@ -397,28 +381,23 @@ export function generateSeasonTruth(data: InsightInputData): SeasonTruthInsight 
     }
 
     // Add consistency note
-    if (
-      consistencyNote !== "limited game data" &&
-      consistencyNote !== "limited data available"
-    ) {
-      const isNegative =
-        consistencyNote.includes("inconsistency") ||
-        consistencyNote.includes("struggles");
-      narrative += ` Their biggest ${isNegative ? "vulnerability" : "strength"} this season has been ${consistencyNote}.`;
+    if (consistencyNote !== 'limited game data' && consistencyNote !== 'limited data available') {
+      const isNegative = consistencyNote.includes('inconsistency') || consistencyNote.includes('struggles');
+      narrative += ` Their biggest ${isNegative ? 'vulnerability' : 'strength'} this season has been ${consistencyNote}.`;
     }
   } else {
     narrative = `This team has limited ranking data available. `;
     if (ranking.games_played > 0) {
-      narrative += `With a ${ranking.wins}-${ranking.losses}${ranking.draws > 0 ? `-${ranking.draws}` : ""} record across ${ranking.games_played} games, `;
+      narrative += `With a ${ranking.wins}-${ranking.losses}${ranking.draws > 0 ? `-${ranking.draws}` : ''} record across ${ranking.games_played} games, `;
       narrative +=
-        consistencyNote !== "limited game data"
+        consistencyNote !== 'limited game data'
           ? `they've shown ${consistencyNote}.`
-          : "more games will reveal their true standing.";
+          : 'more games will reveal their true standing.';
     }
   }
 
   return {
-    type: "season_truth",
+    type: 'season_truth',
     text: narrative,
     details: {
       rankTrajectory,

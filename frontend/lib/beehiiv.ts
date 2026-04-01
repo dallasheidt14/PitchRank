@@ -27,7 +27,7 @@ async function findSubscriberId(email: string): Promise<string | null> {
     `${BEEHIIV_API_URL}/publications/${pubId}/subscriptions/by_email/${encodeURIComponent(email)}`,
     {
       headers: { Authorization: `Bearer ${apiKey}` },
-    },
+    }
   );
 
   if (!resp.ok) {
@@ -43,10 +43,7 @@ async function findSubscriberId(email: string): Promise<string | null> {
  * Set a subscriber's tier in Beehiiv ("premium" or "free").
  * If the subscriber doesn't exist, creates them with the given tier.
  */
-export async function setSubscriberTier(
-  email: string,
-  tier: 'premium' | 'free',
-): Promise<boolean> {
+export async function setSubscriberTier(email: string, tier: 'premium' | 'free'): Promise<boolean> {
   const { apiKey, pubId } = getConfig();
   if (!apiKey || !pubId) {
     console.warn('[beehiiv] API key or publication ID not configured, skipping');
@@ -58,17 +55,14 @@ export async function setSubscriberTier(
 
     if (subscriberId) {
       // Subscriber exists — update tier
-      const resp = await fetch(
-        `${BEEHIIV_API_URL}/publications/${pubId}/subscriptions/${subscriberId}`,
-        {
-          method: 'PUT',
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ tier }),
+      const resp = await fetch(`${BEEHIIV_API_URL}/publications/${pubId}/subscriptions/${subscriberId}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
         },
-      );
+        body: JSON.stringify({ tier }),
+      });
 
       if (!resp.ok) {
         const body = await resp.text();
@@ -77,17 +71,14 @@ export async function setSubscriberTier(
       }
     } else {
       // Subscriber doesn't exist — create with tier
-      const resp = await fetch(
-        `${BEEHIIV_API_URL}/publications/${pubId}/subscriptions`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ email, tier }),
+      const resp = await fetch(`${BEEHIIV_API_URL}/publications/${pubId}/subscriptions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
         },
-      );
+        body: JSON.stringify({ email, tier }),
+      });
 
       if (!resp.ok) {
         const body = await resp.text();

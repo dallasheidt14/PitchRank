@@ -16,7 +16,7 @@ interface BreadcrumbSchemaProps {
  */
 export function BreadcrumbSchema({ items }: BreadcrumbSchemaProps) {
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
-  
+
   const schema = {
     '@context': 'https://schema.org',
     '@type': 'BreadcrumbList',
@@ -28,12 +28,7 @@ export function BreadcrumbSchema({ items }: BreadcrumbSchemaProps) {
     })),
   };
 
-  return (
-    <script
-      type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
-    />
-  );
+  return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }} />;
 }
 
 // Also export as default for flexibility

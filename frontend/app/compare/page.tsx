@@ -3,16 +3,16 @@ import dynamic from 'next/dynamic';
 import { CardSkeleton } from '@/components/ui/skeletons';
 import type { Metadata } from 'next';
 
-const ComparePanel = dynamic(
-  () => import('@/components/ComparePanel').then(mod => ({ default: mod.ComparePanel })),
-  { loading: () => <CardSkeleton /> }
-);
+const ComparePanel = dynamic(() => import('@/components/ComparePanel').then((mod) => ({ default: mod.ComparePanel })), {
+  loading: () => <CardSkeleton />,
+});
 
 const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
 
 export const metadata: Metadata = {
   title: 'Compare/Predict Teams',
-  description: 'Compare multiple youth soccer teams side-by-side to see their rankings, statistics, and performance metrics across different age groups and states.',
+  description:
+    'Compare multiple youth soccer teams side-by-side to see their rankings, statistics, and performance metrics across different age groups and states.',
   // Prevent indexing - this page is auth-gated and Googlebot will be redirected
   robots: {
     index: false,
@@ -23,7 +23,8 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: 'Compare/Predict Teams | PitchRank',
-    description: 'Compare multiple youth soccer teams side-by-side to see their rankings, statistics, and performance metrics.',
+    description:
+      'Compare multiple youth soccer teams side-by-side to see their rankings, statistics, and performance metrics.',
     url: `${baseUrl}/compare`,
     siteName: 'PitchRank',
     type: 'website',
@@ -70,4 +71,3 @@ export default function ComparePage() {
     </>
   );
 }
-

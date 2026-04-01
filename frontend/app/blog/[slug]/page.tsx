@@ -24,7 +24,7 @@ export async function generateMetadata({ params }: BlogPostPageProps): Promise<M
   const { slug } = await params;
   const post = getBlogPost(slug);
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
-  
+
   if (!post) {
     return {
       title: 'Post Not Found',
@@ -95,12 +95,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
           { name: post.title, href: `/blog/${slug}` },
         ]}
       />
-      <PageHeader
-        title={post.title}
-        description={post.excerpt}
-        showBackButton
-        backHref="/blog"
-      />
+      <PageHeader title={post.title} description={post.excerpt} showBackButton backHref="/blog" />
 
       <div className="max-w-4xl mx-auto mt-8">
         <div className="mb-8 text-sm text-muted-foreground flex items-center gap-4">

@@ -24,7 +24,7 @@ export function PredictedMatchCard({ teamA, teamB, teamAName, teamBName }: Predi
 
   // Calculate relative margin (Team A vs Team B)
   const margin = (teamA.exp_margin ?? 0) - (teamB.exp_margin ?? 0);
-  
+
   // Convert win rates to percentages
   const teamAWinProb = (teamA.exp_win_rate ?? 0) * 100;
   const teamBWinProb = (teamB.exp_win_rate ?? 0) * 100;
@@ -49,18 +49,15 @@ export function PredictedMatchCard({ teamA, teamB, teamAName, teamBName }: Predi
 
           {/* Expected scores */}
           <div className="grid grid-cols-3 text-center items-center">
-            <div className="text-2xl font-bold">
-              {teamAGoals != null ? Math.round(teamAGoals) : '—'}
-            </div>
+            <div className="text-2xl font-bold">{teamAGoals != null ? Math.round(teamAGoals) : '—'}</div>
             <div className="text-xl font-semibold text-muted-foreground">–</div>
-            <div className="text-2xl font-bold">
-              {teamBGoals != null ? Math.round(teamBGoals) : '—'}
-            </div>
+            <div className="text-2xl font-bold">{teamBGoals != null ? Math.round(teamBGoals) : '—'}</div>
           </div>
 
           {/* Expected margin */}
           <div className="text-center text-sm text-muted-foreground">
-            Expected Margin: {margin >= 0 ? '+' : ''}{margin.toFixed(2)} goals
+            Expected Margin: {margin >= 0 ? '+' : ''}
+            {margin.toFixed(2)} goals
             {margin > 0 && <span className="ml-2 text-green-600">({teamAName} favored)</span>}
             {margin < 0 && <span className="ml-2 text-green-600">({teamBName} favored)</span>}
             {margin === 0 && <span className="ml-2 text-muted-foreground">(Even match)</span>}
@@ -82,4 +79,3 @@ export function PredictedMatchCard({ teamA, teamB, teamAName, teamBName }: Predi
     </Card>
   );
 }
-
