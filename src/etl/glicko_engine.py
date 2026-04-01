@@ -290,7 +290,10 @@ def select_games(
         Filtered DataFrame sorted by date descending, at most *max_games* rows.
     """
     cutoff = today - pd.Timedelta(days=window_days)
-    mask = (games_df["team_id"] == team_id) & (games_df["date"] >= cutoff)
+    dates = games_df["date"]
+    if hasattr(dates.dtype, "tz") and dates.dtype.tz is not None:
+        dates = dates.dt.tz_localize(None)
+    mask = (games_df["team_id"] == team_id) & (dates >= cutoff)
     filtered = games_df.loc[mask].sort_values("date", ascending=False)
     return filtered.head(max_games)
 
@@ -308,7 +311,9 @@ def compute_recency_weights(
     Returns:
         Numpy array of weights that sum to 1.0.
     """
-    days_ago = (today - game_dates).dt.days
+    gd = game_dates.dt.tz_localize(None) if hasattr(game_dates.dtype, "tz") and game_dates.dtype.tz is not None else game_dates
+    today_naive = today.tz_localize(None) if today.tzinfo is not None else today
+    days_ago = (today_naive - gd).dt.days
     weights = np.exp(-lambda_ * days_ago / 365.0)
     return weights / weights.sum()
 
@@ -739,6 +744,15 @@ def run_glicko2_cohort(
                 if is_cross_age and global_rating_map is not None:
                     opp_mu = global_rating_map.get(opp_id, cfg.INITIAL_MU)
                     opp_sigma = cfg.INITIAL_SIGMA
+                    # Apply cross-age anchor scaling
+                    opp_mu = scale_cross_age_rating(
+                        opp_mu,
+                        str(row.get("opp_age", cohort_age)),
+                        str(row.get("opp_gender", cohort_gender)),
+                        str(cohort_age),
+                        str(cohort_gender),
+                        cfg,
+                    )
                 elif opp_id in ratings:
                     opp_mu, opp_sigma, _ = ratings[opp_id]
                 else:
@@ -858,6 +872,9 @@ def compute_rankings_v2(
     # 1. Setup
     if today is None:
         today = pd.Timestamp.now("UTC")
+    # Strip timezone so all date comparisons are tz-naive (Supabase dates are naive)
+    if today.tzinfo is not None:
+        today = today.tz_localize(None)
     if cfg is None:
         cfg = GlickoConfig()
     label = f" [{pass_label}]" if pass_label else ""
@@ -897,7 +914,8 @@ def compute_rankings_v2(
 
     # 9. Status and rankings
     cutoff = today - pd.Timedelta(days=cfg.INACTIVE_DAYS)
-    team_df["status"] = np.where(team_df["last_game"] >= cutoff, "Active", "Inactive")
+    last_game_naive = pd.to_datetime(team_df["last_game"]).dt.tz_localize(None)
+    team_df["status"] = np.where(last_game_naive >= cutoff, "Active", "Inactive")
 
     team_df["sample_flag"] = np.where(
         team_df["games_played"] < cfg.MIN_GAMES_PROVISIONAL, "LOW_SAMPLE", "OK"
@@ -919,12 +937,14 @@ def compute_rankings_v2(
         0.0,
     )
 
-    # Age group and gender from games
-    team_df["age_group"] = team_df.get(
-        "age", games_df["age"].iloc[0] if len(games_df) > 0 else "U15"
-    )
+    # Age group and gender from games — set both 'age' and 'age_group' for downstream compat
+    cohort_age = games_df["age"].iloc[0] if len(games_df) > 0 else "U15"
+    cohort_gender = games_df["gender"].iloc[0] if len(games_df) > 0 else "M"
+    if "age" not in team_df.columns:
+        team_df["age"] = cohort_age
+    team_df["age_group"] = team_df["age"]
     if "gender" not in team_df.columns:
-        team_df["gender"] = games_df["gender"].iloc[0] if len(games_df) > 0 else "M"
+        team_df["gender"] = cohort_gender
 
     # SOS aliases and backward-compat columns
     team_df["sos"] = team_df["sos_raw"]
