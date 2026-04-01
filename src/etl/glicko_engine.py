@@ -793,16 +793,16 @@ def run_glicko2_cohort(
             iteration + 1, max_delta, mean_delta,
         )
 
-        if max_delta < cfg.CONVERGENCE_THRESHOLD:
+        if mean_delta < cfg.CONVERGENCE_THRESHOLD:
             logger.info(
-                "Glicko-2 converged after %d iterations (max_delta=%.4f)",
-                iteration + 1, max_delta,
+                "Glicko-2 converged after %d iterations (mean_delta=%.4f, max_delta=%.4f)",
+                iteration + 1, mean_delta, max_delta,
             )
             break
     else:
         logger.warning(
-            "Glicko-2 did not converge after %d iterations (max_delta=%.4f)",
-            cfg.MAX_ITERATIONS, max_delta,
+            "Glicko-2 did not converge after %d iterations (mean_delta=%.4f, max_delta=%.4f)",
+            cfg.MAX_ITERATIONS, mean_delta, max_delta,
         )
 
     # 7. Compute aggregate stats per team
