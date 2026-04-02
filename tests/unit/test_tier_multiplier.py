@@ -149,3 +149,68 @@ class TestV53ETierMultiplier:
         teams_empty = result_empty_tier["teams"].set_index("team_id")
         for tid in ["A1", "B1"]:
             assert abs(teams_no.loc[tid, "sos"] - teams_empty.loc[tid, "sos"]) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Integration tests: Glicko-2 engine compute_sos with tier multiplier
+# ---------------------------------------------------------------------------
+
+from src.etl.glicko_engine import compute_sos
+from src.etl.glicko_config import GlickoConfig
+import numpy as np
+
+
+class TestGlickoTierMultiplier:
+    def test_tier2_opponents_reduce_sos(self):
+        """SOS should be lower when opponents are Tier 2."""
+        cfg = GlickoConfig()
+        today = pd.Timestamp("2026-03-01")
+        games_rows = []
+        for i, opp in enumerate(["T2", "T3", "T4"]):
+            date = today - pd.Timedelta(days=i + 1)
+            games_rows.append({"team_id": "T1", "opp_id": opp, "gf": 3, "ga": 1,
+                               "date": date, "age": 14, "gender": "male"})
+            games_rows.append({"team_id": opp, "opp_id": "T1", "gf": 1, "ga": 3,
+                               "date": date, "age": 14, "gender": "male"})
+        games_df = pd.DataFrame(games_rows)
+        ratings = {
+            "T1": (1600.0, 200.0, 0.06),
+            "T2": (1550.0, 200.0, 0.06),
+            "T3": (1500.0, 200.0, 0.06),
+            "T4": (1450.0, 200.0, 0.06),
+        }
+
+        sos_no_tier = compute_sos(games_df, ratings, cfg, today)
+        t1_sos_no = sos_no_tier[sos_no_tier["team_id"] == "T1"]["sos_raw"].iloc[0]
+
+        tier_league_map = {"T2": "ECNL_RL", "T3": "ECNL_RL", "T4": "ECNL_RL"}
+        sos_with_tier = compute_sos(games_df, ratings, cfg, today,
+                                     tier_league_map=tier_league_map, cohort_gender="Male")
+        t1_sos_with = sos_with_tier[sos_with_tier["team_id"] == "T1"]["sos_raw"].iloc[0]
+
+        assert t1_sos_with < t1_sos_no, (
+            f"SOS with Tier 2 opponents ({t1_sos_with:.1f}) should be lower than "
+            f"without tier adjustment ({t1_sos_no:.1f})"
+        )
+
+    def test_no_tier_map_is_backward_compatible(self):
+        """compute_sos without tier args should produce identical results."""
+        cfg = GlickoConfig()
+        today = pd.Timestamp("2026-03-01")
+        games_rows = []
+        for i, opp in enumerate(["T2", "T3"]):
+            date = today - pd.Timedelta(days=i + 1)
+            games_rows.append({"team_id": "T1", "opp_id": opp, "gf": 2, "ga": 1,
+                               "date": date, "age": 14, "gender": "male"})
+            games_rows.append({"team_id": opp, "opp_id": "T1", "gf": 1, "ga": 2,
+                               "date": date, "age": 14, "gender": "male"})
+        games_df = pd.DataFrame(games_rows)
+        ratings = {"T1": (1500.0, 200.0, 0.06), "T2": (1500.0, 200.0, 0.06),
+                   "T3": (1500.0, 200.0, 0.06)}
+
+        sos_default = compute_sos(games_df, ratings, cfg, today)
+        sos_none = compute_sos(games_df, ratings, cfg, today, tier_league_map=None)
+
+        t1_default = sos_default[sos_default["team_id"] == "T1"]["sos_raw"].iloc[0]
+        t1_none = sos_none[sos_none["team_id"] == "T1"]["sos_raw"].iloc[0]
+        assert abs(t1_default - t1_none) < 1e-9

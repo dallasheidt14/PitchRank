@@ -487,6 +487,8 @@ def compute_sos(
     cfg: GlickoConfig,
     today: pd.Timestamp,
     team_games: Optional[Dict[str, pd.DataFrame]] = None,
+    tier_league_map: Optional[Dict[str, str]] = None,
+    cohort_gender: str = "Male",
 ) -> pd.DataFrame:
     """Compute schedule strength as average opponent Glicko-2 mu.
 
@@ -500,10 +502,25 @@ def compute_sos(
              SOS_TRIM_BOTTOM_PCT, SOS_TRIM_TOP_PCT.
         today: Reference date for window filtering.
         team_games: Optional pre-filtered games dict from run_glicko2_cohort.
+        tier_league_map: Optional mapping of team_id -> league string for tier lookup.
+        cohort_gender: Gender cohort for tier multiplier lookup (default "Male").
 
     Returns:
         DataFrame with columns: team_id, sos_raw.
     """
+    from src.rankings.constants import get_tier_multiplier
+
+    _tier_cache: Dict[str, float] = {}
+
+    def _tier_mult(opp_id: str) -> float:
+        if tier_league_map is None:
+            return 1.0
+        if opp_id not in _tier_cache:
+            _tier_cache[opp_id] = get_tier_multiplier(
+                tier_league_map.get(str(opp_id)), cohort_gender
+            )
+        return _tier_cache[opp_id]
+
     results = []
     for team_id in team_ratings:
         tg = (
@@ -517,7 +534,10 @@ def compute_sos(
 
         # Vectorized opponent mu lookup
         opp_ids = tg["opp_id"].values
-        opp_mus_all = np.array([team_ratings.get(o, (cfg.INITIAL_MU,))[0] for o in opp_ids])
+        opp_mus_all = np.array([
+            team_ratings.get(o, (cfg.INITIAL_MU,))[0] * _tier_mult(o)
+            for o in opp_ids
+        ])
 
         # Apply repeat cap
         opp_counts: Dict[str, int] = {}
