@@ -857,6 +857,8 @@ def run_glicko2_cohort(
     today: pd.Timestamp,
     global_rating_map: Optional[Dict[str, float]] = None,
     initial_ratings: Optional[Dict[str, Tuple[float, float, float]]] = None,
+    tier_league_map: Optional[Dict[str, str]] = None,
+    cohort_gender: str = "Male",
 ) -> Tuple[pd.DataFrame, Dict[str, pd.DataFrame]]:
     """Run Glicko-2 for a single (age, gender) cohort.
 
@@ -876,6 +878,9 @@ def run_glicko2_cohort(
                           When provided (Pass 2), cross-age opponents use this rating.
         initial_ratings: Optional dict of {team_id: (mu, sigma, volatility)} for warm-start.
                         When provided, use these as starting ratings instead of defaults.
+        tier_league_map: Optional dict of {team_id: league} for tier-based opponent
+                        strength discounting during convergence.
+        cohort_gender: "Male" or "Female" for tier lookup.
 
     Returns:
         Tuple of (DataFrame, team_games dict):
@@ -905,7 +910,32 @@ def run_glicko2_cohort(
     # 5. Determine cohort age/gender for cross-age detection
     # Use the first row's age/gender as the cohort identity
     cohort_age = df["age"].iloc[0] if len(df) > 0 else None
-    cohort_gender = df["gender"].iloc[0] if len(df) > 0 else None
+    _cohort_gender_detected = df["gender"].iloc[0] if len(df) > 0 else None
+
+    # Tier multiplier for opponent mu during convergence
+    from src.rankings.constants import get_tier_multiplier as _get_tier_mult_fn
+    _tier_cache: Dict[str, float] = {}
+    _cohort_age_int: Optional[int] = None
+    if cohort_age is not None:
+        try:
+            _cohort_age_int = int(cohort_age)
+        except (ValueError, TypeError):
+            # Handle "U15" / "u15" format
+            age_str = str(cohort_age).lower().lstrip("u")
+            try:
+                _cohort_age_int = int(age_str)
+            except (ValueError, TypeError):
+                _cohort_age_int = None
+
+    def _tier_mult_conv(opp_id) -> float:
+        if tier_league_map is None:
+            return 1.0
+        opp_key = str(opp_id)
+        if opp_key not in _tier_cache:
+            _tier_cache[opp_key] = _get_tier_mult_fn(
+                tier_league_map.get(opp_key), cohort_gender, age=_cohort_age_int
+            )
+        return _tier_cache[opp_key]
 
     # 6. Pre-convert team games to arrays (avoid iterrows in the hot loop)
     team_arrays: Dict[str, Optional[Dict]] = {}
@@ -954,9 +984,9 @@ def run_glicko2_cohort(
                     opp_mu = scale_cross_age_rating(
                         opp_mu,
                         str(arr["opp_ages"][i]) if arr["opp_ages"] is not None else str(cohort_age),
-                        str(arr["opp_genders"][i]) if arr["opp_genders"] is not None else str(cohort_gender),
+                        str(arr["opp_genders"][i]) if arr["opp_genders"] is not None else str(_cohort_gender_detected),
                         str(cohort_age),
-                        str(cohort_gender),
+                        str(_cohort_gender_detected),
                         cfg,
                     )
                 elif opp_id in ratings:
@@ -964,6 +994,8 @@ def run_glicko2_cohort(
                 else:
                     opp_mu = cfg.INITIAL_MU
                     opp_sigma = cfg.INITIAL_SIGMA
+                # Apply tier discount: beating a Tier 2 opponent = beating a weaker opponent
+                opp_mu *= _tier_mult_conv(opp_id)
                 opponents_list.append((opp_mu, opp_sigma))
 
             # Update rating
@@ -1090,8 +1122,16 @@ def compute_rankings_v2(
     label = f" [{pass_label}]" if pass_label else ""
     logger.info(f"Starting Glicko-2 ranking engine{label}")
 
+    # Determine cohort gender early (needed for tier multiplier in convergence)
+    _cohort_gender = "Male"
+    if "gender" in games_df.columns and len(games_df) > 0:
+        _cohort_gender = games_df["gender"].iloc[0].capitalize()
+
     # 2. Run Glicko-2 convergence
-    team_df, team_games = run_glicko2_cohort(games_df, cfg, today, global_rating_map, initial_ratings=initial_ratings)
+    team_df, team_games = run_glicko2_cohort(
+        games_df, cfg, today, global_rating_map, initial_ratings=initial_ratings,
+        tier_league_map=tier_league_map, cohort_gender=_cohort_gender,
+    )
 
     # 3. Build ratings dict for derived metrics
     team_ratings: Dict[str, Tuple[float, float, float]] = dict(
@@ -1102,12 +1142,7 @@ def compute_rankings_v2(
     off_def = derive_offense_defense(games_df, team_ratings, cfg, today, team_games=team_games)
     team_df = team_df.merge(off_def, on="team_id", how="left")
 
-    # 5. Compute SOS
-    # Determine cohort gender from games_df
-    _cohort_gender = "Male"
-    if "gender" in games_df.columns and len(games_df) > 0:
-        _cohort_gender = games_df["gender"].iloc[0].capitalize()
-
+    # 5. Compute SOS (reuses _cohort_gender from above)
     sos = compute_sos(games_df, team_ratings, cfg, today, team_games=team_games,
                        tier_league_map=tier_league_map, cohort_gender=_cohort_gender)
     team_df = team_df.merge(sos, on="team_id", how="left")
