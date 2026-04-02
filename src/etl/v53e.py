@@ -905,6 +905,7 @@ def compute_rankings(
     team_state_map: Optional[Dict[str, str]] = None,
     pass_label: Optional[str] = None,
     pre_sos_state: Optional[Dict] = None,
+    tier_league_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, pd.DataFrame]:
     """
     Returns:
@@ -923,6 +924,9 @@ def compute_rankings(
         team_state_map: Optional dict of team_id -> state_code for Schedule Connectivity
                        Factor (SCF) calculation. If not provided, SCF is disabled.
         pre_sos_state: Optional cached state from Pass 1 to skip layers 1-5 in Pass 2
+        tier_league_map: Optional dict of team_id -> league name for tier-based SOS
+                        multiplier. Teams in lower tiers have their opponent strength
+                        discounted during SOS calculation.
     """
     cfg = cfg or V53EConfig()
 
@@ -1443,15 +1447,29 @@ def compute_rankings(
     sos_cross_age_active = cfg.CROSS_AGE_SOS_ADJUST_ENABLED and global_strength_map and sos_cohort_age is not None
     sos_team_anchor = age_anchor_map.get(sos_cohort_age, 1.0) if sos_cross_age_active else 1.0
 
+    # Tier multiplier for SOS opponent strength discounting
+    from src.rankings.constants import get_tier_multiplier
+    _cohort_gender = g_sos["gender"].iloc[0] if len(g_sos) > 0 else "Male"
+    _tier_mult_cache: Dict[str, float] = {}
+
+    def _get_tier_mult(opp_id) -> float:
+        if tier_league_map is None:
+            return 1.0
+        if opp_id not in _tier_mult_cache:
+            opp_league = tier_league_map.get(str(opp_id))
+            _tier_mult_cache[opp_id] = get_tier_multiplier(opp_league, _cohort_gender)
+        return _tier_mult_cache[opp_id]
+
     # Diagnostic: track cross-age lookups
     cross_age_found = 0
     cross_age_missing = 0
 
     def get_opponent_strength(opp_id):
         nonlocal cross_age_found, cross_age_missing
+        tier_mult = _get_tier_mult(opp_id)
         # Same-cohort: use raw value, no scaling
         if opp_id in base_strength_map:
-            return base_strength_map[opp_id]
+            return base_strength_map[opp_id] * tier_mult
         # Cross-cohort fallback: global map + anchor scaling
         opp_id_str = str(opp_id)
         if global_strength_map and opp_id_str in global_strength_map:
@@ -1462,7 +1480,7 @@ def compute_rankings(
                 if opp_age is not None and opp_age != sos_cohort_age:
                     opp_anchor = age_anchor_map.get(opp_age, 1.0)
                     strength = max(strength * (opp_anchor / sos_team_anchor), cfg.UNRANKED_SOS_BASE)
-            return strength
+            return strength * tier_mult
         # Unknown opponent
         cross_age_missing += 1
         return cfg.UNRANKED_SOS_BASE
@@ -1546,9 +1564,10 @@ def compute_rankings(
         # Calculate transitive SOS (opponent's SOS - this propagates schedule difficulty)
         # Use same fallback pattern: local SOS → global strength → unranked
         def get_opponent_sos(opp_id):
+            tier_mult = _get_tier_mult(opp_id)
             # Same-cohort: use raw SOS value, no scaling
             if opp_id in opp_sos_map:
-                return opp_sos_map[opp_id]
+                return opp_sos_map[opp_id] * tier_mult
             # Cross-cohort fallback: global strength + anchor scaling
             opp_id_str = str(opp_id)
             if global_strength_map and opp_id_str in global_strength_map:
@@ -1558,7 +1577,7 @@ def compute_rankings(
                     if opp_age is not None and opp_age != sos_cohort_age:
                         opp_anchor = age_anchor_map.get(opp_age, 1.0)
                         strength = max(strength * (opp_anchor / sos_team_anchor), cfg.UNRANKED_SOS_BASE)
-                return strength
+                return strength * tier_mult
             return cfg.UNRANKED_SOS_BASE
 
         g_sos["opp_sos"] = g_sos["opp_id"].map(get_opponent_sos)
