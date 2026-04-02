@@ -32,11 +32,20 @@ def ml_scale_formula(sos_norm):
     )
 
 
+NEGATIVE_ML_FLOOR = 0.5
+
+
 def final_score(ps_adj, ps_ml, sos_norm):
-    """Compute final score using SOS-conditioned ML scaling."""
+    """Compute final score using SOS-conditioned ML scaling.
+
+    Asymmetric gate: negative ML corrections get a floor of NEGATIVE_ML_FLOOR
+    authority even when SOS is below the low threshold. Positive ML corrections
+    are still fully gated by SOS.
+    """
     scale = ml_scale_formula(sos_norm)
     ml_delta = ps_ml - ps_adj
-    return np.clip(ps_adj + ml_delta * scale, 0.0, 1.0)
+    effective_scale = np.where(ml_delta >= 0, scale, np.maximum(scale, NEGATIVE_ML_FLOOR))
+    return np.clip(ps_adj + ml_delta * effective_scale, 0.0, 1.0)
 
 
 # ===========================================================================
@@ -117,11 +126,21 @@ class TestFinalScoreComputation:
         assert result == pytest.approx(expected, abs=1e-9)
 
     def test_negative_ml_delta_with_weak_schedule(self):
-        """ML saying team is WORSE should be ignored with weak schedule."""
+        """ML saying team is WORSE should still partially apply with weak schedule.
+
+        Changed from original behavior: negative ML corrections now get a floor
+        of NEGATIVE_ML_FLOOR (0.5) authority even when SOS is below the low
+        threshold. This prevents overrated teams with weak schedules from being
+        shielded from ML corrections (e.g., ECNL RL teams going 15-0 against
+        weak opponents).
+        """
         ps_adj = 0.7
         ps_ml = 0.4  # ML says team is worse
         result = final_score(ps_adj, ps_ml, sos_norm=0.30)
-        assert result == pytest.approx(ps_adj, abs=1e-9)
+        ml_delta = ps_ml - ps_adj  # -0.3
+        # With floor of 0.5, effective scale = max(0.0, 0.5) = 0.5
+        expected = np.clip(ps_adj + ml_delta * 0.5, 0.0, 1.0)  # 0.7 + (-0.3)*0.5 = 0.55
+        assert result == pytest.approx(expected, abs=1e-9)
 
     def test_negative_ml_delta_with_strong_schedule(self):
         """ML saying team is WORSE should be applied with strong schedule."""
@@ -129,6 +148,36 @@ class TestFinalScoreComputation:
         ps_ml = 0.5
         result = final_score(ps_adj, ps_ml, sos_norm=0.80)
         assert result == pytest.approx(ps_ml, abs=1e-9)
+
+    def test_positive_ml_delta_still_blocked_with_weak_schedule(self):
+        """ML saying team is BETTER should still be blocked with weak schedule.
+
+        The asymmetric gate only applies to negative corrections. Positive ML
+        (inflation) is still fully gated by SOS — we don't want to inflate
+        teams with weak schedules.
+        """
+        ps_adj = 0.5
+        ps_ml = 0.9  # ML thinks team is great
+        result = final_score(ps_adj, ps_ml, sos_norm=0.30)
+        assert result == pytest.approx(ps_adj, abs=1e-9)
+
+    def test_ecnl_rl_scenario_negative_ml_applies(self):
+        """Reproduces FC Arizona ECNL RL: 15-0 vs weak opponents, high mu,
+        strong negative ML signal, but SOS=0.39 blocks correction.
+
+        With the floored asymmetric gate, the negative ML correction should
+        partially apply, reducing the inflated score.
+        """
+        ps_adj = 0.88   # high mu from undefeated record
+        ps_ml = 0.85    # ML says overrated (negative delta)
+        sos_norm = 0.39  # below 0.45 threshold
+
+        result = final_score(ps_adj, ps_ml, sos_norm=sos_norm)
+        # Without fix: result would equal ps_adj (0.88) — ML blocked
+        # With fix: negative correction partially applied
+        assert result < ps_adj, (
+            f"Negative ML correction should reduce score from {ps_adj}, got {result}"
+        )
 
     def test_bounds_clamping(self):
         """Final score should always be in [0, 1]."""
@@ -212,13 +261,14 @@ class TestVectorizedSOSScaling:
         ps_ml = ps_adj + np.random.uniform(-0.1, 0.1, n)
         sos_norm = np.random.uniform(0.0, 1.0, n)
 
-        # Vectorized (pandas-style, as in calculator.py)
+        # Vectorized (pandas-style, as in calculator.py — with asymmetric gate)
         ml_delta = ps_ml - ps_adj
         ml_scale = np.clip(
             (sos_norm - SOS_ML_THRESHOLD_LOW) / (SOS_ML_THRESHOLD_HIGH - SOS_ML_THRESHOLD_LOW),
             0.0, 1.0
         )
-        vec_result = np.clip(ps_adj + ml_delta * ml_scale, 0.0, 1.0)
+        effective_scale = np.where(ml_delta >= 0, ml_scale, np.maximum(ml_scale, NEGATIVE_ML_FLOOR))
+        vec_result = np.clip(ps_adj + ml_delta * effective_scale, 0.0, 1.0)
 
         # Scalar
         scalar_result = np.array([

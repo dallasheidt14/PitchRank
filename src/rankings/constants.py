@@ -48,3 +48,8 @@ FEMALE_AGE_ANCHORS: dict[int, float] = {
 # Below LOW, ML has no authority; above HIGH, ML has full authority
 SOS_ML_THRESHOLD_LOW = 0.45
 SOS_ML_THRESHOLD_HIGH = 0.60
+
+# Asymmetric ML gate: minimum authority for negative ML corrections.
+# Positive corrections are fully gated by SOS; negative corrections
+# (marking overrated teams down) get at least this much authority.
+NEGATIVE_ML_FLOOR = 0.5

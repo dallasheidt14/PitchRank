@@ -884,7 +884,7 @@ async def compute_all_cohorts(
 
     # ---- Final age-anchor scaling for PowerScore ----
     if not teams_combined.empty:
-        from src.rankings.constants import AGE_TO_ANCHOR, SOS_ML_THRESHOLD_HIGH, SOS_ML_THRESHOLD_LOW
+        from src.rankings.constants import AGE_TO_ANCHOR, NEGATIVE_ML_FLOOR, SOS_ML_THRESHOLD_HIGH, SOS_ML_THRESHOLD_LOW
         from src.rankings.shared import sos_ml_blend
 
         if "age_num" not in teams_combined.columns:
@@ -935,15 +935,21 @@ async def compute_all_cohorts(
                     ml_delta = ps_ml - ps_adj
 
                     # Step 3: Scale ML authority by schedule strength
-                    # Weak schedule (sos_norm < 0.45) → ML has no authority
+                    # Weak schedule (sos_norm < 0.45) → ML has no authority for positive corrections
                     # Strong schedule (sos_norm >= 0.60) → ML has full authority
                     sos_norm = teams_age["sos_norm"].fillna(0.5)
                     ml_scale = (
                         (sos_norm - SOS_ML_THRESHOLD_LOW) / (SOS_ML_THRESHOLD_HIGH - SOS_ML_THRESHOLD_LOW)
                     ).clip(0.0, 1.0)
 
+                    # Asymmetric gate: negative ML corrections (marking overrated teams down)
+                    # get at least NEGATIVE_ML_FLOOR authority regardless of SOS.
+                    # Positive corrections (inflation) are still fully gated by SOS.
+                    import numpy as _np
+                    ml_scale_effective = _np.where(ml_delta >= 0, ml_scale, _np.maximum(ml_scale, NEGATIVE_ML_FLOOR))
+
                     # Step 4: Final score = baseline + SOS-scaled ML adjustment
-                    base = (ps_adj + ml_delta * ml_scale).clip(0.0, 1.0)
+                    base = (ps_adj + ml_delta * ml_scale_effective).clip(0.0, 1.0)
 
                     # Log statistics for monitoring
                     avg_ml_scale = ml_scale.mean()
