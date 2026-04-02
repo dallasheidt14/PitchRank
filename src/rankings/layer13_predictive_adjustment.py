@@ -11,15 +11,21 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# Prefer XGBoost; fall back to RandomForest
+# Prefer XGBoost; fall back to RandomForest; tolerate neither (import-only workflows)
 try:
     from xgboost import XGBRegressor  # type: ignore
 
     _HAS_XGB = True
+    _HAS_ML = True
 except Exception:
-    from sklearn.ensemble import RandomForestRegressor  # type: ignore
+    try:
+        from sklearn.ensemble import RandomForestRegressor  # type: ignore
 
-    _HAS_XGB = False
+        _HAS_XGB = False
+        _HAS_ML = True
+    except Exception:
+        _HAS_XGB = False
+        _HAS_ML = False
 
 # Import ML_CONFIG if available (may not exist in older configs)
 try:
@@ -285,6 +291,10 @@ async def apply_predictive_adjustment(
     out = teams_df.copy()
 
     if not cfg.enabled or out.empty:
+        return _passthrough_ml(out, cfg, return_game_residuals)
+
+    if not _HAS_ML:
+        logger.warning("sklearn/xgboost not installed — skipping ML adjustment")
         return _passthrough_ml(out, cfg, return_game_residuals)
 
     # 1) Acquire training data
