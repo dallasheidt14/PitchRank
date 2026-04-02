@@ -627,15 +627,14 @@ async def main():
         # Output machine-readable summary for callers to parse
         import json as _json
 
-        print(
-            f"IMPORT_RESULT:{_json.dumps({
-                'games_processed': aggregated_metrics.games_processed,
-                'games_accepted': aggregated_metrics.games_accepted,
-                'duplicates_skipped': aggregated_metrics.duplicates_skipped,
-                'duplicates_found': aggregated_metrics.duplicates_found,
-                'games_quarantined': aggregated_metrics.games_quarantined,
-            })}"
-        )
+        _summary = _json.dumps({
+            "games_processed": aggregated_metrics.games_processed,
+            "games_accepted": aggregated_metrics.games_accepted,
+            "duplicates_skipped": aggregated_metrics.duplicates_skipped,
+            "duplicates_found": aggregated_metrics.duplicates_found,
+            "games_quarantined": aggregated_metrics.games_quarantined,
+        })
+        print(f"IMPORT_RESULT:{_summary}")
 
         # Exit code based on success/failure
         if use_streaming and "total_batches" in dir():
