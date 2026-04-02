@@ -53,3 +53,60 @@ SOS_ML_THRESHOLD_HIGH = 0.60
 # Positive corrections are fully gated by SOS; negative corrections
 # (marking overrated teams down) get at least this much authority.
 NEGATIVE_ML_FLOOR = 0.5
+
+# ── League Tier System ──────────────────────────────────────────────────
+# Tier-based opponent strength multiplier for SOS calculation.
+# Teams in closed lower-tier ecosystems have inflated ratings because they
+# only play within their tier. This discount reduces opponent strength
+# proportional to the tier gap.
+
+TIER_MULTIPLIERS: dict[int, float] = {
+    1: 1.00,  # Baseline — no adjustment
+    2: 0.85,  # Discount Tier 2 opponent strength by 15%
+    3: 0.70,  # Discount Tier 3 opponent strength by 30%
+}
+
+UNAFFILIATED_MULTIPLIER: float = 1.00  # No penalty for unaffiliated teams
+
+# Male tier mapping (MLS NEXT HD/AD + ECNL/ECNL RL)
+LEAGUE_TO_TIER_MALE: dict[str, int] = {
+    "ECNL": 1,
+    "MLS_NEXT_HD": 1,
+    "ECNL_RL": 2,
+    "MLS_NEXT_AD": 2,
+    "DPL": 2,
+    "NPL": 3,
+    "EA": 3,
+    "NL": 3,
+}
+
+# Female tier mapping (ECNL/GA + ECNL RL, no MLS NEXT)
+LEAGUE_TO_TIER_FEMALE: dict[str, int] = {
+    "ECNL": 1,
+    "GA": 1,
+    "ECNL_RL": 2,
+    "DPL": 2,
+    "NPL": 3,
+    "EA": 3,
+    "NL": 3,
+    "ASPIRE": 3,
+}
+
+
+def get_tier_multiplier(league: str | None, gender: str) -> float:
+    """Return the tier multiplier for a given league and gender.
+
+    Args:
+        league: League string (e.g., "ECNL_RL") or None for unaffiliated.
+        gender: "Male" or "Female" — determines which tier mapping to use.
+
+    Returns:
+        Tier multiplier (1.0 for Tier 1 / unaffiliated, 0.85 for Tier 2, 0.70 for Tier 3).
+    """
+    if league is None:
+        return UNAFFILIATED_MULTIPLIER
+    tier_map = LEAGUE_TO_TIER_FEMALE if gender == "Female" else LEAGUE_TO_TIER_MALE
+    tier = tier_map.get(league)
+    if tier is None:
+        return UNAFFILIATED_MULTIPLIER
+    return TIER_MULTIPLIERS.get(tier, UNAFFILIATED_MULTIPLIER)
