@@ -65,6 +65,24 @@ class TestGetTierMultiplier:
     def test_unaffiliated_multiplier_is_1(self):
         assert UNAFFILIATED_MULTIPLIER == 1.0
 
+    def test_u12_returns_no_discount(self):
+        """Tier multiplier should NOT apply below U13."""
+        assert get_tier_multiplier("ECNL_RL", "Male", age=12) == 1.0
+
+    def test_u13_returns_discount(self):
+        """Tier multiplier should apply at U13 and above."""
+        assert get_tier_multiplier("ECNL_RL", "Male", age=13) == 0.85
+
+    def test_u14_returns_discount(self):
+        assert get_tier_multiplier("ECNL_RL", "Male", age=14) == 0.85
+
+    def test_u10_returns_no_discount(self):
+        assert get_tier_multiplier("DPL", "Female", age=10) == 1.0
+
+    def test_none_age_still_applies_discount(self):
+        """If age is None (unknown), discount still applies."""
+        assert get_tier_multiplier("ECNL_RL", "Male", age=None) == 0.85
+
 
 # ---------------------------------------------------------------------------
 # Integration tests: v53e engine with tier multiplier

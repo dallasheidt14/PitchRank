@@ -1457,7 +1457,7 @@ def compute_rankings(
             return 1.0
         if opp_id not in _tier_mult_cache:
             opp_league = tier_league_map.get(str(opp_id))
-            _tier_mult_cache[opp_id] = get_tier_multiplier(opp_league, _cohort_gender)
+            _tier_mult_cache[opp_id] = get_tier_multiplier(opp_league, _cohort_gender, age=sos_cohort_age)
         return _tier_mult_cache[opp_id]
 
     # Diagnostic: track cross-age lookups

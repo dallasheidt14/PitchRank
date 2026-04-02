@@ -93,17 +93,27 @@ LEAGUE_TO_TIER_FEMALE: dict[str, int] = {
 }
 
 
-def get_tier_multiplier(league: str | None, gender: str) -> float:
+# Tier multipliers only apply for U13+ (ages 13-19).
+# ECNL, MLS NEXT, GA, DPL, etc. don't exist below U13.
+TIER_MIN_AGE = 13
+
+
+def get_tier_multiplier(league: str | None, gender: str, age: int | None = None) -> float:
     """Return the tier multiplier for a given league and gender.
 
     Args:
         league: League string (e.g., "ECNL_RL") or None for unaffiliated.
         gender: "Male" or "Female" — determines which tier mapping to use.
+        age: Numeric age group (e.g., 14 for U14). If below TIER_MIN_AGE (13),
+             returns 1.0 — tier system doesn't apply to younger age groups.
 
     Returns:
-        Tier multiplier (1.0 for Tier 1 / unaffiliated, 0.85 for Tier 2, 0.70 for Tier 3).
+        Tier multiplier (1.0 for Tier 1 / unaffiliated / U12 and below,
+        0.85 for Tier 2, 0.70 for Tier 3).
     """
     if league is None:
+        return UNAFFILIATED_MULTIPLIER
+    if age is not None and age < TIER_MIN_AGE:
         return UNAFFILIATED_MULTIPLIER
     tier_map = LEAGUE_TO_TIER_FEMALE if gender == "Female" else LEAGUE_TO_TIER_MALE
     tier = tier_map.get(league)

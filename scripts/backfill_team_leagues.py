@@ -45,17 +45,39 @@ sb = create_client(SUPABASE_URL, SUPABASE_KEY)
 # Order matters: check more specific patterns first (ECNL RL before ECNL)
 
 LEAGUE_PATTERNS: list[tuple[str, re.Pattern]] = [
+    # MLS NEXT HD/AD — check before ECNL patterns (some names contain both)
+    ("MLS_NEXT_HD", re.compile(r"\bMLS\s*NEXT?\s*HD\b", re.IGNORECASE)),
+    ("MLS_NEXT_HD", re.compile(r"\bMNHD\b", re.IGNORECASE)),
+    ("MLS_NEXT_AD", re.compile(r"\bMLS\s*NEXT?\s*AD\b", re.IGNORECASE)),
+    ("MLS_NEXT_AD", re.compile(r"\bNEXT\s*AD\b", re.IGNORECASE)),
+    # ECNL RL — check before ECNL (more specific first)
     ("ECNL_RL", re.compile(r"\bECNL[\s\-]*RL\b", re.IGNORECASE)),
     ("ECNL_RL", re.compile(r"\bECRL\b", re.IGNORECASE)),
+    ("ECNL_RL", re.compile(r"\bE64\s*RL\b", re.IGNORECASE)),
+    # Standalone RL suffix — likely ECNL RL (e.g., "Alabama FC RL 2011")
+    ("ECNL_RL", re.compile(r"\bRL\s+\d{4}\b", re.IGNORECASE)),  # "RL 2011"
+    ("ECNL_RL", re.compile(r"\d{4}\s*[\-\s]*RL\b", re.IGNORECASE)),  # "2010 - RL" or "2010 RL"
+    ("ECNL_RL", re.compile(r"\bRL\b$", re.IGNORECASE)),  # RL at end of name
+    # ECNL (after RL patterns so we don't match "ECNL RL" as "ECNL")
     ("ECNL", re.compile(r"\bECNL\b", re.IGNORECASE)),
+    # Other leagues
     ("DPL", re.compile(r"\bDPL\b", re.IGNORECASE)),
-    ("GA", re.compile(r"\bGA\b(?!\s*(?:Gold|Green|Gray|Grey|United|SC|FC|Academy\b))", re.IGNORECASE)),
+    ("GA", re.compile(r"\bGirls\s*Academy\s*(?:League)?\b", re.IGNORECASE)),
+    ("GA", re.compile(r"\bGA\s*Gold\b", re.IGNORECASE)),
+    ("GA", re.compile(r"\bGA\b(?!\s*(?:Green|Gray|Grey|United|SC|FC\b))", re.IGNORECASE)),
     ("NPL", re.compile(r"\bNPL\b", re.IGNORECASE)),
     ("ASPIRE", re.compile(r"\bAspire\b", re.IGNORECASE)),
+    ("NL", re.compile(r"\bNational\s*League\b", re.IGNORECASE)),
     ("NL", re.compile(r"\bNL\b(?!\s*(?:Premier|Next))", re.IGNORECASE)),
     ("EA", re.compile(r"\bElite\s*Academy\b", re.IGNORECASE)),
+    # Standalone HD/AD suffix — likely MLS NEXT (e.g., "TFA-IE 2009 HD")
+    ("MLS_NEXT_HD", re.compile(r"\b\d{4}\s*HD\b", re.IGNORECASE)),  # "2009 HD"
+    ("MLS_NEXT_HD", re.compile(r"\bHD\b$", re.IGNORECASE)),  # HD at end of name
+    ("MLS_NEXT_AD", re.compile(r"\b\d{4}\s*AD\b", re.IGNORECASE)),  # "2009 AD"
+    ("MLS_NEXT_AD", re.compile(r"\bAD\b$", re.IGNORECASE)),  # AD at end of name
 ]
 
+# Alias map division → league (supplements name-based detection)
 MLS_NEXT_DIVISION_MAP = {
     "HD": "MLS_NEXT_HD",
     "AD": "MLS_NEXT_AD",
@@ -64,15 +86,16 @@ MLS_NEXT_DIVISION_MAP = {
 
 def detect_league_from_name(team_name: str) -> str | None:
     """Detect league from team name using regex patterns."""
-    for league, pattern in LEAGUE_PATTERNS:
-        if pattern.search(team_name):
-            return league
-    if re.search(r"\bMLS\s*NEXT\b", team_name, re.IGNORECASE):
-        return None
+    # Skip pre-development team names
     if re.search(r"\bPre[\s\-]*ECNL\b", team_name, re.IGNORECASE):
         return None
     if re.search(r"\bPre[\s\-]*MLS\b", team_name, re.IGNORECASE):
         return None
+    if re.search(r"\bPRE[\s\-]*ACADEMY\b", team_name, re.IGNORECASE):
+        return None
+    for league, pattern in LEAGUE_PATTERNS:
+        if pattern.search(team_name):
+            return league
     return None
 
 
@@ -149,17 +172,31 @@ def main():
         console.print("\n[yellow]DRY RUN — no changes written[/yellow]")
         return
 
-    # 5. Write updates in batches
+    # 5. Write updates in batches with retry + client refresh
     console.print(f"\n[dim]Writing {len(updates):,} league updates...[/dim]")
     batch_items = list(updates.items())
     written = 0
+    client = sb
     for i in range(0, len(batch_items), 50):
         batch = batch_items[i : i + 50]
         for tid, league in batch:
-            sb.table("teams").update({"league": league}).eq("team_id_master", tid).execute()
+            for attempt in range(3):
+                try:
+                    client.table("teams").update({"league": league}).eq("team_id_master", tid).execute()
+                    break
+                except Exception as e:
+                    if attempt < 2:
+                        import time
+                        time.sleep(1)
+                        client = create_client(SUPABASE_URL, SUPABASE_KEY)
+                    else:
+                        console.print(f"[red]Failed to update {tid}: {e}[/red]")
             written += 1
         if written % 500 == 0 or written == len(batch_items):
             console.print(f"  ✓ Updated {written:,} / {len(updates):,}")
+        # Refresh client every 2000 updates to avoid connection staleness
+        if written % 2000 == 0:
+            client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
     console.print(f"\n[bold green]Done — {written:,} teams updated with league data[/bold green]")
 

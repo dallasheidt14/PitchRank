@@ -510,6 +510,14 @@ def compute_sos(
     """
     from src.rankings.constants import get_tier_multiplier
 
+    # Extract cohort age for tier multiplier age guard (U13+ only)
+    _cohort_age = None
+    if "age" in games_df.columns and len(games_df) > 0:
+        try:
+            _cohort_age = int(games_df["age"].iloc[0])
+        except (ValueError, TypeError):
+            pass
+
     _tier_cache: Dict[str, float] = {}
 
     def _tier_mult(opp_id: str) -> float:
@@ -517,7 +525,7 @@ def compute_sos(
             return 1.0
         if opp_id not in _tier_cache:
             _tier_cache[opp_id] = get_tier_multiplier(
-                tier_league_map.get(str(opp_id)), cohort_gender
+                tier_league_map.get(str(opp_id)), cohort_gender, age=_cohort_age
             )
         return _tier_cache[opp_id]
 
