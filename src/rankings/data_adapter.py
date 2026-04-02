@@ -280,7 +280,7 @@ async def fetch_games_for_rankings(
             teams_result = retry_supabase_query(
                 lambda b=batch: (
                     db.table("teams")
-                    .select("team_id_master, age_group, gender, is_deprecated")
+                    .select("team_id_master, age_group, gender, is_deprecated, league")
                     .in_("team_id_master", b)
                     .execute()
                 ),

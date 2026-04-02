@@ -1044,6 +1044,7 @@ def compute_rankings_v2(
     team_state_map: Optional[Dict[str, str]] = None,
     pass_label: Optional[str] = None,
     initial_ratings: Optional[Dict[str, Tuple[float, float, float]]] = None,
+    tier_league_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, pd.DataFrame]:
     """Drop-in replacement for v53e.compute_rankings.
 
@@ -1094,7 +1095,13 @@ def compute_rankings_v2(
     team_df = team_df.merge(off_def, on="team_id", how="left")
 
     # 5. Compute SOS
-    sos = compute_sos(games_df, team_ratings, cfg, today, team_games=team_games)
+    # Determine cohort gender from games_df
+    _cohort_gender = "Male"
+    if "gender" in games_df.columns and len(games_df) > 0:
+        _cohort_gender = games_df["gender"].iloc[0].capitalize()
+
+    sos = compute_sos(games_df, team_ratings, cfg, today, team_games=team_games,
+                       tier_league_map=tier_league_map, cohort_gender=_cohort_gender)
     team_df = team_df.merge(sos, on="team_id", how="left")
 
     # 5b. Compute per-game explainability breakdown

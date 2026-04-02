@@ -162,6 +162,7 @@ async def compute_rankings_with_ml(
     global_strength_map: Optional[Dict] = None,  # For cross-age SOS lookups
     merge_version: Optional[str] = None,  # For cache invalidation when merges change
     team_state_map: Optional[Dict[str, str]] = None,  # For SCF regional bubble detection
+    tier_league_map: Optional[Dict[str, str]] = None,  # For tier-based SOS discounting
     timing_report: Optional["TimingReport"] = None,
     pass_label: Optional[str] = None,  # "Pass1" or "Pass2" for log disambiguation
     pre_sos_state: Optional[Dict] = None,  # Cached state from Pass 1 for two-pass optimization
@@ -258,6 +259,7 @@ async def compute_rankings_with_ml(
                     team_state_map=team_state_map,
                     pass_label=pass_label,
                     initial_ratings=initial_ratings,
+                    tier_league_map=tier_league_map,
                 )
             logger.info(f"✅ Glicko-2 engine completed: {len(base['teams']):,} teams ranked")
         else:
@@ -271,6 +273,7 @@ async def compute_rankings_with_ml(
                     team_state_map=team_state_map,
                     pass_label=pass_label,
                     pre_sos_state=pre_sos_state,
+                    tier_league_map=tier_league_map,
                 )
             logger.info(f"✅ v53e engine completed: {len(base['teams']):,} teams ranked")
 
@@ -395,6 +398,7 @@ async def compute_rankings_v53e_only(
     provider_filter: Optional[str] = None,
     force_rebuild: bool = False,
     team_state_map: Optional[Dict[str, str]] = None,  # For SCF regional bubble detection
+    tier_league_map: Optional[Dict[str, str]] = None,  # For tier-based SOS discounting
     merge_resolver=None,  # Optional MergeResolver for team merge resolution
     timing_report: Optional["TimingReport"] = None,
 ) -> Dict[str, pd.DataFrame]:
@@ -435,6 +439,7 @@ async def compute_rankings_v53e_only(
             today=today,
             cfg=v53_cfg,
             team_state_map=team_state_map,  # For SCF regional bubble detection
+            tier_league_map=tier_league_map,  # For tier-based SOS discounting
         )
     logger.info(f"✅ v53e engine completed: {len(result['teams']):,} teams ranked")
 
@@ -532,6 +537,38 @@ async def compute_all_cohorts(
         else:
             logger.warning("⚠️ No team IDs found for state metadata fetch - SCF will be disabled")
 
+    # Build tier_league_map for SOS opponent strength discounting
+    tier_league_map: Dict[str, str] = {}
+    with _section(timing_report, "tier_league_map"):
+        if team_ids:
+            logger.info(f"🏆 Fetching league metadata for {len(team_ids):,} teams (for tier multiplier)...")
+            team_ids_list = list(team_ids)
+            batch_size = 100
+            for i in range(0, len(team_ids_list), batch_size):
+                batch = team_ids_list[i : i + batch_size]
+                try:
+                    result = (
+                        supabase_client.table("teams")
+                        .select("team_id_master, league")
+                        .in_("team_id_master", batch)
+                        .execute()
+                    )
+                    if result.data:
+                        for row in result.data:
+                            team_id = str(row.get("team_id_master", ""))
+                            league = row.get("league")
+                            if team_id and league:
+                                tier_league_map[team_id] = league
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to fetch league metadata batch {i}: {str(e)[:100]}")
+                    continue
+            league_counts: Dict[str, int] = {}
+            for lg in tier_league_map.values():
+                league_counts[lg] = league_counts.get(lg, 0) + 1
+            logger.info(f"✅ Fetched league for {len(tier_league_map):,} teams. Distribution: {dict(sorted(league_counts.items(), key=lambda x: -x[1])[:5])}")
+        else:
+            logger.warning("⚠️ No team IDs found for league metadata fetch")
+
     # ========== AGE-BUCKET VALIDATION ==========
     # Reject/quarantine ages outside PitchRank's supported range (U10–U19).
     # Ages outside this range are data quality issues (u0, u3–u7) or
@@ -589,6 +626,7 @@ async def compute_all_cohorts(
             global_strength_map=None,  # No global map yet
             merge_version=merge_version,  # For cache invalidation
             team_state_map=team_state_map,  # For SCF regional bubble detection
+            tier_league_map=tier_league_map,  # For tier-based SOS discounting
             pass_label="Pass1",
             use_glicko=use_glicko,
         )
@@ -650,6 +688,7 @@ async def compute_all_cohorts(
             global_strength_map=global_strength_map,  # Now with cross-age strengths/ratings
             merge_version=merge_version,  # For cache invalidation
             team_state_map=team_state_map,  # For SCF regional bubble detection
+            tier_league_map=tier_league_map,  # For tier-based SOS discounting
             pass_label="Pass2",
             pre_sos_state=None if use_glicko else pass1_pre_sos_states.get(i),
             use_glicko=use_glicko,
