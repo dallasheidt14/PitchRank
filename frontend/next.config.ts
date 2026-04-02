@@ -51,6 +51,9 @@ const nextConfig: NextConfig = {
 
   // Security headers
   async headers() {
+    // unsafe-eval is needed for Next.js dev mode (HMR/source maps) but not production
+    const cspUnsafeEval = process.env.NODE_ENV === 'production' ? '' : " 'unsafe-eval'";
+
     return [
       {
         source: '/(.*)',
@@ -77,8 +80,7 @@ const nextConfig: NextConfig = {
           },
           {
             key: 'Content-Security-Policy',
-            value:
-              "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self' data:; connect-src 'self' https:; frame-ancestors 'none';",
+            value: `default-src 'self'; script-src 'self' 'unsafe-inline'${cspUnsafeEval} https://www.googletagmanager.com https://www.google-analytics.com; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self' data:; connect-src 'self' https:; frame-ancestors 'none';`,
           },
         ],
       },

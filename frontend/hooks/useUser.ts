@@ -28,6 +28,14 @@ export function hasPremiumAccess(profile: UserProfile | null): boolean {
 }
 
 /**
+ * Check if user has admin access
+ */
+export function hasAdminAccess(profile: UserProfile | null): boolean {
+  if (!profile) return false;
+  return profile.plan === 'admin';
+}
+
+/**
  * Check if subscription is active
  */
 export function isSubscriptionActive(profile: UserProfile | null): boolean {

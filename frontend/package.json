@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
     "analyze": "cross-env ANALYZE=true next build --webpack",
     "test:e2e": "playwright test",
     "test:e2e:api": "playwright test --project=api",
