@@ -144,3 +144,64 @@ class TestGlickoFullPipeline:
 
         corr, _ = spearmanr(merged['avg_opp_mu'], merged['sos_raw'])
         assert corr > 0.7, f"SOS-vs-opponent-mu Spearman {corr:.3f} too low (expected > 0.7)"
+
+    def test_isolated_bubble_team_ranks_below_connected_team(self):
+        """A team dominating an isolated bubble should rank lower than a connected
+        team with similar win rate against diverse opponents."""
+        cfg = GlickoConfig()
+        today = pd.Timestamp('2026-03-31')
+        np.random.seed(123)
+
+        bubble_teams = ['bubble_star', 'bubble_b', 'bubble_c', 'bubble_d']
+        connected_teams = ['conn_star', 'conn_b', 'conn_c', 'conn_d', 'conn_e', 'conn_f']
+        state_map = {
+            'bubble_star': 'RU', 'bubble_b': 'RU', 'bubble_c': 'RU', 'bubble_d': 'RU',
+            'conn_star': 'AZ', 'conn_b': 'CA', 'conn_c': 'NV', 'conn_d': 'TX',
+            'conn_e': 'AZ', 'conn_f': 'AZ',
+        }
+
+        rows = []
+
+        def add_game(t1, t2, gf, ga, day):
+            d = pd.Timestamp('2026-01-01') + pd.Timedelta(days=day)
+            for team, opp, f, a in [(t1, t2, gf, ga), (t2, t1, ga, gf)]:
+                rows.append({
+                    'team_id': team, 'opp_id': opp, 'gf': f, 'ga': a,
+                    'date': d, 'age': 'U13', 'gender': 'M',
+                    'opp_age': 'U13', 'opp_gender': 'M',
+                })
+
+        day = 0
+        for _ in range(4):
+            for opp in ['bubble_b', 'bubble_c', 'bubble_d']:
+                add_game('bubble_star', opp, np.random.randint(3, 7), np.random.randint(0, 2), day)
+                day += 1
+
+        for i, t1 in enumerate(bubble_teams[1:]):
+            for t2 in bubble_teams[i + 2:]:
+                add_game(t1, t2, np.random.randint(1, 3), np.random.randint(0, 3), day)
+                day += 1
+
+        for _ in range(3):
+            for opp in connected_teams[1:]:
+                add_game('conn_star', opp, np.random.randint(2, 5), np.random.randint(0, 2), day)
+                day += 1
+        for opp in ['conn_b', 'conn_c', 'conn_d']:
+            add_game('conn_star', opp, 0, np.random.randint(1, 3), day)
+            day += 1
+
+        for i, t1 in enumerate(connected_teams[1:]):
+            for t2 in connected_teams[i + 2:]:
+                add_game(t1, t2, np.random.randint(1, 3), np.random.randint(0, 3), day)
+                day += 1
+
+        games_df = pd.DataFrame(rows)
+        result = compute_rankings_v2(games_df, today=today, cfg=cfg, team_state_map=state_map)
+        teams = result['teams']
+
+        bubble_star_ps = teams[teams['team_id'] == 'bubble_star']['powerscore_adj'].iloc[0]
+        conn_star_ps = teams[teams['team_id'] == 'conn_star']['powerscore_adj'].iloc[0]
+
+        assert conn_star_ps > bubble_star_ps, (
+            f"Connected star ({conn_star_ps:.4f}) should rank above bubble star ({bubble_star_ps:.4f})"
+        )

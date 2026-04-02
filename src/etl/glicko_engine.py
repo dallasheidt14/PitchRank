@@ -812,6 +812,11 @@ def apply_scf_dampening(
     # Dampen SOS toward neutral: sos_dampened = neutral + scf * (sos_raw - neutral)
     df["sos_raw"] = neutral + df["scf"] * (df["sos_raw"] - neutral)
 
+    # Dampen mu toward neutral for isolated teams (Shelopugin & Sirotkin 2023:
+    # Glicko-2 ratings inflate in isolated ecosystems without cross-references)
+    if "mu" in df.columns:
+        df["mu"] = neutral + df["scf"] * (df["mu"] - neutral)
+
     return df
 
 

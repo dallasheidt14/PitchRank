@@ -770,6 +770,44 @@ class TestSCF:
         assert isolated_sos < raw_sos
         assert abs(connected_sos - (neutral + 1.0 * (raw_sos - neutral))) < 0.01
 
+    def test_scf_dampens_mu_for_isolated_teams(self):
+        """Isolated team (low scf) has mu dampened toward 1500; connected team unchanged."""
+        cfg = GlickoConfig()
+        neutral = cfg.INITIAL_MU
+        high_mu = 1700.0
+
+        team_df = pd.DataFrame(
+            [
+                {"team_id": "isolated", "sos_raw": 1500.0, "mu": high_mu},
+                {"team_id": "connected", "sos_raw": 1500.0, "mu": high_mu},
+            ]
+        )
+        scf_data = {
+            "isolated": {
+                "scf": cfg.SCF_FLOOR,
+                "bridge_games": 0,
+                "is_isolated": True,
+                "unique_states": 1,
+                "quality_boosted": False,
+            },
+            "connected": {
+                "scf": 1.0,
+                "bridge_games": 10,
+                "is_isolated": False,
+                "unique_states": 5,
+                "quality_boosted": False,
+            },
+        }
+        result = apply_scf_dampening(team_df, scf_data, cfg)
+        isolated_mu = result[result["team_id"] == "isolated"]["mu"].iloc[0]
+        connected_mu = result[result["team_id"] == "connected"]["mu"].iloc[0]
+
+        assert isolated_mu < connected_mu
+        assert isolated_mu < high_mu
+        assert abs(connected_mu - high_mu) < 0.01
+        expected_isolated_mu = neutral + cfg.SCF_FLOOR * (high_mu - neutral)
+        assert abs(isolated_mu - expected_isolated_mu) < 0.01
+
     def test_scf_disabled(self):
         """SCF_ENABLED=False gives scf=1.0 and is_isolated=False for all teams."""
         cfg = GlickoConfig()
