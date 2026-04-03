@@ -55,68 +55,75 @@ SOS_ML_THRESHOLD_HIGH = 0.60
 NEGATIVE_ML_FLOOR = 0.5
 
 # ── League Tier System ──────────────────────────────────────────────────
-# Tier-based opponent strength multiplier for SOS calculation.
-# Teams in closed lower-tier ecosystems have inflated ratings because they
-# only play within their tier. This discount reduces opponent strength
-# proportional to the tier gap.
+# Per-league opponent strength multiplier applied during Glicko-2
+# convergence and SOS calculation. Discounts opponent mu for teams
+# in closed lower-tier ecosystems.
 
-TIER_MULTIPLIERS: dict[int, float] = {
-    1: 1.00,  # Baseline — no adjustment
-    2: 0.85,  # Discount Tier 2 opponent strength by 15%
-    3: 0.70,  # Discount Tier 3 opponent strength by 30%
+UNAFFILIATED_MULTIPLIER_MALE: float = 0.97
+UNAFFILIATED_MULTIPLIER_FEMALE: float = 0.97
+
+# Male: direct league -> multiplier
+LEAGUE_MULTIPLIER_MALE: dict[str, float] = {
+    "MLS_NEXT_HD": 1.00,
+    "ECNL": 0.98,
+    "MLS_NEXT_AD": 0.98,
+    "ECNL_RL": 0.96,
+    "DPL": 0.94,
+    "NPL": 0.94,
+    "EA": 0.94,
+    "NL": 0.94,
 }
 
-UNAFFILIATED_MULTIPLIER: float = 1.00  # No penalty for unaffiliated teams
+# Female: direct league -> multiplier
+LEAGUE_MULTIPLIER_FEMALE: dict[str, float] = {
+    "ECNL": 1.00,
+    "GA": 0.99,
+    "ECNL_RL": 0.97,
+    "DPL": 0.96,
+    "NPL": 0.96,
+    "EA": 0.96,
+    "NL": 0.96,
+    "ASPIRE": 0.96,
+}
 
-# Male tier mapping (MLS NEXT HD/AD + ECNL/ECNL RL)
+# Backward-compat aliases (used by existing imports in tests)
 LEAGUE_TO_TIER_MALE: dict[str, int] = {
-    "ECNL": 1,
-    "MLS_NEXT_HD": 1,
-    "ECNL_RL": 2,
-    "MLS_NEXT_AD": 2,
-    "DPL": 2,
-    "NPL": 3,
-    "EA": 3,
-    "NL": 3,
+    "MLS_NEXT_HD": 1, "ECNL": 1,
+    "MLS_NEXT_AD": 2, "ECNL_RL": 2, "DPL": 3,
+    "NPL": 3, "EA": 3, "NL": 3,
 }
-
-# Female tier mapping (ECNL/GA + ECNL RL, no MLS NEXT)
 LEAGUE_TO_TIER_FEMALE: dict[str, int] = {
-    "ECNL": 1,
-    "GA": 1,
-    "ECNL_RL": 2,
-    "DPL": 2,
-    "NPL": 3,
-    "EA": 3,
-    "NL": 3,
-    "ASPIRE": 3,
+    "ECNL": 1, "GA": 1,
+    "ECNL_RL": 2, "DPL": 3,
+    "NPL": 3, "EA": 3, "NL": 3, "ASPIRE": 3,
 }
-
+TIER_MULTIPLIERS: dict[int, float] = {1: 1.00, 2: 0.96, 3: 0.94}
+UNAFFILIATED_MULTIPLIER: float = 0.95
 
 # Tier multipliers only apply for U13+ (ages 13-19).
-# ECNL, MLS NEXT, GA, DPL, etc. don't exist below U13.
 TIER_MIN_AGE = 13
 
 
 def get_tier_multiplier(league: str | None, gender: str, age: int | None = None) -> float:
-    """Return the tier multiplier for a given league and gender.
+    """Return the league multiplier for a given league and gender.
+
+    Uses direct per-league multiplier maps (not tier-based).
 
     Args:
         league: League string (e.g., "ECNL_RL") or None for unaffiliated.
-        gender: "Male" or "Female" — determines which tier mapping to use.
-        age: Numeric age group (e.g., 14 for U14). If below TIER_MIN_AGE (13),
-             returns 1.0 — tier system doesn't apply to younger age groups.
+        gender: "Male" or "Female".
+        age: Numeric age group. If below 13, returns 1.0.
 
     Returns:
-        Tier multiplier (1.0 for Tier 1 / unaffiliated / U12 and below,
-        0.85 for Tier 2, 0.70 for Tier 3).
+        Multiplier (1.0 = no discount).
     """
-    if league is None:
-        return UNAFFILIATED_MULTIPLIER
     if age is not None and age < TIER_MIN_AGE:
-        return UNAFFILIATED_MULTIPLIER
-    tier_map = LEAGUE_TO_TIER_FEMALE if gender == "Female" else LEAGUE_TO_TIER_MALE
-    tier = tier_map.get(league)
-    if tier is None:
-        return UNAFFILIATED_MULTIPLIER
-    return TIER_MULTIPLIERS.get(tier, UNAFFILIATED_MULTIPLIER)
+        return 1.0
+    if gender == "Female":
+        if league is None:
+            return UNAFFILIATED_MULTIPLIER_FEMALE
+        return LEAGUE_MULTIPLIER_FEMALE.get(league, UNAFFILIATED_MULTIPLIER_FEMALE)
+    else:
+        if league is None:
+            return UNAFFILIATED_MULTIPLIER_MALE
+        return LEAGUE_MULTIPLIER_MALE.get(league, UNAFFILIATED_MULTIPLIER_MALE)

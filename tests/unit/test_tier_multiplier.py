@@ -2,86 +2,95 @@
 
 import pytest
 from src.rankings.constants import (
-    LEAGUE_TO_TIER_MALE,
-    LEAGUE_TO_TIER_FEMALE,
-    TIER_MULTIPLIERS,
-    UNAFFILIATED_MULTIPLIER,
+    LEAGUE_MULTIPLIER_MALE,
+    LEAGUE_MULTIPLIER_FEMALE,
+    UNAFFILIATED_MULTIPLIER_MALE,
+    UNAFFILIATED_MULTIPLIER_FEMALE,
     get_tier_multiplier,
 )
 
 
-class TestTierConstants:
-    """Verify tier mapping and multiplier lookups."""
+class TestLeagueMultiplierMaps:
+    """Verify per-league multiplier mappings."""
 
-    def test_ecnl_is_tier_1_male(self):
-        assert LEAGUE_TO_TIER_MALE["ECNL"] == 1
+    def test_mls_next_hd_male_is_1(self):
+        assert LEAGUE_MULTIPLIER_MALE["MLS_NEXT_HD"] == 1.00
 
-    def test_ecnl_rl_is_tier_2_male(self):
-        assert LEAGUE_TO_TIER_MALE["ECNL_RL"] == 2
+    def test_ecnl_male_is_098(self):
+        assert LEAGUE_MULTIPLIER_MALE["ECNL"] == 0.98
 
-    def test_mls_next_hd_is_tier_1_male(self):
-        assert LEAGUE_TO_TIER_MALE["MLS_NEXT_HD"] == 1
+    def test_mls_next_ad_male_is_098(self):
+        assert LEAGUE_MULTIPLIER_MALE["MLS_NEXT_AD"] == 0.98
 
-    def test_mls_next_ad_is_tier_2_male(self):
-        assert LEAGUE_TO_TIER_MALE["MLS_NEXT_AD"] == 2
+    def test_ecnl_rl_male_is_096(self):
+        assert LEAGUE_MULTIPLIER_MALE["ECNL_RL"] == 0.96
 
-    def test_ga_is_tier_1_female(self):
-        assert LEAGUE_TO_TIER_FEMALE["GA"] == 1
+    def test_dpl_male_is_094(self):
+        assert LEAGUE_MULTIPLIER_MALE["DPL"] == 0.94
 
-    def test_ga_not_in_male_tiers(self):
-        assert "GA" not in LEAGUE_TO_TIER_MALE
+    def test_ecnl_female_is_1(self):
+        assert LEAGUE_MULTIPLIER_FEMALE["ECNL"] == 1.00
 
-    def test_tier_1_multiplier_is_1(self):
-        assert TIER_MULTIPLIERS[1] == 1.0
+    def test_ga_female_is_099(self):
+        assert LEAGUE_MULTIPLIER_FEMALE["GA"] == 0.99
 
-    def test_tier_2_multiplier(self):
-        assert TIER_MULTIPLIERS[2] == 0.85
+    def test_ecnl_rl_female_is_097(self):
+        assert LEAGUE_MULTIPLIER_FEMALE["ECNL_RL"] == 0.97
 
-    def test_tier_3_multiplier(self):
-        assert TIER_MULTIPLIERS[3] == 0.70
+    def test_dpl_female_is_096(self):
+        assert LEAGUE_MULTIPLIER_FEMALE["DPL"] == 0.96
+
+    def test_unaffiliated_male_is_097(self):
+        assert UNAFFILIATED_MULTIPLIER_MALE == 0.97
+
+    def test_unaffiliated_female_is_097(self):
+        assert UNAFFILIATED_MULTIPLIER_FEMALE == 0.97
 
 
 class TestGetTierMultiplier:
     """Verify the lookup function."""
 
-    def test_ecnl_male_returns_1(self):
-        assert get_tier_multiplier("ECNL", "Male") == 1.0
+    def test_mls_next_hd_male_returns_1(self):
+        assert get_tier_multiplier("MLS_NEXT_HD", "Male") == 1.00
 
-    def test_ecnl_rl_male_returns_085(self):
-        assert get_tier_multiplier("ECNL_RL", "Male") == 0.85
+    def test_ecnl_male_returns_098(self):
+        assert get_tier_multiplier("ECNL", "Male") == 0.98
 
-    def test_dpl_female_returns_085(self):
-        assert get_tier_multiplier("DPL", "Female") == 0.85
+    def test_mls_next_ad_male_returns_098(self):
+        assert get_tier_multiplier("MLS_NEXT_AD", "Male") == 0.98
 
-    def test_ga_female_returns_1(self):
-        assert get_tier_multiplier("GA", "Female") == 1.0
+    def test_ecnl_rl_male_returns_096(self):
+        assert get_tier_multiplier("ECNL_RL", "Male") == 0.96
 
-    def test_none_league_returns_unaffiliated(self):
-        assert get_tier_multiplier(None, "Male") == UNAFFILIATED_MULTIPLIER
+    def test_dpl_female_returns_096(self):
+        assert get_tier_multiplier("DPL", "Female") == 0.96
 
-    def test_unknown_league_returns_unaffiliated(self):
-        assert get_tier_multiplier("SOME_RANDOM_LEAGUE", "Male") == UNAFFILIATED_MULTIPLIER
+    def test_ga_female_returns_099(self):
+        assert get_tier_multiplier("GA", "Female") == 0.99
 
-    def test_unaffiliated_multiplier_is_1(self):
-        assert UNAFFILIATED_MULTIPLIER == 1.0
+    def test_none_male_returns_097(self):
+        assert get_tier_multiplier(None, "Male") == 0.97
+
+    def test_none_female_returns_097(self):
+        assert get_tier_multiplier(None, "Female") == 0.97
+
+    def test_unknown_league_male_returns_097(self):
+        assert get_tier_multiplier("SOME_RANDOM", "Male") == 0.97
 
     def test_u12_returns_no_discount(self):
-        """Tier multiplier should NOT apply below U13."""
         assert get_tier_multiplier("ECNL_RL", "Male", age=12) == 1.0
-
-    def test_u13_returns_discount(self):
-        """Tier multiplier should apply at U13 and above."""
-        assert get_tier_multiplier("ECNL_RL", "Male", age=13) == 0.85
-
-    def test_u14_returns_discount(self):
-        assert get_tier_multiplier("ECNL_RL", "Male", age=14) == 0.85
 
     def test_u10_returns_no_discount(self):
         assert get_tier_multiplier("DPL", "Female", age=10) == 1.0
 
+    def test_u13_returns_discount(self):
+        assert get_tier_multiplier("ECNL_RL", "Male", age=13) == 0.96
+
+    def test_u14_returns_discount(self):
+        assert get_tier_multiplier("ECNL_RL", "Male", age=14) == 0.96
+
     def test_none_age_still_applies_discount(self):
-        """If age is None (unknown), discount still applies."""
-        assert get_tier_multiplier("ECNL_RL", "Male", age=None) == 0.85
+        assert get_tier_multiplier("ECNL_RL", "Male", age=None) == 0.96
 
 
 # ---------------------------------------------------------------------------
@@ -158,15 +167,15 @@ class TestV53ETierMultiplier:
         )
 
     def test_no_tier_map_means_no_change(self):
-        """Without tier_league_map, SOS should be unaffected."""
+        """Without tier_league_map (None), SOS should be unaffected."""
         cfg = V53EConfig()
         games = _build_tier_test_league()
-        result_no_tier = compute_rankings(games, cfg=cfg)
-        result_empty_tier = compute_rankings(games, cfg=cfg, tier_league_map={})
-        teams_no = result_no_tier["teams"].set_index("team_id")
-        teams_empty = result_empty_tier["teams"].set_index("team_id")
+        result_a = compute_rankings(games, cfg=cfg)
+        result_b = compute_rankings(games, cfg=cfg, tier_league_map=None)
+        teams_a = result_a["teams"].set_index("team_id")
+        teams_b = result_b["teams"].set_index("team_id")
         for tid in ["A1", "B1"]:
-            assert abs(teams_no.loc[tid, "sos"] - teams_empty.loc[tid, "sos"]) < 1e-9
+            assert abs(teams_a.loc[tid, "sos"] - teams_b.loc[tid, "sos"]) < 1e-9
 
 
 # ---------------------------------------------------------------------------

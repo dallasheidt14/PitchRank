@@ -215,6 +215,7 @@ class EnhancedETLPipeline:
                 alias_cache=self.alias_cache,
                 debug=debug_mode,
                 summary_only=self.summary_only,
+                dry_run=self.dry_run,
             )
         elif self.provider_code.lower() == "tgs":
             from src.models.tgs_matcher import TGSGameMatcher

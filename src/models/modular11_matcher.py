@@ -97,11 +97,16 @@ class Modular11GameMatcher(GameHistoryMatcher):
         alias_cache: Optional[Dict] = None,
         debug: bool = False,
         summary_only: bool = False,
+        dry_run: bool = False,
     ):
         """Initialize Modular11 matcher with same interface as base matcher"""
         super().__init__(supabase, provider_id=provider_id, alias_cache=alias_cache)
         self.debug = debug
         self.summary_only = summary_only
+        self.dry_run = dry_run
+        self._dry_run_teams_by_provider_team_id: Dict[str, str] = {}
+        self._dry_run_team_details: Dict[str, Dict[str, Any]] = {}
+        self._dry_run_review_keys = set()
         self.summary = {
             "processed": 0,
             "alias_matches": 0,
@@ -588,12 +593,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
             )
 
             # Get clean name for tracking (from _create_new_modular11_team logic)
-            clean_name = team_name or "Unknown"
-            if team_name:
-                # Normalize similar to _create_new_modular11_team
-                clean_name = team_name.strip()
-                if clean_name.upper().endswith(" HD") or clean_name.upper().endswith(" AD"):
-                    clean_name = clean_name[:-3].strip()
+            clean_name = self._build_team_name_with_division(team_name, division) if team_name else "Unknown"
 
             # Track new team creation (only if this is actually a new team, not a duplicate)
             # Check if we've already tracked this team_id to avoid double-counting
@@ -632,7 +632,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
             # NOTE: Successfully created teams should NOT be added to review queue
             # Review queue is only for teams that couldn't be matched/created automatically
 
-            clean_name = team_name or "Unknown"
+            clean_name = self._build_team_name_with_division(team_name, division) if team_name else "Unknown"
             self._dlog(f"FINAL DECISION: new team created -> {clean_name} ({new_team_id})")
             return {
                 "matched": True,
@@ -687,11 +687,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
 
             # Track in summary (only if this is actually a new team, not a duplicate)
             # Check if we've already tracked this team_id to avoid double-counting
-            clean_name = team_name or "Unknown"
-            if team_name:
-                clean_name = team_name.strip()
-                if clean_name.upper().endswith(" HD") or clean_name.upper().endswith(" AD"):
-                    clean_name = clean_name[:-3].strip()
+            clean_name = self._build_team_name_with_division(team_name, division) if team_name else "Unknown"
 
             if not any(detail.get("team_id") == new_team_id for detail in self.summary["new_team_details"]):
                 self.summary["new_teams"] += 1
@@ -712,7 +708,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
             # NOTE: Successfully created teams should NOT be added to review queue
             # Review queue is only for teams that couldn't be matched/created automatically
 
-            clean_name = team_name or "Unknown"
+            clean_name = self._build_team_name_with_division(team_name, division) if team_name else "Unknown"
             self._dlog(f"FINAL DECISION: new team created (fallback) -> {clean_name} ({new_team_id})")
             return {
                 "matched": True,
@@ -1111,6 +1107,24 @@ class Modular11GameMatcher(GameHistoryMatcher):
 
         return None
 
+    def _build_team_name_with_division(self, team_name: str, division: Optional[str]) -> str:
+        """
+        Normalize a Modular11 team name so it ends with the correct HD/AD suffix.
+        """
+        if not team_name:
+            return ""
+
+        clean_team_name = team_name.strip()
+        existing_division = self._extract_division_from_name(clean_team_name)
+        if existing_division:
+            clean_team_name = clean_team_name[:-3].strip()
+
+        division_normalized = str(division).strip().upper() if division else None
+        if division_normalized in {"HD", "AD"}:
+            return f"{clean_team_name} {division_normalized}"
+
+        return clean_team_name
+
     def _build_aliased_provider_team_id(
         self, base_provider_team_id: str, age_group: Optional[str] = None, division: Optional[str] = None
     ) -> str:
@@ -1305,6 +1319,9 @@ class Modular11GameMatcher(GameHistoryMatcher):
                     # No existing team found, continue to create new one
                     pass
 
+            if self.dry_run and aliased_provider_team_id in self._dry_run_teams_by_provider_team_id:
+                return self._dry_run_teams_by_provider_team_id[aliased_provider_team_id]
+
             # Generate new UUID
             team_id_master = str(uuid.uuid4())
 
@@ -1314,10 +1331,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
             # Normalize gender
             gender_normalized = "Male" if gender.upper() in ("M", "MALE", "BOYS") else "Female"
 
-            # Clean team name (remove HD/AD suffix if present for storage)
-            clean_team_name = team_name
-            if team_name.upper().endswith(" HD") or team_name.upper().endswith(" AD"):
-                clean_team_name = team_name[:-3].strip()
+            clean_team_name = self._build_team_name_with_division(team_name, division)
 
             # Insert new team with ALIASED provider_team_id
             team_data = {
@@ -1330,6 +1344,16 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 "provider_team_id": aliased_provider_team_id,  # Use aliased format: {club_id}_{age}_{division}
                 "created_at": datetime.utcnow().isoformat() + "Z",
             }
+
+            if self.dry_run:
+                self._dry_run_teams_by_provider_team_id[aliased_provider_team_id] = team_id_master
+                self._dry_run_team_details[team_id_master] = team_data
+                self._dlog(
+                    f"Dry run - would create NEW Modular11 team: {clean_team_name} "
+                    f"({age_group_normalized}, {gender_normalized}, division={division}, "
+                    f"provider_team_id={aliased_provider_team_id})"
+                )
+                return team_id_master
 
             self.db.table("teams").insert(team_data).execute()
 
@@ -1455,6 +1479,18 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 "created_at": datetime.utcnow().isoformat() + "Z",
             }
 
+            if self.dry_run:
+                self.alias_cache[aliased_provider_team_id] = {
+                    "team_id_master": team_id_master,
+                    "match_method": match_method,
+                    "review_status": "approved",
+                }
+                self._dlog(
+                    f"Dry run - would create alias -> provider_team_id={aliased_provider_team_id} "
+                    f"maps to team_id_master={team_id_master} (method={match_method}, division={division})"
+                )
+                return
+
             if existing.data:
                 # Update existing
                 self.db.table("team_alias_map").update(alias_data).eq("id", existing.data[0]["id"]).execute()
@@ -1490,6 +1526,25 @@ class Modular11GameMatcher(GameHistoryMatcher):
         Add entry to team_match_review_queue with fuzzy match suggestions.
         """
         try:
+            if self.dry_run:
+                review_key = (provider_id, str(provider_team_id), "pending")
+                if review_key not in self._dry_run_review_keys:
+                    self._dry_run_review_keys.add(review_key)
+                    self.summary["review_queue"] += 1
+                    self.summary["review_entries"].append(
+                        {
+                            "incoming": provider_team_name,
+                            "suggestions": [c.get("team_name", "Unknown") for c in candidates[:5]],
+                            "age": age_group,
+                            "division": division,
+                        }
+                    )
+                    logger.info(
+                        f"[Modular11] Dry run - would create review queue entry for {provider_team_name} "
+                        f"with {len(candidates)} suggestions"
+                    )
+                return
+
             # Get provider code (team_match_review_queue uses VARCHAR provider_id)
             provider_result = self.db.table("providers").select("code").eq("id", provider_id).single().execute()
             provider_code = provider_result.data["code"] if provider_result.data else None
