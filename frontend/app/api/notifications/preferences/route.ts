@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabase } from '@/lib/supabase/server';
+import { requireAuth } from '@/lib/api/requireAuth';
 
 /**
  * GET /api/notifications/preferences
@@ -7,15 +7,9 @@ import { createServerSupabase } from '@/lib/supabase/server';
  */
 export async function GET() {
   try {
-    const supabase = await createServerSupabase();
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireAuth();
+    if (auth.error) return auth.error;
+    const { user, supabase } = auth;
 
     const { data: profile, error } = await supabase
       .from('user_profiles')
@@ -44,15 +38,9 @@ export async function GET() {
  */
 export async function PATCH(request: NextRequest) {
   try {
-    const supabase = await createServerSupabase();
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireAuth();
+    if (auth.error) return auth.error;
+    const { user, supabase } = auth;
 
     const body = await request.json();
 

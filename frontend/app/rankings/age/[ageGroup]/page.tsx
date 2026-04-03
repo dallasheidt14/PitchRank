@@ -2,13 +2,13 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
-import { US_STATES } from '@/lib/constants';
+import { US_STATES, AGE_GROUPS_ALL, BASE_URL } from '@/lib/constants';
 import { api } from '@/lib/api';
 
 // Revalidate every hour for ISR caching
 export const revalidate = 3600;
 
-const VALID_AGE_GROUPS = ['u8', 'u9', 'u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'u19'];
+const VALID_AGE_GROUPS = AGE_GROUPS_ALL;
 
 // Popular states to highlight
 const POPULAR_STATES = ['CA', 'TX', 'FL', 'NY', 'GA', 'PA', 'IL', 'NC', 'AZ', 'WA', 'NJ', 'CO'];
@@ -24,7 +24,7 @@ interface AgeGroupPageProps {
  */
 function validateAgeGroup(ageGroup: string): string | null {
   const normalized = ageGroup.toLowerCase();
-  if (VALID_AGE_GROUPS.includes(normalized)) {
+  if ((VALID_AGE_GROUPS as readonly string[]).includes(normalized)) {
     return normalized;
   }
   return null;
@@ -43,8 +43,7 @@ export async function generateMetadata({ params }: AgeGroupPageProps): Promise<M
   }
 
   const ageDisplay = validAge.toUpperCase();
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
-  const canonicalUrl = `${baseUrl}/rankings/age/${validAge}`;
+  const canonicalUrl = `${BASE_URL}/rankings/age/${validAge}`;
 
   const title = `${ageDisplay} Youth Soccer Rankings - National | PitchRank`;
   const description = `National ${ageDisplay} youth soccer rankings. View top boys and girls soccer teams in the ${ageDisplay} age group across all states. Updated weekly with PowerScore ratings.`;
@@ -142,7 +141,7 @@ export default async function AgeGroupPage({ params }: AgeGroupPageProps) {
   }
 
   // Adjacent age groups for navigation
-  const currentIdx = VALID_AGE_GROUPS.indexOf(validAge);
+  const currentIdx = (VALID_AGE_GROUPS as readonly string[]).indexOf(validAge);
   const prevAge = currentIdx > 0 ? VALID_AGE_GROUPS[currentIdx - 1] : null;
   const nextAge = currentIdx < VALID_AGE_GROUPS.length - 1 ? VALID_AGE_GROUPS[currentIdx + 1] : null;
 

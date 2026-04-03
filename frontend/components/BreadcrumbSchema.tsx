@@ -1,4 +1,5 @@
 import React from 'react';
+import { BASE_URL } from '@/lib/constants';
 
 export interface BreadcrumbItem {
   name: string;
@@ -15,8 +16,6 @@ interface BreadcrumbSchemaProps {
  * @see https://developers.google.com/search/docs/appearance/structured-data/breadcrumb
  */
 export function BreadcrumbSchema({ items }: BreadcrumbSchemaProps) {
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
-
   const schema = {
     '@context': 'https://schema.org',
     '@type': 'BreadcrumbList',
@@ -24,7 +23,7 @@ export function BreadcrumbSchema({ items }: BreadcrumbSchemaProps) {
       '@type': 'ListItem',
       position: index + 1,
       name: item.name,
-      item: `${baseUrl}${item.href}`,
+      item: `${BASE_URL}${item.href}`,
     })),
   };
 

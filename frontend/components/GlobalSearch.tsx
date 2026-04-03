@@ -11,6 +11,7 @@ import { Search, X } from 'lucide-react';
 import { useTeamSearch } from '@/hooks/useTeamSearch';
 import type { RankingRow } from '@/types/RankingRow';
 import { trackSearchUsed, trackSearchResultClicked } from '@/lib/events';
+import { formatGender } from '@/lib/constants';
 
 /**
  * Escape special regex characters in a string
@@ -247,7 +248,7 @@ export function GlobalSearch() {
                       {team.rank_in_cohort_final && <span> • Rank #{team.rank_in_cohort_final}</span>}
                       {team.age != null && team.gender && (
                         <span className={team.club_name || team.state || team.rank_in_cohort_final ? ' • ' : ''}>
-                          U{team.age} {team.gender === 'M' ? 'Boys' : team.gender === 'F' ? 'Girls' : team.gender}
+                          U{team.age} {formatGender(team.gender)}
                         </span>
                       )}
                     </div>

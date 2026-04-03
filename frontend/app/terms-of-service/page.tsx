@@ -3,19 +3,18 @@ import { BreadcrumbSchema } from '@/components/BreadcrumbSchema';
 import { Card, CardContent } from '@/components/ui/card';
 import Link from 'next/link';
 import type { Metadata } from 'next';
-
-const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
+import { BASE_URL } from '@/lib/constants';
 
 export const metadata: Metadata = {
   title: 'Terms of Service',
   description: 'Terms of Service for PitchRank.io — youth soccer team rankings and analytics platform.',
   alternates: {
-    canonical: `${baseUrl}/terms-of-service`,
+    canonical: `${BASE_URL}/terms-of-service`,
   },
   openGraph: {
     title: 'Terms of Service | PitchRank',
     description: 'Terms of Service for PitchRank.io — youth soccer team rankings and analytics platform.',
-    url: `${baseUrl}/terms-of-service`,
+    url: `${BASE_URL}/terms-of-service`,
     siteName: 'PitchRank',
     type: 'website',
   },

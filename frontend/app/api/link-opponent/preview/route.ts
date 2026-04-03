@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceSupabase } from '@/lib/supabase/service';
+import { parseJsonBody } from '@/lib/api/parseJsonBody';
 
 /**
  * Preview API for linking unknown opponent
@@ -7,29 +8,16 @@ import { createClient } from '@supabase/supabase-js';
  */
 export async function POST(request: NextRequest) {
   try {
-    const serviceKey = process.env.SUPABASE_SERVICE_KEY;
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const body = await parseJsonBody<{ gameId: string; opponentProviderId: string }>(request);
+    if (body.error) return body.error;
 
-    if (!serviceKey || !supabaseUrl) {
-      console.error('[link-opponent/preview] Missing environment variables');
-      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
-    }
-
-    // Parse request body
-    let requestBody;
-    try {
-      requestBody = await request.json();
-    } catch {
-      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
-    }
-
-    const { gameId, opponentProviderId } = requestBody;
+    const { gameId, opponentProviderId } = body.data;
 
     if (!gameId || !opponentProviderId) {
       return NextResponse.json({ error: 'Missing required fields: gameId and opponentProviderId' }, { status: 400 });
     }
 
-    const supabase = createClient(supabaseUrl, serviceKey);
+    const supabase = createServiceSupabase();
 
     // Get the provider_id from the game
     const { data: game, error: gameError } = await supabase

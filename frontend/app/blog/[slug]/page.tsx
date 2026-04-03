@@ -6,6 +6,7 @@ import { BreadcrumbSchema } from '@/components/BreadcrumbSchema';
 import { getBlogPost, getAllBlogSlugs } from '@/lib/blog';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import { BASE_URL } from '@/lib/constants';
 
 interface BlogPostPageProps {
   params: Promise<{
@@ -23,16 +24,14 @@ export async function generateStaticParams() {
 export async function generateMetadata({ params }: BlogPostPageProps): Promise<Metadata> {
   const { slug } = await params;
   const post = getBlogPost(slug);
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
-
   if (!post) {
     return {
       title: 'Post Not Found',
     };
   }
 
-  const canonicalUrl = `${baseUrl}/blog/${slug}`;
-  const heroImage = post.image ? `${baseUrl}${post.image}` : `${baseUrl}/opengraph-image.png`;
+  const canonicalUrl = `${BASE_URL}/blog/${slug}`;
+  const heroImage = post.image ? `${BASE_URL}${post.image}` : `${BASE_URL}/opengraph-image.png`;
 
   return {
     title: post.title,

@@ -1,18 +1,17 @@
 import type { Metadata } from 'next';
-
-const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
+import { BASE_URL } from '@/lib/constants';
 
 export const metadata: Metadata = {
   title: 'Social Media Infographics',
   description:
     'Generate shareable youth soccer rankings graphics for Instagram, Twitter, and Facebook. Create top 10 leaderboards, team spotlights, and more.',
   alternates: {
-    canonical: `${baseUrl}/infographics`,
+    canonical: `${BASE_URL}/infographics`,
   },
   openGraph: {
     title: 'Social Media Infographics | PitchRank',
     description: 'Generate shareable youth soccer rankings graphics for social media.',
-    url: `${baseUrl}/infographics`,
+    url: `${BASE_URL}/infographics`,
     siteName: 'PitchRank',
     type: 'website',
   },

@@ -2,21 +2,20 @@ import { PageHeader } from '@/components/PageHeader';
 import { MethodologySection } from '@/components/MethodologySection';
 import { BreadcrumbSchema } from '@/components/BreadcrumbSchema';
 import type { Metadata } from 'next';
-
-const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
+import { BASE_URL } from '@/lib/constants';
 
 export const metadata: Metadata = {
   title: 'Methodology',
   description:
     'Learn how PitchRank calculates youth soccer team rankings and power scores using cross-age game support, unified scoring, and data-driven analytics.',
   alternates: {
-    canonical: `${baseUrl}/methodology`,
+    canonical: `${BASE_URL}/methodology`,
   },
   openGraph: {
     title: 'Ranking Methodology | PitchRank',
     description:
       'Learn how PitchRank calculates youth soccer team rankings and power scores using data-driven analytics.',
-    url: `${baseUrl}/methodology`,
+    url: `${BASE_URL}/methodology`,
     siteName: 'PitchRank',
     type: 'website',
     images: [

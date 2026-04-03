@@ -7,7 +7,7 @@ import { RankingsTable } from '@/components/RankingsTable';
 import { RankingsTableSkeleton } from '@/components/skeletons/RankingsTableSkeleton';
 import { ShareButtons } from '@/components/ShareButtons';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
-import { US_STATES } from '@/lib/constants';
+import { US_STATES, formatGender } from '@/lib/constants';
 import { RelatedRankings } from '@/components/RelatedRankings';
 
 interface RankingsPageContentProps {
@@ -32,7 +32,7 @@ export function RankingsPageContent({ region, ageGroup, gender }: RankingsPageCo
   const ageGroupDisplay = ageGroup.toUpperCase();
 
   // Format gender for display
-  const genderDisplay = gender === 'male' ? 'Boys' : 'Girls';
+  const genderDisplay = formatGender(gender);
 
   // Create share title
   const shareTitle = `🏆 Check out the ${ageGroupDisplay} ${genderDisplay} ${stateName} soccer rankings on PitchRank!`;

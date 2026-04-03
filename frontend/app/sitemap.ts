@@ -1,5 +1,5 @@
 import { MetadataRoute } from 'next';
-import { US_STATES } from '@/lib/constants';
+import { US_STATES, AGE_GROUPS, BASE_URL_WWW } from '@/lib/constants';
 import { getAllBlogSlugs } from '@/lib/blog';
 
 /**
@@ -11,10 +11,10 @@ import { getAllBlogSlugs } from '@/lib/blog';
  * This causes "Page with redirect" issues in Search Console.
  */
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.pitchrank.io';
+  const baseUrl = BASE_URL_WWW;
 
   // Age groups available in the system
-  const ageGroups = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u19'];
+  const ageGroups = AGE_GROUPS;
 
   // Genders (URL format)
   const genders = ['male', 'female'];

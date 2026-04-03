@@ -23,6 +23,7 @@ import type Fuse from 'fuse.js';
 import type { RankingRow } from '@/types/RankingRow';
 import type { GameWithTeams } from '@/lib/types';
 import { formatGameDate } from '@/lib/dateUtils';
+import { AGE_GROUPS_ALL, formatGender } from '@/lib/constants';
 
 interface UnknownOpponentLinkProps {
   game: GameWithTeams;
@@ -135,7 +136,7 @@ const US_STATES = [
 ];
 
 // Age groups for dropdown
-const AGE_GROUPS = ['u8', 'u9', 'u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'u19'];
+const AGE_GROUPS = AGE_GROUPS_ALL;
 
 export function UnknownOpponentLink({
   game,
@@ -549,8 +550,7 @@ export function UnknownOpponentLink({
                                 )}
                                 {team.age != null && team.gender && (
                                   <span className={team.club_name || team.state ? ' • ' : ''}>
-                                    U{team.age}{' '}
-                                    {team.gender === 'M' ? 'Boys' : team.gender === 'F' ? 'Girls' : team.gender}
+                                    U{team.age} {formatGender(team.gender)}
                                   </span>
                                 )}
                               </div>
@@ -677,7 +677,7 @@ export function UnknownOpponentLink({
                     {selectedTeam.club_name && `${selectedTeam.club_name} • `}
                     {selectedTeam.state?.toUpperCase()}
                     {selectedTeam.age != null && ` • U${selectedTeam.age}`}
-                    {selectedTeam.gender && ` ${selectedTeam.gender === 'M' ? 'Boys' : 'Girls'}`}
+                    {selectedTeam.gender && ` ${formatGender(selectedTeam.gender)}`}
                   </p>
                 </div>
               </div>

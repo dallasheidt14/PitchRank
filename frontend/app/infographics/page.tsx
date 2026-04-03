@@ -20,7 +20,7 @@ import { renderStoryTemplateToCanvas, STORY_TYPES } from '@/components/infograph
 import { renderCoverImageToCanvas, COVER_PLATFORMS } from '@/components/infographics/coverImageRenderer';
 import { useRankings } from '@/hooks/useRankings';
 import { useInstagramHandles, collectHandlesForCaption } from '@/hooks/useInstagramHandles';
-import { US_STATES } from '@/lib/constants';
+import { US_STATES, AGE_GROUP_OPTIONS, GENDER_OPTIONS } from '@/lib/constants';
 import {
   Download,
   Share2,
@@ -70,22 +70,9 @@ const INFOGRAPHIC_TYPES: { id: InfographicType; label: string; icon: React.React
   { id: 'covers', label: 'Cover Images', icon: <ImageIcon size={18} />, description: 'Social media headers' },
 ];
 
-const AGE_GROUPS = [
-  { value: 'u10', label: 'U10' },
-  { value: 'u11', label: 'U11' },
-  { value: 'u12', label: 'U12' },
-  { value: 'u13', label: 'U13' },
-  { value: 'u14', label: 'U14' },
-  { value: 'u15', label: 'U15' },
-  { value: 'u16', label: 'U16' },
-  { value: 'u17', label: 'U17' },
-  { value: 'u19', label: 'U19' },
-];
+const AGE_GROUPS = AGE_GROUP_OPTIONS;
 
-const GENDERS = [
-  { value: 'M' as const, label: 'Boys' },
-  { value: 'F' as const, label: 'Girls' },
-];
+const GENDERS = GENDER_OPTIONS;
 
 type GenderType = 'M' | 'F';
 

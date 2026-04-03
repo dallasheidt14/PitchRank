@@ -1,6 +1,6 @@
 import { RankingsPageContent } from '@/components/RankingsPageContent';
 import type { Metadata } from 'next';
-import { US_STATES } from '@/lib/constants';
+import { US_STATES, BASE_URL, formatGender } from '@/lib/constants';
 import BreadcrumbSchema from '@/components/BreadcrumbSchema';
 
 // Revalidate every hour for ISR caching
@@ -22,20 +22,6 @@ function formatAgeGroup(ageGroup: string): string {
 }
 
 /**
- * Format gender for display (e.g., "male" -> "Boys", "female" -> "Girls")
- */
-const VALID_GENDERS: Record<string, string> = {
-  male: 'Boys',
-  female: 'Girls',
-  boys: 'Boys',
-  girls: 'Girls',
-};
-
-function formatGender(gender: string): string {
-  return VALID_GENDERS[gender.toLowerCase()] ?? 'Unknown';
-}
-
-/**
  * Get state name from code
  */
 function getStateName(stateCode: string): string {
@@ -52,8 +38,7 @@ export async function generateMetadata({ params }: RankingsPageProps): Promise<M
     const resolvedParams = await params;
     const { region, ageGroup, gender } = resolvedParams;
 
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
-    const canonicalUrl = `${baseUrl}/rankings/${region}/${ageGroup}/${gender}`;
+    const canonicalUrl = `${BASE_URL}/rankings/${region}/${ageGroup}/${gender}`;
 
     const formattedAgeGroup = formatAgeGroup(ageGroup);
     const formattedGender = formatGender(gender);
@@ -127,7 +112,7 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
     '@type': 'RankingTable',
     name: `${locationText} ${formattedAgeGroup} ${formattedGender} Soccer Rankings`,
     description: 'Youth soccer team rankings by PowerScore rating, updated weekly',
-    url: `https://pitchrank.io/rankings/${safeRegion}/${safeAgeGroup}/${safeGender}`,
+    url: `${BASE_URL}/rankings/${safeRegion}/${safeAgeGroup}/${safeGender}`,
   };
 
   // Escape </script> sequences to prevent XSS in JSON-LD structured data

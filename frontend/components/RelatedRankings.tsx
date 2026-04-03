@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { US_STATES } from '@/lib/constants';
+import { US_STATES, AGE_GROUPS, formatGender } from '@/lib/constants';
 
 interface RelatedRankingsProps {
   currentRegion: string;
@@ -7,14 +7,12 @@ interface RelatedRankingsProps {
   currentGender: string;
 }
 
-const AGE_GROUPS = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u19'];
-
 /**
  * Internal linking component for SEO
  * Shows related rankings pages to improve crawlability and user navigation
  */
 export function RelatedRankings({ currentRegion, currentAgeGroup, currentGender }: RelatedRankingsProps) {
-  const genderDisplay = currentGender === 'male' ? 'Boys' : 'Girls';
+  const genderDisplay = formatGender(currentGender);
   const ageDisplay = currentAgeGroup.toUpperCase();
   const isNational = currentRegion === 'national';
 
@@ -22,7 +20,7 @@ export function RelatedRankings({ currentRegion, currentAgeGroup, currentGender 
   const currentState = US_STATES.find((s) => s.code.toLowerCase() === currentRegion.toLowerCase());
 
   // Get neighboring age groups
-  const currentAgeIndex = AGE_GROUPS.indexOf(currentAgeGroup.toLowerCase());
+  const currentAgeIndex = (AGE_GROUPS as readonly string[]).indexOf(currentAgeGroup.toLowerCase());
   const neighboringAges = AGE_GROUPS.filter((_, i) => Math.abs(i - currentAgeIndex) <= 2 && i !== currentAgeIndex);
 
   // Get nearby states (simplified - just show a few popular ones + national)
@@ -33,7 +31,7 @@ export function RelatedRankings({ currentRegion, currentAgeGroup, currentGender 
 
   // Opposite gender
   const oppositeGender = currentGender === 'male' ? 'female' : 'male';
-  const oppositeGenderDisplay = oppositeGender === 'male' ? 'Boys' : 'Girls';
+  const oppositeGenderDisplay = formatGender(oppositeGender);
 
   return (
     <div className="mt-8 pt-6 border-t border-border">

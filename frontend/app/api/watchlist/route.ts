@@ -1,4 +1,4 @@
-import { createServerSupabase } from '@/lib/supabase/server';
+import { requirePremium } from '@/lib/api/requirePremium';
 import { NextResponse } from 'next/server';
 
 /**
@@ -52,38 +52,9 @@ export interface WatchlistResponse {
  */
 export async function GET() {
   try {
-    const supabase = await createServerSupabase();
-
-    // Get authenticated user
-    const {
-      data: { user },
-      error: _authError,
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
-
-    // Get user profile to check premium status
-    const { data: profile, error: profileError } = await supabase
-      .from('user_profiles')
-      .select('plan')
-      .eq('id', user.id)
-      .single();
-
-    if (profileError) {
-      return NextResponse.json({ error: 'Failed to fetch user profile' }, { status: 500 });
-    }
-
-    // Check if profile exists (user may not have a profile row yet)
-    if (!profile) {
-      return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
-    }
-
-    // Enforce premium access
-    if (profile.plan !== 'premium' && profile.plan !== 'admin') {
-      return NextResponse.json({ error: 'Premium required' }, { status: 403 });
-    }
+    const auth = await requirePremium();
+    if (auth.error) return auth.error;
+    const { user, supabase } = auth;
 
     // Get user's default watchlist
     // First try to find default watchlist

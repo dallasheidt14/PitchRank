@@ -3,19 +3,18 @@ import { BreadcrumbSchema } from '@/components/BreadcrumbSchema';
 import { Card, CardContent } from '@/components/ui/card';
 import Link from 'next/link';
 import type { Metadata } from 'next';
-
-const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
+import { BASE_URL } from '@/lib/constants';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
   description: 'Privacy Policy for PitchRank.io — how we collect, use, and protect your information.',
   alternates: {
-    canonical: `${baseUrl}/privacy-policy`,
+    canonical: `${BASE_URL}/privacy-policy`,
   },
   openGraph: {
     title: 'Privacy Policy | PitchRank',
     description: 'Privacy Policy for PitchRank.io — how we collect, use, and protect your information.',
-    url: `${baseUrl}/privacy-policy`,
+    url: `${BASE_URL}/privacy-policy`,
     siteName: 'PitchRank',
     type: 'website',
   },
