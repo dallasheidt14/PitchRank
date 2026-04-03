@@ -216,15 +216,65 @@ async def compute_rankings_with_ml(
     cache_dir = Path("data/cache")
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    # Generate hash key from ALL game IDs (not just first 1000 - that caused stale cache issues)
-    # Include merge_version to invalidate cache when team merges change
+    # Generate hash key from game IDs + full config fingerprint
+    # Changing any tuning param (engine, Glicko config, ML config, tier multipliers) invalidates cache
     game_ids = games_df["game_id"].astype(str).tolist() if "game_id" in games_df.columns else []
     hash_input = "".join(sorted(game_ids)) + str(lookback_days) + (provider_filter or "")
-    # Only include merge_version when merges actually exist (not "no_merges")
-    # This ensures cache key stays identical when no merges are configured
     if merge_version and merge_version != "no_merges":
         hash_input += f"_merge_{merge_version}"
-    cache_key = hashlib.md5(hash_input.encode()).hexdigest()  # MD5 for cache key only (not security)
+
+    # Config fingerprint: serialize actual engine + ML + tier config
+    import json as _json
+
+    from src.etl.glicko_config import GlickoConfig as _GCfg
+    from src.rankings.constants import (
+        LEAGUE_MULTIPLIER_FEMALE as _LMF,
+    )
+    from src.rankings.constants import (
+        LEAGUE_MULTIPLIER_MALE as _LMM,
+    )
+    from src.rankings.constants import (
+        NEGATIVE_ML_FLOOR as _NMF,
+    )
+    from src.rankings.constants import (
+        SOS_ML_THRESHOLD_HIGH as _SMH,
+    )
+    from src.rankings.constants import (
+        SOS_ML_THRESHOLD_LOW as _SML,
+    )
+    from src.rankings.constants import (
+        UNAFFILIATED_MULTIPLIER_FEMALE as _UMF,
+    )
+    from src.rankings.constants import (
+        UNAFFILIATED_MULTIPLIER_MALE as _UMM,
+    )
+
+    _ecfg = _GCfg() if use_glicko else v53_cfg
+    _ml = layer13_cfg or Layer13Config(lookback_days=_ecfg.WINDOW_DAYS if hasattr(_ecfg, "WINDOW_DAYS") else 365)
+    _cfg_dict = {
+        "engine": "glicko" if use_glicko else "v53e",
+        "min_games": _ecfg.MIN_GAMES_PROVISIONAL,
+        "window": getattr(_ecfg, "WINDOW_DAYS", 365),
+        "scf": getattr(_ecfg, "SCF_ENABLED", True),
+        "scf_lf": getattr(_ecfg, "SCF_LEAGUE_FLOOR", None),
+        "scf_lc": getattr(_ecfg, "SCF_LEAGUE_CONCENTRATION_THRESHOLD", None),
+        "ml_a": _ml.alpha,
+        "ml_nm": _ml.norm_mode,
+        "ml_mg": _ml.min_team_games_for_residual,
+        "ml_rd": _ml.recency_decay_lambda,
+        "ml_rc": getattr(_ml, "residual_clip_goals", 6),
+        "nmf": _NMF,
+        "sml": _SML,
+        "smh": _SMH,
+        "tm": sorted(_LMM.items()),
+        "tf": sorted(_LMF.items()),
+        "um": _UMM,
+        "uf": _UMF,
+    }
+    _cfg_fp = hashlib.md5(_json.dumps(_cfg_dict, sort_keys=True, default=str).encode()).hexdigest()[:12]
+    hash_input += f"_cfg_{_cfg_fp}"
+
+    cache_key = hashlib.md5(hash_input.encode()).hexdigest()
     cache_file_teams = cache_dir / f"rankings_{cache_key}_teams.parquet"
     cache_file_games = cache_dir / f"rankings_{cache_key}_games.parquet"
 
@@ -331,7 +381,7 @@ async def compute_rankings_with_ml(
         teams_with_ml, game_residuals = await apply_predictive_adjustment(
             supabase_client=supabase_client,
             teams_df=teams_base,
-            games_used_df=games_df,  # Use original games with full columns (id, home_team_master_id)
+            games_used_df=base.get("games_used", games_df),  # Use Glicko-2 filtered games
             cfg=ml_cfg,
             return_game_residuals=True,  # Request per-game residuals
         )
@@ -565,7 +615,9 @@ async def compute_all_cohorts(
             league_counts: Dict[str, int] = {}
             for lg in tier_league_map.values():
                 league_counts[lg] = league_counts.get(lg, 0) + 1
-            logger.info(f"✅ Fetched league for {len(tier_league_map):,} teams. Distribution: {dict(sorted(league_counts.items(), key=lambda x: -x[1])[:5])}")
+            logger.info(
+                f"✅ Fetched league for {len(tier_league_map):,} teams. Distribution: {dict(sorted(league_counts.items(), key=lambda x: -x[1])[:5])}"
+            )
         else:
             logger.warning("⚠️ No team IDs found for league metadata fetch")
 
@@ -654,10 +706,12 @@ async def compute_all_cohorts(
                 global_strength_map.update(strength_dict)
             # Cache converged Glicko-2 ratings for warm-starting Pass 2
             if use_glicko and all(c in teams_df.columns for c in ("mu", "sigma", "volatility")):
-                pass1_glicko_ratings[i] = dict(zip(
-                    teams_df["team_id"].astype(str),
-                    zip(teams_df["mu"], teams_df["sigma"], teams_df["volatility"]),
-                ))
+                pass1_glicko_ratings[i] = dict(
+                    zip(
+                        teams_df["team_id"].astype(str),
+                        zip(teams_df["mu"], teams_df["sigma"], teams_df["volatility"]),
+                    )
+                )
         # Cache pre-SOS state keyed by cohort index (v53e only; Glicko-2 has none)
         if not use_glicko and result.get("pre_sos_state"):
             pass1_pre_sos_states[i] = result["pre_sos_state"]
@@ -923,7 +977,7 @@ async def compute_all_cohorts(
 
     # ---- Final age-anchor scaling for PowerScore ----
     if not teams_combined.empty:
-        from src.rankings.constants import AGE_TO_ANCHOR, NEGATIVE_ML_FLOOR, SOS_ML_THRESHOLD_HIGH, SOS_ML_THRESHOLD_LOW
+        from src.rankings.constants import AGE_TO_ANCHOR, SOS_ML_THRESHOLD_HIGH, SOS_ML_THRESHOLD_LOW
         from src.rankings.shared import sos_ml_blend
 
         if "age_num" not in teams_combined.columns:
@@ -981,11 +1035,11 @@ async def compute_all_cohorts(
                         (sos_norm - SOS_ML_THRESHOLD_LOW) / (SOS_ML_THRESHOLD_HIGH - SOS_ML_THRESHOLD_LOW)
                     ).clip(0.0, 1.0)
 
-                    # Asymmetric gate: negative ML corrections (marking overrated teams down)
-                    # get at least NEGATIVE_ML_FLOOR authority regardless of SOS.
+                    # Negative ML corrections always apply at full authority.
                     # Positive corrections (inflation) are still fully gated by SOS.
                     import numpy as _np
-                    ml_scale_effective = _np.where(ml_delta >= 0, ml_scale, _np.maximum(ml_scale, NEGATIVE_ML_FLOOR))
+
+                    ml_scale_effective = _np.where(ml_delta >= 0, ml_scale, 1.0)
 
                     # Step 4: Final score = baseline + SOS-scaled ML adjustment
                     base = (ps_adj + ml_delta * ml_scale_effective).clip(0.0, 1.0)
@@ -1116,6 +1170,31 @@ async def compute_all_cohorts(
                     # Overwrite power_score_final to guarantee monotonicity
                     teams_combined.loc[grp.index, "power_score_final"] = psf_recomputed
                     logger.info(f"  {age_val} {gender}: {len(grp)} teams, monotonicity enforced ✅")
+
+            # === PUBLISHED RANK: canonical ordering by power_score_true DESC, team_id ASC ===
+            # power_score_true is unanchored, so within an (age, gender) cohort it produces
+            # the same ordering as power_score_final (anchor is a constant multiplier).
+            # team_id ASC is the deterministic tie-break (matches UI sort behavior).
+            #
+            # NOTE: The SQL views remap age 18 → 19 (U19 encompasses 2007+2008 birth years).
+            # The calculator ranks by raw age_num (before remap), so U18 and U19 are ranked
+            # as separate cohorts here. The view layer merges them for display.
+            if "power_score_true" in teams_combined.columns:
+                teams_combined["rank_in_cohort_final"] = pd.array([pd.NA] * len(teams_combined), dtype="Int64")
+                active_mask = teams_combined["status"] == "Active"
+                if active_mask.any():
+                    for (age_val, gender), grp in teams_combined[active_mask].groupby(["age_num", "gender"]):
+                        ranked = grp.sort_values(
+                            ["power_score_true", "team_id"],
+                            ascending=[False, True],
+                        )
+                        ranks = pd.Series(
+                            range(1, len(ranked) + 1),
+                            index=ranked.index,
+                            dtype="Int64",
+                        )
+                        teams_combined.loc[ranks.index, "rank_in_cohort_final"] = ranks
+                    logger.info(f"  Published rank_in_cohort_final computed for {active_mask.sum()} Active teams")
 
             # === Anchor integrity sample (top 3 per age group) ===
             if "power_score_true" in teams_combined.columns:

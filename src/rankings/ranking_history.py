@@ -57,14 +57,10 @@ async def save_ranking_snapshot(
             df["age_group"] = df["age"].apply(lambda x: f"u{int(float(x))}" if pd.notna(x) else "")
 
     # Calculate state ranks within each (state_code, age_group, gender) cohort
-    # Only Active teams get state ranks — consistent with v53e and state_rankings_view
+    # Only Active teams get state ranks — consistent with state_rankings_view
     if "state_code" in df.columns and "power_score_final" in df.columns:
-        # Use ML score if available, otherwise fall back to power_score_final
-        score_col = (
-            "powerscore_ml"
-            if "powerscore_ml" in df.columns and df["powerscore_ml"].notna().any()
-            else "power_score_final"
-        )
+        # Use power_score_final (canonical score) for state rank computation
+        score_col = "power_score_final"
 
         # Initialize all state ranks as NULL
         df["rank_in_state"] = pd.array([pd.NA] * len(df), dtype="Int64")
@@ -109,6 +105,7 @@ async def save_ranking_snapshot(
             "gender": str(row.get("gender", "")),
             "rank_in_cohort": int(row.get("rank_in_cohort")) if pd.notna(row.get("rank_in_cohort")) else None,
             "rank_in_cohort_ml": int(row.get("rank_in_cohort_ml")) if pd.notna(row.get("rank_in_cohort_ml")) else None,
+            "rank_in_cohort_final": int(row.get("rank_in_cohort_final")) if pd.notna(row.get("rank_in_cohort_final")) else None,
             "power_score_final": float(row.get("power_score_final"))
             if pd.notna(row.get("power_score_final"))
             else None,
@@ -234,7 +231,7 @@ async def get_historical_ranks(
                 # Query snapshots within date range for this batch
                 response = (
                     supabase_client.table("ranking_history")
-                    .select("team_id, snapshot_date, rank_in_cohort, rank_in_cohort_ml")
+                    .select("team_id, snapshot_date, rank_in_cohort, rank_in_cohort_ml, rank_in_cohort_final")
                     .in_("team_id", batch)
                     .gte("snapshot_date", date_range_start.isoformat())
                     .lte("snapshot_date", date_range_end.isoformat())
@@ -262,8 +259,10 @@ async def get_historical_ranks(
         for record in all_records:
             team_id = record["team_id"]
             snapshot_date = date.fromisoformat(record["snapshot_date"])
+            # 3-level fallback: final → ML → raw (handles pre-migration snapshots)
+            final_rank = record.get("rank_in_cohort_final")
             ml_rank = record.get("rank_in_cohort_ml")
-            rank = ml_rank if ml_rank is not None else record.get("rank_in_cohort")
+            rank = final_rank if final_rank is not None else (ml_rank if ml_rank is not None else record.get("rank_in_cohort"))
 
             # Calculate date distance
             distance = abs((snapshot_date - target_date).days)
@@ -500,9 +499,13 @@ async def calculate_rank_changes(
     def calculate_change(row) -> Tuple[Optional[int], Optional[int], Optional[int], Optional[int]]:
         team_id = row["team_id"]
 
-        # Use ML rank if available, otherwise use cohort rank
+        # Use published final rank, with 3-level fallback for pre-migration data
+        final_rank = row.get("rank_in_cohort_final")
         ml_rank = row.get("rank_in_cohort_ml")
-        current_national_rank = ml_rank if not pd.isna(ml_rank) else row.get("rank_in_cohort")
+        current_national_rank = (
+            final_rank if pd.notna(final_rank)
+            else (ml_rank if pd.notna(ml_rank) else row.get("rank_in_cohort"))
+        )
         current_state_rank = row.get("current_state_rank")
 
         # National rank changes

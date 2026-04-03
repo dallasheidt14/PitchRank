@@ -112,7 +112,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
     // Fetch ranking history
     const { data: rankingHistory, error: historyError } = await supabase
       .from('ranking_history')
-      .select('snapshot_date, rank_in_cohort, power_score_final')
+      .select('snapshot_date, rank_in_cohort, rank_in_cohort_ml, rank_in_cohort_final, power_score_final')
       .eq('team_id', teamId)
       .order('snapshot_date', { ascending: false })
       .limit(30);
@@ -199,6 +199,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
       }),
       rankingHistory: ((rankingHistory || []) as RankingHistoryRow[]).map((h: RankingHistoryRow) => ({
         snapshot_date: h.snapshot_date,
+        rank_in_cohort_final: h.rank_in_cohort_final,
+        rank_in_cohort_ml: h.rank_in_cohort_ml,
         rank_in_cohort: h.rank_in_cohort,
         power_score_final: h.power_score_final,
       })),

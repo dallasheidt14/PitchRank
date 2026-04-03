@@ -148,6 +148,8 @@ export interface InsightInputData {
   }>;
   rankingHistory: Array<{
     snapshot_date: string;
+    rank_in_cohort_final?: number;
+    rank_in_cohort_ml?: number;
     rank_in_cohort: number;
     power_score_final: number | null;
   }>;

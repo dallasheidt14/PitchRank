@@ -174,8 +174,13 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
           break;
         case 'powerScore':
           // Use power_score_final (ML-adjusted score) - primary sort field
+          // Canonical tie-break: team_id ASC (matches stored rank ordering)
           aValue = a.power_score_final ?? 0;
           bValue = b.power_score_final ?? 0;
+          if (aValue === bValue) {
+            aValue = b.team_id_master || '';
+            bValue = a.team_id_master || '';
+          }
           break;
         case 'sosRank':
           // Use computed SOS rank from filtered data

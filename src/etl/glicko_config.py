@@ -77,6 +77,12 @@ class GlickoConfig:
     MIN_BRIDGE_GAMES: int = 3
     ISOLATION_SOS_CAP: float = 0.60
 
+    # League-aware SCF: detect closed-league bubbles
+    SCF_LEAGUE_DIVERSITY_DIVISOR: float = 2.0   # Opponents from 2+ known leagues → max league_scf
+    SCF_LEAGUE_FLOOR: float = 0.5               # Minimum league_scf
+    SCF_LEAGUE_CONCENTRATION_THRESHOLD: float = 0.75  # >75% same league → penalty
+    SCF_MIN_UNIQUE_LEAGUES: int = 2             # Below this → league-isolated
+
     # ML
     ML_ALPHA: float = 0.08
 

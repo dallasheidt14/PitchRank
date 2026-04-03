@@ -49,10 +49,9 @@ FEMALE_AGE_ANCHORS: dict[int, float] = {
 SOS_ML_THRESHOLD_LOW = 0.45
 SOS_ML_THRESHOLD_HIGH = 0.60
 
-# Asymmetric ML gate: minimum authority for negative ML corrections.
-# Positive corrections are fully gated by SOS; negative corrections
-# (marking overrated teams down) get at least this much authority.
-NEGATIVE_ML_FLOOR = 0.5
+# Negative ML corrections always apply at full authority.
+# Weak schedule should never shield a team from being marked as overrated.
+NEGATIVE_ML_FLOOR = 1.0
 
 # ── League Tier System ──────────────────────────────────────────────────
 # Per-league opponent strength multiplier applied during Glicko-2

@@ -609,24 +609,28 @@ def compute_scf(
     team_ratings: Dict[str, Tuple[float, float, float]],
     cfg: GlickoConfig,
     team_games: Optional[Dict[str, pd.DataFrame]] = None,
+    tier_league_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Dict]:
     """Compute Schedule Connectivity Factor for each team.
 
-    Detects teams playing in isolated regional bubbles (e.g., 3 Idaho teams
-    only playing each other inflate each other's ratings) and assigns a
-    diversity score that can dampen their SOS toward neutral.
+    Detects teams playing in isolated bubbles — either regional (state-based)
+    or league-based (e.g., cross-state ECNL_RL play). Assigns a diversity
+    score that can dampen SOS and mu toward neutral.
 
     Args:
         games_df: DataFrame with columns team_id, opp_id plus standard game cols.
         team_state_map: Dict mapping team_id -> state abbreviation (e.g. 'ID').
         team_ratings: Dict of {team_id: (mu, sigma, volatility)}.
-        cfg: GlickoConfig with SCF_ENABLED, SCF_DIVERSITY_DIVISOR, SCF_FLOOR,
-             MIN_BRIDGE_GAMES, SCF_MIN_UNIQUE_STATES.
+        cfg: GlickoConfig with SCF and league-SCF settings.
         team_games: Optional pre-filtered games dict from run_glicko2_cohort.
+        tier_league_map: Optional dict of team_id -> league string for league diversity.
 
     Returns:
-        Dict[team_id, {scf, unique_states, bridge_games, is_isolated, quality_boosted}]
+        Dict[team_id, {scf, unique_states, bridge_games, is_isolated, quality_boosted,
+                        unique_leagues, league_scf, dominant_opp_league, dominant_opp_league_share}]
     """
+    from collections import Counter
+
     result: Dict[str, Dict] = {}
 
     for team_id in team_ratings:
@@ -637,6 +641,10 @@ def compute_scf(
                 "bridge_games": 0,
                 "is_isolated": False,
                 "quality_boosted": False,
+                "unique_leagues": 0,
+                "league_scf": 1.0,
+                "dominant_opp_league": None,
+                "dominant_opp_league_share": 0.0,
             }
             continue
 
@@ -646,11 +654,12 @@ def compute_scf(
         else:
             tg = games_df[games_df["team_id"] == team_id]
 
-        # Vectorized state lookup
+        # State diversity (filter unknown states)
         opp_ids = tg["opp_id"].values
         opp_states = [team_state_map.get(o, "") for o in opp_ids]
-        bridge_count = sum(1 for s in opp_states if s and s != team_state)
-        unique_states = len(set(s for s in opp_states if s))
+        valid_states = [s for s in opp_states if s and s != "UNKNOWN"]
+        bridge_count = sum(1 for s in valid_states if s != team_state)
+        unique_states = len(set(valid_states))
 
         # SCF score: diversity of opponent states
         scf_raw = min(unique_states / cfg.SCF_DIVERSITY_DIVISOR, 1.0)
@@ -658,12 +667,48 @@ def compute_scf(
 
         is_isolated = bridge_count < cfg.MIN_BRIDGE_GAMES or unique_states < cfg.SCF_MIN_UNIQUE_STATES
 
+        # League diversity (only when tier_league_map provided)
+        unique_leagues = 0
+        dominant_league = None
+        dominant_share = 0.0
+        league_scf = 1.0
+
+        if tier_league_map:
+            opp_leagues_known = [
+                tier_league_map[str(o)] for o in opp_ids if str(o) in tier_league_map
+            ]
+
+            if opp_leagues_known:
+                unique_leagues = len(set(opp_leagues_known))
+                # Count-based: need opponents from N+ leagues
+                league_count_scf = min(unique_leagues / cfg.SCF_LEAGUE_DIVERSITY_DIVISOR, 1.0)
+
+                # Concentration-based: penalty if dominant league > threshold
+                league_counts = Counter(opp_leagues_known)
+                dominant_league, dominant_count = league_counts.most_common(1)[0]
+                dominant_share = dominant_count / len(opp_leagues_known)
+                if dominant_share > cfg.SCF_LEAGUE_CONCENTRATION_THRESHOLD:
+                    concentration_penalty = 1.0 - (dominant_share - cfg.SCF_LEAGUE_CONCENTRATION_THRESHOLD)
+                else:
+                    concentration_penalty = 1.0
+
+                league_scf_raw = min(league_count_scf, concentration_penalty)
+                league_scf = max(cfg.SCF_LEAGUE_FLOOR, league_scf_raw)
+
+            # Final SCF: most restrictive dimension wins
+            scf = min(scf, league_scf)
+            is_isolated = is_isolated or unique_leagues < cfg.SCF_MIN_UNIQUE_LEAGUES
+
         result[team_id] = {
             "scf": scf,
             "unique_states": unique_states,
             "bridge_games": bridge_count,
             "is_isolated": is_isolated,
             "quality_boosted": False,
+            "unique_leagues": unique_leagues,
+            "league_scf": league_scf,
+            "dominant_opp_league": dominant_league,
+            "dominant_opp_league_share": round(dominant_share, 3),
         }
 
     return result
@@ -830,6 +875,9 @@ def apply_scf_dampening(
     df["is_isolated"] = df["team_id"].map(lambda t: scf_data.get(t, {}).get("is_isolated", False))
     df["unique_opp_states"] = df["team_id"].map(lambda t: scf_data.get(t, {}).get("unique_states", 0))
     df["quality_boosted"] = df["team_id"].map(lambda t: scf_data.get(t, {}).get("quality_boosted", False))
+    df["unique_opp_leagues"] = df["team_id"].map(lambda t: scf_data.get(t, {}).get("unique_leagues", 0))
+    df["dominant_opp_league"] = df["team_id"].map(lambda t: scf_data.get(t, {}).get("dominant_opp_league"))
+    df["dominant_opp_league_share"] = df["team_id"].map(lambda t: scf_data.get(t, {}).get("dominant_opp_league_share", 0.0))
 
     # Cap isolated teams' SOS before dampening
     max_sos = df["sos_raw"].max()
@@ -1159,7 +1207,10 @@ def compute_rankings_v2(
 
     # 6. Apply SCF (if team_state_map provided and SCF_ENABLED)
     if cfg.SCF_ENABLED and team_state_map:
-        scf_data = compute_scf(games_df, team_state_map, team_ratings, cfg, team_games=team_games)
+        scf_data = compute_scf(
+            games_df, team_state_map, team_ratings, cfg,
+            team_games=team_games, tier_league_map=tier_league_map,
+        )
         team_df = apply_scf_dampening(team_df, scf_data, cfg)
 
     # 7. Normalize to 0-1 via sigmoid z-score
@@ -1282,8 +1333,14 @@ def compute_rankings_v2(
 
     logger.info(f"Glicko-2 engine complete{label}: {len(team_df)} teams ranked")
 
+    # Collect the actual games used by Glicko-2 (union of per-team select_games)
+    used_indices: set = set()
+    for tg in team_games.values():
+        used_indices.update(tg.index.tolist())
+    games_used = games_df.loc[games_df.index.isin(used_indices)] if used_indices else games_df
+
     return {
         "teams": team_df,
-        "games_used": games_df,
+        "games_used": games_used,
         "game_explainability": game_explain_df,
     }

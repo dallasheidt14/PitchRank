@@ -91,7 +91,10 @@ export const api = {
         query = query.eq('gender', gender);
       }
 
-      query = query.order('power_score_final', { ascending: false }).range(offset, offset + batchSize - 1);
+      query = query
+        .order('power_score_final', { ascending: false })
+        .order('team_id_master', { ascending: true })
+        .range(offset, offset + batchSize - 1);
 
       const { data, error } = await query;
 
@@ -1113,7 +1116,7 @@ export const api = {
 
     const { data, error } = await supabase
       .from('ranking_history')
-      .select('snapshot_date, rank_in_cohort, rank_in_cohort_ml')
+      .select('snapshot_date, rank_in_cohort, rank_in_cohort_ml, rank_in_cohort_final')
       .eq('team_id', id)
       .gte('snapshot_date', cutoffStr)
       .order('snapshot_date', { ascending: true });
@@ -1133,6 +1136,7 @@ export const api = {
       snapshot_date: string;
       rank_in_cohort: number;
       rank_in_cohort_ml: number | null;
+      rank_in_cohort_final: number | null;
     }>) {
       // Find the Monday of this snapshot's week
       const d = new Date(row.snapshot_date + 'T00:00:00');
@@ -1146,7 +1150,7 @@ export const api = {
 
       points.push({
         snapshot_date: mondayKey,
-        rank: row.rank_in_cohort_ml ?? row.rank_in_cohort,
+        rank: row.rank_in_cohort_final ?? row.rank_in_cohort_ml ?? row.rank_in_cohort,
       });
     }
 
