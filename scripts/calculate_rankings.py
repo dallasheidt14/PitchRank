@@ -218,7 +218,7 @@ async def save_rankings_to_supabase(
                             record["national_rank"] = None
 
                         # Optional fields
-                        record["games_played"] = int(row.get("gp", 0)) if pd.notna(row.get("gp")) else 0
+                        record["games_played"] = int(row.get("games_played", row.get("gp", 0))) if pd.notna(row.get("games_played", row.get("gp"))) else 0
                         record["wins"] = int(row.get("wins", 0)) if pd.notna(row.get("wins")) else 0
                         record["losses"] = int(row.get("losses", 0)) if pd.notna(row.get("losses")) else 0
                         record["draws"] = int(row.get("draws", 0)) if pd.notna(row.get("draws")) else 0

@@ -864,6 +864,14 @@ def v53e_to_rankings_full_format(
     else:
         rankings_df["rank_in_cohort"] = pd.array([pd.NA] * len(rankings_df), dtype="Int64")
 
+    # Preserve NULL rank_in_cohort_final for non-Active teams
+    if "rank_in_cohort_final" in rankings_df.columns:
+        rankings_df["rank_in_cohort_final"] = pd.to_numeric(rankings_df["rank_in_cohort_final"], errors="coerce").astype(
+            "Int64"
+        )
+    else:
+        rankings_df["rank_in_cohort_final"] = pd.array([pd.NA] * len(rankings_df), dtype="Int64")
+
     # National/state/global ranks will be computed in views, but store rank_in_cohort values
     # Set these to None initially - they'll be computed dynamically in views
     rankings_df["national_rank"] = None
@@ -969,6 +977,7 @@ def v53e_to_rankings_full_format(
         "powerscore_ml",
         "rank_in_cohort_ml",
         "rank_in_cohort",
+        "rank_in_cohort_final",
         "national_rank",
         "state_rank",
         "global_rank",

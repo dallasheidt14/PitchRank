@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.rankings.constants import NEGATIVE_ML_FLOOR, SOS_ML_THRESHOLD_HIGH, SOS_ML_THRESHOLD_LOW
+from src.rankings.constants import SOS_ML_THRESHOLD_HIGH, SOS_ML_THRESHOLD_LOW
 
 
 def sos_ml_blend(ps_adj: float, ps_ml: float, sos_norm: float) -> float:
@@ -13,12 +13,12 @@ def sos_ml_blend(ps_adj: float, ps_ml: float, sos_norm: float) -> float:
     Returns a score in [0, 1] where ML authority scales linearly from 0 to 1
     as sos_norm moves from SOS_ML_THRESHOLD_LOW to SOS_ML_THRESHOLD_HIGH.
 
-    Asymmetric gate: negative ML corrections (overrated teams) get at least
-    NEGATIVE_ML_FLOOR authority regardless of SOS.
+    Negative ML corrections (overrated teams) always apply at full authority.
+    Positive corrections (inflation) are fully gated by SOS.
     """
     ml_scale = max(0.0, min(1.0, (sos_norm - SOS_ML_THRESHOLD_LOW) / (SOS_ML_THRESHOLD_HIGH - SOS_ML_THRESHOLD_LOW)))
     ml_delta = ps_ml - ps_adj
-    effective_scale = ml_scale if ml_delta >= 0 else max(ml_scale, NEGATIVE_ML_FLOOR)
+    effective_scale = ml_scale if ml_delta >= 0 else 1.0
     return max(0.0, min(1.0, ps_adj + ml_delta * effective_scale))
 
 

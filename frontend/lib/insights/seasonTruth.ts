@@ -138,7 +138,11 @@ function computeRankVelocity(rankingHistory: InsightInputData['rankingHistory'])
   const latest = rankingHistory[0];
   const oldest = rankingHistory[rankingHistory.length - 1];
 
-  const rankChange = oldest.rank_in_cohort - latest.rank_in_cohort; // positive = improved
+  // 3-level fallback: final → ML → raw (handles pre-migration snapshots)
+  const getRank = (h: InsightInputData['rankingHistory'][0]) =>
+    h.rank_in_cohort_final ?? h.rank_in_cohort_ml ?? h.rank_in_cohort;
+
+  const rankChange = getRank(oldest) - getRank(latest); // positive = improved
   const daySpan = Math.round(
     (new Date(latest.snapshot_date).getTime() - new Date(oldest.snapshot_date).getTime()) / (1000 * 60 * 60 * 24)
   );
@@ -148,8 +152,8 @@ function computeRankVelocity(rankingHistory: InsightInputData['rankingHistory'])
   const weeks = Math.round(daySpan / 7);
 
   // Check for sustained top-10 hold
-  if (latest.rank_in_cohort <= 10) {
-    const allTopTen = rankingHistory.every((h) => h.rank_in_cohort <= 10);
+  if (getRank(latest) <= 10) {
+    const allTopTen = rankingHistory.every((h) => getRank(h) <= 10);
     if (allTopTen && rankingHistory.length >= 8) {
       return `Held a top-10 position for ${weeks}+ weeks`;
     }
