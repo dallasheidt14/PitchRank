@@ -147,6 +147,18 @@ class TestEnhancedPipeline:
         assert result['games_quarantined'] == 5
         assert result['processing_time_seconds'] == 45.2
 
+    def test_should_log_modular11_game_details_is_disabled_for_summary_only(self, mock_supabase):
+        """Per-game Modular11 logging should be suppressed in summary-only mode."""
+        pipeline = EnhancedETLPipeline(mock_supabase, 'modular11', dry_run=True, summary_only=True)
+
+        assert pipeline._should_log_modular11_game_details() is False
+
+    def test_should_log_modular11_game_details_is_enabled_for_default_modular11_runs(self, mock_supabase):
+        """Default Modular11 runs should still emit per-game details."""
+        pipeline = EnhancedETLPipeline(mock_supabase, 'modular11', dry_run=True, summary_only=False)
+
+        assert pipeline._should_log_modular11_game_details() is True
+
 
 class TestEnhancedValidator:
     """Test suite for enhanced validators"""

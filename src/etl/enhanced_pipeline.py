@@ -116,6 +116,10 @@ class EnhancedETLPipeline:
         self.matcher = None
         self._initialized = False
 
+    def _should_log_modular11_game_details(self) -> bool:
+        """Return True when per-game Modular11 details should be emitted."""
+        return self.provider_code.lower() == "modular11" and not self.summary_only
+
     def _ensure_initialized(self):
         """Lazy init: run DB queries, health check, alias cache, and matcher setup on first use."""
         if self._initialized:
@@ -441,7 +445,7 @@ class EnhancedETLPipeline:
                                     game[club_field] = result.club_norm
 
                     # Log game details before matching (including mls_division for Modular11)
-                    if self.provider_code and self.provider_code.lower() == "modular11":
+                    if self._should_log_modular11_game_details():
                         logger.info(
                             f"[Pipeline] Matching Modular11 game {game_uid}: "
                             f"team_id={game.get('team_id')}, opponent_id={game.get('opponent_id')}, "
