@@ -137,8 +137,12 @@ class Modular11GameMatcher(GameHistoryMatcher):
 
     def _dlog(self, message: str):
         """Debug logging helper - prints only when self.debug=True and summary_only=False"""
-        if self.debug and not self.summary_only:
+        if self._should_log_game_record_details():
             logger.info(f"[MOD11 DEBUG] {message}")
+
+    def _should_log_game_record_details(self) -> bool:
+        """Return True when per-game debug details should be emitted."""
+        return self.debug and not self.summary_only
 
     def _init_age_tracking(self, age_group: str):
         """Initialize age-group tracking if not exists"""
@@ -1961,12 +1965,13 @@ class Modular11GameMatcher(GameHistoryMatcher):
         mls_division = raw_mls_division.upper() if raw_mls_division else None
 
         # Debug logging
-        logger.info(
-            f"[Modular11Matcher] Extracting age_group/division: "
-            f"raw_age_group={raw_age_group} (type={type(raw_age_group)}), "
-            f"raw_mls_division={raw_mls_division} (type={type(raw_mls_division)}), "
-            f"extracted age_group={age_group}, mls_division={mls_division}"
-        )
+        if self._should_log_game_record_details():
+            logger.info(
+                f"[Modular11Matcher] Extracting age_group/division: "
+                f"raw_age_group={raw_age_group} (type={type(raw_age_group)}), "
+                f"raw_mls_division={raw_mls_division} (type={type(raw_mls_division)}), "
+                f"extracted age_group={age_group}, mls_division={mls_division}"
+            )
 
         # Log if missing (for debugging) - use module-level logger
         if not age_group or not mls_division:
@@ -2003,10 +2008,11 @@ class Modular11GameMatcher(GameHistoryMatcher):
         }
 
         # Debug: Verify they're in the record
-        logger.info(
-            f"[Modular11Matcher] Created game_record with age_group={game_record.get('age_group')}, "
-            f"mls_division={game_record.get('mls_division')}, game_uid={game_record.get('game_uid')}"
-        )
+        if self._should_log_game_record_details():
+            logger.info(
+                f"[Modular11Matcher] Created game_record with age_group={game_record.get('age_group')}, "
+                f"mls_division={game_record.get('mls_division')}, game_uid={game_record.get('game_uid')}"
+            )
 
         return game_record
 
