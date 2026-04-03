@@ -12,7 +12,12 @@ export async function POST(request: NextRequest) {
     const auth = await requireAdmin();
     if (auth.error) return auth.error;
 
-    const body = await parseJsonBody<Record<string, string>>(request);
+    const body = await parseJsonBody<{
+      gameId: string;
+      opponentProviderId: string;
+      teamIdMaster: string;
+      applyToAllGames?: boolean;
+    }>(request);
     if (body.error) return body.error;
 
     const { gameId, opponentProviderId, teamIdMaster, applyToAllGames = true } = body.data;

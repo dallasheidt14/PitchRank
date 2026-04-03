@@ -27,7 +27,14 @@ export async function POST(request: NextRequest) {
     const auth = await requireAdmin();
     if (auth.error) return auth.error;
 
-    const body = await parseJsonBody<Record<string, string>>(request);
+    const body = await parseJsonBody<{
+      deprecatedTeamId: string;
+      canonicalTeamId: string;
+      mergedBy: string;
+      mergeReason?: string;
+      confidenceScore?: number;
+      suggestionSignals?: Record<string, unknown>;
+    }>(request);
     if (body.error) return body.error;
 
     const { deprecatedTeamId, canonicalTeamId, mergedBy, mergeReason, confidenceScore, suggestionSignals } = body.data;
@@ -133,7 +140,11 @@ export async function DELETE(request: NextRequest) {
     const auth = await requireAdmin();
     if (auth.error) return auth.error;
 
-    const body = await parseJsonBody<Record<string, string>>(request);
+    const body = await parseJsonBody<{
+      deprecatedTeamId: string;
+      revertedBy: string;
+      revertReason?: string;
+    }>(request);
     if (body.error) return body.error;
 
     const { deprecatedTeamId, revertedBy, revertReason } = body.data;

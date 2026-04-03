@@ -112,7 +112,7 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
     '@type': 'RankingTable',
     name: `${locationText} ${formattedAgeGroup} ${formattedGender} Soccer Rankings`,
     description: 'Youth soccer team rankings by PowerScore rating, updated weekly',
-    url: `https://pitchrank.io/rankings/${safeRegion}/${safeAgeGroup}/${safeGender}`,
+    url: `${BASE_URL}/rankings/${safeRegion}/${safeAgeGroup}/${safeGender}`,
   };
 
   // Escape </script> sequences to prevent XSS in JSON-LD structured data

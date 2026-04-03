@@ -8,7 +8,7 @@ import { parseJsonBody } from '@/lib/api/parseJsonBody';
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await parseJsonBody<Record<string, string>>(request);
+    const body = await parseJsonBody<{ gameId: string; opponentProviderId: string }>(request);
     if (body.error) return body.error;
 
     const { gameId, opponentProviderId } = body.data;

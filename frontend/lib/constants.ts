@@ -62,9 +62,9 @@ export const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.i
 
 /**
  * Base URL with www prefix, used by root layout metadataBase and sitemap.
- * Matches the www redirect rule in middleware.
+ * Derived from BASE_URL to ensure the www variant stays in sync.
  */
-export const BASE_URL_WWW = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.pitchrank.io';
+export const BASE_URL_WWW = BASE_URL.replace('https://', 'https://www.');
 
 // --- Age Groups ---
 
