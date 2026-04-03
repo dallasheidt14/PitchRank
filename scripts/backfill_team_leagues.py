@@ -61,15 +61,19 @@ LEAGUE_PATTERNS: list[tuple[str, re.Pattern]] = [
     # ECNL (after RL patterns so we don't match "ECNL RL" as "ECNL")
     ("ECNL", re.compile(r"\bECNL\b", re.IGNORECASE)),
     # Other leagues
-    ("DPL", re.compile(r"\bDPL\b", re.IGNORECASE)),
+    ("DPL", re.compile(r"\bDPLO?\b", re.IGNORECASE)),  # DPL and DPLO
     ("GA", re.compile(r"\bGirls\s*Academy\s*(?:League)?\b", re.IGNORECASE)),
     ("GA", re.compile(r"\bGA\s*Gold\b", re.IGNORECASE)),
     ("GA", re.compile(r"\bGA\b(?!\s*(?:Green|Gray|Grey|United|SC|FC\b))", re.IGNORECASE)),
     ("NPL", re.compile(r"\bNPL\b", re.IGNORECASE)),
     ("ASPIRE", re.compile(r"\bAspire\b", re.IGNORECASE)),
     ("NL", re.compile(r"\bNational\s*League\b", re.IGNORECASE)),
+    ("NL", re.compile(r"\bNAL\b", re.IGNORECASE)),  # National Academy League
     ("NL", re.compile(r"\bNL\b(?!\s*(?:Premier|Next))", re.IGNORECASE)),
+    # EA2 before EA (more specific first)
+    ("EA2", re.compile(r"\bEA\s*2\b", re.IGNORECASE)),
     ("EA", re.compile(r"\bElite\s*Academy\b", re.IGNORECASE)),
+    ("EA", re.compile(r"\bEA\b(?!\s*2\b)", re.IGNORECASE)),  # standalone EA, not EA2
     # Standalone HD/AD suffix — likely MLS NEXT (e.g., "TFA-IE 2009 HD")
     ("MLS_NEXT_HD", re.compile(r"\b\d{4}\s*HD\b", re.IGNORECASE)),  # "2009 HD"
     ("MLS_NEXT_HD", re.compile(r"\bHD\b$", re.IGNORECASE)),  # HD at end of name

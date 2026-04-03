@@ -73,8 +73,8 @@ class V53EConfig:
     # a pure weighted mean. Trimming reduces that dilution while protecting small samples.
     SOS_TRIM_BOTTOM_PCT: float = 0.25  # Fraction of weakest opponents to trim (0.0 = disabled)
     SOS_TRIM_TOP_PCT: float = 0.15  # Fraction of strongest opponents to trim (symmetric correction)
-    SOS_TRIM_MIN_GAMES: int = 6  # Aligned with Active eligibility (MIN_GAMES_PROVISIONAL)
-    SOS_TRIM_MAX_GAMES: int = 6  # Cap: never trim more than this many games per team
+    SOS_TRIM_MIN_GAMES: int = 9  # Aligned with Active eligibility (MIN_GAMES_PROVISIONAL)
+    SOS_TRIM_MAX_GAMES: int = 9  # Cap: never trim more than this many games per team
     SOS_TRIM_MODE: str = "soft"  # "hard" = zero weight, "soft" = reduce weight
     SOS_TRIM_SOFT_WEIGHT: float = 0.15  # In soft mode, trimmed games keep this fraction of original weight
 
@@ -95,7 +95,7 @@ class V53EConfig:
     # because it caused games-played bias in sos_norm. Kept for backward compatibility only.
     SOS_SAMPLE_SIZE_THRESHOLD: int = 25  # DEPRECATED: no longer used
     OPPONENT_SAMPLE_SIZE_THRESHOLD: int = 20  # DEPRECATED: no longer used (opponent shrinkage removed)
-    MIN_GAMES_FOR_TOP_SOS: int = 6  # Aligned with Active eligibility (MIN_GAMES_PROVISIONAL)
+    MIN_GAMES_FOR_TOP_SOS: int = 9  # Aligned with Active eligibility (MIN_GAMES_PROVISIONAL)
     SOS_SHRINKAGE_ANCHOR: float = 0.35  # Low-sample teams shrink toward this (0.35 = below-average, not neutral)
     # NOTE: SOS_TOP_CAP_FOR_LOW_SAMPLE is DEPRECATED - hard caps were replaced with soft shrinkage
     SOS_TOP_CAP_FOR_LOW_SAMPLE: float = 0.70  # DEPRECATED: no longer used
@@ -133,7 +133,7 @@ class V53EConfig:
     SOS_WEIGHT: float = 0.60  # was 0.50
 
     # Provisional
-    MIN_GAMES_PROVISIONAL: int = 6
+    MIN_GAMES_PROVISIONAL: int = 9
 
     # Cross-age anchors (national unification)
     ANCHOR_PERCENTILE: float = 0.98

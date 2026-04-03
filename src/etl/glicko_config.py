@@ -81,4 +81,4 @@ class GlickoConfig:
     ML_ALPHA: float = 0.08
 
     # Provisional
-    MIN_GAMES_PROVISIONAL: int = 6
+    MIN_GAMES_PROVISIONAL: int = 9

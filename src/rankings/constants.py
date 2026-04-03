@@ -72,6 +72,7 @@ LEAGUE_MULTIPLIER_MALE: dict[str, float] = {
     "NPL": 0.94,
     "EA": 0.94,
     "NL": 0.94,
+    "EA2": 0.93,
 }
 
 # Female: direct league -> multiplier

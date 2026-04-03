@@ -28,6 +28,9 @@ class TestLeagueMultiplierMaps:
     def test_dpl_male_is_094(self):
         assert LEAGUE_MULTIPLIER_MALE["DPL"] == 0.94
 
+    def test_ea2_male_is_093(self):
+        assert LEAGUE_MULTIPLIER_MALE["EA2"] == 0.93
+
     def test_ecnl_female_is_1(self):
         assert LEAGUE_MULTIPLIER_FEMALE["ECNL"] == 1.00
 
