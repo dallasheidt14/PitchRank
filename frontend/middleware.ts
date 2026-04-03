@@ -1,13 +1,14 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
-// Routes that require authentication (currently all are also premium-gated)
-const PROTECTED_ROUTES = ['/watchlist', '/compare', '/teams'];
+// Routes that require premium subscription
+const PREMIUM_ROUTES = ['/watchlist', '/compare', '/teams'];
 
-// Routes that require premium subscription (subset of protected routes)
-// NOTE: Currently identical to PROTECTED_ROUTES. To add auth-only (non-premium)
-// routes, add them to PROTECTED_ROUTES only.
-const PREMIUM_ROUTES: string[] = PROTECTED_ROUTES;
+// Routes that require admin plan
+const ADMIN_ROUTES = ['/mission-control'];
+
+// All routes requiring authentication (derived to prevent list drift)
+const PROTECTED_ROUTES = [...PREMIUM_ROUTES, ...ADMIN_ROUTES];
 
 // Auth routes (login/signup pages)
 const AUTH_ROUTES = ['/login', '/signup'];
@@ -75,6 +76,7 @@ export async function middleware(request: NextRequest) {
 
   const isProtectedRoute = PROTECTED_ROUTES.some((route) => pathname.startsWith(route));
   const isPremiumRoute = PREMIUM_ROUTES.some((route) => pathname.startsWith(route));
+  const isAdminRoute = ADMIN_ROUTES.some((route) => pathname.startsWith(route));
   const isAuthRoute = AUTH_ROUTES.some((route) => pathname.startsWith(route));
 
   // Redirect unauthenticated users from protected routes
@@ -94,25 +96,33 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // Check premium status for premium routes
-  if (isPremiumRoute && user) {
+  // Check plan-gated routes (single profile fetch for premium + admin checks)
+  if ((isPremiumRoute || isAdminRoute) && user) {
     const { data: profile, error: profileError } = await supabase
       .from('user_profiles')
       .select('plan')
       .eq('id', user.id)
       .single();
 
-    // If profile fetch failed or profile doesn't exist, redirect to upgrade
-    // This prevents users from bypassing premium check when profile is null
-    if (profileError || !profile) {
-      console.warn('[Middleware] Profile not found or error:', profileError?.message);
-      return NextResponse.redirect(new URL('/upgrade', request.url));
+    if (isPremiumRoute) {
+      // If profile fetch failed or profile doesn't exist, redirect to upgrade
+      // This prevents users from bypassing premium check when profile is null
+      if (profileError || !profile) {
+        console.warn('[Middleware] Profile not found or error:', profileError?.message);
+        return NextResponse.redirect(new URL('/upgrade', request.url));
+      }
+
+      // Redirect free users to upgrade page
+      // Allow admin and premium users through
+      if (profile.plan !== 'premium' && profile.plan !== 'admin') {
+        return NextResponse.redirect(new URL('/upgrade', request.url));
+      }
     }
 
-    // Redirect free users to upgrade page
-    // Allow admin and premium users through
-    if (profile.plan !== 'premium' && profile.plan !== 'admin') {
-      return NextResponse.redirect(new URL('/upgrade', request.url));
+    if (isAdminRoute) {
+      if (!profile || profile.plan !== 'admin') {
+        return NextResponse.redirect(new URL('/', request.url));
+      }
     }
   }
 
