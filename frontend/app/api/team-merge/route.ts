@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { requireAdmin } from '@/lib/supabase/admin';
+import { createServiceSupabase } from '@/lib/supabase/service';
+import { parseJsonBody } from '@/lib/api/parseJsonBody';
 
 /**
  * Team Merge API Endpoints
@@ -25,24 +27,10 @@ export async function POST(request: NextRequest) {
     const auth = await requireAdmin();
     if (auth.error) return auth.error;
 
-    const serviceKey = process.env.SUPABASE_SERVICE_KEY;
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const body = await parseJsonBody<Record<string, string>>(request);
+    if (body.error) return body.error;
 
-    if (!serviceKey || !supabaseUrl) {
-      console.error('[team-merge] Missing environment variables');
-      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
-    }
-
-    // Parse request body
-    let requestBody;
-    try {
-      requestBody = await request.json();
-    } catch {
-      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
-    }
-
-    const { deprecatedTeamId, canonicalTeamId, mergedBy, mergeReason, confidenceScore, suggestionSignals } =
-      requestBody;
+    const { deprecatedTeamId, canonicalTeamId, mergedBy, mergeReason, confidenceScore, suggestionSignals } = body.data;
 
     // Validate required fields
     if (!deprecatedTeamId || !canonicalTeamId || !mergedBy) {
@@ -63,7 +51,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Cannot merge a team with itself' }, { status: 400 });
     }
 
-    const supabase = createClient(supabaseUrl, serviceKey);
+    const supabase = createServiceSupabase();
 
     // Execute the merge via PostgreSQL function
     const { data: mergeId, error } = await supabase.rpc('execute_team_merge', {
@@ -145,23 +133,10 @@ export async function DELETE(request: NextRequest) {
     const auth = await requireAdmin();
     if (auth.error) return auth.error;
 
-    const serviceKey = process.env.SUPABASE_SERVICE_KEY;
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const body = await parseJsonBody<Record<string, string>>(request);
+    if (body.error) return body.error;
 
-    if (!serviceKey || !supabaseUrl) {
-      console.error('[team-merge] Missing environment variables');
-      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
-    }
-
-    // Parse request body
-    let requestBody;
-    try {
-      requestBody = await request.json();
-    } catch {
-      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
-    }
-
-    const { deprecatedTeamId, revertedBy, revertReason } = requestBody;
+    const { deprecatedTeamId, revertedBy, revertReason } = body.data;
 
     // Validate required fields
     if (!deprecatedTeamId || !revertedBy) {
@@ -174,7 +149,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid team ID format' }, { status: 400 });
     }
 
-    const supabase = createClient(supabaseUrl, serviceKey);
+    const supabase = createServiceSupabase();
 
     // Get the team name before reverting
     const { data: team } = await supabase

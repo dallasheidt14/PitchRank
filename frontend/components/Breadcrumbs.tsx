@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { ChevronRight, Home } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { useMemo } from 'react';
+import { BASE_URL } from '@/lib/constants';
 
 interface BreadcrumbItem {
   label: string;
@@ -134,11 +135,6 @@ export function Breadcrumbs({ items, showHomeIcon = true }: BreadcrumbsProps) {
 
   // Generate structured data (BreadcrumbList schema)
   const structuredData = useMemo(() => {
-    const baseUrl =
-      typeof window !== 'undefined'
-        ? `${window.location.protocol}//${window.location.host}`
-        : process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
-
     return {
       '@context': 'https://schema.org',
       '@type': 'BreadcrumbList',
@@ -146,7 +142,7 @@ export function Breadcrumbs({ items, showHomeIcon = true }: BreadcrumbsProps) {
         '@type': 'ListItem',
         position: index + 1,
         name: crumb.label,
-        item: `${baseUrl}${crumb.href}`,
+        item: `${BASE_URL}${crumb.href}`,
       })),
     };
   }, [breadcrumbs]);

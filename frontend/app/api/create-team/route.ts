@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
 import { requireAdmin } from '@/lib/supabase/admin';
+import { createServiceSupabase } from '@/lib/supabase/service';
+import { parseJsonBody } from '@/lib/api/parseJsonBody';
 
 /**
  * Create a new team and link it to an unknown opponent
@@ -12,23 +13,18 @@ export async function POST(request: NextRequest) {
     const auth = await requireAdmin();
     if (auth.error) return auth.error;
 
-    const serviceKey = process.env.SUPABASE_SERVICE_KEY;
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const body = await parseJsonBody<{
+      gameId: string;
+      opponentProviderId: string;
+      teamName: string;
+      clubName?: string;
+      ageGroup: string;
+      gender: string;
+      stateCode?: string;
+    }>(request);
+    if (body.error) return body.error;
 
-    if (!serviceKey || !supabaseUrl) {
-      console.error('[create-team] Missing environment variables');
-      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
-    }
-
-    // Parse request body
-    let requestBody;
-    try {
-      requestBody = await request.json();
-    } catch {
-      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
-    }
-
-    const { gameId, opponentProviderId, teamName, clubName, ageGroup, gender, stateCode } = requestBody;
+    const { gameId, opponentProviderId, teamName, clubName, ageGroup, gender, stateCode } = body.data;
 
     // Validate required fields
     if (!gameId || !opponentProviderId || !teamName || !ageGroup || !gender) {
@@ -48,7 +44,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Age group must be in format like "u10", "u11", etc.' }, { status: 400 });
     }
 
-    const supabase = createClient(supabaseUrl, serviceKey);
+    const supabase = createServiceSupabase();
 
     // 1. Get the provider_id from the game
     const { data: game, error: gameError } = await supabase

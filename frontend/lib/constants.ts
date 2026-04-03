@@ -54,3 +54,75 @@ export const US_STATES = [
   { code: 'wi', name: 'Wisconsin' },
   { code: 'wy', name: 'Wyoming' },
 ] as const;
+
+// --- Site URL ---
+
+/** Base URL without www prefix, used by most pages for canonical URLs and OG metadata. */
+export const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
+
+/**
+ * Base URL with www prefix, used by root layout metadataBase and sitemap.
+ * Matches the www redirect rule in middleware.
+ */
+export const BASE_URL_WWW = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.pitchrank.io';
+
+// --- Age Groups ---
+
+/** Standard ranked age groups (excludes u18 which has no rankings cohort). */
+export const AGE_GROUPS = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u19'] as const;
+
+/** Extended age groups including u8, u9, u18 — used for validation and team creation forms. */
+export const AGE_GROUPS_ALL = [
+  'u8',
+  'u9',
+  'u10',
+  'u11',
+  'u12',
+  'u13',
+  'u14',
+  'u15',
+  'u16',
+  'u17',
+  'u18',
+  'u19',
+] as const;
+
+/** Age groups as value/label pairs for select dropdowns. */
+export const AGE_GROUP_OPTIONS = AGE_GROUPS.map((ag) => ({
+  value: ag,
+  label: ag.toUpperCase(),
+}));
+
+// --- Gender ---
+
+export type GenderCode = 'M' | 'F' | 'B' | 'G';
+
+/** Map single-letter gender codes to display labels. */
+export const GENDER_LABELS: Record<string, string> = {
+  M: 'Boys',
+  F: 'Girls',
+  B: 'Boys',
+  G: 'Girls',
+};
+
+/** Map URL-slug gender strings to display labels. */
+export const GENDER_SLUG_LABELS: Record<string, string> = {
+  male: 'Boys',
+  female: 'Girls',
+  boys: 'Boys',
+  girls: 'Girls',
+};
+
+/**
+ * Format a gender code or slug to a display label.
+ * Handles M/F/B/G, male/female, Male/Female, boys/girls.
+ */
+export function formatGender(gender: string): string {
+  return GENDER_LABELS[gender] ?? GENDER_SLUG_LABELS[gender.toLowerCase()] ?? 'Unknown';
+}
+
+/** Gender options for select dropdowns. */
+export const GENDER_OPTIONS = [
+  { value: 'M' as const, label: 'Boys' },
+  { value: 'F' as const, label: 'Girls' },
+];

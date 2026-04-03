@@ -105,13 +105,13 @@ export async function POST(req: Request) {
       // No matching user — retrying won't help. Acknowledge so Stripe stops.
       console.warn(`[webhook] Permanent error, returning 200 to stop retries`);
       return NextResponse.json(
-        { received: true, error: 'Permanent webhook error', detail: errorMessage },
+        { received: true, error: 'Permanent webhook error', details: errorMessage },
         { status: 200 }
       );
     }
 
     // Transient error (DB timeout, network issue) — return 500 so Stripe retries
-    return NextResponse.json({ error: 'Webhook handler failed', detail: errorMessage }, { status: 500 });
+    return NextResponse.json({ error: 'Webhook handler failed', details: errorMessage }, { status: 500 });
   }
 }
 

@@ -22,6 +22,7 @@
  */
 
 import type { InsightInputData, SeasonTruthInsight, FormSignal, RankTrajectory, PlayStyle } from './types';
+import { formatGender } from '@/lib/constants';
 
 /**
  * Determines rank trajectory based on recent form (perf_centered)
@@ -175,7 +176,7 @@ function buildCohortContext(
   const rank = ranking.rank_in_cohort_final;
   if (rank === null || cohortStats.totalTeams <= 1) return null;
 
-  const genderLabel = team.gender === 'M' || team.gender === 'B' ? 'Boys' : 'Girls';
+  const genderLabel = formatGender(team.gender);
   const ageLabel = team.age ? `U${team.age}` : null;
 
   const cohortLabel = ageLabel ? `${genderLabel} ${ageLabel}` : genderLabel;

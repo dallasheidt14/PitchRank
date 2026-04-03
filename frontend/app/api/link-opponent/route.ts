@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { requireAdmin } from '@/lib/supabase/admin';
+import { createServiceSupabase } from '@/lib/supabase/service';
+import { parseJsonBody } from '@/lib/api/parseJsonBody';
 
 /**
  * Link unknown opponent to a team
@@ -11,23 +12,10 @@ export async function POST(request: NextRequest) {
     const auth = await requireAdmin();
     if (auth.error) return auth.error;
 
-    const serviceKey = process.env.SUPABASE_SERVICE_KEY;
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const body = await parseJsonBody<Record<string, string>>(request);
+    if (body.error) return body.error;
 
-    if (!serviceKey || !supabaseUrl) {
-      console.error('[link-opponent] Missing environment variables');
-      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
-    }
-
-    // Parse request body
-    let requestBody;
-    try {
-      requestBody = await request.json();
-    } catch {
-      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
-    }
-
-    const { gameId, opponentProviderId, teamIdMaster, applyToAllGames = true } = requestBody;
+    const { gameId, opponentProviderId, teamIdMaster, applyToAllGames = true } = body.data;
 
     if (!gameId || !opponentProviderId || !teamIdMaster) {
       return NextResponse.json(
@@ -36,7 +24,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = createClient(supabaseUrl, serviceKey);
+    const supabase = createServiceSupabase();
 
     // 1. Validate that the team exists
     const { data: team, error: teamError } = await supabase

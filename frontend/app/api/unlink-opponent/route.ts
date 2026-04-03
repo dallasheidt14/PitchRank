@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { requireAdmin } from '@/lib/supabase/admin';
+import { createServiceSupabase } from '@/lib/supabase/service';
+import { parseJsonBody } from '@/lib/api/parseJsonBody';
 
 /**
  * Unlink an incorrectly linked opponent from a game
@@ -11,22 +12,10 @@ export async function POST(request: NextRequest) {
     const auth = await requireAdmin();
     if (auth.error) return auth.error;
 
-    const serviceKey = process.env.SUPABASE_SERVICE_KEY;
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const body = await parseJsonBody<Record<string, string>>(request);
+    if (body.error) return body.error;
 
-    if (!serviceKey || !supabaseUrl) {
-      console.error('[unlink-opponent] Missing environment variables');
-      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
-    }
-
-    let requestBody;
-    try {
-      requestBody = await request.json();
-    } catch {
-      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
-    }
-
-    const { gameId, opponentProviderId, teamIdMaster, unlinkAllGames = true } = requestBody;
+    const { gameId, opponentProviderId, teamIdMaster, unlinkAllGames = true } = body.data;
 
     if (!gameId || !opponentProviderId || !teamIdMaster) {
       return NextResponse.json(
@@ -35,7 +24,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = createClient(supabaseUrl, serviceKey);
+    const supabase = createServiceSupabase();
 
     // 1. Get the game to determine which side the opponent is on
     const { data: game, error: gameError } = await supabase

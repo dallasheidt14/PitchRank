@@ -1,20 +1,19 @@
 import type { Metadata } from 'next';
 import { ReportCardForm } from '@/components/ReportCardForm';
-
-const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
+import { BASE_URL } from '@/lib/constants';
 
 export const metadata: Metadata = {
   title: 'Free Team Report Card',
   description:
     "Get your team's free season report card — rankings, trends, and insights powered by PitchRank's 13-layer algorithm. 25,000+ teams. Updated weekly.",
   alternates: {
-    canonical: `${baseUrl}/report-card`,
+    canonical: `${BASE_URL}/report-card`,
   },
   openGraph: {
     title: 'Free Team Report Card | PitchRank',
     description:
       'See how your team stacks up. Rankings, strength profile, and recent results — powered by 25K+ teams and a 13-layer algorithm.',
-    url: `${baseUrl}/report-card`,
+    url: `${BASE_URL}/report-card`,
     siteName: 'PitchRank',
     type: 'website',
   },

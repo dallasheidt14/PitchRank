@@ -1,17 +1,12 @@
 import { stripe, getStripePriceIds } from '@/lib/stripe/server';
-import { createServerSupabase } from '@/lib/supabase/server';
+import { requireAuth } from '@/lib/api/requireAuth';
 import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
   try {
-    const supabase = await createServerSupabase();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
+    const auth = await requireAuth();
+    if (auth.error) return auth.error;
+    const { user, supabase } = auth;
 
     const { priceId } = await req.json();
 

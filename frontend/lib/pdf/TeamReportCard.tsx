@@ -1,5 +1,6 @@
 import React from 'react';
 import { Document, Page, View, Text, Link, StyleSheet, Font } from '@react-pdf/renderer';
+import { formatGender } from '@/lib/constants';
 
 // Register fonts via Google Fonts CDN
 Font.register({
@@ -414,7 +415,7 @@ export function TeamReportCard({
   generatedDate,
 }: ReportCardProps) {
   const percentile = Math.round((1 - ranking.rank_in_cohort_final / cohortTotal) * 100);
-  const genderLabel = team.gender === 'M' || team.gender === 'B' ? 'Boys' : 'Girls';
+  const genderLabel = formatGender(team.gender);
   const winPct =
     ranking.win_percentage != null
       ? `${Math.round(ranking.win_percentage)}%`

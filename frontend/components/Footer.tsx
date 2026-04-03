@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { AGE_GROUPS } from '@/lib/constants';
 import { Twitter, Instagram, Facebook, Linkedin } from '@/components/ui/brand-icons';
 
 /**
@@ -53,7 +54,7 @@ export function Footer() {
   ];
 
   // Age groups for internal linking
-  const ageGroups = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u19'];
+  const ageGroups = AGE_GROUPS;
 
   const footerLinks = {
     Rankings: [

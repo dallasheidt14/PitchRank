@@ -1,4 +1,5 @@
 import React from 'react';
+import { BASE_URL } from '@/lib/constants';
 
 interface BlogPostSchemaProps {
   title: string;
@@ -30,9 +31,8 @@ export function BlogPostSchema({
   image,
   articleSection,
 }: BlogPostSchemaProps) {
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
-  const postUrl = `${baseUrl}/blog/${slug}`;
-  const imageUrl = image ? (image.startsWith('http') ? image : `${baseUrl}${image}`) : `${baseUrl}/opengraph-image.png`;
+  const postUrl = `${BASE_URL}/blog/${slug}`;
+  const imageUrl = image ? (image.startsWith('http') ? image : `${BASE_URL}${image}`) : `${BASE_URL}/opengraph-image.png`;
 
   const schema = {
     '@context': 'https://schema.org',
@@ -51,7 +51,7 @@ export function BlogPostSchema({
       name: 'PitchRank',
       logo: {
         '@type': 'ImageObject',
-        url: `${baseUrl}/logos/pitchrank-wordmark.svg`,
+        url: `${BASE_URL}/logos/pitchrank-wordmark.svg`,
       },
     },
     image: imageUrl,

@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { Suspense } from 'react';
 import { notFound, redirect } from 'next/navigation';
 import type { Metadata } from 'next';
+import { BASE_URL } from '@/lib/constants';
 
 interface TeamPageProps {
   params: Promise<{
@@ -43,8 +44,7 @@ export async function generateMetadata({ params }: TeamPageProps): Promise<Metad
       return { title: 'Team Not Found | PitchRank' };
     }
 
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
-    const teamUrl = `${baseUrl}/teams/${resolvedParams.id}`;
+    const teamUrl = `${BASE_URL}/teams/${resolvedParams.id}`;
     const title = `${team.team_name}${team.state_code ? ` (${team.state_code})` : ''} | PitchRank`;
     const description = `View rankings, trajectory, momentum, and full profile for ${team.team_name}${team.club_name ? ` from ${team.club_name}` : ''}.`;
 

@@ -7,7 +7,7 @@ const ComparePanel = dynamic(() => import('@/components/ComparePanel').then((mod
   loading: () => <CardSkeleton />,
 });
 
-const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
+import { BASE_URL } from '@/lib/constants';
 
 export const metadata: Metadata = {
   title: 'Compare/Predict Teams',
@@ -19,13 +19,13 @@ export const metadata: Metadata = {
     follow: false,
   },
   alternates: {
-    canonical: `${baseUrl}/compare`,
+    canonical: `${BASE_URL}/compare`,
   },
   openGraph: {
     title: 'Compare/Predict Teams | PitchRank',
     description:
       'Compare multiple youth soccer teams side-by-side to see their rankings, statistics, and performance metrics.',
-    url: `${baseUrl}/compare`,
+    url: `${BASE_URL}/compare`,
     siteName: 'PitchRank',
     type: 'website',
     images: [

@@ -4,21 +4,20 @@ import { NewsletterSubscribe } from '@/components/NewsletterSubscribe';
 import { BreadcrumbSchema } from '@/components/BreadcrumbSchema';
 import type { Metadata } from 'next';
 import { getAllBlogPosts } from '@/lib/blog';
-
-const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
+import { BASE_URL } from '@/lib/constants';
 
 export const metadata: Metadata = {
   title: 'Blog',
   description:
     'Learn about youth soccer rankings, our algorithm methodology, and how PitchRank helps teams, coaches, and parents understand competitive soccer.',
   alternates: {
-    canonical: `${baseUrl}/blog`,
+    canonical: `${BASE_URL}/blog`,
   },
   openGraph: {
     title: 'Blog | PitchRank',
     description:
       'Educational content about youth soccer rankings, algorithm methodology, and competitive soccer insights.',
-    url: `${baseUrl}/blog`,
+    url: `${BASE_URL}/blog`,
     siteName: 'PitchRank',
     type: 'website',
     images: [

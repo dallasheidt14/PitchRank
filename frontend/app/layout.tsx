@@ -8,6 +8,7 @@ import { StructuredData } from '@/components/StructuredData';
 import { Footer } from '@/components/Footer';
 import { GoogleAnalytics } from '@/components/GoogleAnalytics';
 import { WebVitalsReporter } from '@/components/WebVitalsReporter';
+import { BASE_URL_WWW } from '@/lib/constants';
 
 // Athletic Editorial Typography
 const oswald = Oswald({
@@ -35,7 +36,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://www.pitchrank.io'),
+  metadataBase: new URL(BASE_URL_WWW),
   title: {
     default: 'PitchRank — Youth Soccer Rankings',
     template: '%s | PitchRank',
@@ -74,7 +75,7 @@ export const metadata: Metadata = {
     apple: '/logos/apple-touch-icon.png',
   },
   alternates: {
-    canonical: process.env.NEXT_PUBLIC_SITE_URL || 'https://www.pitchrank.io',
+    canonical: BASE_URL_WWW,
   },
   openGraph: {
     type: 'website',

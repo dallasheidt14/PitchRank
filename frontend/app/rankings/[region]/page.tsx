@@ -2,14 +2,12 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
-import { US_STATES } from '@/lib/constants';
+import { US_STATES, AGE_GROUPS, BASE_URL } from '@/lib/constants';
 import { api } from '@/lib/api';
 import { formatPowerScore } from '@/lib/utils';
 
 // Revalidate every hour for ISR caching
 export const revalidate = 3600;
-
-const AGE_GROUPS = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u19'];
 
 interface StateOverviewPageProps {
   params: Promise<{
@@ -39,8 +37,7 @@ export async function generateMetadata({ params }: StateOverviewPageProps): Prom
     return { title: 'Not Found | PitchRank' };
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
-  const canonicalUrl = `${baseUrl}/rankings/${region.toLowerCase()}`;
+  const canonicalUrl = `${BASE_URL}/rankings/${region.toLowerCase()}`;
   const isNational = region.toLowerCase() === 'national';
 
   const title = isNational
