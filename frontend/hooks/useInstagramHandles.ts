@@ -57,18 +57,6 @@ export function useInstagramHandles(teamIds: string[]) {
 }
 
 /**
- * Get the best Instagram handle for a team (prefer team-level, fallback to club-level).
- */
-export function getBestHandle(
-  handleMap: Map<string, { clubHandle: string | null; teamHandle: string | null }>,
-  teamId: string
-): string | null {
-  const entry = handleMap.get(teamId);
-  if (!entry) return null;
-  return entry.teamHandle || entry.clubHandle || null;
-}
-
-/**
  * Collect unique @handles for a list of team IDs, formatted for captions.
  * Returns both team-level and club-level, deduplicated.
  */

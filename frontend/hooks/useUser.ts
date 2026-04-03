@@ -35,16 +35,6 @@ export function hasAdminAccess(profile: UserProfile | null): boolean {
   return profile.plan === 'admin';
 }
 
-/**
- * Check if subscription is active
- */
-export function isSubscriptionActive(profile: UserProfile | null): boolean {
-  if (!profile) return false;
-  return (
-    profile.subscription_status === 'active' || profile.subscription_status === 'trialing' || profile.plan === 'admin'
-  );
-}
-
 export interface UseUserReturn {
   user: User | null;
   profile: UserProfile | null;

@@ -54,11 +54,7 @@ const DEFAULT_CONFIG: PerfConfig = {
   verbose: false,
 };
 
-let config: PerfConfig = { ...DEFAULT_CONFIG };
-
-export function configurePerfMonitoring(overrides: Partial<PerfConfig>) {
-  config = { ...config, ...overrides };
-}
+const config: PerfConfig = { ...DEFAULT_CONFIG };
 
 // ─── Storage ─────────────────────────────────────────────────────────
 
@@ -313,7 +309,7 @@ function getResourceTimings(): {
 /**
  * Get all collected performance data.
  */
-export function getPerfReport() {
+function getPerfReport() {
   return {
     vitals: [...vitals],
     apiTimings: [...apiTimings],

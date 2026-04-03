@@ -165,16 +165,3 @@ export function useMatchPrediction(teamAId: string | null, teamBId: string | nul
     gcTime: 30 * 60 * 1000, // Keep in cache for 30 minutes
   });
 }
-
-/**
- * Get database statistics: total games and total ranked teams
- * @returns React Query hook result with stats data
- */
-export function useDbStats() {
-  return useQuery<{ totalGames: number; totalTeams: number }>({
-    queryKey: ['db-stats'],
-    queryFn: () => api.getDbStats(),
-    staleTime: 60 * 60 * 1000, // 1 hour - stats don't change frequently
-    gcTime: 24 * 60 * 60 * 1000, // Keep in cache for 24 hours
-  });
-}
