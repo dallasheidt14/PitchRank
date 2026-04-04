@@ -78,6 +78,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
     type RankingHistoryRow = {
       snapshot_date: string;
       rank_in_cohort: number;
+      rank_in_cohort_ml: number | null;
+      rank_in_cohort_final: number | null;
       power_score_final: number | null;
     };
 
@@ -199,8 +201,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
       }),
       rankingHistory: ((rankingHistory || []) as RankingHistoryRow[]).map((h: RankingHistoryRow) => ({
         snapshot_date: h.snapshot_date,
-        rank_in_cohort_final: h.rank_in_cohort_final,
-        rank_in_cohort_ml: h.rank_in_cohort_ml,
+        rank_in_cohort_final: h.rank_in_cohort_final ?? undefined,
+        rank_in_cohort_ml: h.rank_in_cohort_ml ?? undefined,
         rank_in_cohort: h.rank_in_cohort,
         power_score_final: h.power_score_final,
       })),
