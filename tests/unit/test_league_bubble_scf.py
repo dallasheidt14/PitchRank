@@ -43,30 +43,58 @@ class TestLeagueBubbleSCF:
         scf_data = compute_scf(games, team_state_map, ratings, cfg, tier_league_map=tier_league_map)
         team_scf = scf_data["team_a"]
 
+        # All ECNL_RL → all "lower" family → 1 unique family
         assert team_scf["unique_leagues"] == 1
         assert team_scf["league_scf"] == cfg.SCF_LEAGUE_FLOOR  # 0.5
         assert team_scf["scf"] <= 0.5  # league_scf restricts overall
-        assert team_scf["dominant_opp_league"] == "ECNL_RL"
+        assert team_scf["dominant_opp_league"] == "lower"
         assert team_scf["dominant_opp_league_share"] == 1.0
 
-    def test_diverse_league_opponents_get_high_scf(self):
-        """Team with opponents from 3+ leagues → league_scf = 1.0."""
+    def test_cross_family_opponents_get_high_scf(self):
+        """Team with opponents from both top and lower families → league_scf = 1.0."""
         cfg = GlickoConfig()
-        opps = ["opp_ecnl", "opp_ga", "opp_dpl"]
+        # Mix of top-tier (ECNL, GA) and lower-tier (DPL) → 2 families
+        opps = ["opp_ecnl", "opp_ga", "opp_dpl", "opp_ecnl2", "opp_dpl2"]
         games = _make_games("team_a", opps)
 
-        team_state_map = {"team_a": "AZ", "opp_ecnl": "CA", "opp_ga": "TX", "opp_dpl": "FL"}
+        team_state_map = {"team_a": "AZ", "opp_ecnl": "CA", "opp_ga": "TX",
+                          "opp_dpl": "FL", "opp_ecnl2": "NY", "opp_dpl2": "OH"}
         ratings = {t: (1500.0, 200.0, 0.06) for t in ["team_a"] + opps}
-        tier_league_map = {"opp_ecnl": "ECNL", "opp_ga": "GA", "opp_dpl": "DPL"}
+        tier_league_map = {"opp_ecnl": "ECNL", "opp_ga": "GA", "opp_dpl": "DPL",
+                           "opp_ecnl2": "ECNL", "opp_dpl2": "DPL"}
 
         scf_data = compute_scf(games, team_state_map, ratings, cfg, tier_league_map=tier_league_map)
         team_scf = scf_data["team_a"]
 
-        assert team_scf["unique_leagues"] == 3
+        assert team_scf["unique_leagues"] == 2  # 2 families: top + lower
         assert team_scf["league_scf"] == 1.0
 
-    def test_concentration_penalty(self):
-        """Team with 80%+ same league → concentration penalty kicks in."""
+    def test_same_family_different_leagues_no_diversity(self):
+        """ASPIRE + ECNL_RL + DPL + NL are all 'lower' family — NOT diverse."""
+        cfg = GlickoConfig()
+        opps = [f"opp_{i}" for i in range(8)]
+        games = _make_games("team_a", opps)
+
+        team_state_map = {"team_a": "TX"}
+        for i, opp in enumerate(opps):
+            team_state_map[opp] = ["CA", "FL", "NY", "OH", "GA", "IL", "PA", "NJ"][i]
+        ratings = {t: (1500.0, 200.0, 0.06) for t in ["team_a"] + opps}
+
+        # All lower-tier leagues — same family
+        tier_league_map = {
+            "opp_0": "ASPIRE", "opp_1": "ASPIRE", "opp_2": "ECNL_RL",
+            "opp_3": "ECNL_RL", "opp_4": "DPL", "opp_5": "NL",
+            "opp_6": "NPL", "opp_7": "EA",
+        }
+
+        scf_data = compute_scf(games, team_state_map, ratings, cfg, tier_league_map=tier_league_map)
+        team_scf = scf_data["team_a"]
+
+        assert team_scf["unique_leagues"] == 1  # all "lower" family
+        assert team_scf["league_scf"] == cfg.SCF_LEAGUE_FLOOR  # 0.5
+
+    def test_concentration_penalty_steep(self):
+        """9 lower-tier + 1 top-tier → 90% concentration → steep penalty."""
         cfg = GlickoConfig()
         opps = [f"opp_{i}" for i in range(10)]
         games = _make_games("team_a", opps)
@@ -77,19 +105,19 @@ class TestLeagueBubbleSCF:
 
         ratings = {t: (1500.0, 200.0, 0.06) for t in ["team_a"] + opps}
 
-        # 9/10 ECNL_RL, 1 ECNL → 90% concentration
+        # 9 ECNL_RL (lower) + 1 ECNL (top) → 90% lower-family concentration
         tier_league_map = {opp: "ECNL_RL" for opp in opps[:9]}
         tier_league_map[opps[9]] = "ECNL"
 
         scf_data = compute_scf(games, team_state_map, ratings, cfg, tier_league_map=tier_league_map)
         team_scf = scf_data["team_a"]
 
-        assert team_scf["unique_leagues"] == 2
+        assert team_scf["unique_leagues"] == 2  # 2 families
         assert team_scf["dominant_opp_league_share"] == 0.9
-        # Concentration penalty: 1.0 - (0.9 - 0.75) = 0.85
+        # Concentration penalty: 1.0 - 2.0 * (0.9 - 0.65) = 1.0 - 0.50 = 0.50
         # league_count_scf: 2/2 = 1.0
-        # league_scf = max(0.5, min(1.0, 0.85)) = 0.85
-        assert team_scf["league_scf"] == pytest.approx(0.85, abs=0.01)
+        # league_scf = max(0.5, min(1.0, 0.50)) = 0.50
+        assert team_scf["league_scf"] == pytest.approx(0.50, abs=0.01)
 
     def test_no_tier_league_map_backward_compatible(self):
         """Without tier_league_map, SCF is state-only (unchanged)."""

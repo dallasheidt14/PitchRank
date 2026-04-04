@@ -78,10 +78,13 @@ class GlickoConfig:
     ISOLATION_SOS_CAP: float = 0.60
 
     # League-aware SCF: detect closed-league bubbles
-    SCF_LEAGUE_DIVERSITY_DIVISOR: float = 2.0   # Opponents from 2+ known leagues → max league_scf
-    SCF_LEAGUE_FLOOR: float = 0.5               # Minimum league_scf
-    SCF_LEAGUE_CONCENTRATION_THRESHOLD: float = 0.75  # >75% same league → penalty
-    SCF_MIN_UNIQUE_LEAGUES: int = 2             # Below this → league-isolated
+    # Diversity is measured by league FAMILY, not exact league string.
+    # Top-tier (ECNL, GA, MLS_NEXT_HD) vs lower-tier (everything else).
+    SCF_LEAGUE_DIVERSITY_DIVISOR: float = 2.0  # Opponents from 2+ league families → max league_scf
+    SCF_LEAGUE_FLOOR: float = 0.5  # Minimum league_scf
+    SCF_LEAGUE_CONCENTRATION_THRESHOLD: float = 0.65  # >65% same family → penalty kicks in
+    SCF_LEAGUE_CONCENTRATION_SCALE: float = 2.0  # Steepness: penalty = scale * (share - threshold)
+    SCF_MIN_UNIQUE_LEAGUES: int = 2  # Below this unique families → league-isolated
 
     # ML
     ML_ALPHA: float = 0.08

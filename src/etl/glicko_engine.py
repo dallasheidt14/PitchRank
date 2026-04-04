@@ -524,9 +524,7 @@ def compute_sos(
         if tier_league_map is None:
             return 1.0
         if opp_id not in _tier_cache:
-            _tier_cache[opp_id] = get_tier_multiplier(
-                tier_league_map.get(str(opp_id)), cohort_gender, age=_cohort_age
-            )
+            _tier_cache[opp_id] = get_tier_multiplier(tier_league_map.get(str(opp_id)), cohort_gender, age=_cohort_age)
         return _tier_cache[opp_id]
 
     results = []
@@ -542,10 +540,7 @@ def compute_sos(
 
         # Vectorized opponent mu lookup
         opp_ids = tg["opp_id"].values
-        opp_mus_all = np.array([
-            team_ratings.get(o, (cfg.INITIAL_MU,))[0] * _tier_mult(o)
-            for o in opp_ids
-        ])
+        opp_mus_all = np.array([team_ratings.get(o, (cfg.INITIAL_MU,))[0] * _tier_mult(o) for o in opp_ids])
 
         # Apply repeat cap
         opp_counts: Dict[str, int] = {}
@@ -668,27 +663,34 @@ def compute_scf(
         is_isolated = bridge_count < cfg.MIN_BRIDGE_GAMES or unique_states < cfg.SCF_MIN_UNIQUE_STATES
 
         # League diversity (only when tier_league_map provided)
+        # Uses league FAMILIES, not exact league strings. Top-tier leagues
+        # (ECNL, GA, MLS_NEXT_HD) are one family; all others are "lower".
+        # Playing across ASPIRE + ECNL_RL + DPL is NOT meaningful diversity.
         unique_leagues = 0
         dominant_league = None
         dominant_share = 0.0
         league_scf = 1.0
 
         if tier_league_map:
-            opp_leagues_known = [
-                tier_league_map[str(o)] for o in opp_ids if str(o) in tier_league_map
-            ]
+            _TOP_TIER = {"ECNL", "GA", "MLS_NEXT_HD"}
+            opp_leagues_known = [tier_league_map[str(o)] for o in opp_ids if str(o) in tier_league_map]
 
             if opp_leagues_known:
-                unique_leagues = len(set(opp_leagues_known))
-                # Count-based: need opponents from N+ leagues
-                league_count_scf = min(unique_leagues / cfg.SCF_LEAGUE_DIVERSITY_DIVISOR, 1.0)
+                # Map to families for diversity measurement
+                opp_families = ["top" if lg in _TOP_TIER else "lower" for lg in opp_leagues_known]
+                unique_families = len(set(opp_families))
+                unique_leagues = unique_families  # report family count, not raw league count
 
-                # Concentration-based: penalty if dominant league > threshold
-                league_counts = Counter(opp_leagues_known)
-                dominant_league, dominant_count = league_counts.most_common(1)[0]
-                dominant_share = dominant_count / len(opp_leagues_known)
+                # Count-based: need opponents from 2+ families
+                league_count_scf = min(unique_families / cfg.SCF_LEAGUE_DIVERSITY_DIVISOR, 1.0)
+
+                # Concentration-based: penalty if dominant family > threshold
+                family_counts = Counter(opp_families)
+                dominant_league, dominant_count = family_counts.most_common(1)[0]
+                dominant_share = dominant_count / len(opp_families)
                 if dominant_share > cfg.SCF_LEAGUE_CONCENTRATION_THRESHOLD:
-                    concentration_penalty = 1.0 - (dominant_share - cfg.SCF_LEAGUE_CONCENTRATION_THRESHOLD)
+                    excess = dominant_share - cfg.SCF_LEAGUE_CONCENTRATION_THRESHOLD
+                    concentration_penalty = max(0.0, 1.0 - cfg.SCF_LEAGUE_CONCENTRATION_SCALE * excess)
                 else:
                     concentration_penalty = 1.0
 
@@ -877,7 +879,9 @@ def apply_scf_dampening(
     df["quality_boosted"] = df["team_id"].map(lambda t: scf_data.get(t, {}).get("quality_boosted", False))
     df["unique_opp_leagues"] = df["team_id"].map(lambda t: scf_data.get(t, {}).get("unique_leagues", 0))
     df["dominant_opp_league"] = df["team_id"].map(lambda t: scf_data.get(t, {}).get("dominant_opp_league"))
-    df["dominant_opp_league_share"] = df["team_id"].map(lambda t: scf_data.get(t, {}).get("dominant_opp_league_share", 0.0))
+    df["dominant_opp_league_share"] = df["team_id"].map(
+        lambda t: scf_data.get(t, {}).get("dominant_opp_league_share", 0.0)
+    )
 
     # Cap isolated teams' SOS before dampening
     max_sos = df["sos_raw"].max()
@@ -962,6 +966,7 @@ def run_glicko2_cohort(
 
     # Tier multiplier for opponent mu during convergence
     from src.rankings.constants import get_tier_multiplier as _get_tier_mult_fn
+
     _tier_cache: Dict[str, float] = {}
     _cohort_age_int: Optional[int] = None
     if cohort_age is not None:
@@ -980,9 +985,7 @@ def run_glicko2_cohort(
             return 1.0
         opp_key = str(opp_id)
         if opp_key not in _tier_cache:
-            _tier_cache[opp_key] = _get_tier_mult_fn(
-                tier_league_map.get(opp_key), cohort_gender, age=_cohort_age_int
-            )
+            _tier_cache[opp_key] = _get_tier_mult_fn(tier_league_map.get(opp_key), cohort_gender, age=_cohort_age_int)
         return _tier_cache[opp_key]
 
     # 6. Pre-convert team games to arrays (avoid iterrows in the hot loop)
@@ -1177,8 +1180,13 @@ def compute_rankings_v2(
 
     # 2. Run Glicko-2 convergence
     team_df, team_games = run_glicko2_cohort(
-        games_df, cfg, today, global_rating_map, initial_ratings=initial_ratings,
-        tier_league_map=tier_league_map, cohort_gender=_cohort_gender,
+        games_df,
+        cfg,
+        today,
+        global_rating_map,
+        initial_ratings=initial_ratings,
+        tier_league_map=tier_league_map,
+        cohort_gender=_cohort_gender,
     )
 
     # 3. Build ratings dict for derived metrics
@@ -1191,8 +1199,15 @@ def compute_rankings_v2(
     team_df = team_df.merge(off_def, on="team_id", how="left")
 
     # 5. Compute SOS (reuses _cohort_gender from above)
-    sos = compute_sos(games_df, team_ratings, cfg, today, team_games=team_games,
-                       tier_league_map=tier_league_map, cohort_gender=_cohort_gender)
+    sos = compute_sos(
+        games_df,
+        team_ratings,
+        cfg,
+        today,
+        team_games=team_games,
+        tier_league_map=tier_league_map,
+        cohort_gender=_cohort_gender,
+    )
     team_df = team_df.merge(sos, on="team_id", how="left")
 
     # 5b. Compute per-game explainability breakdown
@@ -1208,8 +1223,12 @@ def compute_rankings_v2(
     # 6. Apply SCF (if team_state_map provided and SCF_ENABLED)
     if cfg.SCF_ENABLED and team_state_map:
         scf_data = compute_scf(
-            games_df, team_state_map, team_ratings, cfg,
-            team_games=team_games, tier_league_map=tier_league_map,
+            games_df,
+            team_state_map,
+            team_ratings,
+            cfg,
+            team_games=team_games,
+            tier_league_map=tier_league_map,
         )
         team_df = apply_scf_dampening(team_df, scf_data, cfg)
 
