@@ -78,7 +78,7 @@ LEAGUE_MULTIPLIER_MALE: dict[str, float] = {
 LEAGUE_MULTIPLIER_FEMALE: dict[str, float] = {
     "ECNL": 1.00,
     "GA": 0.99,
-    "ECNL_RL": 0.97,
+    "ECNL_RL": 0.95,
     "DPL": 0.96,
     "NPL": 0.96,
     "EA": 0.96,
@@ -88,14 +88,24 @@ LEAGUE_MULTIPLIER_FEMALE: dict[str, float] = {
 
 # Backward-compat aliases (used by existing imports in tests)
 LEAGUE_TO_TIER_MALE: dict[str, int] = {
-    "MLS_NEXT_HD": 1, "ECNL": 1,
-    "MLS_NEXT_AD": 2, "ECNL_RL": 2, "DPL": 3,
-    "NPL": 3, "EA": 3, "NL": 3,
+    "MLS_NEXT_HD": 1,
+    "ECNL": 1,
+    "MLS_NEXT_AD": 2,
+    "ECNL_RL": 2,
+    "DPL": 3,
+    "NPL": 3,
+    "EA": 3,
+    "NL": 3,
 }
 LEAGUE_TO_TIER_FEMALE: dict[str, int] = {
-    "ECNL": 1, "GA": 1,
-    "ECNL_RL": 2, "DPL": 3,
-    "NPL": 3, "EA": 3, "NL": 3, "ASPIRE": 3,
+    "ECNL": 1,
+    "GA": 1,
+    "ECNL_RL": 2,
+    "DPL": 3,
+    "NPL": 3,
+    "EA": 3,
+    "NL": 3,
+    "ASPIRE": 3,
 }
 TIER_MULTIPLIERS: dict[int, float] = {1: 1.00, 2: 0.96, 3: 0.94}
 UNAFFILIATED_MULTIPLIER: float = 0.95
