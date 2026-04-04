@@ -153,6 +153,33 @@ class TestLeagueBubbleSCF:
         assert team_scf["unique_leagues"] == 1
         assert team_scf["league_scf"] == cfg.SCF_LEAGUE_FLOOR  # 0.5
 
+    def test_top_tier_concentration_no_penalty(self):
+        """Team playing mostly top-tier opponents should NOT be penalized.
+
+        Penn Fusion scenario: 13 ECNL + 3 GA = all "top" family.
+        Concentration in top tier is NOT a bubble — it's the strongest schedule.
+        """
+        cfg = GlickoConfig()
+        opps = [f"opp_{i}" for i in range(10)]
+        games = _make_games("team_a", opps)
+
+        team_state_map = {"team_a": "PA"}
+        for i, opp in enumerate(opps):
+            team_state_map[opp] = ["CA", "TX", "FL", "NY", "GA"][i % 5]
+
+        ratings = {t: (1500.0, 200.0, 0.06) for t in ["team_a"] + opps}
+
+        # 8 ECNL + 2 GA → all "top" family → 100% concentration but NO penalty
+        tier_league_map = {opp: "ECNL" for opp in opps[:8]}
+        tier_league_map[opps[8]] = "GA"
+        tier_league_map[opps[9]] = "GA"
+
+        scf_data = compute_scf(games, team_state_map, ratings, cfg, tier_league_map=tier_league_map)
+        team_scf = scf_data["team_a"]
+
+        assert team_scf["dominant_opp_league"] == "top"
+        assert team_scf["league_scf"] == 1.0  # NO penalty for top-tier concentration
+
     def test_league_scf_restricts_state_scf(self):
         """When state_scf = 1.0 but league_scf = 0.5, final scf = 0.5."""
         cfg = GlickoConfig()

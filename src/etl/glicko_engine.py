@@ -681,25 +681,33 @@ def compute_scf(
                 unique_families = len(set(opp_families))
                 unique_leagues = unique_families  # report family count, not raw league count
 
-                # Count-based: need opponents from 2+ families
-                league_count_scf = min(unique_families / cfg.SCF_LEAGUE_DIVERSITY_DIVISOR, 1.0)
-
-                # Concentration-based: penalty if dominant family > threshold
+                # Concentration penalty only applies when dominant family is "lower".
+                # Being concentrated in top-tier competition is NOT a bubble — it's
+                # the strongest possible schedule. Only penalize lower-tier bubbles.
                 family_counts = Counter(opp_families)
                 dominant_league, dominant_count = family_counts.most_common(1)[0]
                 dominant_share = dominant_count / len(opp_families)
-                if dominant_share > cfg.SCF_LEAGUE_CONCENTRATION_THRESHOLD:
-                    excess = dominant_share - cfg.SCF_LEAGUE_CONCENTRATION_THRESHOLD
-                    concentration_penalty = max(0.0, 1.0 - cfg.SCF_LEAGUE_CONCENTRATION_SCALE * excess)
-                else:
-                    concentration_penalty = 1.0
 
-                league_scf_raw = min(league_count_scf, concentration_penalty)
-                league_scf = max(cfg.SCF_LEAGUE_FLOOR, league_scf_raw)
+                if dominant_league == "lower":
+                    # Count-based: need opponents from 2+ families
+                    league_count_scf = min(unique_families / cfg.SCF_LEAGUE_DIVERSITY_DIVISOR, 1.0)
+
+                    # Concentration-based: penalty if dominant lower family > threshold
+                    if dominant_share > cfg.SCF_LEAGUE_CONCENTRATION_THRESHOLD:
+                        excess = dominant_share - cfg.SCF_LEAGUE_CONCENTRATION_THRESHOLD
+                        concentration_penalty = max(0.0, 1.0 - cfg.SCF_LEAGUE_CONCENTRATION_SCALE * excess)
+                    else:
+                        concentration_penalty = 1.0
+
+                    league_scf_raw = min(league_count_scf, concentration_penalty)
+                    league_scf = max(cfg.SCF_LEAGUE_FLOOR, league_scf_raw)
+                # else: dominant family is "top" → no league penalty (league_scf stays 1.0)
 
             # Final SCF: most restrictive dimension wins
             scf = min(scf, league_scf)
-            is_isolated = is_isolated or unique_leagues < cfg.SCF_MIN_UNIQUE_LEAGUES
+            # Only flag league-isolated when dominant family is lower-tier
+            if dominant_league == "lower":
+                is_isolated = is_isolated or unique_leagues < cfg.SCF_MIN_UNIQUE_LEAGUES
 
         result[team_id] = {
             "scf": scf,
