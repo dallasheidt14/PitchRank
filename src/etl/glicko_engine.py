@@ -1244,7 +1244,22 @@ def compute_rankings_v2(
     team_df["off_norm"] = sigmoid_zscore_normalize(team_df["off_raw"].fillna(0))
     team_df["def_norm"] = sigmoid_zscore_normalize(team_df["def_raw"].fillna(0))
     team_df["sos_norm"] = sigmoid_zscore_normalize(team_df["sos_raw"].fillna(1500))
-    team_df["powerscore_adj"] = sigmoid_zscore_normalize(team_df["mu"])
+    if cfg.SOS_ADJ_ENABLED:
+        weak = ((cfg.SOS_ADJ_WEAK_THRESHOLD - team_df["sos_norm"]).clip(lower=0)
+                / cfg.SOS_ADJ_WEAK_THRESHOLD)
+        strong = ((team_df["sos_norm"] - cfg.SOS_ADJ_STRONG_THRESHOLD).clip(lower=0)
+                  / (1.0 - cfg.SOS_ADJ_STRONG_THRESHOLD))
+        sos_scale = (1.0
+                     + cfg.SOS_ADJ_STRONG_MAX * strong
+                     - cfg.SOS_ADJ_WEAK_MAX * weak)
+        sos_scale = sos_scale.clip(
+            1.0 - cfg.SOS_ADJ_WEAK_MAX,
+            1.0 + cfg.SOS_ADJ_STRONG_MAX,
+        )
+        mu_sos = cfg.INITIAL_MU + (team_df["mu"] - cfg.INITIAL_MU) * sos_scale
+        team_df["powerscore_adj"] = sigmoid_zscore_normalize(mu_sos)
+    else:
+        team_df["powerscore_adj"] = sigmoid_zscore_normalize(team_df["mu"])
 
     # 8. Provisional multiplier from sigma
     team_df["provisional_mult"] = np.clip(1.0 - (team_df["sigma"] / cfg.INITIAL_SIGMA) ** 2, 0.0, 1.0)

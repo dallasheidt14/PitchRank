@@ -66,24 +66,24 @@ LEAGUE_MULTIPLIER_MALE: dict[str, float] = {
     "MLS_NEXT_HD": 1.00,
     "ECNL": 0.98,
     "MLS_NEXT_AD": 0.98,
-    "ECNL_RL": 0.96,
-    "DPL": 0.94,
-    "NPL": 0.94,
-    "EA": 0.94,
-    "NL": 0.94,
-    "EA2": 0.93,
+    "ECNL_RL": 0.95,
+    "DPL": 0.93,
+    "NPL": 0.93,
+    "EA": 0.93,
+    "NL": 0.93,
+    "EA2": 0.91,
 }
 
 # Female: direct league -> multiplier
 LEAGUE_MULTIPLIER_FEMALE: dict[str, float] = {
     "ECNL": 1.00,
     "GA": 0.99,
-    "ECNL_RL": 0.95,
-    "DPL": 0.96,
-    "NPL": 0.96,
-    "EA": 0.96,
-    "NL": 0.96,
-    "ASPIRE": 0.96,
+    "ECNL_RL": 0.94,
+    "DPL": 0.93,
+    "NPL": 0.93,
+    "EA": 0.93,
+    "NL": 0.93,
+    "ASPIRE": 0.93,
 }
 
 # Backward-compat aliases (used by existing imports in tests)

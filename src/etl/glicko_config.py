@@ -86,6 +86,13 @@ class GlickoConfig:
     SCF_LEAGUE_CONCENTRATION_SCALE: float = 2.0  # Steepness: penalty = scale * (share - threshold)
     SCF_MIN_UNIQUE_LEAGUES: int = 2  # Below this unique families → league-isolated
 
+    # SOS post-hoc adjustment (asymmetric scaling of mu before normalization)
+    SOS_ADJ_ENABLED: bool = True
+    SOS_ADJ_WEAK_THRESHOLD: float = 0.45      # Dead zone lower edge (sos_norm scale)
+    SOS_ADJ_STRONG_THRESHOLD: float = 0.60     # Dead zone upper edge (sos_norm scale)
+    SOS_ADJ_WEAK_MAX: float = 0.10             # Max 10% penalty for weakest SOS
+    SOS_ADJ_STRONG_MAX: float = 0.03           # Max 3% reward for strongest SOS
+
     # ML
     ML_ALPHA: float = 0.08
 

@@ -270,6 +270,11 @@ async def compute_rankings_with_ml(
         "tf": sorted(_LMF.items()),
         "um": _UMM,
         "uf": _UMF,
+        "sos_adj": getattr(_ecfg, "SOS_ADJ_ENABLED", False),
+        "sos_adj_wt": getattr(_ecfg, "SOS_ADJ_WEAK_THRESHOLD", None),
+        "sos_adj_st": getattr(_ecfg, "SOS_ADJ_STRONG_THRESHOLD", None),
+        "sos_adj_wm": getattr(_ecfg, "SOS_ADJ_WEAK_MAX", None),
+        "sos_adj_sm": getattr(_ecfg, "SOS_ADJ_STRONG_MAX", None),
     }
     _cfg_fp = hashlib.md5(_json.dumps(_cfg_dict, sort_keys=True, default=str).encode()).hexdigest()[:12]
     hash_input += f"_cfg_{_cfg_fp}"
