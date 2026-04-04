@@ -1,7 +1,7 @@
 ---
 title: "California Youth Soccer Rankings: This Week's Top Movers"
 slug: "2026-04-03-california-youth-soccer-rankings"
-excerpt: "This week's CA youth soccer rankings update. See which CA teams moved the most across 83,294 ranked teams."
+excerpt: "This week's CA youth soccer rankings update. See which CA teams moved the most across 83,860 ranked teams."
 author: "PitchRank Team"
 date: "2026-04-03"
 readingTime: "1 min read"
@@ -13,27 +13,27 @@ image: "/api/infographic/movers?platform=twitter"
 # California Youth Soccer Rankings: This Week's Top Movers
 
 Every Monday, PitchRank updates california youth soccer rankings across all leagues.
-We track 83,294 teams nationally, and here's what moved in CA this week.
+We track 83,860 teams nationally, and here's what moved in CA this week.
 
 ## Top Movers in CA This Week
 
 | Rank | Team | State | Change |
 |------|------|-------|--------|
-| #433 | FC Pittsburgh - FC Pittsburgh Academy White | PA | +6703 |
-| #571 | Select 2014 Blue | CO | +5791 |
-| #1145 | Alex 2014 Blue | VA | +5291 |
-| #604 | Pittsburgh Riverhounds Academy North Huntingdon 2015 | PA | +5187 |
-| #342 | Bishop FC | NV | +4969 |
+| #260 | Bishop FC | NV | +5906 |
+| #37 | FC Cleveland Flames U13 | OH | +5702 |
+| #1044 | FC Cleveland Flames U11 1 | OH | +5633 |
+| #1004 | SPORTING WICHITA 2014 PRE-ACADEMY Grey | KS | +5512 |
+| #605 | Immokalee Soccer Pit Cobras Inc - Immokalee Cobras Academy U12 | FL | +5424 |
 
 ## Biggest Drops in CA
 
 | Rank | Team | State | Change |
 |------|------|-------|--------|
-| #5860 | Oakwood SC 2014 Pre-MLS Next Blue | CT | -4022 |
-| #5921 | PRE-ECNL 2014 | NY | -3998 |
-| #5284 | 2014 PRE-MLS NEXT Blue | MA | -3957 |
-| #4554 | ECNL RL 2013 | MO | -3935 |
-| #6222 | unknown_656809 | NY | -3919 |
+| #6155 | 2014 PRE-ECNL RL | PA | -5894 |
+| #6179 | Las Vegas Elite FC 2014 Black | NV | -5873 |
+| #5966 | Lex Sporting Club 2014 Green | KY | -5760 |
+| #5766 | White Conshy '15 B | PA | -5723 |
+| #6057 | NEFC Metro North 2014 Red | MA | -5648 |
 
 ## How CA Compares Nationally
 
