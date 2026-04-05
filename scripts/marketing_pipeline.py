@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import random
+import re
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -32,6 +33,7 @@ if env_local.exists():
 if env_path.exists():
     load_dotenv(env_path, override=True)
 
+import markdown as md_lib  # noqa: E402
 import requests  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
@@ -74,6 +76,65 @@ def get_supabase_client():
 # ---------------------------------------------------------------------------
 # Data fetching
 # ---------------------------------------------------------------------------
+
+
+MILESTONE_THRESHOLDS = [10, 25, 50, 100]
+
+
+def fetch_milestone_movers(supabase) -> list[dict]:
+    """Find teams that crossed into top 10/25/50/100 in their cohort this week.
+
+    Uses rank_in_cohort (current) and rank_change_7d to compute previous rank.
+    A milestone crossing means: current <= threshold AND previous > threshold.
+    """
+    log.info("Fetching milestone movers from Supabase...")
+
+    # All teams in top 100 that improved this week
+    resp = (
+        supabase.table("rankings_full")
+        .select("team_id, age_group, gender, state_code, rank_in_cohort, rank_change_7d")
+        .lte("rank_in_cohort", max(MILESTONE_THRESHOLDS))
+        .gt("rank_change_7d", 0)
+        .neq("status", "Not Enough Ranked Games")
+        .order("rank_in_cohort")
+        .execute()
+    )
+
+    # Detect milestone crossings — assign highest threshold crossed
+    milestones = []
+    for team in resp.data or []:
+        current = team.get("rank_in_cohort") or 0
+        change = team.get("rank_change_7d") or 0
+        previous = current + change  # rank_change_7d = previous - current (positive = improved)
+        for threshold in MILESTONE_THRESHOLDS:
+            if current <= threshold < previous:
+                milestones.append({**team, "milestone": threshold, "previous_rank": previous})
+                break  # Only count the highest (most impressive) milestone
+
+    if not milestones:
+        log.info("No milestone crossings this week")
+        return []
+
+    # Fetch team names (rankings_full has no team_name)
+    team_ids = list({m["team_id"] for m in milestones})
+    names_resp = (
+        supabase.table("teams")
+        .select("team_id_master, team_name")
+        .in_("team_id_master", team_ids)
+        .execute()
+    )
+    name_map = {t["team_id_master"]: t["team_name"] for t in (names_resp.data or [])}
+    for m in milestones:
+        m["team_name"] = name_map.get(m["team_id"], "Unknown")
+
+    # Sort: top 10 first, then top 25, etc. Within tier, by rank
+    milestones.sort(key=lambda m: (m["milestone"], m["rank_in_cohort"]))
+    log.info(f"Found {len(milestones)} milestone crossings: "
+             f"{sum(1 for m in milestones if m['milestone'] == 10)} top-10, "
+             f"{sum(1 for m in milestones if m['milestone'] == 25)} top-25, "
+             f"{sum(1 for m in milestones if m['milestone'] == 50)} top-50, "
+             f"{sum(1 for m in milestones if m['milestone'] == 100)} top-100")
+    return milestones
 
 
 def fetch_ranking_highlights(supabase) -> dict:
@@ -154,66 +215,78 @@ def fetch_ranking_highlights(supabase) -> dict:
         "date": datetime.now(MT_OFFSET),
     }
 
+    # Milestone movers — teams that crossed into top 10/25/50/100 in cohort
+    milestones = []
+    try:
+        milestones = fetch_milestone_movers(supabase)
+    except Exception as e:
+        log.warning(f"Could not fetch milestone movers: {e}")
+
+    data = {
+        "climbers": climbers,
+        "fallers": fallers,
+        "total_teams": total_teams,
+        "biggest_jump": biggest_jump,
+        "spotlight_state": spotlight_state,
+        "spotlight_teams": spotlight_teams,
+        "milestones": milestones,
+        "date": datetime.now(MT_OFFSET),
+    }
+
     log.info(
         f"Highlights: {len(climbers)} climbers, {len(fallers)} fallers, "
-        f"{total_teams} total teams, spotlight: {spotlight_state}"
+        f"{total_teams} total teams, spotlight: {spotlight_state}, "
+        f"{len(milestones)} milestone crossings"
     )
     return data
 
 
 # ---------------------------------------------------------------------------
-# Newsletter generation
+# Newsletter generation (uses blog post content)
 # ---------------------------------------------------------------------------
 
 
-def _table_row(team: dict, index: int, change_prefix: str = "+") -> str:
-    """Build an HTML table row for a team."""
-    bg = "#ffffff" if index % 2 == 0 else "#f8f9fa"
-    rank = team.get("current_rank", team.get("rank", ""))
-    name = team.get("team_name", "")
-    state = team.get("state_code", team.get("state", ""))
-    change = team.get("rank_change", 0)
+def _markdown_to_email_html(md_text: str) -> str:
+    """Convert markdown to email-safe HTML with inline styles."""
+    raw_html = md_lib.markdown(md_text, extensions=["tables"])
 
-    # Truncate long names for mobile
-    display_name = name[:28] + "..." if len(name) > 30 else name
+    # Add inline styles for email clients
+    replacements = [
+        ("<h2>", '<h2 style="margin:20px 0 12px;font-size:16px;font-weight:700;color:#0B5345;text-transform:uppercase;letter-spacing:0.5px;">'),
+        ("<h3>", '<h3 style="margin:16px 0 8px;font-size:15px;font-weight:700;color:#0B5345;">'),
+        ("<p>", '<p style="margin:0 0 12px;font-size:14px;line-height:1.6;color:#1a1a1a;">'),
+        ("<table>", '<table style="width:100%;border-collapse:collapse;margin:0 0 16px;">'),
+        ("<thead>", "<thead>"),
+        (
+            "<th>",
+            '<th style="padding:8px 10px;font-size:11px;font-weight:700;color:#ffffff;'
+            'text-transform:uppercase;background-color:#0B5345;text-align:left;">',
+        ),
+        ("<td>", '<td style="padding:8px 10px;font-size:13px;border-bottom:1px solid #eee;">'),
+        ("<strong>", '<strong style="font-weight:700;color:#0B5345;">'),
+        ("<ul>", '<ul style="margin:0 0 12px;padding-left:20px;">'),
+        ("<li>", '<li style="margin:0 0 6px;font-size:14px;line-height:1.5;">'),
+        ("<a ", '<a style="color:#0B5345;font-weight:600;text-decoration:none;" '),
+    ]
+    for old, new in replacements:
+        raw_html = raw_html.replace(old, new)
 
-    change_color = "#0B5345" if change_prefix == "+" else "#c0392b"
-    change_str = f"{change_prefix}{abs(change)}"
+    # Alternate row backgrounds on table rows
+    def _stripe_rows(match: re.Match) -> str:
+        rows = re.findall(r"<tr>(.*?)</tr>", match.group(0), re.DOTALL)
+        out = []
+        for i, row_content in enumerate(rows):
+            bg = "#ffffff" if i % 2 == 0 else "#f8f9fa"
+            out.append(f'<tr style="background-color:{bg};">{row_content}</tr>')
+        return "\n".join(out)
 
-    return (
-        f'    <tr style="background-color:{bg};">'
-        f'<td style="padding:8px 10px;font-size:13px;">#{rank}</td>'
-        f'<td style="padding:8px 10px;font-size:13px;font-weight:600;">{display_name}</td>'
-        f'<td style="padding:8px 10px;font-size:13px;">{state}</td>'
-        f'<td style="padding:8px 10px;font-size:13px;text-align:right;'
-        f'font-weight:700;color:{change_color};">{change_str}</td>'
-        f"</tr>"
-    )
+    raw_html = re.sub(r"<tbody>(.*?)</tbody>", _stripe_rows, raw_html, flags=re.DOTALL)
 
-
-def _spotlight_row(team: dict, index: int) -> str:
-    """Build an HTML table row for the state spotlight."""
-    bg = "#ffffff" if index % 2 == 0 else "#f8f9fa"
-    rank = team.get("current_rank", team.get("rank", ""))
-    name = team.get("team_name", "")
-    club = team.get("club_name", "")
-    change = team.get("rank_change", 0)
-    change_str = f"+{abs(change)}" if change > 0 else str(change)
-    change_color = "#0B5345" if change > 0 else "#c0392b"
-
-    return (
-        f'    <tr style="background-color:{bg};">'
-        f'<td style="padding:8px 10px;font-size:13px;">#{rank}</td>'
-        f'<td style="padding:8px 10px;font-size:13px;font-weight:600;">{name[:28]}</td>'
-        f'<td style="padding:8px 10px;font-size:13px;">{club[:25]}</td>'
-        f'<td style="padding:8px 10px;font-size:13px;text-align:right;'
-        f'font-weight:700;color:{change_color};">{change_str}</td>'
-        f"</tr>"
-    )
+    return raw_html
 
 
-def generate_newsletter_html(data: dict) -> str:
-    """Read the template and substitute ranking data."""
+def generate_newsletter_html(data: dict, blog_body_md: str) -> str:
+    """Wrap blog post content in the branded newsletter template."""
     template_path = TEMPLATE_DIR / "newsletter_weekly.html"
     if not template_path.exists():
         raise FileNotFoundError(f"Newsletter template not found: {template_path}")
@@ -223,26 +296,9 @@ def generate_newsletter_html(data: dict) -> str:
 
     dt = data["date"]
     date_display = f"Week of {dt.strftime('%b %d, %Y')}"
-
-    # Hook text — biggest mover of the week
-    top_climber = data["climbers"][0] if data["climbers"] else {}
-    hook_text = (
-        (
-            f"{top_climber.get('team_name', 'A team')} jumped "
-            f"{abs(top_climber.get('rank_change', 0))} spots to "
-            f"#{top_climber.get('current_rank', '?')} this week."
-        )
-        if top_climber
-        else "New rankings are live. See who moved."
-    )
-
-    # Build table rows
-    climbers_html = "\n".join(_table_row(t, i, "+") for i, t in enumerate(data["climbers"]))
-    fallers_html = "\n".join(_table_row(t, i, "-") for i, t in enumerate(data["fallers"]))
-    spotlight_teams_html = "\n".join(_spotlight_row(t, i) for i, t in enumerate(data["spotlight_teams"]))
-
     total_teams = f"{data['total_teams']:,}" if data["total_teams"] else "25,000+"
-    biggest_jump = f"+{data['biggest_jump']}" if data["biggest_jump"] else "--"
+
+    blog_content_html = _markdown_to_email_html(blog_body_md)
 
     # Rotating engagement hooks
     engagement_hooks = [
@@ -251,18 +307,13 @@ def generate_newsletter_html(data: dict) -> str:
         "Is your team climbing or falling? Check your full trend in Premium.",
         "Tryout season is coming. Compare clubs before you commit.",
     ]
-    week_num = data["date"].isocalendar()[1]
+    week_num = dt.isocalendar()[1]
     engagement_hook = engagement_hooks[week_num % len(engagement_hooks)]
 
     html = tmpl.safe_substitute(
         date_display=date_display,
-        hook_text=hook_text,
-        climbers_html=climbers_html,
-        fallers_html=fallers_html,
-        spotlight_state=data["spotlight_state"] or "USA",
-        spotlight_teams_html=spotlight_teams_html,
+        blog_content_html=blog_content_html,
         total_teams=total_teams,
-        biggest_jump=biggest_jump,
         engagement_hook=engagement_hook,
     )
 
@@ -270,15 +321,19 @@ def generate_newsletter_html(data: dict) -> str:
     return html
 
 
-def generate_newsletter_subject(data: dict) -> str:
-    """Generate a data-forward subject line."""
-    top = data["climbers"][0] if data["climbers"] else None
+def generate_newsletter_subject(data: dict, blog_title: str = "") -> str:
+    """Generate subject line from blog title or top mover."""
     dt = data["date"]
     date_str = dt.strftime("%b %d")
 
+    if blog_title:
+        # Truncate for subject line readability
+        title = blog_title if len(blog_title) <= 50 else blog_title[:47] + "..."
+        return f"PitchRank Weekly: {title} | {date_str}"
+
+    top = data["climbers"][0] if data["climbers"] else None
     if top:
         name = top.get("team_name", "A team")
-        # Truncate long team names for subject line readability
         if len(name) > 30:
             name = name[:27] + "..."
         change = abs(top.get("rank_change", 0))
@@ -881,42 +936,99 @@ def get_x_client():
     )
 
 
-def generate_thread_tweets(data: dict) -> list[str]:
-    """Generate a 4-tweet thread from weekly ranking data."""
-    top = data["climbers"][0] if data["climbers"] else {}
-    total = f"{data['total_teams']:,}" if data["total_teams"] else "25,000+"
-    state = data.get("spotlight_state", "")
+def _format_cohort(team: dict) -> str:
+    """Format age group + gender as e.g. 'U14 Boys'."""
+    ag = (team.get("age_group") or "").upper()
+    g = team.get("gender", "")
+    gender_label = "Boys" if g == "Male" else "Girls" if g == "Female" else ""
+    return f"{ag} {gender_label}".strip()
 
+
+def _milestone_line(m: dict) -> str:
+    """Format one milestone entry for a tweet, e.g. '• TeamName (U14 Boys, TX) → now #8'."""
+    name = m.get("team_name", "Unknown")[:30]
+    cohort = _format_cohort(m)
+    state = m.get("state_code", "")
+    rank = m.get("rank_in_cohort", "?")
+    label = f"{cohort}, {state}" if state else cohort
+    return f"• {name} ({label}) → now #{rank}"
+
+
+def generate_thread_tweets(data: dict) -> list[str]:
+    """Generate a 4-tweet thread focused on milestone crossings (top 10/25/50/100 in cohort)."""
+    milestones = data.get("milestones", [])
+    total = f"{data['total_teams']:,}" if data["total_teams"] else "25,000+"
     tweets = []
 
+    # Group milestones by tier
+    by_tier: dict[int, list[dict]] = {}
+    for m in milestones:
+        by_tier.setdefault(m["milestone"], []).append(m)
+
+    top10 = by_tier.get(10, [])
+    top25 = by_tier.get(25, [])
+    top50 = by_tier.get(50, [])
+    top100 = by_tier.get(100, [])
+
+    milestone_count = len(milestones)
+
     # Tweet 1: Hook
-    if top:
-        tweets.append(
-            f"{top.get('team_name', 'A team')} jumped "
-            f"{abs(top.get('rank_change', 0))} spots to "
-            f"#{top.get('current_rank', '?')} this week.\n\n"
-            f"Here's what moved in youth soccer rankings this week."
-        )
+    if milestone_count > 0:
+        # Lead with the most impressive milestone
+        if top10:
+            lead = top10[0]
+            tweets.append(
+                f"{lead.get('team_name', 'A team')} just cracked the top 10 "
+                f"in {_format_cohort(lead)}.\n\n"
+                f"{milestone_count} teams hit new milestones this week."
+            )
+        else:
+            best = milestones[0]
+            tweets.append(
+                f"{best.get('team_name', 'A team')} broke into the top "
+                f"{best['milestone']} in {_format_cohort(best)}.\n\n"
+                f"{milestone_count} teams hit new milestones this week."
+            )
     else:
-        tweets.append("New youth soccer rankings are live. Here are the biggest movers.")
+        tweets.append("New youth soccer rankings are live.\n\nHere's who's moving up.")
 
-    # Tweet 2: Top climbers list (truncate names to fit 280 char limit)
-    climber_lines = "\n".join(
-        f"{i + 1}. {t.get('team_name', '')[:30]} (+{abs(t.get('rank_change', 0))})"
-        for i, t in enumerate(data["climbers"][:3])
-    )
-    if climber_lines:
-        tweets.append(f"Biggest climbers this week:\n\n{climber_lines}")
+    # Tweet 2: Top 10 & 25 milestones
+    lines = []
+    if top10:
+        lines.append("New to the top 10:")
+        lines.extend(_milestone_line(m) for m in top10[:3])
+    if top25:
+        if lines:
+            lines.append("")
+        lines.append("Cracked the top 25:")
+        lines.extend(_milestone_line(m) for m in top25[:3])
+    if lines:
+        tweets.append("\n".join(lines))
 
-    # Tweet 3: State spotlight
-    if state and data.get("spotlight_teams"):
-        spotlight_list = ", ".join(t.get("team_name", "")[:25] for t in data["spotlight_teams"][:3])
-        tweets.append(f"State to watch: {state}\n\nTop movers: {spotlight_list}")
+    # Tweet 3: Top 50 & 100 milestones
+    lines = []
+    if top50:
+        lines.append("Now in the top 50:")
+        lines.extend(_milestone_line(m) for m in top50[:3])
+    if top100:
+        if lines:
+            lines.append("")
+        lines.append("Entered the top 100:")
+        lines.extend(_milestone_line(m) for m in top100[:3])
+    if lines:
+        tweets.append("\n".join(lines))
 
-    # Tweet 4: CTA
+    # If no milestones at all, fall back to a general tweet
+    if len(tweets) == 1:
+        tweets.append(
+            f"Rankings updated for {total} teams across all 50 states.\n\n"
+            "Same algorithm. Real game data. No opinions."
+        )
+
+    # Tweet 4 (final): CTA
     tweets.append(f"{total} teams ranked every Monday.\n\npitchrank.io/rankings")
 
-    log.info(f"Generated {len(tweets)}-tweet thread")
+    log.info(f"Generated {len(tweets)}-tweet thread ({milestone_count} milestones)")
     return tweets
 
 
@@ -998,17 +1110,28 @@ def main():
         log.warning("No movers found — rankings may not have updated yet. Exiting.")
         sys.exit(0)
 
-    # Step 2: Generate newsletter
-    newsletter_html = generate_newsletter_html(data)
-    subject = generate_newsletter_subject(data)
-    log.info(f"Subject: {subject}")
-
-    # Step 3: Generate blog post
-    blog_filename, blog_content = "", ""
+    # Step 2: Generate blog post (newsletter uses the same content)
+    blog_filename, blog_content, blog_body_md, blog_title = "", "", "", ""
     try:
         blog_filename, blog_content = generate_blog_post(data)
+        # Extract the markdown body (after frontmatter) for the newsletter
+        parts = blog_content.split("---", 2)
+        if len(parts) >= 3:
+            full_md = parts[2].strip()
+            # Strip the leading H1 (title) — it's in the subject line
+            lines = full_md.split("\n")
+            if lines and lines[0].startswith("# "):
+                blog_title = lines[0].lstrip("# ").strip()
+                blog_body_md = "\n".join(lines[1:]).strip()
+            else:
+                blog_body_md = full_md
     except Exception as e:
         log.error(f"Blog generation failed: {e}")
+
+    # Step 3: Generate newsletter from blog content
+    newsletter_html = generate_newsletter_html(data, blog_body_md)
+    subject = generate_newsletter_subject(data, blog_title)
+    log.info(f"Subject: {subject}")
 
     # Step 4: Generate social posts
     social_posts = generate_social_posts(data)
