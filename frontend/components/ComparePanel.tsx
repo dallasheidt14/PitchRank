@@ -6,9 +6,8 @@ import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { InlineLoader } from '@/components/ui/LoadingStates';
 import { Button } from '@/components/ui/button';
 import { TeamSelector } from './TeamSelector';
-import { PredictedMatchCard } from './PredictedMatchCard';
 import { EnhancedPredictionCard } from './EnhancedPredictionCard';
-import { useTeam, useCommonOpponents, usePredictive, useMatchPrediction } from '@/lib/hooks';
+import { useTeam, useCommonOpponents, useMatchPrediction } from '@/lib/hooks';
 import {
   RadarChart,
   Radar,
@@ -60,11 +59,6 @@ export function ComparePanel() {
     error: opponentsErrorObj,
     refetch: refetchOpponents,
   } = useCommonOpponents(team1Id, team2Id);
-
-  // Fetch predictive data in parallel (non-blocking)
-  // Use team_id_master from state (team1Id/team2Id are already team_id_master UUIDs)
-  const { data: team1Predictive } = usePredictive(team1Id);
-  const { data: team2Predictive } = usePredictive(team2Id);
 
   // Fetch enhanced match prediction with explanations
   const { data: matchPrediction, isLoading: predictionLoading } = useMatchPrediction(team1Id, team2Id);
@@ -154,7 +148,7 @@ export function ComparePanel() {
 
     // Metric descriptions for tooltips
     const metricDescriptions: Record<string, string> = {
-      'Power Score': 'ML-adjusted overall team strength rating (0-100). Higher = stronger team.',
+      'Power Score': 'Published Glicko-derived team strength score (0-100). Higher = stronger team.',
       'Win %': 'Win percentage from recent games (0-100%). Shows recent success rate.',
       Offense: 'Normalized offensive rating (0-100). Higher = scores more goals.',
       Defense: 'Normalized defensive rating (0-100). Higher = allows fewer goals.',
@@ -343,6 +337,30 @@ export function ComparePanel() {
                           {formatPowerScore(team2Details.power_score_final)}
                         </td>
                       </tr>
+                      {team1Details.glicko_rating != null || team2Details.glicko_rating != null ? (
+                        <tr>
+                          <td className="py-3 px-3 sm:px-4 text-xs sm:text-sm text-muted-foreground">Glicko Rating</td>
+                          <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
+                            {team1Details.glicko_rating != null ? team1Details.glicko_rating.toFixed(0) : '—'}
+                          </td>
+                          <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
+                            {team2Details.glicko_rating != null ? team2Details.glicko_rating.toFixed(0) : '—'}
+                          </td>
+                        </tr>
+                      ) : null}
+                      {team1Details.glicko_rd != null || team2Details.glicko_rd != null ? (
+                        <tr>
+                          <td className="py-3 px-3 sm:px-4 text-xs sm:text-sm text-muted-foreground">
+                            Glicko RD (Lower = Better)
+                          </td>
+                          <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
+                            {team1Details.glicko_rd != null ? team1Details.glicko_rd.toFixed(0) : '—'}
+                          </td>
+                          <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
+                            {team2Details.glicko_rd != null ? team2Details.glicko_rd.toFixed(0) : '—'}
+                          </td>
+                        </tr>
+                      ) : null}
                       <tr>
                         <td className="py-3 px-3 sm:px-4 text-xs sm:text-sm text-muted-foreground whitespace-nowrap">
                           SOS Rank
@@ -465,14 +483,13 @@ export function ComparePanel() {
                 </Card>
               )}
 
-              {/* Fallback to old prediction card if enhanced prediction fails */}
+              {/* Prediction unavailable */}
               {!matchPrediction && !predictionLoading && (
-                <PredictedMatchCard
-                  teamA={team1Predictive || null}
-                  teamB={team2Predictive || null}
-                  teamAName={team1Details.team_name}
-                  teamBName={team2Details.team_name}
-                />
+                <Card className="mt-4 border-dashed">
+                  <CardContent className="py-6 text-center text-sm text-muted-foreground">
+                    Prediction unavailable. Match predictions now rely on current Glicko ranking data for both teams.
+                  </CardContent>
+                </Card>
               )}
 
               {/* Common Opponents */}

@@ -852,6 +852,18 @@ def v53e_to_rankings_full_format(
         else:
             rankings_df[col] = rankings_df[col].astype(float)
 
+    # Map Glicko-native fields
+    glicko_field_map = {
+        "mu": "glicko_rating",
+        "sigma": "glicko_rd",
+        "volatility": "glicko_volatility",
+    }
+    for source_col, target_col in glicko_field_map.items():
+        if source_col in rankings_df.columns:
+            rankings_df[target_col] = pd.to_numeric(rankings_df[source_col], errors="coerce")
+        elif target_col not in rankings_df.columns:
+            rankings_df[target_col] = None
+
     # Preserve NULL rank_in_cohort_ml for non-Active teams (don't fill with 0)
     # NULL means "not enough games to be ranked" — filling with 0 would cause
     # COALESCE(rank_in_cohort_ml, rank_in_cohort) in DB views to show rank 0
@@ -979,6 +991,9 @@ def v53e_to_rankings_full_format(
         "ml_overperf",
         "ml_norm",
         "powerscore_ml",
+        "glicko_rating",
+        "glicko_rd",
+        "glicko_volatility",
         "rank_in_cohort_ml",
         "rank_in_cohort",
         "rank_in_cohort_final",

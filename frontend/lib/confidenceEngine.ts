@@ -3,7 +3,7 @@
  *
  * Computes prediction confidence based on:
  * - Composite differential magnitude (larger gap = higher confidence)
- * - Combined variance of both teams (higher variance = lower confidence)
+ * - Combined uncertainty of both teams (higher uncertainty = lower confidence)
  * - Sample size strength (more games = higher confidence)
  *
  * V1 Formula (simple, no SOS double-counting):
@@ -133,6 +133,22 @@ function calculateVariance(values: number[]): number {
   return variance;
 }
 
+function normalizeHistoricalUncertainty(varianceA: number, varianceB: number): number {
+  return Math.min(1, Math.sqrt(varianceA + varianceB) / 4);
+}
+
+function calculateGlickoUncertainty(teamA: TeamWithRanking, teamB: TeamWithRanking): number | null {
+  const rdA = teamA.glicko_rd;
+  const rdB = teamB.glicko_rd;
+
+  if (rdA == null || rdB == null) {
+    return null;
+  }
+
+  const normalized = Math.sqrt(rdA * rdA + rdB * rdB) / (Math.SQRT2 * 350);
+  return Math.max(0, Math.min(1, normalized));
+}
+
 /**
  * Sigmoid function
  */
@@ -149,7 +165,7 @@ export interface ConfidenceResult {
 }
 
 /**
- * Compute confidence based on variance metrics
+ * Compute confidence based on uncertainty metrics
  *
  * V1 Formula (simple, no SOS double-counting):
  * confidence_score = sigmoid(
@@ -174,8 +190,10 @@ export function computeConfidence(
   const varianceA = calculateTeamVariance(teamA.team_id_master, allGames);
   const varianceB = calculateTeamVariance(teamB.team_id_master, allGames);
 
-  // Combined variance (sqrt of sum for proper scaling)
-  const combined_variance = Math.sqrt(varianceA + varianceB);
+  const historical_uncertainty = normalizeHistoricalUncertainty(varianceA, varianceB);
+  const glicko_uncertainty = calculateGlickoUncertainty(teamA, teamB);
+  const combined_uncertainty =
+    glicko_uncertainty == null ? historical_uncertainty : glicko_uncertainty * 0.7 + historical_uncertainty * 0.3;
 
   // Sample size strength (normalized to [0, 1])
   // Use minimum of both teams' games played
@@ -192,14 +210,14 @@ export function computeConfidence(
     // V2 Formula: Use fitted weights from logistic regression
     const raw_score =
       weights.composite_diff * Math.abs(compositeDiff) +
-      weights.variance * combined_variance +
+      weights.variance * combined_uncertainty +
       weights.sample_strength * sample_strength +
       intercept;
     confidence_score = sigmoid(raw_score);
   } else {
-    // V1 Formula: compositeDiff + variance + sample size
+    // V1 Formula: compositeDiff + uncertainty + sample size
     // No SOS term to avoid double-counting (compositeDiff already captures skill gap)
-    confidence_score = sigmoid(1.6 * Math.abs(compositeDiff) - 1.0 * combined_variance + 0.6 * sample_strength);
+    confidence_score = sigmoid(1.6 * Math.abs(compositeDiff) - 1.0 * combined_uncertainty + 0.6 * sample_strength);
   }
 
   // Map to labels (use calibrated thresholds if available)

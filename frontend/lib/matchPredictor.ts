@@ -1,8 +1,8 @@
 /**
- * Match Prediction Engine v2.5
+ * Match Prediction Engine v3
  *
  * Enhanced prediction model using multiple features with adaptive weighting:
- * - Power Score Differential (50-85% adaptive based on skill gap)
+ * - Glicko rating edge when available (falls back to published score differential)
  * - SOS Differential (18-6% adaptive)
  * - Recent Form (28-7% adaptive)
  * - Matchup Asymmetry (4-2% adaptive)
@@ -39,7 +39,7 @@
  * - Lowered mismatch thresholds: amplification at 0.4 (was 0.5), underdog score at 0.5 (was 0.6)
  * - Increased margin boost factor: 4.0 (was 3.0) for stronger blowout predictions
  *
- * Validated at 74.7% direction accuracy (target: 77-79% with calibration)
+ * Confidence is Glicko-aware when rating deviation is available.
  */
 
 import type { TeamWithRanking } from './types';
@@ -227,6 +227,7 @@ const SKILL_GAP_THRESHOLDS = {
 const DEFAULT_SENSITIVITY = 4.5;
 const MARGIN_COEFFICIENT = 8.0;
 const RECENT_GAMES_COUNT = 5;
+const GLICKO_ELO_DIVISOR = 400;
 
 /**
  * Get calibrated SENSITIVITY value
@@ -237,6 +238,27 @@ function getSensitivity(): number {
     return probabilityParams.sensitivity;
   }
   return DEFAULT_SENSITIVITY;
+}
+
+function calculateGlickoStrength(teamA: TeamWithRanking, teamB: TeamWithRanking) {
+  if (teamA.glicko_rating == null || teamB.glicko_rating == null) {
+    return null;
+  }
+
+  const ratingDiff = teamA.glicko_rating - teamB.glicko_rating;
+  const winProbabilityA = 1 / (1 + Math.pow(10, -ratingDiff / GLICKO_ELO_DIVISOR));
+
+  const rdA = teamA.glicko_rd ?? 350;
+  const rdB = teamB.glicko_rd ?? 350;
+  const normalizedRd = Math.min(1, Math.sqrt(rdA * rdA + rdB * rdB) / (Math.SQRT2 * 350));
+  const reliability = 0.45 + 0.55 * (1 - normalizedRd);
+
+  return {
+    ratingDiff,
+    winProbabilityA,
+    reliability,
+    signal: (winProbabilityA - 0.5) * reliability,
+  };
 }
 
 // Confidence thresholds
@@ -483,6 +505,10 @@ function calibrateProbability(rawProb: number): number {
     [1.0, 1.0], // 100% stays 100%
   ];
 
+  if (Math.abs(rawProb - 0.5) < 1e-9) {
+    return 0.5;
+  }
+
   // Handle edge cases
   if (rawProb <= 0.5) {
     // For probabilities below 50%, mirror the calibration
@@ -613,12 +639,16 @@ export interface MatchPrediction {
   // Component breakdowns
   components: {
     powerDiff: number;
+    strengthSignal: number;
     sosDiff: number;
     formDiffRaw: number;
     formDiffNorm: number;
     matchupAdvantage: number;
     compositeDiff: number;
     mismatchScore: number;
+    glickoRatingDiff?: number;
+    glickoWinProbabilityA?: number;
+    glickoReliability?: number;
   };
 
   // Raw data for explanation generator
@@ -639,6 +669,8 @@ export interface MatchPrediction {
 export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, allGames: Game[]): MatchPrediction {
   // 1. Base power score differential
   const powerDiff = (teamA.power_score_final || 0.5) - (teamB.power_score_final || 0.5);
+  const glickoStrength = calculateGlickoStrength(teamA, teamB);
+  const strengthSignal = glickoStrength ? glickoStrength.signal * 0.75 + powerDiff * 0.25 : powerDiff;
 
   // 2. Offense vs Defense values (needed for mismatch detection)
   const offenseA = teamA.offense_norm || 0.5;
@@ -670,7 +702,7 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
   // Reduce other weights proportionally when H2H data is available
   const h2hAdjustment = 1 - h2hWeight;
   let compositeDiff =
-    weights.POWER_SCORE * powerDiff * h2hAdjustment +
+    weights.POWER_SCORE * strengthSignal * h2hAdjustment +
     weights.SOS * sosDiff * h2hAdjustment +
     weights.RECENT_FORM * formDiffNorm * h2hAdjustment +
     weights.MATCHUP * matchupAdvantage * h2hAdjustment +
@@ -798,12 +830,20 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
     confidence_score: confidenceResult.confidence_score,
     components: {
       powerDiff,
+      strengthSignal,
       sosDiff,
       formDiffRaw,
       formDiffNorm,
       matchupAdvantage,
       compositeDiff,
       mismatchScore,
+      ...(glickoStrength
+        ? {
+            glickoRatingDiff: glickoStrength.ratingDiff,
+            glickoWinProbabilityA: glickoStrength.winProbabilityA,
+            glickoReliability: glickoStrength.reliability,
+          }
+        : {}),
     },
     formA,
     formB,

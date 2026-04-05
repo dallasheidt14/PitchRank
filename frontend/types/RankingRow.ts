@@ -14,6 +14,9 @@ export interface RankingRow {
   gender: 'M' | 'F' | 'B' | 'G'; // Backend returns single letter codes
   // Scores (backend contract)
   power_score_final: number;
+  glicko_rating?: number | null; // Underlying Glicko rating (1500-centered)
+  glicko_rd?: number | null; // Glicko rating deviation (lower = more certain)
+  glicko_volatility?: number | null; // Glicko volatility parameter
   sos_norm: number; // National normalization (for national rankings)
   sos_norm_state?: number | null; // State normalization (for state rankings)
   offense_norm: number | null;
