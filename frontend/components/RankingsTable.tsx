@@ -101,60 +101,22 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     }
   }, [rankings, region, ageGroup, gender]);
 
-  // Use pre-calculated SOS ranks from database
-  // sos_rank_national for national view, sos_rank_state for state view
-
-  // Compute position-based ranks from the filtered data.
-  // The database views compute ranks using ROW_NUMBER() over ALL teams (including inactive),
-  // but this page only shows Active/Not Enough Ranked Games teams.
-  // This causes rank gaps (e.g., #1, #2, #5, #18 instead of #1, #2, #3, #4).
-  // Fix: compute sequential ranks from the filtered data sorted by power_score_final.
-  const computedRanks = useMemo(() => {
-    if (!rankings) return null;
-    const map = new Map<string, number>();
-    // Only rank Active teams (8+ games) — teams with "Not Enough Ranked Games" get no rank
-    const activeTeams = rankings.filter((t) => t.status === 'Active');
-    const sorted = [...activeTeams].sort((a, b) => {
-      const diff = (b.power_score_final ?? 0) - (a.power_score_final ?? 0);
-      if (diff !== 0) return diff;
-      // Tie-break by SOS (higher = better)
-      const aSos = region ? (a.sos_norm_state ?? a.sos_norm ?? 0) : (a.sos_norm ?? 0);
-      const bSos = region ? (b.sos_norm_state ?? b.sos_norm ?? 0) : (b.sos_norm ?? 0);
-      return bSos - aSos;
-    });
-    sorted.forEach((team, index) => {
-      map.set(team.team_id_master, index + 1);
-    });
-    return map;
-  }, [region, rankings]);
-
-  // Compute position-based SOS ranks from filtered data.
-  // Same issue: DB SOS ranks include inactive teams, causing inconsistency with the filtered count.
-  const computedSosRanks = useMemo(() => {
-    if (!rankings) return null;
-    const map = new Map<string, number>();
-    // Only rank Active teams for SOS — same gate as power score ranks
-    const activeTeams = rankings.filter((t) => t.status === 'Active');
-    const sorted = [...activeTeams].sort((a, b) => {
-      const aSos = region ? (a.sos_norm_state ?? a.sos_norm ?? 0) : (a.sos_norm ?? 0);
-      const bSos = region ? (b.sos_norm_state ?? b.sos_norm ?? 0) : (b.sos_norm ?? 0);
-      return bSos - aSos; // Higher SOS = tougher schedule = lower rank number
-    });
-    sorted.forEach((team, index) => {
-      map.set(team.team_id_master, index + 1);
-    });
-    return map;
-  }, [region, rankings]);
-
-  // Helper to get the correct rank for display
+  // Use published ranks from the backend contract.
   const getDisplayRank = useCallback(
     (team: RankingRow): number | null | undefined => {
-      return computedRanks?.get(team.team_id_master) ?? null;
+      return region ? (team.rank_in_state_final ?? null) : (team.rank_in_cohort_final ?? null);
     },
-    [computedRanks]
+    [region]
   );
 
-  // Sort rankings based on selected field with SOS tie-breaking
+  const getDisplaySosRank = useCallback(
+    (team: RankingRow): number | null | undefined => {
+      return region ? (team.sos_rank_state ?? null) : (team.sos_rank_national ?? null);
+    },
+    [region]
+  );
+
+  // Sort rankings using published ranks and deterministic fallbacks.
   const sortedRankings = useMemo(() => {
     if (!rankings) return [];
 
@@ -164,28 +126,20 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
 
       switch (sortField) {
         case 'rank':
-          // Use computed position-based ranks (sequential, gap-free)
-          aValue = computedRanks?.get(a.team_id_master) ?? Infinity;
-          bValue = computedRanks?.get(b.team_id_master) ?? Infinity;
+          aValue = getDisplayRank(a) ?? Infinity;
+          bValue = getDisplayRank(b) ?? Infinity;
           break;
         case 'team':
           aValue = a.team_name.toLowerCase();
           bValue = b.team_name.toLowerCase();
           break;
         case 'powerScore':
-          // Use power_score_final (ML-adjusted score) - primary sort field
-          // Canonical tie-break: team_id ASC (matches stored rank ordering)
           aValue = a.power_score_final ?? 0;
           bValue = b.power_score_final ?? 0;
-          if (aValue === bValue) {
-            aValue = b.team_id_master || '';
-            bValue = a.team_id_master || '';
-          }
           break;
         case 'sosRank':
-          // Use computed SOS rank from filtered data
-          aValue = computedSosRanks?.get(a.team_id_master) ?? Infinity;
-          bValue = computedSosRanks?.get(b.team_id_master) ?? Infinity;
+          aValue = getDisplaySosRank(a) ?? Infinity;
+          bValue = getDisplaySosRank(b) ?? Infinity;
           break;
         default:
           return 0;
@@ -198,18 +152,21 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
       const primaryCompare =
         sortDirection === 'asc' ? (aValue as number) - (bValue as number) : (bValue as number) - (aValue as number);
 
-      // If primary values are equal, use SOS as tie-breaker (higher SOS = harder schedule = better)
-      if (primaryCompare === 0 && (sortField === 'rank' || sortField === 'powerScore')) {
-        const aSos = region ? (a.sos_norm_state ?? a.sos_norm ?? 0) : (a.sos_norm ?? 0);
-        const bSos = region ? (b.sos_norm_state ?? b.sos_norm ?? 0) : (b.sos_norm ?? 0);
-        return bSos - aSos; // Higher SOS ranks higher (tie-breaker always descending)
+      if (primaryCompare !== 0) {
+        return primaryCompare;
       }
 
-      return primaryCompare;
+      const aRank = getDisplayRank(a) ?? Number.POSITIVE_INFINITY;
+      const bRank = getDisplayRank(b) ?? Number.POSITIVE_INFINITY;
+      if (aRank !== bRank) {
+        return aRank - bRank;
+      }
+
+      return a.team_id_master.localeCompare(b.team_id_master);
     });
 
     return sorted;
-  }, [rankings, sortField, sortDirection, region, computedRanks, computedSosRanks]);
+  }, [getDisplayRank, getDisplaySosRank, rankings, sortField, sortDirection]);
 
   // Virtualizer for rendering only visible rows
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -337,7 +294,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   const topTeamsForSchema = sortedRankings.slice(0, 10).map((team, index) => ({
     teamName: team.team_name,
     clubName: team.club_name ?? undefined,
-    rank: computedRanks?.get(team.team_id_master) ?? index + 1,
+    rank: getDisplayRank(team) ?? index + 1,
     powerScore: team.power_score_final ?? undefined,
     state: team.state ?? undefined,
   }));
@@ -547,7 +504,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                                   age: team.age,
                                   gender: team.gender,
                                   rank_in_cohort_final: team.rank_in_cohort_final,
-                                  rank_in_state_final: getDisplayRank(team) ?? undefined,
+                                  rank_in_state_final: team.rank_in_state_final ?? undefined,
                                 })
                               }
                               className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block text-xs sm:text-sm truncate block w-full"
@@ -566,7 +523,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                           </div>
                           <div className="px-1.5 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm min-w-0 overflow-hidden">
                             {(() => {
-                              const sosRank = computedSosRanks?.get(team.team_id_master);
+                              const sosRank = getDisplaySosRank(team);
                               if (!sosRank) return <span className="truncate">—</span>;
                               const totalTeams = sortedRankings.length;
                               const pct = totalTeams > 0 ? Math.round((1 - (sosRank - 1) / totalTeams) * 100) : null;

@@ -62,7 +62,9 @@ export async function GET(request: NextRequest) {
       .in('status', ['Active', 'Not Enough Ranked Games'])
       .eq('age', normalizedAge)
       .eq('gender', gender)
-      .order('power_score_final', { ascending: false })
+      // Use the published cohort rank from the engine instead of re-sorting by score.
+      .order('rank_in_cohort_final', { ascending: true, nullsFirst: false })
+      .order('team_id_master', { ascending: true })
       .range(offset, offset + limit - 1);
 
     if (error) {

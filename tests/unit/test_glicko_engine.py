@@ -969,6 +969,19 @@ class TestComputeRankingsV2:
         for _, row in teams.iterrows():
             assert 0.0 <= row["provisional_mult"] <= 1.0
 
+    def test_powerscore_adj_uses_provisional_multiplier(self):
+        """Glicko published baseline should apply the provisional multiplier."""
+        rows = self._make_game("A", "B", 2, 1, "2026-03-01")
+        games = pd.DataFrame(rows)
+        cfg = GlickoConfig(MIN_GAMES_PROVISIONAL=1)
+        result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"), cfg=cfg)
+        teams = result["teams"]
+
+        for _, row in teams.iterrows():
+            expected = row["powerscore_core"] * row["provisional_mult"]
+            assert row["powerscore_adj"] == pytest.approx(expected, abs=1e-9)
+            assert row["power_presos"] == pytest.approx(row["powerscore_core"], abs=1e-9)
+
 
 class TestGameExplainability:
     """Tests for compute_game_explainability post-hoc breakdown."""

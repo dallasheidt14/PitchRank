@@ -23,6 +23,7 @@ from supabase.lib.client_options import SyncClientOptions
 
 from src.rankings.calculator import compute_all_cohorts, compute_rankings_v53e_only
 from src.rankings.data_adapter import v53e_to_rankings_full_format, v53e_to_supabase_format
+from src.rankings.layer13_predictive_adjustment import Layer13Config
 from src.utils.merge_resolver import MergeResolver
 from supabase import create_client
 
@@ -218,7 +219,11 @@ async def save_rankings_to_supabase(
                             record["national_rank"] = None
 
                         # Optional fields
-                        record["games_played"] = int(row.get("games_played", row.get("gp", 0))) if pd.notna(row.get("games_played", row.get("gp"))) else 0
+                        record["games_played"] = (
+                            int(row.get("games_played", row.get("gp", 0)))
+                            if pd.notna(row.get("games_played", row.get("gp")))
+                            else 0
+                        )
                         record["wins"] = int(row.get("wins", 0)) if pd.notna(row.get("wins")) else 0
                         record["losses"] = int(row.get("losses", 0)) if pd.notna(row.get("losses")) else 0
                         record["draws"] = int(row.get("draws", 0)) if pd.notna(row.get("draws")) else 0
@@ -612,16 +617,30 @@ async def main():
                 use_glicko=(args.engine == "glicko"),
             )
         else:
-            result = await compute_rankings_v53e_only(
-                supabase_client=supabase,
-                today=None,
-                fetch_from_supabase=True,
-                lookback_days=args.lookback_days,
-                provider_filter=args.provider,
-                force_rebuild=args.force_rebuild,
-                merge_resolver=merge_resolver,
-                timing_report=timing_report,
-            )
+            if args.engine == "glicko":
+                result = await compute_all_cohorts(
+                    supabase_client=supabase,
+                    today=None,
+                    layer13_cfg=Layer13Config(enabled=False),
+                    fetch_from_supabase=True,
+                    lookback_days=args.lookback_days,
+                    provider_filter=args.provider,
+                    force_rebuild=args.force_rebuild,
+                    merge_resolver=merge_resolver,
+                    timing_report=timing_report,
+                    use_glicko=True,
+                )
+            else:
+                result = await compute_rankings_v53e_only(
+                    supabase_client=supabase,
+                    today=None,
+                    fetch_from_supabase=True,
+                    lookback_days=args.lookback_days,
+                    provider_filter=args.provider,
+                    force_rebuild=args.force_rebuild,
+                    merge_resolver=merge_resolver,
+                    timing_report=timing_report,
+                )
 
         teams_df = result["teams"]
 
@@ -637,8 +656,8 @@ async def main():
             )
             if "age_group" in teams_df.columns:
                 # Extract age and check max per age
-                age_nums = teams_df['age_group'].astype(str).str.extract(r'(\d+)')[0].astype(int)
-                max_by_age = teams_df.groupby(age_nums)['power_score_final'].max()
+                age_nums = teams_df["age_group"].astype(str).str.extract(r"(\d+)")[0].astype(int)
+                max_by_age = teams_df.groupby(age_nums)["power_score_final"].max()
                 console.print("[dim]Max power_score_final by age:[/dim]")
                 for age, max_ps in max_by_age.items():
                     console.print(f"[dim]  Age {age}: {max_ps:.4f}[/dim]")
