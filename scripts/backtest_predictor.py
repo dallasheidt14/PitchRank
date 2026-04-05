@@ -156,15 +156,24 @@ async def fetch_rankings(supabase: Client) -> pd.DataFrame:
     logger.info("Fetching team rankings...")
 
     try:
-        # Fetch from rankings_full (has all fields we need)
-        response = (
-            supabase.table("rankings_full")
-            .select("team_id, power_score_final, sos_norm, off_norm, def_norm, age_group, games_played")
-            .limit(50000)
-            .execute()
+        fields = (
+            "team_id, power_score_final, sos_norm, off_norm, def_norm, age_group, games_played, "
+            "glicko_rating, glicko_rd, glicko_volatility"
         )
+        rows = []
+        batch_size = 1000
+        offset = 0
 
-        rankings_df = pd.DataFrame(response.data)
+        while True:
+            response = supabase.table("rankings_full").select(fields).range(offset, offset + batch_size - 1).execute()
+            if not response.data:
+                break
+            rows.extend(response.data)
+            if len(response.data) < batch_size:
+                break
+            offset += batch_size
+
+        rankings_df = pd.DataFrame(rows)
 
         # Map column names
         if "off_norm" in rankings_df.columns:
@@ -259,6 +268,31 @@ async def fetch_team_game_histories(
     return team_histories
 
 
+async def fetch_team_names(supabase: Client, team_ids: List[str]) -> Dict[str, str]:
+    """Fetch canonical team names for predictor age fallback and reporting."""
+    logger.info(f"Fetching team names for {len(team_ids):,} teams...")
+
+    team_names: Dict[str, str] = {}
+    batch_size = 100
+
+    for idx in range(0, len(team_ids), batch_size):
+        batch = team_ids[idx : idx + batch_size]
+        try:
+            response = supabase.table("teams").select("team_id_master, team_name").in_("team_id_master", batch).execute()
+        except Exception as e:
+            logger.warning(f"Error fetching team names for batch starting at {idx}: {e}")
+            continue
+
+        for row in response.data or []:
+            team_id = row.get("team_id_master")
+            team_name = row.get("team_name")
+            if team_id and team_name:
+                team_names[str(team_id)] = str(team_name)
+
+    logger.info(f"Fetched canonical names for {len(team_names):,} teams")
+    return team_names
+
+
 def get_team_age_from_rankings(rankings_df: pd.DataFrame, team_id: str) -> Optional[int]:
     """Extract numeric age from age_group string"""
     team_row = rankings_df[rankings_df["team_id"] == team_id]
@@ -280,6 +314,7 @@ async def run_backtest(
     games_df: pd.DataFrame,
     rankings_df: pd.DataFrame,
     team_histories: Dict[str, List[PredictorGame]],
+    team_names: Dict[str, str],
     output_dir: Path,
 ) -> pd.DataFrame:
     """
@@ -300,6 +335,10 @@ async def run_backtest(
             "defense_norm": row.get("defense_norm"),
             "age": get_team_age_from_rankings(rankings_df, team_id),
             "games_played": row.get("games_played", 0),
+            "team_name": team_names.get(team_id),
+            "glicko_rating": row.get("glicko_rating"),
+            "glicko_rd": row.get("glicko_rd"),
+            "glicko_volatility": row.get("glicko_volatility"),
         }
 
     results = []
@@ -325,6 +364,10 @@ async def run_backtest(
             defense_norm=home_rank.get("defense_norm"),
             age=home_rank.get("age"),
             games_played=home_rank.get("games_played", 0),
+            team_name=home_rank.get("team_name"),
+            glicko_rating=home_rank.get("glicko_rating"),
+            glicko_rd=home_rank.get("glicko_rd"),
+            glicko_volatility=home_rank.get("glicko_volatility"),
         )
 
         team_b = TeamRanking(
@@ -335,6 +378,10 @@ async def run_backtest(
             defense_norm=away_rank.get("defense_norm"),
             age=away_rank.get("age"),
             games_played=away_rank.get("games_played", 0),
+            team_name=away_rank.get("team_name"),
+            glicko_rating=away_rank.get("glicko_rating"),
+            glicko_rd=away_rank.get("glicko_rd"),
+            glicko_volatility=away_rank.get("glicko_volatility"),
         )
 
         # Get game histories for recent form
@@ -352,8 +399,11 @@ async def run_backtest(
                 seen_ids.add(g.id)
                 unique_games.append(g)
 
-        # Games are already in PredictorGame format
-        predictor_games = unique_games
+        # Critical leakage guard: only allow games strictly before the target match.
+        target_ts = pd.Timestamp(game_date)
+        predictor_games = [
+            g for g in unique_games if g.id != game_id and pd.Timestamp(g.game_date) < target_ts
+        ]
 
         # Run prediction
         try:
@@ -393,9 +443,17 @@ async def run_backtest(
                     "form_diff_raw": prediction.components["formDiffRaw"],
                     "form_diff_norm": prediction.components["formDiffNorm"],
                     "matchup_advantage": prediction.components["matchupAdvantage"],
+                    "strength_signal": prediction.components["strengthSignal"],
+                    "mismatch_score": prediction.components["mismatchScore"],
+                    "glicko_rating_diff": prediction.components.get("glickoRatingDiff"),
+                    "glicko_win_probability_a": prediction.components.get("glickoWinProbabilityA"),
+                    "glicko_reliability": prediction.components.get("glickoReliability"),
                     "confidence": prediction.confidence,
+                    "confidence_score": prediction.confidence_score,
                     "form_a": prediction.form_a,
                     "form_b": prediction.form_b,
+                    "h2h_games_played": prediction.h2h["gamesPlayed"] if prediction.h2h else 0,
+                    "h2h_avg_margin": prediction.h2h["avgMargin"] if prediction.h2h else 0,
                 }
             )
 
@@ -668,6 +726,7 @@ async def main():
     )
 
     team_histories = await fetch_team_game_histories(supabase, team_ids, lookback_days=args.lookback_days)
+    team_names = await fetch_team_names(supabase, team_ids)
 
     # Temporal train/test split: sort by date, use oldest games for training
     # This prevents the worst form of data leakage where the same games used
@@ -684,7 +743,7 @@ async def main():
     )
 
     # Run backtest on test set only (future games the model hasn't seen)
-    raw_df = await run_backtest(supabase, test_df, rankings_df, team_histories, output_dir)
+    raw_df = await run_backtest(supabase, test_df, rankings_df, team_histories, team_names, output_dir)
 
     # Generate derived outputs (metrics computed on held-out test set)
     generate_derived_outputs(raw_df, output_dir)

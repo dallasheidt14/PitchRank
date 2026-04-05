@@ -178,11 +178,12 @@ export const api = {
   async getTeam(id: string): Promise<TeamWithRanking> {
     // Phase 1: Fetch team data, ranking views, and merge map in parallel
     // These are all independent lookups that don't depend on each other
-    const [teamResult, rankingResult, stateRankResult, mergeResult] = await Promise.all([
+    const [teamResult, rankingResult, stateRankResult, mergeResult, rankingsFullResult] = await Promise.all([
       supabase.from('teams').select('*').eq('team_id_master', id).maybeSingle(),
       supabase.from('rankings_view').select('*').eq('team_id_master', id).maybeSingle(),
       supabase.from('state_rankings_view').select('*').eq('team_id_master', id).maybeSingle(),
       supabase.from('team_merge_map').select('deprecated_team_id').eq('canonical_team_id', id),
+      supabase.from('rankings_full').select('*').eq('team_id', id).maybeSingle(),
     ]);
 
     const { data: teamData, error: teamError } = teamResult;
@@ -218,19 +219,15 @@ export const api = {
     let stateRankFallback: { state_rank: number; sos_rank_state: number } | null = null;
 
     if (!teamData?.is_deprecated) {
-      const needsRankingsFull = !rankingData || !stateRankData;
-      const needsStateRank = !stateRankData;
-
-      const [rankingsFullResult, stateRankRpcResult] = await Promise.all([
-        needsRankingsFull ? supabase.from('rankings_full').select('*').eq('team_id', id).maybeSingle() : null,
-        needsStateRank ? supabase.rpc('get_team_state_rank', { p_team_id: id }).maybeSingle() : null,
-      ]);
-
-      if (rankingsFullResult && !rankingsFullResult.error && rankingsFullResult.data) {
+      if (!rankingsFullResult.error && rankingsFullResult.data) {
         rankingsFullData = rankingsFullResult.data;
       }
-      if (stateRankRpcResult && !stateRankRpcResult.error && stateRankRpcResult.data) {
-        stateRankFallback = stateRankRpcResult.data as { state_rank: number; sos_rank_state: number };
+
+      if (!stateRankData) {
+        const stateRankRpcResult = await supabase.rpc('get_team_state_rank', { p_team_id: id }).maybeSingle();
+        if (!stateRankRpcResult.error && stateRankRpcResult.data) {
+          stateRankFallback = stateRankRpcResult.data as { state_rank: number; sos_rank_state: number };
+        }
       }
     }
 
@@ -334,6 +331,14 @@ export const api = {
       rankingsFullData?.power_score_final ??
       null;
 
+    const glickoRating =
+      rankingData?.glicko_rating ?? stateRankData?.glicko_rating ?? rankingsFullData?.glicko_rating ?? null;
+
+    const glickoRd = rankingData?.glicko_rd ?? stateRankData?.glicko_rd ?? rankingsFullData?.glicko_rd ?? null;
+
+    const glickoVolatility =
+      rankingData?.glicko_volatility ?? stateRankData?.glicko_volatility ?? rankingsFullData?.glicko_volatility ?? null;
+
     const sosNorm =
       rankingData?.sos_norm ??
       rankingData?.strength_of_schedule ??
@@ -411,6 +416,9 @@ export const api = {
       age: age,
       gender: gender,
       power_score_final: powerScoreFinal,
+      glicko_rating: glickoRating,
+      glicko_rd: glickoRd,
+      glicko_volatility: glickoVolatility,
       sos_norm: sosNorm,
       sos_norm_state: sosNormState,
       sos_rank_national: rankingData?.sos_rank_national ?? rankingData?.national_sos_rank ?? null,
@@ -964,9 +972,11 @@ export const api = {
     const [teamAIds, teamBIds] = await Promise.all([resolveTeamIds(teamAId), resolveTeamIds(teamBId)]);
     const allTeamIds = [...teamAIds, ...teamBIds];
 
-    // Fetch recent games for form calculation (last 60 days, only for Team A/B + merged IDs)
+    // Fetch games for prediction signals (365-day window, only for Team A/B + merged IDs).
+    // Recent form still uses the latest five games inside the predictor, but a longer
+    // window preserves head-to-head history and produces better uncertainty estimates.
     const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - 60);
+    cutoffDate.setDate(cutoffDate.getDate() - 365);
 
     const { data: gamesData, error: gamesError } = await supabase
       .from('games')

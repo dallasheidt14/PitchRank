@@ -56,6 +56,9 @@ export interface RankingWithTeam {
   gender: 'M' | 'F' | 'B' | 'G'; // Backend returns single letter codes
   // Scores (backend contract)
   power_score_final: number;
+  glicko_rating?: number | null; // Underlying Glicko rating (1500-centered)
+  glicko_rd?: number | null; // Glicko rating deviation (lower = more certain)
+  glicko_volatility?: number | null; // Glicko volatility parameter
   sos_norm: number; // normalized 0–1 SOS index (national normalization)
   sos_norm_state?: number | null; // normalized 0–1 SOS index (state normalization, for state rankings)
   offense_norm: number | null;
@@ -108,7 +111,10 @@ export interface TeamWithRanking {
   // Correct Ranking Fields (backend contract)
   rank_in_cohort_final: number | null; // National rank within age/gender cohort
   rank_in_state_final?: number | null; // State rank - may not exist from rankings_view
-  power_score_final: number | null; // ML Adjusted, final score
+  power_score_final: number | null; // Published Glicko-derived score
+  glicko_rating?: number | null; // Underlying Glicko rating (mu)
+  glicko_rd?: number | null; // Glicko rating deviation / uncertainty
+  glicko_volatility?: number | null; // Glicko volatility parameter
   sos_norm: number | null; // normalized 0–1 SOS index (national normalization)
   sos_norm_state?: number | null; // normalized 0–1 SOS index (state normalization, for state rankings)
   sos_rank_national?: number | null; // SOS rank within (age, gender) cohort nationally

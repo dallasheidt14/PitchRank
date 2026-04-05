@@ -1,5 +1,5 @@
 /**
- * Match Prediction Explanation Generator v2.1
+ * Match Prediction Explanation Generator v3
  *
  * Generates human-readable explanations for why Team A is predicted to win/lose
  * Analyzes components and creates prioritized narratives
@@ -77,7 +77,7 @@ function formatPercentile(value: number): string {
 }
 
 /**
- * Generate explanation for overall power score differential
+ * Generate explanation for the primary strength edge
  */
 function explainPowerScore(teamA: TeamWithRanking, teamB: TeamWithRanking, powerDiff: number): Explanation | null {
   const absDiff = Math.abs(powerDiff);
@@ -87,20 +87,36 @@ function explainPowerScore(teamA: TeamWithRanking, teamB: TeamWithRanking, power
 
   const advantage = powerDiff > 0 ? 'team_a' : 'team_b';
   const strongerTeam = powerDiff > 0 ? teamA.team_name : teamB.team_name;
-  const _weakerTeam = powerDiff > 0 ? teamB.team_name : teamA.team_name;
   const strongerPower = powerDiff > 0 ? teamA.power_score_final || 0.5 : teamB.power_score_final || 0.5;
   const weakerPower = powerDiff > 0 ? teamB.power_score_final || 0.5 : teamA.power_score_final || 0.5;
-
-  // Display power scores as ratings (not percentiles - they are composite scores, not rankings)
-  const strongerRating = Math.round(strongerPower * 100);
-  const weakerRating = Math.round(weakerPower * 100);
-  const ratingGap = strongerRating - weakerRating;
+  const strongerGlicko = powerDiff > 0 ? teamA.glicko_rating : teamB.glicko_rating;
+  const weakerGlicko = powerDiff > 0 ? teamB.glicko_rating : teamA.glicko_rating;
+  const strongerRd = powerDiff > 0 ? teamA.glicko_rd : teamB.glicko_rd;
+  const weakerRd = powerDiff > 0 ? teamB.glicko_rd : teamA.glicko_rd;
 
   let description = '';
-  if (magnitude === 'significant') {
-    description = `${strongerTeam} has a ${ratingGap}-point power rating advantage (${strongerRating} vs ${weakerRating}) - a substantial class difference`;
+  if (strongerGlicko != null && weakerGlicko != null) {
+    const strongerRating = Math.round(strongerGlicko);
+    const weakerRating = Math.round(weakerGlicko);
+    const ratingGap = Math.round(Math.abs(strongerGlicko - weakerGlicko));
+    const rdContext =
+      strongerRd != null && weakerRd != null ? ` (RD ${Math.round(strongerRd)} vs ${Math.round(weakerRd)})` : '';
+
+    if (magnitude === 'significant') {
+      description = `${strongerTeam} has a ${ratingGap}-point Glicko edge (${strongerRating} vs ${weakerRating})${rdContext}`;
+    } else {
+      description = `${strongerTeam} holds the stronger Glicko rating (${strongerRating} vs ${weakerRating})${rdContext}`;
+    }
   } else {
-    description = `${strongerTeam} holds a ${ratingGap}-point edge in overall power rating (${strongerRating} vs ${weakerRating})`;
+    const strongerRating = Math.round(strongerPower * 100);
+    const weakerRating = Math.round(weakerPower * 100);
+    const ratingGap = strongerRating - weakerRating;
+
+    if (magnitude === 'significant') {
+      description = `${strongerTeam} has a ${ratingGap}-point edge in the published strength score (${strongerRating} vs ${weakerRating})`;
+    } else {
+      description = `${strongerTeam} holds a ${ratingGap}-point edge in the published strength score (${strongerRating} vs ${weakerRating})`;
+    }
   }
 
   return {
@@ -531,21 +547,30 @@ export function explainMatch(
 
   // Prediction quality with enhanced reliability message (referencing calibration)
   let reliabilityMessage = '';
+  const glickoRdValues = [teamA.glicko_rd, teamB.glicko_rd].filter((value): value is number => value != null);
+  const maxGlickoRd = glickoRdValues.length > 0 ? Math.max(...glickoRdValues) : null;
   if (confidence === 'high') {
-    if (minGamesPlayed >= 20) {
+    if (maxGlickoRd != null && maxGlickoRd < 120) {
+      reliabilityMessage = 'Strong Glicko-backed prediction: both teams have stable ratings with low rating deviation';
+    } else if (minGamesPlayed >= 20) {
       reliabilityMessage =
         'Elite-tier prediction: Probabilities calibrated on 452K+ youth soccer games with robust team-specific data';
     } else {
       reliabilityMessage = 'Strong prediction: Clear statistical advantage detected across multiple validated metrics';
     }
   } else if (confidence === 'medium') {
-    if (minGamesPlayed >= 15) {
+    if (maxGlickoRd != null && maxGlickoRd < 170) {
+      reliabilityMessage = 'Balanced Glicko signal: meaningful rating edge detected, but some uncertainty remains';
+    } else if (minGamesPlayed >= 15) {
       reliabilityMessage = 'Reliable prediction: Real statistical edge detected, calibrated for accuracy';
     } else {
       reliabilityMessage = 'Solid prediction: Meaningful advantage identified across our proprietary metrics';
     }
   } else {
-    if (minGamesPlayed < 10) {
+    if (maxGlickoRd != null && maxGlickoRd >= 170) {
+      reliabilityMessage =
+        'High Glicko uncertainty: at least one team still has a wide rating deviation, so probabilities are directional only';
+    } else if (minGamesPlayed < 10) {
       reliabilityMessage = 'Preliminary prediction: Limited game history - probabilities are directional only';
     } else {
       reliabilityMessage = 'Toss-up: Our 452K-game calibration confirms this is genuinely unpredictable';
