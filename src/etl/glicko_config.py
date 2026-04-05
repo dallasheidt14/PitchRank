@@ -96,5 +96,5 @@ class GlickoConfig:
     # ML
     ML_ALPHA: float = 0.08
 
-    # Provisional
-    MIN_GAMES_PROVISIONAL: int = 9
+    # Provisional/publication floor
+    MIN_GAMES_PROVISIONAL: int = 12

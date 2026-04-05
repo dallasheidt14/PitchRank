@@ -1257,12 +1257,13 @@ def compute_rankings_v2(
             1.0 + cfg.SOS_ADJ_STRONG_MAX,
         )
         mu_sos = cfg.INITIAL_MU + (team_df["mu"] - cfg.INITIAL_MU) * sos_scale
-        team_df["powerscore_adj"] = sigmoid_zscore_normalize(mu_sos)
+        team_df["powerscore_core"] = sigmoid_zscore_normalize(mu_sos)
     else:
-        team_df["powerscore_adj"] = sigmoid_zscore_normalize(team_df["mu"])
+        team_df["powerscore_core"] = sigmoid_zscore_normalize(team_df["mu"])
 
     # 8. Provisional multiplier from sigma
     team_df["provisional_mult"] = np.clip(1.0 - (team_df["sigma"] / cfg.INITIAL_SIGMA) ** 2, 0.0, 1.0)
+    team_df["powerscore_adj"] = (team_df["powerscore_core"] * team_df["provisional_mult"]).clip(0.0, 1.0)
 
     # 9. Status and rankings
     cutoff = today - pd.Timedelta(days=cfg.INACTIVE_DAYS)
@@ -1327,8 +1328,7 @@ def compute_rankings_v2(
     team_df["abs_strength"] = sigmoid_zscore_normalize(team_df["mu"])
 
     # Power scores
-    team_df["power_presos"] = team_df["powerscore_adj"]
-    team_df["powerscore_core"] = team_df["powerscore_adj"]
+    team_df["power_presos"] = team_df["powerscore_core"]
     team_df["anchor"] = 0.5
 
     # Performance residuals (placeholder -- ML layer computes these)

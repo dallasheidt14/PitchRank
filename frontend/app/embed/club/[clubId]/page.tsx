@@ -55,7 +55,8 @@ export default async function ClubEmbedPage({ params }: ClubEmbedPageProps) {
         .ilike('club_name', clubName)
         .order('age', { ascending: true })
         .order('gender', { ascending: true })
-        .order('power_score_final', { ascending: false });
+        .order('rank_in_cohort_final', { ascending: true, nullsFirst: false })
+        .order('team_id_master', { ascending: true });
 
       if (!dbError && data) {
         teams = data as typeof teams;

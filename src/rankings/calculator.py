@@ -376,7 +376,7 @@ async def compute_rankings_with_ml(
         lookback_days=v53_cfg.WINDOW_DAYS,
         alpha=0.08,  # Tuned via weight simulator grid search: 0.08 optimal (quality 14→19/23)
         norm_mode="zscore",
-        min_team_games_for_residual=6,
+        min_team_games_for_residual=12,
         recency_decay_lambda=0.06,  # Short-term form focus; tune later after stability verified
         table_name="games",
         provider_filter=provider_filter,

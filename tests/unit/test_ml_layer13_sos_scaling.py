@@ -272,5 +272,75 @@ class TestVectorizedSOSScaling:
         assert expected_scale == pytest.approx(1.0 / 3.0, abs=0.01)
 
 
+@pytest.mark.asyncio
+async def test_low_sample_ml_rows_stay_neutral_after_normalization(monkeypatch):
+    """Teams below the ML residual floor must stay at the base score."""
+    from src.rankings.layer13_predictive_adjustment import Layer13Config, apply_predictive_adjustment
+    import src.rankings.layer13_predictive_adjustment as layer13
+
+    monkeypatch.setattr(layer13, "_HAS_ML", True)
+
+    feats = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-01-01", "2026-01-10", "2026-03-31"]),
+            "team_id": ["A", "B", "B"],
+            "opp_id": ["B", "A", "A"],
+            "age": [14, 14, 14],
+            "gender": ["M", "M", "M"],
+            "goal_margin": [0.0, 0.0, 0.0],
+            "team_power": [0.8, 0.7, 0.7],
+            "opp_power": [0.7, 0.8, 0.8],
+            "power_diff": [0.1, -0.1, -0.1],
+            "age_gap": [0, 0, 0],
+            "cross_gender": [0, 0, 0],
+            "rank_recency": [1.0, 2.0, 1.0],
+            "residual": [0.0, -1.0, -1.0],
+        }
+    )
+
+    monkeypatch.setattr(layer13, "_build_features", lambda *args, **kwargs: feats.copy())
+    monkeypatch.setattr(layer13, "_fit_and_residualize", lambda built, train_feats, cfg: built.copy())
+
+    teams_df = pd.DataFrame(
+        {
+            "team_id": ["A", "B"],
+            "age": [14, 14],
+            "gender": ["M", "M"],
+            "powerscore_adj": [0.80, 0.70],
+            "status": ["Active", "Active"],
+        }
+    )
+    games_df = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-01-01", "2026-01-10", "2026-03-31"]),
+            "team_id": ["A", "B", "B"],
+            "opp_id": ["B", "A", "A"],
+            "gf": [1, 0, 0],
+            "ga": [1, 1, 1],
+            "age": [14, 14, 14],
+            "gender": ["M", "M", "M"],
+            "opp_age": [14, 14, 14],
+            "opp_gender": ["M", "M", "M"],
+        }
+    )
+    cfg = Layer13Config(min_team_games_for_residual=2, min_training_rows=1, norm_mode="zscore")
+
+    out = await apply_predictive_adjustment(
+        supabase_client=None,
+        teams_df=teams_df,
+        games_used_df=games_df,
+        cfg=cfg,
+    )
+
+    low_sample = out[out["team_id"] == "A"].iloc[0]
+    eligible = out[out["team_id"] == "B"].iloc[0]
+
+    assert low_sample["ml_game_count"] == 1
+    assert low_sample["ml_norm"] == pytest.approx(0.0, abs=1e-9)
+    assert low_sample["powerscore_ml"] == pytest.approx(low_sample["powerscore_adj"], abs=1e-9)
+    assert eligible["ml_game_count"] == 2
+    assert pd.notna(eligible["ml_norm"])
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

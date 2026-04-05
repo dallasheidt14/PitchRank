@@ -92,7 +92,7 @@ export const api = {
       }
 
       query = query
-        .order('power_score_final', { ascending: false })
+        .order('rank_in_cohort_final', { ascending: true, nullsFirst: false })
         .order('team_id_master', { ascending: true })
         .range(offset, offset + batchSize - 1);
 

@@ -47,7 +47,7 @@ class Layer13Config:
 
     # residual aggregation
     recency_decay_lambda: float = 0.06  # exp(-lambda * (recency-1)); short-term form focus
-    min_team_games_for_residual: int = 6
+    min_team_games_for_residual: int = 12
     residual_clip_goals: float = 3.5  # guardrail on residual outliers
     min_training_rows: int = 30  # Minimum rows to enable ML (prevents leakage)
 
@@ -395,6 +395,7 @@ async def apply_predictive_adjustment(
     if "ml_overperf" in out.columns:
         out = out.drop(columns=["ml_overperf"])
     out = out.merge(team_resid, on=["team_id", "age", "gender"], how="left")
+    out["ml_game_count"] = out["ml_game_count"].fillna(0).astype(int)
     out["ml_overperf"] = (
         out["ml_overperf"].fillna(0.0).clip(lower=-cfg.residual_clip_goals, upper=cfg.residual_clip_goals)
     )
@@ -403,6 +404,8 @@ async def apply_predictive_adjustment(
     )
     # Use .reindex() to align by index, not positional order (groupby may reorder rows)
     out["ml_norm"] = normalized["__tmp__"].reindex(out.index).values - 0.5
+    eligible_ml_mask = out["ml_game_count"] >= cfg.min_team_games_for_residual
+    out.loc[~eligible_ml_mask, "ml_norm"] = 0.0
 
     # 6) Blend into PowerScore and rerank
     #
@@ -411,6 +414,7 @@ async def apply_predictive_adjustment(
     # With alpha=0.08 this means ±0.04 — well within [0, 1] for valid base scores.
     # We clamp afterward to guarantee bounds without compressing the score range.
     out["powerscore_ml"] = out[base_power_col] + cfg.alpha * out["ml_norm"]
+    out.loc[~eligible_ml_mask, "powerscore_ml"] = out.loc[~eligible_ml_mask, base_power_col]
     out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
     out["rank_in_cohort_ml"] = _rank_active_only(out, cfg.cohort_key_cols, "powerscore_ml")
 
@@ -627,7 +631,7 @@ def _aggregate_team_residuals(feats: pd.DataFrame, cfg: Layer13Config) -> pd.Dat
     )
     agg = agg.drop(columns=["weighted_sum", "weight_sum"])
     if agg.empty:
-        return pd.DataFrame(columns=["team_id", "age", "gender", "ml_overperf"])
+        return pd.DataFrame(columns=["team_id", "age", "gender", "ml_overperf", "ml_game_count"])
 
     # require a minimum number of games to avoid yo-yo
     counts = (
@@ -637,12 +641,13 @@ def _aggregate_team_residuals(feats: pd.DataFrame, cfg: Layer13Config) -> pd.Dat
     )
     merged = agg.merge(counts, on=[team_id_col, age_col, gender_col], how="left")
     merged.loc[merged["game_count"] < cfg.min_team_games_for_residual, "ml_overperf"] = 0.0
+    merged = merged.rename(columns={"game_count": "ml_game_count"})
 
     # Ensure team_id column name for merging (v53e uses 'team_id')
     if team_id_col != "team_id":
         merged = merged.rename(columns={team_id_col: "team_id"})
 
-    return merged[["team_id", "age", "gender", "ml_overperf"]]
+    return merged[["team_id", "age", "gender", "ml_overperf", "ml_game_count"]]
 
 
 def _normalize_by_cohort(

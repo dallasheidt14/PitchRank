@@ -609,8 +609,12 @@ def v53e_to_supabase_format(teams_df: pd.DataFrame) -> pd.DataFrame:
     else:
         rankings_df["national_power_score"] = 0.0
 
-    # Map rank with proper defaults and dtype
-    if "rank_in_cohort_ml" in rankings_df.columns:
+    # Map rank with proper defaults and dtype.
+    # current_rankings is backward-compat only, but it should still reflect the
+    # published final rank ordering when that column is available.
+    if "rank_in_cohort_final" in rankings_df.columns:
+        rankings_df["national_rank"] = rankings_df["rank_in_cohort_final"]
+    elif "rank_in_cohort_ml" in rankings_df.columns:
         rankings_df["national_rank"] = rankings_df["rank_in_cohort_ml"]
     elif "rank_in_cohort" in rankings_df.columns:
         rankings_df["national_rank"] = rankings_df["rank_in_cohort"]
@@ -866,9 +870,9 @@ def v53e_to_rankings_full_format(
 
     # Preserve NULL rank_in_cohort_final for non-Active teams
     if "rank_in_cohort_final" in rankings_df.columns:
-        rankings_df["rank_in_cohort_final"] = pd.to_numeric(rankings_df["rank_in_cohort_final"], errors="coerce").astype(
-            "Int64"
-        )
+        rankings_df["rank_in_cohort_final"] = pd.to_numeric(
+            rankings_df["rank_in_cohort_final"], errors="coerce"
+        ).astype("Int64")
     else:
         rankings_df["rank_in_cohort_final"] = pd.array([pd.NA] * len(rankings_df), dtype="Int64")
 
