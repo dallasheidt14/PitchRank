@@ -19,10 +19,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    # Run on manual dispatch always, but only after successful rankings run
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    # DISABLED: Marketing pipeline temporarily turned off
+    if: false
+    # Original condition (restore when re-enabling):
+    # if: >-
+    #   github.event_name == 'workflow_dispatch' ||
+    #   (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
 
     steps:
       # ---------------------------------------------------------------
