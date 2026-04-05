@@ -22,26 +22,26 @@ class TestLeagueMultiplierMaps:
     def test_mls_next_ad_male_is_098(self):
         assert LEAGUE_MULTIPLIER_MALE["MLS_NEXT_AD"] == 0.98
 
-    def test_ecnl_rl_male_is_096(self):
-        assert LEAGUE_MULTIPLIER_MALE["ECNL_RL"] == 0.96
+    def test_ecnl_rl_male_is_095(self):
+        assert LEAGUE_MULTIPLIER_MALE["ECNL_RL"] == 0.95
 
-    def test_dpl_male_is_094(self):
-        assert LEAGUE_MULTIPLIER_MALE["DPL"] == 0.94
+    def test_dpl_male_is_093(self):
+        assert LEAGUE_MULTIPLIER_MALE["DPL"] == 0.93
 
-    def test_ea2_male_is_093(self):
-        assert LEAGUE_MULTIPLIER_MALE["EA2"] == 0.93
+    def test_ea2_male_is_091(self):
+        assert LEAGUE_MULTIPLIER_MALE["EA2"] == 0.91
 
     def test_ecnl_female_is_1(self):
         assert LEAGUE_MULTIPLIER_FEMALE["ECNL"] == 1.00
 
-    def test_ga_female_is_099(self):
-        assert LEAGUE_MULTIPLIER_FEMALE["GA"] == 0.99
+    def test_ga_female_is_098(self):
+        assert LEAGUE_MULTIPLIER_FEMALE["GA"] == 0.98
 
-    def test_ecnl_rl_female_is_097(self):
-        assert LEAGUE_MULTIPLIER_FEMALE["ECNL_RL"] == 0.97
+    def test_ecnl_rl_female_is_094(self):
+        assert LEAGUE_MULTIPLIER_FEMALE["ECNL_RL"] == 0.94
 
-    def test_dpl_female_is_096(self):
-        assert LEAGUE_MULTIPLIER_FEMALE["DPL"] == 0.96
+    def test_dpl_female_is_093(self):
+        assert LEAGUE_MULTIPLIER_FEMALE["DPL"] == 0.93
 
     def test_unaffiliated_male_is_097(self):
         assert UNAFFILIATED_MULTIPLIER_MALE == 0.97
@@ -62,14 +62,14 @@ class TestGetTierMultiplier:
     def test_mls_next_ad_male_returns_098(self):
         assert get_tier_multiplier("MLS_NEXT_AD", "Male") == 0.98
 
-    def test_ecnl_rl_male_returns_096(self):
-        assert get_tier_multiplier("ECNL_RL", "Male") == 0.96
+    def test_ecnl_rl_male_returns_095(self):
+        assert get_tier_multiplier("ECNL_RL", "Male") == 0.95
 
-    def test_dpl_female_returns_096(self):
-        assert get_tier_multiplier("DPL", "Female") == 0.96
+    def test_dpl_female_returns_093(self):
+        assert get_tier_multiplier("DPL", "Female") == 0.93
 
-    def test_ga_female_returns_099(self):
-        assert get_tier_multiplier("GA", "Female") == 0.99
+    def test_ga_female_returns_098(self):
+        assert get_tier_multiplier("GA", "Female") == 0.98
 
     def test_none_male_returns_097(self):
         assert get_tier_multiplier(None, "Male") == 0.97
@@ -87,13 +87,13 @@ class TestGetTierMultiplier:
         assert get_tier_multiplier("DPL", "Female", age=10) == 1.0
 
     def test_u13_returns_discount(self):
-        assert get_tier_multiplier("ECNL_RL", "Male", age=13) == 0.96
+        assert get_tier_multiplier("ECNL_RL", "Male", age=13) == 0.95
 
     def test_u14_returns_discount(self):
-        assert get_tier_multiplier("ECNL_RL", "Male", age=14) == 0.96
+        assert get_tier_multiplier("ECNL_RL", "Male", age=14) == 0.95
 
     def test_none_age_still_applies_discount(self):
-        assert get_tier_multiplier("ECNL_RL", "Male", age=None) == 0.96
+        assert get_tier_multiplier("ECNL_RL", "Male", age=None) == 0.95
 
 
 # ---------------------------------------------------------------------------

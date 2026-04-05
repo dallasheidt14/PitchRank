@@ -77,7 +77,7 @@ LEAGUE_MULTIPLIER_MALE: dict[str, float] = {
 # Female: direct league -> multiplier
 LEAGUE_MULTIPLIER_FEMALE: dict[str, float] = {
     "ECNL": 1.00,
-    "GA": 0.99,
+    "GA": 0.98,
     "ECNL_RL": 0.94,
     "DPL": 0.93,
     "NPL": 0.93,

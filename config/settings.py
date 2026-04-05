@@ -211,7 +211,8 @@ ML_CONFIG = {
         os.getenv("ML_ALPHA", 0.08)
     ),  # Blend weight for ML adjustment (tuned via weight simulator: 0.08 optimal)
     "recency_decay_lambda": float(os.getenv("ML_RECENCY_DECAY_LAMBDA", 0.06)),
-    "min_team_games_for_residual": int(os.getenv("ML_MIN_TEAM_GAMES", 6)),
+    # Keep Layer 13's residual floor aligned with Glicko's publication floor.
+    "min_team_games_for_residual": int(os.getenv("ML_MIN_TEAM_GAMES", 12)),
     "residual_clip_goals": float(os.getenv("ML_RESIDUAL_CLIP", 3.5)),
     "norm_mode": os.getenv("ML_NORM_MODE", "percentile"),  # "percentile" or "zscore"
     "lookback_days": int(os.getenv("ML_LOOKBACK_DAYS", 365)),
