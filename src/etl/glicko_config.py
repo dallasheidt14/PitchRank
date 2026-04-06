@@ -87,10 +87,13 @@ class GlickoConfig:
     SCF_MIN_UNIQUE_LEAGUES: int = 2  # Below this unique families → league-isolated
 
     # SOS post-hoc adjustment (asymmetric scaling of mu before normalization)
+    # Weak schedules get a larger shrinkage than strong schedules get a reward.
+    # This is intentional: it reins in inflated ratings from soft schedules
+    # without double-counting opponent quality inside the core Glicko update.
     SOS_ADJ_ENABLED: bool = True
     SOS_ADJ_WEAK_THRESHOLD: float = 0.45      # Dead zone lower edge (sos_norm scale)
     SOS_ADJ_STRONG_THRESHOLD: float = 0.60     # Dead zone upper edge (sos_norm scale)
-    SOS_ADJ_WEAK_MAX: float = 0.10             # Max 10% penalty for weakest SOS
+    SOS_ADJ_WEAK_MAX: float = 0.16             # Max 16% penalty for weakest SOS
     SOS_ADJ_STRONG_MAX: float = 0.03           # Max 3% reward for strongest SOS
 
     # ML

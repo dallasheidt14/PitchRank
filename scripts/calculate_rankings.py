@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Calculate team rankings using v53e engine with optional ML layer
+Calculate team rankings using the active Glicko-2 engine with optional ML layer.
 """
 
 import argparse
@@ -604,7 +604,8 @@ async def main():
         console.print("")  # Blank line for spacing
 
         if args.ml:
-            # Use compute_all_cohorts for two-pass SOS + national/state normalization
+            # Use compute_all_cohorts for the two-pass cross-age strength flow
+            # plus national/state SOS normalization for display metrics.
             result = await compute_all_cohorts(
                 supabase_client=supabase,
                 today=None,

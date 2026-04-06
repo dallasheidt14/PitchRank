@@ -114,7 +114,7 @@ jobs:
           fi
 
       # ---------------------------------------------------------------
-      # 7. RUN THE RANKINGS ENGINE (Iterative SOS + ML)
+      # 7. RUN THE ACTIVE RANKINGS ENGINE (Glicko-2 + ML + post-convergence SOS/SCF)
       # ---------------------------------------------------------------
       - name: Calculate Rankings
         env:
@@ -125,7 +125,7 @@ jobs:
           PYTHONUNBUFFERED: "1"  # Force Python to output logs immediately
         run: |
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
-          echo "⚽ Running PitchRank Rankings Engine with ML + Iterative SOS"
+          echo "⚽ Running PitchRank Rankings Engine (Glicko-2 + ML + post-convergence SOS/SCF)"
           echo "Python version: $(python --version)"
           echo "Current directory: $(pwd)"
           echo "SUPABASE_URL configured: $([[ -n "$SUPABASE_URL" ]] && echo 'Yes' || echo 'No')"
