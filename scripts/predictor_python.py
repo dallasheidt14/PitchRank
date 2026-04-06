@@ -13,13 +13,12 @@ scripts use the same prediction logic as the live compare UI:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import json
 import math
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CALIBRATION_DIR = REPO_ROOT / "frontend" / "public" / "data" / "calibration"
@@ -210,14 +209,8 @@ def calculate_head_to_head(team_a_id: str, team_b_id: str, all_games: List[Game]
         game
         for game in all_games
         if (
-            (
-                game.home_team_master_id == team_a_id
-                and game.away_team_master_id == team_b_id
-            )
-            or (
-                game.home_team_master_id == team_b_id
-                and game.away_team_master_id == team_a_id
-            )
+            (game.home_team_master_id == team_a_id and game.away_team_master_id == team_b_id)
+            or (game.home_team_master_id == team_b_id and game.away_team_master_id == team_a_id)
         )
     ]
 
@@ -308,7 +301,8 @@ def get_adaptive_weights(
         "SOS": BASE_WEIGHTS["SOS"] + (BLOWOUT_WEIGHTS["SOS"] - BASE_WEIGHTS["SOS"]) * transition_progress,
         "RECENT_FORM": BASE_WEIGHTS["RECENT_FORM"]
         + (BLOWOUT_WEIGHTS["RECENT_FORM"] - BASE_WEIGHTS["RECENT_FORM"]) * transition_progress,
-        "MATCHUP": BASE_WEIGHTS["MATCHUP"] + (BLOWOUT_WEIGHTS["MATCHUP"] - BASE_WEIGHTS["MATCHUP"]) * transition_progress,
+        "MATCHUP": BASE_WEIGHTS["MATCHUP"]
+        + (BLOWOUT_WEIGHTS["MATCHUP"] - BASE_WEIGHTS["MATCHUP"]) * transition_progress,
     }
 
     return {"weights": weights, "mismatchScore": mismatch_score}
@@ -448,7 +442,9 @@ def calculate_glicko_uncertainty(team_a: TeamRanking, team_b: TeamRanking) -> Op
     return max(0.0, min(1.0, normalized))
 
 
-def compute_confidence(team_a: TeamRanking, team_b: TeamRanking, composite_diff: float, all_games: List[Game]) -> Dict[str, float | str]:
+def compute_confidence(
+    team_a: TeamRanking, team_b: TeamRanking, composite_diff: float, all_games: List[Game]
+) -> Dict[str, float | str]:
     variance_a = calculate_team_variance(team_a.team_id_master, all_games)
     variance_b = calculate_team_variance(team_b.team_id_master, all_games)
 
@@ -640,5 +636,7 @@ def predict_match(team_a: TeamRanking, team_b: TeamRanking, all_games: List[Game
         components=components,
         form_a=form_a,
         form_b=form_b,
-        h2h={"gamesPlayed": float(h2h_games_played), "avgMargin": float(h2h["avgMargin"])} if h2h_games_played > 0 else None,
+        h2h={"gamesPlayed": float(h2h_games_played), "avgMargin": float(h2h["avgMargin"])}
+        if h2h_games_played > 0
+        else None,
     )

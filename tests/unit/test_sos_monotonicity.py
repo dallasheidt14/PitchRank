@@ -227,13 +227,13 @@ def _build_varied_gp_league():
 
 
 class TestFixB_ShrinkageThreshold:
-    """Fix B: MIN_GAMES_FOR_TOP_SOS = 6 aligns with Active eligibility."""
+    """Fix B: MIN_GAMES_FOR_TOP_SOS = 9 aligns with Active eligibility."""
 
-    def test_default_threshold_is_6(self):
-        """New default MIN_GAMES_FOR_TOP_SOS should be 6."""
+    def test_default_threshold_is_9(self):
+        """New default MIN_GAMES_FOR_TOP_SOS should be 9."""
         cfg = V53EConfig()
-        assert cfg.MIN_GAMES_FOR_TOP_SOS == 6, (
-            f"Expected MIN_GAMES_FOR_TOP_SOS=6, got {cfg.MIN_GAMES_FOR_TOP_SOS}"
+        assert cfg.MIN_GAMES_FOR_TOP_SOS == 9, (
+            f"Expected MIN_GAMES_FOR_TOP_SOS=9, got {cfg.MIN_GAMES_FOR_TOP_SOS}"
         )
 
     def test_6gp_team_not_shrunk(self):

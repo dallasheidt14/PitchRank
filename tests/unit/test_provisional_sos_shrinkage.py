@@ -172,19 +172,18 @@ class TestSOSShrinkage:
 
     def test_shrinkage_formula_linear(self):
         """
-        For teams with gp < MIN_GAMES_FOR_TOP_SOS (6), sos_norm should be
+        For teams with gp < MIN_GAMES_FOR_TOP_SOS, sos_norm should be
         shrunk toward anchor: sos_norm = anchor + (gp/threshold) * (raw - anchor).
         """
         cfg = V53EConfig()
         anchor = cfg.SOS_SHRINKAGE_ANCHOR  # 0.35
-        # A team with threshold/2 games should retain 50% of the deviation from anchor
-        threshold = cfg.MIN_GAMES_FOR_TOP_SOS  # 6
-        gp = threshold // 2  # 3
+        # A team with floor(threshold/2) games should retain gp/threshold of the deviation.
+        threshold = cfg.MIN_GAMES_FOR_TOP_SOS
+        gp = threshold // 2
         raw_sos_norm = 0.9
         shrink_factor = min(gp / threshold, 1.0)
         expected = anchor + shrink_factor * (raw_sos_norm - anchor)
-        # 0.35 + 0.5*(0.9-0.35) = 0.35 + 0.275 = 0.625
-        assert abs(expected - 0.625) < 0.01
+        assert abs(expected - 0.5944444444444444) < 1e-10
 
     def test_full_games_no_shrinkage(self):
         """Teams with >= MIN_GAMES_FOR_TOP_SOS games should have no shrinkage."""

@@ -621,8 +621,9 @@ async def compute_all_cohorts(
             league_counts: Dict[str, int] = {}
             for lg in tier_league_map.values():
                 league_counts[lg] = league_counts.get(lg, 0) + 1
+            top_league_distribution = dict(sorted(league_counts.items(), key=lambda x: -x[1])[:5])
             logger.info(
-                f"✅ Fetched league for {len(tier_league_map):,} teams. Distribution: {dict(sorted(league_counts.items(), key=lambda x: -x[1])[:5])}"
+                f"✅ Fetched league for {len(tier_league_map):,} teams. Distribution: {top_league_distribution}"
             )
         else:
             logger.warning("⚠️ No team IDs found for league metadata fetch")
@@ -1242,3 +1243,5 @@ async def compute_all_cohorts(
     logger.info(f"✅ Two-pass rankings flow complete: {len(teams_combined):,} teams ranked")
 
     return {"teams": teams_combined, "games_used": games_used_combined}
+
+

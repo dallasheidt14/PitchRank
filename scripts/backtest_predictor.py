@@ -278,7 +278,9 @@ async def fetch_team_names(supabase: Client, team_ids: List[str]) -> Dict[str, s
     for idx in range(0, len(team_ids), batch_size):
         batch = team_ids[idx : idx + batch_size]
         try:
-            response = supabase.table("teams").select("team_id_master, team_name").in_("team_id_master", batch).execute()
+            response = (
+                supabase.table("teams").select("team_id_master, team_name").in_("team_id_master", batch).execute()
+            )
         except Exception as e:
             logger.warning(f"Error fetching team names for batch starting at {idx}: {e}")
             continue
@@ -401,9 +403,7 @@ async def run_backtest(
 
         # Critical leakage guard: only allow games strictly before the target match.
         target_ts = pd.Timestamp(game_date)
-        predictor_games = [
-            g for g in unique_games if g.id != game_id and pd.Timestamp(g.game_date) < target_ts
-        ]
+        predictor_games = [g for g in unique_games if g.id != game_id and pd.Timestamp(g.game_date) < target_ts]
 
         # Run prediction
         try:

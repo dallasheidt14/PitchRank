@@ -46,12 +46,12 @@ class TestLinearShrinkageFormula:
 
     def test_half_threshold_half_deviation(self, cfg):
         """threshold/2 games → retain 50% of deviation from anchor."""
-        threshold = cfg.MIN_GAMES_FOR_TOP_SOS  # 6
+        threshold = cfg.MIN_GAMES_FOR_TOP_SOS
         anchor = cfg.SOS_SHRINKAGE_ANCHOR  # 0.35
         raw = 0.9
-        half_gp = threshold // 2  # 3
+        half_gp = threshold // 2
         result = self._shrink(half_gp, raw, threshold, anchor)
-        expected = anchor + 0.5 * (0.9 - anchor)  # = 0.35 + 0.5*0.55 = 0.625
+        expected = anchor + (half_gp / threshold) * (raw - anchor)
         assert abs(result - expected) < 1e-10
 
     def test_at_threshold_no_shrinkage(self, cfg):

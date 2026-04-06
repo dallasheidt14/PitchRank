@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
+
 from supabase import create_client
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

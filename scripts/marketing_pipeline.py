@@ -117,23 +117,20 @@ def fetch_milestone_movers(supabase) -> list[dict]:
 
     # Fetch team names (rankings_full has no team_name)
     team_ids = list({m["team_id"] for m in milestones})
-    names_resp = (
-        supabase.table("teams")
-        .select("team_id_master, team_name")
-        .in_("team_id_master", team_ids)
-        .execute()
-    )
+    names_resp = supabase.table("teams").select("team_id_master, team_name").in_("team_id_master", team_ids).execute()
     name_map = {t["team_id_master"]: t["team_name"] for t in (names_resp.data or [])}
     for m in milestones:
         m["team_name"] = name_map.get(m["team_id"], "Unknown")
 
     # Sort: top 10 first, then top 25, etc. Within tier, by rank
     milestones.sort(key=lambda m: (m["milestone"], m["rank_in_cohort"]))
-    log.info(f"Found {len(milestones)} milestone crossings: "
-             f"{sum(1 for m in milestones if m['milestone'] == 10)} top-10, "
-             f"{sum(1 for m in milestones if m['milestone'] == 25)} top-25, "
-             f"{sum(1 for m in milestones if m['milestone'] == 50)} top-50, "
-             f"{sum(1 for m in milestones if m['milestone'] == 100)} top-100")
+    log.info(
+        f"Found {len(milestones)} milestone crossings: "
+        f"{sum(1 for m in milestones if m['milestone'] == 10)} top-10, "
+        f"{sum(1 for m in milestones if m['milestone'] == 25)} top-25, "
+        f"{sum(1 for m in milestones if m['milestone'] == 50)} top-50, "
+        f"{sum(1 for m in milestones if m['milestone'] == 100)} top-100"
+    )
     return milestones
 
 
@@ -252,7 +249,11 @@ def _markdown_to_email_html(md_text: str) -> str:
 
     # Add inline styles for email clients
     replacements = [
-        ("<h2>", '<h2 style="margin:20px 0 12px;font-size:16px;font-weight:700;color:#0B5345;text-transform:uppercase;letter-spacing:0.5px;">'),
+        (
+            "<h2>",
+            '<h2 style="margin:20px 0 12px;font-size:16px;font-weight:700;'
+            'color:#0B5345;text-transform:uppercase;letter-spacing:0.5px;">',
+        ),
         ("<h3>", '<h3 style="margin:16px 0 8px;font-size:15px;font-weight:700;color:#0B5345;">'),
         ("<p>", '<p style="margin:0 0 12px;font-size:14px;line-height:1.6;color:#1a1a1a;">'),
         ("<table>", '<table style="width:100%;border-collapse:collapse;margin:0 0 16px;">'),
@@ -1021,8 +1022,7 @@ def generate_thread_tweets(data: dict) -> list[str]:
     # If no milestones at all, fall back to a general tweet
     if len(tweets) == 1:
         tweets.append(
-            f"Rankings updated for {total} teams across all 50 states.\n\n"
-            "Same algorithm. Real game data. No opinions."
+            f"Rankings updated for {total} teams across all 50 states.\n\nSame algorithm. Real game data. No opinions."
         )
 
     # Tweet 4 (final): CTA
