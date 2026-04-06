@@ -13,7 +13,18 @@ const XIcon = () => (
   </svg>
 );
 
-type InfographicType = 'top10' | 'spotlight' | 'movers' | 'headToHead' | 'stateChampions' | 'stories' | 'covers';
+type InfographicType =
+  | 'top10'
+  | 'spotlight'
+  | 'movers'
+  | 'headToHead'
+  | 'stateChampions'
+  | 'leagueDistribution'
+  | 'stories'
+  | 'covers';
+
+type TemplateMap = Record<Exclude<InfographicType, 'leagueDistribution'>, string[]> &
+  Partial<Record<InfographicType, string[]>>;
 
 interface CaptionGeneratorProps {
   infographicType: InfographicType;
@@ -30,7 +41,7 @@ interface CaptionGeneratorProps {
 // ---------------------------------------------------------------------------
 // Block 1 — Hook (Stop the Scroll)
 // ---------------------------------------------------------------------------
-const HOOK_TEMPLATES: Record<InfographicType, string[]> = {
+const HOOK_TEMPLATES: TemplateMap = {
   top10: [
     '🏆 NEW RANKINGS ALERT',
     '⚽ TOP {N} TEAMS IN {STATE}',
@@ -62,7 +73,14 @@ const HOOK_TEMPLATES: Record<InfographicType, string[]> = {
 // ---------------------------------------------------------------------------
 // Block 2 — Context (Explain What They're Seeing)
 // ---------------------------------------------------------------------------
-const CONTEXT_TEMPLATES: Record<InfographicType, string[]> = {
+HOOK_TEMPLATES.leagueDistribution = [
+  'TOP LEAGUES IN THE TOP 100',
+  'WHO RUNS THE RANKINGS?',
+  'LEAGUE BREAKDOWN',
+  'TOP GIRLS LEAGUES BY AGE',
+];
+
+const CONTEXT_TEMPLATES: TemplateMap = {
   top10: [
     'Here are the current PitchRank Top {N} {CATEGORY} teams {REGION}.',
     'The official Top {N} {CATEGORY} rankings {REGION} are here.',
@@ -96,6 +114,11 @@ const CONTEXT_TEMPLATES: Record<InfographicType, string[]> = {
   ],
 };
 
+CONTEXT_TEMPLATES.leagueDistribution = [
+  'Here is how the Top 100 girls teams are distributed across leagues by age group.',
+  'A breakdown of which leagues place the most teams in the Top 100 girls rankings.',
+];
+
 const CONTEXT_SUFFIX_TEMPLATES = [
   'Rankings are based on match results, strength of schedule, and performance metrics.',
   'These rankings are based on match results, strength of schedule, and performance metrics.',
@@ -106,7 +129,7 @@ const CONTEXT_SUFFIX_TEMPLATES = [
 // ---------------------------------------------------------------------------
 // Block 3 — Engagement Question (Drives Comments)
 // ---------------------------------------------------------------------------
-const ENGAGEMENT_TEMPLATES: Record<InfographicType, string[]> = {
+const ENGAGEMENT_TEMPLATES: TemplateMap = {
   top10: [
     'Did we get it right?',
     'Who should be #1?',
@@ -142,7 +165,13 @@ const ENGAGEMENT_TEMPLATES: Record<InfographicType, string[]> = {
 // ---------------------------------------------------------------------------
 // Block 4 — Call To Action (Traffic Driver)
 // ---------------------------------------------------------------------------
-const CTA_TEMPLATES: Record<InfographicType, string[]> = {
+ENGAGEMENT_TEMPLATES.leagueDistribution = [
+  'Which league stands out the most?',
+  'Does this match what you see on the field?',
+  'Which league should have more teams in the Top 100?',
+];
+
+const CTA_TEMPLATES: TemplateMap = {
   top10: [
     'See full rankings at pitchrank.io',
     'Search your team at pitchrank.io/rankings',
@@ -168,6 +197,8 @@ const CTA_TEMPLATES: Record<InfographicType, string[]> = {
 // ---------------------------------------------------------------------------
 // Block 5 — Hashtags
 // ---------------------------------------------------------------------------
+CTA_TEMPLATES.leagueDistribution = ['Explore full rankings at pitchrank.io/rankings', 'See every team at pitchrank.io'];
+
 const BASE_HASHTAGS = ['YouthSoccer', 'ClubSoccer', 'SoccerRankings', 'PitchRank'];
 const GENDER_HASHTAGS: Record<string, string[]> = {
   M: ['BoysSoccer'],

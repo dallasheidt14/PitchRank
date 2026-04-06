@@ -1,0 +1,152 @@
+import { describe, expect, it } from 'vitest';
+import { predictMatch } from './matchPredictor';
+import type { Game, TeamWithRanking } from './types';
+
+function makeTeam(overrides: Partial<TeamWithRanking> = {}): TeamWithRanking {
+  return {
+    team_id_master: 'team-default',
+    team_name: 'Default FC 14B',
+    club_name: 'Default FC',
+    state: 'TX',
+    age: 12,
+    gender: 'M',
+    rank_in_cohort_final: 50,
+    rank_in_state_final: 10,
+    power_score_final: 0.5,
+    glicko_rating: 1500,
+    glicko_rd: 80,
+    glicko_volatility: 0.05,
+    sos_norm: 0.5,
+    sos_norm_state: 0.5,
+    sos_rank_national: 50,
+    sos_rank_state: 10,
+    offense_norm: 0.5,
+    defense_norm: 0.5,
+    wins: 10,
+    losses: 5,
+    draws: 2,
+    games_played: 17,
+    last_scraped_at: null,
+    total_games_played: 17,
+    total_wins: 10,
+    total_losses: 5,
+    total_draws: 2,
+    win_percentage: 64.7,
+    ...overrides,
+  };
+}
+
+function makeGame(overrides: Partial<Game>): Game {
+  return {
+    id: crypto.randomUUID(),
+    home_team_master_id: 'team-a',
+    away_team_master_id: 'team-b',
+    home_provider_id: 'home-provider',
+    away_provider_id: 'away-provider',
+    home_score: 2,
+    away_score: 1,
+    result: null,
+    game_date: '2026-03-01',
+    competition: null,
+    division_name: null,
+    event_name: null,
+    venue: null,
+    provider_id: null,
+    source_url: null,
+    scraped_at: null,
+    created_at: '2026-03-01T00:00:00.000Z',
+    ml_overperformance: null,
+    is_excluded: false,
+    ...overrides,
+  };
+}
+
+describe('predictMatch', () => {
+  it('favors the stronger team in a clear mismatch', () => {
+    const teamA = makeTeam({
+      team_id_master: 'team-a',
+      team_name: 'Alpha FC 14B',
+      power_score_final: 0.84,
+      glicko_rating: 1710,
+      glicko_rd: 42,
+      sos_norm: 0.75,
+      offense_norm: 0.82,
+      defense_norm: 0.79,
+      games_played: 24,
+    });
+    const teamB = makeTeam({
+      team_id_master: 'team-b',
+      team_name: 'Beta FC 14B',
+      power_score_final: 0.58,
+      glicko_rating: 1510,
+      glicko_rd: 88,
+      sos_norm: 0.46,
+      offense_norm: 0.56,
+      defense_norm: 0.51,
+      wins: 8,
+      losses: 12,
+      draws: 1,
+      games_played: 21,
+    });
+
+    const games: Game[] = [
+      makeGame({ home_team_master_id: 'team-a', away_team_master_id: 'opp-1', home_score: 4, away_score: 0 }),
+      makeGame({ home_team_master_id: 'opp-2', away_team_master_id: 'team-a', home_score: 1, away_score: 3 }),
+      makeGame({ home_team_master_id: 'team-a', away_team_master_id: 'opp-3', home_score: 5, away_score: 1 }),
+      makeGame({ home_team_master_id: 'opp-4', away_team_master_id: 'team-a', home_score: 0, away_score: 2 }),
+      makeGame({ home_team_master_id: 'team-a', away_team_master_id: 'opp-5', home_score: 3, away_score: 1 }),
+      makeGame({ home_team_master_id: 'team-b', away_team_master_id: 'opp-6', home_score: 1, away_score: 2 }),
+      makeGame({ home_team_master_id: 'opp-7', away_team_master_id: 'team-b', home_score: 3, away_score: 0 }),
+      makeGame({ home_team_master_id: 'team-b', away_team_master_id: 'opp-8', home_score: 1, away_score: 1 }),
+      makeGame({ home_team_master_id: 'opp-9', away_team_master_id: 'team-b', home_score: 2, away_score: 1 }),
+      makeGame({ home_team_master_id: 'team-b', away_team_master_id: 'opp-10', home_score: 0, away_score: 4 }),
+    ];
+
+    const prediction = predictMatch(teamA, teamB, games);
+
+    expect(prediction.predictedWinner).toBe('team_a');
+    expect(prediction.winProbabilityA).toBeGreaterThan(0.7);
+    expect(prediction.expectedMargin).toBeGreaterThan(0);
+    expect(prediction.expectedScore.teamA).toBeGreaterThanOrEqual(prediction.expectedScore.teamB);
+  });
+
+  it('returns a draw-leaning, low-confidence prediction for sparse evenly matched data', () => {
+    const teamA = makeTeam({
+      team_id_master: 'team-a',
+      team_name: 'Even FC 14B',
+      games_played: 1,
+      wins: 0,
+      losses: 0,
+      draws: 1,
+      power_score_final: 0.5,
+      glicko_rating: 1500,
+      glicko_rd: 180,
+      sos_norm: 0.5,
+      offense_norm: 0.5,
+      defense_norm: 0.5,
+    });
+    const teamB = makeTeam({
+      team_id_master: 'team-b',
+      team_name: 'Mirror FC 14B',
+      games_played: 1,
+      wins: 0,
+      losses: 0,
+      draws: 1,
+      power_score_final: 0.5,
+      glicko_rating: 1500,
+      glicko_rd: 180,
+      sos_norm: 0.5,
+      offense_norm: 0.5,
+      defense_norm: 0.5,
+    });
+
+    const prediction = predictMatch(teamA, teamB, []);
+
+    expect(prediction.predictedWinner).toBe('draw');
+    expect(prediction.confidence).toBe('low');
+    expect(prediction.winProbabilityA).toBeGreaterThan(0);
+    expect(prediction.winProbabilityA).toBeLessThan(1);
+    expect(prediction.expectedScore.teamA).toBeGreaterThanOrEqual(0);
+    expect(prediction.expectedScore.teamB).toBeGreaterThanOrEqual(0);
+  });
+});

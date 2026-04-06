@@ -194,7 +194,6 @@ export const api = {
       if (normalizedAge !== null) {
         fallbackQuery = fallbackQuery.eq('age', normalizedAge);
       }
-
       if (gender) {
         fallbackQuery = fallbackQuery.eq('gender', gender);
       }
