@@ -105,7 +105,9 @@ async def save_ranking_snapshot(
             "gender": str(row.get("gender", "")),
             "rank_in_cohort": int(row.get("rank_in_cohort")) if pd.notna(row.get("rank_in_cohort")) else None,
             "rank_in_cohort_ml": int(row.get("rank_in_cohort_ml")) if pd.notna(row.get("rank_in_cohort_ml")) else None,
-            "rank_in_cohort_final": int(row.get("rank_in_cohort_final")) if pd.notna(row.get("rank_in_cohort_final")) else None,
+            "rank_in_cohort_final": int(row.get("rank_in_cohort_final"))
+            if pd.notna(row.get("rank_in_cohort_final"))
+            else None,
             "power_score_final": float(row.get("power_score_final"))
             if pd.notna(row.get("power_score_final"))
             else None,
@@ -262,7 +264,11 @@ async def get_historical_ranks(
             # 3-level fallback: final → ML → raw (handles pre-migration snapshots)
             final_rank = record.get("rank_in_cohort_final")
             ml_rank = record.get("rank_in_cohort_ml")
-            rank = final_rank if final_rank is not None else (ml_rank if ml_rank is not None else record.get("rank_in_cohort"))
+            rank = (
+                final_rank
+                if final_rank is not None
+                else (ml_rank if ml_rank is not None else record.get("rank_in_cohort"))
+            )
 
             # Calculate date distance
             distance = abs((snapshot_date - target_date).days)
@@ -503,8 +509,7 @@ async def calculate_rank_changes(
         final_rank = row.get("rank_in_cohort_final")
         ml_rank = row.get("rank_in_cohort_ml")
         current_national_rank = (
-            final_rank if pd.notna(final_rank)
-            else (ml_rank if pd.notna(ml_rank) else row.get("rank_in_cohort"))
+            final_rank if pd.notna(final_rank) else (ml_rank if pd.notna(ml_rank) else row.get("rank_in_cohort"))
         )
         current_state_rank = row.get("current_state_rank")
 

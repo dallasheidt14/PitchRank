@@ -15,7 +15,6 @@ vi.mock('./matchExplainer', () => ({
   explainMatch: mockExplainMatch,
 }));
 
-import { AppError } from './errors';
 import { buildMatchPrediction } from './matchPredictionService';
 
 const TEAM_A_ID = '11111111-1111-1111-1111-111111111111';

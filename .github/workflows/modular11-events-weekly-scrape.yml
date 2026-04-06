@@ -1,3 +1,6 @@
+# MLS NEXT events (Cup, Fest, GA Cup, etc.). Event spider uses the same name:{slug} team IDs as the league
+# spider when academy numeric IDs are missing, so team_alias_map resolves consistently with league imports.
+# Import: import_games_enhanced modular11 --batch-size 500 --summary-only.
 name: Modular11 Events Weekly Scrape
 
 on:
@@ -17,9 +20,9 @@ on:
         required: false
         default: '17'
       days_back:
-        description: 'Number of days back to scrape'
+        description: 'Event list date filter (days); 365 includes prior-year Cup through current showcases'
         required: false
-        default: '21'
+        default: '365'
       dry_run:
         description: 'Dry run (scrape only, no import)'
         type: boolean
@@ -64,7 +67,7 @@ jobs:
           
           AGE_MIN="${{ github.event.inputs.age_min || '13' }}"
           AGE_MAX="${{ github.event.inputs.age_max || '17' }}"
-          DAYS_BACK="${{ github.event.inputs.days_back || '21' }}"
+          DAYS_BACK="${{ github.event.inputs.days_back || '365' }}"
           
           echo "Scraping events: U${AGE_MIN}-U${AGE_MAX}, last ${DAYS_BACK} days"
           
@@ -172,7 +175,7 @@ jobs:
           echo "===================="
           echo "Modular11 Events Weekly Scrape completed"
           echo "===================="
-          echo "Date range: Last ${{ github.event.inputs.days_back || '21' }} days"
+          echo "Date range: Last ${{ github.event.inputs.days_back || '365' }} days"
           echo "Age groups: U${{ github.event.inputs.age_min || '13' }}-U${{ github.event.inputs.age_max || '17' }}"
           echo "Source: MLS NEXT Events/Showcases"
           echo "Dry run: ${{ github.event.inputs.dry_run || 'false' }}"

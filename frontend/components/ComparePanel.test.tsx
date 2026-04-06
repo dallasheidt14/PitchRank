@@ -3,11 +3,7 @@ import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
-const {
-  mockUseTeam,
-  mockUseCommonOpponents,
-  mockUseMatchPrediction,
-} = vi.hoisted(() => ({
+const { mockUseTeam, mockUseCommonOpponents, mockUseMatchPrediction } = vi.hoisted(() => ({
   mockUseTeam: vi.fn(),
   mockUseCommonOpponents: vi.fn(),
   mockUseMatchPrediction: vi.fn(),
@@ -37,7 +33,8 @@ vi.mock('@/components/ui/tooltip', async () => {
 
 vi.mock('recharts', async () => {
   const ReactModule = await import('react');
-  const passthrough = ({ children }: { children?: React.ReactNode }) => ReactModule.createElement('div', null, children);
+  const passthrough = ({ children }: { children?: React.ReactNode }) =>
+    ReactModule.createElement('div', null, children);
 
   return {
     RadarChart: passthrough,

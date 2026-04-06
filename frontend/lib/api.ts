@@ -103,7 +103,10 @@ export const api = {
       let data = rpcResult.data as RankingWithTeam[] | null;
 
       if (rpcResult.error && isMissingNationalRankingsRpc(rpcResult.error)) {
-        let fallbackQuery = supabase.from('rankings_view').select('*').in('status', ['Active', 'Not Enough Ranked Games']);
+        let fallbackQuery = supabase
+          .from('rankings_view')
+          .select('*')
+          .in('status', ['Active', 'Not Enough Ranked Games']);
 
         if (normalizedAge !== null) {
           fallbackQuery = fallbackQuery.eq('age', normalizedAge);

@@ -1,3 +1,5 @@
+# MLS NEXT league schedule (HD + AD). Import uses import_games_enhanced modular11 --batch-size 500 --summary-only.
+# Default days_back=365 matches the v53e ranking lookback; use a smaller value for incremental manual runs.
 name: Modular11 Weekly Scrape
 
 on:
@@ -20,9 +22,9 @@ on:
         required: false
         default: '17'
       days_back:
-        description: 'Number of days back to scrape'
+        description: 'Days of history to scrape (365 = full ranking-style window; use 7–30 for small incrementals)'
         required: false
-        default: '7'
+        default: '365'
       division:
         description: 'Division to scrape (hd, ad, or both)'
         required: false
@@ -71,7 +73,7 @@ jobs:
           
           AGE_MIN="${{ github.event.inputs.age_min || '13' }}"
           AGE_MAX="${{ github.event.inputs.age_max || '17' }}"
-          DAYS_BACK="${{ github.event.inputs.days_back || '7' }}"
+          DAYS_BACK="${{ github.event.inputs.days_back || '365' }}"
           DIVISION="${{ github.event.inputs.division || 'both' }}"
           
           echo "Scraping league: U${AGE_MIN}-U${AGE_MAX}, last ${DAYS_BACK} days, division: ${DIVISION}"
@@ -176,7 +178,7 @@ jobs:
           echo "===================="
           echo "Modular11 League Weekly Scrape completed"
           echo "===================="
-          echo "Date range: Last ${{ github.event.inputs.days_back || '7' }} days"
+          echo "Date range: Last ${{ github.event.inputs.days_back || '365' }} days"
           echo "Age groups: U${{ github.event.inputs.age_min || '13' }}-U${{ github.event.inputs.age_max || '17' }}"
           echo "Divisions: ${{ github.event.inputs.division || 'both' }}"
           echo "Dry run: ${{ github.event.inputs.dry_run || 'false' }}"

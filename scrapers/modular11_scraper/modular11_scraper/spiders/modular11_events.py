@@ -444,8 +444,9 @@ class Modular11EventsSpider(scrapy.Spider):
             './/div[contains(@class, "container-second-team")]/preceding-sibling::div[1]//div[contains(@class, "club-photo")]/@style'
         ).get('')
         
-        home_team_id = self._extract_academy_id(home_image_style) or f"event_{event_id}_{home_team_name}"
-        away_team_id = self._extract_academy_id(away_image_style) or f"event_{event_id}_{away_team_name}"
+        # Match league spider fallback: name:{slug} so team_alias_map keys align across schedule vs events
+        home_team_id = self._extract_academy_id(home_image_style) or self._generate_team_id(home_team_name)
+        away_team_id = self._extract_academy_id(away_image_style) or self._generate_team_id(away_team_name)
         
         # Extract score - try multiple selectors
         score_span = teams_container.xpath('.//div[contains(@class, "container-score")]//span[contains(@class, "score-match-table")]')
@@ -554,6 +555,15 @@ class Modular11EventsSpider(scrapy.Spider):
             return match.group(1)
         
         return None
+
+    def _generate_team_id(self, team_name: str) -> str:
+        """Same slug scheme as modular11_schedule when academy numeric ID is missing."""
+        if not team_name:
+            return "unknown"
+        slug = team_name.lower()
+        slug = re.sub(r"[^a-z0-9]+", "-", slug)
+        slug = slug.strip("-")
+        return f"name:{slug}" if slug else "unknown"
     
     def _derive_tier_from_bracket(self, bracket: str, competition: str, division_text: str) -> str:
         """
@@ -896,15 +906,17 @@ class Modular11EventsSpider(scrapy.Spider):
                 # Create game items (one for each team's perspective)
                 scraped_at = datetime.now().isoformat()
                 
+                hid = self._generate_team_id(home_team_name)
+                aid = self._generate_team_id(away_team_name)
                 # Home team perspective
                 home_item = Modular11GameItem(
                     provider='modular11',
-                    team_id=f"event_{event_id}_{home_team_name}",
-                    team_id_source=f"event_{event_id}_{home_team_name}",
+                    team_id=hid,
+                    team_id_source=hid,
                     team_name=home_team_name,
                     club_name=home_team_name,
-                    opponent_id=f"event_{event_id}_{away_team_name}",
-                    opponent_id_source=f"event_{event_id}_{away_team_name}",
+                    opponent_id=aid,
+                    opponent_id_source=aid,
                     opponent_name=away_team_name,
                     opponent_club_name=away_team_name,
                     age_group=age_group,
@@ -929,12 +941,12 @@ class Modular11EventsSpider(scrapy.Spider):
                 # Away team perspective
                 away_item = Modular11GameItem(
                     provider='modular11',
-                    team_id=f"event_{event_id}_{away_team_name}",
-                    team_id_source=f"event_{event_id}_{away_team_name}",
+                    team_id=aid,
+                    team_id_source=aid,
                     team_name=away_team_name,
                     club_name=away_team_name,
-                    opponent_id=f"event_{event_id}_{home_team_name}",
-                    opponent_id_source=f"event_{event_id}_{home_team_name}",
+                    opponent_id=hid,
+                    opponent_id_source=hid,
                     opponent_name=home_team_name,
                     opponent_club_name=home_team_name,
                     age_group=age_group,

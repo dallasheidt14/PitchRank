@@ -175,16 +175,28 @@ async function fetchPredictionTeam(supabase: SupabaseClient, teamId: string): Pr
     club_name: teamData.club_name,
     state: teamData.state ?? teamData.state_code,
     age,
-    gender: normalizeGenderCode(rankingData?.gender ?? stateRankingData?.gender ?? rankingsFullData?.gender ?? teamData.gender),
+    gender: normalizeGenderCode(
+      rankingData?.gender ?? stateRankingData?.gender ?? rankingsFullData?.gender ?? teamData.gender
+    ),
     rank_in_cohort_final:
-      rankingData?.rank_in_cohort_final ?? stateRankingData?.rank_in_cohort_final ?? rankingsFullData?.rank_in_cohort_final ?? null,
+      rankingData?.rank_in_cohort_final ??
+      stateRankingData?.rank_in_cohort_final ??
+      rankingsFullData?.rank_in_cohort_final ??
+      null,
     rank_in_state_final: stateRankingData?.rank_in_state_final ?? null,
     power_score_final:
-      rankingData?.power_score_final ?? stateRankingData?.power_score_final ?? rankingsFullData?.power_score_final ?? null,
-    glicko_rating: rankingData?.glicko_rating ?? stateRankingData?.glicko_rating ?? rankingsFullData?.glicko_rating ?? null,
+      rankingData?.power_score_final ??
+      stateRankingData?.power_score_final ??
+      rankingsFullData?.power_score_final ??
+      null,
+    glicko_rating:
+      rankingData?.glicko_rating ?? stateRankingData?.glicko_rating ?? rankingsFullData?.glicko_rating ?? null,
     glicko_rd: rankingData?.glicko_rd ?? stateRankingData?.glicko_rd ?? rankingsFullData?.glicko_rd ?? null,
     glicko_volatility:
-      rankingData?.glicko_volatility ?? stateRankingData?.glicko_volatility ?? rankingsFullData?.glicko_volatility ?? null,
+      rankingData?.glicko_volatility ??
+      stateRankingData?.glicko_volatility ??
+      rankingsFullData?.glicko_volatility ??
+      null,
     sos_norm: rankingData?.sos_norm ?? stateRankingData?.sos_norm ?? rankingsFullData?.sos_norm ?? null,
     sos_norm_state: stateRankingData?.sos_norm_state ?? rankingsFullData?.sos_norm ?? null,
     offense_norm: rankingData?.offense_norm ?? stateRankingData?.offense_norm ?? rankingsFullData?.off_norm ?? null,

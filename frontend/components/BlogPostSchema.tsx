@@ -32,7 +32,11 @@ export function BlogPostSchema({
   articleSection,
 }: BlogPostSchemaProps) {
   const postUrl = `${BASE_URL}/blog/${slug}`;
-  const imageUrl = image ? (image.startsWith('http') ? image : `${BASE_URL}${image}`) : `${BASE_URL}/opengraph-image.png`;
+  const imageUrl = image
+    ? image.startsWith('http')
+      ? image
+      : `${BASE_URL}${image}`
+    : `${BASE_URL}/opengraph-image.png`;
 
   const schema = {
     '@context': 'https://schema.org',

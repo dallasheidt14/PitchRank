@@ -2,11 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextRequest } from 'next/server';
 import { AppError } from '@/lib/errors';
 
-const {
-  mockRequirePremium,
-  mockCheckRateLimit,
-  mockBuildMatchPrediction,
-} = vi.hoisted(() => ({
+const { mockRequirePremium, mockCheckRateLimit, mockBuildMatchPrediction } = vi.hoisted(() => ({
   mockRequirePremium: vi.fn(),
   mockCheckRateLimit: vi.fn(),
   mockBuildMatchPrediction: vi.fn(),
