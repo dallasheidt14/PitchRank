@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
+import type { MatchPredictionResponse } from './matchPredictionService';
 import type { TeamTrajectory, GameWithTeams, TeamWithRanking, RankHistoryPoint } from './types';
 import type { TeamPredictive } from '@/types/TeamPredictive';
 
@@ -157,11 +158,13 @@ export function usePredictive(teamId: string | null) {
  * @returns React Query hook result with prediction and explanations
  */
 export function useMatchPrediction(teamAId: string | null, teamBId: string | null) {
-  return useQuery({
+  return useQuery<MatchPredictionResponse | null>({
     queryKey: ['match-prediction', teamAId, teamBId],
     queryFn: () => api.getMatchPrediction(teamAId!, teamBId!),
     enabled: !!teamAId && !!teamBId && teamAId !== teamBId,
     staleTime: 15 * 60 * 1000, // 15 minutes (predictions based on weekly rankings)
     gcTime: 30 * 60 * 1000, // Keep in cache for 30 minutes
+    retry: false,
+    throwOnError: false,
   });
 }

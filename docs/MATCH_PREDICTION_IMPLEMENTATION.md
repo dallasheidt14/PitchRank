@@ -51,22 +51,23 @@ This document describes the complete match prediction and explanation system bui
 
 1. **User selects two teams** in ComparePanel
 2. **Frontend calls** `useMatchPrediction(teamAId, teamBId)`
-3. **API fetches:**
+3. **Frontend POSTs to** `/api/match-prediction`
+4. **Route fetches:**
    - Team A and Team B ranking data
-   - Recent games (last 60 days, up to 500 games)
-4. **Match Predictor calculates:**
+   - Recent games (365-day scored window, including merged team IDs)
+5. **Match Predictor calculates:**
    - Recent form for both teams (last 5 games)
    - Power score differential
    - SOS differential
    - Offense vs Defense matchup asymmetry
    - Composite differential (weighted combination)
    - Win probability and expected score
-5. **Match Explainer generates:**
+6. **Match Explainer generates:**
    - Summary statement
    - Top 4 explanation factors (ranked by importance)
    - Key insights (bullet points)
    - Prediction quality indicator
-6. **Frontend displays** prediction with explanations in `EnhancedPredictionCard`
+7. **Frontend displays** prediction with explanations in `EnhancedPredictionCard`
 
 ---
 
@@ -250,9 +251,9 @@ interface MatchExplanation {
 └─────────────────────────────────────────┘
 ```
 
-### 4. API Integration (`frontend/lib/api.ts`)
+### 4. API Integration (`frontend/app/api/match-prediction/route.ts`, `frontend/lib/api.ts`)
 
-**Purpose:** Fetches data and orchestrates prediction generation.
+**Purpose:** The route enforces premium access and orchestrates prediction generation. The browser client calls the route and consumes the returned payload.
 
 **Function:**
 

@@ -61,7 +61,12 @@ export function ComparePanel() {
   } = useCommonOpponents(team1Id, team2Id);
 
   // Fetch enhanced match prediction with explanations
-  const { data: matchPrediction, isLoading: predictionLoading } = useMatchPrediction(team1Id, team2Id);
+  const {
+    data: matchPrediction,
+    isLoading: predictionLoading,
+    isError: predictionError,
+    error: predictionErrorObj,
+  } = useMatchPrediction(team1Id, team2Id);
 
   const handleTeam1Change = (id: string | null, team: RankingRow | null) => {
     // Track compare opened when first team is selected
@@ -483,8 +488,22 @@ export function ComparePanel() {
                 </Card>
               )}
 
+              {/* Prediction error */}
+              {predictionError && !predictionLoading && (
+                <Card className="mt-4 border-destructive/40">
+                  <CardContent className="py-6 text-center text-sm text-muted-foreground">
+                    <p className="font-medium text-foreground">Unable to analyze this matchup right now.</p>
+                    <p className="mt-1">
+                      {predictionErrorObj instanceof Error
+                        ? predictionErrorObj.message
+                        : 'Please try again in a moment.'}
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Prediction unavailable */}
-              {!matchPrediction && !predictionLoading && (
+              {!predictionError && !matchPrediction && !predictionLoading && (
                 <Card className="mt-4 border-dashed">
                   <CardContent className="py-6 text-center text-sm text-muted-foreground">
                     Prediction unavailable. Match predictions now rely on current Glicko ranking data for both teams.

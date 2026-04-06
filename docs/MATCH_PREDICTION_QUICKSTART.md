@@ -76,19 +76,20 @@ The system explains predictions using:
 ### Behind the Scenes
 
 1. **User selects two teams** → Compare page
-2. **System fetches:**
+2. **Browser calls** `POST /api/match-prediction`
+3. **System fetches:**
    - Team rankings (power score, SOS, offense, defense)
-   - Recent games (last 60 days)
-3. **Calculates recent form:**
+   - Recent games (365-day scored window, including merged team IDs)
+4. **Calculates recent form:**
    - Average goal differential in last 5 games
-4. **Computes prediction:**
+5. **Computes prediction:**
    - Weighted combination of all factors
    - Win probability using calibrated algorithm
-5. **Generates explanations:**
+6. **Generates explanations:**
    - Analyzes which factors favor each team
    - Ranks factors by importance
    - Creates human-readable descriptions
-6. **Displays results:**
+7. **Displays results:**
    - Expected score
    - Win probabilities
    - Top 4 explanation factors
@@ -162,7 +163,8 @@ Key Insights:
 
 - **`matchPredictor.ts`** - Prediction algorithm (66.2% accuracy)
 - **`matchExplainer.ts`** - Explanation generator
-- **`api.ts`** - API integration
+- **`app/api/match-prediction/route.ts`** - Premium-gated prediction route
+- **`api.ts`** - Browser client for the route
 - **`hooks.ts`** - React Query hook
 
 ### Validation Scripts
