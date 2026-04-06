@@ -10,6 +10,7 @@ import {
   BiggestMoversPreview,
   HeadToHeadPreview,
   StateChampionsPreview,
+  LeagueDistributionPreview,
 } from '@/components/infographics';
 import { renderInfographicToCanvas, canvasToBlob } from '@/components/infographics/canvasRenderer';
 import { renderTeamSpotlightToCanvas } from '@/components/infographics/teamSpotlightRenderer';
@@ -18,6 +19,7 @@ import { renderHeadToHeadToCanvas } from '@/components/infographics/headToHeadRe
 import { renderStateChampionsToCanvas, generateStateChampions } from '@/components/infographics/stateChampionsRenderer';
 import { renderStoryTemplateToCanvas, STORY_TYPES } from '@/components/infographics/storyTemplateRenderer';
 import { renderCoverImageToCanvas, COVER_PLATFORMS } from '@/components/infographics/coverImageRenderer';
+import { renderLeagueDistributionToCanvas } from '@/components/infographics/leagueDistributionRenderer';
 import { useRankings } from '@/hooks/useRankings';
 import { useInstagramHandles, collectHandlesForCaption } from '@/hooks/useInstagramHandles';
 import { US_STATES, AGE_GROUP_OPTIONS, GENDER_OPTIONS } from '@/lib/constants';
@@ -33,6 +35,7 @@ import {
   Award,
   Megaphone,
   Image as ImageIcon,
+  BarChart3,
 } from 'lucide-react';
 import { Instagram, Facebook } from '@/components/ui/brand-icons';
 import { Button } from '@/components/ui/button';
@@ -53,7 +56,15 @@ const platforms: { id: Platform; label: string; icon: React.ReactNode }[] = [
   { id: 'facebook', label: 'Facebook Post', icon: <Facebook size={18} /> },
 ];
 
-type InfographicType = 'top10' | 'spotlight' | 'movers' | 'headToHead' | 'stateChampions' | 'stories' | 'covers';
+type InfographicType =
+  | 'top10'
+  | 'spotlight'
+  | 'movers'
+  | 'headToHead'
+  | 'stateChampions'
+  | 'leagueDistribution'
+  | 'stories'
+  | 'covers';
 
 const INFOGRAPHIC_TYPES: { id: InfographicType; label: string; icon: React.ReactNode; description: string }[] = [
   { id: 'top10', label: 'Top 10 Rankings', icon: <Trophy size={18} />, description: 'Classic top 10 leaderboard' },
@@ -61,6 +72,12 @@ const INFOGRAPHIC_TYPES: { id: InfographicType; label: string; icon: React.React
   { id: 'movers', label: 'Biggest Movers', icon: <TrendingUp size={18} />, description: 'Teams rising & falling' },
   { id: 'headToHead', label: 'Head-to-Head', icon: <Users size={18} />, description: 'Compare two teams' },
   { id: 'stateChampions', label: 'State Champions', icon: <Award size={18} />, description: '#1 team from each state' },
+  {
+    id: 'leagueDistribution',
+    label: 'League Breakdown',
+    icon: <BarChart3 size={18} />,
+    description: 'Top 100 girls by league per age group',
+  },
   {
     id: 'stories',
     label: 'Story Templates',
@@ -200,7 +217,11 @@ export default function InfographicsPage() {
   const generateImage = useCallback(async (): Promise<Blob | null> => {
     setErrorMessage(null);
 
-    if (selectedInfographicType !== 'covers' && selectedInfographicType !== 'stories') {
+    if (
+      selectedInfographicType !== 'covers' &&
+      selectedInfographicType !== 'stories' &&
+      selectedInfographicType !== 'leagueDistribution'
+    ) {
       if (!rankings || rankings.length === 0) {
         setErrorMessage('No team data available to generate image.');
         return null;
@@ -271,6 +292,13 @@ export default function InfographicsPage() {
             platform: selectedPlatform,
             ageGroup: selectedAgeGroup,
             gender: selectedGender,
+            generatedDate: new Date().toISOString(),
+          });
+          break;
+
+        case 'leagueDistribution':
+          canvas = await renderLeagueDistributionToCanvas({
+            platform: selectedPlatform,
             generatedDate: new Date().toISOString(),
           });
           break;
@@ -795,6 +823,20 @@ export default function InfographicsPage() {
                         : `${STORY_TYPES.find((s) => s.value === selectedStoryType)?.label}`}
                     </p>
                     <p className="text-sm">Click Download to generate the image</p>
+                  </div>
+                ) : selectedInfographicType === 'leagueDistribution' ? (
+                  <div
+                    style={{
+                      width: dimensions.width * previewScale,
+                      height: dimensions.height * previewScale,
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <LeagueDistributionPreview
+                      platform={selectedPlatform}
+                      scale={previewScale}
+                      generatedDate={new Date().toISOString()}
+                    />
                   </div>
                 ) : isLoading ? (
                   <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
