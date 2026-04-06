@@ -93,10 +93,11 @@ export const LeagueDistributionPreview = forwardRef<HTMLDivElement, LeagueDistri
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <div
               style={{
-                width: 6,
-                height: titleSize * 0.3,
+                width: 10,
+                height: titleSize * 0.45,
                 background: BRAND_COLORS.electricYellow,
-                borderRadius: 1,
+                transform: 'skewX(-12deg)',
+                flexShrink: 0,
               }}
             />
             <span
@@ -365,7 +366,7 @@ export const LeagueDistributionPreview = forwardRef<HTMLDivElement, LeagueDistri
                 color: 'rgba(255,255,255,0.35)',
               }}
             >
-              pitchrank.com
+              pitchrank.io
             </span>
           </div>
         </div>

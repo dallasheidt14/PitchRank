@@ -183,11 +183,15 @@ export async function renderLeagueDistributionToCanvas(options: RenderOptions): 
   const logoSmallSize = titleSize * 0.45;
   const logoY = curY + logoSmallSize;
 
-  // Slash bar
-  const slashW = 6;
+  // Slash bar (skewed to look like /)
+  const slashW = 10;
   const slashH = logoSmallSize * 0.65;
+  ctx.save();
+  ctx.translate(pad + slashW / 2, logoY - slashH + 2);
+  ctx.transform(1, 0, -0.2, 1, 0, 0);
   ctx.fillStyle = BRAND_COLORS.electricYellow;
-  ctx.fillRect(pad, logoY - slashH + 2, slashW, slashH);
+  ctx.fillRect(-slashW / 2, 0, slashW, slashH);
+  ctx.restore();
 
   // PITCH
   ctx.fillStyle = '#ffffff';
@@ -424,11 +428,11 @@ export async function renderLeagueDistributionToCanvas(options: RenderOptions): 
   ctx.fillStyle = 'rgba(255,255,255,0.3)';
   ctx.fillText(dateStr, pad, footerY);
 
-  // pitchrank.com
+  // pitchrank.io
   ctx.textAlign = 'right';
   ctx.font = `600 ${statSize}px Oswald, "Arial Black", sans-serif`;
   ctx.fillStyle = 'rgba(255,255,255,0.35)';
-  ctx.fillText('pitchrank.com', W - pad, footerY);
+  ctx.fillText('pitchrank.io', W - pad, footerY);
 
   // Top border accent line
   ctx.fillStyle = BRAND_COLORS.electricYellow;
