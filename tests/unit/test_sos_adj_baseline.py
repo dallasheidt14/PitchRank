@@ -52,12 +52,12 @@ class TestSOSAdjWeakPenalty:
         sos_norm = pd.Series([0.0, 0.10, 0.20, 0.45])
         scale = _compute_sos_scale(sos_norm, cfg)
 
-        # sos_norm=0.0: weak = 0.45/0.45 = 1.0, scale = 1.0 - 0.10*1.0 = 0.90
-        assert abs(scale.iloc[0] - 0.90) < 1e-12
-        # sos_norm=0.10: weak = 0.35/0.45 ≈ 0.778, scale ≈ 0.922
-        assert abs(scale.iloc[1] - (1.0 - 0.10 * 0.35 / 0.45)) < 1e-12
-        # sos_norm=0.20: weak = 0.25/0.45 ≈ 0.556, scale ≈ 0.944
-        assert abs(scale.iloc[2] - (1.0 - 0.10 * 0.25 / 0.45)) < 1e-12
+        # sos_norm=0.0: weak = 0.45/0.45 = 1.0, scale = 1.0 - 0.16*1.0 = 0.84
+        assert abs(scale.iloc[0] - 0.84) < 1e-12
+        # sos_norm=0.10: weak = 0.35/0.45 ≈ 0.778, scale ≈ 0.876
+        assert abs(scale.iloc[1] - (1.0 - 0.16 * 0.35 / 0.45)) < 1e-12
+        # sos_norm=0.20: weak = 0.25/0.45 ≈ 0.556, scale ≈ 0.911
+        assert abs(scale.iloc[2] - (1.0 - 0.16 * 0.25 / 0.45)) < 1e-12
         # sos_norm=0.45: dead zone edge, scale = 1.0
         assert abs(scale.iloc[3] - 1.0) < 1e-12
 
@@ -69,8 +69,8 @@ class TestSOSAdjWeakPenalty:
         scale = _compute_sos_scale(sos_norm, cfg)
         mu_sos = cfg.INITIAL_MU + (mu - cfg.INITIAL_MU) * scale
 
-        # Weak team: 1500 + 200 * 0.90 = 1680
-        assert abs(mu_sos.iloc[0] - 1680.0) < 1e-9
+        # Weak team: 1500 + 200 * 0.84 = 1668
+        assert abs(mu_sos.iloc[0] - 1668.0) < 1e-9
         # Dead-zone team: 1500 + 200 * 1.0 = 1700
         assert abs(mu_sos.iloc[1] - 1700.0) < 1e-9
 
