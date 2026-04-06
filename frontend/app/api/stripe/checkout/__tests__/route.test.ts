@@ -53,7 +53,7 @@ function makeRequest(body: Record<string, unknown> = {}): Request {
 describe('POST /api/stripe/checkout', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.NEXT_PUBLIC_SITE_URL = 'https://pitchrank.com';
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://pitchrank.io';
   });
 
   it('returns 401 when not authenticated', async () => {
