@@ -54,8 +54,8 @@ async function fetchStateRankings(
 }
 
 /**
- * Fetch national rankings via the /api/rankings/national route, which queries
- * rankings_view server-side with edge caching (no browser-side Supabase load).
+ * Fetch national rankings via the /api/rankings/national route, which uses the
+ * get_national_rankings RPC (filters before pagination on rankings_full).
  */
 async function fetchNationalRankings(
   ageGroup: string | undefined,
