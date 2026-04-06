@@ -44,9 +44,9 @@
 
 import type { TeamWithRanking } from './types';
 import type { Game } from './types';
+import { loadCalibrationJson } from './calibrationLoader';
 import { computeConfidence } from './confidenceEngine';
 import { extractAgeFromTeamName } from './utils';
-import { isNetworkError } from './errors';
 
 // Age group parameters (loaded from JSON, fallback to defaults)
 interface AgeGroupParameters {
@@ -75,10 +75,6 @@ let probabilityParams: ProbabilityParameters | null = null;
 let probabilityParamsLoading: Promise<void> | null = null;
 let marginParamsV2: MarginParametersV2 | null = null;
 let marginParamsV2Loading: Promise<void> | null = null;
-let ageGroupRetries = 0;
-let probabilityRetries = 0;
-let marginV2Retries = 0;
-const MAX_PARAM_RETRIES = 3;
 
 /**
  * Load age group parameters from JSON file
@@ -95,22 +91,7 @@ async function loadAgeGroupParameters(): Promise<Record<string, AgeGroupParamete
   }
 
   ageGroupParamsLoading = (async () => {
-    try {
-      const response = await fetch('/data/calibration/age_group_parameters.json');
-      if (response.ok) {
-        ageGroupParams = await response.json();
-      } else {
-        // Fallback to defaults if file not found
-        ageGroupParams = {};
-      }
-    } catch (error) {
-      if (isNetworkError(error) && ageGroupRetries < MAX_PARAM_RETRIES) {
-        ageGroupRetries++;
-        ageGroupParamsLoading = null; // Allow future retry
-      }
-      // Always set fallback so callers don't get null through non-null assertion
-      ageGroupParams = {};
-    }
+    ageGroupParams = (await loadCalibrationJson<Record<string, AgeGroupParameters>>('age_group_parameters.json')) ?? {};
   })();
 
   await ageGroupParamsLoading;
@@ -132,21 +113,7 @@ async function loadProbabilityParameters(): Promise<ProbabilityParameters | null
   }
 
   probabilityParamsLoading = (async () => {
-    try {
-      const response = await fetch('/data/calibration/probability_parameters.json');
-      if (response.ok) {
-        probabilityParams = await response.json();
-      } else {
-        // File not found - will use defaults
-        probabilityParams = null;
-      }
-    } catch (error) {
-      if (isNetworkError(error) && probabilityRetries < MAX_PARAM_RETRIES) {
-        probabilityRetries++;
-        probabilityParamsLoading = null; // Allow future retry
-      }
-      // Non-network or exhausted retries: stay null, use defaults
-    }
+    probabilityParams = await loadCalibrationJson<ProbabilityParameters>('probability_parameters.json');
   })();
 
   await probabilityParamsLoading;
@@ -168,21 +135,7 @@ async function loadMarginParametersV2(): Promise<MarginParametersV2 | null> {
   }
 
   marginParamsV2Loading = (async () => {
-    try {
-      const response = await fetch('/data/calibration/margin_parameters_v2.json');
-      if (response.ok) {
-        marginParamsV2 = await response.json();
-      } else {
-        // File not found - will use defaults
-        marginParamsV2 = null;
-      }
-    } catch (error) {
-      if (isNetworkError(error) && marginV2Retries < MAX_PARAM_RETRIES) {
-        marginV2Retries++;
-        marginParamsV2Loading = null; // Allow future retry
-      }
-      // Non-network or exhausted retries: stay null, use defaults
-    }
+    marginParamsV2 = await loadCalibrationJson<MarginParametersV2>('margin_parameters_v2.json');
   })();
 
   await marginParamsV2Loading;

@@ -1133,7 +1133,7 @@ def run_glicko2_cohort(
 
 
 # =========================================================
-# Main entry point — drop-in replacement for v53e.compute_rankings
+# Main Glicko-2 ranking entry point
 # =========================================================
 def compute_rankings_v2(
     games_df: pd.DataFrame,
@@ -1145,13 +1145,13 @@ def compute_rankings_v2(
     initial_ratings: Optional[Dict[str, Tuple[float, float, float]]] = None,
     tier_league_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, pd.DataFrame]:
-    """Drop-in replacement for v53e.compute_rankings.
+    """Run the full Glicko-2 ranking pipeline.
 
     Runs the full Glicko-2 pipeline:
     1. Run Glicko-2 convergence for the cohort
     2. Derive offense/defense from game residuals
     3. Compute SOS with repeat cap and trim
-    4. Apply SCF bubble detection (if team_state_map provided)
+    4. Apply post-convergence SCF dampening to SOS and published mu (if team_state_map provided)
     5. Normalize all metrics via sigmoid z-score
     6. Compute rankings and status
     7. Map to full rankings_full schema
@@ -1197,7 +1197,7 @@ def compute_rankings_v2(
         cohort_gender=_cohort_gender,
     )
 
-    # 3. Build ratings dict for derived metrics
+    # 3. Build the converged ratings dict for all downstream derived metrics
     team_ratings: Dict[str, Tuple[float, float, float]] = dict(
         zip(team_df["team_id"], zip(team_df["mu"], team_df["sigma"], team_df["volatility"]))
     )
@@ -1228,7 +1228,7 @@ def compute_rankings_v2(
         global_rating_map=global_rating_map,
     )
 
-    # 6. Apply SCF (if team_state_map provided and SCF_ENABLED)
+    # 6. Apply SCF post-convergence dampening (if team_state_map provided and SCF_ENABLED)
     if cfg.SCF_ENABLED and team_state_map:
         scf_data = compute_scf(
             games_df,

@@ -159,24 +159,24 @@ async def compute_rankings_with_ml(
     provider_filter: Optional[str] = None,
     force_rebuild: bool = False,
     save_snapshot: bool = True,  # Set to False when called from compute_all_cohorts
-    global_strength_map: Optional[Dict] = None,  # For cross-age SOS lookups
+    global_strength_map: Optional[Dict] = None,  # For cross-age opponent-strength lookups in Pass 2
     merge_version: Optional[str] = None,  # For cache invalidation when merges change
     team_state_map: Optional[Dict[str, str]] = None,  # For SCF regional bubble detection
     tier_league_map: Optional[Dict[str, str]] = None,  # For tier-based SOS discounting
     timing_report: Optional["TimingReport"] = None,
     pass_label: Optional[str] = None,  # "Pass1" or "Pass2" for log disambiguation
     pre_sos_state: Optional[Dict] = None,  # Cached state from Pass 1 for two-pass optimization
-    use_glicko: bool = True,  # True = Glicko-2 engine, False = v53e engine
+    use_glicko: bool = True,  # True = Glicko-2 engine, False = legacy v53e engine
     initial_ratings: Optional[Dict] = None,  # Warm-start Glicko-2 Pass 2 from Pass 1 converged ratings
 ) -> Dict[str, pd.DataFrame]:
     """
-    Runs your deterministic v53E engine, then applies the Supabase-aware ML adjustment.
+    Run the selected rankings engine, then apply the Supabase-aware ML adjustment.
 
     Args:
         supabase_client: Supabase client instance
-        games_df: Optional pre-fetched games DataFrame (in v53e format)
+        games_df: Optional pre-fetched games DataFrame in the shared rankings input shape
         today: Reference date for rankings
-        v53_cfg: v53e configuration
+        v53_cfg: Legacy v53e configuration (ignored in Glicko mode except for shared downstream steps)
         layer13_cfg: ML layer configuration
         fetch_from_supabase: If True and games_df is None, fetch from Supabase
         lookback_days: Days to look back for rankings
@@ -513,19 +513,20 @@ async def compute_all_cohorts(
     force_rebuild: bool = False,
     merge_resolver=None,  # Optional MergeResolver for team merge resolution
     timing_report: Optional["TimingReport"] = None,
-    use_glicko: bool = True,  # True = Glicko-2 engine, False = v53e engine
+    use_glicko: bool = True,  # True = Glicko-2 engine, False = legacy v53e engine
 ) -> Dict[str, pd.DataFrame]:
     """
     Compute rankings for all cohorts using two-pass architecture.
 
-    Pass 1: Run each cohort to get initial abs_strength values
-    Pass 2: Re-run with global_strength_map for accurate cross-age SOS
+    Pass 1: Run each cohort to get initial cohort strength values
+    Pass 2: Re-run with a global strength map for accurate cross-age opponent lookups
 
-    This ensures cross-age opponents get their real strength instead of 0.35.
+    In Glicko mode, Pass 2 reuses cohort `mu` values for cross-age opponent ratings.
+    Legacy v53e uses `abs_strength` for its cross-age SOS path.
 
     Args:
         merge_resolver: Optional MergeResolver instance for resolving merged teams
-        use_glicko: If True, use Glicko-2 engine; if False, use v53e engine
+        use_glicko: If True, use Glicko-2 engine; if False, use legacy v53e engine
     """
     # Default config if not provided
     v53_cfg = v53_cfg or V53EConfig()
@@ -663,7 +664,7 @@ async def compute_all_cohorts(
 
     # Group by (age, gender) cohorts
     cohorts = list(games_df.groupby(["age", "gender"]))
-    logger.info(f"🔄 Two-pass SOS: Processing {len(cohorts)} cohorts")
+    logger.info(f"🔄 Two-pass cross-age strength flow: processing {len(cohorts)} cohorts")
 
     # ========== PASS 1: Get initial strengths from all cohorts ==========
     logger.info("📊 Pass 1: Computing initial strengths for all cohorts...")
@@ -692,8 +693,8 @@ async def compute_all_cohorts(
     with _section(timing_report, "pass1_all_cohorts"):
         pass1_results = await asyncio.gather(*pass1_tasks)
 
-    # Build global strength map and collect pre-SOS state from Pass 1
-    # Glicko-2 uses mu (raw rating) for cross-age lookups; v53e uses abs_strength
+    # Build the Pass 2 global strength map.
+    # Glicko-2 uses `mu` for cross-age opponent lookups; legacy v53e uses `abs_strength`.
     strength_col = "mu" if use_glicko else "abs_strength"
     global_strength_map = {}
     pass1_pre_sos_states = {}
@@ -723,14 +724,14 @@ async def compute_all_cohorts(
 
     logger.info(
         f"🌍 Built global strength map with {len(global_strength_map):,} teams "
-        f"(col={strength_col}), cached {len(pass1_pre_sos_states)} pre-SOS states"
+        f"(source={strength_col}), cached {len(pass1_pre_sos_states)} legacy pre-SOS states"
     )
 
     # ========== PASS 2: Re-run with global strength map ==========
-    # v53e: Uses cached pre-SOS state from Pass 1 to skip layers 1-5 (~50% speedup)
-    # Glicko-2: Warm-starts from Pass 1 converged ratings (converges in 2-5 iterations)
+    # Legacy v53e reuses cached pre-SOS state from Pass 1 to skip layers 1-5.
+    # Glicko-2 warm-starts from Pass 1 converged ratings.
     skip_note = " (skipping layers 1-5)" if not use_glicko else " (warm-start from Pass 1)"
-    logger.info(f"📊 Pass 2: Re-computing SOS with global strength map{skip_note}...")
+    logger.info(f"📊 Pass 2: Re-running cohorts with global strength map{skip_note}...")
     pass2_tasks = []
     for i, ((age, gender), cohort_games) in enumerate(cohorts):
         task = compute_rankings_with_ml(
@@ -1238,6 +1239,6 @@ async def compute_all_cohorts(
         logger.info("💾 Saving combined ranking snapshot for all cohorts...")
         await save_ranking_snapshot(supabase_client=supabase_client, rankings_df=teams_combined)
 
-    logger.info(f"✅ Two-pass SOS complete: {len(teams_combined):,} teams ranked")
+    logger.info(f"✅ Two-pass rankings flow complete: {len(teams_combined):,} teams ranked")
 
     return {"teams": teams_combined, "games_used": games_used_combined}

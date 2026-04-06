@@ -134,6 +134,19 @@ test.describe('Watchlist API @api', () => {
   });
 });
 
+test.describe('Match Prediction API @api', () => {
+  test('match prediction POST requires authentication and premium access', async ({ request }) => {
+    const response = await request.post('/api/match-prediction', {
+      data: {
+        teamAId: '11111111-1111-1111-1111-111111111111',
+        teamBId: '22222222-2222-2222-2222-222222222222',
+      },
+    });
+
+    expect([401, 403]).toContain(response.status());
+  });
+});
+
 test.describe('API - General Robustness @api', () => {
   test('non-existent API routes return 404', async ({ request }) => {
     const response = await request.get('/api/nonexistent-endpoint');

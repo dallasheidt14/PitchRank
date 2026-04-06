@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient';
+import { AppError } from './errors';
 import { normalizeAgeGroup } from './utils';
 import type {
   Team,
@@ -9,7 +10,12 @@ import type {
   TeamWithRanking,
   RankHistoryPoint,
 } from './types';
+import type { MatchPredictionResponse } from './matchPredictionService';
 import type { TeamPredictive } from '@/types/TeamPredictive';
+
+function isMissingNationalRankingsRpc(error: { code?: string | null } | null): boolean {
+  return error?.code === 'PGRST202';
+}
 
 /**
  * API functions for interacting with Supabase
@@ -77,30 +83,50 @@ export const api = {
       return allResults;
     }
 
-    // National rankings: use rankings_view directly (no ROW_NUMBER — fast)
+    // National rankings: use get_national_rankings RPC so large cohorts do not
+    // scan rankings_view in repeated 1000-row batches.
     while (hasMore) {
       const batchSize = fetchLimit ? Math.min(fetchLimit - allResults.length, BATCH_SIZE) : BATCH_SIZE;
 
-      let query = supabase.from('rankings_view').select('*').in('status', ['Active', 'Not Enough Ranked Games']);
+      const rpcResult = await supabase.rpc('get_national_rankings', {
+        p_age: normalizedAge !== null ? String(normalizedAge) : '',
+        p_gender: gender || '',
+        p_limit: batchSize,
+        p_offset: offset,
+      });
 
-      if (normalizedAge !== null) {
-        query = query.eq('age', normalizedAge);
+      if (rpcResult.error && !isMissingNationalRankingsRpc(rpcResult.error)) {
+        console.error('Error fetching national rankings via RPC:', rpcResult.error);
+        throw rpcResult.error;
       }
 
-      if (gender) {
-        query = query.eq('gender', gender);
-      }
+      let data = rpcResult.data as RankingWithTeam[] | null;
 
-      query = query
-        .order('rank_in_cohort_final', { ascending: true, nullsFirst: false })
-        .order('team_id_master', { ascending: true })
-        .range(offset, offset + batchSize - 1);
+      if (rpcResult.error && isMissingNationalRankingsRpc(rpcResult.error)) {
+        let fallbackQuery = supabase
+          .from('rankings_view')
+          .select('*')
+          .in('status', ['Active', 'Not Enough Ranked Games']);
 
-      const { data, error } = await query;
+        if (normalizedAge !== null) {
+          fallbackQuery = fallbackQuery.eq('age', normalizedAge);
+        }
 
-      if (error) {
-        console.error('Error fetching rankings from rankings_view:', error);
-        throw error;
+        if (gender) {
+          fallbackQuery = fallbackQuery.eq('gender', gender);
+        }
+
+        const fallbackResult = await fallbackQuery
+          .order('rank_in_cohort_final', { ascending: true, nullsFirst: false })
+          .order('team_id_master', { ascending: true })
+          .range(offset, offset + batchSize - 1);
+
+        if (fallbackResult.error) {
+          console.error('Error fetching national rankings fallback from rankings_view:', fallbackResult.error);
+          throw fallbackResult.error;
+        }
+
+        data = fallbackResult.data as RankingWithTeam[] | null;
       }
 
       if (!data || data.length === 0) {
@@ -148,26 +174,42 @@ export const api = {
       return (data as number) ?? 0;
     }
 
-    // National rankings: use rankings_view directly
-    let query = supabase
-      .from('rankings_view')
-      .select('*', { count: 'exact', head: true })
-      .in('status', ['Active', 'Not Enough Ranked Games']);
+    // National rankings: use get_national_rankings_count RPC for a direct count.
+    const rpcResult = await supabase.rpc('get_national_rankings_count', {
+      p_age: normalizedAge !== null ? String(normalizedAge) : '',
+      p_gender: gender || '',
+    });
 
-    if (normalizedAge !== null) {
-      query = query.eq('age', normalizedAge);
-    }
-    if (gender) {
-      query = query.eq('gender', gender);
-    }
-
-    const { count, error } = await query;
-
-    if (error) {
-      console.error('Error fetching rankings count from rankings_view:', error);
+    if (rpcResult.error && !isMissingNationalRankingsRpc(rpcResult.error)) {
+      console.error('Error fetching national rankings count via RPC:', rpcResult.error);
       return 0;
     }
-    return count ?? 0;
+
+    if (rpcResult.error && isMissingNationalRankingsRpc(rpcResult.error)) {
+      let fallbackQuery = supabase
+        .from('rankings_view')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['Active', 'Not Enough Ranked Games']);
+
+      if (normalizedAge !== null) {
+        fallbackQuery = fallbackQuery.eq('age', normalizedAge);
+      }
+
+      if (gender) {
+        fallbackQuery = fallbackQuery.eq('gender', gender);
+      }
+
+      const fallbackResult = await fallbackQuery;
+
+      if (fallbackResult.error) {
+        console.error('Error fetching national rankings count fallback from rankings_view:', fallbackResult.error);
+        return 0;
+      }
+
+      return fallbackResult.count ?? 0;
+    }
+
+    return (rpcResult.data as number) ?? 0;
   },
 
   /**
@@ -945,78 +987,31 @@ export const api = {
    * @param teamBId - Second team's team_id_master UUID
    * @returns Prediction with explanations
    */
-  async getMatchPrediction(teamAId: string, teamBId: string) {
-    // Import prediction modules (dynamic to avoid circular dependencies)
-    const { predictMatch } = await import('./matchPredictor');
-    const { explainMatch } = await import('./matchExplainer');
+  async getMatchPrediction(teamAId: string, teamBId: string): Promise<MatchPredictionResponse | null> {
+    const response = await fetch('/api/match-prediction', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ teamAId, teamBId }),
+    });
 
-    // Fetch team data
-    const teamA = await this.getTeam(teamAId);
-    const teamB = await this.getTeam(teamBId);
+    const payload = (await response.json().catch(() => null)) as { error?: string } | MatchPredictionResponse | null;
 
-    // Resolve merged team IDs so prediction includes games from deprecated teams
-    const resolveTeamIds = async (teamId: string): Promise<string[]> => {
-      const ids = [teamId];
-      const { data: mergedTeams } = await supabase
-        .from('team_merge_map')
-        .select('deprecated_team_id')
-        .eq('canonical_team_id', teamId);
-      if (mergedTeams) {
-        mergedTeams.forEach((merge: { deprecated_team_id: string }) => {
-          if (merge.deprecated_team_id) ids.push(merge.deprecated_team_id);
-        });
+    if (!response.ok) {
+      const message =
+        payload && typeof payload === 'object' && 'error' in payload && payload.error
+          ? payload.error
+          : 'Failed to generate match prediction';
+
+      if (response.status === 422) {
+        return null;
       }
-      return ids;
-    };
 
-    const [teamAIds, teamBIds] = await Promise.all([resolveTeamIds(teamAId), resolveTeamIds(teamBId)]);
-    const allTeamIds = [...teamAIds, ...teamBIds];
-
-    // Fetch games for prediction signals (365-day window, only for Team A/B + merged IDs).
-    // Recent form still uses the latest five games inside the predictor, but a longer
-    // window preserves head-to-head history and produces better uncertainty estimates.
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - 365);
-
-    const { data: gamesData, error: gamesError } = await supabase
-      .from('games')
-      .select('id, game_date, home_team_master_id, away_team_master_id, home_score, away_score')
-      .gte('game_date', cutoffDate.toISOString().split('T')[0])
-      .not('home_score', 'is', null)
-      .not('away_score', 'is', null)
-      .or(`home_team_master_id.in.(${allTeamIds.join(',')}),away_team_master_id.in.(${allTeamIds.join(',')})`)
-      .eq('is_excluded', false)
-      .order('game_date', { ascending: false });
-
-    if (gamesError) {
-      console.error('[api.getMatchPrediction] Error fetching games:', gamesError);
-      throw gamesError;
+      throw new AppError(message, 'match_prediction_failed', response.status);
     }
 
-    // Type assertion: We only need these fields for prediction
-    // The full Game type has more fields, but predictMatch only uses these
-    const games = (gamesData || []) as Game[];
-
-    // Generate prediction
-    const prediction = predictMatch(teamA, teamB, games);
-
-    // Generate explanations
-    const explanation = explainMatch(teamA, teamB, prediction);
-
-    return {
-      teamA: {
-        team_id_master: teamA.team_id_master,
-        team_name: teamA.team_name,
-        club_name: teamA.club_name,
-      },
-      teamB: {
-        team_id_master: teamB.team_id_master,
-        team_name: teamB.team_name,
-        club_name: teamB.club_name,
-      },
-      prediction,
-      explanation,
-    };
+    return payload as MatchPredictionResponse;
   },
 
   /**

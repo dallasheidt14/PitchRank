@@ -18,7 +18,7 @@
 
 import type { TeamWithRanking } from './types';
 import type { Game } from './types';
-import { isNetworkError } from './errors';
+import { loadCalibrationJson } from './calibrationLoader';
 
 // Confidence calibration v2 parameters
 interface ConfidenceParametersV2 {
@@ -37,8 +37,6 @@ interface ConfidenceParametersV2 {
 
 let confidenceParamsV2: ConfidenceParametersV2 | null = null;
 let confidenceParamsV2Loading: Promise<void> | null = null;
-let confidenceRetries = 0;
-const MAX_PARAM_RETRIES = 3;
 
 /**
  * Load confidence calibration v2 parameters from JSON file
@@ -55,21 +53,7 @@ async function loadConfidenceParametersV2(): Promise<ConfidenceParametersV2 | nu
   }
 
   confidenceParamsV2Loading = (async () => {
-    try {
-      const response = await fetch('/data/calibration/confidence_parameters_v2.json');
-      if (response.ok) {
-        confidenceParamsV2 = await response.json();
-      } else {
-        // File not found - will use defaults
-        confidenceParamsV2 = null;
-      }
-    } catch (error) {
-      if (isNetworkError(error) && confidenceRetries < MAX_PARAM_RETRIES) {
-        confidenceRetries++;
-        confidenceParamsV2Loading = null; // Allow future retry
-      }
-      // Non-network or exhausted retries: stay null, use defaults
-    }
+    confidenceParamsV2 = await loadCalibrationJson<ConfidenceParametersV2>('confidence_parameters_v2.json');
   })();
 
   await confidenceParamsV2Loading;
