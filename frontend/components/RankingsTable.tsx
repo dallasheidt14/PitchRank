@@ -290,14 +290,17 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
   const paddingTop = virtualItems.length > 0 ? (virtualItems[0]?.start ?? 0) : 0;
   const paddingBottom = virtualItems.length > 0 ? totalHeight - (virtualItems[virtualItems.length - 1]?.end ?? 0) : 0;
 
-  // Prepare top teams for schema
-  const topTeamsForSchema = sortedRankings.slice(0, 10).map((team, index) => ({
-    teamName: team.team_name,
-    clubName: team.club_name ?? undefined,
-    rank: getDisplayRank(team) ?? index + 1,
-    powerScore: team.power_score_final ?? undefined,
-    state: team.state ?? undefined,
-  }));
+  // Prepare top teams for schema — only include teams with a published rank
+  const topTeamsForSchema = sortedRankings
+    .filter((team) => getDisplayRank(team) != null)
+    .slice(0, 10)
+    .map((team) => ({
+      teamName: team.team_name,
+      clubName: team.club_name ?? undefined,
+      rank: getDisplayRank(team)!,
+      powerScore: team.power_score_final ?? undefined,
+      state: team.state ?? undefined,
+    }));
 
   return (
     <>

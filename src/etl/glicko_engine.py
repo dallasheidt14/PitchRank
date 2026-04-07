@@ -323,6 +323,19 @@ def select_games(
     return filtered.head(max_games)
 
 
+def _get_team_games(
+    team_id: str,
+    team_games: Optional[Dict[str, pd.DataFrame]],
+    games_df: pd.DataFrame,
+    cfg: GlickoConfig,
+    today: pd.Timestamp,
+) -> pd.DataFrame:
+    """Return pre-filtered games for a team, falling back to select_games()."""
+    if team_games and team_id in team_games:
+        return team_games[team_id]
+    return select_games(games_df, team_id, cfg.MAX_GAMES, cfg.WINDOW_DAYS, today)
+
+
 def compute_recency_weights(game_dates: pd.Series, today: pd.Timestamp, lambda_: float = 1.0) -> np.ndarray:
     """Compute exponential-decay recency weights.
 
@@ -457,11 +470,7 @@ def derive_offense_defense(
 
     results = []
     for team_id, (team_mu, _, _) in team_ratings.items():
-        tg = (
-            team_games[team_id]
-            if team_games and team_id in team_games
-            else select_games(games_df, team_id, cfg.MAX_GAMES, cfg.WINDOW_DAYS, today)
-        )
+        tg = _get_team_games(team_id, team_games, games_df, cfg, today)
         if len(tg) == 0:
             results.append({"team_id": team_id, "off_raw": 0.0, "def_raw": 0.0})
             continue
@@ -529,11 +538,7 @@ def compute_sos(
 
     results = []
     for team_id in team_ratings:
-        tg = (
-            team_games[team_id]
-            if team_games and team_id in team_games
-            else select_games(games_df, team_id, cfg.MAX_GAMES, cfg.WINDOW_DAYS, today)
-        )
+        tg = _get_team_games(team_id, team_games, games_df, cfg, today)
         if len(tg) == 0:
             results.append({"team_id": team_id, "sos_raw": cfg.INITIAL_MU})
             continue
@@ -765,11 +770,7 @@ def compute_game_explainability(
 
     rows = []
     for team_id, (team_mu, team_sigma, _) in team_ratings.items():
-        tg = (
-            team_games[team_id]
-            if team_games and team_id in team_games
-            else select_games(games_df, team_id, cfg.MAX_GAMES, cfg.WINDOW_DAYS, today)
-        )
+        tg = _get_team_games(team_id, team_games, games_df, cfg, today)
         if len(tg) == 0:
             continue
 
@@ -1245,13 +1246,11 @@ def compute_rankings_v2(
     team_df["def_norm"] = sigmoid_zscore_normalize(team_df["def_raw"].fillna(0))
     team_df["sos_norm"] = sigmoid_zscore_normalize(team_df["sos_raw"].fillna(1500))
     if cfg.SOS_ADJ_ENABLED:
-        weak = ((cfg.SOS_ADJ_WEAK_THRESHOLD - team_df["sos_norm"]).clip(lower=0)
-                / cfg.SOS_ADJ_WEAK_THRESHOLD)
-        strong = ((team_df["sos_norm"] - cfg.SOS_ADJ_STRONG_THRESHOLD).clip(lower=0)
-                  / (1.0 - cfg.SOS_ADJ_STRONG_THRESHOLD))
-        sos_scale = (1.0
-                     + cfg.SOS_ADJ_STRONG_MAX * strong
-                     - cfg.SOS_ADJ_WEAK_MAX * weak)
+        weak = (cfg.SOS_ADJ_WEAK_THRESHOLD - team_df["sos_norm"]).clip(lower=0) / cfg.SOS_ADJ_WEAK_THRESHOLD
+        strong = (team_df["sos_norm"] - cfg.SOS_ADJ_STRONG_THRESHOLD).clip(lower=0) / (
+            1.0 - cfg.SOS_ADJ_STRONG_THRESHOLD
+        )
+        sos_scale = 1.0 + cfg.SOS_ADJ_STRONG_MAX * strong - cfg.SOS_ADJ_WEAK_MAX * weak
         sos_scale = sos_scale.clip(
             1.0 - cfg.SOS_ADJ_WEAK_MAX,
             1.0 + cfg.SOS_ADJ_STRONG_MAX,

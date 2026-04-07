@@ -29,6 +29,34 @@ from src.etl.glicko_engine import (
 )
 
 
+def make_game(team_a, team_b, gf, ga, date, age="U15", gender="M"):
+    """Create symmetric game rows for a single match."""
+    return [
+        {
+            "team_id": team_a,
+            "opp_id": team_b,
+            "gf": gf,
+            "ga": ga,
+            "date": pd.Timestamp(date),
+            "age": age,
+            "gender": gender,
+            "opp_age": age,
+            "opp_gender": gender,
+        },
+        {
+            "team_id": team_b,
+            "opp_id": team_a,
+            "gf": ga,
+            "ga": gf,
+            "date": pd.Timestamp(date),
+            "age": age,
+            "gender": gender,
+            "opp_age": age,
+            "opp_gender": gender,
+        },
+    ]
+
+
 class TestGlicko2Scale:
     def test_round_trip(self):
         """Converting to glicko2 scale and back gives original values."""
@@ -293,41 +321,14 @@ class TestRecencyWeights:
 
 
 class TestRunGlicko2Cohort:
-    def _make_game(self, team_a, team_b, gf, ga, date, age="U15", gender="M"):
-        """Helper to create symmetric game rows."""
-        return [
-            {
-                "team_id": team_a,
-                "opp_id": team_b,
-                "gf": gf,
-                "ga": ga,
-                "date": pd.Timestamp(date),
-                "age": age,
-                "gender": gender,
-                "opp_age": age,
-                "opp_gender": gender,
-            },
-            {
-                "team_id": team_b,
-                "opp_id": team_a,
-                "gf": ga,
-                "ga": gf,
-                "date": pd.Timestamp(date),
-                "age": age,
-                "gender": gender,
-                "opp_age": age,
-                "opp_gender": gender,
-            },
-        ]
-
     def test_three_team_ordering(self):
         """A beats B, B beats C, A beats C => A > B > C."""
         cfg = GlickoConfig()
         today = pd.Timestamp("2026-03-31")
         rows = []
-        rows += self._make_game("A", "B", 3, 1, "2026-03-01")
-        rows += self._make_game("B", "C", 2, 0, "2026-03-10")
-        rows += self._make_game("A", "C", 4, 0, "2026-03-20")
+        rows += make_game("A", "B", 3, 1, "2026-03-01")
+        rows += make_game("B", "C", 2, 0, "2026-03-10")
+        rows += make_game("A", "C", 4, 0, "2026-03-20")
         games = pd.DataFrame(rows)
 
         result, team_games = run_glicko2_cohort(games, cfg, today)
@@ -339,8 +340,8 @@ class TestRunGlicko2Cohort:
         cfg = GlickoConfig()
         today = pd.Timestamp("2026-03-31")
         rows = []
-        rows += self._make_game("A", "B", 2, 1, "2026-03-01")
-        rows += self._make_game("B", "C", 2, 1, "2026-03-10")
+        rows += make_game("A", "B", 2, 1, "2026-03-01")
+        rows += make_game("B", "C", 2, 1, "2026-03-10")
         games = pd.DataFrame(rows)
 
         # Should not raise or warn
@@ -353,11 +354,11 @@ class TestRunGlicko2Cohort:
         today = pd.Timestamp("2026-03-31")
         rows = []
         # Team A wins early, loses recently
-        rows += self._make_game("A", "C", 3, 0, "2025-06-01")
-        rows += self._make_game("A", "C", 0, 3, "2026-03-15")
+        rows += make_game("A", "C", 3, 0, "2025-06-01")
+        rows += make_game("A", "C", 0, 3, "2026-03-15")
         # Team B loses early, wins recently
-        rows += self._make_game("B", "C", 0, 3, "2025-06-01")
-        rows += self._make_game("B", "C", 3, 0, "2026-03-15")
+        rows += make_game("B", "C", 0, 3, "2025-06-01")
+        rows += make_game("B", "C", 3, 0, "2026-03-15")
         games = pd.DataFrame(rows)
 
         result, team_games = run_glicko2_cohort(games, cfg, today)
@@ -368,7 +369,7 @@ class TestRunGlicko2Cohort:
         """Output should have all required columns."""
         cfg = GlickoConfig()
         today = pd.Timestamp("2026-03-31")
-        rows = self._make_game("A", "B", 2, 1, "2026-03-01")
+        rows = make_game("A", "B", 2, 1, "2026-03-01")
         games = pd.DataFrame(rows)
 
         result, team_games = run_glicko2_cohort(games, cfg, today)
@@ -393,9 +394,9 @@ class TestRunGlicko2Cohort:
         cfg = GlickoConfig()
         today = pd.Timestamp("2026-03-31")
         rows = []
-        rows += self._make_game("A", "B", 3, 1, "2026-03-01")  # A wins
-        rows += self._make_game("A", "B", 1, 1, "2026-03-10")  # draw
-        rows += self._make_game("A", "B", 0, 2, "2026-03-20")  # A loses
+        rows += make_game("A", "B", 3, 1, "2026-03-01")  # A wins
+        rows += make_game("A", "B", 1, 1, "2026-03-10")  # draw
+        rows += make_game("A", "B", 0, 2, "2026-03-20")  # A loses
         games = pd.DataFrame(rows)
 
         result, team_games = run_glicko2_cohort(games, cfg, today)
@@ -822,35 +823,9 @@ class TestSCF:
 
 
 class TestComputeRankingsV2:
-    def _make_game(self, team_a, team_b, gf, ga, date, age="U15", gender="M"):
-        return [
-            {
-                "team_id": team_a,
-                "opp_id": team_b,
-                "gf": gf,
-                "ga": ga,
-                "date": pd.Timestamp(date),
-                "age": age,
-                "gender": gender,
-                "opp_age": age,
-                "opp_gender": gender,
-            },
-            {
-                "team_id": team_b,
-                "opp_id": team_a,
-                "gf": ga,
-                "ga": gf,
-                "date": pd.Timestamp(date),
-                "age": age,
-                "gender": gender,
-                "opp_age": age,
-                "opp_gender": gender,
-            },
-        ]
-
     def test_returns_teams_and_games(self):
         """Should return dict with 'teams' and 'games_used' keys."""
-        rows = self._make_game("A", "B", 2, 1, "2026-03-01")
+        rows = make_game("A", "B", 2, 1, "2026-03-01")
         games = pd.DataFrame(rows)
         result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"))
         assert "teams" in result
@@ -859,9 +834,9 @@ class TestComputeRankingsV2:
     def test_all_expected_columns_present(self):
         """Output should have all 57 rankings_full columns."""
         rows = []
-        rows += self._make_game("A", "B", 3, 1, "2026-03-01")
-        rows += self._make_game("B", "C", 2, 0, "2026-03-10")
-        rows += self._make_game("A", "C", 4, 0, "2026-03-20")
+        rows += make_game("A", "B", 3, 1, "2026-03-01")
+        rows += make_game("B", "C", 2, 0, "2026-03-10")
+        rows += make_game("A", "C", 4, 0, "2026-03-20")
         games = pd.DataFrame(rows)
         result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"))
         teams = result["teams"]
@@ -929,9 +904,9 @@ class TestComputeRankingsV2:
     def test_ranking_order_matches_mu(self):
         """National rank should match mu ordering."""
         rows = []
-        rows += self._make_game("A", "B", 5, 0, "2026-03-01")
-        rows += self._make_game("B", "C", 3, 0, "2026-03-10")
-        rows += self._make_game("A", "C", 4, 0, "2026-03-20")
+        rows += make_game("A", "B", 5, 0, "2026-03-01")
+        rows += make_game("B", "C", 3, 0, "2026-03-10")
+        rows += make_game("A", "C", 4, 0, "2026-03-20")
         games = pd.DataFrame(rows)
         # Each team has only 2 games — use low threshold so they qualify as Active
         cfg = GlickoConfig(MIN_GAMES_PROVISIONAL=1)
@@ -943,7 +918,7 @@ class TestComputeRankingsV2:
 
     def test_inactive_team_not_ranked(self):
         """Team with no games in 180 days should be Inactive."""
-        rows = self._make_game("A", "B", 2, 1, "2025-01-01")  # old game
+        rows = make_game("A", "B", 2, 1, "2025-01-01")  # old game
         games = pd.DataFrame(rows)
         result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"))
         teams = result["teams"]
@@ -952,7 +927,7 @@ class TestComputeRankingsV2:
 
     def test_low_sample_team_not_ranked(self):
         """Team with < MIN_GAMES_PROVISIONAL games should be 'Not Enough Ranked Games'."""
-        rows = self._make_game("A", "B", 2, 1, "2026-03-01")  # recent, but only 1 game
+        rows = make_game("A", "B", 2, 1, "2026-03-01")  # recent, but only 1 game
         games = pd.DataFrame(rows)
         result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"))
         teams = result["teams"]
@@ -961,7 +936,7 @@ class TestComputeRankingsV2:
 
     def test_provisional_mult_from_sigma(self):
         """High sigma (new team) should give low provisional_mult."""
-        rows = self._make_game("A", "B", 2, 1, "2026-03-01")
+        rows = make_game("A", "B", 2, 1, "2026-03-01")
         games = pd.DataFrame(rows)
         result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"))
         teams = result["teams"]
@@ -971,7 +946,7 @@ class TestComputeRankingsV2:
 
     def test_powerscore_adj_uses_provisional_multiplier(self):
         """Glicko published baseline should apply the provisional multiplier."""
-        rows = self._make_game("A", "B", 2, 1, "2026-03-01")
+        rows = make_game("A", "B", 2, 1, "2026-03-01")
         games = pd.DataFrame(rows)
         cfg = GlickoConfig(MIN_GAMES_PROVISIONAL=1)
         result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"), cfg=cfg)
@@ -985,33 +960,6 @@ class TestComputeRankingsV2:
 
 class TestGameExplainability:
     """Tests for compute_game_explainability post-hoc breakdown."""
-
-    def _make_game(self, team_a, team_b, gf, ga, date, age="U15", gender="M"):
-        """Helper to create symmetric game rows (mirrors TestRunGlicko2Cohort)."""
-        return [
-            {
-                "team_id": team_a,
-                "opp_id": team_b,
-                "gf": gf,
-                "ga": ga,
-                "date": pd.Timestamp(date),
-                "age": age,
-                "gender": gender,
-                "opp_age": age,
-                "opp_gender": gender,
-            },
-            {
-                "team_id": team_b,
-                "opp_id": team_a,
-                "gf": ga,
-                "ga": gf,
-                "date": pd.Timestamp(date),
-                "age": age,
-                "gender": gender,
-                "opp_age": age,
-                "opp_gender": gender,
-            },
-        ]
 
     def _run_cohort_and_explain(self, games_df, cfg=None, today=None, global_rating_map=None):
         """Run convergence then explainability in one shot."""
@@ -1037,9 +985,9 @@ class TestGameExplainability:
     def test_returns_expected_columns(self):
         """Output should have all required columns."""
         rows = []
-        rows += self._make_game("A", "B", 3, 1, "2026-03-01")
-        rows += self._make_game("B", "C", 2, 0, "2026-03-10")
-        rows += self._make_game("A", "C", 4, 0, "2026-03-20")
+        rows += make_game("A", "B", 3, 1, "2026-03-01")
+        rows += make_game("B", "C", 2, 0, "2026-03-10")
+        rows += make_game("A", "C", 4, 0, "2026-03-20")
         games = pd.DataFrame(rows)
 
         _, _, explain_df = self._run_cohort_and_explain(games)
@@ -1068,9 +1016,9 @@ class TestGameExplainability:
     def test_row_count_matches_perspectives(self):
         """3 teams each with 2 games = 6 rows (one per team-game perspective)."""
         rows = []
-        rows += self._make_game("A", "B", 3, 1, "2026-03-01")
-        rows += self._make_game("B", "C", 2, 0, "2026-03-10")
-        rows += self._make_game("A", "C", 4, 0, "2026-03-20")
+        rows += make_game("A", "B", 3, 1, "2026-03-01")
+        rows += make_game("B", "C", 2, 0, "2026-03-10")
+        rows += make_game("A", "C", 4, 0, "2026-03-20")
         games = pd.DataFrame(rows)
 
         _, _, explain_df = self._run_cohort_and_explain(games)
@@ -1080,8 +1028,8 @@ class TestGameExplainability:
     def test_expected_outcome_bounds(self):
         """All expected_outcome values should be in [0, 1]."""
         rows = []
-        rows += self._make_game("A", "B", 3, 1, "2026-03-01")
-        rows += self._make_game("B", "C", 2, 0, "2026-03-10")
+        rows += make_game("A", "B", 3, 1, "2026-03-01")
+        rows += make_game("B", "C", 2, 0, "2026-03-10")
         games = pd.DataFrame(rows)
 
         _, _, explain_df = self._run_cohort_and_explain(games)
@@ -1091,8 +1039,8 @@ class TestGameExplainability:
     def test_actual_outcome_bounds(self):
         """All actual_outcome values should be in [0, 1]."""
         rows = []
-        rows += self._make_game("A", "B", 3, 1, "2026-03-01")
-        rows += self._make_game("A", "B", 0, 5, "2026-03-10")
+        rows += make_game("A", "B", 3, 1, "2026-03-01")
+        rows += make_game("A", "B", 0, 5, "2026-03-10")
         games = pd.DataFrame(rows)
 
         _, _, explain_df = self._run_cohort_and_explain(games)
@@ -1102,8 +1050,8 @@ class TestGameExplainability:
     def test_surprise_equals_actual_minus_expected(self):
         """outcome_surprise should equal actual_outcome - expected_outcome."""
         rows = []
-        rows += self._make_game("A", "B", 3, 1, "2026-03-01")
-        rows += self._make_game("B", "C", 2, 0, "2026-03-10")
+        rows += make_game("A", "B", 3, 1, "2026-03-01")
+        rows += make_game("B", "C", 2, 0, "2026-03-10")
         games = pd.DataFrame(rows)
 
         _, _, explain_df = self._run_cohort_and_explain(games)
@@ -1117,8 +1065,8 @@ class TestGameExplainability:
     def test_recency_weights_positive(self):
         """All recency weights should be > 0."""
         rows = []
-        rows += self._make_game("A", "B", 2, 1, "2026-01-01")
-        rows += self._make_game("A", "B", 1, 2, "2026-03-15")
+        rows += make_game("A", "B", 2, 1, "2026-01-01")
+        rows += make_game("A", "B", 1, 2, "2026-03-15")
         games = pd.DataFrame(rows)
 
         _, _, explain_df = self._run_cohort_and_explain(games)
@@ -1127,7 +1075,7 @@ class TestGameExplainability:
     def test_rating_contribution_sign(self):
         """Upset win should have positive contribution; expected loss negative."""
         rows = []
-        rows += self._make_game("Weak", "Strong", 3, 0, "2026-03-01")
+        rows += make_game("Weak", "Strong", 3, 0, "2026-03-01")
         games = pd.DataFrame(rows)
 
         cfg = GlickoConfig()
@@ -1150,9 +1098,9 @@ class TestGameExplainability:
     def test_contribution_sum_correlates_with_mu_delta(self):
         """Sum of rating_contribution should have same sign as mu change."""
         rows = []
-        rows += self._make_game("A", "B", 3, 1, "2026-03-01")
-        rows += self._make_game("A", "C", 4, 0, "2026-03-10")
-        rows += self._make_game("B", "C", 2, 0, "2026-03-20")
+        rows += make_game("A", "B", 3, 1, "2026-03-01")
+        rows += make_game("A", "C", 4, 0, "2026-03-10")
+        rows += make_game("B", "C", 2, 0, "2026-03-20")
         games = pd.DataFrame(rows)
 
         cfg = GlickoConfig()
@@ -1176,7 +1124,7 @@ class TestGameExplainability:
     def test_off_def_residuals_computed(self):
         """Off/def residuals should not be NaN for teams with games."""
         rows = []
-        rows += self._make_game("A", "B", 3, 1, "2026-03-01")
+        rows += make_game("A", "B", 3, 1, "2026-03-01")
         games = pd.DataFrame(rows)
 
         _, _, explain_df = self._run_cohort_and_explain(games)
@@ -1264,8 +1212,8 @@ class TestGameExplainability:
     def test_compute_rankings_v2_includes_explainability(self):
         """compute_rankings_v2 should return game_explainability key."""
         rows = []
-        rows += self._make_game("A", "B", 2, 1, "2026-03-01")
-        rows += self._make_game("B", "C", 3, 0, "2026-03-10")
+        rows += make_game("A", "B", 2, 1, "2026-03-01")
+        rows += make_game("B", "C", 3, 0, "2026-03-10")
         games = pd.DataFrame(rows)
 
         result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"))
