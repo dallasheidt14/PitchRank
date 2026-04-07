@@ -9,6 +9,8 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from src.rankings.shared import normalize_by_cohort
+
 logger = logging.getLogger(__name__)
 
 # Prefer XGBoost; fall back to RandomForest; tolerate neither (import-only workflows)
@@ -399,7 +401,7 @@ async def apply_predictive_adjustment(
     out["ml_overperf"] = (
         out["ml_overperf"].fillna(0.0).clip(lower=-cfg.residual_clip_goals, upper=cfg.residual_clip_goals)
     )
-    normalized = _normalize_by_cohort(
+    normalized = normalize_by_cohort(
         out, value_col="ml_overperf", out_col="__tmp__", mode=cfg.norm_mode, cohort_cols=list(cfg.cohort_key_cols)
     )
     # Use .reindex() to align by index, not positional order (groupby may reorder rows)
@@ -523,12 +525,12 @@ def _build_features(
 
     # age gap (vectorized)
     team_age_num = (
-        pd.to_numeric(f[age_col].astype(str).str.extract(r"(\d+)", expand=False), errors="coerce")
-        .fillna(0).astype(int)
+        pd.to_numeric(f[age_col].astype(str).str.extract(r"(\d+)", expand=False), errors="coerce").fillna(0).astype(int)
     )
     opp_age_num = (
         pd.to_numeric(f[opp_age_col].astype(str).str.extract(r"(\d+)", expand=False), errors="coerce")
-        .fillna(0).astype(int)
+        .fillna(0)
+        .astype(int)
     )
     f["age_gap"] = (team_age_num - opp_age_num).abs()
 
@@ -648,33 +650,3 @@ def _aggregate_team_residuals(feats: pd.DataFrame, cfg: Layer13Config) -> pd.Dat
         merged = merged.rename(columns={team_id_col: "team_id"})
 
     return merged[["team_id", "age", "gender", "ml_overperf", "ml_game_count"]]
-
-
-def _normalize_by_cohort(
-    df: pd.DataFrame,
-    *,
-    value_col: str,
-    out_col: str,
-    mode: str,
-    cohort_cols: List[str],
-) -> pd.DataFrame:
-    """Normalize values within cohorts (age, gender)"""
-    parts = []
-    for _, grp in df.groupby(cohort_cols, dropna=False):
-        g = grp.copy()
-        s = g[value_col].astype(float)
-        if mode == "zscore":
-            sd = s.std(ddof=0)
-            if sd == 0 or len(s) < 2:
-                g[out_col] = 0.5
-            else:
-                z = (s - s.mean()) / sd
-                g[out_col] = 1.0 / (1.0 + np.exp(-z))  # sigmoid
-        else:
-            # Singleton cohort: no meaningful percentile rank, use neutral 0.5
-            if len(s) < 2:
-                g[out_col] = 0.5
-            else:
-                g[out_col] = s.rank(method="average", pct=True).astype(float)
-        parts.append(g)
-    return pd.concat(parts, axis=0)

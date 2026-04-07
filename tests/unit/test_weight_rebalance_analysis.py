@@ -25,21 +25,7 @@ from datetime import datetime, timedelta
 from itertools import product
 
 from src.etl.v53e import V53EConfig, compute_rankings
-
-
-# ---------------------------------------------------------------------------
-# League Builders
-# ---------------------------------------------------------------------------
-
-def _make_game_pair(gid, date, home, away, hs, as_, age="14", gender="male"):
-    return [
-        {"game_id": gid, "date": pd.Timestamp(date),
-         "team_id": home, "opp_id": away, "age": age, "gender": gender,
-         "opp_age": age, "opp_gender": gender, "gf": hs, "ga": as_},
-        {"game_id": gid, "date": pd.Timestamp(date),
-         "team_id": away, "opp_id": home, "age": age, "gender": gender,
-         "opp_age": age, "opp_gender": gender, "gf": as_, "ga": hs},
-    ]
+from tests.conftest import make_game_pair
 
 
 def _build_large_tiered_league(seed=42):
@@ -90,7 +76,7 @@ def _build_large_tiered_league(seed=42):
                 gc += 1
                 hs, as_ = _score(true_skill[t1], true_skill[t2], rng)
                 d = base + timedelta(days=gc % 300)
-                rows.extend(_make_game_pair(f"g{gc}", d, t1, t2, hs, as_))
+                rows.extend(make_game_pair(f"g{gc}", d, t1, t2, hs, as_))
 
     # Elite vs Elite: round-robin (every pair plays twice)
     for i, t1 in enumerate(elite):
@@ -99,7 +85,7 @@ def _build_large_tiered_league(seed=42):
                 gc += 1
                 hs, as_ = _score(true_skill[t1], true_skill[t2], rng)
                 d = base + timedelta(days=gc % 300)
-                rows.extend(_make_game_pair(f"g{gc}", d, t1, t2, hs, as_))
+                rows.extend(make_game_pair(f"g{gc}", d, t1, t2, hs, as_))
 
     # Elite vs Strong: 5 games each
     _add_games(elite, strong, 5, rng)
@@ -120,7 +106,7 @@ def _build_large_tiered_league(seed=42):
             gc += 1
             hs, as_ = _score(true_skill[m], true_skill[w], rng)
             d = base + timedelta(days=gc % 300)
-            rows.extend(_make_game_pair(f"g{gc}", d, m, w, hs, as_))
+            rows.extend(make_game_pair(f"g{gc}", d, m, w, hs, as_))
 
     # Weak vs Weak: lots of games (bubble league)
     _add_games(weak, weak, 8, rng)

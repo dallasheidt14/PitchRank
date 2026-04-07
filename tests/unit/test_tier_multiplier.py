@@ -104,26 +104,7 @@ import pandas as pd
 from src.etl.v53e import V53EConfig, compute_rankings
 
 
-def _make_game_pair(gid, date, home, away, hs, as_, age="14", gender="male",
-                    opp_age=None, opp_gender=None):
-    opp_age = opp_age or age
-    opp_gender = opp_gender or gender
-    return [
-        {
-            "game_id": gid, "date": pd.Timestamp(date),
-            "team_id": home, "opp_id": away,
-            "age": age, "gender": gender,
-            "opp_age": opp_age, "opp_gender": opp_gender,
-            "gf": hs, "ga": as_,
-        },
-        {
-            "game_id": gid, "date": pd.Timestamp(date),
-            "team_id": away, "opp_id": home,
-            "age": opp_age, "gender": opp_gender,
-            "opp_age": age, "opp_gender": gender,
-            "gf": as_, "ga": hs,
-        },
-    ]
+from tests.conftest import make_game_pair
 
 
 def _build_tier_test_league():
@@ -146,7 +127,7 @@ def _build_tier_test_league():
                     hs, as_ = 0, 4
                 else:
                     hs, as_ = 2, 1
-                rows.extend(_make_game_pair(str(gid), date, home, away, hs, as_))
+                rows.extend(make_game_pair(str(gid), date, home, away, hs, as_))
     return pd.DataFrame(rows)
 
 

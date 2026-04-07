@@ -5,39 +5,7 @@ import pandas as pd
 import numpy as np
 
 from src.etl.v53e import V53EConfig, compute_rankings
-
-
-def _make_game_pair(gid, date, home, away, hs, as_, age="12", gender="male",
-                    opp_age=None, opp_gender=None):
-    """Create home + away perspective rows for a single game."""
-    opp_age = opp_age or age
-    opp_gender = opp_gender or gender
-    return [
-        {
-            "game_id": gid,
-            "date": pd.Timestamp(date),
-            "team_id": home,
-            "opp_id": away,
-            "age": age,
-            "gender": gender,
-            "opp_age": opp_age,
-            "opp_gender": opp_gender,
-            "gf": hs,
-            "ga": as_,
-        },
-        {
-            "game_id": gid,
-            "date": pd.Timestamp(date),
-            "team_id": away,
-            "opp_id": home,
-            "age": opp_age,
-            "gender": opp_gender,
-            "opp_age": age,
-            "opp_gender": gender,
-            "gf": as_,
-            "ga": hs,
-        },
-    ]
+from tests.conftest import make_game_pair
 
 
 def _build_same_age_league(today=None):
@@ -66,7 +34,8 @@ def _build_same_age_league(today=None):
                 hs, as_ = 0, 5
             else:
                 hs, as_ = 2, 1
-            rows.extend(_make_game_pair(str(gid), date, home, away, hs, as_))
+            rows.extend(make_game_pair(str(gid), date, home, away, hs, as_,
+                                      age="12"))
 
     return pd.DataFrame(rows)
 
@@ -116,14 +85,14 @@ def _build_cross_age_league(today=None):
     for i, opp in enumerate(u12_fillers):
         gid += 1
         date = today - pd.Timedelta(days=gid)
-        rows.extend(_make_game_pair(str(gid), date, "team_same", opp, 4, 1,
+        rows.extend(make_game_pair(str(gid), date, "team_same", opp, 4, 1,
                                     age="12", gender="male"))
 
     # team_cross: 8 games vs U13 (2-1 wins) — 100% cross-age schedule
     for i in range(8):
         gid += 1
         date = today - pd.Timedelta(days=gid)
-        rows.extend(_make_game_pair(str(gid), date, "team_cross", u13_fillers[i], 2, 1,
+        rows.extend(make_game_pair(str(gid), date, "team_cross", u13_fillers[i], 2, 1,
                                     age="12", gender="male",
                                     opp_age="13", opp_gender="male"))
 
@@ -132,14 +101,15 @@ def _build_cross_age_league(today=None):
         for away in u12_fillers[i + 1:]:
             gid += 1
             date = today - pd.Timedelta(days=gid)
-            rows.extend(_make_game_pair(str(gid), date, home, away, 2, 1))
+            rows.extend(make_game_pair(str(gid), date, home, away, 2, 1,
+                                      age="12"))
 
     # U13 fillers play each other (so they have strength in global_strength_map)
     for i, home in enumerate(u13_fillers):
         for away in u13_fillers[i + 1:]:
             gid += 1
             date = today - pd.Timedelta(days=gid)
-            rows.extend(_make_game_pair(str(gid), date, home, away, 2, 1,
+            rows.extend(make_game_pair(str(gid), date, home, away, 2, 1,
                                         age="13", gender="male"))
 
     return pd.DataFrame(rows)
@@ -290,20 +260,20 @@ class TestCrossAgeEdgeCases:
         for i in range(6):
             gid += 1
             date = today - pd.Timedelta(days=gid)
-            rows.extend(_make_game_pair(str(gid), date, "team_down", u12_fillers[i], 4, 0,
+            rows.extend(make_game_pair(str(gid), date, "team_down", u12_fillers[i], 4, 0,
                                         age="13", gender="male",
                                         opp_age="12", opp_gender="male"))
         for i in range(2):
             gid += 1
             date = today - pd.Timedelta(days=gid)
-            rows.extend(_make_game_pair(str(gid), date, "team_down", u13_fillers[i], 2, 1,
+            rows.extend(make_game_pair(str(gid), date, "team_down", u13_fillers[i], 2, 1,
                                         age="13", gender="male"))
 
         # team_honest: U13 team that plays 8 games vs U13 (2-1 wins)
         for i in range(8):
             gid += 1
             date = today - pd.Timedelta(days=gid)
-            rows.extend(_make_game_pair(str(gid), date, "team_honest", u13_fillers[i % 8], 2, 1,
+            rows.extend(make_game_pair(str(gid), date, "team_honest", u13_fillers[i % 8], 2, 1,
                                         age="13", gender="male"))
 
         # U13 fillers play each other
@@ -311,7 +281,7 @@ class TestCrossAgeEdgeCases:
             for away in u13_fillers[i + 1:]:
                 gid += 1
                 date = today - pd.Timedelta(days=gid)
-                rows.extend(_make_game_pair(str(gid), date, home, away, 2, 1,
+                rows.extend(make_game_pair(str(gid), date, home, away, 2, 1,
                                             age="13", gender="male"))
 
         # U12 fillers play each other (for global_strength_map)
@@ -319,7 +289,7 @@ class TestCrossAgeEdgeCases:
             for away in u12_fillers[i + 1:]:
                 gid += 1
                 date = today - pd.Timedelta(days=gid)
-                rows.extend(_make_game_pair(str(gid), date, home, away, 2, 1,
+                rows.extend(make_game_pair(str(gid), date, home, away, 2, 1,
                                             age="12", gender="male"))
 
         games = pd.DataFrame(rows)

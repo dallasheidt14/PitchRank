@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 
 from src.etl.v53e import V53EConfig
+from tests.conftest import make_game_pair
 
 
 # ===========================================================================
@@ -204,16 +205,6 @@ class TestComponentSizeShrinkage:
 class TestShrinkageInPipeline:
     """Verify shrinkage behavior in actual compute_rankings output."""
 
-    def _make_game_pair(self, gid, date, home, away, hs, as_, age="14", gender="male"):
-        return [
-            {"game_id": gid, "date": pd.Timestamp(date),
-             "team_id": home, "opp_id": away, "age": age, "gender": gender,
-             "opp_age": age, "opp_gender": gender, "gf": hs, "ga": as_},
-            {"game_id": gid, "date": pd.Timestamp(date),
-             "team_id": away, "opp_id": home, "age": age, "gender": gender,
-             "opp_age": age, "opp_gender": gender, "gf": as_, "ga": hs},
-        ]
-
     def test_low_gp_teams_shrunk_toward_half(self):
         """Teams with low game count should have sos_norm closer to 0.5
         than teams with high game count (all else equal-ish)."""
@@ -231,13 +222,13 @@ class TestShrinkageInPipeline:
                     continue
                 for rep in range(2):
                     d = base - timedelta(days=gc)
-                    rows.extend(self._make_game_pair(f"g_{gc:04d}", d, h, a, 2, 1))
+                    rows.extend(make_game_pair(f"g_{gc:04d}", d, h, a, 2, 1))
                     gc += 1
 
         # 1 "low" team: only 2 games (well below MIN_GAMES_FOR_TOP_SOS=6)
         for i in range(2):
             d = base - timedelta(days=i * 10)
-            rows.extend(self._make_game_pair(f"g_{gc:04d}", d, "low_gp", full_ids[i], 3, 0))
+            rows.extend(make_game_pair(f"g_{gc:04d}", d, "low_gp", full_ids[i], 3, 0))
             gc += 1
 
         games = pd.DataFrame(rows)

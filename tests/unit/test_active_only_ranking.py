@@ -19,41 +19,7 @@ from datetime import datetime, timedelta
 from copy import deepcopy
 
 from src.etl.v53e import V53EConfig, compute_rankings
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_game_pair(gid, date, home, away, hs, as_, age="14", gender="male"):
-    """Create home + away perspective rows for a single game."""
-    return [
-        {
-            "game_id": gid,
-            "date": pd.Timestamp(date),
-            "team_id": home,
-            "opp_id": away,
-            "age": age,
-            "gender": gender,
-            "opp_age": age,
-            "opp_gender": gender,
-            "gf": hs,
-            "ga": as_,
-        },
-        {
-            "game_id": gid,
-            "date": pd.Timestamp(date),
-            "team_id": away,
-            "opp_id": home,
-            "age": age,
-            "gender": gender,
-            "opp_age": age,
-            "opp_gender": gender,
-            "gf": as_,
-            "ga": hs,
-        },
-    ]
+from tests.conftest import make_game_pair
 
 
 def _build_mixed_activity_league(today=None):
@@ -86,7 +52,7 @@ def _build_mixed_activity_league(today=None):
         if opp == "team_active_1":
             opp = fillers[i]
         date = today - timedelta(days=10 + i * 7)
-        rows.extend(_make_game_pair(f"g{gid}", date, "team_active_1", opp, 3, 1))
+        rows.extend(make_game_pair(f"g{gid}", date, "team_active_1", opp, 3, 1))
 
     # team_active_2: 10 games
     for i in range(10):
@@ -95,33 +61,33 @@ def _build_mixed_activity_league(today=None):
         if opp == "team_active_2":
             opp = fillers[i + 5]
         date = today - timedelta(days=10 + i * 7)
-        rows.extend(_make_game_pair(f"g{gid}", date, "team_active_2", opp, 2, 1))
+        rows.extend(make_game_pair(f"g{gid}", date, "team_active_2", opp, 2, 1))
 
     # team_active_3: exactly 8 games (edge case)
     for i in range(8):
         gid += 1
         opp = fillers[i + 10]
         date = today - timedelta(days=10 + i * 7)
-        rows.extend(_make_game_pair(f"g{gid}", date, "team_active_3", opp, 2, 0))
+        rows.extend(make_game_pair(f"g{gid}", date, "team_active_3", opp, 2, 0))
 
     # team_low_1: 5 games (Not Enough Ranked Games)
     for i in range(5):
         gid += 1
         opp = fillers[i]
         date = today - timedelta(days=10 + i * 7)
-        rows.extend(_make_game_pair(f"g{gid}", date, "team_low_1", opp, 1, 2))
+        rows.extend(make_game_pair(f"g{gid}", date, "team_low_1", opp, 1, 2))
 
     # team_low_2: 3 games (Not Enough Ranked Games)
     for i in range(3):
         gid += 1
         opp = fillers[i]
         date = today - timedelta(days=10 + i * 7)
-        rows.extend(_make_game_pair(f"g{gid}", date, "team_low_2", opp, 0, 1))
+        rows.extend(make_game_pair(f"g{gid}", date, "team_low_2", opp, 0, 1))
 
     # team_one_game: 1 game (Not Enough Ranked Games)
     gid += 1
     date = today - timedelta(days=10)
-    rows.extend(_make_game_pair(f"g{gid}", date, "team_one_game", fillers[0], 5, 0))
+    rows.extend(make_game_pair(f"g{gid}", date, "team_one_game", fillers[0], 5, 0))
 
     # Give filler teams enough games to be "Active" so they have valid SOS
     for i, filler in enumerate(fillers):
@@ -131,7 +97,7 @@ def _build_mixed_activity_league(today=None):
             if opp == filler:
                 opp = fillers[(i + j + 2) % len(fillers)]
             date = today - timedelta(days=10 + j * 7)
-            rows.extend(_make_game_pair(f"g{gid}", date, filler, opp, 2, 1))
+            rows.extend(make_game_pair(f"g{gid}", date, filler, opp, 2, 1))
 
     return pd.DataFrame(rows)
 
@@ -476,14 +442,14 @@ class TestPowerScoreBounds:
             gid += 1
             date = self.today - timedelta(days=10 + i * 7)
             # 20-0 blowouts (capped at 6 by v53e)
-            rows.extend(_make_game_pair(f"g{gid}", date, "dominant_team", f"weak_{i}", 20, 0))
+            rows.extend(make_game_pair(f"g{gid}", date, "dominant_team", f"weak_{i}", 20, 0))
 
         # Give weak teams enough games
         for i in range(12):
             for j in range(10):
                 gid += 1
                 date = self.today - timedelta(days=10 + j * 7)
-                rows.extend(_make_game_pair(f"g{gid}", date, f"weak_{i}", f"weak_{(i + j + 1) % 12}", 1, 2))
+                rows.extend(make_game_pair(f"g{gid}", date, f"weak_{i}", f"weak_{(i + j + 1) % 12}", 1, 2))
 
         games_df = pd.DataFrame(rows)
         result = compute_rankings(games_df, today=self.today, cfg=self.cfg)

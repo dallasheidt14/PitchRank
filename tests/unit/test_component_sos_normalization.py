@@ -36,41 +36,12 @@ from src.etl.v53e import (
     V53EConfig,
     compute_rankings,
 )
+from tests.conftest import make_game_pair
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_game_pair(game_id, date, home, away, home_score, away_score, age="14", gender="male"):
-    """Create both perspective rows for a single game."""
-    return [
-        {
-            "game_id": game_id,
-            "date": pd.Timestamp(date),
-            "team_id": home,
-            "opp_id": away,
-            "age": age,
-            "gender": gender,
-            "opp_age": age,
-            "opp_gender": gender,
-            "gf": home_score,
-            "ga": away_score,
-        },
-        {
-            "game_id": game_id,
-            "date": pd.Timestamp(date),
-            "team_id": away,
-            "opp_id": home,
-            "age": age,
-            "gender": gender,
-            "opp_age": age,
-            "opp_gender": gender,
-            "gf": away_score,
-            "ga": home_score,
-        },
-    ]
 
 
 def _build_ecosystem(
@@ -99,7 +70,7 @@ def _build_ecosystem(
         game_id = f"{team_prefix}_g{game_counter:04d}"
         game_counter += 1
 
-        rows.extend(_make_game_pair(game_id, game_date, home, away, home_score, away_score, age=age, gender=gender))
+        rows.extend(make_game_pair(game_id, game_date, home, away, home_score, away_score, age=age, gender=gender))
 
     return rows, team_ids
 
@@ -366,7 +337,7 @@ class TestBridgeGameConnects:
         rows_b, ids_b = _build_ecosystem("eco_b", 18, 12, base_date, seed=99)
 
         # Add ONE bridge game between the ecosystems
-        bridge_rows = _make_game_pair(
+        bridge_rows = make_game_pair(
             "bridge_001",
             base_date - timedelta(days=50),
             ids_a[0],

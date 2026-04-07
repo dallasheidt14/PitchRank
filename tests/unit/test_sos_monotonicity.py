@@ -9,29 +9,7 @@ import pandas as pd
 import numpy as np
 
 from src.etl.v53e import V53EConfig, compute_rankings
-
-
-def _make_game(gid, date, home, away, hs, as_, age="15", gender="male",
-               opp_age=None, opp_gender=None):
-    """Create home + away perspective rows for a single game."""
-    opp_age = opp_age or age
-    opp_gender = opp_gender or gender
-    return [
-        {
-            "game_id": str(gid), "date": pd.Timestamp(date),
-            "team_id": home, "opp_id": away,
-            "age": age, "gender": gender,
-            "opp_age": opp_age, "opp_gender": opp_gender,
-            "gf": hs, "ga": as_,
-        },
-        {
-            "game_id": str(gid), "date": pd.Timestamp(date),
-            "team_id": away, "opp_id": home,
-            "age": opp_age, "gender": opp_gender,
-            "opp_age": age, "opp_gender": gender,
-            "gf": as_, "ga": hs,
-        },
-    ]
+from tests.conftest import make_game_pair
 
 
 def _build_multi_component_league():
@@ -70,7 +48,8 @@ def _build_multi_component_league():
                 hs, as_ = 1, 3
             else:
                 hs, as_ = 2, 1
-            rows.extend(_make_game(gid, date, home, away, hs, as_))
+            rows.extend(make_game_pair(gid, date, home, away, hs, as_,
+                                      age="15"))
 
     # Component B: 4 teams, round-robin (completely disconnected from A)
     comp_b = [f"team_B{i}" for i in range(4)]
@@ -84,7 +63,8 @@ def _build_multi_component_league():
                 hs, as_ = 0, 4
             else:
                 hs, as_ = 1, 1
-            rows.extend(_make_game(gid, date, home, away, hs, as_))
+            rows.extend(make_game_pair(gid, date, home, away, hs, as_,
+                                      age="15"))
 
     return pd.DataFrame(rows)
 
@@ -212,7 +192,8 @@ def _build_varied_gp_league():
         for away in all_pool[i + 1:]:
             gid += 1
             date = today - pd.Timedelta(days=gid)
-            rows.extend(_make_game(gid, date, home, away, 2, 1))
+            rows.extend(make_game_pair(gid, date, home, away, 2, 1,
+                                      age="15"))
 
     # Teams with varied GP, all beating anchor 3-1.
     # Same single opponent => identical raw SOS; only shrinkage differs.
@@ -221,7 +202,8 @@ def _build_varied_gp_league():
         for _ in range(gp_count):
             gid += 1
             date = today - pd.Timedelta(days=gid)
-            rows.extend(_make_game(gid, date, team_name, anchor, 3, 1))
+            rows.extend(make_game_pair(gid, date, team_name, anchor, 3, 1,
+                                      age="15"))
 
     return pd.DataFrame(rows)
 

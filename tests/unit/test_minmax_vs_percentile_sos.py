@@ -24,21 +24,7 @@ from datetime import datetime, timedelta
 from copy import deepcopy
 
 from src.etl.v53e import V53EConfig, compute_rankings
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _make_game_pair(gid, date, home, away, hs, as_, age="14", gender="male"):
-    return [
-        {"game_id": gid, "date": pd.Timestamp(date),
-         "team_id": home, "opp_id": away, "age": age, "gender": gender,
-         "opp_age": age, "opp_gender": gender, "gf": hs, "ga": as_},
-        {"game_id": gid, "date": pd.Timestamp(date),
-         "team_id": away, "opp_id": home, "age": age, "gender": gender,
-         "opp_age": age, "opp_gender": gender, "gf": as_, "ga": hs},
-    ]
+from tests.conftest import make_game_pair
 
 
 def _build_cohort(num_teams=30, games_per_team=14, seed=42, age="14"):
@@ -52,7 +38,7 @@ def _build_cohort(num_teams=30, games_per_team=14, seed=42, age="14"):
         h, a = rng.choice(num_teams, size=2, replace=False)
         hs, as_ = int(rng.poisson(1.5)), int(rng.poisson(1.5))
         d = base - timedelta(days=int(rng.randint(1, 300)))
-        rows.extend(_make_game_pair(f"g_{gc:04d}", d, ids[h], ids[a], hs, as_, age=age))
+        rows.extend(make_game_pair(f"g_{gc:04d}", d, ids[h], ids[a], hs, as_, age=age))
         gc += 1
     return pd.DataFrame(rows), ids
 
@@ -304,13 +290,13 @@ class TestOutlierSensitivity:
             for j in range(i + 1, min(i + 6, 19)):
                 for rep in range(2):
                     d = base - timedelta(days=gc)
-                    rows.extend(_make_game_pair(f"g_{gc:04d}", d, team_ids[i], team_ids[j], 2, 1))
+                    rows.extend(make_game_pair(f"g_{gc:04d}", d, team_ids[i], team_ids[j], 2, 1))
                     gc += 1
 
         # t19 plays only against unranked/unknown teams (very low SOS)
         for i in range(12):
             d = base - timedelta(days=gc)
-            rows.extend(_make_game_pair(f"g_{gc:04d}", d, team_ids[19], f"unknown_{i}", 5, 0))
+            rows.extend(make_game_pair(f"g_{gc:04d}", d, team_ids[19], f"unknown_{i}", 5, 0))
             gc += 1
 
         games = pd.DataFrame(rows)
@@ -338,12 +324,12 @@ class TestOutlierSensitivity:
             for j in range(i + 1, min(i + 6, 19)):
                 for rep in range(2):
                     d = base - timedelta(days=gc)
-                    rows.extend(_make_game_pair(f"g_{gc:04d}", d, team_ids[i], team_ids[j], 2, 1))
+                    rows.extend(make_game_pair(f"g_{gc:04d}", d, team_ids[i], team_ids[j], 2, 1))
                     gc += 1
 
         for i in range(12):
             d = base - timedelta(days=gc)
-            rows.extend(_make_game_pair(f"g_{gc:04d}", d, team_ids[19], f"unknown_{i}", 5, 0))
+            rows.extend(make_game_pair(f"g_{gc:04d}", d, team_ids[19], f"unknown_{i}", 5, 0))
             gc += 1
 
         games = pd.DataFrame(rows)
@@ -479,7 +465,7 @@ class TestIdenticalResults:
                     if i >= j:
                         continue
                     d = base - timedelta(days=gc * 3 + rnd)
-                    rows.extend(_make_game_pair(f"g_{gc:04d}", d, h, a, 1, 1))
+                    rows.extend(make_game_pair(f"g_{gc:04d}", d, h, a, 1, 1))
                     gc += 1
 
         games = pd.DataFrame(rows)
@@ -521,13 +507,13 @@ class TestBubbleEffects:
             for j in range(i + 1, min(i + 5, 15)):
                 for rep in range(2):
                     d = base - timedelta(days=gc)
-                    rows.extend(_make_game_pair(f"g_{gc:04d}", d, normals[i], normals[j], 2, 1))
+                    rows.extend(make_game_pair(f"g_{gc:04d}", d, normals[i], normals[j], 2, 1))
                     gc += 1
 
         # 1 team playing ONLY unknowns
         for i in range(12):
             d = base - timedelta(days=gc)
-            rows.extend(_make_game_pair(f"g_{gc:04d}", d, "loner", f"ghost_{i}", 5, 0))
+            rows.extend(make_game_pair(f"g_{gc:04d}", d, "loner", f"ghost_{i}", 5, 0))
             gc += 1
 
         games = pd.DataFrame(rows)

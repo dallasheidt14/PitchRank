@@ -6,20 +6,48 @@ import asyncio
 import hashlib
 import logging
 from contextlib import nullcontext
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 import pandas as pd
 
 from src.etl.glicko_config import GlickoConfig
 from src.etl.glicko_engine import compute_rankings_v2
 from src.etl.v53e import V53EConfig, compute_rankings
-from src.rankings.data_adapter import fetch_games_for_rankings
+from src.rankings.data_adapter import batch_fetch_rows, fetch_games_for_rankings
 from src.rankings.layer13_predictive_adjustment import Layer13Config, apply_predictive_adjustment
 from src.rankings.ranking_history import calculate_rank_changes, save_ranking_snapshot
 
 if TYPE_CHECKING:
     from src.profiling.timer import TimingReport
+
+
+@dataclass
+class RankingContext:
+    """Shared context for multi-pass ranking computation.
+
+    Groups team metadata, cross-age state, engine control, and instrumentation
+    parameters that were previously passed as individual arguments to
+    ``compute_rankings_with_ml``.
+    """
+
+    # Team metadata
+    team_state_map: Optional[Dict[str, str]] = None
+    tier_league_map: Optional[Dict[str, str]] = None
+    # Cross-age / two-pass state
+    global_strength_map: Optional[Dict] = None
+    pre_sos_state: Optional[Dict] = None
+    merge_version: Optional[str] = None
+    initial_ratings: Optional[Dict] = None
+    # Engine selection & control
+    use_glicko: bool = True
+    force_rebuild: bool = False
+    save_snapshot: bool = True
+    # Instrumentation
+    timing_report: Optional[Any] = None
+    pass_label: Optional[str] = None
+
 
 logger = logging.getLogger(__name__)
 
@@ -150,24 +178,14 @@ async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame)
 
 async def compute_rankings_with_ml(
     supabase_client,
-    games_df: Optional[pd.DataFrame] = None,  # Optional: pass games directly
+    games_df: Optional[pd.DataFrame] = None,
     today: Optional[pd.Timestamp] = None,
     v53_cfg: Optional[V53EConfig] = None,
     layer13_cfg: Optional[Layer13Config] = None,
     fetch_from_supabase: bool = True,
     lookback_days: int = 365,
     provider_filter: Optional[str] = None,
-    force_rebuild: bool = False,
-    save_snapshot: bool = True,  # Set to False when called from compute_all_cohorts
-    global_strength_map: Optional[Dict] = None,  # For cross-age opponent-strength lookups in Pass 2
-    merge_version: Optional[str] = None,  # For cache invalidation when merges change
-    team_state_map: Optional[Dict[str, str]] = None,  # For SCF regional bubble detection
-    tier_league_map: Optional[Dict[str, str]] = None,  # For tier-based SOS discounting
-    timing_report: Optional["TimingReport"] = None,
-    pass_label: Optional[str] = None,  # "Pass1" or "Pass2" for log disambiguation
-    pre_sos_state: Optional[Dict] = None,  # Cached state from Pass 1 for two-pass optimization
-    use_glicko: bool = True,  # True = Glicko-2 engine, False = legacy v53e engine
-    initial_ratings: Optional[Dict] = None,  # Warm-start Glicko-2 Pass 2 from Pass 1 converged ratings
+    ctx: Optional[RankingContext] = None,
 ) -> Dict[str, pd.DataFrame]:
     """
     Run the selected rankings engine, then apply the Supabase-aware ML adjustment.
@@ -181,8 +199,7 @@ async def compute_rankings_with_ml(
         fetch_from_supabase: If True and games_df is None, fetch from Supabase
         lookback_days: Days to look back for rankings
         provider_filter: Optional provider code filter
-        merge_version: Version hash from MergeResolver for cache invalidation
-        team_state_map: Optional dict of team_id -> state_code for SCF calculation
+        ctx: Ranking context with team metadata, cross-age state, and engine control
 
     Returns:
         {
@@ -190,6 +207,20 @@ async def compute_rankings_with_ml(
             "games_used": games_used_df
         }
     """
+    ctx = ctx or RankingContext()
+    # Unpack context fields as locals so the body reads naturally
+    force_rebuild = ctx.force_rebuild
+    save_snapshot = ctx.save_snapshot
+    global_strength_map = ctx.global_strength_map
+    merge_version = ctx.merge_version
+    team_state_map = ctx.team_state_map
+    tier_league_map = ctx.tier_league_map
+    timing_report = ctx.timing_report
+    pass_label = ctx.pass_label
+    pre_sos_state = ctx.pre_sos_state
+    use_glicko = ctx.use_glicko
+    initial_ratings = ctx.initial_ratings
+
     v53_cfg = v53_cfg or V53EConfig()
 
     # 1) Get games data
@@ -562,30 +593,20 @@ async def compute_all_cohorts(
     with _section(timing_report, "team_state_map"):
         if team_ids:
             logger.info(f"🗺️  Fetching state metadata for {len(team_ids):,} teams (for SCF)...")
-            team_ids_list = list(team_ids)
-            batch_size = 100
+            rows = batch_fetch_rows(
+                supabase_client,
+                "teams",
+                "team_id_master, state_code",
+                "team_id_master",
+                list(team_ids),
+            )
+            for row in rows:
+                team_id = str(row.get("team_id_master", ""))
+                state_code = row.get("state_code", "UNKNOWN")
+                if team_id:
+                    team_state_map[team_id] = state_code if state_code else "UNKNOWN"
 
-            for i in range(0, len(team_ids_list), batch_size):
-                batch = team_ids_list[i : i + batch_size]
-                try:
-                    result = (
-                        supabase_client.table("teams")
-                        .select("team_id_master, state_code")
-                        .in_("team_id_master", batch)
-                        .execute()
-                    )
-                    if result.data:
-                        for row in result.data:
-                            team_id = str(row.get("team_id_master", ""))
-                            state_code = row.get("state_code", "UNKNOWN")
-                            if team_id:
-                                team_state_map[team_id] = state_code if state_code else "UNKNOWN"
-                except Exception as e:
-                    logger.warning(f"⚠️ Failed to fetch state metadata batch {i}: {str(e)[:100]}")
-                    continue
-
-            # Count states for logging
-            state_counts = {}
+            state_counts: Dict[str, int] = {}
             for state in team_state_map.values():
                 state_counts[state] = state_counts.get(state, 0) + 1
             top_states = sorted(state_counts.items(), key=lambda x: -x[1])[:5]
@@ -598,26 +619,18 @@ async def compute_all_cohorts(
     with _section(timing_report, "tier_league_map"):
         if team_ids:
             logger.info(f"🏆 Fetching league metadata for {len(team_ids):,} teams (for tier multiplier)...")
-            team_ids_list = list(team_ids)
-            batch_size = 100
-            for i in range(0, len(team_ids_list), batch_size):
-                batch = team_ids_list[i : i + batch_size]
-                try:
-                    result = (
-                        supabase_client.table("teams")
-                        .select("team_id_master, league")
-                        .in_("team_id_master", batch)
-                        .execute()
-                    )
-                    if result.data:
-                        for row in result.data:
-                            team_id = str(row.get("team_id_master", ""))
-                            league = row.get("league")
-                            if team_id and league:
-                                tier_league_map[team_id] = league
-                except Exception as e:
-                    logger.warning(f"⚠️ Failed to fetch league metadata batch {i}: {str(e)[:100]}")
-                    continue
+            rows = batch_fetch_rows(
+                supabase_client,
+                "teams",
+                "team_id_master, league",
+                "team_id_master",
+                list(team_ids),
+            )
+            for row in rows:
+                team_id = str(row.get("team_id_master", ""))
+                league = row.get("league")
+                if team_id and league:
+                    tier_league_map[team_id] = league
             league_counts: Dict[str, int] = {}
             for lg in tier_league_map.values():
                 league_counts[lg] = league_counts.get(lg, 0) + 1
@@ -680,14 +693,16 @@ async def compute_all_cohorts(
             fetch_from_supabase=False,
             lookback_days=lookback_days,
             provider_filter=provider_filter,
-            force_rebuild=force_rebuild,
-            save_snapshot=False,
-            global_strength_map=None,  # No global map yet
-            merge_version=merge_version,  # For cache invalidation
-            team_state_map=team_state_map,  # For SCF regional bubble detection
-            tier_league_map=tier_league_map,  # For tier-based SOS discounting
-            pass_label="Pass1",
-            use_glicko=use_glicko,
+            ctx=RankingContext(
+                force_rebuild=force_rebuild,
+                save_snapshot=False,
+                global_strength_map=None,
+                merge_version=merge_version,
+                team_state_map=team_state_map,
+                tier_league_map=tier_league_map,
+                pass_label="Pass1",
+                use_glicko=use_glicko,
+            ),
         )
         pass1_tasks.append(task)
 
@@ -744,16 +759,18 @@ async def compute_all_cohorts(
             fetch_from_supabase=False,
             lookback_days=lookback_days,
             provider_filter=provider_filter,
-            force_rebuild=True,  # Force rebuild to use new global map
-            save_snapshot=False,
-            global_strength_map=global_strength_map,  # Now with cross-age strengths/ratings
-            merge_version=merge_version,  # For cache invalidation
-            team_state_map=team_state_map,  # For SCF regional bubble detection
-            tier_league_map=tier_league_map,  # For tier-based SOS discounting
-            pass_label="Pass2",
-            pre_sos_state=None if use_glicko else pass1_pre_sos_states.get(i),
-            use_glicko=use_glicko,
-            initial_ratings=pass1_glicko_ratings.get(i) if use_glicko else None,
+            ctx=RankingContext(
+                force_rebuild=True,
+                save_snapshot=False,
+                global_strength_map=global_strength_map,
+                merge_version=merge_version,
+                team_state_map=team_state_map,
+                tier_league_map=tier_league_map,
+                pass_label="Pass2",
+                pre_sos_state=None if use_glicko else pass1_pre_sos_states.get(i),
+                use_glicko=use_glicko,
+                initial_ratings=pass1_glicko_ratings.get(i) if use_glicko else None,
+            ),
         )
         pass2_tasks.append(task)
 
@@ -1243,5 +1260,3 @@ async def compute_all_cohorts(
     logger.info(f"✅ Two-pass rankings flow complete: {len(teams_combined):,} teams ranked")
 
     return {"teams": teams_combined, "games_used": games_used_combined}
-
-

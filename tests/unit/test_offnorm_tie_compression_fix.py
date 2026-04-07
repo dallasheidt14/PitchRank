@@ -23,24 +23,12 @@ from src.etl.v53e import (
     compute_rankings,
     _percentile_norm,
 )
+from tests.conftest import make_game_pair
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _make_game_pair(game_id, date, home, away, home_score, away_score,
-                    age="16", gender="female"):
-    """Create both perspective rows for a single game."""
-    return [
-        {"game_id": game_id, "date": pd.Timestamp(date),
-         "team_id": home, "opp_id": away, "age": age, "gender": gender,
-         "opp_age": age, "opp_gender": gender, "gf": home_score, "ga": away_score},
-        {"game_id": game_id, "date": pd.Timestamp(date),
-         "team_id": away, "opp_id": home, "age": age, "gender": gender,
-         "opp_age": age, "opp_gender": gender, "gf": away_score, "ga": home_score},
-    ]
-
 
 def _build_regional_bubble(bubble_teams, num_games_per_team=12, seed=42,
                             age="16", gender="female", base_date=None,
@@ -71,7 +59,7 @@ def _build_regional_bubble(bubble_teams, num_games_per_team=12, seed=42,
             aws = int(rng.poisson(1.5))
 
         game_date = base_date - timedelta(days=int(rng.randint(1, 200)))
-        rows.extend(_make_game_pair(
+        rows.extend(make_game_pair(
             f"g_{game_counter:04d}", game_date, home, away, hs, aws,
             age=age, gender=gender
         ))
@@ -109,7 +97,7 @@ def _build_national_league(national_teams, num_games_per_team=15, seed=99,
         aws = int(rng.poisson(away_lambda))
 
         game_date = base_date - timedelta(days=int(rng.randint(1, 200)))
-        rows.extend(_make_game_pair(
+        rows.extend(make_game_pair(
             f"g_{game_counter:04d}", game_date, home, away, hs, aws,
             age=age, gender=gender
         ))
@@ -144,7 +132,7 @@ def _build_arkansas_rising_scenario():
     def add_game(home, away, hs, aws):
         nonlocal gc
         game_date = base_date - timedelta(days=int(rng.randint(1, 300)))
-        all_rows.extend(_make_game_pair(f"g_{gc:05d}", game_date, home, away, hs, aws))
+        all_rows.extend(make_game_pair(f"g_{gc:05d}", game_date, home, away, hs, aws, age="16", gender="female"))
         gc += 1
 
     # --- 1) RL bubble: only play each other, rl_team_0 dominates ---

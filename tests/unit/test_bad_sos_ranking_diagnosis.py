@@ -27,21 +27,7 @@ from datetime import datetime, timedelta
 from copy import deepcopy
 
 from src.etl.v53e import V53EConfig, compute_rankings
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _make_game_pair(gid, date, home, away, hs, as_, age="14", gender="male"):
-    return [
-        {"game_id": gid, "date": pd.Timestamp(date),
-         "team_id": home, "opp_id": away, "age": age, "gender": gender,
-         "opp_age": age, "opp_gender": gender, "gf": hs, "ga": as_},
-        {"game_id": gid, "date": pd.Timestamp(date),
-         "team_id": away, "opp_id": home, "age": age, "gender": gender,
-         "opp_age": age, "opp_gender": gender, "gf": as_, "ga": hs},
-    ]
+from tests.conftest import make_game_pair
 
 
 def _build_tiered_league(seed=42):
@@ -69,7 +55,7 @@ def _build_tiered_league(seed=42):
             gc += 1
             hs = rng.choice([1, 2, 3])
             as_ = rng.choice([0, 1, 2])
-            rows.extend(_make_game_pair(
+            rows.extend(make_game_pair(
                 f"g{gc}", base + timedelta(days=gc), t1, t2, hs, as_))
 
     # Elite vs Mid: elite usually wins
@@ -79,7 +65,7 @@ def _build_tiered_league(seed=42):
             gc += 1
             hs = rng.randint(2, 5)  # elite scores 2-4
             as_ = rng.randint(0, 2)  # mid scores 0-1
-            rows.extend(_make_game_pair(
+            rows.extend(make_game_pair(
                 f"g{gc}", base + timedelta(days=gc), e, m, hs, as_))
 
     # Mid vs Mid: fairly competitive
@@ -89,7 +75,7 @@ def _build_tiered_league(seed=42):
             gc += 1
             hs = rng.randint(1, 4)
             as_ = rng.randint(0, 3)
-            rows.extend(_make_game_pair(
+            rows.extend(make_game_pair(
                 f"g{gc}", base + timedelta(days=gc), t1, t2, hs, as_))
 
     # Mid vs Weak (bridge games — only 2 mid teams play weak teams)
@@ -100,7 +86,7 @@ def _build_tiered_league(seed=42):
             gc += 1
             hs = rng.randint(3, 6)
             as_ = rng.randint(0, 1)
-            rows.extend(_make_game_pair(
+            rows.extend(make_game_pair(
                 f"g{gc}", base + timedelta(days=gc), m, w, hs, as_))
 
     # Weak vs Weak: the bubble league — lots of games, easy opponents
@@ -111,7 +97,7 @@ def _build_tiered_league(seed=42):
             # Some weak teams dominate: scores like 4-0, 5-1
             hs = rng.randint(0, 5)
             as_ = rng.randint(0, 4)
-            rows.extend(_make_game_pair(
+            rows.extend(make_game_pair(
                 f"g{gc}", base + timedelta(days=gc), t1, t2, hs, as_))
 
     return pd.DataFrame(rows), elite, mid, weak
