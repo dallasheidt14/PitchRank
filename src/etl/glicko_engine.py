@@ -214,6 +214,12 @@ def glicko2_update(
         v_inv += w_j * g_j**2 * E_j * (1.0 - E_j)
         delta_sum += w_j * g_j * (s_j - E_j)
 
+    if v_inv == 0.0:
+        # All opponents have extreme expected outcomes — treat as no-info period
+        phi_star = math.sqrt(phi_g2**2 + sigma**2)
+        new_mu, new_phi = _from_glicko2_scale(mu_g2, phi_star)
+        return new_mu, new_phi, sigma
+
     v = 1.0 / v_inv
     delta = v * delta_sum
 
@@ -356,6 +362,29 @@ def compute_recency_weights(game_dates: pd.Series, today: pd.Timestamp, lambda_:
     days_ago = (today_naive - gd).dt.days
     weights = np.exp(-lambda_ * days_ago / 365.0)
     return weights / weights.sum()
+
+
+def compute_repeat_opponent_weights(opp_ids, cfg: GlickoConfig) -> np.ndarray:
+    """Return per-game repeat-opponent multipliers in encounter order.
+
+    The input order is expected to match the selected ranking window order
+    (most recent first). The first meeting with an opponent gets full weight,
+    then repeated meetings decay according to cfg.REPEAT_OPPONENT_WEIGHTS.
+    """
+    opp_list = [str(opp_id) for opp_id in opp_ids]
+    if not opp_list:
+        return np.array([], dtype=float)
+    if not getattr(cfg, "REPEAT_OPPONENT_DECAY_ENABLED", False):
+        return np.ones(len(opp_list), dtype=float)
+
+    schedule = list(getattr(cfg, "REPEAT_OPPONENT_WEIGHTS", []) or [1.0])
+    counts: Dict[str, int] = {}
+    multipliers = []
+    for opp_id in opp_list:
+        counts[opp_id] = counts.get(opp_id, 0) + 1
+        idx = min(counts[opp_id] - 1, len(schedule) - 1)
+        multipliers.append(float(schedule[idx]))
+    return np.asarray(multipliers, dtype=float)
 
 
 # =========================================================
@@ -774,8 +803,9 @@ def compute_game_explainability(
         if len(tg) == 0:
             continue
 
-        # Recency weights (convert to ndarray for positional indexing)
+        # Recency weights are additionally decayed for repeated opponents.
         weights = np.asarray(compute_recency_weights(tg["date"], today, cfg.RECENCY_LAMBDA))
+        weights = weights * compute_repeat_opponent_weights(tg["opp_id"].values, cfg)
 
         # Convert team rating to Glicko-2 scale
         team_mu_g2, _ = _to_glicko2_scale(team_mu, team_sigma)
@@ -1016,7 +1046,10 @@ def run_glicko2_cohort(
             "opp_ages": opp_ages,
             "opp_genders": opp_genders,
             "cross_age_mask": cross_age_mask,
-            "weights": compute_recency_weights(tg["date"], today, cfg.RECENCY_LAMBDA).tolist(),
+            "weights": (
+                compute_recency_weights(tg["date"], today, cfg.RECENCY_LAMBDA)
+                * compute_repeat_opponent_weights(tg["opp_id"].values, cfg)
+            ).tolist(),
             "outcomes": [
                 game_outcome(int(gf), int(ga), cfg.MAX_GD) for gf, ga in zip(tg["gf"].values, tg["ga"].values)
             ],

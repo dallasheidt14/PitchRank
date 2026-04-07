@@ -29,6 +29,13 @@ class GlickoConfig:
     # Recency
     RECENCY_LAMBDA: float = 1.0
 
+    # Repeat-opponent decay inside the core Glicko update.
+    # The first meeting gets full weight; repeated meetings retain authority
+    # but progressively less, which reduces closed-loop inflation without
+    # zeroing out rematches entirely.
+    REPEAT_OPPONENT_DECAY_ENABLED: bool = True
+    REPEAT_OPPONENT_WEIGHTS: list[float] = field(default_factory=lambda: [1.0, 0.8, 0.6, 0.4])
+
     # Convergence
     CONVERGENCE_THRESHOLD: float = 1.0
     MAX_ITERATIONS: int = 30

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 
 from src.etl.glicko_config import GlickoConfig
@@ -57,6 +58,188 @@ def _section(timing_report: Optional["TimingReport"], name: str, **metadata):
     if timing_report is not None:
         return timing_report.section(name, **metadata)
     return nullcontext()
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        if pd.isna(value):
+            return 0
+    except TypeError:
+        pass
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        if pd.isna(value):
+            return None
+    except TypeError:
+        pass
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
+    """Uniform evidence policy for ML authority and publication caps.
+
+    The same standard is applied to every age group. The age argument is kept
+    in the signature so the policy can be tuned again later without changing
+    the call sites.
+    """
+    return {
+        "cap_rank": 400,
+        "min_top500": 5,
+        "min_avg_opp_power": 0.68,
+        "max_repeat_share": 0.40,
+        "partial_ml_scale": 0.25,
+    }
+
+
+def _score_cutoff_for_rank(cohort_df: pd.DataFrame, score_col: str, target_rank: int) -> float:
+    eligible = cohort_df.copy()
+    if "status" in eligible.columns:
+        eligible = eligible[eligible["status"] == "Active"]
+    eligible = eligible[eligible[score_col].notna()].sort_values([score_col, "team_id"], ascending=[False, True])
+    if eligible.empty:
+        return 0.0
+    idx = min(max(target_rank, 1), len(eligible)) - 1
+    cutoff = float(eligible.iloc[idx][score_col])
+    return max(0.0, cutoff - 1e-6)
+
+
+def _compute_same_age_evidence_metrics(games_used_df: pd.DataFrame, teams_df: pd.DataFrame) -> pd.DataFrame:
+    """Build same-age evidence metrics from the engine's actual selected game windows."""
+    defaults = pd.DataFrame(
+        {
+            "team_id": teams_df["team_id"].astype(str),
+            "same_age_games": 0,
+            "same_age_game_share": 0.0,
+            "same_age_unique_opponents": 0,
+            "same_age_top100_opp_count": 0,
+            "same_age_top500_opp_count": 0,
+            "same_age_avg_opp_power_adj": pd.NA,
+            "repeat_opponent_share": 0.0,
+        }
+    )
+    if games_used_df.empty or teams_df.empty:
+        return defaults
+
+    teams_work = teams_df.copy()
+    teams_work["team_id"] = teams_work["team_id"].astype(str)
+    teams_work["age"] = teams_work["age"].astype(str)
+    teams_work["gender"] = teams_work["gender"].astype(str)
+
+    active = teams_work[teams_work["status"] == "Active"].copy() if "status" in teams_work.columns else teams_work.copy()
+    base_rank_lookup: dict[tuple[str, str], dict[str, int]] = {}
+    base_power_lookup = dict(zip(teams_work["team_id"], pd.to_numeric(teams_work["powerscore_adj"], errors="coerce")))
+
+    for (age, gender), grp in active.groupby(["age", "gender"]):
+        ranked = grp.sort_values(["powerscore_adj", "team_id"], ascending=[False, True]).reset_index(drop=True)
+        ranked["base_rank"] = ranked.index + 1
+        base_rank_lookup[(str(age), str(gender))] = dict(zip(ranked["team_id"], ranked["base_rank"]))
+
+    games = games_used_df.copy()
+    games["team_id"] = games["team_id"].astype(str)
+    games["opp_id"] = games["opp_id"].astype(str)
+    games["age"] = games["age"].astype(str)
+    games["gender"] = games["gender"].astype(str)
+    games["opp_age"] = games["opp_age"].astype(str)
+    games["opp_gender"] = games["opp_gender"].astype(str)
+
+    rows: list[dict[str, Any]] = []
+    for team_id, tg in games.groupby("team_id"):
+        if tg.empty:
+            continue
+        team_age = str(tg["age"].iloc[0])
+        team_gender = str(tg["gender"].iloc[0])
+        same_age = tg[(tg["opp_age"] == team_age) & (tg["opp_gender"] == team_gender)]
+        unique_same_age_opp_ids = same_age["opp_id"].dropna().astype(str).unique().tolist()
+        cohort_rank_map = base_rank_lookup.get((team_age, team_gender), {})
+        opp_ranks = [cohort_rank_map.get(opp_id) for opp_id in unique_same_age_opp_ids if opp_id in cohort_rank_map]
+        opp_powers = [base_power_lookup.get(opp_id) for opp_id in unique_same_age_opp_ids if opp_id in base_power_lookup]
+        counts = tg["opp_id"].value_counts()
+        repeat_share = float(counts[counts >= 2].sum() / len(tg)) if len(tg) else 0.0
+        clean_opp_powers = [float(val) for val in opp_powers if val is not None and not pd.isna(val)]
+
+        rows.append(
+            {
+                "team_id": team_id,
+                "same_age_games": int(len(same_age)),
+                "same_age_game_share": float(len(same_age) / len(tg)) if len(tg) else 0.0,
+                "same_age_unique_opponents": int(len(unique_same_age_opp_ids)),
+                "same_age_top100_opp_count": int(sum(1 for rank in opp_ranks if rank is not None and rank <= 100)),
+                "same_age_top500_opp_count": int(sum(1 for rank in opp_ranks if rank is not None and rank <= 500)),
+                "same_age_avg_opp_power_adj": (
+                    float(sum(clean_opp_powers) / len(clean_opp_powers)) if clean_opp_powers else pd.NA
+                ),
+                "repeat_opponent_share": repeat_share,
+            }
+        )
+
+    metrics_df = pd.DataFrame(rows)
+    if metrics_df.empty:
+        return defaults
+    merged = defaults.merge(metrics_df, on="team_id", how="left", suffixes=("_default", ""))
+    for col in [
+        "same_age_games",
+        "same_age_game_share",
+        "same_age_unique_opponents",
+        "same_age_top100_opp_count",
+        "same_age_top500_opp_count",
+        "same_age_avg_opp_power_adj",
+        "repeat_opponent_share",
+    ]:
+        default_col = f"{col}_default"
+        if default_col in merged.columns:
+            merged[col] = merged[col].where(merged[col].notna(), merged[default_col])
+            merged.drop(columns=[default_col], inplace=True)
+    return merged
+
+
+def _positive_ml_evidence_scale(row: pd.Series) -> float:
+    age_num = _safe_int(row.get("age_num"))
+    policy = _same_age_evidence_policy(age_num)
+    top100 = _safe_int(row.get("same_age_top100_opp_count"))
+    top500 = _safe_int(row.get("same_age_top500_opp_count"))
+    avg_opp_power = _safe_float(row.get("same_age_avg_opp_power_adj"))
+    repeat_share = _safe_float(row.get("repeat_opponent_share")) or 0.0
+
+    if top100 >= 1:
+        return 1.0
+    if avg_opp_power is None:
+        return 0.0
+    if avg_opp_power < float(policy["min_avg_opp_power"]):
+        return 0.0
+    if repeat_share >= float(policy["max_repeat_share"]):
+        return 0.0
+    if top500 >= int(policy["min_top500"]):
+        return float(policy["partial_ml_scale"])
+    return 0.0
+
+
+def _publication_cap_rank(row: pd.Series) -> int | None:
+    age_num = _safe_int(row.get("age_num"))
+    policy = _same_age_evidence_policy(age_num)
+    top100 = _safe_int(row.get("same_age_top100_opp_count"))
+    top500 = _safe_int(row.get("same_age_top500_opp_count"))
+    avg_opp_power = _safe_float(row.get("same_age_avg_opp_power_adj"))
+    repeat_share = _safe_float(row.get("repeat_opponent_share")) or 0.0
+
+    if top100 >= 1:
+        return None
+
+    weak_avg = avg_opp_power is None or avg_opp_power < float(policy["min_avg_opp_power"])
+    weak_depth = top500 < int(policy["min_top500"])
+    repeat_heavy = repeat_share >= float(policy["max_repeat_share"])
+
+    if weak_avg or weak_depth or repeat_heavy:
+        return int(policy["cap_rank"])
+    return None
 
 
 async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame) -> Tuple[int, int]:
@@ -933,6 +1116,55 @@ async def compute_all_cohorts(
             logger.error(f"❌ Failed to create age_num column: {e}")
             teams_combined["age_num"] = 0  # Default to 0, will get no anchor scaling
 
+    # ========== Same-Age Evidence Metrics ==========
+    publication_cap_lookup: dict[tuple[int, str, int], float] = {}
+    if not teams_combined.empty:
+        evidence_df = _compute_same_age_evidence_metrics(games_used_combined, teams_combined)
+        teams_combined = teams_combined.merge(evidence_df, on="team_id", how="left")
+
+        for col in [
+            "same_age_games",
+            "same_age_game_share",
+            "same_age_unique_opponents",
+            "same_age_top100_opp_count",
+            "same_age_top500_opp_count",
+            "repeat_opponent_share",
+        ]:
+            if col in teams_combined.columns:
+                teams_combined[col] = pd.to_numeric(teams_combined[col], errors="coerce").fillna(0.0)
+        if "same_age_avg_opp_power_adj" in teams_combined.columns:
+            teams_combined["same_age_avg_opp_power_adj"] = pd.to_numeric(
+                teams_combined["same_age_avg_opp_power_adj"], errors="coerce"
+            )
+
+        teams_combined["positive_ml_evidence_scale"] = teams_combined.apply(_positive_ml_evidence_scale, axis=1)
+        teams_combined["publication_cap_rank"] = teams_combined.apply(_publication_cap_rank, axis=1)
+
+        for (age_val, gender), grp in teams_combined.groupby(["age_num", "gender"]):
+            for cap_rank in {100, 200, 400}:
+                publication_cap_lookup[(int(age_val), str(gender), cap_rank)] = _score_cutoff_for_rank(
+                    grp, "powerscore_adj", cap_rank
+                )
+
+        teams_combined["publication_cap_score"] = teams_combined.apply(
+            lambda row: publication_cap_lookup.get(
+                (
+                    _safe_int(row.get("age_num")),
+                    str(row.get("gender")),
+                    _safe_int(row.get("publication_cap_rank")),
+                )
+            )
+            if pd.notna(row.get("publication_cap_rank"))
+            else pd.NA,
+            axis=1,
+        )
+
+        ps_ml_series = pd.to_numeric(teams_combined.get("powerscore_ml"), errors="coerce")
+        ps_adj_series = pd.to_numeric(teams_combined.get("powerscore_adj"), errors="coerce")
+        ml_blocked = ((teams_combined["positive_ml_evidence_scale"] <= 0.0) & (ps_ml_series > ps_adj_series)).sum()
+        capped = pd.to_numeric(teams_combined["publication_cap_rank"], errors="coerce").notna().sum()
+        logger.info(f"🧱 Same-age evidence gates prepared: ml_blocked={int(ml_blocked)}, publication_capped={int(capped)}")
+
     # ========== National SOS Metrics (for display only) ==========
     # NOTE: PowerScore uses cohort-level sos_norm from v53e.compute_rankings().
     # National/state SOS metrics (sos_norm_national, sos_rank_national, etc.) are
@@ -1061,9 +1293,10 @@ async def compute_all_cohorts(
 
                     # Negative ML corrections always apply at full authority.
                     # Positive corrections (inflation) are still fully gated by SOS.
-                    import numpy as _np
-
-                    ml_scale_effective = _np.where(ml_delta >= 0, ml_scale, 1.0)
+                    positive_ml_evidence_scale = pd.to_numeric(
+                        teams_age.get("positive_ml_evidence_scale", 1.0), errors="coerce"
+                    ).fillna(1.0)
+                    ml_scale_effective = np.where(ml_delta >= 0, ml_scale * positive_ml_evidence_scale, 1.0)
 
                     # Step 4: Final score = baseline + SOS-scaled ML adjustment
                     base = (ps_adj + ml_delta * ml_scale_effective).clip(0.0, 1.0)
@@ -1071,9 +1304,11 @@ async def compute_all_cohorts(
                     # Log statistics for monitoring
                     avg_ml_scale = ml_scale.mean()
                     ml_adjusted_count = (ml_scale > 0).sum()
+                    evidence_gated_count = ((ml_delta > 0) & (positive_ml_evidence_scale < 1.0)).sum()
                     logger.info(
                         f"  📊 Age {age}: ML scaling applied - avg_scale={avg_ml_scale:.3f}, "
-                        f"teams_with_ml_authority={ml_adjusted_count}/{len(teams_age)}"
+                        f"teams_with_ml_authority={ml_adjusted_count}/{len(teams_age)}, "
+                        f"evidence_gated_positive_ml={int(evidence_gated_count)}"
                     )
                 else:
                     # No ML or no SOS available - use baseline directly
@@ -1082,6 +1317,16 @@ async def compute_all_cohorts(
                         logger.info(f"  📊 Age {age}: No ML data, using powerscore_adj directly")
                     elif not has_sos:
                         logger.info(f"  📊 Age {age}: No SOS data, using powerscore_adj directly")
+
+                # Hard publication cap for weak same-age evidence.
+                if "publication_cap_score" in teams_age.columns:
+                    cap_scores = pd.to_numeric(teams_age["publication_cap_score"], errors="coerce")
+                    cap_mask = cap_scores.notna()
+                    if cap_mask.any():
+                        base.loc[cap_mask] = np.minimum(base.loc[cap_mask], cap_scores.loc[cap_mask])
+                        logger.info(
+                            f"  📊 Age {age}: publication cap applied to {int(cap_mask.sum())} team(s) on weak same-age evidence"
+                        )
 
                 # Scale by anchor and clip to [0, anchor_val]
                 ps_scaled = (base * anchor_val).clip(0.0, anchor_val)

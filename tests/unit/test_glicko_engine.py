@@ -13,6 +13,7 @@ from src.etl.glicko_engine import (
     compute_game_explainability,
     compute_rankings_v2,
     compute_recency_weights,
+    compute_repeat_opponent_weights,
     compute_scf,
     compute_sos,
     derive_offense_defense,
@@ -318,6 +319,14 @@ class TestRecencyWeights:
         dates = pd.Series([pd.Timestamp("2026-03-01")])
         weights = compute_recency_weights(dates, today, lambda_=1.0)
         assert abs(weights[0] - 1.0) < 0.001
+
+
+class TestRepeatOpponentWeights:
+    def test_repeat_schedule_decays_softly(self):
+        cfg = GlickoConfig()
+        opp_ids = ["B", "B", "B", "B", "C", "C", "D"]
+        weights = compute_repeat_opponent_weights(opp_ids, cfg)
+        np.testing.assert_allclose(weights, np.array([1.0, 0.8, 0.6, 0.4, 1.0, 0.8, 1.0]))
 
 
 class TestRunGlicko2Cohort:
