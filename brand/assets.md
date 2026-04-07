@@ -30,6 +30,16 @@ Append-only. All skills that produce campaign assets register here.
 | rankings-by-state-ig-carousel | Social (IG carousel) | 2026-03-30 | campaigns/content/social/youth-soccer-rankings-by-state/instagram-carousel.md | draft | 8-slide carousel with design specs |
 | rankings-by-state-tiktok | Social (TikTok scripts) | 2026-03-30 | campaigns/content/social/youth-soccer-rankings-by-state/tiktok-scripts.md | draft | 4 short video scripts with hooks and CTAs |
 | creative-brief | Creative brief | 2026-03-30 | campaigns/creative/creative-brief.md | draft | 7 assets: blog hero, IG carousel, og:image, ad variants, TikTok thumb, email banner |
+| youth-soccer-tryouts-2026 | SEO article (how-to) | 2026-04-07 | campaigns/content/youth-soccer-tryouts-2026.md | draft | Tryout guide for 2026 season, 2750 words, 8 FAQ entries, Article + FAQ JSON-LD schema |
+| tryouts-2026-twitter-thread | Social (X thread) | 2026-04-07 | campaigns/content/social/youth-soccer-tryouts-2026/twitter/thread.md | draft | 11-tweet thread: 5-step tryout framework |
+| tryouts-2026-twitter-single-01 | Social (X single) | 2026-04-07 | campaigns/content/social/youth-soccer-tryouts-2026/twitter/single-01.md | draft | "The jersey doesn't develop your kid. Minutes do." |
+| tryouts-2026-twitter-single-02 | Social (X single) | 2026-04-07 | campaigns/content/social/youth-soccer-tryouts-2026/twitter/single-02.md | draft | Reputation lags reality by 2-3 years |
+| tryouts-2026-twitter-single-03 | Social (X single) | 2026-04-07 | campaigns/content/social/youth-soccer-tryouts-2026/twitter/single-03.md | draft | Real cost of club soccer breakdown |
+| tryouts-2026-ig-carousel-01 | Social (IG carousel) | 2026-04-07 | campaigns/content/social/youth-soccer-tryouts-2026/instagram/carousel.md | draft | 8-slide: 5 Things Smart Parents Do Before Tryouts |
+| tryouts-2026-ig-carousel-02 | Social (IG carousel) | 2026-04-07 | campaigns/content/social/youth-soccer-tryouts-2026/instagram/carousel-02.md | draft | 7-slide: Real Cost of Club Soccer |
+| tryouts-2026-ig-reel | Social (IG reel) | 2026-04-07 | campaigns/content/social/youth-soccer-tryouts-2026/instagram/reel-script.md | draft | 35-45s: 3 Things to Watch at Tryouts (Trial Reel) |
+| tryouts-2026-ig-stories | Social (IG story) | 2026-04-07 | campaigns/content/social/youth-soccer-tryouts-2026/instagram/story-sequence.md | draft | 6-story tryout quiz sequence with polls |
+| tryouts-2026-schedule | Content calendar | 2026-04-07 | campaigns/content/social/youth-soccer-tryouts-2026/schedule.md | draft | Apr 8-19 posting schedule for X + IG |
 
 ---
 
