@@ -240,18 +240,15 @@ async def test_compute_all_cohorts_builds_glicko_pass2_map_from_mu(monkeypatch):
         fetch_from_supabase=False,
         lookback_days=365,
         provider_filter=None,
-        force_rebuild=False,
-        save_snapshot=False,
-        global_strength_map=None,
-        merge_version=None,
-        team_state_map=None,
-        tier_league_map=None,
-        timing_report=None,
-        pass_label=None,
-        pre_sos_state=None,
-        use_glicko=True,
-        initial_ratings=None,
+        ctx=None,
     ):
+        from src.rankings.calculator import RankingContext
+
+        ctx = ctx or RankingContext()
+        pass_label = ctx.pass_label
+        global_strength_map = ctx.global_strength_map
+        initial_ratings = ctx.initial_ratings
+        use_glicko = ctx.use_glicko
         assert use_glicko is True
 
         age = str(games_df["age"].iloc[0])

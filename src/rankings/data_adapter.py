@@ -83,6 +83,41 @@ def retry_supabase_query(query_func, max_retries=4, initial_delay=2.0, descripti
     raise last_error
 
 
+def batch_fetch_rows(
+    client,
+    table: str,
+    select_cols: str,
+    filter_col: str,
+    filter_values: list,
+    batch_size: int = 100,
+) -> list[dict]:
+    """Batch-fetch rows from a Supabase table with retry logic.
+
+    Splits ``filter_values`` into batches of ``batch_size`` (default 100 to
+    avoid URI length limits with UUIDs) and fetches each batch using
+    :func:`retry_supabase_query` for resilience against transient errors.
+
+    Returns:
+        Flat list of row dicts from all batches.
+    """
+    rows: list[dict] = []
+    for i in range(0, len(filter_values), batch_size):
+        batch = filter_values[i : i + batch_size]
+        try:
+            result = retry_supabase_query(
+                lambda b=batch: client.table(table).select(select_cols).in_(filter_col, b).execute(),
+                max_retries=4,
+                initial_delay=2.0,
+                description=f"Fetching {table} batch {i}-{i + batch_size}",
+            )
+            if getattr(result, "data", None):
+                rows.extend(result.data)
+        except Exception as e:
+            logger.warning(f"⚠️  {table} batch failed ({i}-{i + batch_size}) after retries: {str(e)[:100]}")
+            continue
+    return rows
+
+
 # --------------------------------------------------------------------
 #  Safe numeric conversion
 # --------------------------------------------------------------------
@@ -270,33 +305,14 @@ async def fetch_games_for_rankings(
     logger.info(f"👥 Fetching metadata for {len(team_ids):,} unique teams...")
 
     # Fetch teams in batches (Supabase has URI length limit - UUIDs are long)
-    teams_data = []
-    team_ids_list = list(team_ids)
-    batch_size = 100  # Reduced from 1000 to avoid URI too long errors
-
-    for i in range(0, len(team_ids_list), batch_size):
-        batch = team_ids_list[i : i + batch_size]
-        try:
-            teams_result = retry_supabase_query(
-                lambda b=batch: (
-                    db.table("teams")
-                    .select("team_id_master, age_group, gender, is_deprecated, league")
-                    .in_("team_id_master", b)
-                    .execute()
-                ),
-                max_retries=4,
-                initial_delay=2.0,
-                description=f"Fetching team metadata batch {i}-{i + batch_size}",
-            )
-
-            if getattr(teams_result, "data", None):
-                teams_data.extend(teams_result.data)
-        except Exception as e:
-            logger.warning(f"⚠️  Team metadata batch failed ({i}-{i + batch_size}) after retries: {str(e)[:100]}")
-            continue
-
-        if (i + batch_size) % 1000 == 0 or (i + batch_size) >= len(team_ids_list):
-            logger.info(f"  ✓ Fetched metadata for {len(teams_data):,} teams...")
+    teams_data = batch_fetch_rows(
+        db,
+        "teams",
+        "team_id_master, age_group, gender, is_deprecated, league",
+        "team_id_master",
+        list(team_ids),
+    )
+    logger.info(f"  ✓ Fetched metadata for {len(teams_data):,} teams")
 
     if not teams_data:
         logger.warning("⚠️  No team metadata found")

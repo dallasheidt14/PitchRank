@@ -18,6 +18,7 @@ from src.etl.v53e import (
     V53EConfig,
     compute_rankings,
 )
+from tests.conftest import make_game_pair
 
 
 # ---------------------------------------------------------------------------
@@ -39,17 +40,6 @@ def _make_game_row(game_id, date, team_id, opp_id, gf, ga,
         "gf": gf,
         "ga": ga,
     }
-
-
-def _make_game_pair(game_id, date, home, away, home_score, away_score,
-                    age="14", gender="male"):
-    """Create both perspective rows for a single game."""
-    return [
-        _make_game_row(game_id, date, home, away, home_score, away_score,
-                       age, gender),
-        _make_game_row(game_id, date, away, home, away_score, home_score,
-                       age, gender),
-    ]
 
 
 def _build_realistic_cohort(num_teams=10, games_per_team=12, age="14",
@@ -82,7 +72,7 @@ def _build_realistic_cohort(num_teams=10, games_per_team=12, age="14",
         game_id = f"g_{game_counter:04d}"
         game_counter += 1
 
-        rows.extend(_make_game_pair(
+        rows.extend(make_game_pair(
             game_id, game_date, home, away, home_score, away_score,
             age=age, gender=gender
         ))
@@ -260,9 +250,9 @@ class TestSelfPlayFiltering:
             gid = f"normal_{i}"
             opp = f"opp_{i}"
             game_date = base_date - timedelta(days=i * 10)
-            rows.extend(_make_game_pair(gid, game_date, "team_a", opp, 2, 1))
+            rows.extend(make_game_pair(gid, game_date, "team_a", opp, 2, 1))
             # Give opponents some games too
-            rows.extend(_make_game_pair(
+            rows.extend(make_game_pair(
                 f"opp_game_{i}", game_date - timedelta(days=1),
                 opp, f"opp_other_{i}", 1, 1
             ))
@@ -371,7 +361,7 @@ class TestSOS365DayWindow:
                 partner = all_opps[(i + j + 1) % len(all_opps)]
                 d = base - timedelta(days=30 + i * 7 + j * 3)
                 gid = f"op_{gc:04d}"; gc += 1
-                rows.extend(_make_game_pair(
+                rows.extend(make_game_pair(
                     gid, d, opp, partner, 2, 1,
                     age=age, gender=gender,
                 ))
@@ -381,7 +371,7 @@ class TestSOS365DayWindow:
             for rep in range(2):
                 d = base - timedelta(days=5 + k * 2 + rep)  # days 5-24
                 gid = f"dr_{gc:04d}"; gc += 1
-                rows.extend(_make_game_pair(
+                rows.extend(make_game_pair(
                     gid, d, "deep_team", opp, 3, 1,
                     age=age, gender=gender,
                 ))
@@ -392,7 +382,7 @@ class TestSOS365DayWindow:
             for rep in range(2):
                 d = base - timedelta(days=100 + k * 8 + rep)  # days 100-180
                 gid = f"do_{gc:04d}"; gc += 1
-                rows.extend(_make_game_pair(
+                rows.extend(make_game_pair(
                     gid, d, "deep_team", opp, 2, 1,
                     age=age, gender=gender,
                 ))

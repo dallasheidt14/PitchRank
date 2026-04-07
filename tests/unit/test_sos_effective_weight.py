@@ -12,31 +12,12 @@ import numpy as np
 from datetime import datetime, timedelta
 
 from src.etl.v53e import V53EConfig, compute_rankings
+from tests.conftest import make_game_pair
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _make_game_pair(game_id, date, home, away, home_score, away_score,
-                    age="14", gender="male"):
-    return [
-        {
-            "game_id": game_id, "date": pd.Timestamp(date),
-            "team_id": home, "opp_id": away,
-            "age": age, "gender": gender,
-            "opp_age": age, "opp_gender": gender,
-            "gf": home_score, "ga": away_score,
-        },
-        {
-            "game_id": game_id, "date": pd.Timestamp(date),
-            "team_id": away, "opp_id": home,
-            "age": age, "gender": gender,
-            "opp_age": age, "opp_gender": gender,
-            "gf": away_score, "ga": home_score,
-        },
-    ]
-
 
 def _build_cohort(num_teams=20, games_per_team=12, seed=42):
     """Build a cohort with enough teams and games for meaningful SOS variance."""
@@ -51,7 +32,7 @@ def _build_cohort(num_teams=20, games_per_team=12, seed=42):
         h, a = rng.choice(num_teams, size=2, replace=False)
         hs, as_ = int(rng.poisson(1.5)), int(rng.poisson(1.5))
         d = base - timedelta(days=int(rng.randint(1, 300)))
-        rows.extend(_make_game_pair(f"g_{gc:04d}", d, team_ids[h], team_ids[a], hs, as_))
+        rows.extend(make_game_pair(f"g_{gc:04d}", d, team_ids[h], team_ids[a], hs, as_))
         gc += 1
 
     return pd.DataFrame(rows), team_ids

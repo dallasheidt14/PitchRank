@@ -15,40 +15,12 @@ import numpy as np
 from datetime import datetime, timedelta
 
 from src.etl.v53e import V53EConfig, compute_rankings, _provisional_multiplier
+from tests.conftest import make_game_pair
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_game_pair(game_id, date, home, away, hs, as_, age="14", gender="male"):
-    return [
-        {
-            "game_id": game_id,
-            "date": pd.Timestamp(date),
-            "team_id": home,
-            "opp_id": away,
-            "age": age,
-            "gender": gender,
-            "opp_age": age,
-            "opp_gender": gender,
-            "gf": hs,
-            "ga": as_,
-        },
-        {
-            "game_id": game_id,
-            "date": pd.Timestamp(date),
-            "team_id": away,
-            "opp_id": home,
-            "age": age,
-            "gender": gender,
-            "opp_age": age,
-            "opp_gender": gender,
-            "gf": as_,
-            "ga": hs,
-        },
-    ]
 
 
 def _build_team_with_n_games(team_id, n_games, opponents, base_date, gc_start=0):
@@ -58,7 +30,7 @@ def _build_team_with_n_games(team_id, n_games, opponents, base_date, gc_start=0)
     for i in range(n_games):
         opp = opponents[i % len(opponents)]
         d = base_date - timedelta(days=i * 5)
-        rows.extend(_make_game_pair(f"g_{gc:04d}", d, team_id, opp, 2, 1))
+        rows.extend(make_game_pair(f"g_{gc:04d}", d, team_id, opp, 2, 1))
         gc += 1
     return rows, gc
 
@@ -117,7 +89,7 @@ class TestProvisionalMultInPipeline:
                 f2 = fillers[j]
                 for rep in range(3):
                     d = base - timedelta(days=10 + i * 3 + j + rep)
-                    rows.extend(_make_game_pair(f"fg_{gc:04d}", d, f1, f2, 2, 1))
+                    rows.extend(make_game_pair(f"fg_{gc:04d}", d, f1, f2, 2, 1))
                     gc += 1
 
         # Test teams play against fillers

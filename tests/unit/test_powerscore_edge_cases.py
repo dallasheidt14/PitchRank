@@ -16,35 +16,7 @@ import numpy as np
 from datetime import datetime, timedelta
 
 from src.etl.v53e import V53EConfig, compute_rankings, _provisional_multiplier
-
-
-def _make_game_pair(gid, date, home, away, hs, as_, age="14", gender="male"):
-    return [
-        {
-            "game_id": gid,
-            "date": pd.Timestamp(date),
-            "team_id": home,
-            "opp_id": away,
-            "age": age,
-            "gender": gender,
-            "opp_age": age,
-            "opp_gender": gender,
-            "gf": hs,
-            "ga": as_,
-        },
-        {
-            "game_id": gid,
-            "date": pd.Timestamp(date),
-            "team_id": away,
-            "opp_id": home,
-            "age": age,
-            "gender": gender,
-            "opp_age": age,
-            "opp_gender": gender,
-            "gf": as_,
-            "ga": hs,
-        },
-    ]
+from tests.conftest import make_game_pair
 
 
 def _round_robin(team_ids, base_date, score_fn=None, n_rounds=2):
@@ -60,7 +32,7 @@ def _round_robin(team_ids, base_date, score_fn=None, n_rounds=2):
                     continue
                 hs, as_ = score_fn(i, j)
                 d = base_date - timedelta(days=gc * 3 + rnd)
-                rows.extend(_make_game_pair(f"g_{gc:04d}", d, h, a, hs, as_))
+                rows.extend(make_game_pair(f"g_{gc:04d}", d, h, a, hs, as_))
                 gc += 1
     return pd.DataFrame(rows)
 
@@ -83,14 +55,14 @@ class TestPowerScoreBounds:
         for i in range(1, len(team_ids)):
             for rep in range(3):
                 d = base - timedelta(days=gc)
-                rows.extend(_make_game_pair(f"g_{gc:04d}", d, team_ids[0], team_ids[i], 6, 0))
+                rows.extend(make_game_pair(f"g_{gc:04d}", d, team_ids[0], team_ids[i], 6, 0))
                 gc += 1
         # Others play each other
         for i in range(1, len(team_ids)):
             for j in range(i + 1, min(i + 4, len(team_ids))):
                 for rep in range(2):
                     d = base - timedelta(days=gc)
-                    rows.extend(_make_game_pair(f"g_{gc:04d}", d, team_ids[i], team_ids[j], 1, 1))
+                    rows.extend(make_game_pair(f"g_{gc:04d}", d, team_ids[i], team_ids[j], 1, 1))
                     gc += 1
 
         games = pd.DataFrame(rows)
@@ -113,14 +85,14 @@ class TestPowerScoreBounds:
         for i in range(1, len(team_ids)):
             for rep in range(3):
                 d = base - timedelta(days=gc)
-                rows.extend(_make_game_pair(f"g_{gc:04d}", d, team_ids[0], team_ids[i], 0, 6))
+                rows.extend(make_game_pair(f"g_{gc:04d}", d, team_ids[0], team_ids[i], 0, 6))
                 gc += 1
         # Others play each other
         for i in range(1, len(team_ids)):
             for j in range(i + 1, min(i + 4, len(team_ids))):
                 for rep in range(2):
                     d = base - timedelta(days=gc)
-                    rows.extend(_make_game_pair(f"g_{gc:04d}", d, team_ids[i], team_ids[j], 2, 1))
+                    rows.extend(make_game_pair(f"g_{gc:04d}", d, team_ids[i], team_ids[j], 2, 1))
                     gc += 1
 
         games = pd.DataFrame(rows)
@@ -150,13 +122,13 @@ class TestGoalDiffCap:
         # t0 vs t1: 10-0 blowout
         for rep in range(5):
             d = base - timedelta(days=rep * 5)
-            rows.extend(_make_game_pair(f"g_{gc:04d}", d, "t0", "t1", 10, 0))
+            rows.extend(make_game_pair(f"g_{gc:04d}", d, "t0", "t1", 10, 0))
             gc += 1
 
         # t0 vs t2: 6-0 (exact cap)
         for rep in range(5):
             d = base - timedelta(days=rep * 5 + 1)
-            rows.extend(_make_game_pair(f"g_{gc:04d}", d, "t0", "t2", 6, 0))
+            rows.extend(make_game_pair(f"g_{gc:04d}", d, "t0", "t2", 6, 0))
             gc += 1
 
         # Fill out remaining games
@@ -164,7 +136,7 @@ class TestGoalDiffCap:
             for j in range(i + 1, min(i + 4, len(team_ids))):
                 for rep in range(2):
                     d = base - timedelta(days=gc)
-                    rows.extend(_make_game_pair(f"g_{gc:04d}", d, team_ids[i], team_ids[j], 2, 1))
+                    rows.extend(make_game_pair(f"g_{gc:04d}", d, team_ids[i], team_ids[j], 2, 1))
                     gc += 1
 
         games = pd.DataFrame(rows)
@@ -228,7 +200,7 @@ class TestDegenerateCohorts:
         for i in range(len(opp15)):
             for j in range(i + 1, min(i + 3, len(opp15))):
                 d = base - timedelta(days=gc)
-                rows.extend(_make_game_pair(f"g_{gc:04d}", d, opp15[i], opp15[j], 1, 1, age="15"))
+                rows.extend(make_game_pair(f"g_{gc:04d}", d, opp15[i], opp15[j], 1, 1, age="15"))
                 gc += 1
 
         games = pd.DataFrame(rows)
@@ -357,7 +329,7 @@ class TestNaNHandling:
         # One ranked team plays 10 games against unknown opponents
         for i in range(10):
             d = base - timedelta(days=i * 5)
-            rows.extend(_make_game_pair(f"g_{gc:04d}", d, "ranked_team", f"unknown_{i}", 3, 0))
+            rows.extend(make_game_pair(f"g_{gc:04d}", d, "ranked_team", f"unknown_{i}", 3, 0))
             gc += 1
 
         games = pd.DataFrame(rows)
