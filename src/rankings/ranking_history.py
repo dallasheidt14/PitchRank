@@ -18,6 +18,12 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+def _compute_state_ranks(df: pd.DataFrame, active_mask: "pd.Series[bool]", score_col: str) -> "pd.Series[int]":
+    """Compute unique state ranks for active teams using canonical tiebreaker (team_id ASC)."""
+    active_subset = df.loc[active_mask].sort_values([score_col, "team_id"], ascending=[False, True], na_position="last")
+    return active_subset.groupby(["state_code", "age_group", "gender"]).cumcount() + 1
+
+
 async def save_ranking_snapshot(
     supabase_client, rankings_df: pd.DataFrame, snapshot_date: Optional[date] = None
 ) -> int:
@@ -72,13 +78,8 @@ async def save_ranking_snapshot(
             logger.warning("⚠️ 'status' column missing in snapshot — all teams treated as Active for state ranking")
             active_mask = pd.Series(True, index=df.index)
         if active_mask.any():
-            active_ranks = (
-                df.loc[active_mask]
-                .groupby(["state_code", "age_group", "gender"])[score_col]
-                .rank(method="min", ascending=False, na_option="bottom")
-                .astype("Int64")
-            )
-            df.loc[active_mask, "rank_in_state"] = active_ranks
+            active_ranks = _compute_state_ranks(df, active_mask, score_col)
+            df.loc[active_ranks.index, "rank_in_state"] = active_ranks.astype("Int64")
 
         state_count = df.loc[active_mask, "state_code"].notna().sum() if active_mask.any() else 0
         logger.info(
@@ -491,13 +492,8 @@ async def calculate_rank_changes(
             logger.warning("⚠️ 'status' column missing — all teams treated as Active for state rank changes")
             active_mask = pd.Series(True, index=df.index)
         if active_mask.any():
-            active_ranks = (
-                df.loc[active_mask]
-                .groupby(["state_code", "age_group", "gender"])[score_col]
-                .rank(method="min", ascending=False, na_option="bottom")
-                .astype("Int64")
-            )
-            current_rankings_df.loc[active_mask, "current_state_rank"] = active_ranks
+            active_ranks = _compute_state_ranks(df, active_mask, score_col)
+            current_rankings_df.loc[active_ranks.index, "current_state_rank"] = active_ranks.astype("Int64")
     else:
         current_rankings_df["current_state_rank"] = None
 
