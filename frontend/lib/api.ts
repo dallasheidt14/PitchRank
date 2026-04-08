@@ -1,8 +1,26 @@
-import { createClientSupabase } from './supabase/client';
+import { createClient } from '@supabase/supabase-js';
 import { AppError } from './errors';
 
-// Singleton — createClientSupabase() caches the instance internally
-const supabase = createClientSupabase();
+// Vanilla Supabase client for public data queries (rankings, teams, games).
+// Uses createClient (not createBrowserClient) because this module is imported
+// by both Server Components and Client Components. No auth/cookies needed.
+let _supabase: ReturnType<typeof createClient> | null = null;
+function getSupabase() {
+  if (!_supabase) {
+    _supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+  }
+  return _supabase;
+}
+const supabase = new Proxy({} as ReturnType<typeof createClient>, {
+  get(_, prop) {
+    const client = getSupabase();
+    const value = client[prop as keyof typeof client];
+    if (typeof value === 'function') {
+      return (value as (...args: unknown[]) => unknown).bind(client);
+    }
+    return value;
+  },
+});
 import { normalizeAgeGroup } from './utils';
 import type {
   Team,
