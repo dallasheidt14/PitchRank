@@ -62,9 +62,9 @@ export async function generateMetadata({ params }: RankingsPageProps): Promise<M
         type: 'website',
         images: [
           {
-            url: '/logos/pitchrank-wordmark.svg',
-            width: 1200,
-            height: 630,
+            url: '/logos/icon-512.png',
+            width: 512,
+            height: 512,
             alt: 'PitchRank Logo',
           },
         ],

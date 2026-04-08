@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabaseClient';
+import { requireAdmin } from '@/lib/supabase/admin';
 
 export interface TaskComment {
   id: string;
@@ -16,6 +17,9 @@ interface RouteParams {
 // GET /api/tasks/[id]/comments - Get comments for a task
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    const auth = await requireAdmin();
+    if (auth.error) return auth.error;
+
     const { id: taskId } = await params;
 
     const { data, error } = await supabase
@@ -39,6 +43,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 // POST /api/tasks/[id]/comments - Add a comment to a task
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
+    const auth = await requireAdmin();
+    if (auth.error) return auth.error;
+
     const { id: taskId } = await params;
     const body = await request.json();
     const { author, content } = body;

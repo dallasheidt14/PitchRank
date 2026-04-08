@@ -9,7 +9,9 @@ import { createServerSupabase } from '@/lib/supabase/server';
  */
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
-  const next = requestUrl.searchParams.get('next') ?? '/';
+  const rawNext = requestUrl.searchParams.get('next') ?? '/';
+  // Prevent open redirect: only allow relative paths (not protocol-relative //)
+  const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/';
 
   const supabase = await createServerSupabase();
   await supabase.auth.signOut();

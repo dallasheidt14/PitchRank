@@ -64,7 +64,7 @@ export const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.i
  * Base URL with www prefix, used by root layout metadataBase and sitemap.
  * Derived from BASE_URL to ensure the www variant stays in sync.
  */
-export const BASE_URL_WWW = BASE_URL.replace('https://', 'https://www.');
+export const BASE_URL_WWW = BASE_URL.includes('://www.') ? BASE_URL : BASE_URL.replace('https://', 'https://www.');
 
 // --- Age Groups ---
 
@@ -94,8 +94,6 @@ export const AGE_GROUP_OPTIONS = AGE_GROUPS.map((ag) => ({
 }));
 
 // --- Gender ---
-
-export type GenderCode = 'M' | 'F' | 'B' | 'G';
 
 /** Map single-letter gender codes to display labels. */
 export const GENDER_LABELS: Record<string, string> = {

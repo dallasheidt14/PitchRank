@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceSupabase } from '@/lib/supabase/service';
+import { requireAdmin } from '@/lib/supabase/admin';
 import { parseJsonBody } from '@/lib/api/parseJsonBody';
 
 /**
@@ -8,6 +9,9 @@ import { parseJsonBody } from '@/lib/api/parseJsonBody';
  */
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAdmin();
+    if (auth.error) return auth.error;
+
     const body = await parseJsonBody<{ gameId: string; opponentProviderId: string }>(request);
     if (body.error) return body.error;
 

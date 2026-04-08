@@ -40,12 +40,3 @@ class BaseProvider(ABC):
     def validate_team_id(self, team_id: str) -> bool:
         """Validate if team ID exists in provider"""
         pass
-
-
-class BaseValidator(ABC):
-    """Base class for data validators"""
-
-    @abstractmethod
-    def validate(self, data: Dict) -> tuple[bool, Optional[str]]:
-        """Validate data, return (is_valid, error_message)"""
-        pass

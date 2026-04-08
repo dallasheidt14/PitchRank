@@ -53,7 +53,13 @@ export async function POST(req: Request) {
         .select('stripe_customer_id')
         .eq('id', user.id)
         .single();
-      if (profile?.stripe_customer_id && profile.stripe_customer_id !== customerId) {
+      if (!profile?.stripe_customer_id) {
+        return NextResponse.json(
+          { error: 'No customer ID on profile — cannot verify session ownership' },
+          { status: 403 }
+        );
+      }
+      if (profile.stripe_customer_id !== customerId) {
         return NextResponse.json({ error: 'Session does not belong to you' }, { status: 403 });
       }
     }
@@ -67,6 +73,7 @@ export async function POST(req: Request) {
         subscription_status: status,
         plan,
         subscription_period_end: extractPeriodEnd(subscription),
+        cancel_at_period_end: subscription.cancel_at_period_end ?? false,
         updated_at: new Date().toISOString(),
       })
       .eq('id', user.id);

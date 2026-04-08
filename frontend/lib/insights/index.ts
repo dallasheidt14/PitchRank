@@ -35,25 +35,3 @@ export function generateAllInsights(data: InsightInputData): TeamInsightsRespons
     generatedAt: new Date().toISOString(),
   };
 }
-
-/**
- * Get a featured insight for preview display
- * Returns the most "interesting" insight for quick display
- */
-export function getFeaturedInsight(data: InsightInputData): TeamInsight {
-  const persona = generatePersonaInsight(data);
-
-  // Prioritize non-Wildcard personas as they're more distinctive
-  if (persona.label !== 'Wildcard') {
-    return persona;
-  }
-
-  // Next priority: Strong consistency scores
-  const consistency = generateConsistencyScore(data);
-  if (consistency.label === 'very reliable' || consistency.label === 'highly volatile') {
-    return consistency;
-  }
-
-  // Fall back to season truth
-  return generateSeasonTruth(data);
-}

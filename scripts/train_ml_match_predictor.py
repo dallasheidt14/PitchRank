@@ -86,18 +86,22 @@ async def fetch_rankings(supabase: Client, use_full: bool = False) -> pd.DataFra
             response = (
                 supabase.table("rankings_full")
                 .select(
-                    "team_id, power_score_final, sos_norm, offense_norm, "
-                    "defense_norm, win_percentage, games_played, rank_in_cohort"
+                    "team_id, power_score_final, sos_norm, off_norm, "
+                    "def_norm, win_percentage, games_played, rank_in_cohort"
                 )
                 .limit(50000)
                 .execute()
             )
             rankings_df = pd.DataFrame(response.data)
-            # Map column names to match what we expect
+            # Map column names to match what build_features() expects
             if "team_id" in rankings_df.columns:
                 rankings_df["team_id_master"] = rankings_df["team_id"]
             if "rank_in_cohort" in rankings_df.columns:
                 rankings_df["rank_in_cohort_final"] = rankings_df["rank_in_cohort"]
+            if "off_norm" in rankings_df.columns:
+                rankings_df["offense_norm"] = rankings_df["off_norm"]
+            if "def_norm" in rankings_df.columns:
+                rankings_df["defense_norm"] = rankings_df["def_norm"]
             print(f"Fetched rankings from rankings_full for {len(rankings_df)} teams")
             return rankings_df
         except Exception as e:

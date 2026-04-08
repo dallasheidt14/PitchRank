@@ -1,1 +1,1 @@
-export { InsightModal, InsightPreview, DeltaIndicator } from './InsightModal';
+export { InsightModal, DeltaIndicator } from './InsightModal';

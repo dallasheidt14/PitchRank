@@ -17,33 +17,6 @@ AGE_TO_ANCHOR: dict[int, float] = {
     19: 1.000,  # U19 encompasses birth years 2007+2008 (formerly U18+U19)
 }
 
-# Calibrated age anchors for Glicko-2 engine (empirical, from cross-age competition data)
-MALE_AGE_ANCHORS: dict[int, float] = {
-    10: 0.783,
-    11: 0.793,
-    12: 0.824,
-    13: 0.878,
-    14: 0.928,
-    15: 0.935,
-    16: 0.962,
-    17: 0.965,
-    18: 0.985,
-    19: 1.000,
-}
-
-FEMALE_AGE_ANCHORS: dict[int, float] = {
-    10: 0.792,
-    11: 0.828,
-    12: 0.885,
-    13: 0.914,
-    14: 0.957,
-    15: 0.962,
-    16: 0.984,
-    17: 0.996,
-    18: 0.998,
-    19: 1.000,
-}
-
 # SOS-conditioned ML scaling thresholds
 # Below LOW, ML has no authority; above HIGH, ML has full authority
 SOS_ML_THRESHOLD_LOW = 0.45
@@ -85,30 +58,6 @@ LEAGUE_MULTIPLIER_FEMALE: dict[str, float] = {
     "NL": 0.93,
     "ASPIRE": 0.93,
 }
-
-# Backward-compat aliases (used by existing imports in tests)
-LEAGUE_TO_TIER_MALE: dict[str, int] = {
-    "MLS_NEXT_HD": 1,
-    "ECNL": 1,
-    "MLS_NEXT_AD": 2,
-    "ECNL_RL": 2,
-    "DPL": 3,
-    "NPL": 3,
-    "EA": 3,
-    "NL": 3,
-}
-LEAGUE_TO_TIER_FEMALE: dict[str, int] = {
-    "ECNL": 1,
-    "GA": 1,
-    "ECNL_RL": 2,
-    "DPL": 3,
-    "NPL": 3,
-    "EA": 3,
-    "NL": 3,
-    "ASPIRE": 3,
-}
-TIER_MULTIPLIERS: dict[int, float] = {1: 1.00, 2: 0.96, 3: 0.94}
-UNAFFILIATED_MULTIPLIER: float = 0.95
 
 # Tier multipliers only apply for U13+ (ages 13-19).
 TIER_MIN_AGE = 13

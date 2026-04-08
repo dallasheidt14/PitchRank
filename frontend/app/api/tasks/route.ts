@@ -17,6 +17,9 @@ export interface AgentTask {
 // GET /api/tasks - List all tasks
 export async function GET() {
   try {
+    const auth = await requireAdmin();
+    if (auth.error) return auth.error;
+
     const { data, error } = await supabase.from('agent_tasks').select('*').order('created_at', { ascending: false });
 
     if (error) {

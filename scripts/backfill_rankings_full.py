@@ -44,15 +44,30 @@ async def backfill_rankings_full():
     console.print("\n[bold green]Backfilling rankings_full from current_rankings[/bold green]\n")
 
     try:
-        # Fetch all current_rankings
+        # Fetch all current_rankings with pagination (Supabase default limit is 1000)
         console.print("[dim]Fetching current_rankings data...[/dim]")
-        current_rankings_result = supabase.table("current_rankings").select("*").execute()
+        all_rankings = []
+        page_size = 1000
+        offset = 0
+        while True:
+            page_result = (
+                supabase.table("current_rankings")
+                .select("*")
+                .range(offset, offset + page_size - 1)
+                .execute()
+            )
+            if not page_result.data:
+                break
+            all_rankings.extend(page_result.data)
+            if len(page_result.data) < page_size:
+                break
+            offset += page_size
 
-        if not current_rankings_result.data:
+        if not all_rankings:
             console.print("[yellow]No current_rankings data found[/yellow]")
             return
 
-        current_rankings_df = pd.DataFrame(current_rankings_result.data)
+        current_rankings_df = pd.DataFrame(all_rankings)
         console.print(f"[green]Found {len(current_rankings_df)} teams in current_rankings[/green]")
 
         # Fetch team metadata
