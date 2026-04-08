@@ -64,6 +64,7 @@ export async function POST(request: NextRequest) {
   try {
     const auth = await requireAdmin();
     if (auth.error) return auth.error;
+    const { supabase } = auth;
 
     const body = await request.json();
     const { session_key, agent_name, agent_emoji, message_preview, full_message, message_type } = body;
