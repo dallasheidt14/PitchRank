@@ -9,16 +9,16 @@ import { BASE_URL } from '@/lib/constants';
  * NOTE: Uses absolute URLs for canonical/OG to avoid Google indexing issues
  */
 export const metadata: Metadata = {
-  title: 'See Where Your Team Ranks: 101,000+ Youth Soccer Teams',
+  title: 'Youth Soccer Rankings: 101,000+ Teams Ranked by PowerScore',
   description:
-    'Find your team among 101,354 youth soccer teams nationwide. Compare rankings by state, age, and gender. Updated daily from 726,730+ real game results. No fluff, just data.',
+    'Youth soccer rankings for every state, age group, and gender. 101,354 teams scored from 726,730+ real game results—updated weekly. Find where your club ranks.',
   alternates: {
     canonical: `${BASE_URL}/rankings`,
   },
   openGraph: {
-    title: 'See Where Your Team Ranks: 101,000+ Youth Soccer Teams',
+    title: 'Youth Soccer Rankings: 101,000+ Teams Ranked by PowerScore',
     description:
-      'Find your team among 101,354 youth soccer teams nationwide. Compare rankings by state, age, and gender. Updated daily from real game results.',
+      'Youth soccer rankings for every state, age group, and gender. 101,354 teams scored from 726,730+ real game results—updated weekly.',
     url: `${BASE_URL}/rankings`,
     siteName: 'PitchRank',
     type: 'website',
@@ -26,7 +26,8 @@ export const metadata: Metadata = {
   twitter: {
     card: 'summary_large_image',
     title: 'Youth Soccer Rankings | 101K+ Teams Ranked',
-    description: 'Data-driven youth soccer rankings. Find your team among 101,354 teams nationwide.',
+    description:
+      'Youth soccer rankings for every state, age group, and gender. 101,354 teams scored weekly from real game results.',
   },
 };
 
