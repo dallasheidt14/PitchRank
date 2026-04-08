@@ -93,9 +93,17 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
     """
     return {
         "cap_rank": 400,
+        "soft_cap_rank": 250,
         "min_top500": 5,
         "min_avg_opp_power": 0.68,
         "max_repeat_share": 0.40,
+        "full_release_min_top100": 3,
+        "full_release_combo_top100": 2,
+        "full_release_combo_top500": 5,
+        "thin_top100_min_top500": 5,
+        "thin_top100_min_avg_opp_power": 0.60,
+        "connectivity_min_unique_states": 3,
+        "connectivity_repeat_share": 0.45,
         "partial_ml_scale": 0.25,
     }
 
@@ -201,6 +209,34 @@ def _compute_same_age_evidence_metrics(games_used_df: pd.DataFrame, teams_df: pd
     return merged
 
 
+def _connectivity_flags(row: pd.Series, policy: dict[str, float | int]) -> tuple[bool, bool, bool]:
+    unique_states_raw = row.get("unique_opp_states")
+    if unique_states_raw is None:
+        unique_states = None
+    else:
+        unique_states = _safe_float(unique_states_raw)
+        unique_states = int(unique_states) if unique_states is not None else None
+
+    repeat_share = _safe_float(row.get("repeat_opponent_share")) or 0.0
+    low_state = unique_states is not None and unique_states < int(policy["connectivity_min_unique_states"])
+    repeat_heavy = repeat_share >= float(policy["connectivity_repeat_share"])
+    severe_connectivity = low_state and repeat_heavy
+    return low_state, repeat_heavy, severe_connectivity
+
+
+def _has_full_same_age_release(
+    top100: int,
+    top500: int,
+    connectivity_constrained: bool,
+    policy: dict[str, float | int],
+) -> bool:
+    if connectivity_constrained:
+        return False
+    if top100 >= int(policy["full_release_min_top100"]):
+        return True
+    return top100 >= int(policy["full_release_combo_top100"]) and top500 >= int(policy["full_release_combo_top500"])
+
+
 def _positive_ml_evidence_scale(row: pd.Series) -> float:
     age_num = _safe_int(row.get("age_num"))
     policy = _same_age_evidence_policy(age_num)
@@ -208,10 +244,33 @@ def _positive_ml_evidence_scale(row: pd.Series) -> float:
     top500 = _safe_int(row.get("same_age_top500_opp_count"))
     avg_opp_power = _safe_float(row.get("same_age_avg_opp_power_adj"))
     repeat_share = _safe_float(row.get("repeat_opponent_share")) or 0.0
+    low_state, repeat_heavy, severe_connectivity = _connectivity_flags(row, policy)
+    connectivity_constrained = low_state or repeat_heavy
 
-    if top100 >= 1:
+    if severe_connectivity:
+        return 0.0
+    if _has_full_same_age_release(top100, top500, connectivity_constrained, policy):
         return 1.0
+    if connectivity_constrained and top100 >= 1:
+        return float(policy["partial_ml_scale"])
+    if top100 == 1:
+        thin_top100 = (
+            avg_opp_power is not None
+            and top500 < int(policy["thin_top100_min_top500"])
+            and avg_opp_power < float(policy["thin_top100_min_avg_opp_power"])
+        )
+        if thin_top100:
+            return 0.0
+        if (
+            avg_opp_power is not None
+            and avg_opp_power >= float(policy["thin_top100_min_avg_opp_power"])
+            and top500 >= int(policy["thin_top100_min_top500"])
+        ):
+            return float(policy["partial_ml_scale"])
+        return 0.0
     if avg_opp_power is None:
+        return 0.0
+    if low_state:
         return 0.0
     if avg_opp_power < float(policy["min_avg_opp_power"]):
         return 0.0
@@ -229,9 +288,24 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
     top500 = _safe_int(row.get("same_age_top500_opp_count"))
     avg_opp_power = _safe_float(row.get("same_age_avg_opp_power_adj"))
     repeat_share = _safe_float(row.get("repeat_opponent_share")) or 0.0
+    low_state, repeat_heavy, severe_connectivity = _connectivity_flags(row, policy)
+    connectivity_constrained = low_state or repeat_heavy
 
-    if top100 >= 1:
+    if _has_full_same_age_release(top100, top500, connectivity_constrained, policy):
         return None
+    if severe_connectivity:
+        return int(policy["cap_rank"])
+
+    thin_top100 = (
+        top100 == 1
+        and avg_opp_power is not None
+        and top500 < int(policy["thin_top100_min_top500"])
+        and avg_opp_power < float(policy["thin_top100_min_avg_opp_power"])
+    )
+    if thin_top100:
+        return int(policy["cap_rank"])
+    if connectivity_constrained and top100 >= 1:
+        return int(policy["soft_cap_rank"])
 
     weak_avg = avg_opp_power is None or avg_opp_power < float(policy["min_avg_opp_power"])
     weak_depth = top500 < int(policy["min_top500"])
@@ -239,6 +313,8 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
 
     if weak_avg or weak_depth or repeat_heavy:
         return int(policy["cap_rank"])
+    if connectivity_constrained:
+        return int(policy["soft_cap_rank"])
     return None
 
 

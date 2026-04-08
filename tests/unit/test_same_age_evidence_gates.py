@@ -46,12 +46,13 @@ def test_positive_ml_evidence_scale_blocks_weak_u12_case():
             "same_age_top500_opp_count": 7,
             "same_age_avg_opp_power_adj": 0.59,
             "repeat_opponent_share": 0.61,
+            "unique_opp_states": 4,
         }
     )
     assert _positive_ml_evidence_scale(row) == 0.0
 
 
-def test_positive_ml_evidence_scale_allows_partial_u15_case():
+def test_positive_ml_evidence_scale_allows_partial_zero_top100_case():
     row = pd.Series(
         {
             "age_num": 15,
@@ -59,9 +60,66 @@ def test_positive_ml_evidence_scale_allows_partial_u15_case():
             "same_age_top500_opp_count": 5,
             "same_age_avg_opp_power_adj": 0.70,
             "repeat_opponent_share": 0.18,
+            "unique_opp_states": 5,
         }
     )
     assert _positive_ml_evidence_scale(row) == 0.25
+
+
+def test_positive_ml_evidence_scale_blocks_single_top100_with_thin_depth():
+    row = pd.Series(
+        {
+            "age_num": 12,
+            "same_age_top100_opp_count": 1,
+            "same_age_top500_opp_count": 2,
+            "same_age_avg_opp_power_adj": 0.57,
+            "repeat_opponent_share": 0.30,
+            "unique_opp_states": 6,
+        }
+    )
+    assert _positive_ml_evidence_scale(row) == 0.0
+
+
+def test_positive_ml_evidence_scale_full_release_requires_multi_top100_depth():
+    row = pd.Series(
+        {
+            "age_num": 15,
+            "same_age_top100_opp_count": 2,
+            "same_age_top500_opp_count": 7,
+            "same_age_avg_opp_power_adj": 0.55,
+            "repeat_opponent_share": 0.13,
+            "unique_opp_states": 8,
+        }
+    )
+    assert _positive_ml_evidence_scale(row) == 1.0
+
+
+def test_positive_ml_evidence_scale_connectivity_override_only_allows_partial():
+    row = pd.Series(
+        {
+            "age_num": 16,
+            "same_age_top100_opp_count": 5,
+            "same_age_top500_opp_count": 8,
+            "same_age_avg_opp_power_adj": 0.54,
+            "repeat_opponent_share": 0.36,
+            "unique_opp_states": 1,
+        }
+    )
+    assert _positive_ml_evidence_scale(row) == 0.25
+
+
+def test_positive_ml_evidence_scale_severe_connectivity_blocks_ml():
+    row = pd.Series(
+        {
+            "age_num": 15,
+            "same_age_top100_opp_count": 3,
+            "same_age_top500_opp_count": 3,
+            "same_age_avg_opp_power_adj": 0.51,
+            "repeat_opponent_share": 0.55,
+            "unique_opp_states": 2,
+        }
+    )
+    assert _positive_ml_evidence_scale(row) == 0.0
 
 
 def test_publication_cap_rank_hits_weak_u12_profile():
@@ -72,19 +130,63 @@ def test_publication_cap_rank_hits_weak_u12_profile():
             "same_age_top500_opp_count": 7,
             "same_age_avg_opp_power_adj": 0.59,
             "repeat_opponent_share": 0.61,
+            "unique_opp_states": 4,
         }
     )
     assert _publication_cap_rank(row) == 400
 
 
-def test_publication_cap_rank_skips_team_with_same_age_top100():
+def test_publication_cap_rank_hits_thin_single_top100_profile():
+    row = pd.Series(
+        {
+            "age_num": 12,
+            "same_age_top100_opp_count": 1,
+            "same_age_top500_opp_count": 2,
+            "same_age_avg_opp_power_adj": 0.57,
+            "repeat_opponent_share": 0.30,
+            "unique_opp_states": 6,
+        }
+    )
+    assert _publication_cap_rank(row) == 400
+
+
+def test_publication_cap_rank_soft_caps_connectivity_constrained_team():
+    row = pd.Series(
+        {
+            "age_num": 16,
+            "same_age_top100_opp_count": 5,
+            "same_age_top500_opp_count": 8,
+            "same_age_avg_opp_power_adj": 0.54,
+            "repeat_opponent_share": 0.36,
+            "unique_opp_states": 1,
+        }
+    )
+    assert _publication_cap_rank(row) == 250
+
+
+def test_publication_cap_rank_hits_severe_connectivity_team():
     row = pd.Series(
         {
             "age_num": 15,
-            "same_age_top100_opp_count": 1,
-            "same_age_top500_opp_count": 6,
-            "same_age_avg_opp_power_adj": 0.58,
-            "repeat_opponent_share": 0.12,
+            "same_age_top100_opp_count": 3,
+            "same_age_top500_opp_count": 3,
+            "same_age_avg_opp_power_adj": 0.51,
+            "repeat_opponent_share": 0.55,
+            "unique_opp_states": 2,
+        }
+    )
+    assert _publication_cap_rank(row) == 400
+
+
+def test_publication_cap_rank_skips_multi_top100_team_with_depth():
+    row = pd.Series(
+        {
+            "age_num": 15,
+            "same_age_top100_opp_count": 2,
+            "same_age_top500_opp_count": 7,
+            "same_age_avg_opp_power_adj": 0.55,
+            "repeat_opponent_share": 0.13,
+            "unique_opp_states": 8,
         }
     )
     assert _publication_cap_rank(row) is None
