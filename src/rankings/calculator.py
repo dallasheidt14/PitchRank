@@ -7,6 +7,7 @@ import hashlib
 import logging
 from contextlib import nullcontext
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
@@ -46,6 +47,8 @@ class RankingContext:
     use_glicko: bool = True
     force_rebuild: bool = False
     save_snapshot: bool = True
+    persist_game_residuals: bool = True
+    calculate_rank_changes: bool = True
     # Instrumentation
     timing_report: Optional[Any] = None
     pass_label: Optional[str] = None
@@ -61,12 +64,26 @@ def _section(timing_report: Optional["TimingReport"], name: str, **metadata):
     return nullcontext()
 
 
-async def _save_prediction_feature_snapshot_safe(supabase_client, rankings_df: pd.DataFrame) -> None:
+def _normalize_snapshot_date(today: Optional[pd.Timestamp]) -> Optional[date]:
+    if today is None:
+        return None
+
+    timestamp = pd.Timestamp(today)
+    return timestamp.date()
+
+
+async def _save_prediction_feature_snapshot_safe(
+    supabase_client, rankings_df: pd.DataFrame, snapshot_date: Optional[date] = None
+) -> None:
     """
     Persist benchmark-only predictor snapshots without blocking rankings publication.
     """
     try:
-        await save_prediction_feature_snapshot(supabase_client=supabase_client, rankings_df=rankings_df)
+        await save_prediction_feature_snapshot(
+            supabase_client=supabase_client,
+            rankings_df=rankings_df,
+            snapshot_date=snapshot_date,
+        )
     except Exception as error:
         logger.warning("Skipping prediction feature snapshot save after write failure: %s", error)
 
@@ -481,6 +498,8 @@ async def compute_rankings_with_ml(
     # Unpack context fields as locals so the body reads naturally
     force_rebuild = ctx.force_rebuild
     save_snapshot = ctx.save_snapshot
+    persist_game_residuals = ctx.persist_game_residuals
+    calculate_rank_changes_enabled = ctx.calculate_rank_changes
     global_strength_map = ctx.global_strength_map
     merge_version = ctx.merge_version
     team_state_map = ctx.team_state_map
@@ -490,6 +509,7 @@ async def compute_rankings_with_ml(
     pre_sos_state = ctx.pre_sos_state
     use_glicko = ctx.use_glicko
     initial_ratings = ctx.initial_ratings
+    snapshot_date = _normalize_snapshot_date(today)
 
     v53_cfg = v53_cfg or V53EConfig()
 
@@ -696,7 +716,9 @@ async def compute_rankings_with_ml(
     # Persist game residuals to database (skip during Pass 1 — Pass 2 values overwrite)
     skip_persist = pass_label == "Pass1"
     with _section(timing_report, "persist_game_residuals"):
-        if skip_persist:
+        if not persist_game_residuals:
+            logger.info("Skipping residual persistence (disabled for this run)")
+        elif skip_persist:
             logger.info("⏭️  Skipping residual persistence (Pass 1 — will persist in Pass 2)")
         elif not game_residuals.empty:
             logger.info(f"💾 Persisting {len(game_residuals):,} game residuals to database...")
@@ -726,18 +748,40 @@ async def compute_rankings_with_ml(
                 logger.debug(f"  {age} {gender}: pre-ML={before:.3f}, post-ML={after:.3f}, diff={after - before:+.3f}")
 
     # Calculate rank changes using historical snapshots (7d and 30d)
-    logger.info("📊 Calculating rank changes from historical data...")
-    with _section(timing_report, "rank_changes"):
-        teams_with_ml = await calculate_rank_changes(supabase_client=supabase_client, current_rankings_df=teams_with_ml)
+    if calculate_rank_changes_enabled:
+        logger.info("📊 Calculating rank changes from historical data...")
+        with _section(timing_report, "rank_changes"):
+            teams_with_ml = await calculate_rank_changes(
+                supabase_client=supabase_client,
+                current_rankings_df=teams_with_ml,
+                reference_date=snapshot_date,
+            )
+    else:
+        for column in [
+            "rank_change_7d",
+            "rank_change_30d",
+            "rank_change_state_7d",
+            "rank_change_state_30d",
+        ]:
+            if column not in teams_with_ml.columns:
+                teams_with_ml[column] = None
 
     # Save current rankings as a snapshot for future rank change calculations
     # (Skip if save_snapshot=False, e.g., when called from compute_all_cohorts)
     if save_snapshot and not teams_with_ml.empty:
         logger.info("💾 Saving ranking snapshot for future comparisons...")
         with _section(timing_report, "save_ranking_snapshot"):
-            await save_ranking_snapshot(supabase_client=supabase_client, rankings_df=teams_with_ml)
+            await save_ranking_snapshot(
+                supabase_client=supabase_client,
+                rankings_df=teams_with_ml,
+                snapshot_date=snapshot_date,
+            )
         with _section(timing_report, "save_prediction_feature_snapshot"):
-            await _save_prediction_feature_snapshot_safe(supabase_client=supabase_client, rankings_df=teams_with_ml)
+            await _save_prediction_feature_snapshot_safe(
+                supabase_client=supabase_client,
+                rankings_df=teams_with_ml,
+                snapshot_date=snapshot_date,
+            )
 
     return {
         "teams": teams_with_ml,
@@ -817,6 +861,9 @@ async def compute_all_cohorts(
     merge_resolver=None,  # Optional MergeResolver for team merge resolution
     timing_report: Optional["TimingReport"] = None,
     use_glicko: bool = True,  # True = Glicko-2 engine, False = legacy v53e engine
+    persist_game_residuals: bool = True,
+    calculate_rank_changes: bool = True,
+    save_snapshot: bool = True,
 ) -> Dict[str, pd.DataFrame]:
     """
     Compute rankings for all cohorts using two-pass architecture.
@@ -974,6 +1021,8 @@ async def compute_all_cohorts(
                 tier_league_map=tier_league_map,
                 pass_label="Pass1",
                 use_glicko=use_glicko,
+                persist_game_residuals=persist_game_residuals,
+                calculate_rank_changes=calculate_rank_changes,
             ),
         )
         pass1_tasks.append(task)
@@ -1042,6 +1091,8 @@ async def compute_all_cohorts(
                 pre_sos_state=None if use_glicko else pass1_pre_sos_states.get(i),
                 use_glicko=use_glicko,
                 initial_ratings=pass1_glicko_ratings.get(i) if use_glicko else None,
+                persist_game_residuals=persist_game_residuals,
+                calculate_rank_changes=calculate_rank_changes,
             ),
         )
         pass2_tasks.append(task)
@@ -1304,7 +1355,7 @@ async def compute_all_cohorts(
     """
 
     # Diagnostic: Log distribution stats for sos_norm and powerscore_adj per cohort
-    if not teams_combined.empty:
+    if save_snapshot and not teams_combined.empty:
         logger.info("📊 Distribution diagnostics per age/gender cohort:")
         for (age, gender), cohort_df in teams_combined.groupby(["age", "gender"]):
             if "sos_norm" in cohort_df.columns:
@@ -1587,10 +1638,18 @@ async def compute_all_cohorts(
                     )
 
     # Save one combined snapshot for all cohorts
-    if not teams_combined.empty:
+    if save_snapshot and not teams_combined.empty:
         logger.info("💾 Saving combined ranking snapshot for all cohorts...")
-        await save_ranking_snapshot(supabase_client=supabase_client, rankings_df=teams_combined)
-        await _save_prediction_feature_snapshot_safe(supabase_client=supabase_client, rankings_df=teams_combined)
+        await save_ranking_snapshot(
+            supabase_client=supabase_client,
+            rankings_df=teams_combined,
+            snapshot_date=_normalize_snapshot_date(today),
+        )
+        await _save_prediction_feature_snapshot_safe(
+            supabase_client=supabase_client,
+            rankings_df=teams_combined,
+            snapshot_date=_normalize_snapshot_date(today),
+        )
 
     logger.info(f"✅ Two-pass rankings flow complete: {len(teams_combined):,} teams ranked")
 
