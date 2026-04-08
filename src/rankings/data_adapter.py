@@ -1024,6 +1024,16 @@ def v53e_to_rankings_full_format(
         "global_power_score",
         "power_score_true",
         "power_score_final",
+        "same_age_games",
+        "same_age_game_share",
+        "same_age_unique_opponents",
+        "same_age_top100_opp_count",
+        "same_age_top500_opp_count",
+        "same_age_avg_opp_power_adj",
+        "repeat_opponent_share",
+        "positive_ml_evidence_scale",
+        "publication_cap_rank",
+        "publication_cap_score",
     ]
 
     # Create result DataFrame with all expected columns

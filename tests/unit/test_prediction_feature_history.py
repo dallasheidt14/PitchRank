@@ -33,6 +33,16 @@ def test_build_prediction_feature_snapshot_records_normalizes_live_predictor_fie
                 "draws": 5,
                 "gp": 20,
                 "exp_margin": 0.45,
+                "same_age_games": 14,
+                "same_age_game_share": 0.7,
+                "same_age_unique_opponents": 8,
+                "same_age_top100_opp_count": 3,
+                "same_age_top500_opp_count": 6,
+                "same_age_avg_opp_power_adj": 0.73,
+                "repeat_opponent_share": 0.15,
+                "positive_ml_evidence_scale": 0.88,
+                "publication_cap_rank": 200,
+                "publication_cap_score": 0.79,
                 "last_calculated": pd.Timestamp("2026-04-07T16:45:00Z"),
             }
         ]
@@ -58,6 +68,16 @@ def test_build_prediction_feature_snapshot_records_normalizes_live_predictor_fie
     assert record["wins"] == 12
     assert record["losses"] == 3
     assert record["draws"] == 5
+    assert record["same_age_games"] == 14
+    assert record["same_age_game_share"] == 0.7
+    assert record["same_age_unique_opponents"] == 8
+    assert record["same_age_top100_opp_count"] == 3
+    assert record["same_age_top500_opp_count"] == 6
+    assert record["same_age_avg_opp_power_adj"] == 0.73
+    assert record["repeat_opponent_share"] == 0.15
+    assert record["positive_ml_evidence_scale"] == 0.88
+    assert record["publication_cap_rank"] == 200
+    assert record["publication_cap_score"] == 0.79
     assert math.isclose(record["win_percentage"], 72.5, rel_tol=1e-9)
     assert record["last_calculated"] == "2026-04-07T16:45:00+00:00"
 

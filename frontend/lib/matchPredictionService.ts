@@ -67,6 +67,16 @@ type RankingsFullRow = {
   losses?: number | null;
   draws?: number | null;
   games_played?: number | null;
+  same_age_games?: number | null;
+  same_age_game_share?: number | null;
+  same_age_unique_opponents?: number | null;
+  same_age_top100_opp_count?: number | null;
+  same_age_top500_opp_count?: number | null;
+  same_age_avg_opp_power_adj?: number | null;
+  repeat_opponent_share?: number | null;
+  positive_ml_evidence_scale?: number | null;
+  publication_cap_rank?: number | null;
+  publication_cap_score?: number | null;
 };
 
 type PredictiveRow = {
@@ -79,6 +89,39 @@ type PredictiveRow = {
 type MergeRow = {
   deprecated_team_id: string;
 };
+
+const BASE_RANKINGS_FULL_FIELDS =
+  'age_group, gender, rank_in_cohort_final, power_score_final, glicko_rating, glicko_rd, glicko_volatility, sos_norm, off_norm, def_norm, wins, losses, draws, games_played';
+const OPTIONAL_RANKINGS_FULL_PREDICTION_FIELDS =
+  'same_age_games, same_age_game_share, same_age_unique_opponents, same_age_top100_opp_count, same_age_top500_opp_count, same_age_avg_opp_power_adj, repeat_opponent_share, positive_ml_evidence_scale, publication_cap_rank, publication_cap_score';
+
+function isMissingOptionalPredictionColumn(error: unknown): boolean {
+  const message = String((error as { message?: string } | null)?.message ?? error ?? '').toLowerCase();
+  return (
+    (message.includes('column') || message.includes('schema cache') || message.includes('could not find')) &&
+    (message.includes('same_age_') ||
+      message.includes('positive_ml_evidence_scale') ||
+      message.includes('publication_cap_'))
+  );
+}
+
+async function fetchRankingsFullRow(supabase: SupabaseClient, teamId: string): Promise<RankingsFullRow | null> {
+  const fullSelector = `${BASE_RANKINGS_FULL_FIELDS}, ${OPTIONAL_RANKINGS_FULL_PREDICTION_FIELDS}`;
+
+  const attempt = async (selector: string) =>
+    supabase.from('rankings_full').select(selector).eq('team_id', teamId).maybeSingle();
+
+  let result = await attempt(fullSelector);
+  if (result.error && isMissingOptionalPredictionColumn(result.error)) {
+    result = await attempt(BASE_RANKINGS_FULL_FIELDS);
+  }
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  return result.data as RankingsFullRow | null;
+}
 
 function normalizeGenderCode(rawGender: string | null | undefined): 'M' | 'F' | 'B' | 'G' {
   if (rawGender === 'Male' || rawGender === 'M' || rawGender === 'B' || rawGender === 'Boys') return 'M';
@@ -128,7 +171,7 @@ async function resolvePredictionTeamIds(
 }
 
 async function fetchPredictionTeam(supabase: SupabaseClient, teamId: string): Promise<TeamWithRanking> {
-  const [teamResult, rankingResult, stateRankingResult, rankingsFullResult, predictiveResult] = await Promise.all([
+  const [teamResult, rankingResult, stateRankingResult, rankingsFullData, predictiveResult] = await Promise.all([
     supabase
       .from('teams')
       .select('team_id_master, team_name, club_name, state, state_code, age_group, gender, last_scraped_at')
@@ -148,13 +191,7 @@ async function fetchPredictionTeam(supabase: SupabaseClient, teamId: string): Pr
       )
       .eq('team_id_master', teamId)
       .maybeSingle(),
-    supabase
-      .from('rankings_full')
-      .select(
-        'age_group, gender, rank_in_cohort_final, power_score_final, glicko_rating, glicko_rd, glicko_volatility, sos_norm, off_norm, def_norm, wins, losses, draws, games_played'
-      )
-      .eq('team_id', teamId)
-      .maybeSingle(),
+    fetchRankingsFullRow(supabase, teamId),
     supabase
       .from('team_predictive_view')
       .select('exp_margin, exp_win_rate, exp_goals_for, exp_goals_against')
@@ -169,7 +206,6 @@ async function fetchPredictionTeam(supabase: SupabaseClient, teamId: string): Pr
   const teamData = teamResult.data as TeamRow | null;
   const rankingData = rankingResult.data as RankingRow | null;
   const stateRankingData = stateRankingResult.data as RankingRow | null;
-  const rankingsFullData = rankingsFullResult.data as RankingsFullRow | null;
   const predictiveData = predictiveResult.data as PredictiveRow | null;
 
   if (!teamData) {
@@ -221,6 +257,16 @@ async function fetchPredictionTeam(supabase: SupabaseClient, teamId: string): Pr
     sos_norm_state: stateRankingData?.sos_norm_state ?? rankingsFullData?.sos_norm ?? null,
     offense_norm: rankingData?.offense_norm ?? stateRankingData?.offense_norm ?? rankingsFullData?.off_norm ?? null,
     defense_norm: rankingData?.defense_norm ?? stateRankingData?.defense_norm ?? rankingsFullData?.def_norm ?? null,
+    same_age_games: rankingsFullData?.same_age_games ?? null,
+    same_age_game_share: rankingsFullData?.same_age_game_share ?? null,
+    same_age_unique_opponents: rankingsFullData?.same_age_unique_opponents ?? null,
+    same_age_top100_opp_count: rankingsFullData?.same_age_top100_opp_count ?? null,
+    same_age_top500_opp_count: rankingsFullData?.same_age_top500_opp_count ?? null,
+    same_age_avg_opp_power_adj: rankingsFullData?.same_age_avg_opp_power_adj ?? null,
+    repeat_opponent_share: rankingsFullData?.repeat_opponent_share ?? null,
+    positive_ml_evidence_scale: rankingsFullData?.positive_ml_evidence_scale ?? null,
+    publication_cap_rank: rankingsFullData?.publication_cap_rank ?? null,
+    publication_cap_score: rankingsFullData?.publication_cap_score ?? null,
     wins,
     losses,
     draws,

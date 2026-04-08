@@ -154,4 +154,56 @@ describe('predictMatch', () => {
     expect(prediction.expectedScore.teamA).toBeGreaterThanOrEqual(0);
     expect(prediction.expectedScore.teamB).toBeGreaterThanOrEqual(0);
   });
+
+  it('shrinks overconfident edges when same-age evidence is weak', () => {
+    const baselineA = makeTeam({
+      team_id_master: 'team-a',
+      team_name: 'Evidence A 14B',
+      power_score_final: 0.63,
+      exp_win_rate: 0.57,
+      exp_margin: 0.35,
+    });
+    const baselineB = makeTeam({
+      team_id_master: 'team-b',
+      team_name: 'Evidence B 14B',
+      power_score_final: 0.61,
+      exp_win_rate: 0.54,
+      exp_margin: 0.2,
+    });
+
+    const baselinePrediction = predictMatch(baselineA, baselineB, []);
+
+    const weakEvidenceA = makeTeam({
+      ...baselineA,
+      same_age_games: 2,
+      same_age_game_share: 0.12,
+      same_age_unique_opponents: 2,
+      same_age_top100_opp_count: 0,
+      same_age_top500_opp_count: 1,
+      same_age_avg_opp_power_adj: 0.42,
+      repeat_opponent_share: 0.62,
+      positive_ml_evidence_scale: 0,
+      publication_cap_rank: 100,
+      publication_cap_score: 0.58,
+    });
+    const strongEvidenceB = makeTeam({
+      ...baselineB,
+      same_age_games: 14,
+      same_age_game_share: 0.82,
+      same_age_unique_opponents: 9,
+      same_age_top100_opp_count: 3,
+      same_age_top500_opp_count: 7,
+      same_age_avg_opp_power_adj: 0.72,
+      repeat_opponent_share: 0.08,
+      positive_ml_evidence_scale: 1,
+    });
+
+    const evidencePrediction = predictMatch(weakEvidenceA, strongEvidenceB, []);
+
+    expect(evidencePrediction.winProbabilityA).toBeLessThan(baselinePrediction.winProbabilityA);
+    expect(evidencePrediction.components.evidenceSignal).toBeLessThan(0);
+    expect(evidencePrediction.components.evidenceReliabilityA ?? 1).toBeLessThan(
+      evidencePrediction.components.evidenceReliabilityB ?? 1
+    );
+  });
 });

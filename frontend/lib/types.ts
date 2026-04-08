@@ -121,6 +121,16 @@ export interface TeamWithRanking {
   sos_rank_state?: number | null; // SOS rank within (age, gender, state)
   offense_norm: number | null;
   defense_norm: number | null;
+  same_age_games?: number | null;
+  same_age_game_share?: number | null;
+  same_age_unique_opponents?: number | null;
+  same_age_top100_opp_count?: number | null;
+  same_age_top500_opp_count?: number | null;
+  same_age_avg_opp_power_adj?: number | null;
+  repeat_opponent_share?: number | null;
+  positive_ml_evidence_scale?: number | null;
+  publication_cap_rank?: number | null;
+  publication_cap_score?: number | null;
   // Record
   wins: number;
   losses: number;

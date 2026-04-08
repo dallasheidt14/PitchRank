@@ -7,6 +7,7 @@ import pytest
 from scripts.backfill_prediction_feature_history import (
     generate_snapshot_dates,
     parse_weekday,
+    slice_snapshot_dates,
 )
 
 
@@ -63,3 +64,24 @@ def test_generate_snapshot_dates_rejects_inverted_ranges():
             cadence="weekly",
             weekday=0,
         )
+
+
+def test_slice_snapshot_dates_applies_skip_and_max():
+    candidate_dates = [
+        date(2026, 1, 5),
+        date(2026, 1, 12),
+        date(2026, 1, 19),
+        date(2026, 1, 26),
+    ]
+
+    sliced = slice_snapshot_dates(candidate_dates, skip_snapshots=1, max_snapshots=2)
+
+    assert sliced == [
+        date(2026, 1, 12),
+        date(2026, 1, 19),
+    ]
+
+
+def test_slice_snapshot_dates_rejects_negative_skip():
+    with pytest.raises(ValueError):
+        slice_snapshot_dates([date(2026, 1, 5)], skip_snapshots=-1)

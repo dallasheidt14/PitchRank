@@ -57,6 +57,16 @@ on:
         required: false
         default: true
         type: boolean
+      chunk_index:
+        description: 'Zero-based chunk index within the generated date list'
+        required: false
+        default: '0'
+        type: string
+      chunk_size:
+        description: 'Snapshot dates to process in this run (defaults to 1)'
+        required: false
+        default: '1'
+        type: string
       overwrite_existing:
         description: 'Replay dates even if rows already exist'
         required: false
@@ -116,6 +126,19 @@ jobs:
         run: |
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
 
+          CHUNK_INDEX="${{ github.event.inputs.chunk_index }}"
+          CHUNK_SIZE="${{ github.event.inputs.chunk_size }}"
+          RUN_MAX_SNAPSHOTS="${{ github.event.inputs.max_snapshots }}"
+          if [ -z "$RUN_MAX_SNAPSHOTS" ] && [ -n "$CHUNK_SIZE" ]; then
+            RUN_MAX_SNAPSHOTS="$CHUNK_SIZE"
+          fi
+          SKIP_SNAPSHOTS=$((CHUNK_INDEX * CHUNK_SIZE))
+
+          echo "Chunk index: $CHUNK_INDEX"
+          echo "Chunk size: $CHUNK_SIZE"
+          echo "Skip snapshots: $SKIP_SNAPSHOTS"
+          echo "Max snapshots this run: ${RUN_MAX_SNAPSHOTS:-unbounded}"
+
           CMD=(
             python scripts/backfill_prediction_feature_history.py
             --start-date "${{ github.event.inputs.start_date }}"
@@ -124,6 +147,7 @@ jobs:
             --weekday "${{ github.event.inputs.weekday }}"
             --lookback-days "${{ github.event.inputs.lookback_days }}"
             --engine "${{ github.event.inputs.engine }}"
+            --skip-snapshots "$SKIP_SNAPSHOTS"
           )
 
           if [ -n "${{ github.event.inputs.provider }}" ]; then
@@ -146,8 +170,8 @@ jobs:
             CMD+=(--overwrite-existing)
           fi
 
-          if [ -n "${{ github.event.inputs.max_snapshots }}" ]; then
-            CMD+=(--max-snapshots "${{ github.event.inputs.max_snapshots }}")
+          if [ -n "$RUN_MAX_SNAPSHOTS" ]; then
+            CMD+=(--max-snapshots "$RUN_MAX_SNAPSHOTS")
           fi
 
           if [ "${{ github.event.inputs.stop_on_error }}" = "true" ]; then
