@@ -1,14 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockPredictMatch, mockExplainMatch } = vi.hoisted(() => ({
+const { mockPredictMatch, mockExplainMatch, mockWarmMatchPredictorCalibration } = vi.hoisted(() => ({
   mockPredictMatch: vi.fn(),
   mockExplainMatch: vi.fn(),
+  mockWarmMatchPredictorCalibration: vi.fn(),
 }));
 
 vi.mock('server-only', () => ({}));
 
 vi.mock('./matchPredictor', () => ({
   predictMatch: mockPredictMatch,
+  warmMatchPredictorCalibration: mockWarmMatchPredictorCalibration,
 }));
 
 vi.mock('./matchExplainer', () => ({
@@ -116,6 +118,7 @@ function createMockSupabase() {
         return { data: null, error: null };
       case 'state_rankings_view':
       case 'rankings_full':
+      case 'team_predictive_view':
         return { data: null, error: null };
       case 'games':
         return {
@@ -178,10 +181,12 @@ function createMockSupabase() {
 describe('buildMatchPrediction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockWarmMatchPredictorCalibration.mockResolvedValue(undefined);
     mockPredictMatch.mockReturnValue({
       predictedWinner: 'team_a',
       winProbabilityA: 0.77,
       winProbabilityB: 0.23,
+      drawProbability: 0,
       expectedScore: { teamA: 3, teamB: 1 },
       expectedMargin: 2,
       confidence: 'high',

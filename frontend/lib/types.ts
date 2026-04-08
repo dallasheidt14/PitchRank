@@ -132,6 +132,11 @@ export interface TeamWithRanking {
   total_losses?: number; // Total losses from all games
   total_draws?: number; // Total draws from all games
   win_percentage: number | null; // backend should calculate
+  // Optional predictive fields from team_predictive_view
+  exp_margin?: number | null;
+  exp_win_rate?: number | null;
+  exp_goals_for?: number | null;
+  exp_goals_against?: number | null;
   // Deprecated fields (do not use)
   /** @deprecated Use state instead */
   state_code?: never;

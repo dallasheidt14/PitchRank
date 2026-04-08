@@ -105,7 +105,11 @@ describe('predictMatch', () => {
     const prediction = predictMatch(teamA, teamB, games);
 
     expect(prediction.predictedWinner).toBe('team_a');
-    expect(prediction.winProbabilityA).toBeGreaterThan(0.7);
+    expect(prediction.winProbabilityA).toBeGreaterThan(0.6);
+    expect(prediction.drawProbability ?? 0).toBeLessThan(0.2);
+    expect(
+      (prediction.winProbabilityA + prediction.winProbabilityB + (prediction.drawProbability ?? 0)).toFixed(6)
+    ).toBe('1.000000');
     expect(prediction.expectedMargin).toBeGreaterThan(0);
     expect(prediction.expectedScore.teamA).toBeGreaterThanOrEqual(prediction.expectedScore.teamB);
   });
@@ -144,6 +148,7 @@ describe('predictMatch', () => {
 
     expect(prediction.predictedWinner).toBe('draw');
     expect(prediction.confidence).toBe('low');
+    expect(prediction.drawProbability ?? 0).toBeGreaterThan(0.2);
     expect(prediction.winProbabilityA).toBeGreaterThan(0);
     expect(prediction.winProbabilityA).toBeLessThan(1);
     expect(prediction.expectedScore.teamA).toBeGreaterThanOrEqual(0);
