@@ -272,6 +272,104 @@ class TestVectorizedSOSScaling:
         assert expected_scale == pytest.approx(1.0 / 3.0, abs=0.01)
 
 
+def test_walk_forward_slices_use_prior_dates_only():
+    from src.rankings.layer13_predictive_adjustment import Layer13Config, _build_walk_forward_slices
+
+    train_feats = pd.DataFrame(
+        {
+            "date": pd.to_datetime(
+                ["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04", "2026-01-05", "2026-01-06"]
+            )
+        }
+    )
+    cfg = Layer13Config()
+    cfg.min_training_rows = 2
+    cfg.walk_forward_folds = 2
+
+    slices = _build_walk_forward_slices(train_feats, cfg)
+
+    assert len(slices) == 2
+    first_train_idx, first_val_idx = slices[0]
+    second_train_idx, second_val_idx = slices[1]
+
+    assert train_feats.loc[first_train_idx, "date"].max() < train_feats.loc[first_val_idx, "date"].min()
+    assert train_feats.loc[second_train_idx, "date"].max() < train_feats.loc[second_val_idx, "date"].min()
+    assert train_feats.loc[first_val_idx, "date"].dt.strftime("%Y-%m-%d").tolist() == ["2026-01-03", "2026-01-04"]
+    assert train_feats.loc[second_val_idx, "date"].dt.strftime("%Y-%m-%d").tolist() == ["2026-01-05", "2026-01-06"]
+
+
+def test_aggregate_team_residuals_prefers_residual_for_agg():
+    from src.rankings.layer13_predictive_adjustment import Layer13Config, _aggregate_team_residuals
+
+    feats = pd.DataFrame(
+        {
+            "team_id": ["A", "A", "B"],
+            "age": [14, 14, 14],
+            "gender": ["M", "M", "M"],
+            "rank_recency": [1.0, 2.0, 1.0],
+            "residual": [9.0, -9.0, 5.0],
+            "residual_for_agg": [np.nan, 1.25, 2.5],
+        }
+    )
+    cfg = Layer13Config()
+    cfg.min_team_games_for_residual = 1
+    cfg.recency_decay_lambda = 0.0
+
+    out = _aggregate_team_residuals(feats, cfg).sort_values("team_id").reset_index(drop=True)
+
+    assert out.loc[0, "team_id"] == "A"
+    assert out.loc[0, "ml_game_count"] == 1
+    assert out.loc[0, "ml_overperf"] == pytest.approx(1.25, abs=1e-9)
+    assert out.loc[1, "team_id"] == "B"
+    assert out.loc[1, "ml_game_count"] == 1
+    assert out.loc[1, "ml_overperf"] == pytest.approx(2.5, abs=1e-9)
+
+
+def test_fit_and_residualize_uses_walk_forward_and_holdout_rows(monkeypatch):
+    import src.rankings.layer13_predictive_adjustment as layer13
+    from src.rankings.layer13_predictive_adjustment import Layer13Config, _fit_and_residualize
+
+    feats = pd.DataFrame(
+        {
+            "date": pd.to_datetime(
+                ["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04", "2026-01-05"]
+            ),
+            "goal_margin": [0.0, 0.0, 0.0, 0.0, 0.0],
+            "team_power": [0.6, 0.6, 0.6, 0.6, 0.6],
+            "opp_power": [0.5, 0.5, 0.5, 0.5, 0.5],
+            "power_diff": [0.1, 0.1, 0.1, 0.1, 0.1],
+            "age_gap": [0, 0, 0, 0, 0],
+            "cross_gender": [0, 0, 0, 0, 0],
+            "rank_recency": [5, 4, 3, 2, 1],
+        }
+    )
+    train_feats = feats.iloc[:4].copy()
+    cfg = Layer13Config()
+    cfg.min_training_rows = 2
+    cfg.walk_forward_folds = 2
+
+    def fake_fit_model(train_slice, cfg, log_feature_importances=False):
+        return {"train_len": len(train_slice)}
+
+    def fake_predict_with_model(model, frame, cfg):
+        out = frame.copy()
+        out["pred_margin"] = 0.0
+        out["residual"] = float(model["train_len"])
+        return out
+
+    monkeypatch.setattr(layer13, "_fit_model", fake_fit_model)
+    monkeypatch.setattr(layer13, "_predict_with_model", fake_predict_with_model)
+
+    out = _fit_and_residualize(feats, train_feats, cfg)
+
+    assert out["residual"].tolist() == [4.0, 4.0, 4.0, 4.0, 4.0]
+    assert pd.isna(out.loc[0, "residual_for_agg"])
+    assert pd.isna(out.loc[1, "residual_for_agg"])
+    assert out.loc[2, "residual_for_agg"] == pytest.approx(2.0, abs=1e-9)
+    assert out.loc[3, "residual_for_agg"] == pytest.approx(3.0, abs=1e-9)
+    assert out.loc[4, "residual_for_agg"] == pytest.approx(4.0, abs=1e-9)
+
+
 @pytest.mark.asyncio
 async def test_low_sample_ml_rows_stay_neutral_after_normalization(monkeypatch):
     """Teams below the ML residual floor must stay at the base score."""
@@ -323,7 +421,9 @@ async def test_low_sample_ml_rows_stay_neutral_after_normalization(monkeypatch):
             "opp_gender": ["M", "M", "M"],
         }
     )
-    cfg = Layer13Config(min_team_games_for_residual=2, min_training_rows=1, norm_mode="zscore")
+    cfg = Layer13Config(norm_mode="zscore")
+    cfg.min_team_games_for_residual = 2
+    cfg.min_training_rows = 1
 
     out = await apply_predictive_adjustment(
         supabase_client=None,

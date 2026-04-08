@@ -13,6 +13,8 @@ from src.rankings.shared import normalize_by_cohort
 
 logger = logging.getLogger(__name__)
 
+FEATURE_NAMES = ["team_power", "opp_power", "power_diff", "age_gap", "cross_gender"]
+
 # Prefer XGBoost; fall back to RandomForest; tolerate neither (import-only workflows)
 try:
     from xgboost import XGBRegressor  # type: ignore
@@ -52,6 +54,8 @@ class Layer13Config:
     min_team_games_for_residual: int = 12
     residual_clip_goals: float = 3.5  # guardrail on residual outliers
     min_training_rows: int = 30  # Minimum rows to enable ML (prevents leakage)
+    walk_forward_enabled: bool = True
+    walk_forward_folds: int = 3
 
     # blend into PowerScore
     alpha: float = 0.08  # Tuned via weight simulator: 0.08 optimal (quality 14→19/23)
@@ -87,6 +91,8 @@ class Layer13Config:
             )
             self.residual_clip_goals = ML_CONFIG.get("residual_clip_goals", self.residual_clip_goals)
             self.norm_mode = ML_CONFIG.get("norm_mode", self.norm_mode)
+            self.walk_forward_enabled = ML_CONFIG.get("walk_forward_enabled", self.walk_forward_enabled)
+            self.walk_forward_folds = ML_CONFIG.get("walk_forward_folds", self.walk_forward_folds)
 
         if self.xgb_params is None:
             self.xgb_params = dict(
@@ -572,10 +578,9 @@ def _build_features(
     return f.reset_index(drop=True)
 
 
-def _fit_and_residualize(feats: pd.DataFrame, train_feats: pd.DataFrame, cfg: Layer13Config) -> pd.DataFrame:
-    """Fit ML model on training data and calculate residuals on full feats"""
-    # Fit model on training data only (to prevent leakage)
-    X_train = train_feats[["team_power", "opp_power", "power_diff", "age_gap", "cross_gender"]].astype(float).values
+def _fit_model(train_feats: pd.DataFrame, cfg: Layer13Config, *, log_feature_importances: bool = False):
+    """Fit the configured ML model on a training slice."""
+    X_train = train_feats[FEATURE_NAMES].astype(float).values
     y_train = train_feats["goal_margin"].astype(float).values
 
     if _HAS_XGB:
@@ -585,29 +590,89 @@ def _fit_and_residualize(feats: pd.DataFrame, train_feats: pd.DataFrame, cfg: La
         model = RandomForestRegressor(**cfg.rf_params)
         model.fit(X_train, y_train)
 
-    # Log feature importances for monitoring (especially age_gap after cross-age fix)
-    feature_names = ["team_power", "opp_power", "power_diff", "age_gap", "cross_gender"]
-    if hasattr(model, "feature_importances_"):
-        importances = dict(zip(feature_names, model.feature_importances_))
+    if log_feature_importances and hasattr(model, "feature_importances_"):
+        importances = dict(zip(FEATURE_NAMES, model.feature_importances_))
         logger.info(f"📊 ML feature importances: {importances}")
 
-    # Compute residuals on full feats DataFrame (for all games)
-    X_full = feats[feature_names].astype(float).values
-    y_pred = model.predict(X_full)
+    return model
 
+
+def _predict_with_model(model, feats: pd.DataFrame, cfg: Layer13Config) -> pd.DataFrame:
+    """Predict goal margin and compute clipped residuals for a feature frame."""
     out = feats.copy()
+    X_full = out[FEATURE_NAMES].astype(float).values
+    y_pred = model.predict(X_full)
     out["pred_margin"] = y_pred.astype(float)
     out["residual"] = (out["goal_margin"] - out["pred_margin"]).astype(float)
-    # Clip per-game residuals before aggregation to prevent blowout games
-    # from dominating the team-level weighted average
     out["residual"] = out["residual"].clip(lower=-cfg.residual_clip_goals, upper=cfg.residual_clip_goals)
+    return out
+
+
+def _build_walk_forward_slices(train_feats: pd.DataFrame, cfg: Layer13Config) -> List[Tuple[pd.Index, pd.Index]]:
+    """Create expanding-window date-based validation folds."""
+    if not cfg.walk_forward_enabled or len(train_feats) < cfg.min_training_rows:
+        return []
+
+    ordered = train_feats.sort_values("date").copy()
+    unique_dates = ordered["date"].drop_duplicates().sort_values().tolist()
+    prefix_rows = 0
+    eligible_dates = []
+    for date in unique_dates:
+        if prefix_rows >= cfg.min_training_rows:
+            eligible_dates.append(date)
+        prefix_rows += int((ordered["date"] == date).sum())
+
+    if not eligible_dates:
+        return []
+
+    fold_count = min(int(cfg.walk_forward_folds), len(eligible_dates))
+    if fold_count <= 0:
+        return []
+
+    slices: List[Tuple[pd.Index, pd.Index]] = []
+    for val_dates in np.array_split(np.array(eligible_dates, dtype="datetime64[ns]"), fold_count):
+        if len(val_dates) == 0:
+            continue
+        fold_start = pd.Timestamp(val_dates[0])
+        val_dates_index = pd.to_datetime(val_dates)
+        train_idx = ordered.index[ordered["date"] < fold_start]
+        val_idx = ordered.index[ordered["date"].isin(val_dates_index)]
+        if len(train_idx) < cfg.min_training_rows or len(val_idx) == 0:
+            continue
+        slices.append((train_idx, val_idx))
+    return slices
+
+
+def _fit_and_residualize(feats: pd.DataFrame, train_feats: pd.DataFrame, cfg: Layer13Config) -> pd.DataFrame:
+    """Fit ML model and compute display residuals plus aggregation-safe residuals."""
+    model = _fit_model(train_feats, cfg, log_feature_importances=True)
+    out = _predict_with_model(model, feats, cfg)
+    out["residual_for_agg"] = np.nan
+
+    for fold_train_idx, fold_val_idx in _build_walk_forward_slices(train_feats, cfg):
+        fold_train = train_feats.loc[fold_train_idx]
+        fold_val = train_feats.loc[fold_val_idx]
+        fold_model = _fit_model(fold_train, cfg)
+        fold_pred = _predict_with_model(fold_model, fold_val, cfg)
+        out.loc[fold_val_idx, "residual_for_agg"] = fold_pred["residual"].values
+
+    holdout_idx = feats.index.difference(train_feats.index)
+    if len(holdout_idx) > 0:
+        out.loc[holdout_idx, "residual_for_agg"] = out.loc[holdout_idx, "residual"]
+
+    if out["residual_for_agg"].notna().sum() == 0:
+        out["residual_for_agg"] = out["residual"]
 
     return out
 
 
 def _aggregate_team_residuals(feats: pd.DataFrame, cfg: Layer13Config) -> pd.DataFrame:
     """Aggregate residuals per team with recency weighting"""
+    residual_col = "residual_for_agg" if "residual_for_agg" in feats.columns else "residual"
     df = feats.copy()
+    df = df[df[residual_col].notna()].copy()
+    if df.empty:
+        return pd.DataFrame(columns=["team_id", "age", "gender", "ml_overperf", "ml_game_count"])
     df["recency_w"] = np.exp(-cfg.recency_decay_lambda * (df["rank_recency"].astype(float) - 1.0))
 
     # Get team_id and age/gender columns (v53e format uses team_id, age, gender)
@@ -620,7 +685,7 @@ def _aggregate_team_residuals(feats: pd.DataFrame, cfg: Layer13Config) -> pd.Dat
     gender_col = "gender" if "gender" in df.columns else cfg.gender_col
 
     # Vectorized weighted average per group
-    df["weighted_residual"] = df["residual"] * df["recency_w"]
+    df["weighted_residual"] = df[residual_col] * df["recency_w"]
     group_cols = [team_id_col, age_col, gender_col]
     agg = df.groupby(group_cols, as_index=False).agg(
         weighted_sum=("weighted_residual", "sum"),
@@ -637,9 +702,9 @@ def _aggregate_team_residuals(feats: pd.DataFrame, cfg: Layer13Config) -> pd.Dat
 
     # require a minimum number of games to avoid yo-yo
     counts = (
-        df.groupby([team_id_col, age_col, gender_col], as_index=False)["residual"]
+        df.groupby([team_id_col, age_col, gender_col], as_index=False)[residual_col]
         .count()
-        .rename(columns={"residual": "game_count"})
+        .rename(columns={residual_col: "game_count"})
     )
     merged = agg.merge(counts, on=[team_id_col, age_col, gender_col], how="left")
     merged.loc[merged["game_count"] < cfg.min_team_games_for_residual, "ml_overperf"] = 0.0
