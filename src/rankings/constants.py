@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-# Static age → anchor mapping for U10–U19
-# Younger teams have lower max PowerScore, older teams can reach 1.0
+from src.etl.glicko_config import GlickoConfig
+
+# Compute age → anchor mapping from gendered anchors (avg M/F).
+# This ensures AGE_TO_ANCHOR stays in sync with GlickoConfig.MALE_ANCHORS
+# and FEMALE_ANCHORS automatically — no manual updates needed.
+_cfg = GlickoConfig()
 AGE_TO_ANCHOR: dict[int, float] = {
-    10: 0.788,  # Calibrated from empirical cross-age competition data (avg M/F)
-    11: 0.811,  # Old values (U10=0.40, U14=0.70) over-penalized younger ages by ~2x
-    12: 0.855,
-    13: 0.896,
-    14: 0.943,
-    15: 0.949,
-    16: 0.973,
-    17: 0.981,
-    18: 0.992,
-    19: 1.000,  # U19 encompasses birth years 2007+2008 (formerly U18+U19)
+    age: round((_cfg.MALE_ANCHORS[age] + _cfg.FEMALE_ANCHORS[age]) / 2, 3)
+    for age in _cfg.MALE_ANCHORS
+    if age in _cfg.FEMALE_ANCHORS
 }
+del _cfg
 
 # SOS-conditioned ML scaling thresholds
 # Below LOW, ML has no authority; above HIGH, ML has full authority

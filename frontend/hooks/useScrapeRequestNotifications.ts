@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { createClientSupabase } from '@/lib/supabase/client';
 import { toast } from '@/components/ui/Toaster';
 
 /**
@@ -9,6 +9,7 @@ import { toast } from '@/components/ui/Toaster';
  * Tracks request IDs from localStorage (submitted from this browser session)
  */
 export function useScrapeRequestNotifications() {
+  const supabase = createClientSupabase();
   const subscriptionRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const processedRequestsRef = useRef<Set<string>>(new Set());
 

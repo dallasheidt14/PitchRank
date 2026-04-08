@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
 import { requireAdmin } from '@/lib/supabase/admin';
 
 const seedTasks = [
@@ -46,6 +45,7 @@ export async function POST() {
   try {
     const auth = await requireAdmin();
     if (auth.error) return auth.error;
+    const { supabase } = auth;
 
     const results = {
       created: 0,

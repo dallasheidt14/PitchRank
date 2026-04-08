@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
 import { requireAdmin } from '@/lib/supabase/admin';
 
 interface AgentStatusResponse {
@@ -77,6 +76,7 @@ export async function GET() {
   try {
     const auth = await requireAdmin();
     if (auth.error) return auth.error;
+    const { supabase } = auth;
 
     const agentIds = Object.keys(AGENT_SCHEDULES);
 

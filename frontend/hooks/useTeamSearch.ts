@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabaseClient';
+import { createClientSupabase } from '@/lib/supabase/client';
 import { normalizeAgeGroup } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
 
@@ -15,6 +15,7 @@ export function useTeamSearch() {
   return useQuery<RankingRow[]>({
     queryKey: ['team-search'],
     queryFn: async () => {
+      const supabase = createClientSupabase();
       const BATCH_SIZE = 1000; // Supabase default limit
       const allTeams: RankingRow[] = [];
       let offset = 0;

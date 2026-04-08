@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
 import { requireAdmin } from '@/lib/supabase/admin';
 
 export interface AgentTask {
@@ -19,6 +18,7 @@ export async function GET() {
   try {
     const auth = await requireAdmin();
     if (auth.error) return auth.error;
+    const { supabase } = auth;
 
     const { data, error } = await supabase.from('agent_tasks').select('*').order('created_at', { ascending: false });
 
@@ -39,6 +39,7 @@ export async function POST(request: NextRequest) {
   try {
     const auth = await requireAdmin();
     if (auth.error) return auth.error;
+    const { supabase } = auth;
 
     const body = await request.json();
 

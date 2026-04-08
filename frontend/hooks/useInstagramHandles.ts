@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabaseClient';
+import { createClientSupabase } from '@/lib/supabase/client';
 
 export interface InstagramHandle {
   team_id: string;
@@ -17,6 +17,7 @@ export function useInstagramHandles(teamIds: string[]) {
     queryKey: ['instagram-handles', teamIds.join(',')],
     enabled: teamIds.length > 0,
     queryFn: async () => {
+      const supabase = createClientSupabase();
       // Batch to 100 IDs max per query (Supabase URI limit)
       const batchSize = 100;
       const allRows: InstagramHandle[] = [];

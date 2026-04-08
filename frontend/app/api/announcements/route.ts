@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
 import { requireAdmin } from '@/lib/supabase/admin';
+import { createServerSupabase } from '@/lib/supabase/server';
 
 export interface Announcement {
   id: string;
@@ -12,6 +12,7 @@ export interface Announcement {
 /** GET is intentionally public — announcements are user-facing content */
 export async function GET(request: NextRequest) {
   try {
+    const supabase = await createServerSupabase();
     const { searchParams } = new URL(request.url);
     const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '10'), 1), 50);
 
@@ -38,6 +39,7 @@ export async function POST(request: NextRequest) {
   try {
     const auth = await requireAdmin();
     if (auth.error) return auth.error;
+    const { supabase } = auth;
 
     const body = await request.json();
     const { message, author } = body;

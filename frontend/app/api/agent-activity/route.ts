@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
 import { requireAdmin } from '@/lib/supabase/admin';
 
 // GET - fetch recent agent activity from Supabase
@@ -7,6 +6,7 @@ export async function GET() {
   try {
     const auth = await requireAdmin();
     if (auth.error) return auth.error;
+    const { supabase } = auth;
 
     console.log('[AgentActivity] Fetching from Supabase');
 
@@ -64,6 +64,7 @@ export async function POST(request: NextRequest) {
   try {
     const auth = await requireAdmin();
     if (auth.error) return auth.error;
+    const { supabase } = auth;
 
     const body = await request.json();
     const { session_key, agent_name, agent_emoji, message_preview, full_message, message_type } = body;
