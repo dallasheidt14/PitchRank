@@ -292,8 +292,20 @@ function explainCloseMatch(
   teamA: TeamWithRanking,
   teamB: TeamWithRanking,
   compositeDiff: number,
-  winProbabilityA: number
+  winProbabilityA: number,
+  drawProbability?: number
 ): Explanation | null {
+  if ((drawProbability ?? 0) >= 0.2) {
+    return {
+      factor: 'close_match',
+      advantage: 'neutral',
+      magnitude: 'minimal',
+      description: `This projects as a genuine stalemate candidate - both teams profile similarly and the draw probability is elevated`,
+      icon: 'âš–ï¸',
+      score: 1.6,
+    };
+  }
+
   // Use calibrated probability - if within 3% of 50%, it's a close match
   const probDiffFrom50 = Math.abs(winProbabilityA - 0.5);
   if (probDiffFrom50 > 0.08) return null; // Not that close
@@ -378,6 +390,8 @@ export function explainMatch(
     formA,
     formB,
     winProbabilityA,
+    winProbabilityB,
+    drawProbability,
     confidence,
     confidence_score,
     expectedMargin,
@@ -392,7 +406,7 @@ export function explainMatch(
     explainSOS(teamA, teamB, components.sosDiff),
     explainRecentForm(teamA, teamB, formA, formB, components.formDiffRaw),
     explainOffensiveMatchup(teamA, teamB),
-    explainCloseMatch(teamA, teamB, components.compositeDiff, winProbabilityA),
+    explainCloseMatch(teamA, teamB, components.compositeDiff, winProbabilityA, drawProbability),
   ];
 
   // Filter out nulls
@@ -423,11 +437,14 @@ export function explainMatch(
 
   let summary = '';
   if (prediction.predictedWinner === 'draw') {
-    // Draw prediction - explain why based on calibrated probability
-    const probPercent = Math.round(winProbabilityA * 100);
-    summary = `Genuine toss-up (${probPercent}%-${100 - probPercent}%) - our calibrated model sees no clear favorite`;
+    const drawPercent = Math.round((drawProbability ?? 0.33) * 100);
+    const teamAPercent = Math.round(winProbabilityA * 100);
+    const teamBPercent = Math.round(winProbabilityB * 100);
+    summary = `Genuine toss-up (${teamAPercent}% / ${drawPercent}% draw / ${teamBPercent}%) - our model sees no clear favorite`;
   } else {
-    const probPercent = Math.round(Math.max(winProbabilityA, 1 - winProbabilityA) * 100);
+    const probPercent = Math.round(
+      prediction.predictedWinner === 'team_a' ? winProbabilityA * 100 : winProbabilityB * 100
+    );
     if (probPercent >= 75) {
       summary = `${favoredTeam} is the clear favorite at ${probPercent}% win probability`;
     } else if (probPercent >= 60) {

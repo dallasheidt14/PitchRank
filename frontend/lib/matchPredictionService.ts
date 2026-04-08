@@ -3,7 +3,7 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AppError } from './errors';
 import { explainMatch, type MatchExplanation } from './matchExplainer';
-import { predictMatch, type MatchPrediction } from './matchPredictor';
+import { predictMatch, type MatchPrediction, warmMatchPredictorCalibration } from './matchPredictor';
 import type { Game, TeamWithRanking } from './types';
 import { normalizeAgeGroup } from './utils';
 
@@ -69,6 +69,13 @@ type RankingsFullRow = {
   games_played?: number | null;
 };
 
+type PredictiveRow = {
+  exp_margin?: number | null;
+  exp_win_rate?: number | null;
+  exp_goals_for?: number | null;
+  exp_goals_against?: number | null;
+};
+
 type MergeRow = {
   deprecated_team_id: string;
 };
@@ -121,7 +128,7 @@ async function resolvePredictionTeamIds(
 }
 
 async function fetchPredictionTeam(supabase: SupabaseClient, teamId: string): Promise<TeamWithRanking> {
-  const [teamResult, rankingResult, stateRankingResult, rankingsFullResult] = await Promise.all([
+  const [teamResult, rankingResult, stateRankingResult, rankingsFullResult, predictiveResult] = await Promise.all([
     supabase
       .from('teams')
       .select('team_id_master, team_name, club_name, state, state_code, age_group, gender, last_scraped_at')
@@ -148,6 +155,11 @@ async function fetchPredictionTeam(supabase: SupabaseClient, teamId: string): Pr
       )
       .eq('team_id', teamId)
       .maybeSingle(),
+    supabase
+      .from('team_predictive_view')
+      .select('exp_margin, exp_win_rate, exp_goals_for, exp_goals_against')
+      .eq('team_id_master', teamId)
+      .maybeSingle(),
   ]);
 
   if (teamResult.error) {
@@ -158,6 +170,7 @@ async function fetchPredictionTeam(supabase: SupabaseClient, teamId: string): Pr
   const rankingData = rankingResult.data as RankingRow | null;
   const stateRankingData = stateRankingResult.data as RankingRow | null;
   const rankingsFullData = rankingsFullResult.data as RankingsFullRow | null;
+  const predictiveData = predictiveResult.data as PredictiveRow | null;
 
   if (!teamData) {
     throw new AppError('Team not found', 'team_not_found', 404);
@@ -168,6 +181,13 @@ async function fetchPredictionTeam(supabase: SupabaseClient, teamId: string): Pr
     normalizeAgeGroup(stateRankingData?.age) ??
     normalizeAgeGroup(rankingsFullData?.age_group) ??
     normalizeAgeGroup(teamData.age_group);
+
+  const wins = rankingData?.wins ?? stateRankingData?.wins ?? rankingsFullData?.wins ?? 0;
+  const losses = rankingData?.losses ?? stateRankingData?.losses ?? rankingsFullData?.losses ?? 0;
+  const draws = rankingData?.draws ?? stateRankingData?.draws ?? rankingsFullData?.draws ?? 0;
+  const gamesPlayed =
+    rankingData?.games_played ?? stateRankingData?.games_played ?? rankingsFullData?.games_played ?? 0;
+  const computedWinPercentage = gamesPlayed > 0 ? ((wins + draws * 0.5) / gamesPlayed) * 100 : null;
 
   const team: TeamWithRanking = {
     team_id_master: teamData.team_id_master,
@@ -201,12 +221,16 @@ async function fetchPredictionTeam(supabase: SupabaseClient, teamId: string): Pr
     sos_norm_state: stateRankingData?.sos_norm_state ?? rankingsFullData?.sos_norm ?? null,
     offense_norm: rankingData?.offense_norm ?? stateRankingData?.offense_norm ?? rankingsFullData?.off_norm ?? null,
     defense_norm: rankingData?.defense_norm ?? stateRankingData?.defense_norm ?? rankingsFullData?.def_norm ?? null,
-    wins: rankingData?.wins ?? stateRankingData?.wins ?? rankingsFullData?.wins ?? 0,
-    losses: rankingData?.losses ?? stateRankingData?.losses ?? rankingsFullData?.losses ?? 0,
-    draws: rankingData?.draws ?? stateRankingData?.draws ?? rankingsFullData?.draws ?? 0,
-    games_played: rankingData?.games_played ?? stateRankingData?.games_played ?? rankingsFullData?.games_played ?? 0,
+    wins,
+    losses,
+    draws,
+    games_played: gamesPlayed,
     last_scraped_at: teamData.last_scraped_at,
-    win_percentage: null,
+    win_percentage: computedWinPercentage,
+    exp_margin: predictiveData?.exp_margin ?? null,
+    exp_win_rate: predictiveData?.exp_win_rate ?? null,
+    exp_goals_for: predictiveData?.exp_goals_for ?? null,
+    exp_goals_against: predictiveData?.exp_goals_against ?? null,
   };
 
   if (team.power_score_final == null || team.games_played <= 0) {
@@ -226,7 +250,9 @@ async function fetchPredictionGames(supabase: SupabaseClient, teamIds: string[])
 
   const { data, error } = await supabase
     .from('games')
-    .select('id, game_date, home_team_master_id, away_team_master_id, home_score, away_score')
+    .select(
+      'id, game_date, home_team_master_id, away_team_master_id, home_score, away_score, competition, division_name, event_name, ml_overperformance'
+    )
     .gte('game_date', cutoffDate.toISOString().split('T')[0])
     .not('home_score', 'is', null)
     .not('away_score', 'is', null)
@@ -261,6 +287,8 @@ export async function buildMatchPrediction(
   teamAId: string,
   teamBId: string
 ): Promise<MatchPredictionResponse> {
+  await warmMatchPredictorCalibration();
+
   const [resolvedTeamA, resolvedTeamB] = await Promise.all([
     resolvePredictionTeamIds(supabase, teamAId),
     resolvePredictionTeamIds(supabase, teamBId),

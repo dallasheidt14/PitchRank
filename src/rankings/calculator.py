@@ -18,6 +18,7 @@ from src.etl.glicko_engine import compute_rankings_v2
 from src.etl.v53e import V53EConfig, compute_rankings
 from src.rankings.data_adapter import batch_fetch_rows, fetch_games_for_rankings
 from src.rankings.layer13_predictive_adjustment import Layer13Config, apply_predictive_adjustment
+from src.rankings.prediction_feature_history import save_prediction_feature_snapshot
 from src.rankings.ranking_history import calculate_rank_changes, save_ranking_snapshot
 
 if TYPE_CHECKING:
@@ -58,6 +59,16 @@ def _section(timing_report: Optional["TimingReport"], name: str, **metadata):
     if timing_report is not None:
         return timing_report.section(name, **metadata)
     return nullcontext()
+
+
+async def _save_prediction_feature_snapshot_safe(supabase_client, rankings_df: pd.DataFrame) -> None:
+    """
+    Persist benchmark-only predictor snapshots without blocking rankings publication.
+    """
+    try:
+        await save_prediction_feature_snapshot(supabase_client=supabase_client, rankings_df=rankings_df)
+    except Exception as error:
+        logger.warning("Skipping prediction feature snapshot save after write failure: %s", error)
 
 
 def _safe_int(value: Any) -> int:
@@ -725,6 +736,8 @@ async def compute_rankings_with_ml(
         logger.info("💾 Saving ranking snapshot for future comparisons...")
         with _section(timing_report, "save_ranking_snapshot"):
             await save_ranking_snapshot(supabase_client=supabase_client, rankings_df=teams_with_ml)
+        with _section(timing_report, "save_prediction_feature_snapshot"):
+            await _save_prediction_feature_snapshot_safe(supabase_client=supabase_client, rankings_df=teams_with_ml)
 
     return {
         "teams": teams_with_ml,
@@ -1577,6 +1590,7 @@ async def compute_all_cohorts(
     if not teams_combined.empty:
         logger.info("💾 Saving combined ranking snapshot for all cohorts...")
         await save_ranking_snapshot(supabase_client=supabase_client, rankings_df=teams_combined)
+        await _save_prediction_feature_snapshot_safe(supabase_client=supabase_client, rankings_df=teams_combined)
 
     logger.info(f"✅ Two-pass rankings flow complete: {len(teams_combined):,} teams ranked")
 

@@ -1,8 +1,9 @@
 """
-Historical Backtesting Engine for Match Predictor
+Historical Backtesting Engine for Match Predictor.
 
-Fetches historical games, runs predictions using Python port of matchPredictor.ts,
-and generates calibration outputs for analysis.
+Prefers point-in-time predictor feature snapshots from prediction_feature_history
+when available. Falls back to current rankings only when those snapshots are not
+present, which should be treated as a lower-fidelity benchmark mode.
 
 Usage:
     python scripts/backtest_predictor.py [--lookback-days 365] [--limit 10000] [--test-slice]
@@ -189,6 +190,161 @@ async def fetch_rankings(supabase: Client) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+async def fetch_prediction_feature_snapshots(
+    supabase: Client,
+    team_ids: List[str],
+    start_date: str,
+    end_date: str,
+) -> pd.DataFrame:
+    """
+    Fetch point-in-time predictor snapshots for the requested teams and date range.
+    """
+    if not team_ids:
+        return pd.DataFrame()
+
+    logger.info(
+        "Fetching prediction feature snapshots for %s teams between %s and %s...",
+        f"{len(team_ids):,}",
+        start_date,
+        end_date,
+    )
+
+    fields = (
+        "snapshot_date, team_id, age_group, gender, status, rank_in_cohort_final, "
+        "power_score_final, sos_norm, offense_norm, defense_norm, glicko_rating, glicko_rd, "
+        "glicko_volatility, wins, losses, draws, games_played, win_percentage, exp_margin, "
+        "exp_win_rate, exp_goals_for, exp_goals_against"
+    )
+
+    rows = []
+    batch_size = 100
+
+    for index in range(0, len(team_ids), batch_size):
+        batch = team_ids[index : index + batch_size]
+        try:
+            response = (
+                supabase.table("prediction_feature_history")
+                .select(fields)
+                .in_("team_id", batch)
+                .gte("snapshot_date", start_date)
+                .lte("snapshot_date", end_date)
+                .order("snapshot_date", desc=False)
+                .execute()
+            )
+        except Exception as error:
+            error_message = str(error).lower()
+            if "prediction_feature_history" in error_message and (
+                "does not exist" in error_message or "relation" in error_message or "schema cache" in error_message
+            ):
+                logger.warning(
+                    "prediction_feature_history is unavailable. Backtest will fall back to current rankings."
+                )
+                return pd.DataFrame()
+
+            logger.warning(
+                "Error fetching prediction snapshots for batch %s-%s: %s",
+                index,
+                index + batch_size,
+                error,
+            )
+            continue
+
+        if response.data:
+            rows.extend(response.data)
+
+    snapshots_df = pd.DataFrame(rows)
+    logger.info("Fetched %s prediction snapshots", f"{len(snapshots_df):,}")
+    return snapshots_df
+
+
+def build_snapshot_index(snapshots_df: pd.DataFrame) -> Dict[str, List[dict]]:
+    """
+    Build a per-team ordered snapshot lookup for as-of queries.
+    """
+    if snapshots_df.empty:
+        return {}
+
+    indexed_df = snapshots_df.copy()
+    indexed_df["snapshot_ts"] = pd.to_datetime(indexed_df["snapshot_date"], errors="coerce")
+    indexed_df = indexed_df.dropna(subset=["snapshot_ts"]).sort_values(["team_id", "snapshot_ts"])
+
+    snapshot_index: Dict[str, List[dict]] = {}
+    for team_id, group in indexed_df.groupby("team_id", sort=False):
+        snapshot_index[str(team_id)] = group.to_dict("records")
+    return snapshot_index
+
+
+def get_snapshot_as_of(snapshot_index: Dict[str, List[dict]], team_id: str, target_date: str) -> Optional[dict]:
+    """
+    Return the latest snapshot on or before the target match date.
+    """
+    entries = snapshot_index.get(team_id)
+    if not entries:
+        return None
+
+    target_ts = pd.Timestamp(target_date).normalize()
+    candidate = None
+
+    for entry in entries:
+        snapshot_ts = entry.get("snapshot_ts")
+        if snapshot_ts is None or pd.isna(snapshot_ts):
+            continue
+        if snapshot_ts <= target_ts:
+            candidate = entry
+            continue
+        break
+
+    return candidate
+
+
+def get_team_age(source_row: dict) -> Optional[int]:
+    """
+    Normalize team age from either an integer age field or an age_group string.
+    """
+    age_value = source_row.get("age")
+    if age_value is not None and not pd.isna(age_value):
+        try:
+            return int(age_value)
+        except (TypeError, ValueError):
+            pass
+
+    age_group = source_row.get("age_group")
+    if age_group is None or pd.isna(age_group):
+        return None
+
+    import re
+
+    match = re.search(r"\d+", str(age_group).lower())
+    if match:
+        return int(match.group())
+    return None
+
+
+def build_team_ranking(team_id: str, source_row: dict, team_name: Optional[str]) -> TeamRanking:
+    """
+    Build a predictor TeamRanking from either a current ranking row or a snapshot row.
+    """
+    games_played = source_row.get("games_played", 0)
+    try:
+        games_played = int(games_played) if games_played is not None and not pd.isna(games_played) else 0
+    except (TypeError, ValueError):
+        games_played = 0
+
+    return TeamRanking(
+        team_id_master=team_id,
+        power_score_final=source_row.get("power_score_final"),
+        sos_norm=source_row.get("sos_norm"),
+        offense_norm=source_row.get("offense_norm", source_row.get("off_norm")),
+        defense_norm=source_row.get("defense_norm", source_row.get("def_norm")),
+        age=get_team_age(source_row),
+        games_played=games_played,
+        team_name=team_name,
+        glicko_rating=source_row.get("glicko_rating"),
+        glicko_rd=source_row.get("glicko_rd"),
+        glicko_volatility=source_row.get("glicko_volatility"),
+    )
+
+
 async def fetch_team_game_histories(
     supabase: Client, team_ids: List[str], lookback_days: int = 365
 ) -> Dict[str, List[PredictorGame]]:
@@ -318,6 +474,7 @@ async def run_backtest(
     team_histories: Dict[str, List[PredictorGame]],
     team_names: Dict[str, str],
     output_dir: Path,
+    snapshot_index: Optional[Dict[str, List[dict]]] = None,
 ) -> pd.DataFrame:
     """
     Run backtest predictions on historical games
@@ -326,11 +483,13 @@ async def run_backtest(
     """
     logger.info(f"Running backtest on {len(games_df):,} games...")
 
-    # Convert rankings to dict for fast lookup
+    # Convert fallback current rankings to dict for fast lookup
     rankings_dict = {}
     for _, row in rankings_df.iterrows():
         team_id = str(row["team_id"])
         rankings_dict[team_id] = {
+            "team_id": team_id,
+            "age_group": row.get("age_group"),
             "power_score_final": row.get("power_score_final"),
             "sos_norm": row.get("sos_norm"),
             "offense_norm": row.get("offense_norm"),
@@ -344,6 +503,9 @@ async def run_backtest(
         }
 
     results = []
+    skipped_missing_snapshot = 0
+    skipped_prediction_errors = 0
+    using_point_in_time = bool(snapshot_index)
 
     for idx, game_row in tqdm(games_df.iterrows(), total=len(games_df), desc="Predicting"):
         game_id = str(game_row["id"])
@@ -353,38 +515,18 @@ async def run_backtest(
         away_score = game_row["away_score"]
         game_date = game_row["game_date"]
 
-        # Get team rankings
-        home_rank = rankings_dict.get(home_id, {})
-        away_rank = rankings_dict.get(away_id, {})
+        home_snapshot = get_snapshot_as_of(snapshot_index, home_id, game_date) if snapshot_index else None
+        away_snapshot = get_snapshot_as_of(snapshot_index, away_id, game_date) if snapshot_index else None
 
-        # Create TeamRanking objects
-        team_a = TeamRanking(
-            team_id_master=home_id,
-            power_score_final=home_rank.get("power_score_final"),
-            sos_norm=home_rank.get("sos_norm"),
-            offense_norm=home_rank.get("offense_norm"),
-            defense_norm=home_rank.get("defense_norm"),
-            age=home_rank.get("age"),
-            games_played=home_rank.get("games_played", 0),
-            team_name=home_rank.get("team_name"),
-            glicko_rating=home_rank.get("glicko_rating"),
-            glicko_rd=home_rank.get("glicko_rd"),
-            glicko_volatility=home_rank.get("glicko_volatility"),
-        )
+        if using_point_in_time and (home_snapshot is None or away_snapshot is None):
+            skipped_missing_snapshot += 1
+            continue
 
-        team_b = TeamRanking(
-            team_id_master=away_id,
-            power_score_final=away_rank.get("power_score_final"),
-            sos_norm=away_rank.get("sos_norm"),
-            offense_norm=away_rank.get("offense_norm"),
-            defense_norm=away_rank.get("defense_norm"),
-            age=away_rank.get("age"),
-            games_played=away_rank.get("games_played", 0),
-            team_name=away_rank.get("team_name"),
-            glicko_rating=away_rank.get("glicko_rating"),
-            glicko_rd=away_rank.get("glicko_rd"),
-            glicko_volatility=away_rank.get("glicko_volatility"),
-        )
+        home_rank = home_snapshot if home_snapshot is not None else rankings_dict.get(home_id, {})
+        away_rank = away_snapshot if away_snapshot is not None else rankings_dict.get(away_id, {})
+
+        team_a = build_team_ranking(home_id, home_rank, team_names.get(home_id))
+        team_b = build_team_ranking(away_id, away_rank, team_names.get(away_id))
 
         # Get game histories for recent form
         all_games_list = []
@@ -419,8 +561,8 @@ async def run_backtest(
 
             actual_margin = home_score - away_score
 
-            # Get age_group from rankings
-            age_group = home_rank.get("age") or away_rank.get("age")
+            # Get age_group from whichever point-in-time source powered the prediction.
+            age_group = get_team_age(home_rank) or get_team_age(away_rank)
             age_group_str = f"u{age_group}" if age_group else "unknown"
 
             # Store result
@@ -431,6 +573,9 @@ async def run_backtest(
                     "team_a_id": home_id,
                     "team_b_id": away_id,
                     "age_group": age_group_str,
+                    "feature_source": "point_in_time_snapshot" if using_point_in_time else "current_rankings_fallback",
+                    "snapshot_date_a": home_rank.get("snapshot_date"),
+                    "snapshot_date_b": away_rank.get("snapshot_date"),
                     "predicted_winner": prediction.predicted_winner,
                     "actual_winner": actual_winner,
                     "predicted_win_prob_a": prediction.win_probability_a,
@@ -459,10 +604,18 @@ async def run_backtest(
 
         except Exception as e:
             logger.warning(f"Error predicting game {game_id}: {e}")
+            skipped_prediction_errors += 1
             continue
 
     results_df = pd.DataFrame(results)
     logger.info(f"Completed {len(results_df):,} predictions")
+    if using_point_in_time and skipped_missing_snapshot > 0:
+        logger.info(
+            "Skipped %s games because one or both teams lacked a pre-match predictor snapshot",
+            f"{skipped_missing_snapshot:,}",
+        )
+    if skipped_prediction_errors > 0:
+        logger.info("Skipped %s games due to prediction errors", f"{skipped_prediction_errors:,}")
 
     # Save raw backtest CSV
     raw_csv_path = output_dir / "raw_backtest.csv"
@@ -683,6 +836,11 @@ async def main():
         default=0.8,
         help="Fraction of games (oldest first) used for training/calibration (default: 0.8)",
     )
+    parser.add_argument(
+        "--require-point-in-time",
+        action="store_true",
+        help="Fail instead of falling back to current rankings when prediction_feature_history is unavailable.",
+    )
 
     args = parser.parse_args()
 
@@ -715,8 +873,6 @@ async def main():
         logger.error("No games found")
         sys.exit(1)
 
-    rankings_df = await fetch_rankings(supabase)
-
     # Get unique team IDs
     team_ids = list(
         set(
@@ -724,9 +880,6 @@ async def main():
             + list(games_df["away_team_master_id"].dropna().astype(str))
         )
     )
-
-    team_histories = await fetch_team_game_histories(supabase, team_ids, lookback_days=args.lookback_days)
-    team_names = await fetch_team_names(supabase, team_ids)
 
     # Temporal train/test split: sort by date, use oldest games for training
     # This prevents the worst form of data leakage where the same games used
@@ -742,8 +895,46 @@ async def main():
         f"(split at {split_date}, {args.train_split:.0%}/{1 - args.train_split:.0%})"
     )
 
+    team_histories = await fetch_team_game_histories(supabase, team_ids, lookback_days=args.lookback_days)
+    team_names = await fetch_team_names(supabase, team_ids)
+
+    snapshot_start = (pd.Timestamp(games_df["game_date"].min()) - pd.Timedelta(days=30)).strftime("%Y-%m-%d")
+    snapshot_end = pd.Timestamp(games_df["game_date"].max()).strftime("%Y-%m-%d")
+    snapshots_df = await fetch_prediction_feature_snapshots(supabase, team_ids, snapshot_start, snapshot_end)
+    snapshot_index = build_snapshot_index(snapshots_df)
+
+    rankings_df = pd.DataFrame()
+    if snapshot_index:
+        logger.info(
+            "Using %s point-in-time predictor snapshots across %s teams",
+            f"{len(snapshots_df):,}",
+            f"{len(snapshot_index):,}",
+        )
+    else:
+        if args.require_point_in_time:
+            logger.error("prediction_feature_history snapshots are unavailable; aborting because --require-point-in-time was set")
+            sys.exit(1)
+
+        logger.warning("Falling back to current rankings. This benchmark mode is not leakage-safe.")
+        rankings_df = await fetch_rankings(supabase)
+        if rankings_df.empty:
+            logger.error("Current rankings fallback is unavailable")
+            sys.exit(1)
+
     # Run backtest on test set only (future games the model hasn't seen)
-    raw_df = await run_backtest(supabase, test_df, rankings_df, team_histories, team_names, output_dir)
+    raw_df = await run_backtest(
+        supabase,
+        test_df,
+        rankings_df,
+        team_histories,
+        team_names,
+        output_dir,
+        snapshot_index=snapshot_index,
+    )
+
+    if raw_df.empty:
+        logger.error("Backtest produced no predictions")
+        sys.exit(1)
 
     # Generate derived outputs (metrics computed on held-out test set)
     generate_derived_outputs(raw_df, output_dir)

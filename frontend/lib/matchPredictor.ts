@@ -45,7 +45,7 @@
 import type { TeamWithRanking } from './types';
 import type { Game } from './types';
 import { loadCalibrationJson } from './calibrationLoader';
-import { computeConfidence } from './confidenceEngine';
+import { computeConfidence, warmConfidenceCalibration } from './confidenceEngine';
 import { extractAgeFromTeamName } from './utils';
 
 // Age group parameters (loaded from JSON, fallback to defaults)
@@ -75,6 +75,17 @@ let probabilityParams: ProbabilityParameters | null = null;
 let probabilityParamsLoading: Promise<void> | null = null;
 let marginParamsV2: MarginParametersV2 | null = null;
 let marginParamsV2Loading: Promise<void> | null = null;
+
+interface RecentProfile {
+  goalDiff: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  drawRate: number;
+  totalGoals: number;
+  mlTrend: number;
+  volatility: number;
+  sampleWeight: number;
+}
 
 /**
  * Load age group parameters from JSON file
@@ -153,6 +164,15 @@ loadMarginParametersV2().catch(() => {
   // Silently fail - will use defaults
 });
 
+export async function warmMatchPredictorCalibration(): Promise<void> {
+  await Promise.all([
+    loadAgeGroupParameters(),
+    loadProbabilityParameters(),
+    loadMarginParametersV2(),
+    warmConfidenceCalibration(),
+  ]);
+}
+
 // Base feature weights (optimized for close matchups - 74.7% accuracy)
 const BASE_WEIGHTS = {
   POWER_SCORE: 0.5, // Base strength
@@ -178,9 +198,10 @@ const SKILL_GAP_THRESHOLDS = {
 
 // Prediction parameters (with calibration overrides)
 const DEFAULT_SENSITIVITY = 4.5;
-const MARGIN_COEFFICIENT = 8.0;
 const RECENT_GAMES_COUNT = 5;
 const GLICKO_ELO_DIVISOR = 400;
+const POISSON_MAX_GOALS = 10;
+const DEFAULT_DRAW_RATE = 0.13;
 
 /**
  * Get calibrated SENSITIVITY value
@@ -231,39 +252,87 @@ const _CONFIDENCE_THRESHOLDS = {
  * - 5+ games out of 5 needed = 100% weight
  */
 export function calculateRecentForm(teamId: string, allGames: Game[], n: number = RECENT_GAMES_COUNT): number {
-  // Get team's recent games
+  return buildRecentProfile(teamId, allGames, n).goalDiff;
+}
+
+function buildRecentProfile(teamId: string, allGames: Game[], n: number = 8): RecentProfile {
   const teamGames = allGames
     .filter((g) => g.home_team_master_id === teamId || g.away_team_master_id === teamId)
     .sort((a, b) => new Date(b.game_date).getTime() - new Date(a.game_date).getTime())
     .slice(0, n);
 
-  if (teamGames.length === 0) return 0;
+  if (teamGames.length === 0) {
+    return {
+      goalDiff: 0,
+      goalsFor: 0,
+      goalsAgainst: 0,
+      drawRate: DEFAULT_DRAW_RATE,
+      totalGoals: 0,
+      mlTrend: 0,
+      volatility: 1,
+      sampleWeight: 0,
+    };
+  }
 
-  // Calculate average goal differential
-  let totalGoalDiff = 0;
-  let gamesWithScores = 0;
+  let weightedGoalsFor = 0;
+  let weightedGoalsAgainst = 0;
+  let weightedGoalDiff = 0;
+  let weightedDraws = 0;
+  let weightedMlTrend = 0;
+  let weightedSquaredGoalDiff = 0;
+  let totalWeight = 0;
 
-  for (const game of teamGames) {
+  for (let index = 0; index < teamGames.length; index++) {
+    const game = teamGames[index];
     const isHome = game.home_team_master_id === teamId;
     const teamScore = isHome ? game.home_score : game.away_score;
     const oppScore = isHome ? game.away_score : game.home_score;
 
-    if (teamScore !== null && oppScore !== null) {
-      totalGoalDiff += teamScore - oppScore;
-      gamesWithScores++;
-    }
+    if (teamScore == null || oppScore == null) continue;
+
+    const recencyWeight = Math.exp(-0.28 * index);
+    const goalDiff = teamScore - oppScore;
+    const drawIndicator = teamScore === oppScore ? 1 : 0;
+    const mlOverperformance = (game.ml_overperformance ?? 0) * (isHome ? 1 : -1);
+
+    weightedGoalsFor += teamScore * recencyWeight;
+    weightedGoalsAgainst += oppScore * recencyWeight;
+    weightedGoalDiff += goalDiff * recencyWeight;
+    weightedDraws += drawIndicator * recencyWeight;
+    weightedMlTrend += mlOverperformance * recencyWeight;
+    weightedSquaredGoalDiff += goalDiff * goalDiff * recencyWeight;
+    totalWeight += recencyWeight;
   }
 
-  if (gamesWithScores === 0) return 0;
+  if (totalWeight <= 0) {
+    return {
+      goalDiff: 0,
+      goalsFor: 0,
+      goalsAgainst: 0,
+      drawRate: DEFAULT_DRAW_RATE,
+      totalGoals: 0,
+      mlTrend: 0,
+      volatility: 1,
+      sampleWeight: 0,
+    };
+  }
 
-  // Calculate average goal differential
-  const avgGoalDiff = totalGoalDiff / gamesWithScores;
+  const goalsFor = weightedGoalsFor / totalWeight;
+  const goalsAgainst = weightedGoalsAgainst / totalWeight;
+  const goalDiff = weightedGoalDiff / totalWeight;
+  const variance = Math.max(0, weightedSquaredGoalDiff / totalWeight - goalDiff * goalDiff);
+  const sampleWeight = Math.min(1, teamGames.length / n);
 
-  // Weight by sample size to reduce noise from small samples
-  // This prevents a team with 1 game from being treated as reliably as a team with 5 games
-  const sampleSizeWeight = gamesWithScores / n;
-
-  return avgGoalDiff * sampleSizeWeight;
+  return {
+    goalDiff: goalDiff * sampleWeight,
+    goalsFor,
+    goalsAgainst,
+    drawRate: Math.max(0, Math.min(0.5, weightedDraws / totalWeight)),
+    totalGoals: goalsFor + goalsAgainst,
+    mlTrend: weightedMlTrend / totalWeight,
+    volatility: Math.sqrt(variance + 1),
+    sampleWeight,
+  };
 }
 
 /**
@@ -573,6 +642,90 @@ function getAgeSpecificMarginMultiplier(age: number | null, absPowerDiff: number
   return baseMultiplier * powerGapScaling * marginScale;
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function deriveWinRate(team: TeamWithRanking): number {
+  if (team.win_percentage != null) {
+    return clamp(team.win_percentage / 100, 0, 1);
+  }
+
+  const gamesPlayed = Math.max(0, team.games_played || 0);
+  if (gamesPlayed === 0) return 0.5;
+
+  return clamp(((team.wins || 0) + (team.draws || 0) * 0.5) / gamesPlayed, 0, 1);
+}
+
+function blendOptional(left: number | null | undefined, right: number | null | undefined): number | null {
+  if (left == null && right == null) return null;
+  if (left == null) return right ?? null;
+  if (right == null) return left;
+
+  return Math.sqrt(Math.max(0.15, left) * Math.max(0.15, right));
+}
+
+function poissonMass(lambda: number, maxGoals: number = POISSON_MAX_GOALS): number[] {
+  const safeLambda = Math.max(0.05, lambda);
+  const probabilities = new Array(maxGoals + 1).fill(0);
+  probabilities[0] = Math.exp(-safeLambda);
+
+  for (let goals = 1; goals <= maxGoals; goals++) {
+    probabilities[goals] = (probabilities[goals - 1] * safeLambda) / goals;
+  }
+
+  const probabilitySum = probabilities.reduce((sum, value) => sum + value, 0);
+  probabilities[maxGoals] += Math.max(0, 1 - probabilitySum);
+  return probabilities;
+}
+
+function buildOutcomeDistribution(lambdaA: number, lambdaB: number) {
+  const probsA = poissonMass(lambdaA);
+  const probsB = poissonMass(lambdaB);
+
+  let winA = 0;
+  let draw = 0;
+  let winB = 0;
+  let bestWinA = { teamA: 1, teamB: 0, probability: 0 };
+  let bestDraw = { teamA: 1, teamB: 1, probability: 0 };
+  let bestWinB = { teamA: 0, teamB: 1, probability: 0 };
+
+  for (let scoreA = 0; scoreA <= POISSON_MAX_GOALS; scoreA++) {
+    for (let scoreB = 0; scoreB <= POISSON_MAX_GOALS; scoreB++) {
+      const probability = probsA[scoreA] * probsB[scoreB];
+
+      if (scoreA > scoreB) {
+        winA += probability;
+        if (probability > bestWinA.probability) bestWinA = { teamA: scoreA, teamB: scoreB, probability };
+      } else if (scoreA < scoreB) {
+        winB += probability;
+        if (probability > bestWinB.probability) bestWinB = { teamA: scoreA, teamB: scoreB, probability };
+      } else {
+        draw += probability;
+        if (probability > bestDraw.probability) bestDraw = { teamA: scoreA, teamB: scoreB, probability };
+      }
+    }
+  }
+
+  const total = winA + draw + winB;
+  return {
+    winA: total > 0 ? winA / total : 0.5,
+    draw: total > 0 ? draw / total : DEFAULT_DRAW_RATE,
+    winB: total > 0 ? winB / total : 0.5,
+    bestWinA,
+    bestDraw,
+    bestWinB,
+  };
+}
+
+function normalizedEntropy(probabilities: number[]): number {
+  const safe = probabilities.filter((value) => value > 0);
+  if (safe.length === 0) return 1;
+
+  const entropy = -safe.reduce((sum, probability) => sum + probability * Math.log(probability), 0);
+  return entropy / Math.log(probabilities.length);
+}
+
 /**
  * Match prediction result
  */
@@ -581,6 +734,7 @@ export interface MatchPrediction {
   predictedWinner: 'team_a' | 'team_b' | 'draw';
   winProbabilityA: number;
   winProbabilityB: number;
+  drawProbability?: number;
   expectedScore: {
     teamA: number;
     teamB: number;
@@ -620,167 +774,185 @@ export interface MatchPrediction {
  * v2.3: Multi-metric mismatch detection for better blowout prediction
  */
 export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, allGames: Game[]): MatchPrediction {
-  // 1. Base power score differential
   const powerDiff = (teamA.power_score_final || 0.5) - (teamB.power_score_final || 0.5);
   const glickoStrength = calculateGlickoStrength(teamA, teamB);
-  const strengthSignal = glickoStrength ? glickoStrength.signal * 0.75 + powerDiff * 0.25 : powerDiff;
-
-  // 2. Offense vs Defense values (needed for mismatch detection)
   const offenseA = teamA.offense_norm || 0.5;
   const defenseA = teamA.defense_norm || 0.5;
   const offenseB = teamB.offense_norm || 0.5;
   const defenseB = teamB.defense_norm || 0.5;
-
-  // 3. Calculate adaptive weights based on multi-metric mismatch detection
   const { weights, mismatchScore } = getAdaptiveWeights(powerDiff, offenseA, offenseB, defenseA, defenseB);
-
-  // 4. SOS differential
   const sosDiff = (teamA.sos_norm || 0.5) - (teamB.sos_norm || 0.5);
-
-  // 5. Recent form
-  const formA = calculateRecentForm(teamA.team_id_master, allGames);
-  const formB = calculateRecentForm(teamB.team_id_master, allGames);
+  const recentA = buildRecentProfile(teamA.team_id_master, allGames);
+  const recentB = buildRecentProfile(teamB.team_id_master, allGames);
+  const formA = recentA.goalDiff;
+  const formB = recentB.goalDiff;
   const formDiffRaw = formA - formB;
   const formDiffNorm = normalizeRecentForm(formDiffRaw) - 0.5;
-
-  // 6. Matchup asymmetry (how much A's offense exploits B's defense)
   const matchupAdvantage = offenseA - defenseB - (offenseB - defenseA);
-
-  // 7. Head-to-head history (HIGHLY predictive if available)
   const h2h = calculateHeadToHead(teamA.team_id_master, teamB.team_id_master, allGames);
-  // H2H weight: increases with more historical meetings (max 0.15 for 3+ games)
   const h2hWeight = h2h.gamesPlayed > 0 ? Math.min(0.05 * h2h.gamesPlayed, 0.15) : 0;
 
-  // 8. Composite differential (weighted combination with adaptive weights)
-  // Reduce other weights proportionally when H2H data is available
-  const h2hAdjustment = 1 - h2hWeight;
-  let compositeDiff =
-    weights.POWER_SCORE * strengthSignal * h2hAdjustment +
-    weights.SOS * sosDiff * h2hAdjustment +
-    weights.RECENT_FORM * formDiffNorm * h2hAdjustment +
-    weights.MATCHUP * matchupAdvantage * h2hAdjustment +
-    h2hWeight * h2h.advantage * 3; // Scale H2H advantage (reduced from 10 to prevent over-weighting small sample H2H)
+  const predictiveWinSignal = ((teamA.exp_win_rate ?? 0.5) - (teamB.exp_win_rate ?? 0.5)) * 0.9;
+  const predictiveMarginSignal = clamp(((teamA.exp_margin ?? 0) - (teamB.exp_margin ?? 0)) / 6, -0.35, 0.35);
+  const predictiveSignal = predictiveWinSignal + predictiveMarginSignal;
+  const minGamesPlayed = Math.min(teamA.games_played || 0, teamB.games_played || 0);
+  const recordDiff = (deriveWinRate(teamA) - deriveWinRate(teamB)) * Math.min(1, minGamesPlayed / 18);
+  const residualSignal = clamp((recentA.mlTrend - recentB.mlTrend) / 3.5, -0.2, 0.2);
+  const h2hSignal = h2hWeight > 0 ? h2h.advantage * (1 + h2hWeight) : 0;
+  const strengthSignal = glickoStrength
+    ? glickoStrength.signal * 0.55 + powerDiff * 0.25 + predictiveSignal * 0.2
+    : powerDiff * 0.5 + predictiveSignal * 0.25 + recordDiff * 0.25;
 
-  // 8. Mismatch amplification: boost composite diff for clear mismatches
-  // This ensures large offense/defense gaps translate to higher probabilities
-  // v2.5: Lowered threshold from 0.5 to 0.4 to catch more moderate mismatches
+  let compositeDiff =
+    weights.POWER_SCORE * strengthSignal +
+    weights.SOS * sosDiff +
+    weights.RECENT_FORM * formDiffNorm +
+    weights.MATCHUP * matchupAdvantage +
+    recordDiff * 0.08 +
+    residualSignal * 0.06 +
+    h2hSignal * 0.08;
+
   if (mismatchScore > 0.4) {
-    // Amplify by up to 1.8x for extreme mismatches (was 1.5x)
-    const amplification = 1.0 + (mismatchScore - 0.4) * 1.33;
+    const amplification = 1.0 + (mismatchScore - 0.4) * 0.9;
     compositeDiff *= amplification;
   }
 
-  // 9. Win probability (using calibrated sensitivity + per-bucket calibration)
-  const sensitivity = getSensitivity();
-  const rawWinProbA = sigmoid(sensitivity * compositeDiff);
-  const winProbA = calibrateProbability(rawWinProbA);
-  const winProbB = 1 - winProbA;
-
-  // 10. Expected goal margin with age-specific and mismatch-based amplification
-  // Get age: prefer extracting from team name (handles "14B" = U12 format), fallback to database age
   const effectiveAge =
     extractAgeFromTeamName(teamA.team_name) || extractAgeFromTeamName(teamB.team_name) || teamA.age || teamB.age;
-  // Use raw powerDiff for margin scaling - ensures large skill gaps produce larger margins
-  const absPowerDiff = Math.abs(powerDiff);
-  // v2.5: Pass mismatchScore to allow full dampening removal for blowouts
-  const marginMultiplier = getAgeSpecificMarginMultiplier(effectiveAge, absPowerDiff, mismatchScore);
-  // Mismatch amplification is already applied in two places:
-  // 1. compositeDiff amplification (line 690-693, up to 1.8x)
-  // 2. getAgeSpecificMarginMultiplier dampening reduction (removes dampening for mismatches)
-  // A third mismatchMarginBoost was stacking to ~4.1x total, causing unrealistic predictions.
-  const expectedMargin = compositeDiff * MARGIN_COEFFICIENT * marginMultiplier;
-
-  // 11. Expected scores using age-adjusted league average
   const leagueAvgGoals = getLeagueAverageGoals(effectiveAge);
-  const absExpectedMargin = Math.abs(expectedMargin);
+  const baseTotalGoals = leagueAvgGoals * 2;
+  const predictiveGoalsA = blendOptional(teamA.exp_goals_for, teamB.exp_goals_against);
+  const predictiveGoalsB = blendOptional(teamB.exp_goals_for, teamA.exp_goals_against);
+  const predictiveTotalGoals =
+    predictiveGoalsA != null || predictiveGoalsB != null
+      ? (predictiveGoalsA ?? leagueAvgGoals) + (predictiveGoalsB ?? leagueAvgGoals)
+      : null;
+  const combinedRecentWeight = recentA.sampleWeight + recentB.sampleWeight;
+  const recentTotalGoals =
+    combinedRecentWeight > 0
+      ? (recentA.totalGoals * recentA.sampleWeight + recentB.totalGoals * recentB.sampleWeight) / combinedRecentWeight
+      : null;
+  const styleTotalFactor = clamp(
+    0.95 +
+      (offenseA + offenseB - 1) * 0.2 +
+      (1 - defenseA + (1 - defenseB) - 1) * 0.16 +
+      (Math.abs(recentA.mlTrend) + Math.abs(recentB.mlTrend)) * 0.03,
+    0.72,
+    1.35
+  );
 
-  // For mismatches, use a different scoring model:
-  // - Underdog scores 0-1 goals in blowouts
-  // - Favorite scores underdog + margin
-  let rawScoreA: number;
-  let rawScoreB: number;
+  let totalGoals = baseTotalGoals * styleTotalFactor;
+  if (predictiveTotalGoals != null) {
+    totalGoals = totalGoals * 0.68 + predictiveTotalGoals * 0.32;
+  }
+  if (recentTotalGoals != null && recentTotalGoals > 0) {
+    totalGoals = totalGoals * 0.82 + recentTotalGoals * 0.18;
+  }
+  totalGoals = clamp(totalGoals, 1.4, 8.8);
 
-  if (mismatchScore > 0.5) {
-    // Clear mismatch: underdog gets reduced score (0-1.5 range)
-    // v2.5: Lowered threshold from 0.6 to 0.5 for consistency
-    // At mismatch=0.5: underdog=1.5, at mismatch=0.8: underdog=0.75, at mismatch=1.0: underdog=0.25
-    const underdogScore = Math.max(0, 1.5 - (mismatchScore - 0.5) * 2.5);
-    if (expectedMargin >= 0) {
-      rawScoreB = underdogScore;
-      rawScoreA = underdogScore + absExpectedMargin;
-    } else {
-      rawScoreA = underdogScore;
-      rawScoreB = underdogScore + absExpectedMargin;
-    }
-  } else {
-    // Competitive match: both teams score around league average
-    if (expectedMargin >= 0) {
-      rawScoreB = leagueAvgGoals - absExpectedMargin / 2;
-      rawScoreA = leagueAvgGoals + absExpectedMargin / 2;
-    } else {
-      rawScoreA = leagueAvgGoals - absExpectedMargin / 2;
-      rawScoreB = leagueAvgGoals + absExpectedMargin / 2;
+  const predictiveShareBias =
+    predictiveGoalsA != null && predictiveGoalsB != null
+      ? clamp((predictiveGoalsA - predictiveGoalsB) / Math.max(1, predictiveGoalsA + predictiveGoalsB), -0.2, 0.2)
+      : 0;
+  const shareSignal = clamp(compositeDiff + predictiveShareBias * 0.45 + residualSignal * 0.15, -0.9, 0.9);
+  const shareA = sigmoid(getSensitivity() * shareSignal);
+  let lambdaA = totalGoals * shareA;
+  let lambdaB = totalGoals * (1 - shareA);
+
+  if (predictiveGoalsA != null) {
+    lambdaA = lambdaA * 0.75 + predictiveGoalsA * 0.25;
+  }
+  if (predictiveGoalsB != null) {
+    lambdaB = lambdaB * 0.75 + predictiveGoalsB * 0.25;
+  }
+
+  const absPowerDiff = Math.abs(powerDiff);
+  const marginMultiplier = getAgeSpecificMarginMultiplier(effectiveAge, absPowerDiff, mismatchScore);
+  const desiredMargin = (lambdaA - lambdaB) * clamp(marginMultiplier / 1.25, 0.85, 1.25);
+  lambdaA = clamp((totalGoals + desiredMargin) / 2, 0.15, 7.5);
+  lambdaB = clamp(totalGoals - lambdaA, 0.15, 7.5);
+
+  const distribution = buildOutcomeDistribution(lambdaA, lambdaB);
+  const decisiveMass = distribution.winA + distribution.winB;
+  let winProbA = distribution.winA;
+  let winProbB = distribution.winB;
+  const drawProbability = distribution.draw;
+
+  if (decisiveMass > 0) {
+    const calibratedDecisiveWinA = calibrateProbability(distribution.winA / decisiveMass);
+    winProbA = calibratedDecisiveWinA * decisiveMass;
+    winProbB = (1 - calibratedDecisiveWinA) * decisiveMass;
+  }
+
+  let normalizedDrawProbability = drawProbability;
+  const probabilityTotal = winProbA + normalizedDrawProbability + winProbB;
+  if (probabilityTotal > 0) {
+    winProbA /= probabilityTotal;
+    normalizedDrawProbability /= probabilityTotal;
+    winProbB /= probabilityTotal;
+  }
+
+  const closeDecisiveEdge = Math.abs(winProbA - winProbB) < 0.06;
+  const sparseMatchup = Math.min(recentA.sampleWeight, recentB.sampleWeight) < 0.4 || minGamesPlayed < 4;
+  if (closeDecisiveEdge && sparseMatchup) {
+    const drawBoost = Math.min(0.05, 0.24 - normalizedDrawProbability);
+    if (drawBoost > 0) {
+      const decisiveScale = (1 - (normalizedDrawProbability + drawBoost)) / Math.max(0.0001, winProbA + winProbB);
+      normalizedDrawProbability += drawBoost;
+      winProbA *= decisiveScale;
+      winProbB *= decisiveScale;
     }
   }
 
-  const roundedMargin = Math.round(absExpectedMargin);
+  const predictedWinner: 'team_a' | 'team_b' | 'draw' =
+    (normalizedDrawProbability + DRAW_THRESHOLD >= Math.max(winProbA, winProbB) &&
+      Math.abs(winProbA - winProbB) < 0.12) ||
+    (closeDecisiveEdge && sparseMatchup && normalizedDrawProbability >= DEFAULT_DRAW_RATE * 0.9)
+      ? 'draw'
+      : winProbA >= winProbB
+        ? 'team_a'
+        : 'team_b';
 
-  // Round the underdog's score, then add the rounded margin for the favorite
-  // This ensures the displayed margin matches the rounded expected margin
-  let expectedScoreA: number;
-  let expectedScoreB: number;
+  const expectedScore =
+    predictedWinner === 'draw'
+      ? distribution.bestDraw
+      : predictedWinner === 'team_a'
+        ? distribution.bestWinA
+        : distribution.bestWinB;
 
-  // v2.5: Cap individual scores to realistic range
-  // No youth team realistically scores 10+ goals regularly
-  const MAX_TEAM_SCORE = 10;
+  const expectedMargin = lambdaA - lambdaB;
 
-  if (roundedMargin === 0) {
-    // Close match - show same score
-    const avgScore = Math.round(leagueAvgGoals);
-    expectedScoreA = avgScore;
-    expectedScoreB = avgScore;
-  } else if (expectedMargin >= 0) {
-    // Team A is favored
-    expectedScoreB = Math.max(0, Math.round(rawScoreB));
-    expectedScoreA = Math.min(MAX_TEAM_SCORE, Math.max(0, expectedScoreB + roundedMargin));
-    // Ensure margin is maintained even with cap
-    if (expectedScoreA === MAX_TEAM_SCORE && expectedScoreB > MAX_TEAM_SCORE - roundedMargin) {
-      expectedScoreB = Math.max(0, MAX_TEAM_SCORE - roundedMargin);
-    }
-  } else {
-    // Team B is favored
-    expectedScoreA = Math.max(0, Math.round(rawScoreA));
-    expectedScoreB = Math.min(MAX_TEAM_SCORE, Math.max(0, expectedScoreA + roundedMargin));
-    // Ensure margin is maintained even with cap
-    if (expectedScoreB === MAX_TEAM_SCORE && expectedScoreA > MAX_TEAM_SCORE - roundedMargin) {
-      expectedScoreA = Math.max(0, MAX_TEAM_SCORE - roundedMargin);
-    }
+  const baseConfidence = computeConfidence(teamA, teamB, compositeDiff, allGames);
+  const outcomeEntropy = normalizedEntropy([winProbA, normalizedDrawProbability, winProbB]);
+  const maxOutcomeProbability = Math.max(winProbA, normalizedDrawProbability, winProbB);
+  let confidenceScore = clamp(
+    (baseConfidence.confidence_score ?? 0.5) * 0.6 + maxOutcomeProbability * 0.25 + (1 - outcomeEntropy) * 0.15,
+    0.05,
+    0.98
+  );
+
+  if (normalizedDrawProbability > 0.22) {
+    confidenceScore = clamp(confidenceScore - 0.05, 0.05, 0.98);
+  }
+  if (Math.min(recentA.sampleWeight, recentB.sampleWeight) < 0.4) {
+    confidenceScore = clamp(confidenceScore - 0.04, 0.05, 0.98);
   }
 
-  // 10. Predicted winner (with draw threshold for close matchups)
-  // ~16% of games end in draws - predict draw when probability is very close to 50%
-  let predictedWinner: 'team_a' | 'team_b' | 'draw';
-  if (Math.abs(winProbA - 0.5) < DRAW_THRESHOLD) {
-    predictedWinner = 'draw';
-  } else {
-    predictedWinner = winProbA >= 0.5 ? 'team_a' : 'team_b';
-  }
-
-  // 11. Confidence level (using variance-based confidence engine)
-  const confidenceResult = computeConfidence(teamA, teamB, compositeDiff, allGames);
-  const confidence = confidenceResult.confidence;
+  const confidence: 'high' | 'medium' | 'low' =
+    confidenceScore >= 0.66 ? 'high' : confidenceScore >= 0.53 ? 'medium' : 'low';
 
   return {
     predictedWinner,
     winProbabilityA: winProbA,
     winProbabilityB: winProbB,
+    drawProbability: normalizedDrawProbability,
     expectedScore: {
-      teamA: expectedScoreA,
-      teamB: expectedScoreB,
+      teamA: expectedScore.teamA,
+      teamB: expectedScore.teamB,
     },
     expectedMargin,
     confidence,
-    confidence_score: confidenceResult.confidence_score,
+    confidence_score: confidenceScore,
     components: {
       powerDiff,
       strengthSignal,

@@ -65,7 +65,7 @@ function ExplanationFactor({
  * - Key insights
  */
 export function EnhancedPredictionCard({ teamAName, teamBName, prediction, explanation }: EnhancedPredictionCardProps) {
-  const { predictedWinner, winProbabilityA, winProbabilityB, expectedScore, confidence } = prediction;
+  const { predictedWinner, winProbabilityA, winProbabilityB, drawProbability, expectedScore, confidence } = prediction;
   const { summary, factors, keyInsights, predictionQuality } = explanation;
 
   // Determine favored team for styling
@@ -133,6 +133,18 @@ export function EnhancedPredictionCard({ teamAName, teamBName, prediction, expla
               </div>
               <span className="text-sm font-semibold w-14 text-right">{(winProbabilityB * 100).toFixed(0)}%</span>
             </div>
+            {drawProbability != null && drawProbability > 0.03 && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm w-20 sm:w-32 truncate">Draw</span>
+                <div className="flex-1 h-6 bg-gray-200 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gray-500 transition-all duration-300"
+                    style={{ width: `${drawProbability * 100}%` }}
+                  />
+                </div>
+                <span className="text-sm font-semibold w-14 text-right">{(drawProbability * 100).toFixed(0)}%</span>
+              </div>
+            )}
           </div>
         </div>
 

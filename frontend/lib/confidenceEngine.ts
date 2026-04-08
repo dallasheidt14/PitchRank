@@ -65,6 +65,10 @@ loadConfidenceParametersV2().catch(() => {
   // Silently fail - will use defaults
 });
 
+export async function warmConfidenceCalibration(): Promise<void> {
+  await loadConfidenceParametersV2();
+}
+
 /**
  * Calculate variance of goals for a team from game history
  */

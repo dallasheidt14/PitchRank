@@ -141,7 +141,7 @@ export function ComparePanel() {
         team_b_name: team2Details.team_name,
         win_probability_a: prediction.winProbabilityA,
         win_probability_b: prediction.winProbabilityB,
-        draw_probability: prediction.predictedWinner === 'draw' ? 1 : 0,
+        draw_probability: prediction.drawProbability ?? (prediction.predictedWinner === 'draw' ? 1 : 0),
         predicted_winner: predictedWinnerName,
       });
     }
