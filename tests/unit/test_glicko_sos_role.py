@@ -7,8 +7,7 @@ import pandas as pd
 import pytest
 
 from src.etl.glicko_config import GlickoConfig
-from src.etl.glicko_engine import compute_rankings_v2
-from src.etl.glicko_engine import run_glicko2_cohort
+from src.etl.glicko_engine import compute_rankings_v2, run_glicko2_cohort
 from src.rankings import calculator
 
 
@@ -333,3 +332,103 @@ async def test_compute_all_cohorts_builds_glicko_pass2_map_from_mu(monkeypatch):
     for call in pass2_calls:
         assert call["global_strength_map"] == expected_map
         assert call["initial_ratings"]
+
+
+@pytest.mark.asyncio
+async def test_compute_all_cohorts_can_skip_snapshot_and_rank_change_side_effects(monkeypatch):
+    calls: list[dict] = []
+    save_calls = {"ranking": 0, "prediction": 0}
+
+    async def fake_compute_rankings_with_ml(
+        supabase_client,
+        games_df,
+        today,
+        v53_cfg=None,
+        layer13_cfg=None,
+        fetch_from_supabase=True,
+        lookback_days=365,
+        provider_filter=None,
+        ctx=None,
+    ):
+        pass_label = ctx.pass_label if ctx else None
+        age = str(games_df.iloc[0]["age"])
+        rows = []
+        ratings = {
+            "14": {"A": 1610.0, "B": 1520.0},
+            "15": {"C": 1580.0, "D": 1490.0},
+        }[age]
+        gender = "male"
+
+        for team_id, mu in ratings.items():
+            rows.append(
+                {
+                    "team_id": team_id,
+                    "age": int(age),
+                    "age_num": int(age),
+                    "gender": gender,
+                    "mu": mu,
+                    "sigma": 80.0,
+                    "volatility": 0.06,
+                    "sos": 0.5,
+                    "sos_norm": 0.5,
+                    "power_score_true": 0.5,
+                    "power_score_final": 0.5,
+                    "powerscore_adj": 0.5,
+                    "powerscore_ml": 0.5,
+                    "positive_ml_evidence_scale": 1.0,
+                    "publication_cap_score": pd.NA,
+                    "status": "Active",
+                    "rank_in_cohort_final": 1,
+                }
+            )
+
+        calls.append(
+            {
+                "pass_label": pass_label,
+                "persist_game_residuals": ctx.persist_game_residuals if ctx else None,
+                "calculate_rank_changes": ctx.calculate_rank_changes if ctx else None,
+                "save_snapshot": ctx.save_snapshot if ctx else None,
+            }
+        )
+
+        return {
+            "teams": pd.DataFrame(rows),
+            "games_used": games_df.copy(),
+            "pre_sos_state": {"legacy": age},
+        }
+
+    async def fake_save_ranking_snapshot(*_args, **_kwargs):
+        save_calls["ranking"] += 1
+        return None
+
+    async def fake_save_prediction_feature_snapshot(*_args, **_kwargs):
+        save_calls["prediction"] += 1
+        return None
+
+    monkeypatch.setattr(calculator, "compute_rankings_with_ml", fake_compute_rankings_with_ml)
+    monkeypatch.setattr(calculator, "save_ranking_snapshot", fake_save_ranking_snapshot)
+    monkeypatch.setattr(calculator, "_save_prediction_feature_snapshot_safe", fake_save_prediction_feature_snapshot)
+
+    games = pd.DataFrame(
+        _make_game_pair("A", "B", 2, 1, "2026-03-01", age="14")
+        + _make_game_pair("C", "D", 3, 2, "2026-03-02", age="15")
+    )
+
+    result = await calculator.compute_all_cohorts(
+        supabase_client=_DummySupabase(),
+        games_df=games,
+        fetch_from_supabase=False,
+        use_glicko=True,
+        persist_game_residuals=False,
+        calculate_rank_changes=False,
+        save_snapshot=False,
+    )
+
+    assert not result["teams"].empty
+    assert save_calls == {"ranking": 0, "prediction": 0}
+    assert len(calls) == 4
+    assert all(call["persist_game_residuals"] is False for call in calls)
+    assert all(call["calculate_rank_changes"] is False for call in calls)
+    assert all(call["save_snapshot"] is False for call in calls)
+    assert "same_age_games" in result["teams"].columns
+    assert "publication_cap_rank" in result["teams"].columns
