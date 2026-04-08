@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from src.rankings.calculator import (
+    _apply_publication_cap_band,
     _compute_same_age_evidence_metrics,
     _positive_ml_evidence_scale,
     _publication_cap_rank,
@@ -190,3 +191,41 @@ def test_publication_cap_rank_skips_multi_top100_team_with_depth():
         }
     )
     assert _publication_cap_rank(row) is None
+
+
+def test_apply_publication_cap_band_preserves_relative_order():
+    base_scores = pd.Series([0.7745, 0.8595, 0.7698], index=[10, 20, 30], dtype=float)
+    teams_age = pd.DataFrame(
+        {
+            "team_id": ["5a", "69", "ff"],
+            "age_num": [12, 12, 12],
+            "publication_cap_rank": [400, 400, 400],
+            "publication_cap_score": [0.73320145, 0.73320145, 0.73320145],
+        },
+        index=[10, 20, 30],
+    )
+
+    adjusted = _apply_publication_cap_band(base_scores, teams_age)
+
+    assert adjusted.loc[20] > adjusted.loc[10] > adjusted.loc[30]
+    assert adjusted.nunique() == 3
+    assert (adjusted < 0.73320145).all()
+
+
+def test_apply_publication_cap_band_leaves_uncapped_and_below_cap_scores_alone():
+    base_scores = pd.Series([0.7800, 0.7100, 0.6900], index=[1, 2, 3], dtype=float)
+    teams_age = pd.DataFrame(
+        {
+            "team_id": ["A", "B", "C"],
+            "age_num": [12, 12, 12],
+            "publication_cap_rank": [400, 400, pd.NA],
+            "publication_cap_score": [0.73320145, 0.73320145, pd.NA],
+        },
+        index=[1, 2, 3],
+    )
+
+    adjusted = _apply_publication_cap_band(base_scores, teams_age)
+
+    assert adjusted.loc[1] < 0.73320145
+    assert adjusted.loc[2] == base_scores.loc[2]
+    assert adjusted.loc[3] == base_scores.loc[3]

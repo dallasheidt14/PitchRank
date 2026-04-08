@@ -94,6 +94,9 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
     return {
         "cap_rank": 400,
         "soft_cap_rank": 250,
+        "cap_band_min_width": 0.005,
+        "cap_band_max_width": 0.020,
+        "cap_band_step_per_team": 0.0005,
         "min_top500": 5,
         "min_avg_opp_power": 0.68,
         "max_repeat_share": 0.40,
@@ -118,6 +121,54 @@ def _score_cutoff_for_rank(cohort_df: pd.DataFrame, score_col: str, target_rank:
     idx = min(max(target_rank, 1), len(eligible)) - 1
     cutoff = float(eligible.iloc[idx][score_col])
     return max(0.0, cutoff - 1e-6)
+
+
+def _apply_publication_cap_band(base_scores: pd.Series, teams_age: pd.DataFrame) -> pd.Series:
+    """Apply publication caps without flattening all capped teams to one score.
+
+    Teams that fail the same-age evidence gate still cannot rise above their
+    cohort ceiling, but they keep a compressed version of their relative order
+    underneath that ceiling.
+    """
+    if "publication_cap_score" not in teams_age.columns:
+        return base_scores
+
+    adjusted = base_scores.copy()
+    cap_scores = pd.to_numeric(teams_age["publication_cap_score"], errors="coerce")
+    effective_mask = cap_scores.notna() & (adjusted >= cap_scores)
+    if not effective_mask.any():
+        return adjusted
+
+    work = teams_age.loc[effective_mask, ["team_id", "age_num", "publication_cap_rank"]].copy()
+    work["base_pre_cap"] = pd.to_numeric(adjusted.loc[effective_mask], errors="coerce")
+    work["cap_score"] = pd.to_numeric(cap_scores.loc[effective_mask], errors="coerce")
+    work = work.dropna(subset=["base_pre_cap", "cap_score"])
+    if work.empty:
+        return adjusted
+
+    for (_, cap_rank, cap_score), grp in work.groupby(["age_num", "publication_cap_rank", "cap_score"], dropna=False):
+        age_num = _safe_int(grp["age_num"].iloc[0])
+        policy = _same_age_evidence_policy(age_num)
+        group_size = len(grp)
+        band_width = max(
+            float(policy["cap_band_min_width"]),
+            min(
+                float(policy["cap_band_max_width"]),
+                group_size * float(policy["cap_band_step_per_team"]),
+            ),
+        )
+        upper = max(0.0, float(cap_score) - 1e-6)
+        lower = max(0.0, upper - band_width)
+
+        ranked = grp.sort_values(["base_pre_cap", "team_id"], ascending=[False, True])
+        if group_size == 1:
+            adjusted.loc[ranked.index] = upper
+            continue
+
+        compressed = np.linspace(upper, lower, group_size)
+        adjusted.loc[ranked.index] = compressed
+
+    return adjusted
 
 
 def _compute_same_age_evidence_metrics(games_used_df: pd.DataFrame, teams_df: pd.DataFrame) -> pd.DataFrame:
@@ -1399,9 +1450,9 @@ async def compute_all_cohorts(
                     cap_scores = pd.to_numeric(teams_age["publication_cap_score"], errors="coerce")
                     cap_mask = cap_scores.notna()
                     if cap_mask.any():
-                        base.loc[cap_mask] = np.minimum(base.loc[cap_mask], cap_scores.loc[cap_mask])
+                        base = _apply_publication_cap_band(base, teams_age)
                         logger.info(
-                            f"  📊 Age {age}: publication cap applied to {int(cap_mask.sum())} team(s) on weak same-age evidence"
+                            f"  📊 Age {age}: publication cap band applied to {int(cap_mask.sum())} team(s) on weak same-age evidence"
                         )
 
                 # Scale by anchor and clip to [0, anchor_val]
