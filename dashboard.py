@@ -4781,6 +4781,23 @@ elif section == "✏️ Manual Team Edit":
                             value=team.get('club_name', '') or '',
                             key="edit_club_name"
                         )
+
+                        # League dropdown
+                        league_options = [
+                            "",  # Unaffiliated
+                            "ECNL", "ECNL_RL", "MLS_NEXT_HD", "MLS_NEXT_AD",
+                            "GA", "DPL", "NPL", "EA", "EA2", "NL", "ASPIRE"
+                        ]
+                        current_league = team.get('league', '') or ''
+                        current_league_idx = league_options.index(current_league) if current_league in league_options else 0
+                        new_league = st.selectbox(
+                            "League",
+                            options=league_options,
+                            index=current_league_idx,
+                            format_func=lambda x: x if x else "(Unaffiliated)",
+                            key="edit_league"
+                        )
+
                         new_state = st.text_input(
                             "State (Full Name)",
                             value=team.get('state', '') or '',
@@ -4847,6 +4864,7 @@ elif section == "✏️ Manual Team Edit":
                             update_data = {
                                 'team_name': new_team_name.strip(),
                                 'club_name': new_club_name.strip() if new_club_name else None,
+                                'league': new_league if new_league else None,
                                 'state': new_state.strip() if new_state else None,
                                 'state_code': new_state_code if new_state_code else None,
                                 'age_group': new_age_group,
