@@ -1,20 +1,21 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { AppError } from './errors';
 
 // Vanilla Supabase client for public data queries (rankings, teams, games).
 // Uses createClient (not createBrowserClient) because this module is imported
 // by both Server Components and Client Components. No auth/cookies needed.
-let _supabase: ReturnType<typeof createClient> | null = null;
-function getSupabase() {
+// Lazy Proxy defers creation until first property access at runtime.
+let _supabase: SupabaseClient | null = null;
+function getSupabase(): SupabaseClient {
   if (!_supabase) {
     _supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
   }
   return _supabase;
 }
-const supabase = new Proxy({} as ReturnType<typeof createClient>, {
+const supabase = new Proxy({} as SupabaseClient, {
   get(_, prop) {
     const client = getSupabase();
-    const value = client[prop as keyof typeof client];
+    const value = client[prop as keyof SupabaseClient];
     if (typeof value === 'function') {
       return (value as (...args: unknown[]) => unknown).bind(client);
     }
