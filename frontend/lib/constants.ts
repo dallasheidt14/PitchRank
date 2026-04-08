@@ -57,8 +57,8 @@ export const US_STATES = [
 
 // --- Site URL ---
 
-/** Base URL without www prefix, used by most pages for canonical URLs and OG metadata. */
-export const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://pitchrank.io';
+/** Base URL used by all pages for canonical URLs and OG metadata. */
+export const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.pitchrank.io';
 
 /**
  * Base URL with www prefix, used by root layout metadataBase and sitemap.

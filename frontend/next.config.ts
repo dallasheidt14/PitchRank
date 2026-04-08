@@ -32,7 +32,7 @@ const nextConfig: NextConfig = {
     ],
   },
 
-  // 301 redirects from non-www to www for SEO canonical URL
+  // 301 redirects: non-www → www, deleted blog posts → live pages
   async redirects() {
     return [
       {
@@ -44,6 +44,16 @@ const nextConfig: NextConfig = {
           },
         ],
         destination: 'https://www.pitchrank.io/:path*',
+        permanent: true,
+      },
+      {
+        source: '/blog/michigan-youth-soccer-rankings-guide',
+        destination: '/rankings/mi',
+        permanent: true,
+      },
+      {
+        source: '/blog/2026-03-31-california-youth-soccer-rankings',
+        destination: '/blog/california-youth-soccer-rankings-guide',
         permanent: true,
       },
     ];
