@@ -104,14 +104,11 @@ export async function POST(req: Request) {
     if (isPermanentError(error)) {
       // No matching user — retrying won't help. Acknowledge so Stripe stops.
       console.warn(`[webhook] Permanent error, returning 200 to stop retries`);
-      return NextResponse.json(
-        { received: true, error: 'Permanent webhook error', details: errorMessage },
-        { status: 200 }
-      );
+      return NextResponse.json({ received: true, error: 'Permanent webhook error' }, { status: 200 });
     }
 
     // Transient error (DB timeout, network issue) — return 500 so Stripe retries
-    return NextResponse.json({ error: 'Webhook handler failed', details: errorMessage }, { status: 500 });
+    return NextResponse.json({ error: 'Webhook handler failed' }, { status: 500 });
   }
 }
 
@@ -143,9 +140,10 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
   console.log(`[webhook] Subscription activated for customer ${customerId}`);
 
-  // Notify admin of new signup
-  const customerName = (customer as Stripe.Customer).name ?? 'Unknown';
-  const customerEmail = (customer as Stripe.Customer).email ?? 'N/A';
+  // Notify admin of new signup — escape HTML to prevent injection via Stripe customer name
+  const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const customerName = escapeHtml((customer as Stripe.Customer).name ?? 'Unknown');
+  const customerEmail = escapeHtml((customer as Stripe.Customer).email ?? 'N/A');
   const statusLabel = subscription.status === 'trialing' ? '🆓 Free Trial' : '💳 Paid';
   const interval = subscription.items.data[0]?.price?.recurring?.interval;
   const planLabel = interval === 'month' ? 'Premium Monthly' : 'Premium Annual';
@@ -161,7 +159,11 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
   // Set subscriber tier to premium in Beehiiv (gates welcome sequence pitch emails)
   if (customerEmail && customerEmail !== 'N/A') {
-    await tagSubscriber(customerEmail);
+    try {
+      await tagSubscriber(customerEmail);
+    } catch (tagError) {
+      console.error('[webhook] Beehiiv tagSubscriber failed (non-fatal):', tagError);
+    }
   }
 }
 

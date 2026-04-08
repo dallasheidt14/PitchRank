@@ -87,7 +87,7 @@ export async function setSubscriberTier(email: string, tier: 'premium' | 'free')
       }
     }
 
-    console.log(`[beehiiv] Set ${email} tier to "${tier}"`);
+    console.log(`[beehiiv] Set subscriber tier to "${tier}"`);
     return true;
   } catch (err) {
     console.error(`[beehiiv] Error setting subscriber tier: ${err}`);

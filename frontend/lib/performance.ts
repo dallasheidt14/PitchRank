@@ -2,19 +2,16 @@
  * Frontend Performance Monitoring Utilities
  *
  * Tracks Web Vitals (LCP, FID, CLS, INP, TTFB), API response times,
- * component render times, and bundle load performance.
+ * and bundle load performance.
  *
  * Usage:
- *   import { trackWebVitals, apiTimer, measureRender } from '@/lib/performance'
+ *   import { trackWebVitals, apiTimer } from '@/lib/performance'
  *
  *   // In layout.tsx or root component:
  *   trackWebVitals()
  *
  *   // For API calls:
  *   const data = await apiTimer('getRankings', () => api.getRankings(params))
- *
- *   // For components:
- *   const renderTime = measureRender('RankingsTable')
  */
 
 // ─── Types ───────────────────────────────────────────────────────────
@@ -236,41 +233,6 @@ export async function apiTimer<T>(
 }
 
 // ─── Component Render Timing ─────────────────────────────────────────
-
-/**
- * Measure component render time using Performance API marks.
- *
- * Usage in a component:
- *   useEffect(() => {
- *     const measure = measureRender('RankingsTable')
- *     return measure.end
- *   }, [])
- */
-export function measureRender(componentName: string) {
-  const markStart = `render-start-${componentName}-${Date.now()}`;
-  const markEnd = `render-end-${componentName}-${Date.now()}`;
-
-  if (typeof performance !== 'undefined') {
-    performance.mark(markStart);
-  }
-
-  return {
-    end: () => {
-      if (typeof performance === 'undefined') return 0;
-      performance.mark(markEnd);
-      try {
-        const measure = performance.measure(`render-${componentName}`, markStart, markEnd);
-        const duration = measure.duration;
-        if (config.logToConsole && config.verbose) {
-          console.log(`[Render] ${componentName}: ${duration.toFixed(1)}ms`);
-        }
-        return duration;
-      } catch {
-        return 0;
-      }
-    },
-  };
-}
 
 // ─── Bundle Size Tracking ────────────────────────────────────────────
 

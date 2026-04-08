@@ -477,12 +477,9 @@ async def calculate_rank_changes(
             if "age" in df.columns:
                 df["age_group"] = df["age"].apply(lambda x: f"u{int(float(x))}" if pd.notna(x) else "")
 
-        # Use ML score if available, otherwise fall back to power_score_final
-        score_col = (
-            "powerscore_ml"
-            if "powerscore_ml" in df.columns and df["powerscore_ml"].notna().any()
-            else "power_score_final"
-        )
+        # Use power_score_final to match save_ranking_snapshot() — both must use
+        # the same score column to avoid phantom rank changes
+        score_col = "power_score_final"
 
         # Calculate current rank within state for each cohort — Active teams only
         current_rankings_df["current_state_rank"] = pd.array([pd.NA] * len(current_rankings_df), dtype="Int64")

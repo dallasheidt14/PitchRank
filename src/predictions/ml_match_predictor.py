@@ -425,7 +425,11 @@ class MLMatchPredictor:
             eval_metric="rmse",
             early_stopping_rounds=20,
         )
-        self.score_margin_model.fit(X_train, y_margin_train, eval_set=[(X_test, y_margin_test)], verbose=False)
+        # Use separate validation split for early stopping (same pattern as win probability model)
+        X_train_margin, X_val_margin, y_margin_fit, y_margin_val = train_test_split(
+            X_train, y_margin_train, test_size=0.1, random_state=random_state
+        )
+        self.score_margin_model.fit(X_train_margin, y_margin_fit, eval_set=[(X_val_margin, y_margin_val)], verbose=False)
 
         # Train individual score models
         print("Training home score model...")
@@ -444,7 +448,10 @@ class MLMatchPredictor:
             eval_metric="rmse",
             early_stopping_rounds=20,
         )
-        self.team_a_score_model.fit(X_train, y_home_train, eval_set=[(X_test, y_home_test)], verbose=False)
+        X_train_home, X_val_home, y_home_fit, y_home_val = train_test_split(
+            X_train, y_home_train, test_size=0.1, random_state=random_state
+        )
+        self.team_a_score_model.fit(X_train_home, y_home_fit, eval_set=[(X_val_home, y_home_val)], verbose=False)
 
         print("Training away score model...")
         self.team_b_score_model = XGBRegressor(
@@ -462,7 +469,10 @@ class MLMatchPredictor:
             eval_metric="rmse",
             early_stopping_rounds=20,
         )
-        self.team_b_score_model.fit(X_train, y_away_train, eval_set=[(X_test, y_away_test)], verbose=False)
+        X_train_away, X_val_away, y_away_fit, y_away_val = train_test_split(
+            X_train, y_away_train, test_size=0.1, random_state=random_state
+        )
+        self.team_b_score_model.fit(X_train_away, y_away_fit, eval_set=[(X_val_away, y_away_val)], verbose=False)
 
         # Evaluate models
         print("\nEvaluating models...")
@@ -573,6 +583,19 @@ class MLMatchPredictor:
             "away_rank": away_features.get("rank_in_cohort_final", 1000) or 1000,
             "rank_diff": (away_features.get("rank_in_cohort_final", 1000) or 1000)
             - (home_features.get("rank_in_cohort_final", 1000) or 1000),
+            # Interaction features (must match build_features)
+            "power_score_product": (home_features.get("power_score_final", 0.5) or 0.5)
+            * (away_features.get("power_score_final", 0.5) or 0.5),
+            "sos_product": (home_features.get("sos_norm", 0.5) or 0.5)
+            * (away_features.get("sos_norm", 0.5) or 0.5),
+            "offense_product": (home_features.get("offense_norm", 0.5) or 0.5)
+            * (away_features.get("offense_norm", 0.5) or 0.5),
+            "defense_product": (home_features.get("defense_norm", 0.5) or 0.5)
+            * (away_features.get("defense_norm", 0.5) or 0.5),
+            "power_score_ratio": (home_features.get("power_score_final", 0.5) or 0.5)
+            / max(0.01, (away_features.get("power_score_final", 0.5) or 0.5)),
+            "games_played_ratio": (home_features.get("games_played", 0) or 0)
+            / max(1, (away_features.get("games_played", 0) or 0)),
         }
 
         # Add recent form if available
@@ -694,8 +717,14 @@ class MLMatchPredictor:
         with open(model_path, "rb") as f:
             model_data = f.read()
 
-        # Verify checksum if available
+        # Verify checksum — refuse to load without integrity check
         checksum_path = model_path + ".sha256"
+        if not os.path.exists(checksum_path):
+            raise FileNotFoundError(
+                f"Model checksum file not found: {checksum_path}. "
+                "Refusing to load model without integrity verification. "
+                "Re-train and save the model to generate a checksum file."
+            )
         if os.path.exists(checksum_path):
             with open(checksum_path, "r") as f:
                 expected_checksum = f.read().strip()

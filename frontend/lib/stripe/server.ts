@@ -49,16 +49,6 @@ export function getStripePriceIds() {
   };
 }
 
-// Keep for backwards compatibility but mark as deprecated
-export const STRIPE_PRICE_IDS = {
-  get MONTHLY() {
-    return getStripePriceIds().MONTHLY;
-  },
-  get YEARLY() {
-    return getStripePriceIds().YEARLY;
-  },
-} as const;
-
 /**
  * Stripe webhook event types we handle
  */

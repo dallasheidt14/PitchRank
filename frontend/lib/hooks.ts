@@ -2,7 +2,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import type { MatchPredictionResponse } from './matchPredictionService';
 import type { TeamTrajectory, GameWithTeams, TeamWithRanking, RankHistoryPoint } from './types';
-import type { TeamPredictive } from '@/types/TeamPredictive';
 
 /**
  * React Query hooks for data fetching
@@ -128,26 +127,6 @@ export function useCommonOpponents(team1Id: string | null, team2Id: string | nul
     enabled: !!team1Id && !!team2Id && team1Id !== team2Id,
     staleTime: 30 * 60 * 1000, // 30 minutes (expensive query, game data updates weekly)
     gcTime: 60 * 60 * 1000, // Keep in cache for 1 hour
-  });
-}
-
-/**
- * Get predictive match result data for a team
- * @param teamId - team_id_master UUID
- * @returns React Query hook result with TeamPredictive data (or null)
- * Non-blocking: returns null if data unavailable (view may not exist in staging/local)
- */
-export function usePredictive(teamId: string | null) {
-  return useQuery<TeamPredictive | null>({
-    queryKey: ['predictive', teamId],
-    queryFn: async () => {
-      if (!teamId) return null;
-      return await api.getPredictive(teamId);
-    },
-    enabled: !!teamId,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    gcTime: 30 * 60 * 1000, // Keep in cache for 30 minutes
-    retry: false, // Don't retry - gracefully handle missing view
   });
 }
 

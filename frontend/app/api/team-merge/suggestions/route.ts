@@ -298,7 +298,7 @@ export async function GET(request: NextRequest) {
     const stateCode = searchParams.get('stateCode');
     // Always use 90% minimum confidence - ignore any user-supplied value
     const minConfidence = MIN_CONFIDENCE_THRESHOLD;
-    const limit = parseInt(searchParams.get('limit') || '20');
+    const limit = parseInt(searchParams.get('limit') || '20', 10);
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
@@ -309,8 +309,13 @@ export async function GET(request: NextRequest) {
       .eq('is_deprecated', false);
 
     if (ageGroup) {
-      const ageNum = ageGroup.toLowerCase().replace('u', '');
-      teamsQuery = teamsQuery.or(`age_group.eq.${ageNum},age_group.eq.u${ageNum},age_group.eq.U${ageNum}`);
+      const ageNum = ageGroup
+        .toLowerCase()
+        .replace('u', '')
+        .replace(/[^0-9]/g, '');
+      if (ageNum) {
+        teamsQuery = teamsQuery.or(`age_group.eq.${ageNum},age_group.eq.u${ageNum},age_group.eq.U${ageNum}`);
+      }
     }
     if (gender) {
       teamsQuery = teamsQuery.eq('gender', gender);

@@ -65,7 +65,7 @@ export async function sendWelcomeEmail(email: string): Promise<boolean> {
       return false;
     }
 
-    console.log(`Welcome email sent to ${email}`);
+    console.log(`Welcome email sent successfully`);
     return true;
   } catch (err) {
     console.error('Error sending welcome email:', err);

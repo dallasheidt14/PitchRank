@@ -1,5 +1,3 @@
-export type DateRangeKey = '7d' | '28d' | '90d';
-
 export function getDateRange(range: string): { startDate: string; endDate: string } {
   const end = new Date();
   end.setDate(end.getDate() - 1);

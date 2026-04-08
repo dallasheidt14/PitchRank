@@ -58,6 +58,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Game not found' }, { status: 404 });
     }
 
+    // Validate that opponentProviderId is actually referenced by this game
+    const providerTeamIdCheck = String(opponentProviderId);
+    if (
+      String(game.home_provider_id) !== providerTeamIdCheck &&
+      String(game.away_provider_id) !== providerTeamIdCheck
+    ) {
+      return NextResponse.json({ error: 'opponentProviderId does not match any team in this game' }, { status: 400 });
+    }
+
     // 2. Generate new team_id_master
     const teamIdMaster = randomUUID();
     const providerTeamIdStr = String(opponentProviderId);

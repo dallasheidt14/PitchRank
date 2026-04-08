@@ -178,11 +178,12 @@ class Modular11GameMatcher(GameHistoryMatcher):
         if age < 13 or age > 18:
             return None
 
-        # Map age to birth year (as used in team names)
-        # U13 = 2013, U14 = 2012, U15 = 2011, U16 = 2010, U17 = 2009, U18 = 2008
-        birth_year_map = {13: 2013, 14: 2012, 15: 2011, 16: 2010, 17: 2009, 18: 2008}
-
-        return birth_year_map.get(age)
+        # Calculate birth year dynamically from age group.
+        # Season year runs Aug-Jul: if current month >= 8, season_year = current_year + 1
+        # U14 in the 2025/2026 season (season_year=2026) means born in 2012: 2026 - 14 = 2012
+        now = datetime.now()
+        season_year = now.year + 1 if now.month >= 8 else now.year
+        return season_year - age
 
     def _candidate_birth_year_tokens(self, birth_year: int) -> List[str]:
         """

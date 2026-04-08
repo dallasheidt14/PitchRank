@@ -94,11 +94,17 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
       if (oppId) opponentIds.add(oppId);
     });
 
-    // Fetch opponent rankings
-    const { data: opponentRankings, error: oppRankError } = await supabase
-      .from('rankings_view')
-      .select('team_id_master, rank_in_cohort_final, power_score_final')
-      .in('team_id_master', Array.from(opponentIds));
+    // Fetch opponent rankings (guard: empty .in() returns all rows in PostgREST)
+    let opponentRankings: OpponentRankingRow[] | null = null;
+    let oppRankError: { message: string } | null = null;
+    if (opponentIds.size > 0) {
+      const result = await supabase
+        .from('rankings_view')
+        .select('team_id_master, rank_in_cohort_final, power_score_final')
+        .in('team_id_master', Array.from(opponentIds));
+      opponentRankings = result.data as OpponentRankingRow[] | null;
+      oppRankError = result.error;
+    }
 
     if (oppRankError) {
       console.error('Error fetching opponent rankings:', oppRankError);

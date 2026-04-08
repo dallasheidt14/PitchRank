@@ -16,12 +16,6 @@ const COVER_DIMENSIONS: Record<CoverPlatform, { width: number; height: number }>
   linkedin: { width: 1584, height: 396 },
 };
 
-const PLATFORM_LABELS: Record<CoverPlatform, string> = {
-  twitter: 'Twitter/X Header',
-  facebook: 'Facebook Cover',
-  linkedin: 'LinkedIn Banner',
-};
-
 /**
  * Renders a social media cover/header image for Twitter, Facebook, or LinkedIn.
  */
@@ -223,5 +217,5 @@ export const COVER_PLATFORMS: Array<{ value: CoverPlatform; label: string; dimen
   { value: 'linkedin', label: 'LinkedIn Banner', dimensions: '1584x396' },
 ];
 
-export { COVER_DIMENSIONS, PLATFORM_LABELS };
+export { COVER_DIMENSIONS };
 export type { CoverPlatform, CoverImageOptions };

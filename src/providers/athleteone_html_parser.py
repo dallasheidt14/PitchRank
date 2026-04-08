@@ -57,7 +57,7 @@ def _generate_team_id(name: str) -> str:
     if not raw or raw in ["unknown home", "unknown away"]:
         # Fallback for invalid names
         return f"athone:unknown_{hashlib.md5(raw.encode()).hexdigest()[:8]}"
-    return "athone:" + hashlib.md5(raw.encode()).hexdigest()[:12]
+    return "athone:" + hashlib.md5(raw.encode()).hexdigest()[:8]
 
 
 def _is_valid(parsed: ParsedAthleteOneGame, logger=None):

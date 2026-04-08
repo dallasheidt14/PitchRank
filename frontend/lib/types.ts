@@ -195,23 +195,3 @@ export interface GameWithTeams extends Game {
   away_team_club_name?: string | null;
   was_overperformed?: boolean | null; // Deprecated: use ml_overperformance from Game interface
 }
-
-/**
- * Scrape request for missing games
- * Used to track user-initiated requests to fetch missing game data
- */
-export interface ScrapeRequest {
-  id: string;
-  team_id_master: string;
-  team_name: string;
-  provider_id: string | null;
-  provider_team_id: string | null;
-  game_date: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  request_type: string;
-  requested_at: string;
-  processed_at: string | null;
-  completed_at: string | null;
-  error_message: string | null;
-  games_found: number | null;
-}
