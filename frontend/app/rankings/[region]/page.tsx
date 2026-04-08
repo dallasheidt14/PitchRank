@@ -26,6 +26,16 @@ function getStateInfo(stateCode: string): { code: string; name: string } | null 
 }
 
 /**
+ * State-specific meta descriptions for high-impression queries with low CTR.
+ * Keyed by lowercase state code. Falls back to generic template if not listed.
+ */
+const STATE_DESCRIPTIONS: Record<string, string> = {
+  co: 'Colorado youth soccer rankings for every age group—Rapids, Real Colorado, Colorado Storm and more. PowerScore ratings updated weekly from real game results. Find your club now.',
+  tx: 'Texas youth soccer rankings for every age group—FC Dallas, Solar SC, Lonestar and more. PowerScore ratings updated weekly from real game results. Find your club now.',
+  md: 'Maryland youth soccer rankings for every age group—Baltimore Armour, Pipeline SC, MSC and more. PowerScore ratings updated weekly from real game results. Find your club now.',
+};
+
+/**
  * Generate metadata for state overview pages
  */
 export async function generateMetadata({ params }: StateOverviewPageProps): Promise<Metadata> {
@@ -46,7 +56,8 @@ export async function generateMetadata({ params }: StateOverviewPageProps): Prom
 
   const description = isNational
     ? 'National youth soccer rankings for all age groups. 77K+ teams ranked across 700K+ games analyzed. See where your team stands. Updated weekly.'
-    : `${stateInfo.name} youth soccer rankings - Find where your team ranks among 77K+ teams. PowerScore ratings updated weekly from 700K+ analyzed games. Start now!`;
+    : (STATE_DESCRIPTIONS[region.toLowerCase()] ??
+      `${stateInfo.name} youth soccer rankings - Find where your team ranks among 77K+ teams. PowerScore ratings updated weekly from 700K+ analyzed games. Start now!`);
 
   return {
     title,

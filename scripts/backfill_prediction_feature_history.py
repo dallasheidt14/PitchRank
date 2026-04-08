@@ -104,6 +104,18 @@ def generate_snapshot_dates(start_date: date, end_date: date, cadence: str, week
     return dates
 
 
+def slice_snapshot_dates(
+    candidate_dates: list[date], skip_snapshots: int = 0, max_snapshots: int | None = None
+) -> list[date]:
+    if skip_snapshots < 0:
+        raise ValueError("skip_snapshots must be >= 0")
+
+    sliced = candidate_dates[skip_snapshots:]
+    if max_snapshots is not None:
+        sliced = sliced[:max_snapshots]
+    return sliced
+
+
 async def prediction_snapshot_exists(supabase_client, snapshot_date: date) -> bool:
     response = (
         supabase_client.table("prediction_feature_history")
@@ -187,6 +199,12 @@ async def main() -> None:
         help="Replay dates even if prediction_feature_history already has rows for that date",
     )
     parser.add_argument(
+        "--skip-snapshots",
+        type=int,
+        default=0,
+        help="Skip this many snapshot dates from the start of the generated range before processing.",
+    )
+    parser.add_argument(
         "--max-snapshots",
         type=int,
         default=None,
@@ -221,15 +239,18 @@ async def main() -> None:
     merge_resolver = MergeResolver(supabase_client)
     merge_resolver.load_merge_map()
 
-    candidate_dates = generate_snapshot_dates(
+    all_candidate_dates = generate_snapshot_dates(
         start_date=args.start_date,
         end_date=args.end_date,
         cadence=args.cadence,
         weekday=args.weekday,
     )
 
-    if args.max_snapshots is not None:
-        candidate_dates = candidate_dates[: args.max_snapshots]
+    candidate_dates = slice_snapshot_dates(
+        all_candidate_dates,
+        skip_snapshots=args.skip_snapshots,
+        max_snapshots=args.max_snapshots,
+    )
 
     if not candidate_dates:
         console.print("[yellow]No snapshot dates selected[/yellow]")
@@ -242,7 +263,9 @@ async def main() -> None:
     summary.add_row("End", args.end_date.isoformat())
     summary.add_row("Cadence", args.cadence)
     summary.add_row("Weekday", str(args.weekday))
-    summary.add_row("Dates", str(len(candidate_dates)))
+    summary.add_row("Generated dates", str(len(all_candidate_dates)))
+    summary.add_row("Skip prefix", str(args.skip_snapshots))
+    summary.add_row("Dates this run", str(len(candidate_dates)))
     summary.add_row("Lookback", str(args.lookback_days))
     summary.add_row("Engine", args.engine)
     summary.add_row("ML", "disabled" if args.disable_ml else "enabled")

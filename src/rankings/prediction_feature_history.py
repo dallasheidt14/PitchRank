@@ -19,6 +19,18 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 LEAGUE_AVG_TOTAL_GOALS = 3.1
+OPTIONAL_PREDICTION_EVIDENCE_COLUMNS = {
+    "same_age_games",
+    "same_age_game_share",
+    "same_age_unique_opponents",
+    "same_age_top100_opp_count",
+    "same_age_top500_opp_count",
+    "same_age_avg_opp_power_adj",
+    "repeat_opponent_share",
+    "positive_ml_evidence_scale",
+    "publication_cap_rank",
+    "publication_cap_score",
+}
 
 
 def _safe_int(value) -> Optional[int]:
@@ -78,6 +90,30 @@ def _compute_expected_goals(
     return exp_goals_for, exp_goals_against
 
 
+def _strip_optional_prediction_columns(records: list[dict]) -> list[dict]:
+    return [
+        {key: value for key, value in record.items() if key not in OPTIONAL_PREDICTION_EVIDENCE_COLUMNS}
+        for record in records
+    ]
+
+
+def _should_retry_without_optional_prediction_columns(error: Exception) -> bool:
+    message = str(error).lower()
+    return (
+        (
+            "column" in message
+            or "schema cache" in message
+            or "could not find" in message
+            or "does not exist" in message
+        )
+        and (
+            "same_age_" in message
+            or "positive_ml_evidence_scale" in message
+            or "publication_cap_" in message
+        )
+    )
+
+
 def build_prediction_feature_snapshot_records(
     rankings_df: pd.DataFrame, snapshot_date: Optional[date] = None
 ) -> list[dict]:
@@ -124,7 +160,9 @@ def build_prediction_feature_snapshot_records(
         games_played = _safe_int(row.get("games_played")) or 0
 
         win_percentage = (
-            ((wins + (0.5 * draws)) / games_played) * 100.0 if games_played > 0 else _safe_float(row.get("win_percentage"))
+            ((wins + (0.5 * draws)) / games_played) * 100.0
+            if games_played > 0
+            else _safe_float(row.get("win_percentage"))
         )
 
         offense_norm = _safe_float(row.get("offense_norm"))
@@ -162,6 +200,16 @@ def build_prediction_feature_snapshot_records(
             "exp_win_rate": _safe_float(row.get("exp_win_rate")),
             "exp_goals_for": exp_goals_for,
             "exp_goals_against": exp_goals_against,
+            "same_age_games": _safe_int(row.get("same_age_games")),
+            "same_age_game_share": _safe_float(row.get("same_age_game_share")),
+            "same_age_unique_opponents": _safe_int(row.get("same_age_unique_opponents")),
+            "same_age_top100_opp_count": _safe_int(row.get("same_age_top100_opp_count")),
+            "same_age_top500_opp_count": _safe_int(row.get("same_age_top500_opp_count")),
+            "same_age_avg_opp_power_adj": _safe_float(row.get("same_age_avg_opp_power_adj")),
+            "repeat_opponent_share": _safe_float(row.get("repeat_opponent_share")),
+            "positive_ml_evidence_scale": _safe_float(row.get("positive_ml_evidence_scale")),
+            "publication_cap_rank": _safe_int(row.get("publication_cap_rank")),
+            "publication_cap_score": _safe_float(row.get("publication_cap_score")),
             "last_calculated": row.get("last_calculated").isoformat()
             if isinstance(row.get("last_calculated"), pd.Timestamp) and pd.notna(row.get("last_calculated"))
             else None,
@@ -193,6 +241,7 @@ async def save_prediction_feature_snapshot(
         batch = records[index : index + batch_size]
         batch_num = (index // batch_size) + 1
         total_batches = (total_records + batch_size - 1) // batch_size
+        stripped_optional_columns = False
 
         for attempt in range(max_retries + 1):
             try:
@@ -214,6 +263,17 @@ async def save_prediction_feature_snapshot(
                     )
                 break
             except Exception as error:
+                if _should_retry_without_optional_prediction_columns(error) and not stripped_optional_columns:
+                    logger.warning(
+                        "prediction_feature_history is missing optional evidence columns. "
+                        "Retrying batch %s/%s without them.",
+                        batch_num,
+                        total_batches,
+                    )
+                    batch = _strip_optional_prediction_columns(batch)
+                    stripped_optional_columns = True
+                    continue
+
                 if attempt < max_retries:
                     wait_seconds = 2 ** (attempt + 1)
                     logger.warning(

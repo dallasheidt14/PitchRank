@@ -36,6 +36,44 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 console = Console()
+OPTIONAL_RANKINGS_FULL_PREDICTION_COLUMNS = {
+    "same_age_games",
+    "same_age_game_share",
+    "same_age_unique_opponents",
+    "same_age_top100_opp_count",
+    "same_age_top500_opp_count",
+    "same_age_avg_opp_power_adj",
+    "repeat_opponent_share",
+    "positive_ml_evidence_scale",
+    "publication_cap_rank",
+    "publication_cap_score",
+}
+
+
+def _should_retry_without_optional_prediction_columns(error: Exception) -> bool:
+    message = str(error).lower()
+    return (
+        (
+            "column" in message
+            or "schema cache" in message
+            or "could not find" in message
+            or "does not exist" in message
+        )
+        and (
+            "same_age_" in message
+            or "positive_ml_evidence_scale" in message
+            or "publication_cap_" in message
+        )
+    )
+
+
+def _strip_optional_rankings_full_prediction_columns(records: list[dict]) -> list[dict]:
+    return [
+        {key: value for key, value in record.items() if key not in OPTIONAL_RANKINGS_FULL_PREDICTION_COLUMNS}
+        for record in records
+    ]
+
+
 # Load environment variables - prioritize .env.local if it exists
 env_local = Path(".env.local")
 if env_local.exists():
@@ -180,9 +218,24 @@ async def save_rankings_to_supabase(
                             record[key] = None
 
                 # Save to rankings_full table
-                saved_full = await _save_batch_with_retry(
-                    supabase_client, "rankings_full", records_full, table_name_display="rankings_full"
-                )
+                try:
+                    saved_full = await _save_batch_with_retry(
+                        supabase_client, "rankings_full", records_full, table_name_display="rankings_full"
+                    )
+                except Exception as save_error:
+                    if not _should_retry_without_optional_prediction_columns(save_error):
+                        raise
+
+                    console.print(
+                        "[yellow]rankings_full is missing optional prediction-evidence columns; "
+                        "retrying without them[/yellow]"
+                    )
+                    saved_full = await _save_batch_with_retry(
+                        supabase_client,
+                        "rankings_full",
+                        _strip_optional_rankings_full_prediction_columns(records_full),
+                        table_name_display="rankings_full",
+                    )
                 total_saved += saved_full
         except Exception as e:
             console.print(f"[yellow]Warning: Failed to save to rankings_full: {e}[/yellow]")

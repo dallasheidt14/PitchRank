@@ -657,6 +657,66 @@ function deriveWinRate(team: TeamWithRanking): number {
   return clamp(((team.wins || 0) + (team.draws || 0) * 0.5) / gamesPlayed, 0, 1);
 }
 
+function hasPredictionEvidence(team: TeamWithRanking): boolean {
+  return (
+    team.same_age_games != null ||
+    team.same_age_game_share != null ||
+    team.same_age_unique_opponents != null ||
+    team.same_age_top100_opp_count != null ||
+    team.same_age_top500_opp_count != null ||
+    team.same_age_avg_opp_power_adj != null ||
+    team.repeat_opponent_share != null ||
+    team.positive_ml_evidence_scale != null ||
+    team.publication_cap_rank != null ||
+    team.publication_cap_score != null
+  );
+}
+
+function computeEvidenceReliability(team: TeamWithRanking): number {
+  if (!hasPredictionEvidence(team)) {
+    return 1;
+  }
+
+  let reliability = 1;
+  const sameAgeGames = Math.max(0, team.same_age_games ?? 0);
+  const sameAgeShare = clamp(team.same_age_game_share ?? 0, 0, 1);
+  const sameAgeOpponents = Math.max(0, team.same_age_unique_opponents ?? 0);
+  const top100Opponents = Math.max(0, team.same_age_top100_opp_count ?? 0);
+  const top500Opponents = Math.max(0, team.same_age_top500_opp_count ?? 0);
+  const avgOppPower = team.same_age_avg_opp_power_adj;
+  const repeatShare = clamp(team.repeat_opponent_share ?? 0, 0, 1);
+  const mlEvidenceScale = clamp(team.positive_ml_evidence_scale ?? 1, 0, 1.1);
+
+  reliability += Math.min(sameAgeGames / 8, 1) * 0.03;
+  reliability += sameAgeShare * 0.06;
+  reliability += Math.min(sameAgeOpponents / 6, 1) * 0.05;
+  reliability += Math.min(top100Opponents / 3, 1) * 0.06;
+  reliability += Math.min(top500Opponents / 6, 1) * 0.04;
+  if (avgOppPower != null) {
+    reliability += clamp(avgOppPower - 0.5, -0.06, 0.06);
+  }
+  reliability -= repeatShare * 0.12;
+  reliability *= clamp(0.82 + mlEvidenceScale * 0.18, 0.82, 1.02);
+
+  if (team.power_score_final != null && team.publication_cap_score != null) {
+    reliability -= clamp((team.power_score_final - team.publication_cap_score) * 1.2, 0, 0.1);
+  }
+
+  if (team.publication_cap_rank != null) {
+    reliability -= team.publication_cap_rank <= 100 ? 0.06 : team.publication_cap_rank <= 200 ? 0.04 : 0.02;
+  }
+
+  return clamp(reliability, 0.72, 1.08);
+}
+
+function shrinkToNeutral(value: number, reliability: number): number {
+  return 0.5 + (value - 0.5) * reliability;
+}
+
+function shrinkTowardZero(value: number, reliability: number): number {
+  return value * reliability;
+}
+
 function blendOptional(left: number | null | undefined, right: number | null | undefined): number | null {
   if (left == null && right == null) return null;
   if (left == null) return right ?? null;
@@ -753,6 +813,9 @@ export interface MatchPrediction {
     matchupAdvantage: number;
     compositeDiff: number;
     mismatchScore: number;
+    evidenceSignal?: number;
+    evidenceReliabilityA?: number;
+    evidenceReliabilityB?: number;
     glickoRatingDiff?: number;
     glickoWinProbabilityA?: number;
     glickoReliability?: number;
@@ -774,7 +837,11 @@ export interface MatchPrediction {
  * v2.3: Multi-metric mismatch detection for better blowout prediction
  */
 export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, allGames: Game[]): MatchPrediction {
-  const powerDiff = (teamA.power_score_final || 0.5) - (teamB.power_score_final || 0.5);
+  const evidenceReliabilityA = computeEvidenceReliability(teamA);
+  const evidenceReliabilityB = computeEvidenceReliability(teamB);
+  const powerDiff =
+    shrinkToNeutral(teamA.power_score_final || 0.5, evidenceReliabilityA) -
+    shrinkToNeutral(teamB.power_score_final || 0.5, evidenceReliabilityB);
   const glickoStrength = calculateGlickoStrength(teamA, teamB);
   const offenseA = teamA.offense_norm || 0.5;
   const defenseA = teamA.defense_norm || 0.5;
@@ -792,12 +859,22 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
   const h2h = calculateHeadToHead(teamA.team_id_master, teamB.team_id_master, allGames);
   const h2hWeight = h2h.gamesPlayed > 0 ? Math.min(0.05 * h2h.gamesPlayed, 0.15) : 0;
 
-  const predictiveWinSignal = ((teamA.exp_win_rate ?? 0.5) - (teamB.exp_win_rate ?? 0.5)) * 0.9;
-  const predictiveMarginSignal = clamp(((teamA.exp_margin ?? 0) - (teamB.exp_margin ?? 0)) / 6, -0.35, 0.35);
+  const predictiveWinSignal =
+    (shrinkToNeutral(teamA.exp_win_rate ?? 0.5, evidenceReliabilityA) -
+      shrinkToNeutral(teamB.exp_win_rate ?? 0.5, evidenceReliabilityB)) *
+    0.9;
+  const predictiveMarginSignal = clamp(
+    (shrinkTowardZero(teamA.exp_margin ?? 0, evidenceReliabilityA) -
+      shrinkTowardZero(teamB.exp_margin ?? 0, evidenceReliabilityB)) /
+      6,
+    -0.35,
+    0.35
+  );
   const predictiveSignal = predictiveWinSignal + predictiveMarginSignal;
   const minGamesPlayed = Math.min(teamA.games_played || 0, teamB.games_played || 0);
   const recordDiff = (deriveWinRate(teamA) - deriveWinRate(teamB)) * Math.min(1, minGamesPlayed / 18);
   const residualSignal = clamp((recentA.mlTrend - recentB.mlTrend) / 3.5, -0.2, 0.2);
+  const evidenceSignal = clamp(evidenceReliabilityA - evidenceReliabilityB, -0.2, 0.2);
   const h2hSignal = h2hWeight > 0 ? h2h.advantage * (1 + h2hWeight) : 0;
   const strengthSignal = glickoStrength
     ? glickoStrength.signal * 0.55 + powerDiff * 0.25 + predictiveSignal * 0.2
@@ -810,6 +887,7 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
     weights.MATCHUP * matchupAdvantage +
     recordDiff * 0.08 +
     residualSignal * 0.06 +
+    evidenceSignal * 0.07 +
     h2hSignal * 0.08;
 
   if (mismatchScore > 0.4) {
@@ -821,8 +899,14 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
     extractAgeFromTeamName(teamA.team_name) || extractAgeFromTeamName(teamB.team_name) || teamA.age || teamB.age;
   const leagueAvgGoals = getLeagueAverageGoals(effectiveAge);
   const baseTotalGoals = leagueAvgGoals * 2;
-  const predictiveGoalsA = blendOptional(teamA.exp_goals_for, teamB.exp_goals_against);
-  const predictiveGoalsB = blendOptional(teamB.exp_goals_for, teamA.exp_goals_against);
+  const predictiveGoalsA = blendOptional(
+    teamA.exp_goals_for != null ? shrinkTowardZero(teamA.exp_goals_for, evidenceReliabilityA) : null,
+    teamB.exp_goals_against != null ? shrinkTowardZero(teamB.exp_goals_against, evidenceReliabilityB) : null
+  );
+  const predictiveGoalsB = blendOptional(
+    teamB.exp_goals_for != null ? shrinkTowardZero(teamB.exp_goals_for, evidenceReliabilityB) : null,
+    teamA.exp_goals_against != null ? shrinkTowardZero(teamA.exp_goals_against, evidenceReliabilityA) : null
+  );
   const predictiveTotalGoals =
     predictiveGoalsA != null || predictiveGoalsB != null
       ? (predictiveGoalsA ?? leagueAvgGoals) + (predictiveGoalsB ?? leagueAvgGoals)
@@ -937,6 +1021,13 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
   if (Math.min(recentA.sampleWeight, recentB.sampleWeight) < 0.4) {
     confidenceScore = clamp(confidenceScore - 0.04, 0.05, 0.98);
   }
+  if (Math.min(evidenceReliabilityA, evidenceReliabilityB) < 0.9) {
+    confidenceScore = clamp(
+      confidenceScore - (0.9 - Math.min(evidenceReliabilityA, evidenceReliabilityB)) * 0.16,
+      0.05,
+      0.98
+    );
+  }
 
   const confidence: 'high' | 'medium' | 'low' =
     confidenceScore >= 0.66 ? 'high' : confidenceScore >= 0.53 ? 'medium' : 'low';
@@ -962,6 +1053,9 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
       matchupAdvantage,
       compositeDiff,
       mismatchScore,
+      evidenceSignal,
+      evidenceReliabilityA,
+      evidenceReliabilityB,
       ...(glickoStrength
         ? {
             glickoRatingDiff: glickoStrength.ratingDiff,
