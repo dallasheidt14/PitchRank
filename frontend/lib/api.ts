@@ -1,5 +1,8 @@
-import { supabase } from './supabaseClient';
+import { createClientSupabase } from './supabase/client';
 import { AppError } from './errors';
+
+// Singleton — createClientSupabase() caches the instance internally
+const supabase = createClientSupabase();
 import { normalizeAgeGroup } from './utils';
 import type {
   Team,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
+import { createServerSupabase } from '@/lib/supabase/server';
 
 /**
  * GET /api/chat
@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabaseClient';
  */
 export async function GET() {
   try {
+    const supabase = await createServerSupabase();
     const { data, error } = await supabase
       .from('mission_chat')
       .select('*')
@@ -35,6 +36,7 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createServerSupabase();
     const body = await request.json();
     const { author, author_type = 'human', content } = body;
 

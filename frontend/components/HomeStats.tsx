@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { createClientSupabase } from '@/lib/supabase/client';
 
 interface HomeStatsProps {
   fallbackGames?: number;
@@ -17,6 +17,7 @@ export function HomeStats({ fallbackGames = 16000, fallbackTeams = 2800 }: HomeS
   useEffect(() => {
     async function fetchStats() {
       try {
+        const supabase = createClientSupabase();
         // Try RPC function first
         const { data, error } = await supabase.rpc('get_db_stats');
 

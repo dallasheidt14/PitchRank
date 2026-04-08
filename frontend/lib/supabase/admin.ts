@@ -1,17 +1,23 @@
 import { NextResponse } from 'next/server';
+import { SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabase } from './server';
 
 /**
  * Verify the request is from an authenticated admin user.
- * Returns the user object if authorized, or a NextResponse error.
+ * Returns the user and supabase client if authorized, or a NextResponse error.
  *
  * Usage in route handlers:
  *   const auth = await requireAdmin();
  *   if (auth.error) return auth.error;
- *   const { user } = auth;
+ *   const { user, supabase } = auth;
  */
 export async function requireAdmin(): Promise<
-  { user: { id: string; email?: string }; error: null } | { user: null; error: NextResponse }
+  | {
+      user: { id: string; email?: string };
+      supabase: SupabaseClient;
+      error: null;
+    }
+  | { user: null; supabase: null; error: NextResponse }
 > {
   try {
     const supabase = await createServerSupabase();
@@ -24,6 +30,7 @@ export async function requireAdmin(): Promise<
     if (authError || !user) {
       return {
         user: null,
+        supabase: null,
         error: NextResponse.json({ error: 'Not authenticated' }, { status: 401 }),
       };
     }
@@ -33,14 +40,16 @@ export async function requireAdmin(): Promise<
     if (!profile || profile.plan !== 'admin') {
       return {
         user: null,
+        supabase: null,
         error: NextResponse.json({ error: 'Admin access required' }, { status: 403 }),
       };
     }
 
-    return { user, error: null };
+    return { user, supabase, error: null };
   } catch {
     return {
       user: null,
+      supabase: null,
       error: NextResponse.json({ error: 'Authentication failed' }, { status: 500 }),
     };
   }

@@ -55,7 +55,7 @@ export async function GET(request: Request) {
   const platform = searchParams.get('platform') || 'instagram'; // instagram, twitter, story
   const ageGroup = searchParams.get('age_group') || undefined;
   const gender = searchParams.get('gender') || undefined;
-  const limit = parseInt(searchParams.get('limit') || '5');
+  const limit = Math.min(parseInt(searchParams.get('limit') || '5') || 5, 10);
 
   // Platform dimensions
   const dimensions = {

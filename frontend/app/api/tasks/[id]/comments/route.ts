@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
 import { requireAdmin } from '@/lib/supabase/admin';
 
 export interface TaskComment {
@@ -19,6 +18,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const auth = await requireAdmin();
     if (auth.error) return auth.error;
+    const { supabase } = auth;
 
     const { id: taskId } = await params;
 
@@ -45,6 +45,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const auth = await requireAdmin();
     if (auth.error) return auth.error;
+    const { supabase } = auth;
 
     const { id: taskId } = await params;
     const body = await request.json();

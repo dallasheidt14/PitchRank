@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
+import { SupabaseClient } from '@supabase/supabase-js';
+import { createServerSupabase } from '@/lib/supabase/server';
 
 /**
  * Agent Webhook API
@@ -24,7 +25,7 @@ interface WebhookPayload {
 }
 
 /** Find the task_id associated with a session key via task_comments */
-async function findTaskBySession(sessionKey: string): Promise<string | null> {
+async function findTaskBySession(supabase: SupabaseClient, sessionKey: string): Promise<string | null> {
   const { data: comments } = await supabase
     .from('task_comments')
     .select('task_id')
@@ -72,6 +73,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const supabase = await createServerSupabase();
     const body: WebhookPayload = await request.json();
     const { action, sessionKey, agentName, task, result, error: errorMsg } = body;
 
@@ -163,7 +165,7 @@ export async function POST(request: NextRequest) {
           })
           .eq('session_key', sessionKey);
 
-        const taskId = await findTaskBySession(sessionKey);
+        const taskId = await findTaskBySession(supabase, sessionKey);
         if (!taskId) {
           return NextResponse.json({ error: 'Task not found for session' }, { status: 404 });
         }
@@ -191,7 +193,7 @@ export async function POST(request: NextRequest) {
           })
           .eq('session_key', sessionKey);
 
-        const taskId = await findTaskBySession(sessionKey);
+        const taskId = await findTaskBySession(supabase, sessionKey);
         if (!taskId) {
           return NextResponse.json({ error: 'Task not found for session' }, { status: 404 });
         }
@@ -238,7 +240,7 @@ export async function POST(request: NextRequest) {
           })
           .eq('session_key', sessionKey);
 
-        const taskId = await findTaskBySession(sessionKey);
+        const taskId = await findTaskBySession(supabase, sessionKey);
         if (!taskId) {
           return NextResponse.json({ error: 'Task not found for session' }, { status: 404 });
         }
