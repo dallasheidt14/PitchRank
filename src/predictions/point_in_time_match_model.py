@@ -114,11 +114,15 @@ POISSON_MAX_GOALS = 8
 DRAW_CLASS_WEIGHT_BOOST = 1.6
 DRAW_BINARY_WEIGHT_CAP = 4.0
 DRAW_MODEL_SHRINK_FACTOR = 0.3
+BLOWOUT_CLASS_WEIGHT_CAP = 5.0
 DEFAULT_PROBABILITY_STRATEGY = "hybrid"
 POISSON_DRAW_GATE_PROBABILITY_MIN = 0.25
 POISSON_DRAW_GATE_TOTAL_GOALS_MAX = 2.2
 POISSON_DRAW_GATE_STALEMATE_MIN = 0.60
 POISSON_DRAW_GATE_EXPECTED_GOAL_GAP_MAX = 0.45
+BLOWOUT_THRESHOLDS = (3, 5)
+LOW_SCORE_CORRELATION_BASE = -0.035
+LOW_SCORE_CORRELATION_MAX = -0.18
 PROBABILITY_STRATEGIES = {"hybrid", "poisson_primary", "poisson_draw_gate"}
 
 
@@ -126,6 +130,19 @@ PROBABILITY_STRATEGIES = {"hybrid", "poisson_primary", "poisson_draw_gate"}
 class DatasetBuildResult:
     dataset: pd.DataFrame
     summary: Dict[str, object]
+
+
+@dataclass
+class StrategyOutputs:
+    probabilities: np.ndarray
+    poisson_probabilities: np.ndarray
+    draw_model_probability: np.ndarray
+    expected_goals_a: np.ndarray
+    expected_goals_b: np.ndarray
+    predicted_score_a: np.ndarray
+    predicted_score_b: np.ndarray
+    blowout_3plus_probability: np.ndarray
+    blowout_5plus_probability: np.ndarray
 
 
 def _to_float(value: object, default: float = 0.0) -> float:
@@ -377,6 +394,98 @@ def _poisson_outcome_probabilities(
         out=np.full_like(probability_frame, 1.0 / 3.0),
         where=row_sums > 0,
     )
+
+
+def _dixon_coles_rho(
+    draw_model_probability: np.ndarray,
+    stalemate_signal: np.ndarray,
+    projected_total_goals: np.ndarray,
+    expected_goal_gap_abs: np.ndarray,
+) -> np.ndarray:
+    draw_component = np.clip((np.asarray(draw_model_probability, dtype=float) - 0.12) / 0.22, 0.0, 1.0)
+    stalemate_component = np.clip(np.asarray(stalemate_signal, dtype=float), 0.0, 1.0)
+    low_total_component = np.exp(-np.maximum(np.asarray(projected_total_goals, dtype=float) - 2.2, 0.0) / 0.75)
+    closeness_component = np.exp(-np.asarray(expected_goal_gap_abs, dtype=float) / 0.65)
+    rho_strength = (
+        0.20 * draw_component
+        + 0.35 * stalemate_component
+        + 0.25 * low_total_component
+        + 0.20 * closeness_component
+    )
+    return np.clip(
+        LOW_SCORE_CORRELATION_BASE + (LOW_SCORE_CORRELATION_MAX - LOW_SCORE_CORRELATION_BASE) * rho_strength,
+        LOW_SCORE_CORRELATION_MAX,
+        -0.01,
+    )
+
+
+def _poisson_score_matrix(
+    team_a_expected_goals: np.ndarray,
+    team_b_expected_goals: np.ndarray,
+    rho: Optional[np.ndarray] = None,
+    max_goals: int = POISSON_MAX_GOALS,
+) -> np.ndarray:
+    probs_a = _poisson_probability_matrix(team_a_expected_goals, max_goals=max_goals)
+    probs_b = _poisson_probability_matrix(team_b_expected_goals, max_goals=max_goals)
+    score_matrix = probs_a[:, :, None] * probs_b[:, None, :]
+
+    if rho is not None:
+        rho = np.asarray(rho, dtype=float)
+        lambda_vals = np.clip(np.asarray(team_a_expected_goals, dtype=float), 0.05, 8.0)
+        mu_vals = np.clip(np.asarray(team_b_expected_goals, dtype=float), 0.05, 8.0)
+        score_matrix[:, 0, 0] *= np.clip(1.0 - lambda_vals * mu_vals * rho, 0.5, 1.5)
+        score_matrix[:, 0, 1] *= np.clip(1.0 + lambda_vals * rho, 0.5, 1.5)
+        score_matrix[:, 1, 0] *= np.clip(1.0 + mu_vals * rho, 0.5, 1.5)
+        score_matrix[:, 1, 1] *= np.clip(1.0 - rho, 0.5, 1.5)
+
+    row_sums = score_matrix.sum(axis=(1, 2), keepdims=True)
+    return np.divide(
+        score_matrix,
+        row_sums,
+        out=np.full_like(score_matrix, 1.0 / ((max_goals + 1) ** 2)),
+        where=row_sums > 0,
+    )
+
+
+def _score_matrix_outcome_probabilities(score_matrix: np.ndarray) -> np.ndarray:
+    team_a_win = np.tril(score_matrix, k=-1).sum(axis=(1, 2))
+    draw = np.diagonal(score_matrix, axis1=1, axis2=2).sum(axis=1)
+    team_b_win = np.triu(score_matrix, k=1).sum(axis=(1, 2))
+    outcomes = np.column_stack([team_a_win, draw, team_b_win])
+    row_sums = outcomes.sum(axis=1, keepdims=True)
+    return np.divide(
+        outcomes,
+        row_sums,
+        out=np.full_like(outcomes, 1.0 / 3.0),
+        where=row_sums > 0,
+    )
+
+
+def _score_matrix_summary(score_matrix: np.ndarray) -> Dict[str, np.ndarray]:
+    goals_axis = np.arange(score_matrix.shape[1], dtype=float)
+    expected_goals_a = np.sum(score_matrix * goals_axis[None, :, None], axis=(1, 2))
+    expected_goals_b = np.sum(score_matrix * goals_axis[None, None, :], axis=(1, 2))
+    draw_probability = np.trace(score_matrix, axis1=1, axis2=2)
+
+    flat_indices = np.argmax(score_matrix.reshape(score_matrix.shape[0], -1), axis=1)
+    predicted_score_a = (flat_indices // score_matrix.shape[2]).astype(float)
+    predicted_score_b = (flat_indices % score_matrix.shape[2]).astype(float)
+
+    goal_margin_abs = np.abs(
+        np.arange(score_matrix.shape[1])[:, None] - np.arange(score_matrix.shape[2])[None, :]
+    )
+    blowout_3plus_probability = score_matrix[:, goal_margin_abs >= 3].sum(axis=1)
+    blowout_5plus_probability = score_matrix[:, goal_margin_abs >= 5].sum(axis=1)
+
+    return {
+        "expected_goals_a": expected_goals_a,
+        "expected_goals_b": expected_goals_b,
+        "draw_probability": draw_probability,
+        "predicted_score_a": predicted_score_a,
+        "predicted_score_b": predicted_score_b,
+        "blowout_3plus_probability": blowout_3plus_probability,
+        "blowout_5plus_probability": blowout_5plus_probability,
+    }
 
 
 def _poisson_draw_gate_mask(
@@ -892,6 +1001,8 @@ class PointInTimeMatchModel:
         self.class_labels: List[int] = []
         self.classifier = None
         self.draw_classifier = None
+        self.blowout_classifier_3plus = None
+        self.blowout_classifier_5plus = None
         self.margin_regressor = None
         self.score_a_regressor = None
         self.score_b_regressor = None
@@ -1074,16 +1185,28 @@ class PointInTimeMatchModel:
         return sample_weights, named_weight_map
 
     def _draw_sample_weights(self, draw_targets: np.ndarray) -> Tuple[np.ndarray, Dict[str, float]]:
-        draw_count = int(np.sum(draw_targets == 1))
-        non_draw_count = int(np.sum(draw_targets == 0))
-        if draw_count <= 0:
-            return np.ones_like(draw_targets, dtype=float), {"non_draw": 1.0, "draw": 1.0}
-        positive_weight = min(
-            DRAW_BINARY_WEIGHT_CAP,
-            max(1.0, math.sqrt(float(non_draw_count) / float(draw_count))) * 1.2,
+        return self._binary_sample_weights(
+            draw_targets,
+            positive_label="draw",
+            cap=DRAW_BINARY_WEIGHT_CAP,
         )
-        sample_weights = np.where(draw_targets == 1, positive_weight, 1.0).astype(float)
-        return sample_weights, {"non_draw": 1.0, "draw": float(positive_weight)}
+
+    def _binary_sample_weights(
+        self,
+        targets: np.ndarray,
+        positive_label: str,
+        cap: float,
+    ) -> Tuple[np.ndarray, Dict[str, float]]:
+        positive_count = int(np.sum(targets == 1))
+        negative_count = int(np.sum(targets == 0))
+        if positive_count <= 0:
+            return np.ones_like(targets, dtype=float), {"non_positive": 1.0, positive_label: 1.0}
+        positive_weight = min(
+            cap,
+            max(1.0, math.sqrt(float(negative_count) / float(positive_count))) * 1.2,
+        )
+        sample_weights = np.where(targets == 1, positive_weight, 1.0).astype(float)
+        return sample_weights, {"non_positive": 1.0, positive_label: float(positive_weight)}
 
     def _predict_draw_probability(self, matrix: pd.DataFrame) -> np.ndarray:
         if self.draw_classifier is None:
@@ -1096,6 +1219,18 @@ class PointInTimeMatchModel:
             else probabilities.shape[1] - 1
         )
         return np.asarray(probabilities[:, draw_index], dtype=float)
+
+    def _predict_binary_probability(self, classifier, matrix: pd.DataFrame) -> np.ndarray:
+        if classifier is None:
+            return np.full(len(matrix), np.nan, dtype=float)
+        probabilities = classifier.predict_proba(matrix)
+        binary_classes = getattr(classifier, "classes_", np.array([0, 1]))
+        positive_index = (
+            int(np.where(np.asarray(binary_classes) == 1)[0][0])
+            if 1 in binary_classes
+            else probabilities.shape[1] - 1
+        )
+        return np.asarray(probabilities[:, positive_index], dtype=float)
 
     def _expected_goals_from_predictions(
         self,
@@ -1155,6 +1290,49 @@ class PointInTimeMatchModel:
         )
         return draw_model_probability, stalemate_signal, expected_draw_environment, projected_total_goals
 
+    def _score_matrix_context(
+        self,
+        expected_goals_a: np.ndarray,
+        expected_goals_b: np.ndarray,
+        draw_model_probability: np.ndarray,
+        stalemate_signal: np.ndarray,
+        projected_total_goals: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray, Dict[str, np.ndarray]]:
+        expected_goal_gap_abs = np.abs(expected_goals_a - expected_goals_b)
+        rho = _dixon_coles_rho(
+            draw_model_probability=draw_model_probability,
+            stalemate_signal=stalemate_signal,
+            projected_total_goals=projected_total_goals,
+            expected_goal_gap_abs=expected_goal_gap_abs,
+        )
+        score_matrix = _poisson_score_matrix(expected_goals_a, expected_goals_b, rho=rho)
+        return score_matrix, _score_matrix_outcome_probabilities(score_matrix), _score_matrix_summary(score_matrix)
+
+    def _blowout_probabilities(
+        self,
+        matrix: pd.DataFrame,
+        score_matrix_summary: Dict[str, np.ndarray],
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        model_blowout_3plus = np.nan_to_num(
+            self._predict_binary_probability(self.blowout_classifier_3plus, matrix),
+            nan=score_matrix_summary["blowout_3plus_probability"],
+        )
+        model_blowout_5plus = np.nan_to_num(
+            self._predict_binary_probability(self.blowout_classifier_5plus, matrix),
+            nan=score_matrix_summary["blowout_5plus_probability"],
+        )
+        blowout_3plus_probability = np.clip(
+            0.55 * model_blowout_3plus + 0.45 * score_matrix_summary["blowout_3plus_probability"],
+            0.0,
+            1.0,
+        )
+        blowout_5plus_probability = np.clip(
+            0.60 * model_blowout_5plus + 0.40 * score_matrix_summary["blowout_5plus_probability"],
+            0.0,
+            1.0,
+        )
+        return blowout_3plus_probability, blowout_5plus_probability
+
     def _compose_outcome_probabilities(
         self,
         dataset_df: pd.DataFrame,
@@ -1162,14 +1340,13 @@ class PointInTimeMatchModel:
         base_probabilities: np.ndarray,
         predicted_score_a: np.ndarray,
         predicted_score_b: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ) -> StrategyOutputs:
         expected_goals_a, expected_goals_b = self._expected_goals_from_predictions(
             dataset_df,
             predicted_score_a,
             predicted_score_b,
             score_weight=0.65,
         )
-        poisson_probabilities = _poisson_outcome_probabilities(expected_goals_a, expected_goals_b)
         (
             draw_model_probability,
             stalemate_signal,
@@ -1179,6 +1356,13 @@ class PointInTimeMatchModel:
             dataset_df,
             matrix,
             fallback_draw_probability=base_probabilities[:, OUTCOME_DRAW],
+        )
+        _, poisson_probabilities, score_matrix_summary = self._score_matrix_context(
+            expected_goals_a=expected_goals_a,
+            expected_goals_b=expected_goals_b,
+            draw_model_probability=draw_model_probability,
+            stalemate_signal=stalemate_signal,
+            projected_total_goals=projected_total_goals,
         )
 
         combined_draw_probability = (
@@ -1231,7 +1415,21 @@ class PointInTimeMatchModel:
             )
             combined = self._normalize_probabilities(combined)
 
-        return combined, poisson_probabilities, draw_model_probability, expected_goals_a, expected_goals_b
+        blowout_3plus_probability, blowout_5plus_probability = self._blowout_probabilities(
+            matrix,
+            score_matrix_summary,
+        )
+        return StrategyOutputs(
+            probabilities=combined,
+            poisson_probabilities=poisson_probabilities,
+            draw_model_probability=draw_model_probability,
+            expected_goals_a=expected_goals_a,
+            expected_goals_b=expected_goals_b,
+            predicted_score_a=score_matrix_summary["predicted_score_a"],
+            predicted_score_b=score_matrix_summary["predicted_score_b"],
+            blowout_3plus_probability=blowout_3plus_probability,
+            blowout_5plus_probability=blowout_5plus_probability,
+        )
 
     def _compose_poisson_primary_probabilities(
         self,
@@ -1239,14 +1437,13 @@ class PointInTimeMatchModel:
         matrix: pd.DataFrame,
         predicted_score_a: np.ndarray,
         predicted_score_b: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ) -> StrategyOutputs:
         expected_goals_a, expected_goals_b = self._expected_goals_from_predictions(
             dataset_df,
             predicted_score_a,
             predicted_score_b,
             score_weight=0.72,
         )
-        poisson_probabilities = _poisson_outcome_probabilities(expected_goals_a, expected_goals_b)
         (
             draw_model_probability,
             stalemate_signal,
@@ -1255,7 +1452,14 @@ class PointInTimeMatchModel:
         ) = self._draw_context(
             dataset_df,
             matrix,
-            fallback_draw_probability=poisson_probabilities[:, OUTCOME_DRAW],
+            fallback_draw_probability=np.full(len(matrix), self.draw_rate_prior, dtype=float),
+        )
+        _, poisson_probabilities, score_matrix_summary = self._score_matrix_context(
+            expected_goals_a=expected_goals_a,
+            expected_goals_b=expected_goals_b,
+            draw_model_probability=draw_model_probability,
+            stalemate_signal=stalemate_signal,
+            projected_total_goals=projected_total_goals,
         )
 
         combined_draw_probability = (
@@ -1306,7 +1510,21 @@ class PointInTimeMatchModel:
             )
             combined = self._normalize_probabilities(combined)
 
-        return combined, poisson_probabilities, draw_model_probability, expected_goals_a, expected_goals_b
+        blowout_3plus_probability, blowout_5plus_probability = self._blowout_probabilities(
+            matrix,
+            score_matrix_summary,
+        )
+        return StrategyOutputs(
+            probabilities=combined,
+            poisson_probabilities=poisson_probabilities,
+            draw_model_probability=draw_model_probability,
+            expected_goals_a=expected_goals_a,
+            expected_goals_b=expected_goals_b,
+            predicted_score_a=score_matrix_summary["predicted_score_a"],
+            predicted_score_b=score_matrix_summary["predicted_score_b"],
+            blowout_3plus_probability=blowout_3plus_probability,
+            blowout_5plus_probability=blowout_5plus_probability,
+        )
 
     def _compose_poisson_draw_gate_probabilities(
         self,
@@ -1314,14 +1532,12 @@ class PointInTimeMatchModel:
         matrix: pd.DataFrame,
         predicted_score_a: np.ndarray,
         predicted_score_b: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        combined, poisson_probabilities, draw_model_probability, expected_goals_a, expected_goals_b = (
-            self._compose_poisson_primary_probabilities(
-                dataset_df,
-                matrix,
-                predicted_score_a,
-                predicted_score_b,
-            )
+    ) -> StrategyOutputs:
+        strategy_outputs = self._compose_poisson_primary_probabilities(
+            dataset_df,
+            matrix,
+            predicted_score_a,
+            predicted_score_b,
         )
         projected_total_goals = (
             pd.to_numeric(dataset_df.get("projected_total_goals"), errors="coerce")
@@ -1333,22 +1549,25 @@ class PointInTimeMatchModel:
             .fillna(0.0)
             .to_numpy(dtype=float)
         )
-        expected_goal_gap_abs = np.abs(expected_goals_a - expected_goals_b)
+        expected_goal_gap_abs = np.abs(
+            strategy_outputs.expected_goals_a - strategy_outputs.expected_goals_b
+        )
         draw_trigger = _poisson_draw_gate_mask(
-            draw_probability=combined[:, OUTCOME_DRAW],
+            draw_probability=strategy_outputs.probabilities[:, OUTCOME_DRAW],
             projected_total_goals=projected_total_goals,
             stalemate_signal=stalemate_signal,
             expected_goal_gap_abs=expected_goal_gap_abs,
         )
         if np.any(draw_trigger):
-            draw_edge = np.max(combined[:, [OUTCOME_TEAM_A_WIN, OUTCOME_TEAM_B_WIN]], axis=1)
-            combined[draw_trigger, OUTCOME_DRAW] = np.maximum(
-                combined[draw_trigger, OUTCOME_DRAW],
+            probabilities = strategy_outputs.probabilities.copy()
+            draw_edge = np.max(probabilities[:, [OUTCOME_TEAM_A_WIN, OUTCOME_TEAM_B_WIN]], axis=1)
+            probabilities[draw_trigger, OUTCOME_DRAW] = np.maximum(
+                probabilities[draw_trigger, OUTCOME_DRAW],
                 draw_edge[draw_trigger] + 1e-3,
             )
-            combined = self._normalize_probabilities(combined)
+            strategy_outputs.probabilities = self._normalize_probabilities(probabilities)
 
-        return combined, poisson_probabilities, draw_model_probability, expected_goals_a, expected_goals_b
+        return strategy_outputs
 
     def _strategy_outputs(
         self,
@@ -1358,7 +1577,7 @@ class PointInTimeMatchModel:
         base_probabilities: np.ndarray,
         predicted_score_a: np.ndarray,
         predicted_score_b: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ) -> StrategyOutputs:
         if probability_strategy == "hybrid":
             return self._compose_outcome_probabilities(
                 dataset_df,
@@ -1395,6 +1614,8 @@ class PointInTimeMatchModel:
         draw_model_probability: np.ndarray,
         expected_goals_a: np.ndarray,
         expected_goals_b: np.ndarray,
+        blowout_3plus_probability: np.ndarray,
+        blowout_5plus_probability: np.ndarray,
         probability_strategy: str,
     ) -> pd.DataFrame:
         age_group_numeric = pd.to_numeric(test_df.get("age_group_numeric"), errors="coerce").fillna(0).astype(int)
@@ -1415,6 +1636,8 @@ class PointInTimeMatchModel:
                 "poisson_prob_draw": poisson_probabilities[:, OUTCOME_DRAW],
                 "poisson_prob_team_b_win": poisson_probabilities[:, OUTCOME_TEAM_B_WIN],
                 "draw_model_probability": draw_model_probability,
+                "blowout_3plus_probability": blowout_3plus_probability,
+                "blowout_5plus_probability": blowout_5plus_probability,
                 "stalemate_signal": (
                     pd.to_numeric(test_df.get("stalemate_signal"), errors="coerce")
                     .fillna(0.0)
@@ -1503,6 +1726,36 @@ class PointInTimeMatchModel:
             self.draw_classifier.fit(X_train, draw_targets_train, sample_weight=draw_sample_weights)
         else:
             self.draw_classifier = None
+        blowout_targets_3plus = (train_df["actual_margin"].astype(float).abs() >= 3.0).astype(int).to_numpy()
+        blowout_weights_3plus, blowout_weight_map_3plus = self._binary_sample_weights(
+            blowout_targets_3plus,
+            positive_label="blowout_3plus",
+            cap=BLOWOUT_CLASS_WEIGHT_CAP,
+        )
+        self.blowout_classifier_3plus = self._build_binary_classifier(random_state=random_state)
+        if np.any(blowout_targets_3plus == 1) and np.any(blowout_targets_3plus == 0):
+            self.blowout_classifier_3plus.fit(
+                X_train,
+                blowout_targets_3plus,
+                sample_weight=blowout_weights_3plus,
+            )
+        else:
+            self.blowout_classifier_3plus = None
+        blowout_targets_5plus = (train_df["actual_margin"].astype(float).abs() >= 5.0).astype(int).to_numpy()
+        blowout_weights_5plus, blowout_weight_map_5plus = self._binary_sample_weights(
+            blowout_targets_5plus,
+            positive_label="blowout_5plus",
+            cap=BLOWOUT_CLASS_WEIGHT_CAP,
+        )
+        self.blowout_classifier_5plus = self._build_binary_classifier(random_state=random_state)
+        if np.any(blowout_targets_5plus == 1) and np.any(blowout_targets_5plus == 0):
+            self.blowout_classifier_5plus.fit(
+                X_train,
+                blowout_targets_5plus,
+                sample_weight=blowout_weights_5plus,
+            )
+        else:
+            self.blowout_classifier_5plus = None
         self.margin_regressor.fit(X_train, train_df["actual_margin"].astype(float))
         self.score_a_regressor.fit(X_train, train_df["actual_score_a"].astype(float))
         self.score_b_regressor.fit(X_train, train_df["actual_score_b"].astype(float))
@@ -1513,7 +1766,7 @@ class PointInTimeMatchModel:
         predicted_score_a = self.score_a_regressor.predict(X_test)
         predicted_score_b = self.score_b_regressor.predict(X_test)
         strategy_metrics: Dict[str, Dict[str, object]] = {}
-        strategy_outputs: Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = {}
+        strategy_outputs: Dict[str, StrategyOutputs] = {}
         for strategy_name in sorted(PROBABILITY_STRATEGIES):
             outputs = self._strategy_outputs(
                 strategy_name,
@@ -1524,44 +1777,43 @@ class PointInTimeMatchModel:
                 predicted_score_b=predicted_score_b,
             )
             strategy_outputs[strategy_name] = outputs
-            probabilities_for_strategy = outputs[0]
+            probabilities_for_strategy = outputs.probabilities
             predicted_labels_for_strategy = np.argmax(probabilities_for_strategy, axis=1)
             strategy_evaluation_frame = self._build_evaluation_frame(
                 test_df=test_df,
                 probabilities=probabilities_for_strategy,
                 predicted_labels=predicted_labels_for_strategy,
                 predicted_margin=predicted_margin,
-                predicted_score_a=predicted_score_a,
-                predicted_score_b=predicted_score_b,
-                poisson_probabilities=outputs[1],
-                draw_model_probability=outputs[2],
-                expected_goals_a=outputs[3],
-                expected_goals_b=outputs[4],
+                predicted_score_a=outputs.predicted_score_a,
+                predicted_score_b=outputs.predicted_score_b,
+                poisson_probabilities=outputs.poisson_probabilities,
+                draw_model_probability=outputs.draw_model_probability,
+                expected_goals_a=outputs.expected_goals_a,
+                expected_goals_b=outputs.expected_goals_b,
+                blowout_3plus_probability=outputs.blowout_3plus_probability,
+                blowout_5plus_probability=outputs.blowout_5plus_probability,
                 probability_strategy=strategy_name,
             )
             strategy_summary = compute_evaluation_summary(strategy_evaluation_frame)
             strategy_summary["predicted_draw_rate"] = float(np.mean(predicted_labels_for_strategy == OUTCOME_DRAW))
             strategy_metrics[strategy_name] = strategy_summary
 
-        (
-            probabilities,
-            poisson_probabilities,
-            draw_model_probability,
-            expected_goals_a,
-            expected_goals_b,
-        ) = strategy_outputs[self.probability_strategy]
+        selected_outputs = strategy_outputs[self.probability_strategy]
+        probabilities = selected_outputs.probabilities
         predicted_labels = np.argmax(probabilities, axis=1)
         self.last_evaluation_frame = self._build_evaluation_frame(
             test_df=test_df,
             probabilities=probabilities,
             predicted_labels=predicted_labels,
             predicted_margin=predicted_margin,
-            predicted_score_a=predicted_score_a,
-            predicted_score_b=predicted_score_b,
-            poisson_probabilities=poisson_probabilities,
-            draw_model_probability=draw_model_probability,
-            expected_goals_a=expected_goals_a,
-            expected_goals_b=expected_goals_b,
+            predicted_score_a=selected_outputs.predicted_score_a,
+            predicted_score_b=selected_outputs.predicted_score_b,
+            poisson_probabilities=selected_outputs.poisson_probabilities,
+            draw_model_probability=selected_outputs.draw_model_probability,
+            expected_goals_a=selected_outputs.expected_goals_a,
+            expected_goals_b=selected_outputs.expected_goals_b,
+            blowout_3plus_probability=selected_outputs.blowout_3plus_probability,
+            blowout_5plus_probability=selected_outputs.blowout_5plus_probability,
             probability_strategy=self.probability_strategy,
         )
         summary_metrics = compute_evaluation_summary(self.last_evaluation_frame)
@@ -1577,6 +1829,8 @@ class PointInTimeMatchModel:
             "training_class_balance": class_balance,
             "multiclass_sample_weights": named_class_weights,
             "draw_binary_sample_weights": draw_weight_map,
+            "blowout_3plus_sample_weights": blowout_weight_map_3plus,
+            "blowout_5plus_sample_weights": blowout_weight_map_5plus,
             "strategy_metrics": strategy_metrics,
         }
 
@@ -1598,6 +1852,8 @@ class PointInTimeMatchModel:
         model = cls(model_dir=str(Path(artifact_path).resolve().parent))
         model.classifier = payload["classifier"]
         model.draw_classifier = payload.get("draw_classifier")
+        model.blowout_classifier_3plus = payload.get("blowout_classifier_3plus")
+        model.blowout_classifier_5plus = payload.get("blowout_classifier_5plus")
         model.margin_regressor = payload["margin_regressor"]
         model.score_a_regressor = payload["score_a_regressor"]
         model.score_b_regressor = payload["score_b_regressor"]
@@ -1617,13 +1873,7 @@ class PointInTimeMatchModel:
         predicted_margin = self.margin_regressor.predict(matrix)
         predicted_score_a = self.score_a_regressor.predict(matrix)
         predicted_score_b = self.score_b_regressor.predict(matrix)
-        (
-            probabilities,
-            poisson_probabilities,
-            draw_model_probability,
-            expected_goals_a,
-            expected_goals_b,
-        ) = self._strategy_outputs(
+        strategy_outputs = self._strategy_outputs(
             self.probability_strategy,
             dataset_df=dataset_df,
             matrix=matrix,
@@ -1631,18 +1881,21 @@ class PointInTimeMatchModel:
             predicted_score_a=predicted_score_a,
             predicted_score_b=predicted_score_b,
         )
+        probabilities = strategy_outputs.probabilities
         predicted_labels = np.argmax(probabilities, axis=1)
         return self._build_evaluation_frame(
             test_df=dataset_df,
             probabilities=probabilities,
             predicted_labels=predicted_labels,
             predicted_margin=predicted_margin,
-            predicted_score_a=predicted_score_a,
-            predicted_score_b=predicted_score_b,
-            poisson_probabilities=poisson_probabilities,
-            draw_model_probability=draw_model_probability,
-            expected_goals_a=expected_goals_a,
-            expected_goals_b=expected_goals_b,
+            predicted_score_a=strategy_outputs.predicted_score_a,
+            predicted_score_b=strategy_outputs.predicted_score_b,
+            poisson_probabilities=strategy_outputs.poisson_probabilities,
+            draw_model_probability=strategy_outputs.draw_model_probability,
+            expected_goals_a=strategy_outputs.expected_goals_a,
+            expected_goals_b=strategy_outputs.expected_goals_b,
+            blowout_3plus_probability=strategy_outputs.blowout_3plus_probability,
+            blowout_5plus_probability=strategy_outputs.blowout_5plus_probability,
             probability_strategy=self.probability_strategy,
         )
 
@@ -1670,6 +1923,8 @@ class PointInTimeMatchModel:
         payload = {
             "classifier": self.classifier,
             "draw_classifier": self.draw_classifier,
+            "blowout_classifier_3plus": self.blowout_classifier_3plus,
+            "blowout_classifier_5plus": self.blowout_classifier_5plus,
             "margin_regressor": self.margin_regressor,
             "score_a_regressor": self.score_a_regressor,
             "score_b_regressor": self.score_b_regressor,

@@ -157,6 +157,8 @@ def test_compute_evaluation_summary_tracks_score_and_blowout_metrics():
                 "predicted_score_b": 1.0,
                 "actual_score_a": 4,
                 "actual_score_b": 0,
+                "blowout_3plus_probability": 0.81,
+                "blowout_5plus_probability": 0.34,
             },
             {
                 "game_id": "g2",
@@ -172,6 +174,8 @@ def test_compute_evaluation_summary_tracks_score_and_blowout_metrics():
                 "predicted_score_b": 1.0,
                 "actual_score_a": 1,
                 "actual_score_b": 1,
+                "blowout_3plus_probability": 0.08,
+                "blowout_5plus_probability": 0.02,
             },
             {
                 "game_id": "g3",
@@ -187,6 +191,8 @@ def test_compute_evaluation_summary_tracks_score_and_blowout_metrics():
                 "predicted_score_b": 2.0,
                 "actual_score_a": 0,
                 "actual_score_b": 2,
+                "blowout_3plus_probability": 0.19,
+                "blowout_5plus_probability": 0.05,
             },
         ]
     )
@@ -202,5 +208,9 @@ def test_compute_evaluation_summary_tracks_score_and_blowout_metrics():
     assert summary["competitive_game_recall"] == 1.0
     assert summary["blowout_3plus_recall"] == 1.0
     assert summary["blowout_3plus_precision"] == 1.0
+    assert summary["blowout_3plus_brier"] is not None
+    assert summary["blowout_5plus_brier"] is not None
     assert not margin_bands.empty
     assert set(margin_bands["band"]) == {"competitive_1plus", "blowout_3plus", "blowout_5plus"}
+    assert "avg_probability" in margin_bands.columns
+    assert "brier" in margin_bands.columns

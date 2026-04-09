@@ -2,8 +2,11 @@ import numpy as np
 import pandas as pd
 
 from src.predictions.point_in_time_match_model import (
+    _dixon_coles_rho,
     _poisson_draw_gate_mask,
     _poisson_outcome_probabilities,
+    _poisson_score_matrix,
+    _score_matrix_summary,
     build_point_in_time_dataset,
 )
 
@@ -214,3 +217,33 @@ def test_poisson_draw_gate_mask_requires_low_total_close_stalemate_profile():
     )
 
     assert mask.tolist() == [True, False, False, False]
+
+
+def test_low_score_correlation_increases_balanced_draw_mass():
+    expected_goals_a = np.array([0.9])
+    expected_goals_b = np.array([0.9])
+    neutral_matrix = _poisson_score_matrix(expected_goals_a, expected_goals_b, rho=np.array([0.0]))
+    correlated_rho = _dixon_coles_rho(
+        draw_model_probability=np.array([0.31]),
+        stalemate_signal=np.array([0.84]),
+        projected_total_goals=np.array([1.8]),
+        expected_goal_gap_abs=np.array([0.0]),
+    )
+    correlated_matrix = _poisson_score_matrix(expected_goals_a, expected_goals_b, rho=correlated_rho)
+    neutral_summary = _score_matrix_summary(neutral_matrix)
+    correlated_summary = _score_matrix_summary(correlated_matrix)
+
+    assert correlated_summary["draw_probability"][0] > neutral_summary["draw_probability"][0]
+    assert correlated_matrix[0, 0, 0] > neutral_matrix[0, 0, 0]
+
+
+def test_score_matrix_summary_tracks_blowout_risk_for_lopsided_matchups():
+    balanced_summary = _score_matrix_summary(
+        _poisson_score_matrix(np.array([1.4]), np.array([1.2]), rho=np.array([0.0]))
+    )
+    lopsided_summary = _score_matrix_summary(
+        _poisson_score_matrix(np.array([2.8]), np.array([0.6]), rho=np.array([0.0]))
+    )
+
+    assert lopsided_summary["blowout_3plus_probability"][0] > balanced_summary["blowout_3plus_probability"][0]
+    assert lopsided_summary["blowout_5plus_probability"][0] > balanced_summary["blowout_5plus_probability"][0]
