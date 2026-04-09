@@ -28,6 +28,36 @@ on:
         required: false
         default: '0.2'
         type: string
+      probability_strategy:
+        description: 'Outcome probability strategy or selector mode'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - hybrid
+          - poisson_primary
+          - poisson_draw_gate
+      min_draw_recall:
+        description: 'Minimum draw recall for auto strategy selection'
+        required: false
+        default: '0.08'
+        type: string
+      max_draw_rate_gap:
+        description: 'Maximum draw-rate gap for auto strategy selection'
+        required: false
+        default: '0.08'
+        type: string
+      winner_accuracy_tolerance:
+        description: 'Allowed winner-accuracy drop from the best candidate'
+        required: false
+        default: '0.015'
+        type: string
+      log_loss_tolerance:
+        description: 'Allowed log-loss regression from the best candidate'
+        required: false
+        default: '0.003'
+        type: string
       min_examples:
         description: 'Minimum dataset size required to train'
         required: false
@@ -65,6 +95,14 @@ on:
         type: choice
         options:
           - temperature
+          - isotonic
+      draw_calibration_method:
+        description: 'Optional draw-specific calibration method'
+        required: false
+        default: isotonic
+        type: choice
+        options:
+          - none
           - isotonic
 
 concurrency:
@@ -125,6 +163,11 @@ jobs:
             python scripts/train_point_in_time_match_model.py
             --lookback-days "${{ github.event.inputs.lookback_days }}"
             --test-ratio "${{ github.event.inputs.test_ratio }}"
+            --probability-strategy "${{ github.event.inputs.probability_strategy }}"
+            --min-draw-recall "${{ github.event.inputs.min_draw_recall }}"
+            --max-draw-rate-gap "${{ github.event.inputs.max_draw_rate_gap }}"
+            --winner-accuracy-tolerance "${{ github.event.inputs.winner_accuracy_tolerance }}"
+            --log-loss-tolerance "${{ github.event.inputs.log_loss_tolerance }}"
             --min-examples "${{ github.event.inputs.min_examples }}"
             --probability-strategy "${{ github.event.inputs.probability_strategy }}"
             --model-dir "$MODEL_DIR"
@@ -167,6 +210,7 @@ jobs:
             --evaluation-csv "$EVALUATION_CSV" \
             --output-dir "$MODEL_DIR" \
             --method "${{ github.event.inputs.calibration_method }}" \
+            --draw-method "${{ github.event.inputs.draw_calibration_method }}" \
             --prefix "point_in_time_model_calibration"
 
       - name: Write run summary
@@ -209,6 +253,8 @@ jobs:
                 f"- Selected strategy: {metrics.get('probability_strategy')}",
                 f"- Winner accuracy: {metrics.get('winner_accuracy')}",
                 f"- Draw recall: {metrics.get('draw_recall')}",
+                f"- Predicted draw rate: {metrics.get('predicted_draw_rate')}",
+                f"- Selected strategy: {metrics.get('probability_strategy')}",
                 f"- Log loss: {metrics.get('log_loss')}",
                 f"- Margin MAE: {metrics.get('margin_mae')}",
               ]
@@ -222,7 +268,9 @@ jobs:
                 "",
                 "### Calibration",
                 f"- Method: {calibration.get('method')}",
+                f"- Draw method: {calibration.get('draw_method')}",
                 f"- Calibrated log loss: {after.get('log_loss')}",
+                f"- Calibrated draw recall: {after.get('draw_recall')}",
                 f"- Calibrated Brier: {after.get('brier_score')}",
               ]
             )

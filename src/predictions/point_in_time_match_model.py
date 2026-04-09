@@ -142,8 +142,12 @@ DRAW_POLICY_OVERSHOOT_PENALTY = 0.9
 DRAW_POLICY_UNDERSHOOT_PENALTY = 0.4
 DRAW_POLICY_RATE_GAP_PENALTY = 0.35
 COHORT_POSTPROCESSING_MIN_SAMPLES = 750
-AUTO_STRATEGY_MIN_DRAW_RECALL = 0.03
-AUTO_STRATEGY_MIN_DRAW_RATE_SHARE = 0.20
+DEFAULT_AUTO_STRATEGY_CONSTRAINTS = {
+    "min_draw_recall": 0.08,
+    "max_draw_rate_gap": 0.08,
+    "winner_accuracy_tolerance": 0.015,
+    "log_loss_tolerance": 0.003,
+}
 AUTO_STRATEGY_RANK_WEIGHTS = {
     "winner_accuracy": 3.0,
     "log_loss": 4.0,
@@ -1060,7 +1064,10 @@ class PointInTimeMatchModel:
         self.score_a_regressor = None
         self.score_b_regressor = None
         self.draw_rate_prior = 0.0
+        self.requested_probability_strategy = DEFAULT_PROBABILITY_STRATEGY
         self.probability_strategy = DEFAULT_PROBABILITY_STRATEGY
+        self.auto_strategy_selection: Dict[str, object] = {}
+        self.strategy_constraints = dict(DEFAULT_AUTO_STRATEGY_CONSTRAINTS)
         self.draw_decision_policy: Dict[str, object] = {
             "default": {
                 "min_draw_probability": POISSON_DRAW_GATE_PROBABILITY_MIN,
@@ -1690,29 +1697,58 @@ class PointInTimeMatchModel:
         self,
         strategy_metrics: Dict[str, Dict[str, object]],
         actual_draw_rate: float,
+        constraints: Optional[Dict[str, float]] = None,
     ) -> Tuple[str, Dict[str, object]]:
+        merged_constraints = {
+            **DEFAULT_AUTO_STRATEGY_CONSTRAINTS,
+            **(constraints or {}),
+        }
         viable_strategies: List[str] = []
-        rejected_strategies: Dict[str, Dict[str, float]] = {}
-
-        for strategy_name, summary in strategy_metrics.items():
-            draw_recall = _to_float(summary.get("draw_recall"), default=0.0)
-            predicted_draw_rate = _to_float(summary.get("predicted_draw_rate"), default=0.0)
-            meets_draw_recall = draw_recall >= AUTO_STRATEGY_MIN_DRAW_RECALL
-            meets_draw_rate = predicted_draw_rate >= max(0.01, actual_draw_rate * AUTO_STRATEGY_MIN_DRAW_RATE_SHARE)
-            if meets_draw_recall and meets_draw_rate:
-                viable_strategies.append(strategy_name)
-            else:
-                rejected_strategies[strategy_name] = {
-                    "draw_recall": draw_recall,
-                    "predicted_draw_rate": predicted_draw_rate,
-                }
-
-        candidate_strategies = sorted(viable_strategies or strategy_metrics.keys())
+        rejected_strategies: Dict[str, Dict[str, object]] = {}
+        best_winner_accuracy = max(
+            _to_float(summary.get("winner_accuracy"), default=float("-inf"))
+            for summary in strategy_metrics.values()
+        )
+        best_log_loss = min(
+            _to_float(summary.get("log_loss"), default=float("inf"))
+            for summary in strategy_metrics.values()
+        )
 
         for strategy_name in strategy_metrics:
             strategy_metrics[strategy_name]["draw_rate_gap"] = abs(
                 _to_float(strategy_metrics[strategy_name].get("predicted_draw_rate"), default=0.0) - actual_draw_rate
             )
+
+        for strategy_name, summary in strategy_metrics.items():
+            draw_recall = _to_float(summary.get("draw_recall"), default=0.0)
+            predicted_draw_rate = _to_float(summary.get("predicted_draw_rate"), default=0.0)
+            winner_accuracy = _to_float(summary.get("winner_accuracy"), default=float("-inf"))
+            log_loss_value = _to_float(summary.get("log_loss"), default=float("inf"))
+            draw_rate_gap = _to_float(summary.get("draw_rate_gap"), default=float("inf"))
+            failures: List[str] = []
+            if draw_recall < merged_constraints["min_draw_recall"]:
+                failures.append(f"draw_recall<{merged_constraints['min_draw_recall']:.3f}")
+            if draw_rate_gap > merged_constraints["max_draw_rate_gap"]:
+                failures.append(f"draw_rate_gap>{merged_constraints['max_draw_rate_gap']:.3f}")
+            if winner_accuracy < best_winner_accuracy - merged_constraints["winner_accuracy_tolerance"]:
+                failures.append(
+                    f"winner_accuracy<{best_winner_accuracy - merged_constraints['winner_accuracy_tolerance']:.3f}"
+                )
+            if log_loss_value > best_log_loss + merged_constraints["log_loss_tolerance"]:
+                failures.append(f"log_loss>{best_log_loss + merged_constraints['log_loss_tolerance']:.4f}")
+            if not failures:
+                viable_strategies.append(strategy_name)
+            else:
+                rejected_strategies[strategy_name] = {
+                    "reasons": failures,
+                    "draw_recall": draw_recall,
+                    "predicted_draw_rate": predicted_draw_rate,
+                    "draw_rate_gap": draw_rate_gap,
+                    "winner_accuracy": winner_accuracy,
+                    "log_loss": log_loss_value,
+                }
+
+        candidate_strategies = sorted(viable_strategies or strategy_metrics.keys())
 
         strategy_scores: Dict[str, float] = {strategy_name: 0.0 for strategy_name in candidate_strategies}
         rank_specs = [
@@ -1748,6 +1784,7 @@ class PointInTimeMatchModel:
             "candidate_strategies": candidate_strategies,
             "viable_strategies": sorted(viable_strategies),
             "rejected_strategies": rejected_strategies,
+            "constraints": merged_constraints,
             "strategy_scores": {strategy_name: float(score) for strategy_name, score in strategy_scores.items()},
         }
 
@@ -2248,6 +2285,7 @@ class PointInTimeMatchModel:
         random_state: int = 42,
         min_examples: int = 100,
         probability_strategy: str = DEFAULT_PROBABILITY_STRATEGY,
+        strategy_constraints: Optional[Dict[str, float]] = None,
     ) -> Dict[str, object]:
         if dataset_df.empty:
             raise ValueError("Point-in-time dataset is empty")
@@ -2264,6 +2302,11 @@ class PointInTimeMatchModel:
         train_df, test_df = self._chronological_split(dataset_df, test_ratio=test_ratio)
         self.feature_names = self._feature_columns(train_df)
         requested_probability_strategy = probability_strategy
+        self.requested_probability_strategy = requested_probability_strategy
+        self.strategy_constraints = {
+            **DEFAULT_AUTO_STRATEGY_CONSTRAINTS,
+            **(strategy_constraints or {}),
+        }
         self.probability_strategy = (
             "hybrid" if requested_probability_strategy == AUTO_PROBABILITY_STRATEGY else requested_probability_strategy
         )
@@ -2425,10 +2468,12 @@ class PointInTimeMatchModel:
             selected_probability_strategy, auto_strategy_selection = self._select_probability_strategy(
                 strategy_metrics=strategy_metrics,
                 actual_draw_rate=float(np.mean(y_test == OUTCOME_DRAW)),
+                constraints=self.strategy_constraints,
             )
             self.probability_strategy = selected_probability_strategy
 
         self.draw_decision_policy = strategy_draw_postprocessing[self.probability_strategy]
+        self.auto_strategy_selection = auto_strategy_selection or {}
         selected_blowout_postprocessing = strategy_blowout_postprocessing[self.probability_strategy]
         self.blowout_calibrator_3plus = selected_blowout_postprocessing.calibrator_3plus
         self.blowout_calibrator_5plus = selected_blowout_postprocessing.calibrator_5plus
@@ -2480,6 +2525,7 @@ class PointInTimeMatchModel:
             "draw_binary_sample_weights": draw_weight_map,
             "blowout_3plus_sample_weights": blowout_weight_map_3plus,
             "blowout_5plus_sample_weights": blowout_weight_map_5plus,
+            "strategy_constraints": self.strategy_constraints,
             "blowout_probability_thresholds": {
                 "3plus": float(self.blowout_probability_thresholds[3]),
                 "5plus": float(self.blowout_probability_thresholds[5]),
@@ -2515,8 +2561,10 @@ class PointInTimeMatchModel:
             "test_examples": int(len(test_df)),
             "feature_names": self.feature_names,
             "class_labels": self.class_labels,
-            "requested_probability_strategy": requested_probability_strategy,
+            "requested_probability_strategy": self.requested_probability_strategy,
             "probability_strategy": self.probability_strategy,
+            "strategy_constraints": self.strategy_constraints,
+            "auto_strategy_selection": self.auto_strategy_selection,
         }
         return metrics
 
@@ -2536,7 +2584,16 @@ class PointInTimeMatchModel:
         model.score_a_regressor = payload["score_a_regressor"]
         model.score_b_regressor = payload["score_b_regressor"]
         model.draw_rate_prior = payload.get("draw_rate_prior", 0.0)
+        model.requested_probability_strategy = payload.get(
+            "requested_probability_strategy",
+            DEFAULT_PROBABILITY_STRATEGY,
+        )
         model.probability_strategy = payload.get("probability_strategy", DEFAULT_PROBABILITY_STRATEGY)
+        model.strategy_constraints = payload.get(
+            "strategy_constraints",
+            dict(DEFAULT_AUTO_STRATEGY_CONSTRAINTS),
+        )
+        model.auto_strategy_selection = payload.get("auto_strategy_selection", {})
         model.blowout_probability_thresholds = payload.get("blowout_probability_thresholds", {3: 0.5, 5: 0.5})
         model.blowout_probability_thresholds_by_age = payload.get(
             "blowout_probability_thresholds_by_age",
@@ -2631,7 +2688,10 @@ class PointInTimeMatchModel:
             "score_a_regressor": self.score_a_regressor,
             "score_b_regressor": self.score_b_regressor,
             "draw_rate_prior": self.draw_rate_prior,
+            "requested_probability_strategy": self.requested_probability_strategy,
             "probability_strategy": self.probability_strategy,
+            "strategy_constraints": self.strategy_constraints,
+            "auto_strategy_selection": self.auto_strategy_selection,
             "blowout_probability_thresholds": self.blowout_probability_thresholds,
             "blowout_probability_thresholds_by_age": self.blowout_probability_thresholds_by_age,
             "draw_decision_policy": self.draw_decision_policy,

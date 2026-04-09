@@ -152,6 +152,8 @@ def compute_evaluation_summary(frame: pd.DataFrame) -> dict[str, object]:
     draw_mask = standardized["actual_outcome"] == "draw"
     predicted_draw_mask = standardized["predicted_outcome"] == "draw"
     margin_errors = standardized["margin_error"].to_numpy(dtype=float)
+    actual_draw_rate = float(draw_mask.mean())
+    predicted_draw_rate = float(predicted_draw_mask.mean())
     score_rows = standardized[
         ["predicted_score_a", "predicted_score_b", "actual_score_a", "actual_score_b"]
     ].notna().all(axis=1)
@@ -165,6 +167,9 @@ def compute_evaluation_summary(frame: pd.DataFrame) -> dict[str, object]:
         "draw_precision": float((standardized.loc[predicted_draw_mask, "actual_outcome"] == "draw").mean())
         if predicted_draw_mask.any()
         else None,
+        "actual_draw_rate": actual_draw_rate,
+        "predicted_draw_rate": predicted_draw_rate,
+        "draw_rate_gap": float(abs(predicted_draw_rate - actual_draw_rate)),
         "log_loss": float(log_loss(labels, probabilities, labels=[0, 1, 2])),
         "brier_score": _brier_score(probabilities, labels),
         "margin_mae": float(np.mean(np.abs(margin_errors))),

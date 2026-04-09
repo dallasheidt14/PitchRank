@@ -73,6 +73,30 @@ async def main():
         help="Outcome probability engine to use after fitting the offline model",
     )
     parser.add_argument(
+        "--min-draw-recall",
+        type=float,
+        default=0.08,
+        help="Minimum draw recall for auto strategy selection",
+    )
+    parser.add_argument(
+        "--max-draw-rate-gap",
+        type=float,
+        default=0.08,
+        help="Maximum absolute gap between predicted and actual draw rate for auto strategy selection",
+    )
+    parser.add_argument(
+        "--winner-accuracy-tolerance",
+        type=float,
+        default=0.015,
+        help="Maximum winner-accuracy drop allowed from the best candidate during auto selection",
+    )
+    parser.add_argument(
+        "--log-loss-tolerance",
+        type=float,
+        default=0.003,
+        help="Maximum log-loss regression allowed from the best candidate during auto selection",
+    )
+    parser.add_argument(
         "--model-dir",
         default="models/point_in_time_match_predictor",
         help="Directory to write model artifacts and reports",
@@ -164,6 +188,12 @@ async def main():
         test_ratio=args.test_ratio,
         min_examples=args.min_examples,
         probability_strategy=args.probability_strategy,
+        strategy_constraints={
+            "min_draw_recall": args.min_draw_recall,
+            "max_draw_rate_gap": args.max_draw_rate_gap,
+            "winner_accuracy_tolerance": args.winner_accuracy_tolerance,
+            "log_loss_tolerance": args.log_loss_tolerance,
+        },
     )
     artifact_paths = model.save()
     evaluation_report = model.write_evaluation_report(str(model_dir), prefix="point_in_time_model")
