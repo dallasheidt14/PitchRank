@@ -21,6 +21,7 @@ from src.predictions.evaluation_reporting import (
 )
 
 CalibrationMethod = Literal["temperature", "isotonic"]
+DrawCalibrationMethod = Literal["none", "isotonic"]
 
 
 def _normalize_probabilities(probabilities: np.ndarray) -> np.ndarray:
@@ -44,6 +45,7 @@ def _brier_score(probabilities: np.ndarray, labels: np.ndarray) -> float:
 @dataclass
 class CalibrationResult:
     method: CalibrationMethod
+    draw_method: DrawCalibrationMethod
     before_metrics: dict[str, object]
     after_metrics: dict[str, object]
     artifact_path: str
@@ -51,10 +53,16 @@ class CalibrationResult:
 
 
 class PointInTimeProbabilityCalibrator:
-    def __init__(self, method: CalibrationMethod = "temperature"):
+    def __init__(
+        self,
+        method: CalibrationMethod = "temperature",
+        draw_method: DrawCalibrationMethod = "none",
+    ):
         self.method = method
+        self.draw_method = draw_method
         self.temperature = 1.0
         self.isotonic_models: list[IsotonicRegression] = []
+        self.draw_isotonic_model: IsotonicRegression | None = None
 
     def _labels_from_frame(self, frame: pd.DataFrame) -> np.ndarray:
         standardized = build_standardized_evaluation_frame(frame)
@@ -91,19 +99,7 @@ class PointInTimeProbabilityCalibrator:
             model.fit(probabilities[:, class_index], (labels == class_index).astype(float))
             self.isotonic_models.append(model)
 
-    def fit(self, evaluation_frame: pd.DataFrame) -> None:
-        probabilities = self._probabilities_from_frame(evaluation_frame)
-        labels = self._labels_from_frame(evaluation_frame)
-
-        if self.method == "temperature":
-            self._fit_temperature(probabilities, labels)
-            return
-        if self.method == "isotonic":
-            self._fit_isotonic(probabilities, labels)
-            return
-        raise ValueError(f"Unsupported calibration method: {self.method}")
-
-    def transform_probabilities(self, probabilities: np.ndarray) -> np.ndarray:
+    def _transform_overall_probabilities(self, probabilities: np.ndarray) -> np.ndarray:
         probabilities = _normalize_probabilities(probabilities)
         if self.method == "temperature":
             return self._apply_temperature(probabilities, self.temperature)
@@ -116,6 +112,62 @@ class PointInTimeProbabilityCalibrator:
             ]
             return _normalize_probabilities(np.column_stack(calibrated_columns))
         raise ValueError(f"Unsupported calibration method: {self.method}")
+
+    def _fit_draw_isotonic(self, probabilities: np.ndarray, labels: np.ndarray) -> None:
+        self.draw_isotonic_model = IsotonicRegression(out_of_bounds="clip")
+        self.draw_isotonic_model.fit(
+            probabilities[:, OUTCOME_ORDER.index("draw")],
+            (labels == OUTCOME_ORDER.index("draw")).astype(float),
+        )
+
+    def _apply_draw_calibration(self, probabilities: np.ndarray) -> np.ndarray:
+        if self.draw_method == "none":
+            return probabilities
+        if self.draw_method != "isotonic":
+            raise ValueError(f"Unsupported draw calibration method: {self.draw_method}")
+        if self.draw_isotonic_model is None:
+            raise ValueError("Draw calibrator has not been fit")
+
+        draw_index = OUTCOME_ORDER.index("draw")
+        calibrated = probabilities.copy()
+        calibrated_draw = np.clip(
+            self.draw_isotonic_model.predict(calibrated[:, draw_index]),
+            1e-6,
+            0.98,
+        )
+        non_draw_indices = [index for index in range(calibrated.shape[1]) if index != draw_index]
+        non_draw_mass = calibrated[:, non_draw_indices].sum(axis=1, keepdims=True)
+        remaining_mass = 1.0 - calibrated_draw.reshape(-1, 1)
+        scaled_non_draw = np.divide(
+            calibrated[:, non_draw_indices] * remaining_mass,
+            non_draw_mass,
+            out=np.full((len(calibrated), len(non_draw_indices)), 0.5) * remaining_mass,
+            where=non_draw_mass > 0,
+        )
+        calibrated[:, draw_index] = calibrated_draw
+        calibrated[:, non_draw_indices] = scaled_non_draw
+        return _normalize_probabilities(calibrated)
+
+    def fit(self, evaluation_frame: pd.DataFrame) -> None:
+        probabilities = self._probabilities_from_frame(evaluation_frame)
+        labels = self._labels_from_frame(evaluation_frame)
+
+        if self.method == "temperature":
+            self._fit_temperature(probabilities, labels)
+        elif self.method == "isotonic":
+            self._fit_isotonic(probabilities, labels)
+        else:
+            raise ValueError(f"Unsupported calibration method: {self.method}")
+
+        if self.draw_method == "isotonic":
+            overall_calibrated = self._transform_overall_probabilities(probabilities)
+            self._fit_draw_isotonic(overall_calibrated, labels)
+        elif self.draw_method != "none":
+            raise ValueError(f"Unsupported draw calibration method: {self.draw_method}")
+
+    def transform_probabilities(self, probabilities: np.ndarray) -> np.ndarray:
+        overall_calibrated = self._transform_overall_probabilities(probabilities)
+        return self._apply_draw_calibration(overall_calibrated)
 
     def transform_frame(self, evaluation_frame: pd.DataFrame) -> pd.DataFrame:
         standardized = build_standardized_evaluation_frame(evaluation_frame)
@@ -143,16 +195,20 @@ class PointInTimeProbabilityCalibrator:
             pickle.dump(
                 {
                     "method": self.method,
+                    "draw_method": self.draw_method,
                     "temperature": self.temperature,
                     "isotonic_models": self.isotonic_models,
+                    "draw_isotonic_model": self.draw_isotonic_model,
                 },
                 handle,
             )
 
         metadata = {
             "method": self.method,
+            "draw_method": self.draw_method,
             "temperature": self.temperature,
             "isotonic_model_count": len(self.isotonic_models),
+            "has_draw_isotonic_model": self.draw_isotonic_model is not None,
         }
         metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         return str(artifact_path), str(metadata_path)
@@ -162,9 +218,13 @@ class PointInTimeProbabilityCalibrator:
         with open(artifact_path, "rb") as handle:
             payload = pickle.load(handle)
 
-        calibrator = cls(method=payload["method"])
+        calibrator = cls(
+            method=payload["method"],
+            draw_method=payload.get("draw_method", "none"),
+        )
         calibrator.temperature = float(payload.get("temperature", 1.0))
         calibrator.isotonic_models = payload.get("isotonic_models", [])
+        calibrator.draw_isotonic_model = payload.get("draw_isotonic_model")
         return calibrator
 
 
@@ -172,9 +232,10 @@ def calibrate_evaluation_frame(
     evaluation_frame: pd.DataFrame,
     output_dir: str,
     method: CalibrationMethod = "temperature",
+    draw_method: DrawCalibrationMethod = "none",
     prefix: str = "point_in_time_model_calibration",
 ) -> CalibrationResult:
-    calibrator = PointInTimeProbabilityCalibrator(method=method)
+    calibrator = PointInTimeProbabilityCalibrator(method=method, draw_method=draw_method)
     standardized = build_standardized_evaluation_frame(evaluation_frame)
     before_metrics = compute_evaluation_summary(standardized)
     calibrator.fit(standardized)
@@ -189,16 +250,19 @@ def calibrate_evaluation_frame(
     artifact_path, metadata_path = calibrator.save(output_dir, prefix=prefix)
     metadata = {
         "method": method,
+        "draw_method": draw_method,
         "before_metrics": before_metrics,
         "after_metrics": after_metrics,
         "temperature": calibrator.temperature,
         "isotonic_model_count": len(calibrator.isotonic_models),
+        "has_draw_isotonic_model": calibrator.draw_isotonic_model is not None,
         "calibrated_evaluation_csv": str(calibrated_csv_path),
     }
     Path(metadata_path).write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
     return CalibrationResult(
         method=method,
+        draw_method=draw_method,
         before_metrics=before_metrics,
         after_metrics=after_metrics,
         artifact_path=artifact_path,

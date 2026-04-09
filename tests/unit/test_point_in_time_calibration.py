@@ -48,12 +48,15 @@ def test_calibrate_evaluation_frame_writes_improved_artifacts(tmp_path):
         evaluation_frame=evaluation_frame,
         output_dir=str(tmp_path),
         method="temperature",
+        draw_method="isotonic",
         prefix="calibration_test",
     )
 
     assert result.method == "temperature"
+    assert result.draw_method == "isotonic"
     assert tmp_path.joinpath("calibration_test.pkl").exists()
     assert tmp_path.joinpath("calibration_test.json").exists()
     assert tmp_path.joinpath("calibration_test_evaluation.csv").exists()
     assert result.before_metrics["games"] == 3
     assert result.after_metrics["games"] == 3
+    assert result.after_metrics["predicted_draw_rate"] >= result.before_metrics["predicted_draw_rate"]

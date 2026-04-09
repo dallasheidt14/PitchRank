@@ -98,6 +98,8 @@ def compute_evaluation_summary(frame: pd.DataFrame) -> dict[str, object]:
     draw_mask = standardized["actual_outcome"] == "draw"
     predicted_draw_mask = standardized["predicted_outcome"] == "draw"
     margin_errors = standardized["margin_error"].to_numpy(dtype=float)
+    actual_draw_rate = float(draw_mask.mean())
+    predicted_draw_rate = float(predicted_draw_mask.mean())
 
     summary: dict[str, object] = {
         "games": int(len(standardized)),
@@ -112,6 +114,9 @@ def compute_evaluation_summary(frame: pd.DataFrame) -> dict[str, object]:
         "brier_score": _brier_score(probabilities, labels),
         "margin_mae": float(np.mean(np.abs(margin_errors))),
         "margin_rmse": float(np.sqrt(np.mean(margin_errors**2))),
+        "actual_draw_rate": actual_draw_rate,
+        "predicted_draw_rate": predicted_draw_rate,
+        "draw_rate_gap": float(abs(predicted_draw_rate - actual_draw_rate)),
     }
 
     if "feature_source" in standardized.columns:

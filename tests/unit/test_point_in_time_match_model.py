@@ -1,6 +1,6 @@
 import pandas as pd
 
-from src.predictions.point_in_time_match_model import build_point_in_time_dataset
+from src.predictions.point_in_time_match_model import build_point_in_time_dataset, select_probability_strategy
 
 
 def _snapshot(snapshot_date: str, team_id: str, age_group: str = "14", gender: str = "Male", **overrides):
@@ -183,3 +183,39 @@ def test_build_point_in_time_dataset_tracks_draw_oriented_signals():
     assert row["snapshot_strength_closeness"] > 0.0
     assert row["expected_draw_environment"] > 0.0
     assert 0.0 <= row["stalemate_signal"] <= 1.0
+
+
+def test_select_probability_strategy_prefers_draw_viable_option():
+    strategy_metrics = {
+        "hybrid": {
+            "winner_accuracy": 0.575,
+            "draw_recall": 0.18,
+            "draw_precision": 0.19,
+            "log_loss": 0.919,
+            "predicted_draw_rate": 0.134,
+        },
+        "poisson_draw_gate": {
+            "winner_accuracy": 0.592,
+            "draw_recall": 0.089,
+            "draw_precision": 0.192,
+            "log_loss": 0.902,
+            "predicted_draw_rate": 0.065,
+        },
+        "poisson_primary": {
+            "winner_accuracy": 0.600,
+            "draw_recall": 0.047,
+            "draw_precision": 0.199,
+            "log_loss": 0.900,
+            "predicted_draw_rate": 0.033,
+        },
+    }
+
+    selection = select_probability_strategy(
+        strategy_metrics=strategy_metrics,
+        actual_draw_rate=0.141,
+        requested_strategy="auto",
+    )
+
+    assert selection["selected_strategy"] == "poisson_draw_gate"
+    assert "poisson_primary" in selection["rejected_strategies"]
+    assert selection["strategy_scores"]["poisson_draw_gate"] > selection["strategy_scores"]["poisson_primary"]

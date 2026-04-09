@@ -31,6 +31,12 @@ def main() -> None:
         help="Calibration method to use",
     )
     parser.add_argument(
+        "--draw-method",
+        choices=["none", "isotonic"],
+        default="isotonic",
+        help="Optional draw-specific calibration method to apply after overall calibration",
+    )
+    parser.add_argument(
         "--prefix",
         default="point_in_time_model_calibration",
         help="Artifact/report filename prefix",
@@ -45,6 +51,7 @@ def main() -> None:
         evaluation_frame=evaluation_frame,
         output_dir=str(output_dir),
         method=args.method,
+        draw_method=args.draw_method,
         prefix=args.prefix,
     )
 
@@ -58,6 +65,7 @@ def main() -> None:
         json.dumps(
             {
                 "method": result.method,
+                "draw_method": result.draw_method,
                 "before_metrics": result.before_metrics,
                 "after_metrics": result.after_metrics,
                 "artifact_path": result.artifact_path,

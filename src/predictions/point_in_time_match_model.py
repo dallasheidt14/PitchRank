@@ -23,7 +23,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.metrics import accuracy_score, log_loss, mean_absolute_error, mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 try:
     from xgboost import XGBClassifier, XGBRegressor
@@ -36,7 +36,7 @@ from scripts.predictor_python import (
     Game as PredictorGame,
 )
 from scripts.predictor_python import calculate_common_opponent_signal, calculate_head_to_head, calculate_recent_form
-from src.predictions.evaluation_reporting import write_evaluation_bundle
+from src.predictions.evaluation_reporting import compute_evaluation_summary, write_evaluation_bundle
 
 logger = logging.getLogger(__name__)
 
@@ -109,12 +109,151 @@ POISSON_MAX_GOALS = 8
 DRAW_CLASS_WEIGHT_BOOST = 1.6
 DRAW_BINARY_WEIGHT_CAP = 4.0
 DRAW_MODEL_SHRINK_FACTOR = 0.3
+SUPPORTED_PROBABILITY_STRATEGIES = ("auto", "hybrid", "poisson_primary", "poisson_draw_gate")
+DEFAULT_AUTO_STRATEGY_CONSTRAINTS = {
+    "min_draw_recall": 0.08,
+    "max_draw_rate_gap": 0.08,
+    "winner_accuracy_tolerance": 0.015,
+    "log_loss_tolerance": 0.003,
+}
+AUTO_STRATEGY_SCORE_WEIGHTS = {
+    "winner_accuracy": 100.0,
+    "draw_recall": 90.0,
+    "draw_precision": 25.0,
+    "draw_rate_gap": -60.0,
+    "log_loss_delta": -20.0,
+}
 
 
 @dataclass
 class DatasetBuildResult:
     dataset: pd.DataFrame
     summary: Dict[str, object]
+
+
+def _default_draw_decision_policy() -> Dict[str, object]:
+    default_policy = {
+        "min_draw_probability": 0.16,
+        "max_draw_gap": 0.08,
+        "max_total_goals": 2.4,
+        "min_stalemate_signal": 0.52,
+        "promotion_slack": 0.03,
+    }
+    by_age = {
+        "10": {**default_policy, "max_total_goals": 2.2, "promotion_slack": 0.04},
+        "11": {**default_policy, "max_total_goals": 2.2, "promotion_slack": 0.04},
+        "12": {**default_policy},
+        "13": {**default_policy},
+        "14": {**default_policy},
+        "15": {**default_policy},
+        "16": {**default_policy},
+        "17": {**default_policy},
+        "19": {**default_policy},
+    }
+    return {
+        "default": default_policy,
+        "by_age": by_age,
+    }
+
+
+def select_probability_strategy(
+    strategy_metrics: Dict[str, Dict[str, object]],
+    actual_draw_rate: float,
+    requested_strategy: str = "auto",
+    constraints: Optional[Dict[str, float]] = None,
+) -> Dict[str, object]:
+    available_strategies = [name for name in strategy_metrics if name in SUPPORTED_PROBABILITY_STRATEGIES]
+    if requested_strategy != "auto":
+        if requested_strategy not in strategy_metrics:
+            raise ValueError(
+                f"Unsupported probability strategy '{requested_strategy}'. "
+                f"Expected one of {', '.join(SUPPORTED_PROBABILITY_STRATEGIES)}."
+            )
+        return {
+            "actual_draw_rate": float(actual_draw_rate),
+            "candidate_strategies": available_strategies,
+            "viable_strategies": [requested_strategy],
+            "rejected_strategies": {},
+            "strategy_scores": {requested_strategy: None},
+            "constraints": constraints or {},
+            "selected_strategy": requested_strategy,
+        }
+
+    merged_constraints = {
+        **DEFAULT_AUTO_STRATEGY_CONSTRAINTS,
+        **(constraints or {}),
+    }
+    best_winner_accuracy = max(
+        _to_float(metrics.get("winner_accuracy"), default=float("-inf"))
+        for metrics in strategy_metrics.values()
+    )
+    best_log_loss = min(
+        _to_float(metrics.get("log_loss"), default=float("inf"))
+        for metrics in strategy_metrics.values()
+    )
+
+    viable_strategies: list[str] = []
+    rejected_strategies: Dict[str, list[str]] = {}
+    strategy_scores: Dict[str, float] = {}
+
+    for strategy_name, metrics in strategy_metrics.items():
+        winner_accuracy = _to_float(metrics.get("winner_accuracy"), default=float("-inf"))
+        draw_recall = _to_float(metrics.get("draw_recall"))
+        draw_precision = _to_float(metrics.get("draw_precision"))
+        predicted_draw_rate = _to_float(metrics.get("predicted_draw_rate"))
+        draw_rate_gap = abs(predicted_draw_rate - float(actual_draw_rate))
+        log_loss_value = _to_float(metrics.get("log_loss"), default=float("inf"))
+
+        failures = []
+        if draw_recall < merged_constraints["min_draw_recall"]:
+            failures.append(
+                f"draw_recall<{merged_constraints['min_draw_recall']:.3f}"
+            )
+        if draw_rate_gap > merged_constraints["max_draw_rate_gap"]:
+            failures.append(
+                f"draw_rate_gap>{merged_constraints['max_draw_rate_gap']:.3f}"
+            )
+        if winner_accuracy < best_winner_accuracy - merged_constraints["winner_accuracy_tolerance"]:
+            failures.append(
+                f"winner_accuracy<{best_winner_accuracy - merged_constraints['winner_accuracy_tolerance']:.3f}"
+            )
+        if log_loss_value > best_log_loss + merged_constraints["log_loss_tolerance"]:
+            failures.append(
+                f"log_loss>{best_log_loss + merged_constraints['log_loss_tolerance']:.4f}"
+            )
+
+        strategy_scores[strategy_name] = round(
+            AUTO_STRATEGY_SCORE_WEIGHTS["winner_accuracy"] * winner_accuracy
+            + AUTO_STRATEGY_SCORE_WEIGHTS["draw_recall"] * draw_recall
+            + AUTO_STRATEGY_SCORE_WEIGHTS["draw_precision"] * draw_precision
+            + AUTO_STRATEGY_SCORE_WEIGHTS["draw_rate_gap"] * draw_rate_gap
+            + AUTO_STRATEGY_SCORE_WEIGHTS["log_loss_delta"] * (log_loss_value - best_log_loss),
+            2,
+        )
+
+        if failures:
+            rejected_strategies[strategy_name] = failures
+        else:
+            viable_strategies.append(strategy_name)
+
+    selection_pool = viable_strategies or available_strategies
+    selected_strategy = max(
+        selection_pool,
+        key=lambda strategy_name: (
+            strategy_scores.get(strategy_name, float("-inf")),
+            _to_float(strategy_metrics[strategy_name].get("winner_accuracy"), default=float("-inf")),
+        ),
+    )
+
+    return {
+        "actual_draw_rate": float(actual_draw_rate),
+        "candidate_strategies": available_strategies,
+        "viable_strategies": viable_strategies,
+        "rejected_strategies": rejected_strategies,
+        "strategy_scores": strategy_scores,
+        "constraints": merged_constraints,
+        "selected_strategy": selected_strategy,
+    }
 
 
 def _to_float(value: object, default: float = 0.0) -> float:
@@ -607,6 +746,11 @@ class PointInTimeMatchModel:
         self.score_a_regressor = None
         self.score_b_regressor = None
         self.draw_rate_prior = 0.0
+        self.requested_probability_strategy = "auto"
+        self.probability_strategy = "poisson_primary"
+        self.auto_strategy_selection: Dict[str, object] = {}
+        self.strategy_constraints = dict(DEFAULT_AUTO_STRATEGY_CONSTRAINTS)
+        self.draw_decision_policy = _default_draw_decision_policy()
         self.training_metadata: Dict[str, object] = {}
         self.last_evaluation_frame = pd.DataFrame()
         os.makedirs(model_dir, exist_ok=True)
@@ -779,14 +923,27 @@ class PointInTimeMatchModel:
         )
         return np.asarray(probabilities[:, draw_index], dtype=float)
 
-    def _compose_outcome_probabilities(
+    def _draw_probability_cap(self, projected_total_goals: np.ndarray, strategy: str) -> np.ndarray:
+        if strategy == "hybrid":
+            return np.where(
+                projected_total_goals <= 2.25,
+                0.46,
+                np.where(projected_total_goals <= 2.8, 0.40, 0.30),
+            )
+        return np.where(
+            projected_total_goals <= 2.25,
+            0.42,
+            np.where(projected_total_goals <= 2.8, 0.36, 0.28),
+        )
+
+    def _probability_components(
         self,
         dataset_df: pd.DataFrame,
         matrix: pd.DataFrame,
         base_probabilities: np.ndarray,
         predicted_score_a: np.ndarray,
         predicted_score_b: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Dict[str, np.ndarray]:
         prior_goal_a = (
             pd.to_numeric(dataset_df.get("projected_goals_team_a"), errors="coerce")
             .fillna(pd.Series(predicted_score_a))
@@ -829,29 +986,72 @@ class PointInTimeMatchModel:
             .clip(0.05, 8.0)
             .to_numpy(dtype=float)
         )
+        age_group_numeric = (
+            pd.to_numeric(dataset_df.get("age_group_numeric"), errors="coerce").fillna(0).to_numpy(dtype=int)
+        )
 
-        combined_draw_probability = (
-            0.2 * base_probabilities[:, OUTCOME_DRAW]
-            + 0.45 * poisson_probabilities[:, OUTCOME_DRAW]
-            + 0.15 * draw_model_probability
-            + 0.2 * np.maximum(expected_draw_environment, self.draw_rate_prior)
-        )
-        combined_draw_probability *= 0.85 + 0.3 * stalemate_signal
-        low_total_mask = projected_total_goals <= 2.25
-        combined_draw_probability[low_total_mask] *= 1.08
-        high_total_mask = projected_total_goals >= 3.25
-        combined_draw_probability[high_total_mask] *= 0.84
-        dynamic_draw_cap = np.where(
-            projected_total_goals <= 2.25,
-            0.42,
-            np.where(projected_total_goals <= 2.8, 0.36, 0.28),
-        )
-        combined_draw_probability = np.clip(combined_draw_probability, 0.01, dynamic_draw_cap)
+        return {
+            "base_probabilities": base_probabilities,
+            "poisson_probabilities": poisson_probabilities,
+            "draw_model_probability": draw_model_probability,
+            "stalemate_signal": stalemate_signal,
+            "expected_draw_environment": expected_draw_environment,
+            "projected_total_goals": projected_total_goals,
+            "age_group_numeric": age_group_numeric,
+        }
 
-        win_probabilities = (
-            0.72 * base_probabilities[:, [OUTCOME_TEAM_A_WIN, OUTCOME_TEAM_B_WIN]]
-            + 0.28 * poisson_probabilities[:, [OUTCOME_TEAM_A_WIN, OUTCOME_TEAM_B_WIN]]
+    def _compose_strategy_probabilities(
+        self,
+        strategy: str,
+        components: Dict[str, np.ndarray],
+    ) -> np.ndarray:
+        base_probabilities = components["base_probabilities"]
+        poisson_probabilities = components["poisson_probabilities"]
+        draw_model_probability = components["draw_model_probability"]
+        stalemate_signal = components["stalemate_signal"]
+        expected_draw_environment = components["expected_draw_environment"]
+        projected_total_goals = components["projected_total_goals"]
+
+        if strategy == "hybrid":
+            combined_draw_probability = (
+                0.30 * base_probabilities[:, OUTCOME_DRAW]
+                + 0.20 * poisson_probabilities[:, OUTCOME_DRAW]
+                + 0.35 * draw_model_probability
+                + 0.15 * np.maximum(expected_draw_environment, self.draw_rate_prior)
+            )
+            combined_draw_probability *= 0.92 + 0.34 * stalemate_signal
+            combined_draw_probability[projected_total_goals <= 2.25] *= 1.12
+            combined_draw_probability[projected_total_goals >= 3.25] *= 0.88
+            win_probabilities = (
+                0.60 * base_probabilities[:, [OUTCOME_TEAM_A_WIN, OUTCOME_TEAM_B_WIN]]
+                + 0.40 * poisson_probabilities[:, [OUTCOME_TEAM_A_WIN, OUTCOME_TEAM_B_WIN]]
+            )
+        elif strategy in {"poisson_primary", "poisson_draw_gate"}:
+            combined_draw_probability = (
+                0.20 * base_probabilities[:, OUTCOME_DRAW]
+                + 0.45 * poisson_probabilities[:, OUTCOME_DRAW]
+                + 0.15 * draw_model_probability
+                + 0.20 * np.maximum(expected_draw_environment, self.draw_rate_prior)
+            )
+            combined_draw_probability *= 0.85 + 0.30 * stalemate_signal
+            combined_draw_probability[projected_total_goals <= 2.25] *= 1.08
+            combined_draw_probability[projected_total_goals >= 3.25] *= 0.84
+            win_probabilities = (
+                0.72 * base_probabilities[:, [OUTCOME_TEAM_A_WIN, OUTCOME_TEAM_B_WIN]]
+                + 0.28 * poisson_probabilities[:, [OUTCOME_TEAM_A_WIN, OUTCOME_TEAM_B_WIN]]
+            )
+        else:
+            raise ValueError(
+                f"Unsupported probability strategy '{strategy}'. "
+                f"Expected one of {', '.join(SUPPORTED_PROBABILITY_STRATEGIES)}."
+            )
+
+        combined_draw_probability = np.clip(
+            combined_draw_probability,
+            0.01,
+            self._draw_probability_cap(projected_total_goals, strategy),
         )
+
         win_row_sums = win_probabilities.sum(axis=1, keepdims=True)
         win_probabilities = np.divide(
             win_probabilities,
@@ -867,20 +1067,121 @@ class PointInTimeMatchModel:
         combined[:, OUTCOME_TEAM_B_WIN] = win_probabilities[:, 1] * remaining_mass
         combined = self._normalize_probabilities(combined)
 
-        draw_edge = np.max(combined[:, [OUTCOME_TEAM_A_WIN, OUTCOME_TEAM_B_WIN]], axis=1)
-        draw_trigger = (
-            (stalemate_signal >= 0.74)
-            & (projected_total_goals <= 2.15)
-            & (combined[:, OUTCOME_DRAW] + 0.02 >= draw_edge)
+        if strategy == "poisson_draw_gate":
+            combined = self._apply_draw_decision_policy(combined, components)
+
+        return self._normalize_probabilities(combined)
+
+    def _apply_draw_decision_policy(
+        self,
+        probabilities: np.ndarray,
+        components: Dict[str, np.ndarray],
+    ) -> np.ndarray:
+        combined = probabilities.copy()
+        stalemate_signal = components["stalemate_signal"]
+        projected_total_goals = components["projected_total_goals"]
+        age_group_numeric = components["age_group_numeric"]
+        draw_probability = combined[:, OUTCOME_DRAW]
+        stronger_win_probability = np.max(combined[:, [OUTCOME_TEAM_A_WIN, OUTCOME_TEAM_B_WIN]], axis=1)
+        win_gap = np.abs(combined[:, OUTCOME_TEAM_A_WIN] - combined[:, OUTCOME_TEAM_B_WIN])
+
+        default_policy = self.draw_decision_policy.get("default", {})
+        age_policies = self.draw_decision_policy.get("by_age", {})
+
+        min_draw_probability = np.full(len(combined), _to_float(default_policy.get("min_draw_probability"), 0.16))
+        max_draw_gap = np.full(len(combined), _to_float(default_policy.get("max_draw_gap"), 0.08))
+        max_total_goals = np.full(len(combined), _to_float(default_policy.get("max_total_goals"), 2.4))
+        min_stalemate_signal = np.full(len(combined), _to_float(default_policy.get("min_stalemate_signal"), 0.52))
+        promotion_slack = np.full(len(combined), _to_float(default_policy.get("promotion_slack"), 0.03))
+
+        for row_index, age_value in enumerate(age_group_numeric):
+            age_policy = age_policies.get(str(int(age_value)))
+            if not age_policy:
+                continue
+            min_draw_probability[row_index] = _to_float(
+                age_policy.get("min_draw_probability"),
+                min_draw_probability[row_index],
+            )
+            max_draw_gap[row_index] = _to_float(age_policy.get("max_draw_gap"), max_draw_gap[row_index])
+            max_total_goals[row_index] = _to_float(age_policy.get("max_total_goals"), max_total_goals[row_index])
+            min_stalemate_signal[row_index] = _to_float(
+                age_policy.get("min_stalemate_signal"),
+                min_stalemate_signal[row_index],
+            )
+            promotion_slack[row_index] = _to_float(age_policy.get("promotion_slack"), promotion_slack[row_index])
+
+        gate_mask = (
+            (draw_probability >= min_draw_probability)
+            & (win_gap <= max_draw_gap)
+            & (projected_total_goals <= max_total_goals)
+            & (stalemate_signal >= min_stalemate_signal)
         )
-        if np.any(draw_trigger):
-            combined[draw_trigger, OUTCOME_DRAW] = np.maximum(
-                combined[draw_trigger, OUTCOME_DRAW],
-                draw_edge[draw_trigger] + 1e-3,
+        promote_mask = gate_mask & (draw_probability + promotion_slack >= stronger_win_probability)
+        if np.any(promote_mask):
+            combined[promote_mask, OUTCOME_DRAW] = np.maximum(
+                combined[promote_mask, OUTCOME_DRAW],
+                stronger_win_probability[promote_mask] + 1e-3,
             )
             combined = self._normalize_probabilities(combined)
+        return combined
 
-        return combined, poisson_probabilities, draw_model_probability
+    def _compose_outcome_probabilities(
+        self,
+        dataset_df: pd.DataFrame,
+        matrix: pd.DataFrame,
+        base_probabilities: np.ndarray,
+        predicted_score_a: np.ndarray,
+        predicted_score_b: np.ndarray,
+        strategy: Optional[str] = None,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        components = self._probability_components(
+            dataset_df=dataset_df,
+            matrix=matrix,
+            base_probabilities=base_probabilities,
+            predicted_score_a=predicted_score_a,
+            predicted_score_b=predicted_score_b,
+        )
+        selected_strategy = strategy or self.probability_strategy
+        combined = self._compose_strategy_probabilities(selected_strategy, components)
+        return combined, components["poisson_probabilities"], components["draw_model_probability"]
+
+    def _metrics_from_evaluation_frame(
+        self,
+        evaluation_frame: pd.DataFrame,
+        test_df: pd.DataFrame,
+        predicted_margin: np.ndarray,
+        predicted_score_a: np.ndarray,
+        predicted_score_b: np.ndarray,
+    ) -> Dict[str, object]:
+        metrics = compute_evaluation_summary(evaluation_frame)
+        rounded_score_a = np.rint(np.clip(predicted_score_a, 0.0, 10.0)).astype(int)
+        rounded_score_b = np.rint(np.clip(predicted_score_b, 0.0, 10.0)).astype(int)
+        actual_score_a = test_df["actual_score_a"].astype(int).to_numpy()
+        actual_score_b = test_df["actual_score_b"].astype(int).to_numpy()
+        metrics.update(
+            {
+                "score_a_mae": float(mean_absolute_error(test_df["actual_score_a"], predicted_score_a)),
+                "score_b_mae": float(mean_absolute_error(test_df["actual_score_b"], predicted_score_b)),
+                "total_goals_mae": float(
+                    mean_absolute_error(
+                        test_df["actual_score_a"].astype(float) + test_df["actual_score_b"].astype(float),
+                        predicted_score_a + predicted_score_b,
+                    )
+                ),
+                "exact_score_accuracy": float(
+                    np.mean((rounded_score_a == actual_score_a) & (rounded_score_b == actual_score_b))
+                ),
+                "score_within_one_goal_rate": float(
+                    np.mean(
+                        (np.abs(predicted_score_a - actual_score_a) <= 1.0)
+                        & (np.abs(predicted_score_b - actual_score_b) <= 1.0)
+                    )
+                ),
+                "margin_mae": float(mean_absolute_error(test_df["actual_margin"], predicted_margin)),
+                "margin_rmse": float(math.sqrt(mean_squared_error(test_df["actual_margin"], predicted_margin))),
+            }
+        )
+        return metrics
 
     def _build_evaluation_frame(
         self,
@@ -930,18 +1231,14 @@ class PointInTimeMatchModel:
         )
         return evaluation_frame
 
-    def _brier_score(self, y_true: np.ndarray, probabilities: np.ndarray) -> float:
-        one_hot = np.zeros_like(probabilities)
-        for row_index, class_index in enumerate(y_true):
-            one_hot[row_index, class_index] = 1.0
-        return float(np.mean(np.sum((probabilities - one_hot) ** 2, axis=1)))
-
     def train(
         self,
         dataset_df: pd.DataFrame,
         test_ratio: float = 0.2,
         random_state: int = 42,
         min_examples: int = 100,
+        probability_strategy: str = "auto",
+        strategy_constraints: Optional[Dict[str, float]] = None,
     ) -> Dict[str, object]:
         if dataset_df.empty:
             raise ValueError("Point-in-time dataset is empty")
@@ -960,6 +1257,11 @@ class PointInTimeMatchModel:
         y_test = test_df["actual_outcome_label"].astype(int).to_numpy()
         class_balance = self._class_balance_summary(y_train)
         self.draw_rate_prior = float(np.mean(y_train == OUTCOME_DRAW))
+        self.requested_probability_strategy = probability_strategy
+        self.strategy_constraints = {
+            **DEFAULT_AUTO_STRATEGY_CONSTRAINTS,
+            **(strategy_constraints or {}),
+        }
 
         unique_labels = sorted(np.unique(y_train).tolist())
         if len(unique_labels) < 2:
@@ -998,48 +1300,61 @@ class PointInTimeMatchModel:
         predicted_margin = self.margin_regressor.predict(X_test)
         predicted_score_a = self.score_a_regressor.predict(X_test)
         predicted_score_b = self.score_b_regressor.predict(X_test)
-        probabilities, poisson_probabilities, draw_model_probability = self._compose_outcome_probabilities(
+        components = self._probability_components(
             dataset_df=test_df,
             matrix=X_test,
             base_probabilities=base_probabilities,
             predicted_score_a=predicted_score_a,
             predicted_score_b=predicted_score_b,
         )
-        predicted_labels = np.argmax(probabilities, axis=1)
-        self.last_evaluation_frame = self._build_evaluation_frame(
-            test_df=test_df,
-            probabilities=probabilities,
-            predicted_labels=predicted_labels,
-            predicted_margin=predicted_margin,
-            predicted_score_a=predicted_score_a,
-            predicted_score_b=predicted_score_b,
-            poisson_probabilities=poisson_probabilities,
-            draw_model_probability=draw_model_probability,
+
+        strategy_metrics: Dict[str, Dict[str, object]] = {}
+        strategy_frames: Dict[str, pd.DataFrame] = {}
+        for strategy_name in [name for name in SUPPORTED_PROBABILITY_STRATEGIES if name != "auto"]:
+            strategy_probabilities = self._compose_strategy_probabilities(strategy_name, components)
+            predicted_labels = np.argmax(strategy_probabilities, axis=1)
+            evaluation_frame = self._build_evaluation_frame(
+                test_df=test_df,
+                probabilities=strategy_probabilities,
+                predicted_labels=predicted_labels,
+                predicted_margin=predicted_margin,
+                predicted_score_a=predicted_score_a,
+                predicted_score_b=predicted_score_b,
+                poisson_probabilities=components["poisson_probabilities"],
+                draw_model_probability=components["draw_model_probability"],
+            )
+            strategy_metrics[strategy_name] = self._metrics_from_evaluation_frame(
+                evaluation_frame=evaluation_frame,
+                test_df=test_df,
+                predicted_margin=predicted_margin,
+                predicted_score_a=predicted_score_a,
+                predicted_score_b=predicted_score_b,
+            )
+            strategy_frames[strategy_name] = evaluation_frame
+
+        self.auto_strategy_selection = select_probability_strategy(
+            strategy_metrics=strategy_metrics,
+            actual_draw_rate=float(np.mean(y_test == OUTCOME_DRAW)),
+            requested_strategy=probability_strategy,
+            constraints=self.strategy_constraints,
         )
+        self.probability_strategy = str(self.auto_strategy_selection["selected_strategy"])
+        self.last_evaluation_frame = strategy_frames[self.probability_strategy]
 
         metrics = {
-            "winner_accuracy": float(accuracy_score(y_test, predicted_labels)),
-            "log_loss": float(log_loss(y_test, probabilities, labels=[0, 1, 2])),
-            "brier_score": self._brier_score(y_test, probabilities),
-            "draw_recall": float(np.mean(predicted_labels[y_test == OUTCOME_DRAW] == OUTCOME_DRAW))
-            if np.any(y_test == OUTCOME_DRAW)
-            else None,
-            "draw_precision": float(np.mean(y_test[predicted_labels == OUTCOME_DRAW] == OUTCOME_DRAW))
-            if np.any(predicted_labels == OUTCOME_DRAW)
-            else None,
-            "actual_draw_rate": float(np.mean(y_test == OUTCOME_DRAW)),
-            "predicted_draw_rate": float(np.mean(predicted_labels == OUTCOME_DRAW)),
-            "margin_mae": float(mean_absolute_error(test_df["actual_margin"], predicted_margin)),
-            "margin_rmse": float(math.sqrt(mean_squared_error(test_df["actual_margin"], predicted_margin))),
-            "score_a_mae": float(mean_absolute_error(test_df["actual_score_a"], predicted_score_a)),
-            "score_b_mae": float(mean_absolute_error(test_df["actual_score_b"], predicted_score_b)),
+            **strategy_metrics[self.probability_strategy],
             "train_examples": int(len(train_df)),
             "test_examples": int(len(test_df)),
+            "requested_probability_strategy": probability_strategy,
+            "probability_strategy": self.probability_strategy,
             "class_labels": [OUTCOME_LABELS[label] for label in self.class_labels],
             "feature_count": int(len(self.feature_names)),
             "training_class_balance": class_balance,
             "multiclass_sample_weights": named_class_weights,
             "draw_binary_sample_weights": draw_weight_map,
+            "draw_decision_policy": self.draw_decision_policy,
+            "strategy_metrics": strategy_metrics,
+            "auto_strategy_selection": self.auto_strategy_selection,
         }
 
         self.training_metadata = {
@@ -1048,6 +1363,10 @@ class PointInTimeMatchModel:
             "test_examples": int(len(test_df)),
             "feature_names": self.feature_names,
             "class_labels": self.class_labels,
+            "requested_probability_strategy": self.requested_probability_strategy,
+            "probability_strategy": self.probability_strategy,
+            "draw_decision_policy": self.draw_decision_policy,
+            "auto_strategy_selection": self.auto_strategy_selection,
         }
         return metrics
 
@@ -1063,6 +1382,10 @@ class PointInTimeMatchModel:
         model.score_a_regressor = payload["score_a_regressor"]
         model.score_b_regressor = payload["score_b_regressor"]
         model.draw_rate_prior = payload.get("draw_rate_prior", 0.0)
+        model.requested_probability_strategy = payload.get("requested_probability_strategy", "auto")
+        model.probability_strategy = payload.get("probability_strategy", "poisson_primary")
+        model.draw_decision_policy = payload.get("draw_decision_policy", _default_draw_decision_policy())
+        model.auto_strategy_selection = payload.get("auto_strategy_selection", {})
         model.feature_names = payload["feature_names"]
         model.class_labels = payload["class_labels"]
         model.training_metadata = payload.get("training_metadata", {})
@@ -1124,6 +1447,10 @@ class PointInTimeMatchModel:
             "score_a_regressor": self.score_a_regressor,
             "score_b_regressor": self.score_b_regressor,
             "draw_rate_prior": self.draw_rate_prior,
+            "requested_probability_strategy": self.requested_probability_strategy,
+            "probability_strategy": self.probability_strategy,
+            "draw_decision_policy": self.draw_decision_policy,
+            "auto_strategy_selection": self.auto_strategy_selection,
             "feature_names": self.feature_names,
             "class_labels": self.class_labels,
             "training_metadata": self.training_metadata,
