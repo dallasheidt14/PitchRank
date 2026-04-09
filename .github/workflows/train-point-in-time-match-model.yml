@@ -1,0 +1,228 @@
+name: Train Point-In-Time Match Model
+
+on:
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: 'Historical game window to fetch'
+        required: false
+        default: '365'
+        type: string
+      limit:
+        description: 'Optional cap on fetched games (use None for all)'
+        required: false
+        default: 'None'
+        type: string
+      test_slice_state:
+        description: 'Optional state slice for smoke runs (example: AZ)'
+        required: false
+        default: ''
+        type: string
+      test_slice_age_group:
+        description: 'Optional age-group slice for smoke runs (example: u12)'
+        required: false
+        default: ''
+        type: string
+      test_ratio:
+        description: 'Chronological holdout ratio'
+        required: false
+        default: '0.2'
+        type: string
+      min_examples:
+        description: 'Minimum dataset size required to train'
+        required: false
+        default: '100'
+        type: string
+      model_dir:
+        description: 'Artifact output directory'
+        required: false
+        default: 'models/point_in_time_match_predictor_dispatch'
+        type: string
+      save_dataset:
+        description: 'Persist training_dataset.csv'
+        required: false
+        default: false
+        type: boolean
+      calibrate:
+        description: 'Run probability calibration after training'
+        required: false
+        default: true
+        type: boolean
+      calibration_method:
+        description: 'Calibration method'
+        required: false
+        default: temperature
+        type: choice
+        options:
+          - temperature
+          - isotonic
+
+concurrency:
+  group: point-in-time-match-model-training
+  cancel-in-progress: false
+
+jobs:
+  train-point-in-time-match-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Show commit hash
+        run: |
+          echo "Current commit:"
+          git rev-parse HEAD
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          python -c "import supabase, pandas, numpy, rich; print('Core training imports successful')"
+
+      - name: Train point-in-time model
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+
+          MODEL_DIR="${{ github.event.inputs.model_dir }}"
+          LIMIT_INPUT="${{ github.event.inputs.limit }}"
+          TEST_SLICE_STATE="${{ github.event.inputs.test_slice_state }}"
+          TEST_SLICE_AGE_GROUP="${{ github.event.inputs.test_slice_age_group }}"
+
+          mkdir -p "$MODEL_DIR"
+
+          CMD=(
+            python scripts/train_point_in_time_match_model.py
+            --lookback-days "${{ github.event.inputs.lookback_days }}"
+            --test-ratio "${{ github.event.inputs.test_ratio }}"
+            --min-examples "${{ github.event.inputs.min_examples }}"
+            --model-dir "$MODEL_DIR"
+          )
+
+          if [ -n "$LIMIT_INPUT" ]; then
+            CMD+=(--limit "$LIMIT_INPUT")
+          fi
+
+          if [ -n "$TEST_SLICE_STATE" ] && [ -n "$TEST_SLICE_AGE_GROUP" ]; then
+            CMD+=(--test-slice "$TEST_SLICE_STATE" "$TEST_SLICE_AGE_GROUP")
+          fi
+
+          if [ "${{ github.event.inputs.save_dataset }}" = "true" ]; then
+            CMD+=(--save-dataset)
+          fi
+
+          printf 'Running command:\n'
+          printf ' %q' "${CMD[@]}"
+          printf '\n'
+
+          "${CMD[@]}"
+
+      - name: Calibrate trained model
+        if: ${{ github.event.inputs.calibrate == 'true' }}
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+
+          MODEL_DIR="${{ github.event.inputs.model_dir }}"
+          EVALUATION_CSV="$MODEL_DIR/point_in_time_model_evaluation.csv"
+
+          if [ ! -f "$EVALUATION_CSV" ]; then
+            echo "Evaluation CSV not found at $EVALUATION_CSV; skipping calibration"
+            exit 0
+          fi
+
+          python scripts/calibrate_point_in_time_match_model.py \
+            --evaluation-csv "$EVALUATION_CSV" \
+            --output-dir "$MODEL_DIR" \
+            --method "${{ github.event.inputs.calibration_method }}" \
+            --prefix "point_in_time_model_calibration"
+
+      - name: Write run summary
+        if: always()
+        env:
+          MODEL_DIR: ${{ github.event.inputs.model_dir }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          model_dir = Path(os.environ["MODEL_DIR"])
+          summary_lines = [f"## Point-in-Time Model Training", "", f"- Model dir: `{model_dir}`"]
+
+          dataset_summary_path = model_dir / "dataset_summary.json"
+          training_metrics_path = model_dir / "training_metrics.json"
+          calibration_summary_path = model_dir / "point_in_time_model_calibration_summary.json"
+
+          if dataset_summary_path.exists():
+            dataset = json.loads(dataset_summary_path.read_text(encoding="utf-8"))
+            summary_lines.extend(
+              [
+                "",
+                "### Dataset",
+                f"- Games seen: {dataset.get('games_seen')}",
+                f"- Games used: {dataset.get('games_used')}",
+                f"- Examples built: {dataset.get('examples_built')}",
+                f"- Unique snapshot dates used: {dataset.get('unique_snapshot_dates_used')}",
+              ]
+            )
+
+          if training_metrics_path.exists():
+            metrics = json.loads(training_metrics_path.read_text(encoding="utf-8"))
+            summary_lines.extend(
+              [
+                "",
+                "### Training",
+                f"- Winner accuracy: {metrics.get('winner_accuracy')}",
+                f"- Draw recall: {metrics.get('draw_recall')}",
+                f"- Log loss: {metrics.get('log_loss')}",
+                f"- Margin MAE: {metrics.get('margin_mae')}",
+              ]
+            )
+
+          if calibration_summary_path.exists():
+            calibration = json.loads(calibration_summary_path.read_text(encoding="utf-8"))
+            after = calibration.get("after_metrics", {})
+            summary_lines.extend(
+              [
+                "",
+                "### Calibration",
+                f"- Method: {calibration.get('method')}",
+                f"- Calibrated log loss: {after.get('log_loss')}",
+                f"- Calibrated Brier: {after.get('brier_score')}",
+              ]
+            )
+
+          step_summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          step_summary.write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
+          PY
+
+      - name: Upload model artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: point-in-time-match-model-${{ github.run_id }}
+          path: ${{ github.event.inputs.model_dir }}
+          if-no-files-found: warn
+          retention-days: 14
