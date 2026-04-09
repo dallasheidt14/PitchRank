@@ -16,6 +16,13 @@ PROBABILITY_COLUMNS = {
     "draw": "prob_draw",
     "team_b": "prob_team_b_win",
 }
+OUTCOME_ALIASES = {
+    "team_a": "team_a",
+    "team_a_win": "team_a",
+    "draw": "draw",
+    "team_b": "team_b",
+    "team_b_win": "team_b",
+}
 
 
 def _normalize_probabilities(frame: pd.DataFrame) -> pd.DataFrame:
@@ -35,7 +42,8 @@ def _normalize_probabilities(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def _outcome_to_index(outcome: str) -> int:
-    return OUTCOME_ORDER.index(str(outcome))
+    normalized = OUTCOME_ALIASES.get(str(outcome), str(outcome))
+    return OUTCOME_ORDER.index(normalized)
 
 
 def _brier_score(probabilities: np.ndarray, labels: np.ndarray) -> float:
@@ -55,8 +63,12 @@ def build_standardized_evaluation_frame(frame: pd.DataFrame) -> pd.DataFrame:
         predicted_indices = np.argmax(probability_values, axis=1)
         standardized["predicted_outcome"] = [OUTCOME_ORDER[index] for index in predicted_indices]
 
-    standardized["actual_outcome"] = standardized["actual_outcome"].astype(str)
-    standardized["predicted_outcome"] = standardized["predicted_outcome"].astype(str)
+    standardized["actual_outcome"] = (
+        standardized["actual_outcome"].astype(str).map(lambda outcome: OUTCOME_ALIASES.get(outcome, outcome))
+    )
+    standardized["predicted_outcome"] = (
+        standardized["predicted_outcome"].astype(str).map(lambda outcome: OUTCOME_ALIASES.get(outcome, outcome))
+    )
     standardized["top_probability"] = standardized[list(PROBABILITY_COLUMNS.values())].max(axis=1)
     standardized["correct_prediction"] = standardized["actual_outcome"] == standardized["predicted_outcome"]
     standardized["margin_error"] = pd.to_numeric(standardized["predicted_margin"], errors="coerce").fillna(0.0) - (
