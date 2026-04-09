@@ -131,6 +131,17 @@ BLOWOUT_RATE_TOLERANCE_MIN = 0.02
 BLOWOUT_RATE_OVERSHOOT_PENALTY = 0.9
 BLOWOUT_RATE_UNDERSHOOT_PENALTY = 0.45
 BLOWOUT_RATE_GAP_PENALTY = 0.25
+DRAW_POLICY_MIN_PROBABILITY_GRID = np.array([0.16, 0.18, 0.20, 0.22, 0.24, 0.26])
+DRAW_POLICY_MAX_GAP_GRID = np.array([0.00, 0.02, 0.04, 0.06, 0.08])
+DRAW_POLICY_MAX_TOTAL_GOALS_GRID = np.array([2.2, 2.4, 2.6])
+DRAW_POLICY_MIN_STALEMATE_GRID = np.array([0.52, 0.60, 0.68])
+DRAW_POLICY_BETA = 1.35
+DRAW_POLICY_RATE_TOLERANCE_SHARE = 0.18
+DRAW_POLICY_RATE_TOLERANCE_MIN = 0.025
+DRAW_POLICY_OVERSHOOT_PENALTY = 0.9
+DRAW_POLICY_UNDERSHOOT_PENALTY = 0.4
+DRAW_POLICY_RATE_GAP_PENALTY = 0.35
+COHORT_POSTPROCESSING_MIN_SAMPLES = 750
 AUTO_STRATEGY_MIN_DRAW_RECALL = 0.03
 AUTO_STRATEGY_MIN_DRAW_RATE_SHARE = 0.20
 AUTO_STRATEGY_RANK_WEIGHTS = {
@@ -166,6 +177,14 @@ class StrategyOutputs:
     predicted_score_b: np.ndarray
     blowout_3plus_probability: np.ndarray
     blowout_5plus_probability: np.ndarray
+
+
+@dataclass
+class BlowoutPostprocessing:
+    calibrator_3plus: Optional[IsotonicRegression]
+    calibrator_5plus: Optional[IsotonicRegression]
+    thresholds: Dict[int, float]
+    thresholds_by_age: Dict[int, Dict[int, float]]
 
 
 def _to_float(value: object, default: float = 0.0) -> float:
@@ -224,6 +243,15 @@ def _extract_age_numeric(age_value: object) -> int:
 
     match = re.search(r"\d+", str(age_value))
     return int(match.group()) if match else 0
+
+
+def _age_group_numeric_array(dataset_df: pd.DataFrame) -> np.ndarray:
+    return (
+        pd.to_numeric(dataset_df.get("age_group_numeric"), errors="coerce")
+        .fillna(0)
+        .astype(int)
+        .to_numpy()
+    )
 
 
 def _snapshot_as_of(snapshot_index: Dict[str, List[dict]], team_id: str, target_date: str) -> Optional[dict]:
@@ -1033,7 +1061,17 @@ class PointInTimeMatchModel:
         self.score_b_regressor = None
         self.draw_rate_prior = 0.0
         self.probability_strategy = DEFAULT_PROBABILITY_STRATEGY
+        self.draw_decision_policy: Dict[str, object] = {
+            "default": {
+                "min_draw_probability": POISSON_DRAW_GATE_PROBABILITY_MIN,
+                "max_draw_gap": 0.02,
+                "max_total_goals": POISSON_DRAW_GATE_TOTAL_GOALS_MAX,
+                "min_stalemate_signal": POISSON_DRAW_GATE_STALEMATE_MIN,
+            },
+            "by_age": {},
+        }
         self.blowout_probability_thresholds: Dict[int, float] = {3: 0.5, 5: 0.5}
+        self.blowout_probability_thresholds_by_age: Dict[int, Dict[int, float]] = {3: {}, 5: {}}
         self.training_metadata: Dict[str, object] = {}
         self.last_evaluation_frame = pd.DataFrame()
         os.makedirs(model_dir, exist_ok=True)
@@ -1258,6 +1296,193 @@ class PointInTimeMatchModel:
         )
         return np.asarray(probabilities[:, positive_index], dtype=float)
 
+    def _default_draw_decision_policy(self) -> Dict[str, float]:
+        return {
+            "min_draw_probability": POISSON_DRAW_GATE_PROBABILITY_MIN,
+            "max_draw_gap": 0.02,
+            "max_total_goals": POISSON_DRAW_GATE_TOTAL_GOALS_MAX,
+            "min_stalemate_signal": POISSON_DRAW_GATE_STALEMATE_MIN,
+        }
+
+    def _apply_draw_decision_policy(
+        self,
+        probabilities: np.ndarray,
+        dataset_df: pd.DataFrame,
+        policy: Dict[str, float],
+        base_labels: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        labels = np.asarray(
+            base_labels if base_labels is not None else np.argmax(probabilities, axis=1),
+            dtype=int,
+        ).copy()
+        draw_probability = np.asarray(probabilities[:, OUTCOME_DRAW], dtype=float)
+        draw_gap = np.max(probabilities[:, [OUTCOME_TEAM_A_WIN, OUTCOME_TEAM_B_WIN]], axis=1) - draw_probability
+        projected_total_goals = (
+            pd.to_numeric(dataset_df.get("projected_total_goals"), errors="coerce")
+            .fillna(np.inf)
+            .to_numpy(dtype=float)
+        )
+        stalemate_signal = (
+            pd.to_numeric(dataset_df.get("stalemate_signal"), errors="coerce")
+            .fillna(0.0)
+            .to_numpy(dtype=float)
+        )
+        draw_mask = (
+            (draw_probability >= float(policy["min_draw_probability"]))
+            & (draw_gap <= float(policy["max_draw_gap"]))
+            & (projected_total_goals <= float(policy["max_total_goals"]))
+            & (stalemate_signal >= float(policy["min_stalemate_signal"]))
+        )
+        labels[draw_mask] = OUTCOME_DRAW
+        return labels
+
+    def _score_draw_decision_policy(
+        self,
+        probabilities: np.ndarray,
+        dataset_df: pd.DataFrame,
+        actual_labels: np.ndarray,
+        policy: Dict[str, float],
+    ) -> Tuple[float, float, float, float]:
+        predicted_labels = self._apply_draw_decision_policy(probabilities, dataset_df, policy)
+        actual_draw = np.asarray(actual_labels == OUTCOME_DRAW, dtype=int)
+        predicted_draw = np.asarray(predicted_labels == OUTCOME_DRAW, dtype=int)
+        tp = float(np.sum((predicted_draw == 1) & (actual_draw == 1)))
+        fp = float(np.sum((predicted_draw == 1) & (actual_draw == 0)))
+        fn = float(np.sum((predicted_draw == 0) & (actual_draw == 1)))
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        beta_squared = DRAW_POLICY_BETA * DRAW_POLICY_BETA
+        if precision <= 0.0 and recall <= 0.0:
+            f_beta = 0.0
+        else:
+            f_beta = ((1.0 + beta_squared) * precision * recall) / (
+                (beta_squared * precision) + recall
+            )
+        predicted_draw_rate = float(np.mean(predicted_draw))
+        accuracy = float(np.mean(predicted_labels == actual_labels))
+        actual_draw_rate = float(np.mean(actual_draw))
+        rate_gap = abs(predicted_draw_rate - actual_draw_rate)
+        overshoot = max(0.0, predicted_draw_rate - actual_draw_rate)
+        undershoot = max(0.0, actual_draw_rate - predicted_draw_rate)
+        score = (
+            (2.0 * accuracy)
+            + (2.5 * f_beta)
+            - (DRAW_POLICY_OVERSHOOT_PENALTY * overshoot)
+            - (DRAW_POLICY_UNDERSHOOT_PENALTY * undershoot)
+            - (DRAW_POLICY_RATE_GAP_PENALTY * rate_gap)
+        )
+        return score, predicted_draw_rate, recall, precision
+
+    def _select_draw_decision_policy(
+        self,
+        probabilities: np.ndarray,
+        dataset_df: pd.DataFrame,
+        actual_labels: np.ndarray,
+    ) -> Dict[str, float]:
+        cleaned_probabilities = np.asarray(probabilities, dtype=float)
+        cleaned_labels = np.asarray(actual_labels, dtype=int)
+        if cleaned_probabilities.size == 0 or len(np.unique(cleaned_labels)) < 2:
+            return self._default_draw_decision_policy()
+
+        actual_draw_rate = float(np.mean(cleaned_labels == OUTCOME_DRAW))
+        if actual_draw_rate <= 0.0:
+            return self._default_draw_decision_policy()
+
+        default_policy = self._default_draw_decision_policy()
+        best_policy = default_policy
+        best_score, _, _, _ = self._score_draw_decision_policy(
+            cleaned_probabilities,
+            dataset_df,
+            cleaned_labels,
+            default_policy,
+        )
+        rate_tolerance = max(
+            DRAW_POLICY_RATE_TOLERANCE_MIN,
+            actual_draw_rate * DRAW_POLICY_RATE_TOLERANCE_SHARE,
+        )
+        best_band_policy: Optional[Dict[str, float]] = None
+        best_band_score = -np.inf
+
+        for min_draw_probability in DRAW_POLICY_MIN_PROBABILITY_GRID:
+            for max_draw_gap in DRAW_POLICY_MAX_GAP_GRID:
+                for max_total_goals in DRAW_POLICY_MAX_TOTAL_GOALS_GRID:
+                    for min_stalemate_signal in DRAW_POLICY_MIN_STALEMATE_GRID:
+                        candidate_policy = {
+                            "min_draw_probability": float(min_draw_probability),
+                            "max_draw_gap": float(max_draw_gap),
+                            "max_total_goals": float(max_total_goals),
+                            "min_stalemate_signal": float(min_stalemate_signal),
+                        }
+                        score, predicted_draw_rate, _, _ = self._score_draw_decision_policy(
+                            cleaned_probabilities,
+                            dataset_df,
+                            cleaned_labels,
+                            candidate_policy,
+                        )
+                        rate_gap = abs(predicted_draw_rate - actual_draw_rate)
+                        if score > best_score:
+                            best_score = score
+                            best_policy = candidate_policy
+                        if rate_gap <= rate_tolerance and score > best_band_score:
+                            best_band_score = score
+                            best_band_policy = candidate_policy
+
+        return best_band_policy or best_policy
+
+    def _fit_draw_postprocessing(
+        self,
+        train_df: pd.DataFrame,
+        probabilities: np.ndarray,
+    ) -> Dict[str, object]:
+        actual_labels = train_df["actual_outcome_label"].astype(int).to_numpy()
+        default_policy = self._select_draw_decision_policy(probabilities, train_df, actual_labels)
+        age_group_numeric = _age_group_numeric_array(train_df)
+        by_age: Dict[int, Dict[str, float]] = {}
+        for age_value in sorted({int(value) for value in age_group_numeric if int(value) > 0}):
+            cohort_mask = age_group_numeric == age_value
+            if int(np.sum(cohort_mask)) < COHORT_POSTPROCESSING_MIN_SAMPLES:
+                continue
+            cohort_labels = actual_labels[cohort_mask]
+            if len(np.unique(cohort_labels)) < 2:
+                continue
+            by_age[age_value] = self._select_draw_decision_policy(
+                probabilities[cohort_mask],
+                train_df.loc[cohort_mask],
+                cohort_labels,
+            )
+        return {
+            "default": default_policy,
+            "by_age": by_age,
+        }
+
+    def _draw_prediction_labels(
+        self,
+        probabilities: np.ndarray,
+        dataset_df: pd.DataFrame,
+        policy: Optional[Dict[str, object]] = None,
+    ) -> np.ndarray:
+        policy_source = policy or self.draw_decision_policy
+        labels = np.asarray(np.argmax(probabilities, axis=1), dtype=int)
+        labels = self._apply_draw_decision_policy(
+            probabilities=probabilities,
+            dataset_df=dataset_df,
+            policy=policy_source.get("default", self._default_draw_decision_policy()),
+            base_labels=labels,
+        )
+        age_group_numeric = _age_group_numeric_array(dataset_df)
+        by_age_policy = policy_source.get("by_age", {})
+        for age_value, age_policy in by_age_policy.items():
+            cohort_mask = age_group_numeric == int(age_value)
+            if not np.any(cohort_mask):
+                continue
+            labels[cohort_mask] = self._apply_draw_decision_policy(
+                probabilities=probabilities[cohort_mask],
+                dataset_df=dataset_df.loc[cohort_mask],
+                policy=age_policy,
+                base_labels=labels[cohort_mask],
+            )
+        return labels
+
     def _fit_blowout_calibrator(
         self,
         probabilities: np.ndarray,
@@ -1368,15 +1593,60 @@ class PointInTimeMatchModel:
             return best_band_threshold
         return best_fallback_threshold
 
+    def _select_blowout_thresholds_by_age(
+        self,
+        probabilities: np.ndarray,
+        targets: np.ndarray,
+        age_group_numeric: np.ndarray,
+        beta: float,
+    ) -> Tuple[float, Dict[int, float]]:
+        global_threshold = self._select_blowout_threshold(
+            probabilities=probabilities,
+            targets=targets,
+            beta=beta,
+        )
+        thresholds_by_age: Dict[int, float] = {}
+        ages = np.asarray(age_group_numeric, dtype=int)
+        for age_value in sorted({int(value) for value in ages if int(value) > 0}):
+            cohort_mask = ages == age_value
+            if int(np.sum(cohort_mask)) < COHORT_POSTPROCESSING_MIN_SAMPLES:
+                continue
+            cohort_targets = np.asarray(targets[cohort_mask], dtype=int)
+            if len(np.unique(cohort_targets)) < 2:
+                continue
+            thresholds_by_age[age_value] = self._select_blowout_threshold(
+                probabilities=np.asarray(probabilities[cohort_mask], dtype=float),
+                targets=cohort_targets,
+                beta=beta,
+            )
+        return global_threshold, thresholds_by_age
+
     def _blowout_prediction_labels(
         self,
         blowout_3plus_probability: np.ndarray,
         blowout_5plus_probability: np.ndarray,
         thresholds: Optional[Dict[int, float]] = None,
+        age_group_numeric: Optional[np.ndarray] = None,
+        thresholds_by_age: Optional[Dict[int, Dict[int, float]]] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         threshold_source = thresholds or self.blowout_probability_thresholds
-        threshold_3plus = float(threshold_source.get(3, 0.5))
-        threshold_5plus = float(threshold_source.get(5, 0.5))
+        threshold_source_by_age = thresholds_by_age or self.blowout_probability_thresholds_by_age
+        threshold_3plus = np.full(
+            len(blowout_3plus_probability),
+            float(threshold_source.get(3, 0.5)),
+            dtype=float,
+        )
+        threshold_5plus = np.full(
+            len(blowout_5plus_probability),
+            float(threshold_source.get(5, 0.5)),
+            dtype=float,
+        )
+        if age_group_numeric is not None:
+            ages = np.asarray(age_group_numeric, dtype=int)
+            for age_value, threshold in threshold_source_by_age.get(3, {}).items():
+                threshold_3plus[ages == int(age_value)] = float(threshold)
+            for age_value, threshold in threshold_source_by_age.get(5, {}).items():
+                threshold_5plus[ages == int(age_value)] = float(threshold)
         predicted_5plus = np.asarray(blowout_5plus_probability >= threshold_5plus, dtype=int)
         predicted_3plus = np.asarray(blowout_3plus_probability >= threshold_3plus, dtype=int)
         predicted_3plus = np.maximum(predicted_3plus, predicted_5plus)
@@ -1483,23 +1753,12 @@ class PointInTimeMatchModel:
 
     def _fit_blowout_postprocessing(
         self,
-        strategy_name: str,
         train_df: pd.DataFrame,
-        matrix: pd.DataFrame,
-        base_probabilities: np.ndarray,
-        predicted_score_a: np.ndarray,
-        predicted_score_b: np.ndarray,
-    ) -> Tuple[Optional[IsotonicRegression], Optional[IsotonicRegression], Dict[int, float]]:
-        calibration_outputs = self._strategy_outputs(
-            strategy_name,
-            dataset_df=train_df,
-            matrix=matrix,
-            base_probabilities=base_probabilities,
-            predicted_score_a=predicted_score_a,
-            predicted_score_b=predicted_score_b,
-        )
+        calibration_outputs: StrategyOutputs,
+    ) -> BlowoutPostprocessing:
         train_blowout_targets_3plus = (train_df["actual_margin"].astype(float).abs() >= 3.0).astype(int).to_numpy()
         train_blowout_targets_5plus = (train_df["actual_margin"].astype(float).abs() >= 5.0).astype(int).to_numpy()
+        age_group_numeric = _age_group_numeric_array(train_df)
         calibrator_3plus = self._fit_blowout_calibrator(
             calibration_outputs.blowout_3plus_probability,
             train_blowout_targets_3plus,
@@ -1516,19 +1775,30 @@ class PointInTimeMatchModel:
             calibrator_5plus,
             calibration_outputs.blowout_5plus_probability,
         )
-        thresholds = {
-            3: self._select_blowout_threshold(
-                calibrated_train_blowout_3plus,
-                train_blowout_targets_3plus,
-                beta=1.15,
-            ),
-            5: self._select_blowout_threshold(
-                calibrated_train_blowout_5plus,
-                train_blowout_targets_5plus,
-                beta=1.05,
-            ),
-        }
-        return calibrator_3plus, calibrator_5plus, thresholds
+        threshold_3plus, thresholds_3plus_by_age = self._select_blowout_thresholds_by_age(
+            calibrated_train_blowout_3plus,
+            train_blowout_targets_3plus,
+            age_group_numeric=age_group_numeric,
+            beta=1.15,
+        )
+        threshold_5plus, thresholds_5plus_by_age = self._select_blowout_thresholds_by_age(
+            calibrated_train_blowout_5plus,
+            train_blowout_targets_5plus,
+            age_group_numeric=age_group_numeric,
+            beta=1.05,
+        )
+        return BlowoutPostprocessing(
+            calibrator_3plus=calibrator_3plus,
+            calibrator_5plus=calibrator_5plus,
+            thresholds={
+                3: threshold_3plus,
+                5: threshold_5plus,
+            },
+            thresholds_by_age={
+                3: thresholds_3plus_by_age,
+                5: thresholds_5plus_by_age,
+            },
+        )
 
     def _expected_goals_from_predictions(
         self,
@@ -2080,31 +2350,33 @@ class PointInTimeMatchModel:
         train_predicted_score_b = self.score_b_regressor.predict(X_train)
         strategy_metrics: Dict[str, Dict[str, object]] = {}
         strategy_outputs: Dict[str, StrategyOutputs] = {}
-        strategy_blowout_postprocessing: Dict[
-            str,
-            Tuple[Optional[IsotonicRegression], Optional[IsotonicRegression], Dict[int, float]],
-        ] = {}
+        strategy_draw_postprocessing: Dict[str, Dict[str, object]] = {}
+        strategy_blowout_postprocessing: Dict[str, BlowoutPostprocessing] = {}
+        test_age_group_numeric = _age_group_numeric_array(test_df)
         for strategy_name in sorted(PROBABILITY_STRATEGIES):
-            (
-                calibrator_3plus,
-                calibrator_5plus,
-                thresholds,
-            ) = self._fit_blowout_postprocessing(
-                strategy_name=strategy_name,
-                train_df=train_df,
+            train_outputs = self._strategy_outputs(
+                strategy_name,
+                dataset_df=train_df,
                 matrix=X_train,
                 base_probabilities=train_base_probabilities,
                 predicted_score_a=train_predicted_score_a,
                 predicted_score_b=train_predicted_score_b,
             )
-            strategy_blowout_postprocessing[strategy_name] = (
-                calibrator_3plus,
-                calibrator_5plus,
-                thresholds,
+            draw_policy = self._fit_draw_postprocessing(
+                train_df=train_df,
+                probabilities=train_outputs.probabilities,
             )
-            self.blowout_calibrator_3plus = calibrator_3plus
-            self.blowout_calibrator_5plus = calibrator_5plus
-            self.blowout_probability_thresholds = thresholds
+            strategy_draw_postprocessing[strategy_name] = draw_policy
+            blowout_postprocessing = self._fit_blowout_postprocessing(
+                train_df=train_df,
+                calibration_outputs=train_outputs,
+            )
+            strategy_blowout_postprocessing[strategy_name] = blowout_postprocessing
+            self.draw_decision_policy = draw_policy
+            self.blowout_calibrator_3plus = blowout_postprocessing.calibrator_3plus
+            self.blowout_calibrator_5plus = blowout_postprocessing.calibrator_5plus
+            self.blowout_probability_thresholds = blowout_postprocessing.thresholds
+            self.blowout_probability_thresholds_by_age = blowout_postprocessing.thresholds_by_age
             outputs = self._strategy_outputs(
                 strategy_name,
                 dataset_df=test_df,
@@ -2115,12 +2387,18 @@ class PointInTimeMatchModel:
             )
             strategy_outputs[strategy_name] = outputs
             probabilities_for_strategy = outputs.probabilities
+            predicted_labels_for_strategy = self._draw_prediction_labels(
+                probabilities_for_strategy,
+                dataset_df=test_df,
+                policy=draw_policy,
+            )
             predicted_blowout_3plus, predicted_blowout_5plus = self._blowout_prediction_labels(
                 outputs.blowout_3plus_probability,
                 outputs.blowout_5plus_probability,
-                thresholds=thresholds,
+                thresholds=blowout_postprocessing.thresholds,
+                age_group_numeric=test_age_group_numeric,
+                thresholds_by_age=blowout_postprocessing.thresholds_by_age,
             )
-            predicted_labels_for_strategy = np.argmax(probabilities_for_strategy, axis=1)
             strategy_evaluation_frame = self._build_evaluation_frame(
                 test_df=test_df,
                 probabilities=probabilities_for_strategy,
@@ -2150,18 +2428,24 @@ class PointInTimeMatchModel:
             )
             self.probability_strategy = selected_probability_strategy
 
-        (
-            self.blowout_calibrator_3plus,
-            self.blowout_calibrator_5plus,
-            self.blowout_probability_thresholds,
-        ) = strategy_blowout_postprocessing[self.probability_strategy]
+        self.draw_decision_policy = strategy_draw_postprocessing[self.probability_strategy]
+        selected_blowout_postprocessing = strategy_blowout_postprocessing[self.probability_strategy]
+        self.blowout_calibrator_3plus = selected_blowout_postprocessing.calibrator_3plus
+        self.blowout_calibrator_5plus = selected_blowout_postprocessing.calibrator_5plus
+        self.blowout_probability_thresholds = selected_blowout_postprocessing.thresholds
+        self.blowout_probability_thresholds_by_age = selected_blowout_postprocessing.thresholds_by_age
         selected_outputs = strategy_outputs[self.probability_strategy]
         probabilities = selected_outputs.probabilities
-        predicted_labels = np.argmax(probabilities, axis=1)
+        predicted_labels = self._draw_prediction_labels(
+            probabilities,
+            dataset_df=test_df,
+        )
         predicted_blowout_3plus, predicted_blowout_5plus = self._blowout_prediction_labels(
             selected_outputs.blowout_3plus_probability,
             selected_outputs.blowout_5plus_probability,
             thresholds=self.blowout_probability_thresholds,
+            age_group_numeric=test_age_group_numeric,
+            thresholds_by_age=self.blowout_probability_thresholds_by_age,
         )
         self.last_evaluation_frame = self._build_evaluation_frame(
             test_df=test_df,
@@ -2200,6 +2484,26 @@ class PointInTimeMatchModel:
                 "3plus": float(self.blowout_probability_thresholds[3]),
                 "5plus": float(self.blowout_probability_thresholds[5]),
             },
+            "blowout_probability_thresholds_by_age": {
+                "3plus": {
+                    str(age): float(value)
+                    for age, value in self.blowout_probability_thresholds_by_age.get(3, {}).items()
+                },
+                "5plus": {
+                    str(age): float(value)
+                    for age, value in self.blowout_probability_thresholds_by_age.get(5, {}).items()
+                },
+            },
+            "draw_decision_policy": {
+                "default": {
+                    key: float(value)
+                    for key, value in self.draw_decision_policy.get("default", {}).items()
+                },
+                "by_age": {
+                    str(age): {key: float(value) for key, value in policy.items()}
+                    for age, policy in self.draw_decision_policy.get("by_age", {}).items()
+                },
+            },
             "strategy_metrics": strategy_metrics,
         }
         if auto_strategy_selection is not None:
@@ -2234,6 +2538,17 @@ class PointInTimeMatchModel:
         model.draw_rate_prior = payload.get("draw_rate_prior", 0.0)
         model.probability_strategy = payload.get("probability_strategy", DEFAULT_PROBABILITY_STRATEGY)
         model.blowout_probability_thresholds = payload.get("blowout_probability_thresholds", {3: 0.5, 5: 0.5})
+        model.blowout_probability_thresholds_by_age = payload.get(
+            "blowout_probability_thresholds_by_age",
+            {3: {}, 5: {}},
+        )
+        model.draw_decision_policy = payload.get(
+            "draw_decision_policy",
+            {
+                "default": model._default_draw_decision_policy(),
+                "by_age": {},
+            },
+        )
         model.feature_names = payload["feature_names"]
         model.class_labels = payload["class_labels"]
         model.training_metadata = payload.get("training_metadata", {})
@@ -2257,10 +2572,14 @@ class PointInTimeMatchModel:
             predicted_score_b=predicted_score_b,
         )
         probabilities = strategy_outputs.probabilities
-        predicted_labels = np.argmax(probabilities, axis=1)
+        predicted_labels = self._draw_prediction_labels(
+            probabilities,
+            dataset_df=dataset_df,
+        )
         predicted_blowout_3plus, predicted_blowout_5plus = self._blowout_prediction_labels(
             strategy_outputs.blowout_3plus_probability,
             strategy_outputs.blowout_5plus_probability,
+            age_group_numeric=_age_group_numeric_array(dataset_df),
         )
         return self._build_evaluation_frame(
             test_df=dataset_df,
@@ -2314,6 +2633,8 @@ class PointInTimeMatchModel:
             "draw_rate_prior": self.draw_rate_prior,
             "probability_strategy": self.probability_strategy,
             "blowout_probability_thresholds": self.blowout_probability_thresholds,
+            "blowout_probability_thresholds_by_age": self.blowout_probability_thresholds_by_age,
+            "draw_decision_policy": self.draw_decision_policy,
             "feature_names": self.feature_names,
             "class_labels": self.class_labels,
             "training_metadata": self.training_metadata,
