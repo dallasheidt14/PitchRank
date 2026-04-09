@@ -19,6 +19,7 @@ export type ExplanationFactor =
   | 'offensive_matchup'
   | 'defensive_matchup'
   | 'close_match'
+  | 'common_opponents'
   | 'head_to_head';
 
 export interface Explanation {
@@ -368,6 +369,60 @@ function explainHeadToHead(
   };
 }
 
+function explainCommonOpponents(
+  teamA: TeamWithRanking,
+  teamB: TeamWithRanking,
+  commonOpponents?: {
+    sharedOpponents: number;
+    comparedGames: number;
+    avgMarginDiff: number;
+    pointsPerGameDiff: number;
+    reliability: number;
+  },
+  commonOpponentSignal?: number
+): Explanation | null {
+  if (!commonOpponents || commonOpponents.sharedOpponents < 2) return null;
+
+  const signal = commonOpponentSignal ?? 0;
+  if (Math.abs(signal) < 0.025) return null;
+
+  const advantage: 'team_a' | 'team_b' = signal > 0 ? 'team_a' : 'team_b';
+  const favoredTeam = signal > 0 ? teamA.team_name : teamB.team_name;
+  const absMargin = Math.abs(commonOpponents.avgMarginDiff);
+  const absPoints = Math.abs(commonOpponents.pointsPerGameDiff);
+
+  let magnitude: ExplanationMagnitude;
+  if (
+    commonOpponents.sharedOpponents >= 4 &&
+    commonOpponents.reliability >= 0.45 &&
+    (absMargin >= 1.1 || absPoints >= 0.9)
+  ) {
+    magnitude = 'significant';
+  } else if (absMargin >= 0.6 || absPoints >= 0.55) {
+    magnitude = 'moderate';
+  } else {
+    magnitude = 'minimal';
+  }
+
+  if (magnitude === 'minimal') return null;
+
+  let description = '';
+  if (absPoints >= 0.8) {
+    description = `Shared-opponent edge: against ${commonOpponents.sharedOpponents} common opponents, ${favoredTeam} has taken about ${absPoints.toFixed(1)} more points per game`;
+  } else {
+    description = `Shared-opponent edge: against ${commonOpponents.sharedOpponents} common opponents, ${favoredTeam} has been roughly ${absMargin.toFixed(1)} goals per game better`;
+  }
+
+  return {
+    factor: 'common_opponents',
+    advantage,
+    magnitude,
+    description,
+    icon: 'vs',
+    score: Math.abs(signal) * 12 + commonOpponents.sharedOpponents * 0.18 + commonOpponents.reliability * 0.6,
+  };
+}
+
 /**
  * Generate complete match explanation
  */
@@ -388,11 +443,13 @@ export function explainMatch(
     expectedMargin,
     expectedScore,
     h2h,
+    commonOpponents,
   } = prediction;
 
   // Generate all possible explanations
   const allExplanations: (Explanation | null)[] = [
     explainHeadToHead(teamA, teamB, h2h), // H2H first - highly predictive
+    explainCommonOpponents(teamA, teamB, commonOpponents, components.commonOpponentSignal),
     explainPowerScore(teamA, teamB, components.powerDiff),
     explainSOS(teamA, teamB, components.sosDiff),
     explainRecentForm(teamA, teamB, formA, formB, components.formDiffRaw),
@@ -495,6 +552,26 @@ export function explainMatch(
     keyInsights.push(
       `Both teams have deep recent samples (${minGamesPlayed}+ matches), which makes the read more trustworthy.`
     );
+  }
+
+  if (
+    commonOpponents &&
+    commonOpponents.sharedOpponents >= 2 &&
+    Math.abs(components.commonOpponentSignal ?? 0) >= 0.025
+  ) {
+    const commonOpponentTeam = (components.commonOpponentSignal ?? 0) > 0 ? teamA.team_name : teamB.team_name;
+    const absCommonMargin = Math.abs(commonOpponents.avgMarginDiff);
+    const absCommonPoints = Math.abs(commonOpponents.pointsPerGameDiff);
+
+    if (absCommonPoints >= 0.8) {
+      keyInsights.push(
+        `${commonOpponentTeam} has done better against ${commonOpponents.sharedOpponents} shared opponents, taking about ${absCommonPoints.toFixed(1)} more points per game in those matchups.`
+      );
+    } else {
+      keyInsights.push(
+        `${commonOpponentTeam} has been stronger against ${commonOpponents.sharedOpponents} shared opponents, running about ${absCommonMargin.toFixed(1)} goals per game better in that shared sample.`
+      );
+    }
   }
 
   // 3. Margin interpretation

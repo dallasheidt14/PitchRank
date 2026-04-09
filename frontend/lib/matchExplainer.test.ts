@@ -156,4 +156,38 @@ describe('explainMatch', () => {
     expect(explanation.factors.some((factor) => factor.factor === 'close_match')).toBe(true);
     expect(explanation.keyInsights.join(' ').toLowerCase()).toContain('coin-flip');
   });
+
+  it('surfaces common-opponent evidence when it meaningfully separates the teams', () => {
+    const teamA = makeTeam({ team_id_master: 'team-a', team_name: 'Alpha FC 14B' });
+    const teamB = makeTeam({ team_id_master: 'team-b', team_name: 'Beta FC 14B' });
+
+    const explanation = explainMatch(
+      teamA,
+      teamB,
+      makePrediction({
+        components: {
+          powerDiff: 0.04,
+          strengthSignal: 0.05,
+          sosDiff: 0.02,
+          formDiffRaw: 0.5,
+          formDiffNorm: 0.02,
+          matchupAdvantage: 0.01,
+          compositeDiff: 0.08,
+          mismatchScore: 0.12,
+          commonOpponentSignal: 0.06,
+        },
+        h2h: undefined,
+        commonOpponents: {
+          sharedOpponents: 4,
+          comparedGames: 8,
+          avgMarginDiff: 1.1,
+          pointsPerGameDiff: 0.9,
+          reliability: 0.7,
+        },
+      })
+    );
+
+    expect(explanation.factors.some((factor) => factor.factor === 'common_opponents')).toBe(true);
+    expect(explanation.keyInsights.join(' ')).toContain('shared opponents');
+  });
 });

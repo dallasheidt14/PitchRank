@@ -87,6 +87,22 @@ interface RecentProfile {
   sampleWeight: number;
 }
 
+interface OpponentAggregate {
+  weightedPoints: number;
+  weightedMargin: number;
+  totalWeight: number;
+  games: number;
+}
+
+interface CommonOpponentSummary {
+  advantage: number;
+  sharedOpponents: number;
+  comparedGames: number;
+  avgMarginDiff: number;
+  pointsPerGameDiff: number;
+  reliability: number;
+}
+
 /**
  * Load age group parameters from JSON file
  * Caches result after first load
@@ -202,6 +218,7 @@ const RECENT_GAMES_COUNT = 5;
 const GLICKO_ELO_DIVISOR = 400;
 const POISSON_MAX_GOALS = 10;
 const DEFAULT_DRAW_RATE = 0.13;
+const COMMON_OPPONENT_RECENCY_DAYS = 150;
 
 /**
  * Get calibrated SENSITIVITY value
@@ -399,6 +416,156 @@ export function calculateHeadToHead(
     advantage,
     gamesPlayed: gamesWithScores,
     avgMargin,
+  };
+}
+
+function getLatestGameTimestamp(allGames: Game[]): number | null {
+  const timestamps = allGames
+    .map((game) => Date.parse(game.game_date))
+    .filter((timestamp) => Number.isFinite(timestamp));
+
+  if (timestamps.length === 0) {
+    return null;
+  }
+
+  return Math.max(...timestamps);
+}
+
+function updateOpponentAggregate(
+  aggregates: Map<string, OpponentAggregate>,
+  opponentId: string,
+  points: number,
+  goalDiff: number,
+  weight: number
+): void {
+  const current = aggregates.get(opponentId) ?? {
+    weightedPoints: 0,
+    weightedMargin: 0,
+    totalWeight: 0,
+    games: 0,
+  };
+
+  current.weightedPoints += points * weight;
+  current.weightedMargin += goalDiff * weight;
+  current.totalWeight += weight;
+  current.games += 1;
+  aggregates.set(opponentId, current);
+}
+
+export function calculateCommonOpponentSignal(
+  teamAId: string,
+  teamBId: string,
+  allGames: Game[]
+): CommonOpponentSummary {
+  const referenceTimestamp = getLatestGameTimestamp(allGames);
+  const teamAOpponents = new Map<string, OpponentAggregate>();
+  const teamBOpponents = new Map<string, OpponentAggregate>();
+
+  for (const game of allGames) {
+    if (game.home_score == null || game.away_score == null) continue;
+
+    const involvesTeamA = game.home_team_master_id === teamAId || game.away_team_master_id === teamAId;
+    const involvesTeamB = game.home_team_master_id === teamBId || game.away_team_master_id === teamBId;
+
+    if ((!involvesTeamA && !involvesTeamB) || (involvesTeamA && involvesTeamB)) {
+      continue;
+    }
+
+    const isTeamARecord = involvesTeamA;
+    const teamId = isTeamARecord ? teamAId : teamBId;
+    const isHome = game.home_team_master_id === teamId;
+    const opponentId = isHome ? game.away_team_master_id : game.home_team_master_id;
+
+    if (!opponentId || opponentId === teamAId || opponentId === teamBId) {
+      continue;
+    }
+
+    const teamScore = isHome ? game.home_score : game.away_score;
+    const oppScore = isHome ? game.away_score : game.home_score;
+    if (teamScore == null || oppScore == null) continue;
+
+    const gameTimestamp = Date.parse(game.game_date);
+    const daysSince =
+      referenceTimestamp != null && Number.isFinite(gameTimestamp)
+        ? Math.max(0, (referenceTimestamp - gameTimestamp) / (1000 * 60 * 60 * 24))
+        : 0;
+    const recencyWeight = Math.exp(-daysSince / COMMON_OPPONENT_RECENCY_DAYS);
+    const points = teamScore > oppScore ? 3 : teamScore === oppScore ? 1 : 0;
+    const goalDiff = teamScore - oppScore;
+
+    updateOpponentAggregate(
+      isTeamARecord ? teamAOpponents : teamBOpponents,
+      opponentId,
+      points,
+      goalDiff,
+      recencyWeight
+    );
+  }
+
+  const sharedOpponentIds = Array.from(teamAOpponents.keys()).filter((opponentId) => teamBOpponents.has(opponentId));
+  if (sharedOpponentIds.length === 0) {
+    return {
+      advantage: 0,
+      sharedOpponents: 0,
+      comparedGames: 0,
+      avgMarginDiff: 0,
+      pointsPerGameDiff: 0,
+      reliability: 0,
+    };
+  }
+
+  let signalSum = 0;
+  let weightSum = 0;
+  let totalComparedGames = 0;
+  let weightedMarginDiff = 0;
+  let weightedPointsDiff = 0;
+
+  for (const opponentId of sharedOpponentIds) {
+    const teamAStats = teamAOpponents.get(opponentId);
+    const teamBStats = teamBOpponents.get(opponentId);
+    if (!teamAStats || !teamBStats || teamAStats.totalWeight <= 0 || teamBStats.totalWeight <= 0) {
+      continue;
+    }
+
+    const teamAPointsPerGame = teamAStats.weightedPoints / teamAStats.totalWeight;
+    const teamBPointsPerGame = teamBStats.weightedPoints / teamBStats.totalWeight;
+    const teamAAvgMargin = teamAStats.weightedMargin / teamAStats.totalWeight;
+    const teamBAvgMargin = teamBStats.weightedMargin / teamBStats.totalWeight;
+
+    const pointsPerGameDiff = teamAPointsPerGame - teamBPointsPerGame;
+    const avgMarginDiff = teamAAvgMargin - teamBAvgMargin;
+    const opponentSignal = clamp(pointsPerGameDiff / 3, -1, 1) * 0.65 + clamp(avgMarginDiff / 4, -1, 1) * 0.35;
+    const opponentWeight = clamp((teamAStats.games + teamBStats.games) / 4, 0.35, 1);
+
+    signalSum += opponentSignal * opponentWeight;
+    weightSum += opponentWeight;
+    totalComparedGames += teamAStats.games + teamBStats.games;
+    weightedMarginDiff += avgMarginDiff * opponentWeight;
+    weightedPointsDiff += pointsPerGameDiff * opponentWeight;
+  }
+
+  if (weightSum <= 0) {
+    return {
+      advantage: 0,
+      sharedOpponents: 0,
+      comparedGames: 0,
+      avgMarginDiff: 0,
+      pointsPerGameDiff: 0,
+      reliability: 0,
+    };
+  }
+
+  const sharedOpponents = sharedOpponentIds.length;
+  const reliability = Math.sqrt(clamp(sharedOpponents / 5, 0, 1) * clamp(totalComparedGames / 10, 0, 1));
+  const rawSignal = signalSum / weightSum;
+
+  return {
+    advantage: clamp(rawSignal * (0.02 + reliability * 0.1), -0.12, 0.12),
+    sharedOpponents,
+    comparedGames: totalComparedGames,
+    avgMarginDiff: weightedMarginDiff / weightSum,
+    pointsPerGameDiff: weightedPointsDiff / weightSum,
+    reliability,
   };
 }
 
@@ -816,6 +983,12 @@ export interface MatchPrediction {
     evidenceSignal?: number;
     evidenceReliabilityA?: number;
     evidenceReliabilityB?: number;
+    commonOpponentSignal?: number;
+    commonOpponentCount?: number;
+    commonOpponentGameCount?: number;
+    commonOpponentReliability?: number;
+    commonOpponentAvgMarginDiff?: number;
+    commonOpponentPointsPerGameDiff?: number;
     glickoRatingDiff?: number;
     glickoWinProbabilityA?: number;
     glickoReliability?: number;
@@ -829,6 +1002,14 @@ export interface MatchPrediction {
   h2h?: {
     gamesPlayed: number;
     avgMargin: number; // Team A's average goal margin in H2H meetings
+  };
+
+  commonOpponents?: {
+    sharedOpponents: number;
+    comparedGames: number;
+    avgMarginDiff: number;
+    pointsPerGameDiff: number;
+    reliability: number;
   };
 }
 
@@ -857,6 +1038,7 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
   const formDiffNorm = normalizeRecentForm(formDiffRaw) - 0.5;
   const matchupAdvantage = offenseA - defenseB - (offenseB - defenseA);
   const h2h = calculateHeadToHead(teamA.team_id_master, teamB.team_id_master, allGames);
+  const commonOpponent = calculateCommonOpponentSignal(teamA.team_id_master, teamB.team_id_master, allGames);
   const h2hWeight = h2h.gamesPlayed > 0 ? Math.min(0.05 * h2h.gamesPlayed, 0.15) : 0;
 
   const predictiveWinSignal =
@@ -888,7 +1070,8 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
     recordDiff * 0.08 +
     residualSignal * 0.06 +
     evidenceSignal * 0.07 +
-    h2hSignal * 0.08;
+    h2hSignal * 0.08 +
+    commonOpponent.advantage;
 
   if (mismatchScore > 0.4) {
     const amplification = 1.0 + (mismatchScore - 0.4) * 0.9;
@@ -1056,6 +1239,12 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
       evidenceSignal,
       evidenceReliabilityA,
       evidenceReliabilityB,
+      commonOpponentSignal: commonOpponent.advantage,
+      commonOpponentCount: commonOpponent.sharedOpponents,
+      commonOpponentGameCount: commonOpponent.comparedGames,
+      commonOpponentReliability: commonOpponent.reliability,
+      commonOpponentAvgMarginDiff: commonOpponent.avgMarginDiff,
+      commonOpponentPointsPerGameDiff: commonOpponent.pointsPerGameDiff,
       ...(glickoStrength
         ? {
             glickoRatingDiff: glickoStrength.ratingDiff,
@@ -1071,6 +1260,15 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
       h2h: {
         gamesPlayed: h2h.gamesPlayed,
         avgMargin: h2h.avgMargin,
+      },
+    }),
+    ...(commonOpponent.sharedOpponents > 0 && {
+      commonOpponents: {
+        sharedOpponents: commonOpponent.sharedOpponents,
+        comparedGames: commonOpponent.comparedGames,
+        avgMarginDiff: commonOpponent.avgMarginDiff,
+        pointsPerGameDiff: commonOpponent.pointsPerGameDiff,
+        reliability: commonOpponent.reliability,
       },
     }),
   };
