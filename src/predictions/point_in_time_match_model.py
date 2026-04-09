@@ -42,7 +42,13 @@ from scripts.predictor_python import (
 from scripts.predictor_python import (
     Game as PredictorGame,
 )
-from src.predictions.evaluation_reporting import compute_evaluation_summary, write_evaluation_bundle
+from src.predictions.evaluation_reporting import (
+    OUTCOME_ORDER,
+    PROBABILITY_COLUMNS,
+    build_standardized_evaluation_frame,
+    compute_evaluation_summary,
+    write_evaluation_bundle,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -2655,6 +2661,34 @@ class PointInTimeMatchModel:
             predicted_blowout_5plus=predicted_blowout_5plus,
             probability_strategy=self.probability_strategy,
         )
+
+    def relabel_evaluation_frame(self, evaluation_frame: pd.DataFrame) -> pd.DataFrame:
+        standardized = build_standardized_evaluation_frame(evaluation_frame)
+        if standardized.empty:
+            return standardized
+
+        probabilities = standardized[list(PROBABILITY_COLUMNS.values())].to_numpy(dtype=float)
+        predicted_labels = self._draw_prediction_labels(
+            probabilities,
+            dataset_df=standardized,
+        )
+        standardized["predicted_outcome"] = [OUTCOME_ORDER[label] for label in predicted_labels]
+
+        if {
+            "blowout_3plus_probability",
+            "blowout_5plus_probability",
+        }.issubset(standardized.columns):
+            predicted_blowout_3plus, predicted_blowout_5plus = self._blowout_prediction_labels(
+                blowout_3plus_probability=standardized["blowout_3plus_probability"].to_numpy(dtype=float),
+                blowout_5plus_probability=standardized["blowout_5plus_probability"].to_numpy(dtype=float),
+                thresholds=self.blowout_probability_thresholds,
+                age_group_numeric=_age_group_numeric_array(standardized),
+                thresholds_by_age=self.blowout_probability_thresholds_by_age,
+            )
+            standardized["predicted_blowout_3plus"] = predicted_blowout_3plus.astype(int)
+            standardized["predicted_blowout_5plus"] = predicted_blowout_5plus.astype(int)
+
+        return build_standardized_evaluation_frame(standardized)
 
     def write_evaluation_report(self, output_dir: str, prefix: str = "point_in_time_model") -> dict[str, object]:
         if self.last_evaluation_frame.empty:

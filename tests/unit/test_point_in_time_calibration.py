@@ -60,3 +60,49 @@ def test_calibrate_evaluation_frame_writes_improved_artifacts(tmp_path):
     assert result.before_metrics["games"] == 3
     assert result.after_metrics["games"] == 3
     assert result.after_metrics["predicted_draw_rate"] >= result.before_metrics["predicted_draw_rate"]
+
+
+def test_calibrate_evaluation_frame_respects_prediction_postprocessor(tmp_path):
+    evaluation_frame = pd.DataFrame(
+        [
+            {
+                "game_id": "g1",
+                "game_date": "2026-04-01",
+                "actual_outcome": "team_a",
+                "predicted_outcome": "team_a",
+                "prob_team_a_win": 0.80,
+                "prob_draw": 0.10,
+                "prob_team_b_win": 0.10,
+                "predicted_margin": 1.1,
+                "actual_margin": 1,
+            },
+            {
+                "game_id": "g2",
+                "game_date": "2026-04-02",
+                "actual_outcome": "draw",
+                "predicted_outcome": "team_a",
+                "prob_team_a_win": 0.60,
+                "prob_draw": 0.20,
+                "prob_team_b_win": 0.20,
+                "predicted_margin": 0.6,
+                "actual_margin": 0,
+            },
+        ]
+    )
+
+    def force_draw_predictions(frame: pd.DataFrame) -> pd.DataFrame:
+        relabeled = frame.copy()
+        relabeled["predicted_outcome"] = "draw"
+        return relabeled
+
+    result = calibrate_evaluation_frame(
+        evaluation_frame=evaluation_frame,
+        output_dir=str(tmp_path),
+        method="temperature",
+        draw_method="isotonic",
+        prefix="calibration_postprocess_test",
+        prediction_postprocessor=force_draw_predictions,
+    )
+
+    assert result.after_metrics["predicted_draw_rate"] == 1.0
+    assert result.after_metrics["draw_recall"] == 1.0

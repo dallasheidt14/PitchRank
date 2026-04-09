@@ -10,6 +10,7 @@ import pandas as pd
 
 from src.predictions.evaluation_reporting import write_evaluation_bundle
 from src.predictions.point_in_time_calibration import calibrate_evaluation_frame
+from src.predictions.point_in_time_match_model import PointInTimeMatchModel
 
 
 def main() -> None:
@@ -41,11 +42,21 @@ def main() -> None:
         default="point_in_time_model_calibration",
         help="Artifact/report filename prefix",
     )
+    parser.add_argument(
+        "--model-artifact",
+        default=None,
+        help="Optional trained model pickle used to reapply draw/blowout decision policy",
+    )
     args = parser.parse_args()
 
     evaluation_frame = pd.read_csv(args.evaluation_csv)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    model_artifact_path = Path(args.model_artifact) if args.model_artifact else output_dir / "point_in_time_match_model.pkl"
+    prediction_postprocessor = None
+    if model_artifact_path.exists():
+        model = PointInTimeMatchModel.load(str(model_artifact_path))
+        prediction_postprocessor = model.relabel_evaluation_frame
 
     result = calibrate_evaluation_frame(
         evaluation_frame=evaluation_frame,
@@ -53,6 +64,7 @@ def main() -> None:
         method=args.method,
         draw_method=args.draw_method,
         prefix=args.prefix,
+        prediction_postprocessor=prediction_postprocessor,
     )
 
     calibrated_frame_path = output_dir / f"{args.prefix}_evaluation.csv"

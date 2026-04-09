@@ -331,6 +331,51 @@ def test_blowout_prediction_labels_use_age_specific_thresholds():
     assert predicted_5plus.tolist() == [0, 1, 1]
 
 
+def test_relabel_evaluation_frame_reapplies_draw_and_blowout_policy():
+    model = PointInTimeMatchModel(model_dir="models/test_point_in_time_match_model")
+    model.draw_decision_policy = {
+        "default": {
+            "min_draw_probability": 0.25,
+            "max_draw_gap": 0.02,
+            "max_total_goals": 2.2,
+            "min_stalemate_signal": 0.6,
+        },
+        "by_age": {
+            10: {
+                "min_draw_probability": 0.24,
+                "max_draw_gap": 0.18,
+                "max_total_goals": 2.3,
+                "min_stalemate_signal": 0.58,
+            }
+        },
+    }
+    model.blowout_probability_thresholds = {3: 0.40, 5: 0.25}
+    model.blowout_probability_thresholds_by_age = {
+        3: {10: 0.55, 16: 0.25},
+        5: {10: 0.35, 16: 0.18},
+    }
+    evaluation_frame = pd.DataFrame(
+        {
+            "actual_outcome": ["draw", "team_b"],
+            "predicted_outcome": ["team_a", "team_a"],
+            "prob_team_a_win": [0.44, 0.35],
+            "prob_draw": [0.26, 0.15],
+            "prob_team_b_win": [0.30, 0.50],
+            "age_group_numeric": [10, 16],
+            "projected_total_goals": [2.1, 3.2],
+            "stalemate_signal": [0.64, 0.40],
+            "blowout_3plus_probability": [0.50, 0.50],
+            "blowout_5plus_probability": [0.30, 0.20],
+        }
+    )
+
+    relabeled = model.relabel_evaluation_frame(evaluation_frame)
+
+    assert relabeled["predicted_outcome"].tolist() == ["draw", "team_b"]
+    assert relabeled["predicted_blowout_3plus"].astype(int).tolist() == [0, 1]
+    assert relabeled["predicted_blowout_5plus"].astype(int).tolist() == [0, 1]
+
+
 def test_auto_probability_strategy_prefers_viable_draw_aware_candidate():
     model = PointInTimeMatchModel(model_dir="models/test_point_in_time_match_model")
     strategy_metrics = {

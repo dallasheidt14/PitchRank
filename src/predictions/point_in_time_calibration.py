@@ -6,7 +6,7 @@ import json
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Callable, Literal
 
 import numpy as np
 import pandas as pd
@@ -22,6 +22,7 @@ from src.predictions.evaluation_reporting import (
 
 CalibrationMethod = Literal["temperature", "isotonic"]
 DrawCalibrationMethod = Literal["none", "isotonic"]
+EvaluationFramePostprocessor = Callable[[pd.DataFrame], pd.DataFrame]
 
 
 def _normalize_probabilities(probabilities: np.ndarray) -> np.ndarray:
@@ -169,7 +170,11 @@ class PointInTimeProbabilityCalibrator:
         overall_calibrated = self._transform_overall_probabilities(probabilities)
         return self._apply_draw_calibration(overall_calibrated)
 
-    def transform_frame(self, evaluation_frame: pd.DataFrame) -> pd.DataFrame:
+    def transform_frame(
+        self,
+        evaluation_frame: pd.DataFrame,
+        prediction_postprocessor: EvaluationFramePostprocessor | None = None,
+    ) -> pd.DataFrame:
         standardized = build_standardized_evaluation_frame(evaluation_frame)
         probabilities = standardized[list(PROBABILITY_COLUMNS.values())].to_numpy(dtype=float)
         calibrated = self.transform_probabilities(probabilities)
@@ -177,9 +182,12 @@ class PointInTimeProbabilityCalibrator:
         calibrated_frame["prob_team_a_win"] = calibrated[:, 0]
         calibrated_frame["prob_draw"] = calibrated[:, 1]
         calibrated_frame["prob_team_b_win"] = calibrated[:, 2]
-        calibrated_frame["predicted_outcome"] = [
-            OUTCOME_ORDER[class_index] for class_index in np.argmax(calibrated, axis=1)
-        ]
+        if prediction_postprocessor is not None:
+            calibrated_frame = prediction_postprocessor(calibrated_frame.copy())
+        else:
+            calibrated_frame["predicted_outcome"] = [
+                OUTCOME_ORDER[class_index] for class_index in np.argmax(calibrated, axis=1)
+            ]
         return build_standardized_evaluation_frame(calibrated_frame)
 
     def metrics_for_frame(self, evaluation_frame: pd.DataFrame) -> dict[str, object]:
@@ -234,12 +242,16 @@ def calibrate_evaluation_frame(
     method: CalibrationMethod = "temperature",
     draw_method: DrawCalibrationMethod = "none",
     prefix: str = "point_in_time_model_calibration",
+    prediction_postprocessor: EvaluationFramePostprocessor | None = None,
 ) -> CalibrationResult:
     calibrator = PointInTimeProbabilityCalibrator(method=method, draw_method=draw_method)
     standardized = build_standardized_evaluation_frame(evaluation_frame)
     before_metrics = compute_evaluation_summary(standardized)
     calibrator.fit(standardized)
-    calibrated_frame = calibrator.transform_frame(standardized)
+    calibrated_frame = calibrator.transform_frame(
+        standardized,
+        prediction_postprocessor=prediction_postprocessor,
+    )
     after_metrics = compute_evaluation_summary(calibrated_frame)
 
     output_path = Path(output_dir)
