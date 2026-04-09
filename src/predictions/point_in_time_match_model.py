@@ -23,6 +23,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.isotonic import IsotonicRegression
 
 try:
     from xgboost import XGBClassifier, XGBRegressor
@@ -123,6 +124,12 @@ POISSON_DRAW_GATE_EXPECTED_GOAL_GAP_MAX = 0.45
 BLOWOUT_THRESHOLDS = (3, 5)
 LOW_SCORE_CORRELATION_BASE = -0.035
 LOW_SCORE_CORRELATION_MAX = -0.18
+BLOWOUT_THRESHOLD_GRID = np.linspace(0.05, 0.85, 81)
+BLOWOUT_RATE_TOLERANCE_SHARE = 0.08
+BLOWOUT_RATE_TOLERANCE_MIN = 0.02
+BLOWOUT_RATE_OVERSHOOT_PENALTY = 0.9
+BLOWOUT_RATE_UNDERSHOOT_PENALTY = 0.45
+BLOWOUT_RATE_GAP_PENALTY = 0.25
 PROBABILITY_STRATEGIES = {"hybrid", "poisson_primary", "poisson_draw_gate"}
 
 
@@ -1003,11 +1010,14 @@ class PointInTimeMatchModel:
         self.draw_classifier = None
         self.blowout_classifier_3plus = None
         self.blowout_classifier_5plus = None
+        self.blowout_calibrator_3plus = None
+        self.blowout_calibrator_5plus = None
         self.margin_regressor = None
         self.score_a_regressor = None
         self.score_b_regressor = None
         self.draw_rate_prior = 0.0
         self.probability_strategy = DEFAULT_PROBABILITY_STRATEGY
+        self.blowout_probability_thresholds: Dict[int, float] = {3: 0.5, 5: 0.5}
         self.training_metadata: Dict[str, object] = {}
         self.last_evaluation_frame = pd.DataFrame()
         os.makedirs(model_dir, exist_ok=True)
@@ -1232,6 +1242,128 @@ class PointInTimeMatchModel:
         )
         return np.asarray(probabilities[:, positive_index], dtype=float)
 
+    def _fit_blowout_calibrator(
+        self,
+        probabilities: np.ndarray,
+        targets: np.ndarray,
+    ) -> Optional[IsotonicRegression]:
+        cleaned_probabilities = np.clip(np.asarray(probabilities, dtype=float), 0.0, 1.0)
+        cleaned_targets = np.asarray(targets, dtype=int)
+        if cleaned_probabilities.size == 0 or len(np.unique(cleaned_targets)) < 2:
+            return None
+        calibrator = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+        calibrator.fit(cleaned_probabilities, cleaned_targets.astype(float))
+        return calibrator
+
+    def _apply_blowout_calibrator(
+        self,
+        calibrator: Optional[IsotonicRegression],
+        probabilities: np.ndarray,
+    ) -> np.ndarray:
+        cleaned_probabilities = np.clip(np.asarray(probabilities, dtype=float), 0.0, 1.0)
+        if calibrator is None:
+            return cleaned_probabilities
+        return np.clip(np.asarray(calibrator.predict(cleaned_probabilities), dtype=float), 0.0, 1.0)
+
+    def _select_blowout_threshold(
+        self,
+        probabilities: np.ndarray,
+        targets: np.ndarray,
+        beta: float,
+    ) -> float:
+        cleaned_probabilities = np.clip(np.asarray(probabilities, dtype=float), 0.0, 1.0)
+        cleaned_targets = np.asarray(targets, dtype=int)
+        if cleaned_probabilities.size == 0 or len(np.unique(cleaned_targets)) < 2:
+            return 0.5
+
+        actual_rate = float(np.mean(cleaned_targets == 1))
+        mean_probability = float(np.mean(cleaned_probabilities))
+        target_rate = float(np.clip((0.85 * actual_rate) + (0.15 * mean_probability), 0.02, 0.98))
+        quantile_levels = np.clip(
+            np.array(
+                [
+                    0.10,
+                    0.25,
+                    0.50,
+                    0.75,
+                    0.90,
+                    1.0 - actual_rate,
+                    1.0 - target_rate,
+                    1.0 - mean_probability,
+                ]
+            ),
+            0.0,
+            1.0,
+        )
+        candidate_thresholds = np.unique(
+            np.clip(
+                np.concatenate(
+                    [
+                        BLOWOUT_THRESHOLD_GRID,
+                        np.quantile(cleaned_probabilities, quantile_levels),
+                        np.array([actual_rate, target_rate, mean_probability]),
+                    ]
+                ),
+                0.05,
+                0.95,
+            )
+        )
+        beta_squared = beta * beta
+        rate_tolerance = max(BLOWOUT_RATE_TOLERANCE_MIN, actual_rate * BLOWOUT_RATE_TOLERANCE_SHARE)
+        best_band_threshold = None
+        best_band_score = -np.inf
+        best_fallback_threshold = 0.5
+        best_fallback_score = -np.inf
+
+        for threshold in candidate_thresholds:
+            predicted_positive = cleaned_probabilities >= float(threshold)
+            tp = float(np.sum((predicted_positive == 1) & (cleaned_targets == 1)))
+            fp = float(np.sum((predicted_positive == 1) & (cleaned_targets == 0)))
+            fn = float(np.sum((predicted_positive == 0) & (cleaned_targets == 1)))
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            if precision <= 0.0 and recall <= 0.0:
+                f_beta = 0.0
+            else:
+                f_beta = ((1.0 + beta_squared) * precision * recall) / (
+                    (beta_squared * precision) + recall
+                )
+            predicted_rate = float(np.mean(predicted_positive))
+            rate_gap = abs(predicted_rate - target_rate)
+            overshoot = max(0.0, predicted_rate - target_rate)
+            undershoot = max(0.0, target_rate - predicted_rate)
+            fallback_score = (
+                f_beta
+                - (BLOWOUT_RATE_OVERSHOOT_PENALTY * overshoot)
+                - (BLOWOUT_RATE_UNDERSHOOT_PENALTY * undershoot)
+                - (BLOWOUT_RATE_GAP_PENALTY * rate_gap)
+            )
+            if fallback_score > best_fallback_score:
+                best_fallback_score = fallback_score
+                best_fallback_threshold = float(threshold)
+
+            if rate_gap <= rate_tolerance:
+                band_score = f_beta - (0.10 * rate_gap)
+                if band_score > best_band_score:
+                    best_band_score = band_score
+                    best_band_threshold = float(threshold)
+
+        if best_band_threshold is not None:
+            return best_band_threshold
+        return best_fallback_threshold
+
+    def _blowout_prediction_labels(
+        self,
+        blowout_3plus_probability: np.ndarray,
+        blowout_5plus_probability: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        threshold_3plus = float(self.blowout_probability_thresholds.get(3, 0.5))
+        threshold_5plus = float(self.blowout_probability_thresholds.get(5, 0.5))
+        predicted_5plus = np.asarray(blowout_5plus_probability >= threshold_5plus, dtype=int)
+        predicted_3plus = np.asarray(blowout_3plus_probability >= threshold_3plus, dtype=int)
+        predicted_3plus = np.maximum(predicted_3plus, predicted_5plus)
+        return predicted_3plus, predicted_5plus
+
     def _expected_goals_from_predictions(
         self,
         dataset_df: pd.DataFrame,
@@ -1331,7 +1463,10 @@ class PointInTimeMatchModel:
             0.0,
             1.0,
         )
-        return blowout_3plus_probability, blowout_5plus_probability
+        return (
+            self._apply_blowout_calibrator(self.blowout_calibrator_3plus, blowout_3plus_probability),
+            self._apply_blowout_calibrator(self.blowout_calibrator_5plus, blowout_5plus_probability),
+        )
 
     def _compose_outcome_probabilities(
         self,
@@ -1616,6 +1751,8 @@ class PointInTimeMatchModel:
         expected_goals_b: np.ndarray,
         blowout_3plus_probability: np.ndarray,
         blowout_5plus_probability: np.ndarray,
+        predicted_blowout_3plus: np.ndarray,
+        predicted_blowout_5plus: np.ndarray,
         probability_strategy: str,
     ) -> pd.DataFrame:
         age_group_numeric = pd.to_numeric(test_df.get("age_group_numeric"), errors="coerce").fillna(0).astype(int)
@@ -1638,6 +1775,8 @@ class PointInTimeMatchModel:
                 "draw_model_probability": draw_model_probability,
                 "blowout_3plus_probability": blowout_3plus_probability,
                 "blowout_5plus_probability": blowout_5plus_probability,
+                "predicted_blowout_3plus": predicted_blowout_3plus,
+                "predicted_blowout_5plus": predicted_blowout_5plus,
                 "stalemate_signal": (
                     pd.to_numeric(test_df.get("stalemate_signal"), errors="coerce")
                     .fillna(0.0)
@@ -1765,6 +1904,49 @@ class PointInTimeMatchModel:
         predicted_margin = self.margin_regressor.predict(X_test)
         predicted_score_a = self.score_a_regressor.predict(X_test)
         predicted_score_b = self.score_b_regressor.predict(X_test)
+        train_base_probabilities = self._normalize_probabilities(
+            self._expand_class_probabilities(self.classifier.predict_proba(X_train))
+        )
+        train_predicted_score_a = self.score_a_regressor.predict(X_train)
+        train_predicted_score_b = self.score_b_regressor.predict(X_train)
+        calibration_outputs = self._strategy_outputs(
+            self.probability_strategy,
+            dataset_df=train_df,
+            matrix=X_train,
+            base_probabilities=train_base_probabilities,
+            predicted_score_a=train_predicted_score_a,
+            predicted_score_b=train_predicted_score_b,
+        )
+        train_blowout_targets_3plus = (train_df["actual_margin"].astype(float).abs() >= 3.0).astype(int).to_numpy()
+        train_blowout_targets_5plus = (train_df["actual_margin"].astype(float).abs() >= 5.0).astype(int).to_numpy()
+        self.blowout_calibrator_3plus = self._fit_blowout_calibrator(
+            calibration_outputs.blowout_3plus_probability,
+            train_blowout_targets_3plus,
+        )
+        self.blowout_calibrator_5plus = self._fit_blowout_calibrator(
+            calibration_outputs.blowout_5plus_probability,
+            train_blowout_targets_5plus,
+        )
+        calibrated_train_blowout_3plus = self._apply_blowout_calibrator(
+            self.blowout_calibrator_3plus,
+            calibration_outputs.blowout_3plus_probability,
+        )
+        calibrated_train_blowout_5plus = self._apply_blowout_calibrator(
+            self.blowout_calibrator_5plus,
+            calibration_outputs.blowout_5plus_probability,
+        )
+        self.blowout_probability_thresholds = {
+            3: self._select_blowout_threshold(
+                calibrated_train_blowout_3plus,
+                train_blowout_targets_3plus,
+                beta=1.15,
+            ),
+            5: self._select_blowout_threshold(
+                calibrated_train_blowout_5plus,
+                train_blowout_targets_5plus,
+                beta=1.05,
+            ),
+        }
         strategy_metrics: Dict[str, Dict[str, object]] = {}
         strategy_outputs: Dict[str, StrategyOutputs] = {}
         for strategy_name in sorted(PROBABILITY_STRATEGIES):
@@ -1778,6 +1960,10 @@ class PointInTimeMatchModel:
             )
             strategy_outputs[strategy_name] = outputs
             probabilities_for_strategy = outputs.probabilities
+            predicted_blowout_3plus, predicted_blowout_5plus = self._blowout_prediction_labels(
+                outputs.blowout_3plus_probability,
+                outputs.blowout_5plus_probability,
+            )
             predicted_labels_for_strategy = np.argmax(probabilities_for_strategy, axis=1)
             strategy_evaluation_frame = self._build_evaluation_frame(
                 test_df=test_df,
@@ -1792,6 +1978,8 @@ class PointInTimeMatchModel:
                 expected_goals_b=outputs.expected_goals_b,
                 blowout_3plus_probability=outputs.blowout_3plus_probability,
                 blowout_5plus_probability=outputs.blowout_5plus_probability,
+                predicted_blowout_3plus=predicted_blowout_3plus,
+                predicted_blowout_5plus=predicted_blowout_5plus,
                 probability_strategy=strategy_name,
             )
             strategy_summary = compute_evaluation_summary(strategy_evaluation_frame)
@@ -1801,6 +1989,10 @@ class PointInTimeMatchModel:
         selected_outputs = strategy_outputs[self.probability_strategy]
         probabilities = selected_outputs.probabilities
         predicted_labels = np.argmax(probabilities, axis=1)
+        predicted_blowout_3plus, predicted_blowout_5plus = self._blowout_prediction_labels(
+            selected_outputs.blowout_3plus_probability,
+            selected_outputs.blowout_5plus_probability,
+        )
         self.last_evaluation_frame = self._build_evaluation_frame(
             test_df=test_df,
             probabilities=probabilities,
@@ -1814,6 +2006,8 @@ class PointInTimeMatchModel:
             expected_goals_b=selected_outputs.expected_goals_b,
             blowout_3plus_probability=selected_outputs.blowout_3plus_probability,
             blowout_5plus_probability=selected_outputs.blowout_5plus_probability,
+            predicted_blowout_3plus=predicted_blowout_3plus,
+            predicted_blowout_5plus=predicted_blowout_5plus,
             probability_strategy=self.probability_strategy,
         )
         summary_metrics = compute_evaluation_summary(self.last_evaluation_frame)
@@ -1831,6 +2025,10 @@ class PointInTimeMatchModel:
             "draw_binary_sample_weights": draw_weight_map,
             "blowout_3plus_sample_weights": blowout_weight_map_3plus,
             "blowout_5plus_sample_weights": blowout_weight_map_5plus,
+            "blowout_probability_thresholds": {
+                "3plus": float(self.blowout_probability_thresholds[3]),
+                "5plus": float(self.blowout_probability_thresholds[5]),
+            },
             "strategy_metrics": strategy_metrics,
         }
 
@@ -1854,11 +2052,14 @@ class PointInTimeMatchModel:
         model.draw_classifier = payload.get("draw_classifier")
         model.blowout_classifier_3plus = payload.get("blowout_classifier_3plus")
         model.blowout_classifier_5plus = payload.get("blowout_classifier_5plus")
+        model.blowout_calibrator_3plus = payload.get("blowout_calibrator_3plus")
+        model.blowout_calibrator_5plus = payload.get("blowout_calibrator_5plus")
         model.margin_regressor = payload["margin_regressor"]
         model.score_a_regressor = payload["score_a_regressor"]
         model.score_b_regressor = payload["score_b_regressor"]
         model.draw_rate_prior = payload.get("draw_rate_prior", 0.0)
         model.probability_strategy = payload.get("probability_strategy", DEFAULT_PROBABILITY_STRATEGY)
+        model.blowout_probability_thresholds = payload.get("blowout_probability_thresholds", {3: 0.5, 5: 0.5})
         model.feature_names = payload["feature_names"]
         model.class_labels = payload["class_labels"]
         model.training_metadata = payload.get("training_metadata", {})
@@ -1883,6 +2084,10 @@ class PointInTimeMatchModel:
         )
         probabilities = strategy_outputs.probabilities
         predicted_labels = np.argmax(probabilities, axis=1)
+        predicted_blowout_3plus, predicted_blowout_5plus = self._blowout_prediction_labels(
+            strategy_outputs.blowout_3plus_probability,
+            strategy_outputs.blowout_5plus_probability,
+        )
         return self._build_evaluation_frame(
             test_df=dataset_df,
             probabilities=probabilities,
@@ -1896,6 +2101,8 @@ class PointInTimeMatchModel:
             expected_goals_b=strategy_outputs.expected_goals_b,
             blowout_3plus_probability=strategy_outputs.blowout_3plus_probability,
             blowout_5plus_probability=strategy_outputs.blowout_5plus_probability,
+            predicted_blowout_3plus=predicted_blowout_3plus,
+            predicted_blowout_5plus=predicted_blowout_5plus,
             probability_strategy=self.probability_strategy,
         )
 
@@ -1925,11 +2132,14 @@ class PointInTimeMatchModel:
             "draw_classifier": self.draw_classifier,
             "blowout_classifier_3plus": self.blowout_classifier_3plus,
             "blowout_classifier_5plus": self.blowout_classifier_5plus,
+            "blowout_calibrator_3plus": self.blowout_calibrator_3plus,
+            "blowout_calibrator_5plus": self.blowout_calibrator_5plus,
             "margin_regressor": self.margin_regressor,
             "score_a_regressor": self.score_a_regressor,
             "score_b_regressor": self.score_b_regressor,
             "draw_rate_prior": self.draw_rate_prior,
             "probability_strategy": self.probability_strategy,
+            "blowout_probability_thresholds": self.blowout_probability_thresholds,
             "feature_names": self.feature_names,
             "class_labels": self.class_labels,
             "training_metadata": self.training_metadata,

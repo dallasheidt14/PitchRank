@@ -214,3 +214,50 @@ def test_compute_evaluation_summary_tracks_score_and_blowout_metrics():
     assert set(margin_bands["band"]) == {"competitive_1plus", "blowout_3plus", "blowout_5plus"}
     assert "avg_probability" in margin_bands.columns
     assert "brier" in margin_bands.columns
+
+
+def test_blowout_metrics_use_explicit_probability_labels_when_present():
+    frame = pd.DataFrame(
+        [
+            {
+                "game_id": "g1",
+                "game_date": "2026-04-01",
+                "actual_outcome": "team_a",
+                "predicted_outcome": "team_a",
+                "prob_team_a_win": 0.72,
+                "prob_draw": 0.16,
+                "prob_team_b_win": 0.12,
+                "predicted_margin": 1.1,
+                "actual_margin": 4,
+                "blowout_3plus_probability": 0.77,
+                "blowout_5plus_probability": 0.28,
+                "predicted_blowout_3plus": 1,
+                "predicted_blowout_5plus": 0,
+            },
+            {
+                "game_id": "g2",
+                "game_date": "2026-04-02",
+                "actual_outcome": "team_b",
+                "predicted_outcome": "team_b",
+                "prob_team_a_win": 0.19,
+                "prob_draw": 0.17,
+                "prob_team_b_win": 0.64,
+                "predicted_margin": -0.6,
+                "actual_margin": -1,
+                "blowout_3plus_probability": 0.18,
+                "blowout_5plus_probability": 0.04,
+                "predicted_blowout_3plus": 0,
+                "predicted_blowout_5plus": 0,
+            },
+        ]
+    )
+
+    summary = compute_evaluation_summary(frame)
+    margin_bands = build_margin_band_metrics(frame)
+
+    assert summary["predicted_blowout_3plus_rate"] == 0.5
+    assert summary["blowout_3plus_recall"] == 1.0
+    assert summary["blowout_3plus_precision"] == 1.0
+    blowout_row = margin_bands.loc[margin_bands["band"] == "blowout_3plus"].iloc[0]
+    assert blowout_row["predicted_rate"] == 0.5
+    assert blowout_row["precision"] == 1.0
