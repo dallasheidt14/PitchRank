@@ -2,8 +2,10 @@ import { PageHeader } from '@/components/PageHeader';
 import { BlogContent } from '@/components/BlogContent';
 import { NewsletterSubscribe } from '@/components/NewsletterSubscribe';
 import { BlogPostSchema } from '@/components/BlogPostSchema';
+import { BlogFAQSchema } from '@/components/BlogFAQSchema';
 import { BreadcrumbSchema } from '@/components/BreadcrumbSchema';
 import { getBlogPost, getAllBlogSlugs } from '@/lib/blog';
+import { BLOG_FAQS } from '@/lib/blog-faqs';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { BASE_URL } from '@/lib/constants';
@@ -94,6 +96,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
           { name: post.title, href: `/blog/${slug}` },
         ]}
       />
+      {BLOG_FAQS[slug] && <BlogFAQSchema faqs={BLOG_FAQS[slug]} />}
       <PageHeader title={post.title} description={post.excerpt} showBackButton backHref="/blog" />
 
       <div className="max-w-4xl mx-auto mt-8">
