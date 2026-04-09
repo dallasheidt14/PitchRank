@@ -85,12 +85,17 @@ def test_build_point_in_time_dataset_is_chronological_and_mirrored():
     assert result.summary["games_seen"] == 3
     assert result.summary["games_used"] == 3
     assert result.summary["examples_built"] == 6
+    assert result.summary["class_counts"] == {"draw": 2, "team_a_win": 2, "team_b_win": 2}
+    assert result.summary["class_rates"]["draw"] == 2 / 6
     assert len(dataset) == 6
 
     first_original = dataset[(dataset["game_id"] == "g1") & (dataset["example_orientation"] == "original")].iloc[0]
     assert first_original["team_a_recent_form"] == 0.0
     assert first_original["team_b_recent_form"] == 0.0
     assert first_original["common_opponent_shared"] == 0.0
+    assert first_original["combined_draw_rate"] > 0.0
+    assert first_original["projected_total_goals"] > 0.0
+    assert 0.0 <= first_original["stalemate_signal"] <= 1.0
 
     g3_original = dataset[(dataset["game_id"] == "g3") & (dataset["example_orientation"] == "original")].iloc[0]
     g3_mirrored = dataset[(dataset["game_id"] == "g3") & (dataset["example_orientation"] == "mirrored")].iloc[0]
@@ -124,3 +129,57 @@ def test_build_point_in_time_dataset_skips_games_without_snapshot():
     result = build_point_in_time_dataset(games_df, snapshot_index=snapshot_index, include_mirrored_examples=True)
     assert result.dataset.empty
     assert result.summary["skipped_missing_snapshot"] == 1
+
+
+def test_build_point_in_time_dataset_tracks_draw_oriented_signals():
+    games_df = pd.DataFrame(
+        [
+            {
+                "id": "g1",
+                "game_date": "2026-04-02",
+                "home_team_master_id": "a",
+                "away_team_master_id": "b",
+                "home_score": 1,
+                "away_score": 1,
+            }
+        ]
+    )
+
+    snapshot_index = {
+        "a": [
+            _snapshot(
+                "2026-04-01",
+                "a",
+                draws=5,
+                games_played=12,
+                exp_goals_for=1.0,
+                exp_goals_against=0.9,
+                exp_margin=0.1,
+                exp_win_rate=0.52,
+            )
+        ],
+        "b": [
+            _snapshot(
+                "2026-04-01",
+                "b",
+                draws=4,
+                games_played=12,
+                exp_goals_for=0.95,
+                exp_goals_against=0.95,
+                exp_margin=0.05,
+                exp_win_rate=0.51,
+            )
+        ],
+    }
+
+    result = build_point_in_time_dataset(games_df, snapshot_index=snapshot_index, include_mirrored_examples=False)
+    row = result.dataset.iloc[0]
+
+    assert row["actual_outcome"] == "draw"
+    assert row["team_a_draw_rate"] > 0.3
+    assert row["team_b_draw_rate"] > 0.3
+    assert row["low_total_goal_signal"] > 0.0
+    assert row["goal_balance_signal"] > 0.0
+    assert row["snapshot_strength_closeness"] > 0.0
+    assert row["expected_draw_environment"] > 0.0
+    assert 0.0 <= row["stalemate_signal"] <= 1.0
