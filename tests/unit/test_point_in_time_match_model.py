@@ -108,6 +108,9 @@ def test_build_point_in_time_dataset_is_chronological_and_mirrored():
     assert g3_original["team_a_recent_form"] > g3_original["team_b_recent_form"]
     assert g3_original["common_opponent_shared"] == 1.0
     assert g3_original["common_opponent_advantage"] > 0.0
+    assert g3_original["common_opponent_strength_weighted_margin_diff"] > 0.0
+    assert g3_original["common_opponent_strength_weighted_goal_balance_diff"] > 0.0
+    assert g3_original["common_opponent_consensus_signal"] > 0.0
     assert g3_original["actual_outcome"] == "team_a_win"
     assert g3_mirrored["actual_outcome"] == "team_b_win"
     assert g3_original["power_score_final_diff"] == -g3_mirrored["power_score_final_diff"]
@@ -187,6 +190,8 @@ def test_build_point_in_time_dataset_tracks_draw_oriented_signals():
     assert row["goal_balance_signal"] > 0.0
     assert row["snapshot_strength_closeness"] > 0.0
     assert row["expected_draw_environment"] > 0.0
+    assert row["common_opponent_same_age_rate"] == 0.0
+    assert row["common_opponent_strength_weighted_shared"] == 0.0
     assert 0.0 <= row["stalemate_signal"] <= 1.0
 
 

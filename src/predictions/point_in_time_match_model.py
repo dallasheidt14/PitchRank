@@ -23,7 +23,6 @@ from typing import Dict, Iterable, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.metrics import accuracy_score, log_loss, mean_absolute_error, mean_squared_error
 
 try:
     from xgboost import XGBClassifier, XGBRegressor
@@ -33,10 +32,16 @@ except ImportError:  # pragma: no cover - exercised only when xgboost is missing
     HAS_XGBOOST = False
 
 from scripts.predictor_python import (
+    COMMON_OPPONENT_RECENCY_DAYS,
+    _latest_game_timestamp,
+    calculate_common_opponent_signal,
+    calculate_head_to_head,
+    calculate_recent_form,
+)
+from scripts.predictor_python import (
     Game as PredictorGame,
 )
-from scripts.predictor_python import calculate_common_opponent_signal, calculate_head_to_head, calculate_recent_form
-from src.predictions.evaluation_reporting import write_evaluation_bundle
+from src.predictions.evaluation_reporting import compute_evaluation_summary, write_evaluation_bundle
 
 logger = logging.getLogger(__name__)
 
@@ -388,6 +393,220 @@ def _poisson_draw_gate_mask(
     )
 
 
+def _build_common_opponent_feature_summary(
+    team_a_id: str,
+    team_b_id: str,
+    all_games: List[PredictorGame],
+    snapshot_index: Dict[str, List[dict]],
+    target_date: str,
+    team_age_numeric: int,
+) -> Dict[str, float]:
+    latest_timestamp = _latest_game_timestamp(all_games)
+    team_a_opponents: Dict[str, Dict[str, float]] = {}
+    team_b_opponents: Dict[str, Dict[str, float]] = {}
+
+    for game in all_games:
+        if game.home_score is None or game.away_score is None:
+            continue
+
+        involves_team_a = game.home_team_master_id == team_a_id or game.away_team_master_id == team_a_id
+        involves_team_b = game.home_team_master_id == team_b_id or game.away_team_master_id == team_b_id
+        if (not involves_team_a and not involves_team_b) or (involves_team_a and involves_team_b):
+            continue
+
+        subject_team_id = team_a_id if involves_team_a else team_b_id
+        is_home = game.home_team_master_id == subject_team_id
+        opponent_id = game.away_team_master_id if is_home else game.home_team_master_id
+        if opponent_id is None or opponent_id in {team_a_id, team_b_id}:
+            continue
+
+        team_score = game.home_score if is_home else game.away_score
+        opp_score = game.away_score if is_home else game.home_score
+        if team_score is None or opp_score is None:
+            continue
+
+        try:
+            game_timestamp = float(pd.Timestamp(game.game_date).timestamp())
+            days_since = (
+                max(0.0, (latest_timestamp - game_timestamp) / 86400.0) if latest_timestamp is not None else 0.0
+            )
+        except Exception:
+            days_since = 0.0
+
+        recency_weight = math.exp(-days_since / COMMON_OPPONENT_RECENCY_DAYS)
+        opponent_snapshot = _snapshot_as_of(snapshot_index, str(opponent_id), target_date)
+        opponent_power = _to_float(opponent_snapshot.get("power_score_final")) if opponent_snapshot else 0.5
+        opponent_age = _extract_age_numeric(opponent_snapshot.get("age_group")) if opponent_snapshot else 0
+        same_age = 1.0 if team_age_numeric > 0 and opponent_age == team_age_numeric else 0.0
+        opponent_strength_weight = float(np.clip(0.75 + opponent_power, 0.6, 1.75))
+        weighted_sample = recency_weight * opponent_strength_weight * (1.15 if same_age else 1.0)
+
+        points = 3.0 if team_score > opp_score else 1.0 if team_score == opp_score else 0.0
+        win_rate = 1.0 if team_score > opp_score else 0.0
+        draw_rate = 1.0 if team_score == opp_score else 0.0
+        goal_margin = float(team_score - opp_score)
+        bucket = team_a_opponents if subject_team_id == team_a_id else team_b_opponents
+        current = bucket.setdefault(
+            str(opponent_id),
+            {
+                "weightedPoints": 0.0,
+                "weightedMargin": 0.0,
+                "weightedGoalsFor": 0.0,
+                "weightedGoalsAgainst": 0.0,
+                "weightedWins": 0.0,
+                "weightedDraws": 0.0,
+                "weightedOpponentPower": 0.0,
+                "weightedSameAge": 0.0,
+                "totalWeight": 0.0,
+                "games": 0.0,
+            },
+        )
+        current["weightedPoints"] += points * weighted_sample
+        current["weightedMargin"] += goal_margin * weighted_sample
+        current["weightedGoalsFor"] += float(team_score) * weighted_sample
+        current["weightedGoalsAgainst"] += float(opp_score) * weighted_sample
+        current["weightedWins"] += win_rate * weighted_sample
+        current["weightedDraws"] += draw_rate * weighted_sample
+        current["weightedOpponentPower"] += opponent_power * weighted_sample
+        current["weightedSameAge"] += same_age * weighted_sample
+        current["totalWeight"] += weighted_sample
+        current["games"] += 1.0
+
+    shared_opponents = [opponent_id for opponent_id in team_a_opponents if opponent_id in team_b_opponents]
+    if not shared_opponents:
+        return {
+            "strengthWeightedSharedOpponents": 0.0,
+            "sameAgeSharedOpponents": 0.0,
+            "sameAgeSharedOpponentRate": 0.0,
+            "strengthWeightedReliability": 0.0,
+            "strengthWeightedMarginDiff": 0.0,
+            "strengthWeightedPointsPerGameDiff": 0.0,
+            "strengthWeightedGoalsForDiff": 0.0,
+            "strengthWeightedGoalsAgainstAdv": 0.0,
+            "strengthWeightedWinRateDiff": 0.0,
+            "strengthWeightedDrawRateDiff": 0.0,
+            "strengthWeightedGoalBalanceDiff": 0.0,
+            "strengthWeightedOpponentPower": 0.0,
+            "commonOpponentConsensusSignal": 0.0,
+        }
+
+    weight_sum = 0.0
+    weighted_shared_count = 0.0
+    same_age_shared_count = 0.0
+    same_age_rate_weighted = 0.0
+    weighted_reliability = 0.0
+    weighted_margin_diff = 0.0
+    weighted_points_diff = 0.0
+    weighted_goals_for_diff = 0.0
+    weighted_goals_against_adv = 0.0
+    weighted_win_rate_diff = 0.0
+    weighted_draw_rate_diff = 0.0
+    weighted_goal_balance_diff = 0.0
+    weighted_opponent_power = 0.0
+    weighted_signal = 0.0
+
+    for opponent_id in shared_opponents:
+        team_a_stats = team_a_opponents[opponent_id]
+        team_b_stats = team_b_opponents[opponent_id]
+        if team_a_stats["totalWeight"] <= 0 or team_b_stats["totalWeight"] <= 0:
+            continue
+
+        team_a_points_per_game = team_a_stats["weightedPoints"] / team_a_stats["totalWeight"]
+        team_b_points_per_game = team_b_stats["weightedPoints"] / team_b_stats["totalWeight"]
+        team_a_avg_margin = team_a_stats["weightedMargin"] / team_a_stats["totalWeight"]
+        team_b_avg_margin = team_b_stats["weightedMargin"] / team_b_stats["totalWeight"]
+        team_a_goals_for = team_a_stats["weightedGoalsFor"] / team_a_stats["totalWeight"]
+        team_b_goals_for = team_b_stats["weightedGoalsFor"] / team_b_stats["totalWeight"]
+        team_a_goals_against = team_a_stats["weightedGoalsAgainst"] / team_a_stats["totalWeight"]
+        team_b_goals_against = team_b_stats["weightedGoalsAgainst"] / team_b_stats["totalWeight"]
+        team_a_win_rate = team_a_stats["weightedWins"] / team_a_stats["totalWeight"]
+        team_b_win_rate = team_b_stats["weightedWins"] / team_b_stats["totalWeight"]
+        team_a_draw_rate = team_a_stats["weightedDraws"] / team_a_stats["totalWeight"]
+        team_b_draw_rate = team_b_stats["weightedDraws"] / team_b_stats["totalWeight"]
+        team_a_goal_balance = team_a_goals_for - team_a_goals_against
+        team_b_goal_balance = team_b_goals_for - team_b_goals_against
+
+        points_diff = team_a_points_per_game - team_b_points_per_game
+        margin_diff = team_a_avg_margin - team_b_avg_margin
+        goals_for_diff = team_a_goals_for - team_b_goals_for
+        goals_against_adv = team_b_goals_against - team_a_goals_against
+        win_rate_diff = team_a_win_rate - team_b_win_rate
+        draw_rate_diff = team_a_draw_rate - team_b_draw_rate
+        goal_balance_diff = team_a_goal_balance - team_b_goal_balance
+
+        avg_opponent_power = (
+            team_a_stats["weightedOpponentPower"] + team_b_stats["weightedOpponentPower"]
+        ) / max(team_a_stats["totalWeight"] + team_b_stats["totalWeight"], 1e-9)
+        same_age_rate = min(
+            team_a_stats["weightedSameAge"] / team_a_stats["totalWeight"],
+            team_b_stats["weightedSameAge"] / team_b_stats["totalWeight"],
+        )
+        reliability = math.sqrt(
+            max(0.0, min(1.0, (team_a_stats["games"] + team_b_stats["games"]) / 6.0))
+            * max(0.0, min(1.0, avg_opponent_power / 0.75))
+        )
+        opponent_weight = (
+            max(0.35, min(1.35, (team_a_stats["games"] + team_b_stats["games"]) / 4.0))
+            * (0.75 + avg_opponent_power)
+            * (1.0 + 0.15 * same_age_rate)
+        )
+        opponent_signal = (
+            max(-1.0, min(1.0, points_diff / 3.0)) * 0.30
+            + max(-1.0, min(1.0, margin_diff / 4.0)) * 0.25
+            + max(-1.0, min(1.0, goals_for_diff / 3.0)) * 0.15
+            + max(-1.0, min(1.0, goals_against_adv / 3.0)) * 0.15
+            + max(-1.0, min(1.0, goal_balance_diff / 4.0)) * 0.15
+        )
+
+        weight_sum += opponent_weight
+        weighted_shared_count += opponent_weight
+        same_age_shared_count += same_age_rate * opponent_weight
+        same_age_rate_weighted += same_age_rate * opponent_weight
+        weighted_reliability += reliability * opponent_weight
+        weighted_margin_diff += margin_diff * opponent_weight
+        weighted_points_diff += points_diff * opponent_weight
+        weighted_goals_for_diff += goals_for_diff * opponent_weight
+        weighted_goals_against_adv += goals_against_adv * opponent_weight
+        weighted_win_rate_diff += win_rate_diff * opponent_weight
+        weighted_draw_rate_diff += draw_rate_diff * opponent_weight
+        weighted_goal_balance_diff += goal_balance_diff * opponent_weight
+        weighted_opponent_power += avg_opponent_power * opponent_weight
+        weighted_signal += opponent_signal * opponent_weight
+
+    if weight_sum <= 0:
+        return {
+            "strengthWeightedSharedOpponents": 0.0,
+            "sameAgeSharedOpponents": 0.0,
+            "sameAgeSharedOpponentRate": 0.0,
+            "strengthWeightedReliability": 0.0,
+            "strengthWeightedMarginDiff": 0.0,
+            "strengthWeightedPointsPerGameDiff": 0.0,
+            "strengthWeightedGoalsForDiff": 0.0,
+            "strengthWeightedGoalsAgainstAdv": 0.0,
+            "strengthWeightedWinRateDiff": 0.0,
+            "strengthWeightedDrawRateDiff": 0.0,
+            "strengthWeightedGoalBalanceDiff": 0.0,
+            "strengthWeightedOpponentPower": 0.0,
+            "commonOpponentConsensusSignal": 0.0,
+        }
+
+    return {
+        "strengthWeightedSharedOpponents": float(weighted_shared_count / max(weight_sum, 1.0)),
+        "sameAgeSharedOpponents": float(same_age_shared_count / max(weight_sum, 1.0) * len(shared_opponents)),
+        "sameAgeSharedOpponentRate": float(same_age_rate_weighted / weight_sum),
+        "strengthWeightedReliability": float(weighted_reliability / weight_sum),
+        "strengthWeightedMarginDiff": float(weighted_margin_diff / weight_sum),
+        "strengthWeightedPointsPerGameDiff": float(weighted_points_diff / weight_sum),
+        "strengthWeightedGoalsForDiff": float(weighted_goals_for_diff / weight_sum),
+        "strengthWeightedGoalsAgainstAdv": float(weighted_goals_against_adv / weight_sum),
+        "strengthWeightedWinRateDiff": float(weighted_win_rate_diff / weight_sum),
+        "strengthWeightedDrawRateDiff": float(weighted_draw_rate_diff / weight_sum),
+        "strengthWeightedGoalBalanceDiff": float(weighted_goal_balance_diff / weight_sum),
+        "strengthWeightedOpponentPower": float(weighted_opponent_power / weight_sum),
+        "commonOpponentConsensusSignal": float(weighted_signal / weight_sum),
+    }
+
+
 def _dedupe_games(games: Iterable[PredictorGame]) -> List[PredictorGame]:
     deduped: Dict[str, PredictorGame] = {}
     for game in games:
@@ -454,6 +673,17 @@ def build_point_in_time_dataset(
         recent_form_b = calculate_recent_form(team_b_id, team_b_prior_games)
         h2h = calculate_head_to_head(team_a_id, team_b_id, combined_prior_games)
         common_opponents = calculate_common_opponent_signal(team_a_id, team_b_id, combined_prior_games)
+        common_opponent_details = _build_common_opponent_feature_summary(
+            team_a_id=team_a_id,
+            team_b_id=team_b_id,
+            all_games=combined_prior_games,
+            snapshot_index=snapshot_index,
+            target_date=str(game_row["game_date"]),
+            team_age_numeric=max(
+                _extract_age_numeric(team_a_snapshot.get("age_group")),
+                _extract_age_numeric(team_b_snapshot.get("age_group")),
+            ),
+        )
         actual_outcome_code, actual_outcome_name = _outcome_label(score_a, score_b)
 
         enriched_team_a_snapshot = {**team_a_snapshot, "_game_date": game_row["game_date"]}
@@ -484,6 +714,45 @@ def build_point_in_time_dataset(
                 "common_opponent_closeness": math.exp(-abs(_to_float(common_opponents.get("advantage"))) / 0.3)
                 if _to_float(common_opponents.get("sharedOpponents")) > 0
                 else 0.5,
+                "common_opponent_strength_weighted_shared": _to_float(
+                    common_opponent_details.get("strengthWeightedSharedOpponents")
+                ),
+                "common_opponent_same_age_shared": _to_float(
+                    common_opponent_details.get("sameAgeSharedOpponents")
+                ),
+                "common_opponent_same_age_rate": _to_float(
+                    common_opponent_details.get("sameAgeSharedOpponentRate")
+                ),
+                "common_opponent_strength_weighted_reliability": _to_float(
+                    common_opponent_details.get("strengthWeightedReliability")
+                ),
+                "common_opponent_strength_weighted_margin_diff": _to_float(
+                    common_opponent_details.get("strengthWeightedMarginDiff")
+                ),
+                "common_opponent_strength_weighted_points_diff": _to_float(
+                    common_opponent_details.get("strengthWeightedPointsPerGameDiff")
+                ),
+                "common_opponent_strength_weighted_goals_for_diff": _to_float(
+                    common_opponent_details.get("strengthWeightedGoalsForDiff")
+                ),
+                "common_opponent_strength_weighted_goals_against_adv": _to_float(
+                    common_opponent_details.get("strengthWeightedGoalsAgainstAdv")
+                ),
+                "common_opponent_strength_weighted_win_rate_diff": _to_float(
+                    common_opponent_details.get("strengthWeightedWinRateDiff")
+                ),
+                "common_opponent_strength_weighted_draw_rate_diff": _to_float(
+                    common_opponent_details.get("strengthWeightedDrawRateDiff")
+                ),
+                "common_opponent_strength_weighted_goal_balance_diff": _to_float(
+                    common_opponent_details.get("strengthWeightedGoalBalanceDiff")
+                ),
+                "common_opponent_strength_weighted_opponent_power": _to_float(
+                    common_opponent_details.get("strengthWeightedOpponentPower")
+                ),
+                "common_opponent_consensus_signal": _to_float(
+                    common_opponent_details.get("commonOpponentConsensusSignal")
+                ),
                 "team_a_prior_game_count": float(len(team_a_prior_games)),
                 "team_b_prior_game_count": float(len(team_b_prior_games)),
                 "combined_prior_game_count": float(len(combined_prior_games)),
@@ -1257,18 +1526,22 @@ class PointInTimeMatchModel:
             strategy_outputs[strategy_name] = outputs
             probabilities_for_strategy = outputs[0]
             predicted_labels_for_strategy = np.argmax(probabilities_for_strategy, axis=1)
-            strategy_metrics[strategy_name] = {
-                "winner_accuracy": float(accuracy_score(y_test, predicted_labels_for_strategy)),
-                "log_loss": float(log_loss(y_test, probabilities_for_strategy, labels=[0, 1, 2])),
-                "brier_score": self._brier_score(y_test, probabilities_for_strategy),
-                "draw_recall": float(np.mean(predicted_labels_for_strategy[y_test == OUTCOME_DRAW] == OUTCOME_DRAW))
-                if np.any(y_test == OUTCOME_DRAW)
-                else None,
-                "draw_precision": float(np.mean(y_test[predicted_labels_for_strategy == OUTCOME_DRAW] == OUTCOME_DRAW))
-                if np.any(predicted_labels_for_strategy == OUTCOME_DRAW)
-                else None,
-                "predicted_draw_rate": float(np.mean(predicted_labels_for_strategy == OUTCOME_DRAW)),
-            }
+            strategy_evaluation_frame = self._build_evaluation_frame(
+                test_df=test_df,
+                probabilities=probabilities_for_strategy,
+                predicted_labels=predicted_labels_for_strategy,
+                predicted_margin=predicted_margin,
+                predicted_score_a=predicted_score_a,
+                predicted_score_b=predicted_score_b,
+                poisson_probabilities=outputs[1],
+                draw_model_probability=outputs[2],
+                expected_goals_a=outputs[3],
+                expected_goals_b=outputs[4],
+                probability_strategy=strategy_name,
+            )
+            strategy_summary = compute_evaluation_summary(strategy_evaluation_frame)
+            strategy_summary["predicted_draw_rate"] = float(np.mean(predicted_labels_for_strategy == OUTCOME_DRAW))
+            strategy_metrics[strategy_name] = strategy_summary
 
         (
             probabilities,
@@ -1291,23 +1564,11 @@ class PointInTimeMatchModel:
             expected_goals_b=expected_goals_b,
             probability_strategy=self.probability_strategy,
         )
-
+        summary_metrics = compute_evaluation_summary(self.last_evaluation_frame)
         metrics = {
-            "winner_accuracy": float(accuracy_score(y_test, predicted_labels)),
-            "log_loss": float(log_loss(y_test, probabilities, labels=[0, 1, 2])),
-            "brier_score": self._brier_score(y_test, probabilities),
-            "draw_recall": float(np.mean(predicted_labels[y_test == OUTCOME_DRAW] == OUTCOME_DRAW))
-            if np.any(y_test == OUTCOME_DRAW)
-            else None,
-            "draw_precision": float(np.mean(y_test[predicted_labels == OUTCOME_DRAW] == OUTCOME_DRAW))
-            if np.any(predicted_labels == OUTCOME_DRAW)
-            else None,
+            **summary_metrics,
             "actual_draw_rate": float(np.mean(y_test == OUTCOME_DRAW)),
             "predicted_draw_rate": float(np.mean(predicted_labels == OUTCOME_DRAW)),
-            "margin_mae": float(mean_absolute_error(test_df["actual_margin"], predicted_margin)),
-            "margin_rmse": float(math.sqrt(mean_squared_error(test_df["actual_margin"], predicted_margin))),
-            "score_a_mae": float(mean_absolute_error(test_df["actual_score_a"], predicted_score_a)),
-            "score_b_mae": float(mean_absolute_error(test_df["actual_score_b"], predicted_score_b)),
             "train_examples": int(len(train_df)),
             "test_examples": int(len(test_df)),
             "probability_strategy": self.probability_strategy,
