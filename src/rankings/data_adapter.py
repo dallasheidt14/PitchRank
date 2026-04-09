@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Optional
 import pandas as pd
 
 from src.rankings.constants import AGE_TO_ANCHOR
+from src.rankings.predictive_priors import ensure_predictive_priors
 from src.rankings.shared import normalize_gender
 
 if TYPE_CHECKING:
@@ -932,6 +933,8 @@ def v53e_to_rankings_full_format(
     if "global_power_score" not in rankings_df.columns:
         rankings_df["global_power_score"] = None
 
+    rankings_df = ensure_predictive_priors(rankings_df)
+
     # =================================================================
     # ANCHOR PASS-THROUGH ASSERTION
     # =================================================================
@@ -1024,6 +1027,10 @@ def v53e_to_rankings_full_format(
         "global_power_score",
         "power_score_true",
         "power_score_final",
+        "exp_margin",
+        "exp_win_rate",
+        "exp_goals_for",
+        "exp_goals_against",
         "same_age_games",
         "same_age_game_share",
         "same_age_unique_opponents",

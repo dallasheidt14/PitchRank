@@ -120,3 +120,45 @@ def test_build_prediction_feature_snapshot_records_skips_blank_team_ids_and_pres
     assert record["win_percentage"] is None
     assert record["exp_goals_for"] == 1.4
     assert record["exp_goals_against"] == 0.9
+
+
+def test_build_prediction_feature_snapshot_records_derives_missing_predictive_priors():
+    rankings_df = pd.DataFrame(
+        [
+            {
+                "team_id": "team-3",
+                "age": 12,
+                "gender": "Male",
+                "power_score_final": 0.74,
+                "sos_norm": 0.63,
+                "offense_norm": 0.69,
+                "defense_norm": 0.61,
+                "glicko_rating": 1608.0,
+                "glicko_rd": 58.0,
+                "wins": 10,
+                "losses": 3,
+                "draws": 2,
+                "games_played": 15,
+                "same_age_games": 11,
+                "same_age_game_share": 0.73,
+                "same_age_unique_opponents": 7,
+                "same_age_top100_opp_count": 2,
+                "same_age_top500_opp_count": 5,
+                "same_age_avg_opp_power_adj": 0.71,
+                "repeat_opponent_share": 0.12,
+                "positive_ml_evidence_scale": 0.9,
+            }
+        ]
+    )
+
+    records = build_prediction_feature_snapshot_records(rankings_df, snapshot_date=pd.Timestamp("2026-04-08").date())
+
+    assert len(records) == 1
+    record = records[0]
+    assert record["exp_margin"] is not None
+    assert record["exp_margin"] > 0
+    assert record["exp_win_rate"] is not None
+    assert 0.5 < record["exp_win_rate"] < 1.0
+    assert record["exp_goals_for"] is not None
+    assert record["exp_goals_against"] is not None
+    assert record["exp_goals_for"] > record["exp_goals_against"]
