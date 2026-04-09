@@ -103,3 +103,37 @@ def test_build_calibration_table_groups_probability_buckets():
 
     assert not calibration.empty
     assert "probability_bucket" in calibration.columns
+
+
+def test_compute_evaluation_summary_normalizes_trainer_outcome_aliases():
+    frame = pd.DataFrame(
+        [
+            {
+                "game_id": "g1",
+                "game_date": "2026-04-01",
+                "actual_outcome": "team_a_win",
+                "predicted_outcome": "team_a",
+                "prob_team_a_win": 0.61,
+                "prob_draw": 0.20,
+                "prob_team_b_win": 0.19,
+                "predicted_margin": 0.7,
+                "actual_margin": 1,
+            },
+            {
+                "game_id": "g2",
+                "game_date": "2026-04-02",
+                "actual_outcome": "team_b_win",
+                "predicted_outcome": "team_b",
+                "prob_team_a_win": 0.21,
+                "prob_draw": 0.18,
+                "prob_team_b_win": 0.61,
+                "predicted_margin": -0.8,
+                "actual_margin": -1,
+            },
+        ]
+    )
+
+    summary = compute_evaluation_summary(frame)
+
+    assert summary["games"] == 2
+    assert summary["winner_accuracy"] == 1.0
