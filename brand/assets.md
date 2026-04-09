@@ -40,6 +40,17 @@ Append-only. All skills that produce campaign assets register here.
 | tryouts-2026-ig-reel | Social (IG reel) | 2026-04-07 | campaigns/content/social/youth-soccer-tryouts-2026/instagram/reel-script.md | draft | 35-45s: 3 Things to Watch at Tryouts (Trial Reel) |
 | tryouts-2026-ig-stories | Social (IG story) | 2026-04-07 | campaigns/content/social/youth-soccer-tryouts-2026/instagram/story-sequence.md | draft | 6-story tryout quiz sequence with polls |
 | tryouts-2026-schedule | Content calendar | 2026-04-07 | campaigns/content/social/youth-soccer-tryouts-2026/schedule.md | draft | Apr 8-19 posting schedule for X + IG |
+| florida-youth-soccer-rankings | SEO article (state guide) | 2026-04-09 | campaigns/content/florida-youth-soccer-rankings.md | draft | Florida state rankings guide, 2250 words, 7 FAQ entries, 5,366 teams, 13 clubs profiled |
+| florida-rankings-hero | Creative (blog hero) | 2026-04-09 | campaigns/creative/florida-rankings-guide/hero-16x9.jpg | ready | 16:9 hero image, aerial soccer field, FL palms, brand colors, Oswald typography |
+| florida-rankings-social | Creative (social card) | 2026-04-09 | campaigns/creative/florida-rankings-guide/social-1x1.jpg | ready | 1:1 square, Florida map with cities + "5,366 TEAMS RANKED", brand colors |
+| florida-rankings-twitter-thread | Social (X thread) | 2026-04-09 | campaigns/content/social/florida-youth-soccer-rankings/twitter/thread.md | draft | 9-tweet thread: FL rankings by the numbers |
+| florida-rankings-twitter-single-01 | Social (X single) | 2026-04-09 | campaigns/content/social/florida-youth-soccer-rankings/twitter/single-01.md | draft | Florida team density stat |
+| florida-rankings-twitter-single-02 | Social (X single) | 2026-04-09 | campaigns/content/social/florida-youth-soccer-rankings/twitter/single-02.md | draft | GotSoccer contrast — quality vs tournament fees |
+| florida-rankings-twitter-single-03 | Social (X single) | 2026-04-09 | campaigns/content/social/florida-youth-soccer-rankings/twitter/single-03.md | draft | Right team for your kid > highest ranked team |
+| florida-rankings-ig-carousel-01 | Social (IG carousel) | 2026-04-09 | campaigns/content/social/florida-youth-soccer-rankings/instagram/carousel.md | draft | 8-slide: Florida Soccer By the Numbers |
+| florida-rankings-ig-carousel-02 | Social (IG carousel) | 2026-04-09 | campaigns/content/social/florida-youth-soccer-rankings/instagram/carousel-02.md | draft | 7-slide: 5 Questions Before Picking a Florida Club |
+| florida-rankings-ig-stories | Social (IG story) | 2026-04-09 | campaigns/content/social/florida-youth-soccer-rankings/instagram/story-sequence.md | draft | 6-story quiz sequence with polls |
+| florida-rankings-schedule | Content calendar | 2026-04-09 | campaigns/content/social/florida-youth-soccer-rankings/schedule.md | draft | Apr 10-22 posting schedule for X + IG |
 
 ---
 

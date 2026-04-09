@@ -47,7 +47,7 @@
 | Youth soccer rankings by state (pillar) | DO FIRST | Informational | Pillar Guide | planning |
 | California youth soccer rankings | DO FIRST | Informational | State Guide | live |
 | Texas youth soccer rankings | DO FIRST | Informational | State Guide | planning |
-| Florida youth soccer rankings | High | Informational | State Guide | planning |
+| Florida youth soccer rankings | High | Informational | State Guide | draft |
 | New Jersey youth soccer rankings | High | Informational | State Guide | planning |
 | Georgia youth soccer rankings | High | Informational | State Guide | planning |
 | [Remaining states] | Medium | Informational | State Guide | backlog |
