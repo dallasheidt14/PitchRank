@@ -1,6 +1,11 @@
+import numpy as np
 import pandas as pd
 
-from src.predictions.point_in_time_match_model import build_point_in_time_dataset
+from src.predictions.point_in_time_match_model import (
+    _poisson_draw_gate_mask,
+    _poisson_outcome_probabilities,
+    build_point_in_time_dataset,
+)
 
 
 def _snapshot(snapshot_date: str, team_id: str, age_group: str = "14", gender: str = "Male", **overrides):
@@ -183,3 +188,24 @@ def test_build_point_in_time_dataset_tracks_draw_oriented_signals():
     assert row["snapshot_strength_closeness"] > 0.0
     assert row["expected_draw_environment"] > 0.0
     assert 0.0 <= row["stalemate_signal"] <= 1.0
+
+
+def test_poisson_outcome_probabilities_raise_draw_in_balanced_low_goal_games():
+    low_balanced = _poisson_outcome_probabilities(np.array([0.8]), np.array([0.8]))[0]
+    high_balanced = _poisson_outcome_probabilities(np.array([1.8]), np.array([1.8]))[0]
+    lopsided = _poisson_outcome_probabilities(np.array([2.2]), np.array([0.7]))[0]
+
+    assert np.isclose(low_balanced.sum(), 1.0)
+    assert low_balanced[1] > high_balanced[1]
+    assert low_balanced[1] > lopsided[1]
+
+
+def test_poisson_draw_gate_mask_requires_low_total_close_stalemate_profile():
+    mask = _poisson_draw_gate_mask(
+        draw_probability=np.array([0.27, 0.27, 0.23, 0.27]),
+        projected_total_goals=np.array([2.1, 2.4, 2.1, 2.1]),
+        stalemate_signal=np.array([0.62, 0.62, 0.62, 0.54]),
+        expected_goal_gap_abs=np.array([0.32, 0.32, 0.32, 0.32]),
+    )
+
+    assert mask.tolist() == [True, False, False, False]

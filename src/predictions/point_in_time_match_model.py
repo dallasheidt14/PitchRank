@@ -109,6 +109,12 @@ POISSON_MAX_GOALS = 8
 DRAW_CLASS_WEIGHT_BOOST = 1.6
 DRAW_BINARY_WEIGHT_CAP = 4.0
 DRAW_MODEL_SHRINK_FACTOR = 0.3
+DEFAULT_PROBABILITY_STRATEGY = "hybrid"
+POISSON_DRAW_GATE_PROBABILITY_MIN = 0.25
+POISSON_DRAW_GATE_TOTAL_GOALS_MAX = 2.2
+POISSON_DRAW_GATE_STALEMATE_MIN = 0.60
+POISSON_DRAW_GATE_EXPECTED_GOAL_GAP_MAX = 0.45
+PROBABILITY_STRATEGIES = {"hybrid", "poisson_primary", "poisson_draw_gate"}
 
 
 @dataclass
@@ -368,6 +374,20 @@ def _poisson_outcome_probabilities(
     )
 
 
+def _poisson_draw_gate_mask(
+    draw_probability: np.ndarray,
+    projected_total_goals: np.ndarray,
+    stalemate_signal: np.ndarray,
+    expected_goal_gap_abs: np.ndarray,
+) -> np.ndarray:
+    return (
+        (np.asarray(draw_probability, dtype=float) >= POISSON_DRAW_GATE_PROBABILITY_MIN)
+        & (np.asarray(projected_total_goals, dtype=float) <= POISSON_DRAW_GATE_TOTAL_GOALS_MAX)
+        & (np.asarray(stalemate_signal, dtype=float) >= POISSON_DRAW_GATE_STALEMATE_MIN)
+        & (np.asarray(expected_goal_gap_abs, dtype=float) <= POISSON_DRAW_GATE_EXPECTED_GOAL_GAP_MAX)
+    )
+
+
 def _dedupe_games(games: Iterable[PredictorGame]) -> List[PredictorGame]:
     deduped: Dict[str, PredictorGame] = {}
     for game in games:
@@ -607,6 +627,7 @@ class PointInTimeMatchModel:
         self.score_a_regressor = None
         self.score_b_regressor = None
         self.draw_rate_prior = 0.0
+        self.probability_strategy = DEFAULT_PROBABILITY_STRATEGY
         self.training_metadata: Dict[str, object] = {}
         self.last_evaluation_frame = pd.DataFrame()
         os.makedirs(model_dir, exist_ok=True)
@@ -688,6 +709,34 @@ class PointInTimeMatchModel:
             )
 
         logger.warning("XGBoost is unavailable; falling back to RandomForestRegressor for offline harness")
+        return RandomForestRegressor(
+            n_estimators=250,
+            max_depth=12,
+            min_samples_leaf=2,
+            random_state=random_state,
+            n_jobs=-1,
+        )
+
+    def _build_goal_regressor(self, random_state: int):
+        if HAS_XGBOOST:
+            return XGBRegressor(
+                objective="count:poisson",
+                n_estimators=260,
+                max_depth=5,
+                learning_rate=0.05,
+                subsample=0.85,
+                colsample_bytree=0.85,
+                reg_alpha=0.05,
+                reg_lambda=1.1,
+                min_child_weight=2,
+                gamma=0.02,
+                max_delta_step=1,
+                random_state=random_state,
+                n_jobs=-1,
+                eval_metric="poisson-nloglik",
+            )
+
+        logger.warning("XGBoost is unavailable; falling back to RandomForestRegressor for goal model")
         return RandomForestRegressor(
             n_estimators=250,
             max_depth=12,
@@ -779,14 +828,13 @@ class PointInTimeMatchModel:
         )
         return np.asarray(probabilities[:, draw_index], dtype=float)
 
-    def _compose_outcome_probabilities(
+    def _expected_goals_from_predictions(
         self,
         dataset_df: pd.DataFrame,
-        matrix: pd.DataFrame,
-        base_probabilities: np.ndarray,
         predicted_score_a: np.ndarray,
         predicted_score_b: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        score_weight: float = 0.7,
+    ) -> Tuple[np.ndarray, np.ndarray]:
         prior_goal_a = (
             pd.to_numeric(dataset_df.get("projected_goals_team_a"), errors="coerce")
             .fillna(pd.Series(predicted_score_a))
@@ -797,13 +845,20 @@ class PointInTimeMatchModel:
             .fillna(pd.Series(predicted_score_b))
             .to_numpy(dtype=float)
         )
-        expected_goals_a = np.clip(0.65 * predicted_score_a + 0.35 * prior_goal_a, 0.05, 6.0)
-        expected_goals_b = np.clip(0.65 * predicted_score_b + 0.35 * prior_goal_b, 0.05, 6.0)
+        prior_weight = 1.0 - score_weight
+        expected_goals_a = np.clip(score_weight * predicted_score_a + prior_weight * prior_goal_a, 0.05, 6.0)
+        expected_goals_b = np.clip(score_weight * predicted_score_b + prior_weight * prior_goal_b, 0.05, 6.0)
+        return expected_goals_a, expected_goals_b
 
-        poisson_probabilities = _poisson_outcome_probabilities(expected_goals_a, expected_goals_b)
+    def _draw_context(
+        self,
+        dataset_df: pd.DataFrame,
+        matrix: pd.DataFrame,
+        fallback_draw_probability: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         raw_draw_model_probability = np.nan_to_num(
             self._predict_draw_probability(matrix),
-            nan=base_probabilities[:, OUTCOME_DRAW],
+            nan=fallback_draw_probability,
         )
         draw_model_probability = np.clip(
             self.draw_rate_prior
@@ -825,9 +880,36 @@ class PointInTimeMatchModel:
         )
         projected_total_goals = (
             pd.to_numeric(dataset_df.get("projected_total_goals"), errors="coerce")
-            .fillna(pd.Series(expected_goals_a + expected_goals_b))
+            .fillna(0.0)
             .clip(0.05, 8.0)
             .to_numpy(dtype=float)
+        )
+        return draw_model_probability, stalemate_signal, expected_draw_environment, projected_total_goals
+
+    def _compose_outcome_probabilities(
+        self,
+        dataset_df: pd.DataFrame,
+        matrix: pd.DataFrame,
+        base_probabilities: np.ndarray,
+        predicted_score_a: np.ndarray,
+        predicted_score_b: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        expected_goals_a, expected_goals_b = self._expected_goals_from_predictions(
+            dataset_df,
+            predicted_score_a,
+            predicted_score_b,
+            score_weight=0.65,
+        )
+        poisson_probabilities = _poisson_outcome_probabilities(expected_goals_a, expected_goals_b)
+        (
+            draw_model_probability,
+            stalemate_signal,
+            expected_draw_environment,
+            projected_total_goals,
+        ) = self._draw_context(
+            dataset_df,
+            matrix,
+            fallback_draw_probability=base_probabilities[:, OUTCOME_DRAW],
         )
 
         combined_draw_probability = (
@@ -880,7 +962,157 @@ class PointInTimeMatchModel:
             )
             combined = self._normalize_probabilities(combined)
 
-        return combined, poisson_probabilities, draw_model_probability
+        return combined, poisson_probabilities, draw_model_probability, expected_goals_a, expected_goals_b
+
+    def _compose_poisson_primary_probabilities(
+        self,
+        dataset_df: pd.DataFrame,
+        matrix: pd.DataFrame,
+        predicted_score_a: np.ndarray,
+        predicted_score_b: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        expected_goals_a, expected_goals_b = self._expected_goals_from_predictions(
+            dataset_df,
+            predicted_score_a,
+            predicted_score_b,
+            score_weight=0.72,
+        )
+        poisson_probabilities = _poisson_outcome_probabilities(expected_goals_a, expected_goals_b)
+        (
+            draw_model_probability,
+            stalemate_signal,
+            expected_draw_environment,
+            projected_total_goals,
+        ) = self._draw_context(
+            dataset_df,
+            matrix,
+            fallback_draw_probability=poisson_probabilities[:, OUTCOME_DRAW],
+        )
+
+        combined_draw_probability = (
+            0.74 * poisson_probabilities[:, OUTCOME_DRAW]
+            + 0.14 * draw_model_probability
+            + 0.12 * np.maximum(expected_draw_environment, self.draw_rate_prior)
+        )
+        combined_draw_probability *= 0.9 + 0.22 * stalemate_signal
+
+        low_total_mask = projected_total_goals <= 2.3
+        combined_draw_probability[low_total_mask] *= 1.08
+        high_total_mask = projected_total_goals >= 3.1
+        combined_draw_probability[high_total_mask] *= 0.85
+
+        dynamic_draw_cap = np.where(
+            projected_total_goals <= 2.1,
+            0.46,
+            np.where(projected_total_goals <= 2.8, 0.35, 0.24),
+        )
+        combined_draw_probability = np.clip(combined_draw_probability, 0.01, dynamic_draw_cap)
+
+        win_probabilities = poisson_probabilities[:, [OUTCOME_TEAM_A_WIN, OUTCOME_TEAM_B_WIN]]
+        win_row_sums = win_probabilities.sum(axis=1, keepdims=True)
+        win_probabilities = np.divide(
+            win_probabilities,
+            win_row_sums,
+            out=np.full_like(win_probabilities, 0.5),
+            where=win_row_sums > 0,
+        )
+
+        combined = np.zeros_like(poisson_probabilities)
+        remaining_mass = 1.0 - combined_draw_probability
+        combined[:, OUTCOME_DRAW] = combined_draw_probability
+        combined[:, OUTCOME_TEAM_A_WIN] = win_probabilities[:, 0] * remaining_mass
+        combined[:, OUTCOME_TEAM_B_WIN] = win_probabilities[:, 1] * remaining_mass
+        combined = self._normalize_probabilities(combined)
+
+        draw_edge = np.max(combined[:, [OUTCOME_TEAM_A_WIN, OUTCOME_TEAM_B_WIN]], axis=1)
+        draw_trigger = (
+            (stalemate_signal >= 0.68)
+            & (projected_total_goals <= 2.2)
+            & (combined[:, OUTCOME_DRAW] + 0.015 >= draw_edge)
+        )
+        if np.any(draw_trigger):
+            combined[draw_trigger, OUTCOME_DRAW] = np.maximum(
+                combined[draw_trigger, OUTCOME_DRAW],
+                draw_edge[draw_trigger] + 1e-3,
+            )
+            combined = self._normalize_probabilities(combined)
+
+        return combined, poisson_probabilities, draw_model_probability, expected_goals_a, expected_goals_b
+
+    def _compose_poisson_draw_gate_probabilities(
+        self,
+        dataset_df: pd.DataFrame,
+        matrix: pd.DataFrame,
+        predicted_score_a: np.ndarray,
+        predicted_score_b: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        combined, poisson_probabilities, draw_model_probability, expected_goals_a, expected_goals_b = (
+            self._compose_poisson_primary_probabilities(
+                dataset_df,
+                matrix,
+                predicted_score_a,
+                predicted_score_b,
+            )
+        )
+        projected_total_goals = (
+            pd.to_numeric(dataset_df.get("projected_total_goals"), errors="coerce")
+            .fillna(0.0)
+            .to_numpy(dtype=float)
+        )
+        stalemate_signal = (
+            pd.to_numeric(dataset_df.get("stalemate_signal"), errors="coerce")
+            .fillna(0.0)
+            .to_numpy(dtype=float)
+        )
+        expected_goal_gap_abs = np.abs(expected_goals_a - expected_goals_b)
+        draw_trigger = _poisson_draw_gate_mask(
+            draw_probability=combined[:, OUTCOME_DRAW],
+            projected_total_goals=projected_total_goals,
+            stalemate_signal=stalemate_signal,
+            expected_goal_gap_abs=expected_goal_gap_abs,
+        )
+        if np.any(draw_trigger):
+            draw_edge = np.max(combined[:, [OUTCOME_TEAM_A_WIN, OUTCOME_TEAM_B_WIN]], axis=1)
+            combined[draw_trigger, OUTCOME_DRAW] = np.maximum(
+                combined[draw_trigger, OUTCOME_DRAW],
+                draw_edge[draw_trigger] + 1e-3,
+            )
+            combined = self._normalize_probabilities(combined)
+
+        return combined, poisson_probabilities, draw_model_probability, expected_goals_a, expected_goals_b
+
+    def _strategy_outputs(
+        self,
+        probability_strategy: str,
+        dataset_df: pd.DataFrame,
+        matrix: pd.DataFrame,
+        base_probabilities: np.ndarray,
+        predicted_score_a: np.ndarray,
+        predicted_score_b: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        if probability_strategy == "hybrid":
+            return self._compose_outcome_probabilities(
+                dataset_df,
+                matrix,
+                base_probabilities,
+                predicted_score_a,
+                predicted_score_b,
+            )
+        if probability_strategy == "poisson_primary":
+            return self._compose_poisson_primary_probabilities(
+                dataset_df,
+                matrix,
+                predicted_score_a,
+                predicted_score_b,
+            )
+        if probability_strategy == "poisson_draw_gate":
+            return self._compose_poisson_draw_gate_probabilities(
+                dataset_df,
+                matrix,
+                predicted_score_a,
+                predicted_score_b,
+            )
+        raise ValueError(f"Unsupported probability strategy: {probability_strategy}")
 
     def _build_evaluation_frame(
         self,
@@ -892,6 +1124,9 @@ class PointInTimeMatchModel:
         predicted_score_b: np.ndarray,
         poisson_probabilities: np.ndarray,
         draw_model_probability: np.ndarray,
+        expected_goals_a: np.ndarray,
+        expected_goals_b: np.ndarray,
+        probability_strategy: str,
     ) -> pd.DataFrame:
         age_group_numeric = pd.to_numeric(test_df.get("age_group_numeric"), errors="coerce").fillna(0).astype(int)
         age_group = age_group_numeric.apply(lambda value: f"u{value}" if value > 0 else "unknown")
@@ -901,6 +1136,7 @@ class PointInTimeMatchModel:
                 "game_date": test_df["game_date"].astype(str).to_numpy(),
                 "age_group": age_group.to_numpy(),
                 "feature_source": "point_in_time_snapshot",
+                "probability_strategy": probability_strategy,
                 "actual_outcome": test_df["actual_outcome"].astype(str).to_numpy(),
                 "predicted_outcome": [OUTCOME_LABELS[int(label)].replace("_win", "") for label in predicted_labels],
                 "prob_team_a_win": probabilities[:, OUTCOME_TEAM_A_WIN],
@@ -924,6 +1160,8 @@ class PointInTimeMatchModel:
                 "actual_margin": test_df["actual_margin"].astype(float).to_numpy(),
                 "predicted_score_a": predicted_score_a,
                 "predicted_score_b": predicted_score_b,
+                "expected_goals_a": expected_goals_a,
+                "expected_goals_b": expected_goals_b,
                 "actual_score_a": test_df["actual_score_a"].astype(float).to_numpy(),
                 "actual_score_b": test_df["actual_score_b"].astype(float).to_numpy(),
             }
@@ -942,6 +1180,7 @@ class PointInTimeMatchModel:
         test_ratio: float = 0.2,
         random_state: int = 42,
         min_examples: int = 100,
+        probability_strategy: str = DEFAULT_PROBABILITY_STRATEGY,
     ) -> Dict[str, object]:
         if dataset_df.empty:
             raise ValueError("Point-in-time dataset is empty")
@@ -949,9 +1188,15 @@ class PointInTimeMatchModel:
             raise ValueError(
                 f"Insufficient examples for training: found {len(dataset_df):,}, need at least {min_examples:,}"
             )
+        if probability_strategy not in PROBABILITY_STRATEGIES:
+            raise ValueError(
+                f"Unsupported probability strategy '{probability_strategy}'. "
+                f"Expected one of {sorted(PROBABILITY_STRATEGIES)}"
+            )
 
         train_df, test_df = self._chronological_split(dataset_df, test_ratio=test_ratio)
         self.feature_names = self._feature_columns(train_df)
+        self.probability_strategy = probability_strategy
 
         X_train = train_df[self.feature_names].fillna(0.0).astype(float)
         X_test = test_df[self.feature_names].fillna(0.0).astype(float)
@@ -978,8 +1223,8 @@ class PointInTimeMatchModel:
         )
         self.draw_classifier = self._build_binary_classifier(random_state=random_state)
         self.margin_regressor = self._build_regressor(random_state=random_state)
-        self.score_a_regressor = self._build_regressor(random_state=random_state)
-        self.score_b_regressor = self._build_regressor(random_state=random_state)
+        self.score_a_regressor = self._build_goal_regressor(random_state=random_state)
+        self.score_b_regressor = self._build_goal_regressor(random_state=random_state)
         class_sample_weights, named_class_weights = self._multiclass_sample_weights(y_train)
         self.classifier.fit(X_train, y_train_encoded, sample_weight=class_sample_weights)
 
@@ -998,13 +1243,40 @@ class PointInTimeMatchModel:
         predicted_margin = self.margin_regressor.predict(X_test)
         predicted_score_a = self.score_a_regressor.predict(X_test)
         predicted_score_b = self.score_b_regressor.predict(X_test)
-        probabilities, poisson_probabilities, draw_model_probability = self._compose_outcome_probabilities(
-            dataset_df=test_df,
-            matrix=X_test,
-            base_probabilities=base_probabilities,
-            predicted_score_a=predicted_score_a,
-            predicted_score_b=predicted_score_b,
-        )
+        strategy_metrics: Dict[str, Dict[str, object]] = {}
+        strategy_outputs: Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = {}
+        for strategy_name in sorted(PROBABILITY_STRATEGIES):
+            outputs = self._strategy_outputs(
+                strategy_name,
+                dataset_df=test_df,
+                matrix=X_test,
+                base_probabilities=base_probabilities,
+                predicted_score_a=predicted_score_a,
+                predicted_score_b=predicted_score_b,
+            )
+            strategy_outputs[strategy_name] = outputs
+            probabilities_for_strategy = outputs[0]
+            predicted_labels_for_strategy = np.argmax(probabilities_for_strategy, axis=1)
+            strategy_metrics[strategy_name] = {
+                "winner_accuracy": float(accuracy_score(y_test, predicted_labels_for_strategy)),
+                "log_loss": float(log_loss(y_test, probabilities_for_strategy, labels=[0, 1, 2])),
+                "brier_score": self._brier_score(y_test, probabilities_for_strategy),
+                "draw_recall": float(np.mean(predicted_labels_for_strategy[y_test == OUTCOME_DRAW] == OUTCOME_DRAW))
+                if np.any(y_test == OUTCOME_DRAW)
+                else None,
+                "draw_precision": float(np.mean(y_test[predicted_labels_for_strategy == OUTCOME_DRAW] == OUTCOME_DRAW))
+                if np.any(predicted_labels_for_strategy == OUTCOME_DRAW)
+                else None,
+                "predicted_draw_rate": float(np.mean(predicted_labels_for_strategy == OUTCOME_DRAW)),
+            }
+
+        (
+            probabilities,
+            poisson_probabilities,
+            draw_model_probability,
+            expected_goals_a,
+            expected_goals_b,
+        ) = strategy_outputs[self.probability_strategy]
         predicted_labels = np.argmax(probabilities, axis=1)
         self.last_evaluation_frame = self._build_evaluation_frame(
             test_df=test_df,
@@ -1015,6 +1287,9 @@ class PointInTimeMatchModel:
             predicted_score_b=predicted_score_b,
             poisson_probabilities=poisson_probabilities,
             draw_model_probability=draw_model_probability,
+            expected_goals_a=expected_goals_a,
+            expected_goals_b=expected_goals_b,
+            probability_strategy=self.probability_strategy,
         )
 
         metrics = {
@@ -1035,11 +1310,13 @@ class PointInTimeMatchModel:
             "score_b_mae": float(mean_absolute_error(test_df["actual_score_b"], predicted_score_b)),
             "train_examples": int(len(train_df)),
             "test_examples": int(len(test_df)),
+            "probability_strategy": self.probability_strategy,
             "class_labels": [OUTCOME_LABELS[label] for label in self.class_labels],
             "feature_count": int(len(self.feature_names)),
             "training_class_balance": class_balance,
             "multiclass_sample_weights": named_class_weights,
             "draw_binary_sample_weights": draw_weight_map,
+            "strategy_metrics": strategy_metrics,
         }
 
         self.training_metadata = {
@@ -1048,6 +1325,7 @@ class PointInTimeMatchModel:
             "test_examples": int(len(test_df)),
             "feature_names": self.feature_names,
             "class_labels": self.class_labels,
+            "probability_strategy": self.probability_strategy,
         }
         return metrics
 
@@ -1063,6 +1341,7 @@ class PointInTimeMatchModel:
         model.score_a_regressor = payload["score_a_regressor"]
         model.score_b_regressor = payload["score_b_regressor"]
         model.draw_rate_prior = payload.get("draw_rate_prior", 0.0)
+        model.probability_strategy = payload.get("probability_strategy", DEFAULT_PROBABILITY_STRATEGY)
         model.feature_names = payload["feature_names"]
         model.class_labels = payload["class_labels"]
         model.training_metadata = payload.get("training_metadata", {})
@@ -1077,7 +1356,14 @@ class PointInTimeMatchModel:
         predicted_margin = self.margin_regressor.predict(matrix)
         predicted_score_a = self.score_a_regressor.predict(matrix)
         predicted_score_b = self.score_b_regressor.predict(matrix)
-        probabilities, poisson_probabilities, draw_model_probability = self._compose_outcome_probabilities(
+        (
+            probabilities,
+            poisson_probabilities,
+            draw_model_probability,
+            expected_goals_a,
+            expected_goals_b,
+        ) = self._strategy_outputs(
+            self.probability_strategy,
             dataset_df=dataset_df,
             matrix=matrix,
             base_probabilities=base_probabilities,
@@ -1094,6 +1380,9 @@ class PointInTimeMatchModel:
             predicted_score_b=predicted_score_b,
             poisson_probabilities=poisson_probabilities,
             draw_model_probability=draw_model_probability,
+            expected_goals_a=expected_goals_a,
+            expected_goals_b=expected_goals_b,
+            probability_strategy=self.probability_strategy,
         )
 
     def write_evaluation_report(self, output_dir: str, prefix: str = "point_in_time_model") -> dict[str, object]:
@@ -1124,6 +1413,7 @@ class PointInTimeMatchModel:
             "score_a_regressor": self.score_a_regressor,
             "score_b_regressor": self.score_b_regressor,
             "draw_rate_prior": self.draw_rate_prior,
+            "probability_strategy": self.probability_strategy,
             "feature_names": self.feature_names,
             "class_labels": self.class_labels,
             "training_metadata": self.training_metadata,

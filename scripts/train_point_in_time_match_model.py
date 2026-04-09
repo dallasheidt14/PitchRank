@@ -67,6 +67,12 @@ async def main():
     parser.add_argument("--test-ratio", type=float, default=0.2, help="Chronological holdout ratio")
     parser.add_argument("--min-examples", type=int, default=100, help="Minimum dataset size required to train")
     parser.add_argument(
+        "--probability-strategy",
+        default="hybrid",
+        choices=["hybrid", "poisson_primary", "poisson_draw_gate"],
+        help="Outcome probability engine to use after fitting the offline model",
+    )
+    parser.add_argument(
         "--model-dir",
         default="models/point_in_time_match_predictor",
         help="Directory to write model artifacts and reports",
@@ -157,6 +163,7 @@ async def main():
         dataset_result.dataset,
         test_ratio=args.test_ratio,
         min_examples=args.min_examples,
+        probability_strategy=args.probability_strategy,
     )
     artifact_paths = model.save()
     evaluation_report = model.write_evaluation_report(str(model_dir), prefix="point_in_time_model")
