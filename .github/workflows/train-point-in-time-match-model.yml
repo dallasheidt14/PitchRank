@@ -33,6 +33,16 @@ on:
         required: false
         default: '100'
         type: string
+      probability_strategy:
+        description: 'Outcome probability engine (auto picks the best viable strategy)'
+        required: false
+        default: auto
+        type: choice
+        options:
+          - auto
+          - hybrid
+          - poisson_primary
+          - poisson_draw_gate
       model_dir:
         description: 'Artifact output directory'
         required: false
@@ -116,6 +126,7 @@ jobs:
             --lookback-days "${{ github.event.inputs.lookback_days }}"
             --test-ratio "${{ github.event.inputs.test_ratio }}"
             --min-examples "${{ github.event.inputs.min_examples }}"
+            --probability-strategy "${{ github.event.inputs.probability_strategy }}"
             --model-dir "$MODEL_DIR"
           )
 
@@ -194,6 +205,8 @@ jobs:
               [
                 "",
                 "### Training",
+                f"- Requested strategy: {metrics.get('requested_probability_strategy')}",
+                f"- Selected strategy: {metrics.get('probability_strategy')}",
                 f"- Winner accuracy: {metrics.get('winner_accuracy')}",
                 f"- Draw recall: {metrics.get('draw_recall')}",
                 f"- Log loss: {metrics.get('log_loss')}",

@@ -68,8 +68,8 @@ async def main():
     parser.add_argument("--min-examples", type=int, default=100, help="Minimum dataset size required to train")
     parser.add_argument(
         "--probability-strategy",
-        default="hybrid",
-        choices=["hybrid", "poisson_primary", "poisson_draw_gate"],
+        default="auto",
+        choices=["auto", "hybrid", "poisson_primary", "poisson_draw_gate"],
         help="Outcome probability engine to use after fitting the offline model",
     )
     parser.add_argument(

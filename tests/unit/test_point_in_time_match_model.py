@@ -274,3 +274,54 @@ def test_blowout_threshold_selection_and_label_nesting():
 
     assert predicted_5plus.tolist() == [1, 0, 1]
     assert predicted_3plus.tolist() == [1, 0, 1]
+
+
+def test_auto_probability_strategy_prefers_viable_draw_aware_candidate():
+    model = PointInTimeMatchModel(model_dir="models/test_point_in_time_match_model")
+    strategy_metrics = {
+        "hybrid": {
+            "winner_accuracy": 0.6014,
+            "log_loss": 0.9197,
+            "brier_score": 0.5373,
+            "draw_recall": 0.0616,
+            "predicted_draw_rate": 0.0434,
+            "exact_score_accuracy": 0.0675,
+            "score_within_one_goal_rate": 0.4382,
+            "total_goals_mae": 2.2796,
+            "blowout_3plus_brier": 0.2199,
+            "blowout_5plus_brier": 0.1253,
+        },
+        "poisson_draw_gate": {
+            "winner_accuracy": 0.5956,
+            "log_loss": 0.9017,
+            "brier_score": 0.5257,
+            "draw_recall": 0.0700,
+            "predicted_draw_rate": 0.0518,
+            "exact_score_accuracy": 0.0683,
+            "score_within_one_goal_rate": 0.4439,
+            "total_goals_mae": 2.2037,
+            "blowout_3plus_brier": 0.2200,
+            "blowout_5plus_brier": 0.1254,
+        },
+        "poisson_primary": {
+            "winner_accuracy": 0.6079,
+            "log_loss": 0.8997,
+            "brier_score": 0.5244,
+            "draw_recall": 0.0056,
+            "predicted_draw_rate": 0.0036,
+            "exact_score_accuracy": 0.0683,
+            "score_within_one_goal_rate": 0.4439,
+            "total_goals_mae": 2.2037,
+            "blowout_3plus_brier": 0.2200,
+            "blowout_5plus_brier": 0.1254,
+        },
+    }
+
+    selected_strategy, selection_details = model._select_probability_strategy(
+        strategy_metrics=strategy_metrics,
+        actual_draw_rate=0.1408,
+    )
+
+    assert selected_strategy == "poisson_draw_gate"
+    assert "poisson_primary" not in selection_details["candidate_strategies"]
+    assert "poisson_primary" in selection_details["rejected_strategies"]
