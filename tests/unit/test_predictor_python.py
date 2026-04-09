@@ -1,4 +1,4 @@
-from scripts.predictor_python import Game, TeamRanking, predict_match
+from scripts.predictor_python import Game, TeamRanking, calculate_common_opponent_signal, predict_match
 
 
 def test_predict_match_prefers_team_with_higher_glicko_rating():
@@ -101,3 +101,45 @@ def test_predict_match_confidence_drops_with_high_glicko_rd():
     assert low_rd_prediction.confidence_score is not None
     assert high_rd_prediction.confidence_score is not None
     assert low_rd_prediction.confidence_score > high_rd_prediction.confidence_score
+
+
+def test_predict_match_uses_common_opponent_signal():
+    team_a = TeamRanking(
+        team_id_master="a",
+        power_score_final=0.58,
+        sos_norm=0.54,
+        offense_norm=0.57,
+        defense_norm=0.56,
+        age=14,
+        games_played=18,
+        glicko_rating=1520,
+        glicko_rd=85,
+    )
+    team_b = TeamRanking(
+        team_id_master="b",
+        power_score_final=0.58,
+        sos_norm=0.54,
+        offense_norm=0.57,
+        defense_norm=0.56,
+        age=14,
+        games_played=18,
+        glicko_rating=1520,
+        glicko_rd=85,
+    )
+
+    history = [
+        Game("g1", "a", "opp-1", 3, 0, "2026-03-20"),
+        Game("g2", "a", "opp-2", 2, 0, "2026-03-13"),
+        Game("g3", "opp-1", "b", 2, 1, "2026-03-06"),
+        Game("g4", "opp-2", "b", 1, 1, "2026-02-27"),
+    ]
+
+    common_opponents = calculate_common_opponent_signal("a", "b", history)
+    prediction = predict_match(team_a, team_b, history)
+
+    assert common_opponents["sharedOpponents"] == 2.0
+    assert common_opponents["advantage"] > 0.0
+    assert prediction.predicted_winner == "team_a"
+    assert prediction.components["commonOpponentSignal"] > 0.0
+    assert prediction.common_opponents is not None
+    assert prediction.common_opponents["sharedOpponents"] == 2.0

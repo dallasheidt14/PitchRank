@@ -7,6 +7,7 @@ scripts use the same prediction logic as the live compare UI:
 - Glicko rating edge when available, with published score as fallback context
 - SOS, recent form, and offense/defense matchup asymmetry
 - Head-to-head history
+- Common-opponent performance
 - Probability calibration and age-specific margin calibration
 - Glicko-aware confidence scoring
 """
@@ -19,6 +20,8 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional
+
+import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CALIBRATION_DIR = REPO_ROOT / "frontend" / "public" / "data" / "calibration"
@@ -49,6 +52,7 @@ RECENT_GAMES_COUNT = 5
 GLICKO_ELO_DIVISOR = 400.0
 DRAW_THRESHOLD = 0.03
 MAX_TEAM_SCORE = 10
+COMMON_OPPONENT_RECENCY_DAYS = 150.0
 
 DEFAULT_CONFIDENCE_THRESHOLDS = {
     "high": 0.65,
@@ -100,6 +104,7 @@ class MatchPrediction:
     form_a: float = 0.0
     form_b: float = 0.0
     h2h: Optional[Dict[str, float]] = None
+    common_opponents: Optional[Dict[str, float]] = None
 
 
 @lru_cache(maxsize=1)
@@ -237,6 +242,133 @@ def calculate_head_to_head(team_a_id: str, team_b_id: str, all_games: List[Game]
     avg_margin = total_goal_diff / games_with_scores
     advantage = avg_margin * 0.04
     return {"advantage": advantage, "gamesPlayed": float(games_with_scores), "avgMargin": avg_margin}
+
+
+def _latest_game_timestamp(all_games: List[Game]) -> Optional[float]:
+    timestamps: List[float] = []
+    for game in all_games:
+        try:
+            timestamps.append(float(pd.Timestamp(game.game_date).timestamp()))
+        except Exception:
+            continue
+    return max(timestamps) if timestamps else None
+
+
+def calculate_common_opponent_signal(team_a_id: str, team_b_id: str, all_games: List[Game]) -> Dict[str, float]:
+    latest_timestamp = _latest_game_timestamp(all_games)
+    team_a_opponents: Dict[str, Dict[str, float]] = {}
+    team_b_opponents: Dict[str, Dict[str, float]] = {}
+
+    for game in all_games:
+        if game.home_score is None or game.away_score is None:
+            continue
+
+        involves_team_a = game.home_team_master_id == team_a_id or game.away_team_master_id == team_a_id
+        involves_team_b = game.home_team_master_id == team_b_id or game.away_team_master_id == team_b_id
+
+        if (not involves_team_a and not involves_team_b) or (involves_team_a and involves_team_b):
+            continue
+
+        is_team_a_record = involves_team_a
+        team_id = team_a_id if is_team_a_record else team_b_id
+        is_home = game.home_team_master_id == team_id
+        opponent_id = game.away_team_master_id if is_home else game.home_team_master_id
+
+        if opponent_id is None or opponent_id in {team_a_id, team_b_id}:
+            continue
+
+        team_score = game.home_score if is_home else game.away_score
+        opp_score = game.away_score if is_home else game.home_score
+        if team_score is None or opp_score is None:
+            continue
+
+        try:
+            game_timestamp = float(pd.Timestamp(game.game_date).timestamp())
+            days_since = (
+                max(0.0, (latest_timestamp - game_timestamp) / 86400.0) if latest_timestamp is not None else 0.0
+            )
+        except Exception:
+            days_since = 0.0
+
+        recency_weight = math.exp(-days_since / COMMON_OPPONENT_RECENCY_DAYS)
+        points = 3.0 if team_score > opp_score else 1.0 if team_score == opp_score else 0.0
+        goal_diff = float(team_score - opp_score)
+
+        bucket = team_a_opponents if is_team_a_record else team_b_opponents
+        current = bucket.setdefault(
+            str(opponent_id),
+            {"weightedPoints": 0.0, "weightedMargin": 0.0, "totalWeight": 0.0, "games": 0.0},
+        )
+        current["weightedPoints"] += points * recency_weight
+        current["weightedMargin"] += goal_diff * recency_weight
+        current["totalWeight"] += recency_weight
+        current["games"] += 1.0
+
+    shared_opponents = [opponent_id for opponent_id in team_a_opponents if opponent_id in team_b_opponents]
+    if not shared_opponents:
+        return {
+            "advantage": 0.0,
+            "sharedOpponents": 0.0,
+            "comparedGames": 0.0,
+            "avgMarginDiff": 0.0,
+            "pointsPerGameDiff": 0.0,
+            "reliability": 0.0,
+        }
+
+    signal_sum = 0.0
+    weight_sum = 0.0
+    total_compared_games = 0.0
+    weighted_margin_diff = 0.0
+    weighted_points_diff = 0.0
+
+    for opponent_id in shared_opponents:
+        team_a_stats = team_a_opponents[opponent_id]
+        team_b_stats = team_b_opponents[opponent_id]
+        if team_a_stats["totalWeight"] <= 0 or team_b_stats["totalWeight"] <= 0:
+            continue
+
+        team_a_points_per_game = team_a_stats["weightedPoints"] / team_a_stats["totalWeight"]
+        team_b_points_per_game = team_b_stats["weightedPoints"] / team_b_stats["totalWeight"]
+        team_a_avg_margin = team_a_stats["weightedMargin"] / team_a_stats["totalWeight"]
+        team_b_avg_margin = team_b_stats["weightedMargin"] / team_b_stats["totalWeight"]
+
+        points_per_game_diff = team_a_points_per_game - team_b_points_per_game
+        avg_margin_diff = team_a_avg_margin - team_b_avg_margin
+        opponent_signal = max(-1.0, min(1.0, points_per_game_diff / 3.0)) * 0.65 + max(
+            -1.0, min(1.0, avg_margin_diff / 4.0)
+        ) * 0.35
+        opponent_weight = max(0.35, min(1.0, (team_a_stats["games"] + team_b_stats["games"]) / 4.0))
+
+        signal_sum += opponent_signal * opponent_weight
+        weight_sum += opponent_weight
+        total_compared_games += team_a_stats["games"] + team_b_stats["games"]
+        weighted_margin_diff += avg_margin_diff * opponent_weight
+        weighted_points_diff += points_per_game_diff * opponent_weight
+
+    if weight_sum <= 0:
+        return {
+            "advantage": 0.0,
+            "sharedOpponents": 0.0,
+            "comparedGames": 0.0,
+            "avgMarginDiff": 0.0,
+            "pointsPerGameDiff": 0.0,
+            "reliability": 0.0,
+        }
+
+    shared_opponent_count = float(len(shared_opponents))
+    reliability = math.sqrt(
+        max(0.0, min(1.0, shared_opponent_count / 5.0)) * max(0.0, min(1.0, total_compared_games / 10.0))
+    )
+    raw_signal = signal_sum / weight_sum
+
+    return {
+        "advantage": max(-0.12, min(0.12, raw_signal * (0.02 + reliability * 0.1))),
+        "sharedOpponents": shared_opponent_count,
+        "comparedGames": total_compared_games,
+        "avgMarginDiff": weighted_margin_diff / weight_sum,
+        "pointsPerGameDiff": weighted_points_diff / weight_sum,
+        "reliability": reliability,
+    }
 
 
 def detect_mismatch(
@@ -532,6 +664,7 @@ def predict_match(team_a: TeamRanking, team_b: TeamRanking, all_games: List[Game
     matchup_advantage = offense_a - defense_b - (offense_b - defense_a)
 
     h2h = calculate_head_to_head(team_a.team_id_master, team_b.team_id_master, all_games)
+    common_opponents = calculate_common_opponent_signal(team_a.team_id_master, team_b.team_id_master, all_games)
     h2h_games_played = int(h2h["gamesPlayed"])
     h2h_weight = min(0.05 * h2h_games_played, 0.15) if h2h_games_played > 0 else 0.0
     h2h_adjustment = 1.0 - h2h_weight
@@ -542,6 +675,7 @@ def predict_match(team_a: TeamRanking, team_b: TeamRanking, all_games: List[Game
         + float(weights["RECENT_FORM"]) * form_diff_norm * h2h_adjustment
         + float(weights["MATCHUP"]) * matchup_advantage * h2h_adjustment
         + h2h_weight * float(h2h["advantage"]) * 3.0
+        + float(common_opponents["advantage"])
     )
 
     if mismatch_score > 0.4:
@@ -615,6 +749,12 @@ def predict_match(team_a: TeamRanking, team_b: TeamRanking, all_games: List[Game
         "matchupAdvantage": matchup_advantage,
         "compositeDiff": composite_diff,
         "mismatchScore": mismatch_score,
+        "commonOpponentSignal": float(common_opponents["advantage"]),
+        "commonOpponentCount": float(common_opponents["sharedOpponents"]),
+        "commonOpponentGameCount": float(common_opponents["comparedGames"]),
+        "commonOpponentReliability": float(common_opponents["reliability"]),
+        "commonOpponentAvgMarginDiff": float(common_opponents["avgMarginDiff"]),
+        "commonOpponentPointsPerGameDiff": float(common_opponents["pointsPerGameDiff"]),
     }
     if glicko_strength:
         components.update(
@@ -639,4 +779,5 @@ def predict_match(team_a: TeamRanking, team_b: TeamRanking, all_games: List[Game
         h2h={"gamesPlayed": float(h2h_games_played), "avgMargin": float(h2h["avgMargin"])}
         if h2h_games_played > 0
         else None,
+        common_opponents=common_opponents if common_opponents["sharedOpponents"] > 0 else None,
     )

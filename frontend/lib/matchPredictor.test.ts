@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { predictMatch } from './matchPredictor';
+import { calculateCommonOpponentSignal, predictMatch } from './matchPredictor';
 import type { Game, TeamWithRanking } from './types';
 
 function makeTeam(overrides: Partial<TeamWithRanking> = {}): TeamWithRanking {
@@ -205,5 +205,78 @@ describe('predictMatch', () => {
     expect(evidencePrediction.components.evidenceReliabilityA ?? 1).toBeLessThan(
       evidencePrediction.components.evidenceReliabilityB ?? 1
     );
+  });
+
+  it('uses common-opponent performance as a matchup signal', () => {
+    const commonOpponentGames: Game[] = [
+      makeGame({
+        game_date: '2026-03-20',
+        home_team_master_id: 'team-a',
+        away_team_master_id: 'opp-1',
+        home_score: 3,
+        away_score: 0,
+      }),
+      makeGame({
+        game_date: '2026-03-13',
+        home_team_master_id: 'team-a',
+        away_team_master_id: 'opp-2',
+        home_score: 2,
+        away_score: 0,
+      }),
+      makeGame({
+        game_date: '2026-03-06',
+        home_team_master_id: 'opp-1',
+        away_team_master_id: 'team-b',
+        home_score: 2,
+        away_score: 1,
+      }),
+      makeGame({
+        game_date: '2026-02-27',
+        home_team_master_id: 'opp-2',
+        away_team_master_id: 'team-b',
+        home_score: 1,
+        away_score: 1,
+      }),
+    ];
+
+    const summary = calculateCommonOpponentSignal('team-a', 'team-b', commonOpponentGames);
+    expect(summary.sharedOpponents).toBe(2);
+    expect(summary.advantage).toBeGreaterThan(0);
+
+    const balancedTeamA = makeTeam({
+      team_id_master: 'team-a',
+      team_name: 'Alpha FC 14B',
+      power_score_final: 0.6,
+      glicko_rating: 1535,
+      glicko_rd: 90,
+      sos_norm: 0.56,
+      offense_norm: 0.58,
+      defense_norm: 0.56,
+      wins: 10,
+      losses: 5,
+      draws: 2,
+      games_played: 17,
+    });
+    const balancedTeamB = makeTeam({
+      team_id_master: 'team-b',
+      team_name: 'Beta FC 14B',
+      power_score_final: 0.6,
+      glicko_rating: 1535,
+      glicko_rd: 90,
+      sos_norm: 0.56,
+      offense_norm: 0.58,
+      defense_norm: 0.56,
+      wins: 10,
+      losses: 5,
+      draws: 2,
+      games_played: 17,
+    });
+
+    const prediction = predictMatch(balancedTeamA, balancedTeamB, commonOpponentGames);
+
+    expect(prediction.predictedWinner).toBe('team_a');
+    expect(prediction.components.commonOpponentSignal ?? 0).toBeGreaterThan(0);
+    expect(prediction.components.commonOpponentCount).toBe(2);
+    expect(prediction.commonOpponents?.sharedOpponents).toBe(2);
   });
 });
