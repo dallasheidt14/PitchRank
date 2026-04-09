@@ -89,33 +89,24 @@ function explainPowerScore(teamA: TeamWithRanking, teamB: TeamWithRanking, power
   const strongerTeam = powerDiff > 0 ? teamA.team_name : teamB.team_name;
   const strongerPower = powerDiff > 0 ? teamA.power_score_final || 0.5 : teamB.power_score_final || 0.5;
   const weakerPower = powerDiff > 0 ? teamB.power_score_final || 0.5 : teamA.power_score_final || 0.5;
-  const strongerGlicko = powerDiff > 0 ? teamA.glicko_rating : teamB.glicko_rating;
-  const weakerGlicko = powerDiff > 0 ? teamB.glicko_rating : teamA.glicko_rating;
-  const strongerRd = powerDiff > 0 ? teamA.glicko_rd : teamB.glicko_rd;
-  const weakerRd = powerDiff > 0 ? teamB.glicko_rd : teamA.glicko_rd;
+  const strongerRank = powerDiff > 0 ? teamA.rank_in_cohort_final : teamB.rank_in_cohort_final;
+  const weakerRank = powerDiff > 0 ? teamB.rank_in_cohort_final : teamA.rank_in_cohort_final;
 
   let description = '';
-  if (strongerGlicko != null && weakerGlicko != null) {
-    const strongerRating = Math.round(strongerGlicko);
-    const weakerRating = Math.round(weakerGlicko);
-    const ratingGap = Math.round(Math.abs(strongerGlicko - weakerGlicko));
-    const rdContext =
-      strongerRd != null && weakerRd != null ? ` (RD ${Math.round(strongerRd)} vs ${Math.round(weakerRd)})` : '';
-
+  if (strongerRank != null && weakerRank != null) {
     if (magnitude === 'significant') {
-      description = `${strongerTeam} has a ${ratingGap}-point Glicko edge (${strongerRating} vs ${weakerRating})${rdContext}`;
+      description = `${strongerTeam} brings the stronger overall profile, ranking #${strongerRank} versus #${weakerRank} in this age group`;
     } else {
-      description = `${strongerTeam} holds the stronger Glicko rating (${strongerRating} vs ${weakerRating})${rdContext}`;
+      description = `${strongerTeam} enters with the better overall body of work and the higher standing in this age group`;
     }
   } else {
     const strongerRating = Math.round(strongerPower * 100);
     const weakerRating = Math.round(weakerPower * 100);
-    const ratingGap = strongerRating - weakerRating;
 
     if (magnitude === 'significant') {
-      description = `${strongerTeam} has a ${ratingGap}-point edge in the published strength score (${strongerRating} vs ${weakerRating})`;
+      description = `${strongerTeam} carries a clear overall strength edge (${strongerRating} vs ${weakerRating})`;
     } else {
-      description = `${strongerTeam} holds a ${ratingGap}-point edge in the published strength score (${strongerRating} vs ${weakerRating})`;
+      description = `${strongerTeam} has the slightly stronger overall profile (${strongerRating} vs ${weakerRating})`;
     }
   }
 
@@ -300,8 +291,8 @@ function explainCloseMatch(
       factor: 'close_match',
       advantage: 'neutral',
       magnitude: 'minimal',
-      description: `This projects as a genuine stalemate candidate - both teams profile similarly and the draw probability is elevated`,
-      icon: 'âš–ï¸',
+      description: `This looks like a real draw candidate because the teams profile very similarly`,
+      icon: '⚖️',
       score: 1.6,
     };
   }
@@ -313,9 +304,9 @@ function explainCloseMatch(
   // Determine how close based on calibrated probability
   let description = '';
   if (probDiffFrom50 <= 0.03) {
-    description = `This is a true toss-up - calibrated analysis of 452K+ games shows neither team has a meaningful edge`;
+    description = `This is a true toss-up - neither side has built a meaningful edge on paper`;
   } else {
-    description = `This is expected to be a VERY close match - both teams are evenly matched across all factors`;
+    description = `This is expected to stay tight because the teams are closely matched across the main indicators`;
   }
 
   return {
@@ -454,143 +445,138 @@ export function explainMatch(
     }
   }
 
-  // Generate enhanced key insights
+  // Generate user-facing key insights
   const keyInsights: string[] = [];
 
-  // 1. Enhanced confidence insight with compelling data-backed language
+  // 1. Confidence framing
   const confidenceScore = confidence_score ?? 0.5;
   if (confidence === 'high') {
     if (confidenceScore >= 0.8) {
       keyInsights.push(
-        '🎯 Elite prediction confidence: Our model identifies this as a high-certainty outcome based on converging strength indicators'
+        'This is one of the clearer matchups on the board, with multiple indicators pointing the same way.'
       );
     } else {
-      keyInsights.push('🎯 High confidence: Multiple validated metrics strongly favor this outcome');
+      keyInsights.push('There is a strong edge here, even if this still looks more controlled than overwhelming.');
     }
   } else if (confidence === 'medium') {
     if (confidenceScore >= 0.6) {
-      keyInsights.push('📊 Solid prediction: Meaningful statistical edge detected with reliable underlying data');
+      keyInsights.push('One team has a real edge, but this is still well within upset range if the game swings early.');
     } else {
-      keyInsights.push('📊 Moderate confidence: Analysis reveals a real but modest advantage');
+      keyInsights.push('The model leans one way, but the advantage is modest rather than decisive.');
     }
   } else {
     if (confidenceScore < 0.4) {
-      keyInsights.push('⚠️ Uncertain outcome: High variance or limited data - treat this as a true wildcard');
+      keyInsights.push(
+        'This is a volatile matchup with enough uncertainty that a result either way would not be surprising.'
+      );
     } else {
-      keyInsights.push('⚠️ Coin-flip territory: No meaningful statistical edge - anything can happen');
+      keyInsights.push('This grades out as coin-flip territory, with no durable edge separating the teams.');
     }
   }
 
-  // 2. Data quality insights - make sample size feel meaningful
+  // 2. Data quality
   const gamesA = teamA.games_played || 0;
   const gamesB = teamB.games_played || 0;
   const minGamesPlayed = Math.min(gamesA, gamesB);
   const maxGamesPlayed = Math.max(gamesA, gamesB);
 
   if (minGamesPlayed < 5) {
-    // One team has very few games - highlight this limitation
     const limitedTeam = gamesA < gamesB ? teamA.team_name : teamB.team_name;
     keyInsights.push(
-      `📉 Limited data warning: ${limitedTeam} has only ${minGamesPlayed} games on record - expect higher prediction variance`
+      `${limitedTeam} has only ${minGamesPlayed} recent results on file, so this projection is less stable than usual.`
     );
   } else if (minGamesPlayed < 10) {
     keyInsights.push(
-      `📉 Early season data: Both teams have ${minGamesPlayed}-${maxGamesPlayed} games each - predictions may have higher variance`
+      `Both teams still have fairly light recent samples (${minGamesPlayed}-${maxGamesPlayed} games), which adds volatility.`
     );
   } else if (minGamesPlayed < 20) {
-    keyInsights.push(`📈 Solid sample size: ${minGamesPlayed}+ games per team provides reliable prediction data`);
+    keyInsights.push(`Each side has a usable sample of recent matches, giving this projection a solid dataset.`);
   } else {
-    keyInsights.push(`✅ Robust dataset: ${minGamesPlayed}+ games per team creates a strong statistical foundation`);
+    keyInsights.push(
+      `Both teams have deep recent samples (${minGamesPlayed}+ matches), which makes the read more trustworthy.`
+    );
   }
 
-  // 3. Expected margin interpretation - make scoreline predictions feel precise
+  // 3. Margin interpretation
   const absMargin = Math.abs(expectedMargin);
   const roundedMargin = Math.round(absMargin * 10) / 10;
   const expectedWinner = expectedMargin > 0 ? teamA.team_name : teamB.team_name;
 
   if (absMargin < 0.5) {
     keyInsights.push(
-      `⚖️ Razor-thin margins: Model projects a near-draw scenario (±${roundedMargin.toFixed(1)} goal difference)`
+      `The projected margin is almost flat (${roundedMargin.toFixed(1)} goals), so a draw-like game script is very plausible.`
     );
   } else if (absMargin < 1.5) {
     keyInsights.push(
-      `🎲 One-goal game territory: Expect a tight, potentially dramatic finish (±${roundedMargin.toFixed(1)} goals)`
+      `This profiles more like a one-goal game than a comfortable win, with only ${roundedMargin.toFixed(1)} goals separating the sides.`
     );
   } else if (absMargin < 3.0) {
     keyInsights.push(
-      `📐 Clear but not dominant: ${expectedWinner} projected to win by ${roundedMargin.toFixed(1)} goals - competitive but controlled`
+      `${expectedWinner} is projected to win by about ${roundedMargin.toFixed(1)} goals, which suggests control without total dominance.`
     );
   } else {
     keyInsights.push(
-      `💪 Mismatch detected: ${expectedWinner} projected to dominate by ${roundedMargin.toFixed(1)}+ goals`
+      `The projection points to a lopsided game if form holds, with a margin of roughly ${roundedMargin.toFixed(1)} goals.`
     );
   }
 
-  // 4. Scoreline context with age-specific calibration insights
+  // 4. Expected scoring environment
   const totalExpectedGoals = expectedScore.teamA + expectedScore.teamB;
-  // Try database age first, then extract from team name as fallback
   const dbAge = teamA.age || teamB.age;
   const nameAge = extractAgeFromTeamName(teamA.team_name) || extractAgeFromTeamName(teamB.team_name);
-  const age = nameAge || dbAge; // Prefer name-extracted age (more reliable for "14B" format)
+  const age = nameAge || dbAge;
   if (age) {
-    // Age-specific context - reference our calibration data
     if (age <= 11 && totalExpectedGoals > 5) {
       keyInsights.push(
-        `⚽ High-scoring expected: ${totalExpectedGoals.toFixed(1)} total goals projected - typical for U${age} matches`
+        `Expect an open U${age} game script here, with roughly ${totalExpectedGoals.toFixed(1)} total goals projected.`
       );
     } else if (age >= 15 && totalExpectedGoals < 3) {
       keyInsights.push(
-        `🛡️ Defensive battle expected: Only ${totalExpectedGoals.toFixed(1)} goals projected - U${age} matches trend lower-scoring`
+        `The scoring outlook is fairly muted for this age group, with only ${totalExpectedGoals.toFixed(1)} total goals projected.`
       );
     } else if (age) {
       keyInsights.push(
-        `⚽ Age-calibrated projection: ${totalExpectedGoals.toFixed(1)} total goals expected based on U${age} historical patterns`
+        `The scoring projection fits a typical U${age} match, with about ${totalExpectedGoals.toFixed(1)} total goals expected.`
       );
     }
   }
 
-  // 5. Top factor insight (most important) - only show factors that favor the winner
+  // 5. Primary edge
   if (displayFactors.length > 0) {
     const topFactor = displayFactors[0];
-    // Only show if it actually favors the winner (not neutral like "close match")
     if (topFactor.advantage !== 'neutral') {
       if (topFactor.magnitude === 'significant') {
-        keyInsights.push(`🔑 Key differentiator: ${topFactor.description}`);
+        keyInsights.push(`The biggest separator in this matchup is simple: ${topFactor.description}.`);
       } else if (displayFactors.length >= 2 && topFactor.magnitude === 'moderate') {
-        keyInsights.push(`📌 Primary edge: ${topFactor.description}`);
+        keyInsights.push(`The clearest edge is: ${topFactor.description}.`);
       }
     }
   }
 
-  // Prediction quality with enhanced reliability message (referencing calibration)
+  // Reliability footer
   let reliabilityMessage = '';
-  const glickoRdValues = [teamA.glicko_rd, teamB.glicko_rd].filter((value): value is number => value != null);
-  const maxGlickoRd = glickoRdValues.length > 0 ? Math.max(...glickoRdValues) : null;
   if (confidence === 'high') {
-    if (maxGlickoRd != null && maxGlickoRd < 120) {
-      reliabilityMessage = 'Strong Glicko-backed prediction: both teams have stable ratings with low rating deviation';
-    } else if (minGamesPlayed >= 20) {
+    if (minGamesPlayed >= 20) {
       reliabilityMessage =
-        'Elite-tier prediction: Probabilities calibrated on 452K+ youth soccer games with robust team-specific data';
+        'High-confidence read: strong recent data and multiple matchup indicators all support the same side.';
     } else {
-      reliabilityMessage = 'Strong prediction: Clear statistical advantage detected across multiple validated metrics';
+      reliabilityMessage = 'High-confidence read: the edge is clear, even if the dataset is not at its deepest.';
     }
   } else if (confidence === 'medium') {
-    if (maxGlickoRd != null && maxGlickoRd < 170) {
-      reliabilityMessage = 'Balanced Glicko signal: meaningful rating edge detected, but some uncertainty remains';
-    } else if (minGamesPlayed >= 15) {
-      reliabilityMessage = 'Reliable prediction: Real statistical edge detected, calibrated for accuracy';
+    if (minGamesPlayed >= 15) {
+      reliabilityMessage =
+        'Balanced projection: there is a real edge here, but still enough uncertainty for the match to swing.';
     } else {
-      reliabilityMessage = 'Solid prediction: Meaningful advantage identified across our proprietary metrics';
+      reliabilityMessage =
+        'Moderate-confidence read: enough signal to lean one way, but not enough to call it decisive.';
     }
   } else {
-    if (maxGlickoRd != null && maxGlickoRd >= 170) {
+    if (minGamesPlayed < 10) {
       reliabilityMessage =
-        'High Glicko uncertainty: at least one team still has a wide rating deviation, so probabilities are directional only';
-    } else if (minGamesPlayed < 10) {
-      reliabilityMessage = 'Preliminary prediction: Limited game history - probabilities are directional only';
+        'Lower-confidence read: limited recent data makes this projection more directional than definitive.';
     } else {
-      reliabilityMessage = 'Toss-up: Our 452K-game calibration confirms this is genuinely unpredictable';
+      reliabilityMessage =
+        'Lower-confidence read: the teams are close enough on paper that the result could break either way.';
     }
   }
 

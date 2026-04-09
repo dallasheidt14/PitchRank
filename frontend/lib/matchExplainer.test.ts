@@ -92,6 +92,35 @@ describe('explainMatch', () => {
     expect(explanation.predictionQuality.confidence).toBe('high');
   });
 
+  it('keeps user-facing explanations free of raw glicko diagnostics', () => {
+    const teamA = makeTeam({
+      team_id_master: 'team-a',
+      team_name: 'Dynamos SC 2014 SC',
+      rank_in_cohort_final: 18,
+      power_score_final: 0.79,
+      glicko_rating: 1551,
+      glicko_rd: 78,
+    });
+    const teamB = makeTeam({
+      team_id_master: 'team-b',
+      team_name: 'Rivals SC 2014 SC',
+      rank_in_cohort_final: 47,
+      power_score_final: 0.68,
+      glicko_rating: 1450,
+      glicko_rd: 76,
+    });
+
+    const explanation = explainMatch(teamA, teamB, makePrediction());
+    const combinedCopy = [explanation.summary, explanation.predictionQuality.reliability]
+      .concat(explanation.factors.map((factor) => factor.description))
+      .concat(explanation.keyInsights)
+      .join(' ');
+
+    expect(combinedCopy).not.toContain('Glicko');
+    expect(combinedCopy).not.toContain('RD');
+    expect(explanation.factors.some((factor) => factor.description.includes('overall profile'))).toBe(true);
+  });
+
   it('describes toss-up matches as genuinely close', () => {
     const teamA = makeTeam({ team_id_master: 'team-a', team_name: 'Even FC 14B' });
     const teamB = makeTeam({ team_id_master: 'team-b', team_name: 'Mirror FC 14B' });
@@ -125,6 +154,6 @@ describe('explainMatch', () => {
 
     expect(explanation.summary).toContain('Genuine toss-up');
     expect(explanation.factors.some((factor) => factor.factor === 'close_match')).toBe(true);
-    expect(explanation.keyInsights.join(' ')).toContain('Coin-flip');
+    expect(explanation.keyInsights.join(' ').toLowerCase()).toContain('coin-flip');
   });
 });
