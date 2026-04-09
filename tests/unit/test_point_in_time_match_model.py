@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from src.predictions.point_in_time_match_model import (
+    PointInTimeMatchModel,
     _dixon_coles_rho,
     _poisson_draw_gate_mask,
     _poisson_outcome_probabilities,
@@ -247,3 +248,29 @@ def test_score_matrix_summary_tracks_blowout_risk_for_lopsided_matchups():
 
     assert lopsided_summary["blowout_3plus_probability"][0] > balanced_summary["blowout_3plus_probability"][0]
     assert lopsided_summary["blowout_5plus_probability"][0] > balanced_summary["blowout_5plus_probability"][0]
+
+
+def test_blowout_threshold_selection_and_label_nesting():
+    model = PointInTimeMatchModel(model_dir="models/test_point_in_time_match_model")
+    probabilities = np.array([0.82, 0.74, 0.61, 0.49, 0.33, 0.21, 0.08])
+    targets = np.array([1, 1, 1, 1, 0, 0, 0])
+    threshold = model._select_blowout_threshold(
+        probabilities=probabilities,
+        targets=targets,
+        beta=1.6,
+    )
+
+    predicted_rate = float(np.mean(probabilities >= threshold))
+    actual_rate = float(np.mean(targets == 1))
+
+    assert 0.21 <= threshold <= 0.61
+    assert abs(predicted_rate - actual_rate) <= 0.15
+
+    model.blowout_probability_thresholds = {3: 0.40, 5: 0.25}
+    predicted_3plus, predicted_5plus = model._blowout_prediction_labels(
+        blowout_3plus_probability=np.array([0.55, 0.35, 0.22]),
+        blowout_5plus_probability=np.array([0.31, 0.18, 0.28]),
+    )
+
+    assert predicted_5plus.tolist() == [1, 0, 1]
+    assert predicted_3plus.tolist() == [1, 0, 1]

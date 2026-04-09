@@ -116,6 +116,19 @@ def build_standardized_evaluation_frame(frame: pd.DataFrame) -> pd.DataFrame:
     )
     standardized["predicted_competitive_game"] = standardized["predicted_abs_margin"] <= COMPETITIVE_MARGIN_MAX
     standardized["actual_competitive_game"] = standardized["actual_abs_margin"] <= COMPETITIVE_MARGIN_MAX
+    for threshold in BLOWOUT_THRESHOLDS:
+        predicted_label_column = f"predicted_blowout_{threshold}plus"
+        if predicted_label_column in standardized.columns:
+            standardized[predicted_label_column] = (
+                pd.to_numeric(standardized[predicted_label_column], errors="coerce")
+                .fillna(0.0)
+                .astype(int)
+                .clip(0, 1)
+                .astype(bool)
+            )
+        else:
+            standardized[predicted_label_column] = standardized["predicted_abs_margin"] >= float(threshold)
+        standardized[f"actual_blowout_{threshold}plus"] = standardized["actual_abs_margin"] >= float(threshold)
     return standardized
 
 
@@ -196,17 +209,17 @@ def compute_evaluation_summary(frame: pd.DataFrame) -> dict[str, object]:
     summary["predicted_competitive_game_rate"] = float(predicted_competitive_mask.mean())
 
     for threshold in BLOWOUT_THRESHOLDS:
-        actual_blowout_mask = standardized["actual_abs_margin"] >= float(threshold)
-        predicted_blowout_mask = standardized["predicted_abs_margin"] >= float(threshold)
+        actual_blowout_mask = standardized[f"actual_blowout_{threshold}plus"]
+        predicted_blowout_mask = standardized[f"predicted_blowout_{threshold}plus"]
         summary[f"actual_blowout_{threshold}plus_rate"] = float(actual_blowout_mask.mean())
         summary[f"predicted_blowout_{threshold}plus_rate"] = float(predicted_blowout_mask.mean())
         summary[f"blowout_{threshold}plus_recall"] = (
-            float((standardized.loc[actual_blowout_mask, "predicted_abs_margin"] >= float(threshold)).mean())
+            float(standardized.loc[actual_blowout_mask, f"predicted_blowout_{threshold}plus"].mean())
             if actual_blowout_mask.any()
             else None
         )
         summary[f"blowout_{threshold}plus_precision"] = (
-            float((standardized.loc[predicted_blowout_mask, "actual_abs_margin"] >= float(threshold)).mean())
+            float(standardized.loc[predicted_blowout_mask, f"actual_blowout_{threshold}plus"].mean())
             if predicted_blowout_mask.any()
             else None
         )
@@ -364,8 +377,8 @@ def build_margin_band_metrics(frame: pd.DataFrame) -> pd.DataFrame:
     )
 
     for threshold in BLOWOUT_THRESHOLDS:
-        actual_mask = standardized["actual_abs_margin"] >= float(threshold)
-        predicted_mask = standardized["predicted_abs_margin"] >= float(threshold)
+        actual_mask = standardized[f"actual_blowout_{threshold}plus"]
+        predicted_mask = standardized[f"predicted_blowout_{threshold}plus"]
         probability_column = f"blowout_{threshold}plus_probability"
         avg_probability = None
         brier = None
@@ -391,10 +404,10 @@ def build_margin_band_metrics(frame: pd.DataFrame) -> pd.DataFrame:
                 "band": f"blowout_{threshold}plus",
                 "actual_rate": float(actual_mask.mean()),
                 "predicted_rate": float(predicted_mask.mean()),
-                "recall": float((standardized.loc[actual_mask, "predicted_abs_margin"] >= float(threshold)).mean())
+                "recall": float(standardized.loc[actual_mask, f"predicted_blowout_{threshold}plus"].mean())
                 if actual_mask.any()
                 else None,
-                "precision": float((standardized.loc[predicted_mask, "actual_abs_margin"] >= float(threshold)).mean())
+                "precision": float(standardized.loc[predicted_mask, f"actual_blowout_{threshold}plus"].mean())
                 if predicted_mask.any()
                 else None,
                 "avg_probability": avg_probability,
