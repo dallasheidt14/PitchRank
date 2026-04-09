@@ -16,9 +16,9 @@ from typing import Optional
 
 import pandas as pd
 
-logger = logging.getLogger(__name__)
+from src.rankings.predictive_priors import LEAGUE_AVG_TOTAL_GOALS, ensure_predictive_priors
 
-LEAGUE_AVG_TOTAL_GOALS = 3.1
+logger = logging.getLogger(__name__)
 OPTIONAL_PREDICTION_EVIDENCE_COLUMNS = {
     "same_age_games",
     "same_age_game_share",
@@ -129,7 +129,7 @@ def build_prediction_feature_snapshot_records(
     if rankings_df.empty:
         return []
 
-    df = rankings_df.copy()
+    df = ensure_predictive_priors(rankings_df)
 
     if "games_played" not in df.columns and "gp" in df.columns:
         df["games_played"] = df["gp"]

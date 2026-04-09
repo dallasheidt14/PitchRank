@@ -38,6 +38,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scripts.predictor_python import Game as PredictorGame  # noqa: E402
 from scripts.predictor_python import TeamRanking, predict_match  # noqa: E402
+from src.predictions.evaluation_reporting import write_evaluation_bundle  # noqa: E402
 from supabase import Client, create_client  # noqa: E402
 
 # Configure logging
@@ -579,6 +580,7 @@ async def run_backtest(
                     "predicted_winner": prediction.predicted_winner,
                     "actual_winner": actual_winner,
                     "predicted_win_prob_a": prediction.win_probability_a,
+                    "predicted_draw_prob": getattr(prediction, "draw_probability", 0.0),
                     "predicted_win_prob_b": prediction.win_probability_b,
                     "predicted_margin": prediction.expected_margin,
                     "actual_margin": actual_margin,
@@ -628,6 +630,24 @@ async def run_backtest(
 def generate_derived_outputs(raw_df: pd.DataFrame, output_dir: Path):
     """Generate derived CSV outputs from raw_backtest.csv"""
     logger.info("Generating derived outputs...")
+
+    benchmark_frame = pd.DataFrame(
+        {
+            "game_id": raw_df["game_id"],
+            "game_date": raw_df["game_date"],
+            "age_group": raw_df.get("age_group"),
+            "feature_source": raw_df.get("feature_source"),
+            "actual_outcome": raw_df["actual_winner"],
+            "predicted_outcome": raw_df["predicted_winner"],
+            "prob_team_a_win": pd.to_numeric(raw_df.get("predicted_win_prob_a"), errors="coerce").fillna(0.0),
+            "prob_draw": pd.to_numeric(raw_df.get("predicted_draw_prob"), errors="coerce").fillna(0.0),
+            "prob_team_b_win": pd.to_numeric(raw_df.get("predicted_win_prob_b"), errors="coerce").fillna(0.0),
+            "predicted_margin": pd.to_numeric(raw_df.get("predicted_margin"), errors="coerce").fillna(0.0),
+            "actual_margin": pd.to_numeric(raw_df.get("actual_margin"), errors="coerce").fillna(0.0),
+        }
+    )
+    summary = write_evaluation_bundle(benchmark_frame, output_dir, prefix="backtest")
+    logger.info("Saved backtest evaluation bundle: %s", summary)
 
     # 1. Bucket accuracy
     buckets = [
@@ -912,7 +932,10 @@ async def main():
         )
     else:
         if args.require_point_in_time:
-            logger.error("prediction_feature_history snapshots are unavailable; aborting because --require-point-in-time was set")
+            logger.error(
+                "prediction_feature_history snapshots are unavailable; "
+                "aborting because --require-point-in-time was set"
+            )
             sys.exit(1)
 
         logger.warning("Falling back to current rankings. This benchmark mode is not leakage-safe.")

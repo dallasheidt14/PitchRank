@@ -22,6 +22,23 @@ export interface MatchPredictionResponse {
   explanation: MatchExplanation;
 }
 
+export interface MatchPredictionShadowContext {
+  predictorVersion: string;
+  resolvedTeamAIds: string[];
+  resolvedTeamBIds: string[];
+  relevantGameIds: string[];
+  relevantGameCount: number;
+  teamAInput: TeamWithRanking;
+  teamBInput: TeamWithRanking;
+}
+
+export interface MatchPredictionBuildResult {
+  response: MatchPredictionResponse;
+  shadowContext: MatchPredictionShadowContext;
+}
+
+export const MATCH_PREDICTION_VERSION = 'heuristic_v3_shadow_ready';
+
 type TeamRow = {
   team_id_master: string;
   team_name: string;
@@ -333,6 +350,15 @@ export async function buildMatchPrediction(
   teamAId: string,
   teamBId: string
 ): Promise<MatchPredictionResponse> {
+  const result = await buildMatchPredictionWithShadowContext(supabase, teamAId, teamBId);
+  return result.response;
+}
+
+export async function buildMatchPredictionWithShadowContext(
+  supabase: SupabaseClient,
+  teamAId: string,
+  teamBId: string
+): Promise<MatchPredictionBuildResult> {
   await warmMatchPredictorCalibration();
 
   const [resolvedTeamA, resolvedTeamB] = await Promise.all([
@@ -357,17 +383,28 @@ export async function buildMatchPrediction(
   const explanation = explainMatch(teamA, teamB, prediction);
 
   return {
-    teamA: {
-      team_id_master: teamA.team_id_master,
-      team_name: teamA.team_name,
-      club_name: teamA.club_name,
+    response: {
+      teamA: {
+        team_id_master: teamA.team_id_master,
+        team_name: teamA.team_name,
+        club_name: teamA.club_name,
+      },
+      teamB: {
+        team_id_master: teamB.team_id_master,
+        team_name: teamB.team_name,
+        club_name: teamB.club_name,
+      },
+      prediction,
+      explanation,
     },
-    teamB: {
-      team_id_master: teamB.team_id_master,
-      team_name: teamB.team_name,
-      club_name: teamB.club_name,
+    shadowContext: {
+      predictorVersion: MATCH_PREDICTION_VERSION,
+      resolvedTeamAIds: resolvedTeamA.allTeamIds,
+      resolvedTeamBIds: resolvedTeamB.allTeamIds,
+      relevantGameIds: games.map((game) => game.id),
+      relevantGameCount: games.length,
+      teamAInput: teamA,
+      teamBInput: teamB,
     },
-    prediction,
-    explanation,
   };
 }
