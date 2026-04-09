@@ -210,6 +210,30 @@ def compute_evaluation_summary(frame: pd.DataFrame) -> dict[str, object]:
             if predicted_blowout_mask.any()
             else None
         )
+        probability_column = f"blowout_{threshold}plus_probability"
+        if probability_column in standardized.columns:
+            blowout_probability = pd.to_numeric(
+                standardized[probability_column],
+                errors="coerce",
+            ).clip(0.0, 1.0)
+            valid_probability_mask = blowout_probability.notna()
+            if valid_probability_mask.any():
+                actual_binary = actual_blowout_mask.astype(float)
+                summary[f"avg_blowout_{threshold}plus_probability"] = float(
+                    blowout_probability.loc[valid_probability_mask].mean()
+                )
+                summary[f"blowout_{threshold}plus_brier"] = float(
+                    np.mean(
+                        (
+                            blowout_probability.loc[valid_probability_mask].to_numpy(dtype=float)
+                            - actual_binary.loc[valid_probability_mask].to_numpy(dtype=float)
+                        )
+                        ** 2
+                    )
+                )
+            else:
+                summary[f"avg_blowout_{threshold}plus_probability"] = None
+                summary[f"blowout_{threshold}plus_brier"] = None
 
     if "feature_source" in standardized.columns:
         summary["feature_source_counts"] = (
@@ -342,6 +366,26 @@ def build_margin_band_metrics(frame: pd.DataFrame) -> pd.DataFrame:
     for threshold in BLOWOUT_THRESHOLDS:
         actual_mask = standardized["actual_abs_margin"] >= float(threshold)
         predicted_mask = standardized["predicted_abs_margin"] >= float(threshold)
+        probability_column = f"blowout_{threshold}plus_probability"
+        avg_probability = None
+        brier = None
+        if probability_column in standardized.columns:
+            blowout_probability = pd.to_numeric(
+                standardized[probability_column],
+                errors="coerce",
+            ).clip(0.0, 1.0)
+            valid_probability_mask = blowout_probability.notna()
+            if valid_probability_mask.any():
+                avg_probability = float(blowout_probability.loc[valid_probability_mask].mean())
+                brier = float(
+                    np.mean(
+                        (
+                            blowout_probability.loc[valid_probability_mask].to_numpy(dtype=float)
+                            - actual_mask.loc[valid_probability_mask].to_numpy(dtype=float)
+                        )
+                        ** 2
+                    )
+                )
         rows.append(
             {
                 "band": f"blowout_{threshold}plus",
@@ -353,6 +397,8 @@ def build_margin_band_metrics(frame: pd.DataFrame) -> pd.DataFrame:
                 "precision": float((standardized.loc[predicted_mask, "actual_abs_margin"] >= float(threshold)).mean())
                 if predicted_mask.any()
                 else None,
+                "avg_probability": avg_probability,
+                "brier": brier,
             }
         )
 
