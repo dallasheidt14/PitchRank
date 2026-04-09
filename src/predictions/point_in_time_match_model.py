@@ -116,7 +116,8 @@ DRAW_CLASS_WEIGHT_BOOST = 1.6
 DRAW_BINARY_WEIGHT_CAP = 4.0
 DRAW_MODEL_SHRINK_FACTOR = 0.3
 BLOWOUT_CLASS_WEIGHT_CAP = 5.0
-DEFAULT_PROBABILITY_STRATEGY = "hybrid"
+DEFAULT_PROBABILITY_STRATEGY = "auto"
+AUTO_PROBABILITY_STRATEGY = "auto"
 POISSON_DRAW_GATE_PROBABILITY_MIN = 0.25
 POISSON_DRAW_GATE_TOTAL_GOALS_MAX = 2.2
 POISSON_DRAW_GATE_STALEMATE_MIN = 0.60
@@ -130,7 +131,22 @@ BLOWOUT_RATE_TOLERANCE_MIN = 0.02
 BLOWOUT_RATE_OVERSHOOT_PENALTY = 0.9
 BLOWOUT_RATE_UNDERSHOOT_PENALTY = 0.45
 BLOWOUT_RATE_GAP_PENALTY = 0.25
+AUTO_STRATEGY_MIN_DRAW_RECALL = 0.03
+AUTO_STRATEGY_MIN_DRAW_RATE_SHARE = 0.20
+AUTO_STRATEGY_RANK_WEIGHTS = {
+    "winner_accuracy": 3.0,
+    "log_loss": 4.0,
+    "brier_score": 3.0,
+    "draw_recall": 2.5,
+    "draw_rate_gap": 1.75,
+    "exact_score_accuracy": 1.5,
+    "score_within_one_goal_rate": 1.5,
+    "total_goals_mae": 1.5,
+    "blowout_3plus_brier": 1.0,
+    "blowout_5plus_brier": 1.0,
+}
 PROBABILITY_STRATEGIES = {"hybrid", "poisson_primary", "poisson_draw_gate"}
+TRAINING_PROBABILITY_STRATEGIES = PROBABILITY_STRATEGIES | {AUTO_PROBABILITY_STRATEGY}
 
 
 @dataclass
@@ -1356,13 +1372,163 @@ class PointInTimeMatchModel:
         self,
         blowout_3plus_probability: np.ndarray,
         blowout_5plus_probability: np.ndarray,
+        thresholds: Optional[Dict[int, float]] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        threshold_3plus = float(self.blowout_probability_thresholds.get(3, 0.5))
-        threshold_5plus = float(self.blowout_probability_thresholds.get(5, 0.5))
+        threshold_source = thresholds or self.blowout_probability_thresholds
+        threshold_3plus = float(threshold_source.get(3, 0.5))
+        threshold_5plus = float(threshold_source.get(5, 0.5))
         predicted_5plus = np.asarray(blowout_5plus_probability >= threshold_5plus, dtype=int)
         predicted_3plus = np.asarray(blowout_3plus_probability >= threshold_3plus, dtype=int)
         predicted_3plus = np.maximum(predicted_3plus, predicted_5plus)
         return predicted_3plus, predicted_5plus
+
+    def _rank_strategy_metric(
+        self,
+        strategy_metrics: Dict[str, Dict[str, object]],
+        strategy_names: List[str],
+        metric_key: str,
+        higher_is_better: bool,
+    ) -> Dict[str, int]:
+        metric_values = {}
+        for strategy_name in strategy_names:
+            raw_value = strategy_metrics[strategy_name].get(metric_key)
+            if raw_value is None or pd.isna(raw_value):
+                metric_values[strategy_name] = None
+            else:
+                metric_values[strategy_name] = float(raw_value)
+
+        valid_items = [(name, value) for name, value in metric_values.items() if value is not None]
+        if not valid_items:
+            return {strategy_name: len(strategy_names) for strategy_name in strategy_names}
+
+        valid_items.sort(key=lambda item: item[1], reverse=higher_is_better)
+        ranked: Dict[str, int] = {}
+        current_rank = 1
+        previous_value = None
+        for index, (strategy_name, value) in enumerate(valid_items):
+            if previous_value is not None and not math.isclose(value, previous_value, rel_tol=1e-9, abs_tol=1e-9):
+                current_rank = index + 1
+            ranked[strategy_name] = current_rank
+            previous_value = value
+
+        fallback_rank = len(valid_items) + 1
+        for strategy_name in strategy_names:
+            ranked.setdefault(strategy_name, fallback_rank)
+        return ranked
+
+    def _select_probability_strategy(
+        self,
+        strategy_metrics: Dict[str, Dict[str, object]],
+        actual_draw_rate: float,
+    ) -> Tuple[str, Dict[str, object]]:
+        viable_strategies: List[str] = []
+        rejected_strategies: Dict[str, Dict[str, float]] = {}
+
+        for strategy_name, summary in strategy_metrics.items():
+            draw_recall = _to_float(summary.get("draw_recall"), default=0.0)
+            predicted_draw_rate = _to_float(summary.get("predicted_draw_rate"), default=0.0)
+            meets_draw_recall = draw_recall >= AUTO_STRATEGY_MIN_DRAW_RECALL
+            meets_draw_rate = predicted_draw_rate >= max(0.01, actual_draw_rate * AUTO_STRATEGY_MIN_DRAW_RATE_SHARE)
+            if meets_draw_recall and meets_draw_rate:
+                viable_strategies.append(strategy_name)
+            else:
+                rejected_strategies[strategy_name] = {
+                    "draw_recall": draw_recall,
+                    "predicted_draw_rate": predicted_draw_rate,
+                }
+
+        candidate_strategies = sorted(viable_strategies or strategy_metrics.keys())
+
+        for strategy_name in strategy_metrics:
+            strategy_metrics[strategy_name]["draw_rate_gap"] = abs(
+                _to_float(strategy_metrics[strategy_name].get("predicted_draw_rate"), default=0.0) - actual_draw_rate
+            )
+
+        strategy_scores: Dict[str, float] = {strategy_name: 0.0 for strategy_name in candidate_strategies}
+        rank_specs = [
+            ("winner_accuracy", True),
+            ("log_loss", False),
+            ("brier_score", False),
+            ("draw_recall", True),
+            ("draw_rate_gap", False),
+            ("exact_score_accuracy", True),
+            ("score_within_one_goal_rate", True),
+            ("total_goals_mae", False),
+            ("blowout_3plus_brier", False),
+            ("blowout_5plus_brier", False),
+        ]
+
+        for metric_key, higher_is_better in rank_specs:
+            metric_ranks = self._rank_strategy_metric(
+                strategy_metrics=strategy_metrics,
+                strategy_names=candidate_strategies,
+                metric_key=metric_key,
+                higher_is_better=higher_is_better,
+            )
+            weight = AUTO_STRATEGY_RANK_WEIGHTS[metric_key]
+            for strategy_name in candidate_strategies:
+                strategy_scores[strategy_name] += metric_ranks[strategy_name] * weight
+
+        selected_strategy = min(
+            candidate_strategies,
+            key=lambda strategy_name: (strategy_scores[strategy_name], strategy_name),
+        )
+        return selected_strategy, {
+            "actual_draw_rate": actual_draw_rate,
+            "candidate_strategies": candidate_strategies,
+            "viable_strategies": sorted(viable_strategies),
+            "rejected_strategies": rejected_strategies,
+            "strategy_scores": {strategy_name: float(score) for strategy_name, score in strategy_scores.items()},
+        }
+
+    def _fit_blowout_postprocessing(
+        self,
+        strategy_name: str,
+        train_df: pd.DataFrame,
+        matrix: pd.DataFrame,
+        base_probabilities: np.ndarray,
+        predicted_score_a: np.ndarray,
+        predicted_score_b: np.ndarray,
+    ) -> Tuple[Optional[IsotonicRegression], Optional[IsotonicRegression], Dict[int, float]]:
+        calibration_outputs = self._strategy_outputs(
+            strategy_name,
+            dataset_df=train_df,
+            matrix=matrix,
+            base_probabilities=base_probabilities,
+            predicted_score_a=predicted_score_a,
+            predicted_score_b=predicted_score_b,
+        )
+        train_blowout_targets_3plus = (train_df["actual_margin"].astype(float).abs() >= 3.0).astype(int).to_numpy()
+        train_blowout_targets_5plus = (train_df["actual_margin"].astype(float).abs() >= 5.0).astype(int).to_numpy()
+        calibrator_3plus = self._fit_blowout_calibrator(
+            calibration_outputs.blowout_3plus_probability,
+            train_blowout_targets_3plus,
+        )
+        calibrator_5plus = self._fit_blowout_calibrator(
+            calibration_outputs.blowout_5plus_probability,
+            train_blowout_targets_5plus,
+        )
+        calibrated_train_blowout_3plus = self._apply_blowout_calibrator(
+            calibrator_3plus,
+            calibration_outputs.blowout_3plus_probability,
+        )
+        calibrated_train_blowout_5plus = self._apply_blowout_calibrator(
+            calibrator_5plus,
+            calibration_outputs.blowout_5plus_probability,
+        )
+        thresholds = {
+            3: self._select_blowout_threshold(
+                calibrated_train_blowout_3plus,
+                train_blowout_targets_3plus,
+                beta=1.15,
+            ),
+            5: self._select_blowout_threshold(
+                calibrated_train_blowout_5plus,
+                train_blowout_targets_5plus,
+                beta=1.05,
+            ),
+        }
+        return calibrator_3plus, calibrator_5plus, thresholds
 
     def _expected_goals_from_predictions(
         self,
@@ -1819,15 +1985,18 @@ class PointInTimeMatchModel:
             raise ValueError(
                 f"Insufficient examples for training: found {len(dataset_df):,}, need at least {min_examples:,}"
             )
-        if probability_strategy not in PROBABILITY_STRATEGIES:
+        if probability_strategy not in TRAINING_PROBABILITY_STRATEGIES:
             raise ValueError(
                 f"Unsupported probability strategy '{probability_strategy}'. "
-                f"Expected one of {sorted(PROBABILITY_STRATEGIES)}"
+                f"Expected one of {sorted(TRAINING_PROBABILITY_STRATEGIES)}"
             )
 
         train_df, test_df = self._chronological_split(dataset_df, test_ratio=test_ratio)
         self.feature_names = self._feature_columns(train_df)
-        self.probability_strategy = probability_strategy
+        requested_probability_strategy = probability_strategy
+        self.probability_strategy = (
+            "hybrid" if requested_probability_strategy == AUTO_PROBABILITY_STRATEGY else requested_probability_strategy
+        )
 
         X_train = train_df[self.feature_names].fillna(0.0).astype(float)
         X_test = test_df[self.feature_names].fillna(0.0).astype(float)
@@ -1909,47 +2078,33 @@ class PointInTimeMatchModel:
         )
         train_predicted_score_a = self.score_a_regressor.predict(X_train)
         train_predicted_score_b = self.score_b_regressor.predict(X_train)
-        calibration_outputs = self._strategy_outputs(
-            self.probability_strategy,
-            dataset_df=train_df,
-            matrix=X_train,
-            base_probabilities=train_base_probabilities,
-            predicted_score_a=train_predicted_score_a,
-            predicted_score_b=train_predicted_score_b,
-        )
-        train_blowout_targets_3plus = (train_df["actual_margin"].astype(float).abs() >= 3.0).astype(int).to_numpy()
-        train_blowout_targets_5plus = (train_df["actual_margin"].astype(float).abs() >= 5.0).astype(int).to_numpy()
-        self.blowout_calibrator_3plus = self._fit_blowout_calibrator(
-            calibration_outputs.blowout_3plus_probability,
-            train_blowout_targets_3plus,
-        )
-        self.blowout_calibrator_5plus = self._fit_blowout_calibrator(
-            calibration_outputs.blowout_5plus_probability,
-            train_blowout_targets_5plus,
-        )
-        calibrated_train_blowout_3plus = self._apply_blowout_calibrator(
-            self.blowout_calibrator_3plus,
-            calibration_outputs.blowout_3plus_probability,
-        )
-        calibrated_train_blowout_5plus = self._apply_blowout_calibrator(
-            self.blowout_calibrator_5plus,
-            calibration_outputs.blowout_5plus_probability,
-        )
-        self.blowout_probability_thresholds = {
-            3: self._select_blowout_threshold(
-                calibrated_train_blowout_3plus,
-                train_blowout_targets_3plus,
-                beta=1.15,
-            ),
-            5: self._select_blowout_threshold(
-                calibrated_train_blowout_5plus,
-                train_blowout_targets_5plus,
-                beta=1.05,
-            ),
-        }
         strategy_metrics: Dict[str, Dict[str, object]] = {}
         strategy_outputs: Dict[str, StrategyOutputs] = {}
+        strategy_blowout_postprocessing: Dict[
+            str,
+            Tuple[Optional[IsotonicRegression], Optional[IsotonicRegression], Dict[int, float]],
+        ] = {}
         for strategy_name in sorted(PROBABILITY_STRATEGIES):
+            (
+                calibrator_3plus,
+                calibrator_5plus,
+                thresholds,
+            ) = self._fit_blowout_postprocessing(
+                strategy_name=strategy_name,
+                train_df=train_df,
+                matrix=X_train,
+                base_probabilities=train_base_probabilities,
+                predicted_score_a=train_predicted_score_a,
+                predicted_score_b=train_predicted_score_b,
+            )
+            strategy_blowout_postprocessing[strategy_name] = (
+                calibrator_3plus,
+                calibrator_5plus,
+                thresholds,
+            )
+            self.blowout_calibrator_3plus = calibrator_3plus
+            self.blowout_calibrator_5plus = calibrator_5plus
+            self.blowout_probability_thresholds = thresholds
             outputs = self._strategy_outputs(
                 strategy_name,
                 dataset_df=test_df,
@@ -1963,6 +2118,7 @@ class PointInTimeMatchModel:
             predicted_blowout_3plus, predicted_blowout_5plus = self._blowout_prediction_labels(
                 outputs.blowout_3plus_probability,
                 outputs.blowout_5plus_probability,
+                thresholds=thresholds,
             )
             predicted_labels_for_strategy = np.argmax(probabilities_for_strategy, axis=1)
             strategy_evaluation_frame = self._build_evaluation_frame(
@@ -1986,12 +2142,26 @@ class PointInTimeMatchModel:
             strategy_summary["predicted_draw_rate"] = float(np.mean(predicted_labels_for_strategy == OUTCOME_DRAW))
             strategy_metrics[strategy_name] = strategy_summary
 
+        auto_strategy_selection = None
+        if requested_probability_strategy == AUTO_PROBABILITY_STRATEGY:
+            selected_probability_strategy, auto_strategy_selection = self._select_probability_strategy(
+                strategy_metrics=strategy_metrics,
+                actual_draw_rate=float(np.mean(y_test == OUTCOME_DRAW)),
+            )
+            self.probability_strategy = selected_probability_strategy
+
+        (
+            self.blowout_calibrator_3plus,
+            self.blowout_calibrator_5plus,
+            self.blowout_probability_thresholds,
+        ) = strategy_blowout_postprocessing[self.probability_strategy]
         selected_outputs = strategy_outputs[self.probability_strategy]
         probabilities = selected_outputs.probabilities
         predicted_labels = np.argmax(probabilities, axis=1)
         predicted_blowout_3plus, predicted_blowout_5plus = self._blowout_prediction_labels(
             selected_outputs.blowout_3plus_probability,
             selected_outputs.blowout_5plus_probability,
+            thresholds=self.blowout_probability_thresholds,
         )
         self.last_evaluation_frame = self._build_evaluation_frame(
             test_df=test_df,
@@ -2017,6 +2187,7 @@ class PointInTimeMatchModel:
             "predicted_draw_rate": float(np.mean(predicted_labels == OUTCOME_DRAW)),
             "train_examples": int(len(train_df)),
             "test_examples": int(len(test_df)),
+            "requested_probability_strategy": requested_probability_strategy,
             "probability_strategy": self.probability_strategy,
             "class_labels": [OUTCOME_LABELS[label] for label in self.class_labels],
             "feature_count": int(len(self.feature_names)),
@@ -2031,6 +2202,8 @@ class PointInTimeMatchModel:
             },
             "strategy_metrics": strategy_metrics,
         }
+        if auto_strategy_selection is not None:
+            metrics["auto_strategy_selection"] = auto_strategy_selection
 
         self.training_metadata = {
             "metrics": metrics,
@@ -2038,6 +2211,7 @@ class PointInTimeMatchModel:
             "test_examples": int(len(test_df)),
             "feature_names": self.feature_names,
             "class_labels": self.class_labels,
+            "requested_probability_strategy": requested_probability_strategy,
             "probability_strategy": self.probability_strategy,
         }
         return metrics
