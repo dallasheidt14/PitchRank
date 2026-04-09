@@ -63,16 +63,6 @@ on:
         required: false
         default: '100'
         type: string
-      probability_strategy:
-        description: 'Outcome probability engine (auto picks the best viable strategy)'
-        required: false
-        default: auto
-        type: choice
-        options:
-          - auto
-          - hybrid
-          - poisson_primary
-          - poisson_draw_gate
       model_dir:
         description: 'Artifact output directory'
         required: false
