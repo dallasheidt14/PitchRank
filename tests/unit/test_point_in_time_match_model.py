@@ -276,6 +276,61 @@ def test_blowout_threshold_selection_and_label_nesting():
     assert predicted_3plus.tolist() == [1, 0, 1]
 
 
+def test_draw_prediction_labels_use_age_specific_policy():
+    model = PointInTimeMatchModel(model_dir="models/test_point_in_time_match_model")
+    model.draw_decision_policy = {
+        "default": {
+            "min_draw_probability": 0.25,
+            "max_draw_gap": 0.02,
+            "max_total_goals": 2.2,
+            "min_stalemate_signal": 0.6,
+        },
+        "by_age": {
+            10: {
+                "min_draw_probability": 0.24,
+                "max_draw_gap": 0.18,
+                "max_total_goals": 2.3,
+                "min_stalemate_signal": 0.58,
+            }
+        },
+    }
+    probabilities = np.array(
+        [
+            [0.44, 0.26, 0.30],
+            [0.44, 0.26, 0.30],
+            [0.40, 0.18, 0.42],
+        ]
+    )
+    dataset_df = pd.DataFrame(
+        {
+            "age_group_numeric": [10, 16, 10],
+            "projected_total_goals": [2.1, 2.1, 2.1],
+            "stalemate_signal": [0.64, 0.64, 0.64],
+        }
+    )
+
+    predicted_labels = model._draw_prediction_labels(probabilities, dataset_df=dataset_df)
+
+    assert predicted_labels.tolist() == [1, 0, 2]
+
+
+def test_blowout_prediction_labels_use_age_specific_thresholds():
+    model = PointInTimeMatchModel(model_dir="models/test_point_in_time_match_model")
+    model.blowout_probability_thresholds = {3: 0.40, 5: 0.25}
+    model.blowout_probability_thresholds_by_age = {
+        3: {10: 0.55, 16: 0.25},
+        5: {10: 0.35, 16: 0.18},
+    }
+    predicted_3plus, predicted_5plus = model._blowout_prediction_labels(
+        blowout_3plus_probability=np.array([0.50, 0.50, 0.30]),
+        blowout_5plus_probability=np.array([0.30, 0.20, 0.28]),
+        age_group_numeric=np.array([10, 16, 12]),
+    )
+
+    assert predicted_3plus.tolist() == [0, 1, 1]
+    assert predicted_5plus.tolist() == [0, 1, 1]
+
+
 def test_auto_probability_strategy_prefers_viable_draw_aware_candidate():
     model = PointInTimeMatchModel(model_dir="models/test_point_in_time_match_model")
     strategy_metrics = {
