@@ -47,11 +47,6 @@ const nextConfig: NextConfig = {
         permanent: true,
       },
       {
-        source: '/blog/michigan-youth-soccer-rankings-guide',
-        destination: '/rankings/mi',
-        permanent: true,
-      },
-      {
         source: '/blog/2026-03-31-california-youth-soccer-rankings',
         destination: '/blog/california-youth-soccer-rankings-guide',
         permanent: true,

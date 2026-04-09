@@ -197,6 +197,14 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
               {girlsTeamCount > 0 && `${girlsTeamCount.toLocaleString()} Girls teams`} (U12 division)
             </p>
           )}
+          {!isNational && (
+            <p className="text-sm text-muted-foreground mt-2">
+              Part of{' '}
+              <Link href="/rankings" className="text-primary hover:underline font-medium">
+                77,000+ teams ranked nationally
+              </Link>
+            </p>
+          )}
         </div>
 
         {/* Age Group Grid */}
