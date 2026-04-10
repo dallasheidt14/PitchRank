@@ -8,6 +8,7 @@ from src.predictions.point_in_time_match_model import (
     _poisson_outcome_probabilities,
     _poisson_score_matrix,
     _score_matrix_summary,
+    build_point_in_time_matchup_row,
     build_point_in_time_dataset,
 )
 
@@ -195,6 +196,53 @@ def test_build_point_in_time_dataset_tracks_draw_oriented_signals():
     assert row["snapshot_strength_closeness"] > 0.0
     assert row["expected_draw_environment"] > 0.0
     assert row["common_opponent_same_age_rate"] == 0.0
+    assert row["common_opponent_strength_weighted_shared"] == 0.0
+    assert 0.0 <= row["stalemate_signal"] <= 1.0
+
+
+def test_build_point_in_time_matchup_row_supports_inference_without_actual_scores():
+    team_a_snapshot = _snapshot(
+        "2026-04-01",
+        "a",
+        age_group="10",
+        draws=5,
+        games_played=12,
+        exp_goals_for=1.0,
+        exp_goals_against=0.9,
+        exp_margin=0.1,
+        exp_win_rate=0.52,
+    )
+    team_b_snapshot = _snapshot(
+        "2026-04-01",
+        "b",
+        age_group="10",
+        draws=4,
+        games_played=12,
+        exp_goals_for=0.95,
+        exp_goals_against=0.95,
+        exp_margin=0.05,
+        exp_win_rate=0.51,
+    )
+    all_games = []
+
+    row = build_point_in_time_matchup_row(
+        team_a_id="a",
+        team_b_id="b",
+        team_a_snapshot=team_a_snapshot,
+        team_b_snapshot=team_b_snapshot,
+        all_games=all_games,
+        game_date="2026-04-09",
+        team_names={"a": "Alpha", "b": "Bravo"},
+        game_id="shadow-1",
+    )
+
+    assert row["game_id"] == "shadow-1"
+    assert row["team_a_name"] == "Alpha"
+    assert row["team_b_name"] == "Bravo"
+    assert row["actual_outcome"] == "draw"
+    assert np.isnan(row["actual_margin"])
+    assert row["age_group_numeric"] == 10
+    assert row["combined_prior_game_count"] == 0.0
     assert row["common_opponent_strength_weighted_shared"] == 0.0
     assert 0.0 <= row["stalemate_signal"] <= 1.0
 

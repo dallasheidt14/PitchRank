@@ -794,6 +794,173 @@ def _outcome_label(score_a: int, score_b: int) -> Tuple[int, str]:
     return OUTCOME_DRAW, OUTCOME_LABELS[OUTCOME_DRAW]
 
 
+def build_point_in_time_matchup_row(
+    team_a_id: str,
+    team_b_id: str,
+    team_a_snapshot: dict,
+    team_b_snapshot: dict,
+    all_games: List[PredictorGame],
+    game_date: str,
+    *,
+    snapshot_index: Optional[Dict[str, List[dict]]] = None,
+    team_names: Optional[Dict[str, str]] = None,
+    game_id: str = "shadow_matchup",
+    example_orientation: str = "shadow",
+    actual_score_a: Optional[int] = None,
+    actual_score_b: Optional[int] = None,
+) -> Dict[str, object]:
+    """
+    Build one offline-model feature row for a matchup using point-in-time snapshot fields.
+
+    This is used both by the training harness and by shadow inference so the offline
+    model sees the same feature assembly logic in both paths.
+    """
+    snapshot_index = snapshot_index or {}
+    team_names = team_names or {}
+    combined_prior_games = _dedupe_games(all_games)
+    team_a_prior_games = [
+        game
+        for game in combined_prior_games
+        if game.home_team_master_id == team_a_id or game.away_team_master_id == team_a_id
+    ]
+    team_b_prior_games = [
+        game
+        for game in combined_prior_games
+        if game.home_team_master_id == team_b_id or game.away_team_master_id == team_b_id
+    ]
+
+    recent_form_a = calculate_recent_form(team_a_id, team_a_prior_games)
+    recent_form_b = calculate_recent_form(team_b_id, team_b_prior_games)
+    h2h = calculate_head_to_head(team_a_id, team_b_id, combined_prior_games)
+    common_opponents = calculate_common_opponent_signal(team_a_id, team_b_id, combined_prior_games)
+    common_opponent_details = _build_common_opponent_feature_summary(
+        team_a_id=team_a_id,
+        team_b_id=team_b_id,
+        all_games=combined_prior_games,
+        snapshot_index=snapshot_index,
+        target_date=game_date,
+        team_age_numeric=max(
+            _extract_age_numeric(team_a_snapshot.get("age_group")),
+            _extract_age_numeric(team_b_snapshot.get("age_group")),
+        ),
+    )
+
+    enriched_team_a_snapshot = {**team_a_snapshot, "_game_date": game_date}
+    enriched_team_b_snapshot = {**team_b_snapshot, "_game_date": game_date}
+    features = _paired_snapshot_features(enriched_team_a_snapshot, enriched_team_b_snapshot)
+
+    if actual_score_a is not None and actual_score_b is not None:
+        actual_outcome_code, actual_outcome_name = _outcome_label(int(actual_score_a), int(actual_score_b))
+        actual_margin = int(actual_score_a - actual_score_b)
+        actual_score_a_value = int(actual_score_a)
+        actual_score_b_value = int(actual_score_b)
+    else:
+        actual_outcome_code = OUTCOME_DRAW
+        actual_outcome_name = OUTCOME_LABELS[OUTCOME_DRAW]
+        actual_margin = float("nan")
+        actual_score_a_value = float("nan")
+        actual_score_b_value = float("nan")
+
+    features.update(
+        {
+            "team_a_recent_form": recent_form_a,
+            "team_b_recent_form": recent_form_b,
+            "recent_form_diff": recent_form_a - recent_form_b,
+            "recent_form_gap_abs": abs(recent_form_a - recent_form_b),
+            "recent_form_closeness": math.exp(-abs(recent_form_a - recent_form_b) / 0.3),
+            "head_to_head_advantage": _to_float(h2h.get("advantage")),
+            "head_to_head_games": _to_float(h2h.get("gamesPlayed")),
+            "head_to_head_avg_margin": _to_float(h2h.get("avgMargin")),
+            "head_to_head_gap_abs": abs(_to_float(h2h.get("advantage"))),
+            "head_to_head_closeness": math.exp(-abs(_to_float(h2h.get("advantage"))) / 0.35)
+            if _to_float(h2h.get("gamesPlayed")) > 0
+            else 0.5,
+            "common_opponent_advantage": _to_float(common_opponents.get("advantage")),
+            "common_opponent_shared": _to_float(common_opponents.get("sharedOpponents")),
+            "common_opponent_compared_games": _to_float(common_opponents.get("comparedGames")),
+            "common_opponent_avg_margin_diff": _to_float(common_opponents.get("avgMarginDiff")),
+            "common_opponent_points_diff": _to_float(common_opponents.get("pointsPerGameDiff")),
+            "common_opponent_reliability": _to_float(common_opponents.get("reliability")),
+            "common_opponent_gap_abs": abs(_to_float(common_opponents.get("advantage"))),
+            "common_opponent_closeness": math.exp(-abs(_to_float(common_opponents.get("advantage"))) / 0.3)
+            if _to_float(common_opponents.get("sharedOpponents")) > 0
+            else 0.5,
+            "common_opponent_strength_weighted_shared": _to_float(
+                common_opponent_details.get("strengthWeightedSharedOpponents")
+            ),
+            "common_opponent_same_age_shared": _to_float(common_opponent_details.get("sameAgeSharedOpponents")),
+            "common_opponent_same_age_rate": _to_float(common_opponent_details.get("sameAgeSharedOpponentRate")),
+            "common_opponent_strength_weighted_reliability": _to_float(
+                common_opponent_details.get("strengthWeightedReliability")
+            ),
+            "common_opponent_strength_weighted_margin_diff": _to_float(
+                common_opponent_details.get("strengthWeightedMarginDiff")
+            ),
+            "common_opponent_strength_weighted_points_diff": _to_float(
+                common_opponent_details.get("strengthWeightedPointsPerGameDiff")
+            ),
+            "common_opponent_strength_weighted_goals_for_diff": _to_float(
+                common_opponent_details.get("strengthWeightedGoalsForDiff")
+            ),
+            "common_opponent_strength_weighted_goals_against_adv": _to_float(
+                common_opponent_details.get("strengthWeightedGoalsAgainstAdv")
+            ),
+            "common_opponent_strength_weighted_win_rate_diff": _to_float(
+                common_opponent_details.get("strengthWeightedWinRateDiff")
+            ),
+            "common_opponent_strength_weighted_draw_rate_diff": _to_float(
+                common_opponent_details.get("strengthWeightedDrawRateDiff")
+            ),
+            "common_opponent_strength_weighted_goal_balance_diff": _to_float(
+                common_opponent_details.get("strengthWeightedGoalBalanceDiff")
+            ),
+            "common_opponent_strength_weighted_opponent_power": _to_float(
+                common_opponent_details.get("strengthWeightedOpponentPower")
+            ),
+            "common_opponent_consensus_signal": _to_float(
+                common_opponent_details.get("commonOpponentConsensusSignal")
+            ),
+            "team_a_prior_game_count": float(len(team_a_prior_games)),
+            "team_b_prior_game_count": float(len(team_b_prior_games)),
+            "combined_prior_game_count": float(len(combined_prior_games)),
+            "game_id": str(game_id),
+            "game_date": str(game_date),
+            "team_a_id": team_a_id,
+            "team_b_id": team_b_id,
+            "team_a_name": team_names.get(team_a_id),
+            "team_b_name": team_names.get(team_b_id),
+            "team_a_snapshot_date": team_a_snapshot.get("snapshot_date"),
+            "team_b_snapshot_date": team_b_snapshot.get("snapshot_date"),
+            "example_orientation": example_orientation,
+            "actual_score_a": actual_score_a_value,
+            "actual_score_b": actual_score_b_value,
+            "actual_margin": actual_margin,
+            "actual_outcome": actual_outcome_name,
+            "actual_outcome_label": int(actual_outcome_code),
+        }
+    )
+
+    stalemate_components = [
+        _to_float(features.get("snapshot_strength_closeness")),
+        _to_float(features.get("goal_balance_signal")),
+        _to_float(features.get("low_total_goal_signal")),
+        _to_float(features.get("recent_form_closeness")),
+        _to_float(features.get("common_opponent_closeness")),
+        _to_float(features.get("head_to_head_closeness")),
+    ]
+    stalemate_signal = float(np.mean(stalemate_components)) * (0.7 + 0.6 * _to_float(features.get("combined_draw_rate")))
+    features["stalemate_signal"] = float(np.clip(stalemate_signal, 0.0, 1.0))
+    features["expected_draw_environment"] = float(
+        np.clip(
+            _to_float(features.get("combined_draw_rate")) * _to_float(features.get("low_total_goal_signal")),
+            0.0,
+            1.0,
+        )
+    )
+
+    return features
+
+
 def build_point_in_time_dataset(
     games_df: pd.DataFrame,
     snapshot_index: Dict[str, List[dict]],
@@ -840,132 +1007,20 @@ def build_point_in_time_dataset(
         team_a_prior_games = list(per_team_history.get(team_a_id, []))
         team_b_prior_games = list(per_team_history.get(team_b_id, []))
         combined_prior_games = _dedupe_games(team_a_prior_games + team_b_prior_games)
-
-        recent_form_a = calculate_recent_form(team_a_id, team_a_prior_games)
-        recent_form_b = calculate_recent_form(team_b_id, team_b_prior_games)
-        h2h = calculate_head_to_head(team_a_id, team_b_id, combined_prior_games)
-        common_opponents = calculate_common_opponent_signal(team_a_id, team_b_id, combined_prior_games)
-        common_opponent_details = _build_common_opponent_feature_summary(
+        return build_point_in_time_matchup_row(
             team_a_id=team_a_id,
             team_b_id=team_b_id,
+            team_a_snapshot=team_a_snapshot,
+            team_b_snapshot=team_b_snapshot,
             all_games=combined_prior_games,
+            game_date=str(game_row["game_date"]),
             snapshot_index=snapshot_index,
-            target_date=str(game_row["game_date"]),
-            team_age_numeric=max(
-                _extract_age_numeric(team_a_snapshot.get("age_group")),
-                _extract_age_numeric(team_b_snapshot.get("age_group")),
-            ),
+            team_names=team_names,
+            game_id=str(game_row["id"]),
+            example_orientation=orientation,
+            actual_score_a=score_a,
+            actual_score_b=score_b,
         )
-        actual_outcome_code, actual_outcome_name = _outcome_label(score_a, score_b)
-
-        enriched_team_a_snapshot = {**team_a_snapshot, "_game_date": game_row["game_date"]}
-        enriched_team_b_snapshot = {**team_b_snapshot, "_game_date": game_row["game_date"]}
-        features = _paired_snapshot_features(enriched_team_a_snapshot, enriched_team_b_snapshot)
-
-        features.update(
-            {
-                "team_a_recent_form": recent_form_a,
-                "team_b_recent_form": recent_form_b,
-                "recent_form_diff": recent_form_a - recent_form_b,
-                "recent_form_gap_abs": abs(recent_form_a - recent_form_b),
-                "recent_form_closeness": math.exp(-abs(recent_form_a - recent_form_b) / 0.3),
-                "head_to_head_advantage": _to_float(h2h.get("advantage")),
-                "head_to_head_games": _to_float(h2h.get("gamesPlayed")),
-                "head_to_head_avg_margin": _to_float(h2h.get("avgMargin")),
-                "head_to_head_gap_abs": abs(_to_float(h2h.get("advantage"))),
-                "head_to_head_closeness": math.exp(-abs(_to_float(h2h.get("advantage"))) / 0.35)
-                if _to_float(h2h.get("gamesPlayed")) > 0
-                else 0.5,
-                "common_opponent_advantage": _to_float(common_opponents.get("advantage")),
-                "common_opponent_shared": _to_float(common_opponents.get("sharedOpponents")),
-                "common_opponent_compared_games": _to_float(common_opponents.get("comparedGames")),
-                "common_opponent_avg_margin_diff": _to_float(common_opponents.get("avgMarginDiff")),
-                "common_opponent_points_diff": _to_float(common_opponents.get("pointsPerGameDiff")),
-                "common_opponent_reliability": _to_float(common_opponents.get("reliability")),
-                "common_opponent_gap_abs": abs(_to_float(common_opponents.get("advantage"))),
-                "common_opponent_closeness": math.exp(-abs(_to_float(common_opponents.get("advantage"))) / 0.3)
-                if _to_float(common_opponents.get("sharedOpponents")) > 0
-                else 0.5,
-                "common_opponent_strength_weighted_shared": _to_float(
-                    common_opponent_details.get("strengthWeightedSharedOpponents")
-                ),
-                "common_opponent_same_age_shared": _to_float(
-                    common_opponent_details.get("sameAgeSharedOpponents")
-                ),
-                "common_opponent_same_age_rate": _to_float(
-                    common_opponent_details.get("sameAgeSharedOpponentRate")
-                ),
-                "common_opponent_strength_weighted_reliability": _to_float(
-                    common_opponent_details.get("strengthWeightedReliability")
-                ),
-                "common_opponent_strength_weighted_margin_diff": _to_float(
-                    common_opponent_details.get("strengthWeightedMarginDiff")
-                ),
-                "common_opponent_strength_weighted_points_diff": _to_float(
-                    common_opponent_details.get("strengthWeightedPointsPerGameDiff")
-                ),
-                "common_opponent_strength_weighted_goals_for_diff": _to_float(
-                    common_opponent_details.get("strengthWeightedGoalsForDiff")
-                ),
-                "common_opponent_strength_weighted_goals_against_adv": _to_float(
-                    common_opponent_details.get("strengthWeightedGoalsAgainstAdv")
-                ),
-                "common_opponent_strength_weighted_win_rate_diff": _to_float(
-                    common_opponent_details.get("strengthWeightedWinRateDiff")
-                ),
-                "common_opponent_strength_weighted_draw_rate_diff": _to_float(
-                    common_opponent_details.get("strengthWeightedDrawRateDiff")
-                ),
-                "common_opponent_strength_weighted_goal_balance_diff": _to_float(
-                    common_opponent_details.get("strengthWeightedGoalBalanceDiff")
-                ),
-                "common_opponent_strength_weighted_opponent_power": _to_float(
-                    common_opponent_details.get("strengthWeightedOpponentPower")
-                ),
-                "common_opponent_consensus_signal": _to_float(
-                    common_opponent_details.get("commonOpponentConsensusSignal")
-                ),
-                "team_a_prior_game_count": float(len(team_a_prior_games)),
-                "team_b_prior_game_count": float(len(team_b_prior_games)),
-                "combined_prior_game_count": float(len(combined_prior_games)),
-                "game_id": str(game_row["id"]),
-                "game_date": str(game_row["game_date"]),
-                "team_a_id": team_a_id,
-                "team_b_id": team_b_id,
-                "team_a_name": team_names.get(team_a_id),
-                "team_b_name": team_names.get(team_b_id),
-                "team_a_snapshot_date": team_a_snapshot.get("snapshot_date"),
-                "team_b_snapshot_date": team_b_snapshot.get("snapshot_date"),
-                "example_orientation": orientation,
-                "actual_score_a": int(score_a),
-                "actual_score_b": int(score_b),
-                "actual_margin": int(score_a - score_b),
-                "actual_outcome": actual_outcome_name,
-                "actual_outcome_label": int(actual_outcome_code),
-            }
-        )
-
-        stalemate_components = [
-            _to_float(features.get("snapshot_strength_closeness")),
-            _to_float(features.get("goal_balance_signal")),
-            _to_float(features.get("low_total_goal_signal")),
-            _to_float(features.get("recent_form_closeness")),
-            _to_float(features.get("common_opponent_closeness")),
-            _to_float(features.get("head_to_head_closeness")),
-        ]
-        stalemate_signal = float(np.mean(stalemate_components)) * (
-            0.7 + 0.6 * _to_float(features.get("combined_draw_rate"))
-        )
-        features["stalemate_signal"] = float(np.clip(stalemate_signal, 0.0, 1.0))
-        features["expected_draw_environment"] = float(
-            np.clip(
-                _to_float(features.get("combined_draw_rate")) * _to_float(features.get("low_total_goal_signal")),
-                0.0,
-                1.0,
-            )
-        )
-
-        return features
 
     for _, game_row in games_df.iterrows():
         if pd.isna(game_row.get("home_team_master_id")) or pd.isna(game_row.get("away_team_master_id")):
