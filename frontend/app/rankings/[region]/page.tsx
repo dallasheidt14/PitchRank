@@ -186,7 +186,7 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
     description: isNational
       ? 'Comprehensive national youth soccer rankings by age group and gender'
       : `Youth soccer rankings for ${stateInfo.name} across all age groups`,
-    url: `https://pitchrank.io/rankings/${region.toLowerCase()}`,
+    url: `${BASE_URL}/rankings/${region.toLowerCase()}`,
   };
 
   return (
