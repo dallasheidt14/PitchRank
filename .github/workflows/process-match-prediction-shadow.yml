@@ -88,11 +88,14 @@ jobs:
             --name "$ARTIFACT_NAME" \
             --dir "$DOWNLOAD_ROOT"
 
-          ARTIFACT_DIR="$DOWNLOAD_ROOT/$ARTIFACT_NAME"
-          if [ ! -d "$ARTIFACT_DIR" ]; then
-            echo "Downloaded artifact directory not found: $ARTIFACT_DIR"
+          MODEL_ARTIFACT="$(find "$DOWNLOAD_ROOT" -type f -name 'point_in_time_match_model.pkl' -print -quit)"
+          if [ -z "$MODEL_ARTIFACT" ]; then
+            echo "Downloaded model artifact not found under: $DOWNLOAD_ROOT"
+            find "$DOWNLOAD_ROOT" -maxdepth 3 -mindepth 1 -print
             exit 1
           fi
+
+          ARTIFACT_DIR="$(dirname "$MODEL_ARTIFACT")"
 
           echo "artifact_name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
           echo "artifact_dir=$ARTIFACT_DIR" >> "$GITHUB_OUTPUT"
