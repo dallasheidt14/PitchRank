@@ -1,0 +1,103 @@
+name: Upcoming GotSport Event Fixture Scrape
+
+on:
+  workflow_dispatch:
+    inputs:
+      days_ahead:
+        description: "How many days ahead to search for events"
+        required: false
+        default: "7"
+      max_events:
+        description: "Maximum number of events to scrape (0 = no limit)"
+        required: false
+        default: "25"
+      max_runtime:
+        description: "Maximum runtime in minutes"
+        required: false
+        default: "100"
+      tracked_events:
+        description: "Optional tracking file path for dedupe across runs"
+        required: false
+        default: ""
+
+jobs:
+  scrape-upcoming-events:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install beautifulsoup4 lxml requests certifi
+
+      - name: Create data directories
+        run: |
+          mkdir -p data/raw
+          mkdir -p data/cache
+          mkdir -p logs
+
+      - name: Run upcoming event fixture scraper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
+          GOTSPORT_DELAY_MIN: "0.1"
+          GOTSPORT_DELAY_MAX: "0.2"
+          GOTSPORT_MAX_RETRIES: "2"
+          GOTSPORT_TIMEOUT: "12"
+          GOTSPORT_MAX_SCHEDULE_PAGES: "25"
+          GOTSPORT_PAGE_DELAY: "0.05"
+          GOTSPORT_EVENT_TIMEOUT: "240"
+          INPUT_DAYS_AHEAD: ${{ inputs.days_ahead }}
+          INPUT_MAX_EVENTS: ${{ inputs.max_events }}
+          INPUT_MAX_RUNTIME: ${{ inputs.max_runtime }}
+          INPUT_TRACKED_EVENTS: ${{ inputs.tracked_events }}
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          EXTRA_ARGS=""
+          if [ -n "${INPUT_TRACKED_EVENTS}" ]; then
+            EXTRA_ARGS="--tracked-events ${INPUT_TRACKED_EVENTS}"
+          fi
+          python scripts/scrape_upcoming_gotsport_events.py \
+            --days-ahead "${INPUT_DAYS_AHEAD}" \
+            --max-events "${INPUT_MAX_EVENTS}" \
+            --max-runtime "${INPUT_MAX_RUNTIME}" \
+            ${EXTRA_ARGS} || exit 1
+
+      - name: Upload scraped data
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: gotsport-upcoming-events-${{ github.run_number }}
+          path: |
+            data/raw/upcoming_events_*.jsonl
+            data/raw/upcoming_events_*_summary.json
+            data/raw/upcoming_events_tracked.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: gotsport-upcoming-events-logs-${{ github.run_number }}
+          path: logs/*.log
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Report results
+        if: always()
+        run: |
+          echo "Upcoming GotSport event fixture scrape completed."
+          echo "Check the artifacts above for scheduled-game output and logs."
