@@ -113,9 +113,9 @@ export async function POST(req: Request) {
     }
 
     // --- Anonymous checkout: no account yet ---
+    // In subscription mode, Stripe automatically creates a customer when none is provided
     const session = await stripe.checkout.sessions.create({
       ...baseSessionParams(priceId),
-      customer_creation: 'always',
       metadata: { anonymous_checkout: 'true' },
       subscription_data: {
         trial_period_days: 7,
