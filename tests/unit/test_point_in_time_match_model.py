@@ -361,7 +361,7 @@ def test_relabel_evaluation_frame_reapplies_draw_and_blowout_policy():
             "prob_team_a_win": [0.44, 0.35],
             "prob_draw": [0.26, 0.15],
             "prob_team_b_win": [0.30, 0.50],
-            "age_group_numeric": [10, 16],
+            "age_group": ["u10", "u16"],
             "projected_total_goals": [2.1, 3.2],
             "stalemate_signal": [0.64, 0.40],
             "blowout_3plus_probability": [0.50, 0.50],

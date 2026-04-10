@@ -256,12 +256,14 @@ def _extract_age_numeric(age_value: object) -> int:
 
 
 def _age_group_numeric_array(dataset_df: pd.DataFrame) -> np.ndarray:
-    return (
-        pd.to_numeric(dataset_df.get("age_group_numeric"), errors="coerce")
-        .fillna(0)
-        .astype(int)
-        .to_numpy()
-    )
+    age_source = dataset_df.get("age_group_numeric")
+    if age_source is None:
+        age_source = dataset_df.get("age_group")
+    if age_source is None:
+        return np.zeros(len(dataset_df), dtype=int)
+    if not isinstance(age_source, pd.Series):
+        age_source = pd.Series(age_source, index=dataset_df.index)
+    return pd.to_numeric(age_source.map(_extract_age_numeric), errors="coerce").fillna(0).astype(int).to_numpy()
 
 
 def _snapshot_as_of(snapshot_index: Dict[str, List[dict]], team_id: str, target_date: str) -> Optional[dict]:
