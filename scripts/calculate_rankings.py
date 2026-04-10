@@ -13,6 +13,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 import logging
 import os
+import time
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -37,6 +38,8 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 console = Console()
 OPTIONAL_RANKINGS_FULL_PREDICTION_COLUMNS = {
+    "exp_goals_for",
+    "exp_goals_against",
     "same_age_games",
     "same_age_game_share",
     "same_age_unique_opponents",
@@ -59,11 +62,7 @@ def _should_retry_without_optional_prediction_columns(error: Exception) -> bool:
             or "could not find" in message
             or "does not exist" in message
         )
-        and (
-            "same_age_" in message
-            or "positive_ml_evidence_scale" in message
-            or "publication_cap_" in message
-        )
+        and any(column_name.lower() in message for column_name in OPTIONAL_RANKINGS_FULL_PREDICTION_COLUMNS)
     )
 
 
@@ -161,6 +160,8 @@ async def save_rankings_to_supabase(
             console.print(f"[dim]Fetched metadata for {len(teams_metadata_df)} teams[/dim]")
 
     total_saved = 0
+    rankings_full_expected = 0
+    rankings_full_saved = 0
 
     # Save to rankings_full table
     if use_rankings_full:
@@ -176,6 +177,7 @@ async def save_rankings_to_supabase(
 
                 # Convert DataFrame to records (handle NaN values)
                 records_full = rankings_full_df.replace({pd.NA: None, pd.NaT: None}).to_dict("records")
+                rankings_full_expected = len(records_full)
 
                 # DIAGNOSTIC: Verify power_score_final != national_power_score before upsert
                 import numpy as np
@@ -219,7 +221,7 @@ async def save_rankings_to_supabase(
 
                 # Save to rankings_full table
                 try:
-                    saved_full = await _save_batch_with_retry(
+                    rankings_full_saved = await _save_batch_with_retry(
                         supabase_client, "rankings_full", records_full, table_name_display="rankings_full"
                     )
                 except Exception as save_error:
@@ -227,20 +229,23 @@ async def save_rankings_to_supabase(
                         raise
 
                     console.print(
-                        "[yellow]rankings_full is missing optional prediction-evidence columns; "
+                        "[yellow]rankings_full is missing optional prediction columns; "
                         "retrying without them[/yellow]"
                     )
-                    saved_full = await _save_batch_with_retry(
+                    rankings_full_saved = await _save_batch_with_retry(
                         supabase_client,
                         "rankings_full",
                         _strip_optional_rankings_full_prediction_columns(records_full),
                         table_name_display="rankings_full",
                     )
-                total_saved += saved_full
+                if rankings_full_saved != rankings_full_expected:
+                    raise RuntimeError(
+                        f"rankings_full publish incomplete: saved {rankings_full_saved:,} of "
+                        f"{rankings_full_expected:,} records"
+                    )
+                total_saved += rankings_full_saved
         except Exception as e:
-            console.print(f"[yellow]Warning: Failed to save to rankings_full: {e}[/yellow]")
-            console.print("[yellow]Falling back to current_rankings only[/yellow]")
-            use_rankings_full = False
+            raise RuntimeError(f"Failed to publish rankings_full: {e}") from e
 
     # Save to current_rankings for backward compatibility
     if maintain_backward_compat:
@@ -320,7 +325,6 @@ async def _save_batch_with_retry(supabase_client, table_name, records, table_nam
         return 0
 
     table_display = table_name_display or table_name
-    import time
 
     max_retries = 3
     retry_delay = 2  # seconds
@@ -578,14 +582,22 @@ async def _backfill_game_stats_python(supabase_client, console) -> int:
             for _, row in batch.iterrows()
         ]
         try:
-            supabase_client.table("rankings_full").upsert(records, on_conflict="team_id").execute()
+            (
+                supabase_client.table("rankings_full")
+                .upsert(records, on_conflict="team_id", default_to_null=False)
+                .execute()
+            )
             updated += len(records)
         except Exception as e:
             logger.warning(f"Backfill batch {i // batch_size + 1} failed: {e}")
             time.sleep(1)
             # Retry once
             try:
-                supabase_client.table("rankings_full").upsert(records, on_conflict="team_id").execute()
+                (
+                    supabase_client.table("rankings_full")
+                    .upsert(records, on_conflict="team_id", default_to_null=False)
+                    .execute()
+                )
                 updated += len(records)
             except Exception:
                 pass  # Skip this batch, continue with the rest
