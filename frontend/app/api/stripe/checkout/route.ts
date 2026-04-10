@@ -25,11 +25,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid price ID' }, { status: 400 });
     }
 
-    // Validate against known price IDs (uses env var fallback chain)
+    // Validate against known price IDs (check both server-side and client-side env vars
+    // in case they differ between STRIPE_PRICE_* and NEXT_PUBLIC_STRIPE_PRICE_*)
     const { MONTHLY, YEARLY } = getStripePriceIds();
-    const VALID_PRICE_IDS = [MONTHLY, YEARLY].filter(Boolean);
+    const VALID_PRICE_IDS = new Set(
+      [
+        MONTHLY,
+        YEARLY,
+        process.env.NEXT_PUBLIC_STRIPE_PRICE_MONTHLY,
+        process.env.NEXT_PUBLIC_STRIPE_PRICE_YEARLY,
+      ].filter(Boolean)
+    );
 
-    if (!VALID_PRICE_IDS.includes(priceId)) {
+    if (!VALID_PRICE_IDS.has(priceId)) {
       return NextResponse.json({ error: 'Invalid price ID' }, { status: 400 });
     }
 
