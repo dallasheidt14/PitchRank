@@ -1,10 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import {
-  MATCH_PREDICTION_VERSION,
-  buildMatchPredictionWithShadowContext,
-} from '../lib/matchPredictionService';
+import { MATCH_PREDICTION_VERSION, buildMatchPredictionWithShadowContext } from '../lib/matchPredictionService';
 
 type ProspectiveFixtureRow = {
   id: string;
@@ -45,10 +42,7 @@ function bootstrapEnv(): void {
 
 function getSupabase(): SupabaseClient {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SERVICE_KEY ||
-    process.env.SUPABASE_KEY;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY;
   if (!url || !key) {
     throw new Error('Missing SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL or service key');
   }
@@ -134,11 +128,7 @@ async function fetchPendingRows(
   return (data ?? []) as ProspectiveFixtureRow[];
 }
 
-async function updateRow(
-  supabase: SupabaseClient,
-  rowId: string,
-  payload: Record<string, unknown>
-): Promise<void> {
+async function updateRow(supabase: SupabaseClient, rowId: string, payload: Record<string, unknown>): Promise<void> {
   const { error } = await supabase.from('prospective_match_predictions').update(payload).eq('id', rowId);
   if (error) {
     throw error;
