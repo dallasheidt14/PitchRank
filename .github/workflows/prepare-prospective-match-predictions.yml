@@ -89,6 +89,7 @@ jobs:
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt
           fi
+          pip install psycopg2-binary
           python -c "import supabase, pandas, numpy, psycopg2; print('Prospective prepare imports successful')"
 
       - name: Download fixture artifact
@@ -223,7 +224,7 @@ jobs:
           echo "summary_path=$SUMMARY_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Upload prepare summary
-        if: always()
+        if: ${{ always() && steps.run.outputs.summary_path != '' }}
         uses: actions/upload-artifact@v5
         with:
           name: prospective-prepare-summary-${{ github.run_id }}
