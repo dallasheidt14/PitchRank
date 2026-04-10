@@ -37,7 +37,15 @@ vi.mock('@/lib/stripe/server', () => ({
         create: mockCheckoutSessionsCreate,
       },
     },
+    subscriptions: {
+      list: vi.fn().mockResolvedValue({ data: [] }),
+    },
   },
+  getStripePriceIds: () => ({ MONTHLY: 'price_monthly', YEARLY: 'price_yearly' }),
+  WEBHOOK_EVENTS: {},
+  extractPeriodEnd: vi.fn(),
+  mapStatusToPlan: vi.fn(),
+  updateUserProfile: vi.fn(),
 }));
 
 import { POST } from '../route';
@@ -56,14 +64,21 @@ describe('POST /api/stripe/checkout', () => {
     process.env.NEXT_PUBLIC_SITE_URL = 'https://pitchrank.io';
   });
 
-  it('returns 401 when not authenticated', async () => {
+  it('creates anonymous checkout session when not authenticated', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
+    mockCheckoutSessionsCreate.mockResolvedValue({ url: 'https://checkout.stripe.com/anon' });
 
-    const res = await POST(makeRequest({ priceId: 'price_abc123' }));
+    const res = await POST(makeRequest({ priceId: 'price_monthly' }));
 
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.error).toBe('Not authenticated');
+    expect(body.url).toBe('https://checkout.stripe.com/anon');
+    expect(mockCheckoutSessionsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customer_creation: 'always',
+        metadata: { anonymous_checkout: 'true' },
+      })
+    );
   });
 
   it('returns 400 for missing price ID', async () => {
@@ -104,7 +119,7 @@ describe('POST /api/stripe/checkout', () => {
     // Stripe checkout.sessions.create throws
     mockCheckoutSessionsCreate.mockRejectedValue(new Error('Your card was declined. Request req_abc123.'));
 
-    const res = await POST(makeRequest({ priceId: 'price_valid123' }));
+    const res = await POST(makeRequest({ priceId: 'price_monthly' }));
 
     expect(res.status).toBe(500);
     const body = await res.json();

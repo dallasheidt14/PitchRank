@@ -77,14 +77,8 @@ function UpgradePageContent() {
   }, [source]);
 
   const handleUpgrade = async (plan: 'monthly' | 'yearly') => {
-    // Wait for auth state to load before checking
+    // Wait for auth state to resolve (user or null)
     if (userLoading) return;
-
-    // If not authenticated, redirect to signup
-    if (!user) {
-      window.location.href = `/signup?next=/upgrade`;
-      return;
-    }
 
     trackPlanSelected({
       plan,
@@ -138,20 +132,16 @@ function UpgradePageContent() {
           ))}
         </div>
 
-        {/* Not Authenticated Message */}
+        {/* Existing Account Notice */}
         {!userLoading && !user && (
-          <div className="max-w-md mx-auto mb-8 p-4 bg-primary/10 border border-primary/20 rounded-lg text-center">
-            <p className="text-sm mb-3">Sign up for a free account to upgrade to Premium</p>
-            <div className="flex gap-3 justify-center">
-              <Link href="/signup?next=/upgrade">
-                <Button size="sm">Create Free Account</Button>
-              </Link>
-              <Link href="/login?next=/upgrade">
-                <Button size="sm" variant="outline">
-                  Sign In
-                </Button>
-              </Link>
-            </div>
+          <div className="max-w-md mx-auto mb-8 p-4 bg-muted/50 border border-border rounded-lg text-center">
+            <p className="text-sm text-muted-foreground">
+              Already have an account?{' '}
+              <Link href="/login?next=/upgrade" className="text-primary font-medium hover:underline">
+                Sign in
+              </Link>{' '}
+              to manage your existing subscription.
+            </p>
           </div>
         )}
 
