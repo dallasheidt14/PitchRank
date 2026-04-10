@@ -15,6 +15,7 @@ from typing import Any
 import pandas as pd
 from dotenv import load_dotenv
 from rich.console import Console
+
 from supabase import create_client
 
 sys.path.append(str(Path(__file__).parent.parent))
@@ -23,10 +24,10 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 if not os.environ.get("SUPABASE_KEY") and os.environ.get("SUPABASE_SERVICE_ROLE_KEY"):
     os.environ["SUPABASE_KEY"] = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 
-from src.etl.glicko_config import GlickoConfig
-from src.etl.glicko_engine import compute_game_explainability, compute_scf, select_games
-from src.rankings.data_adapter import batch_fetch_rows, fetch_games_for_rankings
-from src.utils.merge_resolver import MergeResolver
+from src.etl.glicko_config import GlickoConfig  # noqa: E402
+from src.etl.glicko_engine import compute_game_explainability, compute_scf, select_games  # noqa: E402
+from src.rankings.data_adapter import batch_fetch_rows, fetch_games_for_rankings  # noqa: E402
+from src.utils.merge_resolver import MergeResolver  # noqa: E402
 
 console = Console()
 
@@ -217,7 +218,16 @@ def fetch_all_cohort_rows(client, age_group: str, gender: str) -> pd.DataFrame:
     if not all_rows:
         return pd.DataFrame(columns=COHORT_COLS.split(","))
     df = pd.DataFrame(all_rows)
-    for col in ["powerscore_adj", "powerscore_ml", "ml_norm", "power_score_true", "rank_in_cohort_final", "glicko_rating", "glicko_rd", "glicko_volatility"]:
+    for col in [
+        "powerscore_adj",
+        "powerscore_ml",
+        "ml_norm",
+        "power_score_true",
+        "rank_in_cohort_final",
+        "glicko_rating",
+        "glicko_rd",
+        "glicko_volatility",
+    ]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
     df["team_id"] = df["team_id"].astype(str)
@@ -256,7 +266,9 @@ def compute_base_rank_map(cohort_rows: pd.DataFrame) -> dict[str, int]:
 def build_comparison_ids(cohort_rows: pd.DataFrame, team_id: str, nearby: int = 5) -> list[str]:
     if cohort_rows.empty:
         return []
-    cohort_sorted = cohort_rows.sort_values(["rank_in_cohort_final", "team_id"], ascending=[True, True]).reset_index(drop=True)
+    cohort_sorted = cohort_rows.sort_values(["rank_in_cohort_final", "team_id"], ascending=[True, True]).reset_index(
+        drop=True
+    )
     top_ids = cohort_sorted.head(10)["team_id"].astype(str).tolist()
     if team_id not in set(cohort_sorted["team_id"].astype(str)):
         return top_ids
@@ -288,14 +300,15 @@ def compute_schedule_metrics(
     counts = team_window["opp_id"].astype(str).value_counts()
     ranked_rows = [rankings_map[opp_id] for opp_id in opp_ids if opp_id in rankings_map]
     ranked_unique_rows = [rankings_map[opp_id] for opp_id in counts.index if opp_id in rankings_map]
-    valid_states = [team_state_map.get(opp_id) for opp_id in opp_ids if team_state_map.get(opp_id) not in (None, "", "UNKNOWN")]
+    valid_states = [
+        team_state_map.get(opp_id) for opp_id in opp_ids if team_state_map.get(opp_id) not in (None, "", "UNKNOWN")
+    ]
     team_state = team_state_map.get(team_id)
     bridge_games = sum(1 for state in valid_states if state != team_state)
     unique_states = len(set(valid_states))
-    cross_age_mask = (
-        team_window["age"].astype(str).ne(team_window["opp_age"].astype(str))
-        | team_window["gender"].astype(str).ne(team_window["opp_gender"].astype(str))
-    )
+    cross_age_mask = team_window["age"].astype(str).ne(team_window["opp_age"].astype(str)) | team_window[
+        "gender"
+    ].astype(str).ne(team_window["opp_gender"].astype(str))
     top_rows = sorted(
         ranked_unique_rows,
         key=lambda row: (
@@ -326,9 +339,24 @@ def compute_schedule_metrics(
         unique_opponents=unique_opponents,
         ranked_opponents=len(ranked_rows),
         unranked_opponents=max(0, len(opp_ids) - len(ranked_rows)),
-        top20_count=sum(1 for row in ranked_rows if safe_float(row.get("rank_in_cohort_final")) is not None and safe_float(row.get("rank_in_cohort_final")) <= 20),
-        top100_count=sum(1 for row in ranked_rows if safe_float(row.get("rank_in_cohort_final")) is not None and safe_float(row.get("rank_in_cohort_final")) <= 100),
-        top500_count=sum(1 for row in ranked_rows if safe_float(row.get("rank_in_cohort_final")) is not None and safe_float(row.get("rank_in_cohort_final")) <= 500),
+        top20_count=sum(
+            1
+            for row in ranked_rows
+            if safe_float(row.get("rank_in_cohort_final")) is not None
+            and safe_float(row.get("rank_in_cohort_final")) <= 20
+        ),
+        top100_count=sum(
+            1
+            for row in ranked_rows
+            if safe_float(row.get("rank_in_cohort_final")) is not None
+            and safe_float(row.get("rank_in_cohort_final")) <= 100
+        ),
+        top500_count=sum(
+            1
+            for row in ranked_rows
+            if safe_float(row.get("rank_in_cohort_final")) is not None
+            and safe_float(row.get("rank_in_cohort_final")) <= 500
+        ),
         avg_opp_rank=safe_mean([safe_float(row.get("rank_in_cohort_final")) for row in ranked_rows]),
         avg_opp_power_true=safe_mean([safe_float(row.get("power_score_true")) for row in ranked_rows]),
         bridge_games=bridge_games,
@@ -374,9 +402,9 @@ def attach_cross_age_flags(explain_df: pd.DataFrame, team_games: dict[str, pd.Da
     merged["id"] = merged["id"].astype(str)
     merged["team_id"] = merged["team_id"].astype(str)
     merged = merged.merge(meta_df, on=["team_id", "id"], how="left")
-    merged["is_cross_age"] = merged["age"].astype(str).ne(merged["opp_age"].astype(str)) | merged["gender"].astype(str).ne(
-        merged["opp_gender"].astype(str)
-    )
+    merged["is_cross_age"] = merged["age"].astype(str).ne(merged["opp_age"].astype(str)) | merged["gender"].astype(
+        str
+    ).ne(merged["opp_gender"].astype(str))
     return merged
 
 
@@ -389,7 +417,9 @@ def classify_team(
     explain_df: pd.DataFrame,
 ) -> ClassificationResult:
     published_rank = int(safe_float(team_row.get("rank_in_cohort_final")) or 0)
-    ml_lift = (safe_float(team_row.get("power_score_true")) or 0.0) - (safe_float(team_row.get("powerscore_adj")) or 0.0)
+    ml_lift = (safe_float(team_row.get("power_score_true")) or 0.0) - (
+        safe_float(team_row.get("powerscore_adj")) or 0.0
+    )
     rank_gain_from_ml = (base_rank - published_rank) if base_rank and published_rank else 0
 
     explain = explain_df.copy() if explain_df is not None else pd.DataFrame()
@@ -397,7 +427,9 @@ def classify_team(
         explain["abs_contribution"] = explain["rating_contribution"].abs()
     total_abs = float(explain["abs_contribution"].sum()) if not explain.empty else 0.0
     cross_age_abs = (
-        float(explain.loc[explain["is_cross_age"].fillna(False), "abs_contribution"].sum()) if not explain.empty else 0.0
+        float(explain.loc[explain["is_cross_age"].fillna(False), "abs_contribution"].sum())
+        if not explain.empty
+        else 0.0
     )
     cross_age_contrib_share = (cross_age_abs / total_abs) if total_abs > 0 else 0.0
 
@@ -406,10 +438,7 @@ def classify_team(
         and schedule.avg_opp_power_true is not None
         and schedule.avg_opp_power_true + 0.05 < peer_medians["avg_opp_power_true"]
     )
-    few_top_opponents = (
-        (peer_medians.get("top100_count") or 0) >= 1
-        and schedule.top100_count == 0
-    )
+    few_top_opponents = (peer_medians.get("top100_count") or 0) >= 1 and schedule.top100_count == 0
     cross_age_heavy = (
         schedule.cross_age_share >= 0.25
         and peer_medians.get("cross_age_share") is not None
@@ -456,11 +485,17 @@ def classify_team(
     if low_connectivity and (repeat_heavy or weak_opp_strength or few_top_opponents):
         why = (
             f"The schedule shows weak connectivity (SCF {fmt_num(scf)}, {schedule.bridge_games} bridge games, "
-            f"{schedule.unique_opp_states} opponent states) while also leaning on softer or repetitive opponent evidence."
+            f"{schedule.unique_opp_states} opponent states) while also leaning on "
+            f"softer or repetitive opponent evidence."
         )
         return ClassificationResult("schedule-connectivity / repeat-opponent inflation", why, notes)
 
-    if base_rank is not None and published_rank and base_rank <= published_rank + 1 and (weak_opp_strength or few_top_opponents):
+    if (
+        base_rank is not None
+        and published_rank
+        and base_rank <= published_rank + 1
+        and (weak_opp_strength or few_top_opponents)
+    ):
         why = (
             f"This team is already ranked unusually high before ML (base rank {base_rank}) even though its "
             f"opponent evidence is weaker than the comparison set."
@@ -485,7 +520,9 @@ def metric_row(label: str, team_value: Any, peer_value: Any, team_fmt=fmt_num, p
     return [label, team_fmt(team_value), peer_fmt(peer_value)]
 
 
-def build_comparison_table(cohort_rows: pd.DataFrame, team_meta: dict[str, dict[str, Any]], comparison_ids: list[str]) -> str:
+def build_comparison_table(
+    cohort_rows: pd.DataFrame, team_meta: dict[str, dict[str, Any]], comparison_ids: list[str]
+) -> str:
     if cohort_rows.empty or not comparison_ids:
         return "_No comparison teams available._"
     subset = cohort_rows[cohort_rows["team_id"].astype(str).isin(comparison_ids)].copy()
@@ -607,15 +644,23 @@ async def run_audit(args: argparse.Namespace) -> tuple[Path, Path]:
     if missing:
         raise RuntimeError(f"Teams not found in rankings_full: {', '.join(missing)}")
 
-    last_calc_values = [published_rows[team_id].get("last_calculated") for team_id in target_ids if published_rows[team_id].get("last_calculated")]
+    last_calc_values = [
+        published_rows[team_id].get("last_calculated")
+        for team_id in target_ids
+        if published_rows[team_id].get("last_calculated")
+    ]
     if last_calc_values:
         baseline_ts = pd.to_datetime(max(last_calc_values), utc=True)
     else:
         baseline_ts = pd.Timestamp("2026-04-07", tz="UTC")
-    baseline_day = baseline_ts.tz_localize(None).normalize() if baseline_ts.tzinfo is not None else baseline_ts.normalize()
+    baseline_day = (
+        baseline_ts.tz_localize(None).normalize() if baseline_ts.tzinfo is not None else baseline_ts.normalize()
+    )
     baseline_label = baseline_day.strftime("%Y-%m-%d")
 
-    report_path = Path(args.report_path) if args.report_path else Path(f"reports/overranked-male-teams-{baseline_label}.md")
+    report_path = (
+        Path(args.report_path) if args.report_path else Path(f"reports/overranked-male-teams-{baseline_label}.md")
+    )
     csv_path = Path(args.csv_path) if args.csv_path else Path(f"reports/overranked-male-teams-{baseline_label}.csv")
     report_path.parent.mkdir(parents=True, exist_ok=True)
     csv_path.parent.mkdir(parents=True, exist_ok=True)
@@ -633,7 +678,9 @@ async def run_audit(args: argparse.Namespace) -> tuple[Path, Path]:
     games_df["opp_id"] = games_df["opp_id"].astype(str)
 
     target_meta = batch_fetch_team_meta(client, target_ids)
-    cohort_keys = sorted({(published_rows[team_id]["age_group"], published_rows[team_id]["gender"]) for team_id in target_ids})
+    cohort_keys = sorted(
+        {(published_rows[team_id]["age_group"], published_rows[team_id]["gender"]) for team_id in target_ids}
+    )
 
     cohort_rows_map: dict[tuple[str, str], pd.DataFrame] = {}
     comparison_ids_map: dict[str, list[str]] = {}
@@ -642,7 +689,11 @@ async def run_audit(args: argparse.Namespace) -> tuple[Path, Path]:
     for cohort_key in cohort_keys:
         cohort_rows = fetch_all_cohort_rows(client, cohort_key[0], cohort_key[1])
         cohort_rows_map[cohort_key] = cohort_rows
-        cohort_target_ids = [team_id for team_id in target_ids if (published_rows[team_id]["age_group"], published_rows[team_id]["gender"]) == cohort_key]
+        cohort_target_ids = [
+            team_id
+            for team_id in target_ids
+            if (published_rows[team_id]["age_group"], published_rows[team_id]["gender"]) == cohort_key
+        ]
         for team_id in cohort_target_ids:
             comparison_ids = build_comparison_ids(cohort_rows, team_id, nearby=5)
             comparison_ids_map[team_id] = comparison_ids
@@ -657,12 +708,28 @@ async def run_audit(args: argparse.Namespace) -> tuple[Path, Path]:
     peer_metrics_map: dict[str, dict[str, float | None]] = {}
 
     for cohort_key, cohort_rows in cohort_rows_map.items():
-        cohort_target_ids = [team_id for team_id in target_ids if (published_rows[team_id]["age_group"], published_rows[team_id]["gender"]) == cohort_key]
-        cohort_compare_ids = sorted({comp_id for team_id in cohort_target_ids for comp_id in comparison_ids_map.get(team_id, [])})
+        cohort_target_ids = [
+            team_id
+            for team_id in target_ids
+            if (published_rows[team_id]["age_group"], published_rows[team_id]["gender"]) == cohort_key
+        ]
+        cohort_compare_ids = sorted(
+            {comp_id for team_id in cohort_target_ids for comp_id in comparison_ids_map.get(team_id, [])}
+        )
         cohort_audit_ids = sorted(set(cohort_target_ids) | set(cohort_compare_ids))
         team_games = build_team_windows(games_df, cohort_audit_ids, cfg, baseline_day)
 
-        opponent_ids = sorted({str(opp_id) for team_id in cohort_audit_ids for opp_id in team_games[team_id]["opp_id"].astype(str).tolist()}) if cohort_audit_ids else []
+        opponent_ids = (
+            sorted(
+                {
+                    str(opp_id)
+                    for team_id in cohort_audit_ids
+                    for opp_id in team_games[team_id]["opp_id"].astype(str).tolist()
+                }
+            )
+            if cohort_audit_ids
+            else []
+        )
         opponent_rankings = batch_fetch_rankings_rows(
             client,
             opponent_ids,
@@ -672,7 +739,8 @@ async def run_audit(args: argparse.Namespace) -> tuple[Path, Path]:
         all_meta.update(opponent_meta)
 
         team_state_map = {
-            team_id: (all_meta.get(team_id, {}) or {}).get("state_code") or (published_rows.get(team_id, {}) or {}).get("state_code")
+            team_id: (all_meta.get(team_id, {}) or {}).get("state_code")
+            or (published_rows.get(team_id, {}) or {}).get("state_code")
             for team_id in set(cohort_audit_ids) | set(opponent_ids)
         }
         team_ratings = {
@@ -700,7 +768,10 @@ async def run_audit(args: argparse.Namespace) -> tuple[Path, Path]:
         scf_data = compute_scf(
             games_df[games_df["team_id"].isin(cohort_audit_ids)].copy(),
             team_state_map=team_state_map,
-            team_ratings={team_id: team_ratings.get(team_id, (cfg.INITIAL_MU, cfg.INITIAL_SIGMA, cfg.INITIAL_VOLATILITY)) for team_id in cohort_audit_ids},
+            team_ratings={
+                team_id: team_ratings.get(team_id, (cfg.INITIAL_MU, cfg.INITIAL_SIGMA, cfg.INITIAL_VOLATILITY))
+                for team_id in cohort_audit_ids
+            },
             cfg=cfg,
             team_games=team_games,
             tier_league_map=tier_league_map,
@@ -709,7 +780,10 @@ async def run_audit(args: argparse.Namespace) -> tuple[Path, Path]:
 
         explain_df = compute_game_explainability(
             games_df[games_df["team_id"].isin(cohort_audit_ids)].copy(),
-            team_ratings={team_id: team_ratings.get(team_id, (cfg.INITIAL_MU, cfg.INITIAL_SIGMA, cfg.INITIAL_VOLATILITY)) for team_id in cohort_audit_ids},
+            team_ratings={
+                team_id: team_ratings.get(team_id, (cfg.INITIAL_MU, cfg.INITIAL_SIGMA, cfg.INITIAL_VOLATILITY))
+                for team_id in cohort_audit_ids
+            },
             cfg=cfg,
             today=baseline_day,
             team_games=team_games,
@@ -726,11 +800,17 @@ async def run_audit(args: argparse.Namespace) -> tuple[Path, Path]:
                 team_state_map,
             )
             explainability_map[team_id] = (
-                explain_df[explain_df["team_id"].astype(str) == team_id].copy() if not explain_df.empty else pd.DataFrame()
+                explain_df[explain_df["team_id"].astype(str) == team_id].copy()
+                if not explain_df.empty
+                else pd.DataFrame()
             )
 
         for team_id in cohort_target_ids:
-            peer_metrics = [schedule_metrics_map[cid] for cid in comparison_ids_map.get(team_id, []) if cid in schedule_metrics_map and cid != team_id]
+            peer_metrics = [
+                schedule_metrics_map[cid]
+                for cid in comparison_ids_map.get(team_id, [])
+                if cid in schedule_metrics_map and cid != team_id
+            ]
             peer_metrics_map[team_id] = peer_metric_medians(peer_metrics)
 
     summary_rows: list[dict[str, Any]] = []
@@ -738,7 +818,11 @@ async def run_audit(args: argparse.Namespace) -> tuple[Path, Path]:
 
     for cohort_key, cohort_rows in cohort_rows_map.items():
         base_rank_map = compute_base_rank_map(cohort_rows)
-        cohort_target_ids = [team_id for team_id in target_ids if (published_rows[team_id]["age_group"], published_rows[team_id]["gender"]) == cohort_key]
+        cohort_target_ids = [
+            team_id
+            for team_id in target_ids
+            if (published_rows[team_id]["age_group"], published_rows[team_id]["gender"]) == cohort_key
+        ]
         for team_id in cohort_target_ids:
             team_row = published_rows[team_id]
             meta = all_meta.get(team_id, {})
@@ -751,7 +835,9 @@ async def run_audit(args: argparse.Namespace) -> tuple[Path, Path]:
                 scf_row=replay_map.get(team_id, {}),
                 explain_df=explainability_map.get(team_id, pd.DataFrame()),
             )
-            ml_lift = (safe_float(team_row.get("power_score_true")) or 0.0) - (safe_float(team_row.get("powerscore_adj")) or 0.0)
+            ml_lift = (safe_float(team_row.get("power_score_true")) or 0.0) - (
+                safe_float(team_row.get("powerscore_adj")) or 0.0
+            )
             summary_rows.append(
                 {
                     "team_id": team_id,
@@ -800,9 +886,19 @@ async def run_audit(args: argparse.Namespace) -> tuple[Path, Path]:
                     metric_row("Avg opponent power", schedule.avg_opp_power_true, peer.get("avg_opp_power_true")),
                     metric_row("Avg opponent rank", schedule.avg_opp_rank, peer.get("avg_opp_rank")),
                     metric_row("Bridge games", schedule.bridge_games, peer.get("bridge_games"), fmt_int, fmt_int),
-                    metric_row("Unique opponent states", schedule.unique_opp_states, peer.get("unique_opp_states"), fmt_int, fmt_int),
-                    metric_row("Cross-age share", schedule.cross_age_share, peer.get("cross_age_share"), fmt_pct, fmt_pct),
-                    metric_row("Repeat-opponent share", schedule.repeat_share, peer.get("repeat_share"), fmt_pct, fmt_pct),
+                    metric_row(
+                        "Unique opponent states",
+                        schedule.unique_opp_states,
+                        peer.get("unique_opp_states"),
+                        fmt_int,
+                        fmt_int,
+                    ),
+                    metric_row(
+                        "Cross-age share", schedule.cross_age_share, peer.get("cross_age_share"), fmt_pct, fmt_pct
+                    ),
+                    metric_row(
+                        "Repeat-opponent share", schedule.repeat_share, peer.get("repeat_share"), fmt_pct, fmt_pct
+                    ),
                 ],
             )
             connectivity_table = markdown_table(
@@ -829,9 +925,11 @@ async def run_audit(args: argparse.Namespace) -> tuple[Path, Path]:
                         "### Published Decomposition\n" + decomp_table,
                         "### Schedule Evidence\n" + schedule_table,
                         "### Connectivity Replay\n" + connectivity_table,
-                        "### Comparison Set\n" + build_comparison_table(cohort_rows, all_meta, comparison_ids_map.get(team_id, [])),
+                        "### Comparison Set\n"
+                        + build_comparison_table(cohort_rows, all_meta, comparison_ids_map.get(team_id, [])),
                         "### Strongest Opponents Faced\n" + build_strongest_opponents_table(schedule),
-                        "### Highest-Impact Games\n" + build_impact_games_table(explainability_map.get(team_id, pd.DataFrame()), all_meta),
+                        "### Highest-Impact Games\n"
+                        + build_impact_games_table(explainability_map.get(team_id, pd.DataFrame()), all_meta),
                     ]
                 )
             )

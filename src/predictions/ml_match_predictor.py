@@ -429,7 +429,9 @@ class MLMatchPredictor:
         X_train_margin, X_val_margin, y_margin_fit, y_margin_val = train_test_split(
             X_train, y_margin_train, test_size=0.1, random_state=random_state
         )
-        self.score_margin_model.fit(X_train_margin, y_margin_fit, eval_set=[(X_val_margin, y_margin_val)], verbose=False)
+        self.score_margin_model.fit(
+            X_train_margin, y_margin_fit, eval_set=[(X_val_margin, y_margin_val)], verbose=False
+        )
 
         # Train individual score models
         print("Training home score model...")
@@ -586,8 +588,7 @@ class MLMatchPredictor:
             # Interaction features (must match build_features)
             "power_score_product": (home_features.get("power_score_final", 0.5) or 0.5)
             * (away_features.get("power_score_final", 0.5) or 0.5),
-            "sos_product": (home_features.get("sos_norm", 0.5) or 0.5)
-            * (away_features.get("sos_norm", 0.5) or 0.5),
+            "sos_product": (home_features.get("sos_norm", 0.5) or 0.5) * (away_features.get("sos_norm", 0.5) or 0.5),
             "offense_product": (home_features.get("offense_norm", 0.5) or 0.5)
             * (away_features.get("offense_norm", 0.5) or 0.5),
             "defense_product": (home_features.get("defense_norm", 0.5) or 0.5)

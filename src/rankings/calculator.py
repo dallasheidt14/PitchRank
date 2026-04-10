@@ -221,7 +221,9 @@ def _compute_same_age_evidence_metrics(games_used_df: pd.DataFrame, teams_df: pd
     teams_work["age"] = teams_work["age"].astype(str)
     teams_work["gender"] = teams_work["gender"].astype(str)
 
-    active = teams_work[teams_work["status"] == "Active"].copy() if "status" in teams_work.columns else teams_work.copy()
+    active = (
+        teams_work[teams_work["status"] == "Active"].copy() if "status" in teams_work.columns else teams_work.copy()
+    )
     base_rank_lookup: dict[tuple[str, str], dict[str, int]] = {}
     base_power_lookup = dict(zip(teams_work["team_id"], pd.to_numeric(teams_work["powerscore_adj"], errors="coerce")))
 
@@ -248,7 +250,9 @@ def _compute_same_age_evidence_metrics(games_used_df: pd.DataFrame, teams_df: pd
         unique_same_age_opp_ids = same_age["opp_id"].dropna().astype(str).unique().tolist()
         cohort_rank_map = base_rank_lookup.get((team_age, team_gender), {})
         opp_ranks = [cohort_rank_map.get(opp_id) for opp_id in unique_same_age_opp_ids if opp_id in cohort_rank_map]
-        opp_powers = [base_power_lookup.get(opp_id) for opp_id in unique_same_age_opp_ids if opp_id in base_power_lookup]
+        opp_powers = [
+            base_power_lookup.get(opp_id) for opp_id in unique_same_age_opp_ids if opp_id in base_power_lookup
+        ]
         counts = tg["opp_id"].value_counts()
         repeat_share = float(counts[counts >= 2].sum() / len(tg)) if len(tg) else 0.0
         clean_opp_powers = [float(val) for val in opp_powers if val is not None and not pd.isna(val)]
@@ -1338,15 +1342,17 @@ async def compute_all_cohorts(
                 )
 
         teams_combined["publication_cap_score"] = teams_combined.apply(
-            lambda row: publication_cap_lookup.get(
-                (
-                    _safe_int(row.get("age_num")),
-                    str(row.get("gender")),
-                    _safe_int(row.get("publication_cap_rank")),
+            lambda row: (
+                publication_cap_lookup.get(
+                    (
+                        _safe_int(row.get("age_num")),
+                        str(row.get("gender")),
+                        _safe_int(row.get("publication_cap_rank")),
+                    )
                 )
-            )
-            if pd.notna(row.get("publication_cap_rank"))
-            else pd.NA,
+                if pd.notna(row.get("publication_cap_rank"))
+                else pd.NA
+            ),
             axis=1,
         )
 
@@ -1354,7 +1360,9 @@ async def compute_all_cohorts(
         ps_adj_series = pd.to_numeric(teams_combined.get("powerscore_adj"), errors="coerce")
         ml_blocked = ((teams_combined["positive_ml_evidence_scale"] <= 0.0) & (ps_ml_series > ps_adj_series)).sum()
         capped = pd.to_numeric(teams_combined["publication_cap_rank"], errors="coerce").notna().sum()
-        logger.info(f"🧱 Same-age evidence gates prepared: ml_blocked={int(ml_blocked)}, publication_capped={int(capped)}")
+        logger.info(
+            f"🧱 Same-age evidence gates prepared: ml_blocked={int(ml_blocked)}, publication_capped={int(capped)}"
+        )
 
     # ========== National SOS Metrics (for display only) ==========
     # NOTE: PowerScore uses cohort-level sos_norm from v53e.compute_rankings().
@@ -1516,7 +1524,8 @@ async def compute_all_cohorts(
                     if cap_mask.any():
                         base = _apply_publication_cap_band(base, teams_age)
                         logger.info(
-                            f"  📊 Age {age}: publication cap band applied to {int(cap_mask.sum())} team(s) on weak same-age evidence"
+                            f"  📊 Age {age}: publication cap band applied to "
+                            f"{int(cap_mask.sum())} team(s) on weak same-age evidence"
                         )
 
                 # Scale by anchor and clip to [0, anchor_val]

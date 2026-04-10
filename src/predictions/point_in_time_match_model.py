@@ -359,25 +359,14 @@ def _paired_snapshot_features(team_a_snapshot: dict, team_b_snapshot: dict) -> D
             )
         ),
         math.exp(
-            -abs(
-                _to_float(team_a_snapshot.get("glicko_rating"))
-                - _to_float(team_b_snapshot.get("glicko_rating"))
-            )
+            -abs(_to_float(team_a_snapshot.get("glicko_rating")) - _to_float(team_b_snapshot.get("glicko_rating")))
             / 140.0
         ),
         math.exp(
-            -abs(
-                _to_float(team_a_snapshot.get("exp_margin"))
-                - _to_float(team_b_snapshot.get("exp_margin"))
-            )
-            / 1.25
+            -abs(_to_float(team_a_snapshot.get("exp_margin")) - _to_float(team_b_snapshot.get("exp_margin"))) / 1.25
         ),
         math.exp(
-            -6.0
-            * abs(
-                _to_float(team_a_snapshot.get("exp_win_rate"))
-                - _to_float(team_b_snapshot.get("exp_win_rate"))
-            )
+            -6.0 * abs(_to_float(team_a_snapshot.get("exp_win_rate")) - _to_float(team_b_snapshot.get("exp_win_rate")))
         ),
     ]
     snapshot_strength_closeness = float(np.mean(snapshot_closeness_components))
@@ -396,9 +385,7 @@ def _paired_snapshot_features(team_a_snapshot: dict, team_b_snapshot: dict) -> D
             "power_sos_interaction_diff": (
                 _to_float(team_a_snapshot.get("power_score_final")) * _to_float(team_a_snapshot.get("sos_norm"))
             )
-            - (
-                _to_float(team_b_snapshot.get("power_score_final")) * _to_float(team_b_snapshot.get("sos_norm"))
-            ),
+            - (_to_float(team_b_snapshot.get("power_score_final")) * _to_float(team_b_snapshot.get("sos_norm"))),
             "offense_defense_balance_diff": offense_diff - defense_diff,
             "team_a_has_predictive_prior": 1.0
             if any(pd.notna(team_a_snapshot.get(field_name)) for field_name in PREDICTIVE_PRIOR_FIELDS)
@@ -470,10 +457,7 @@ def _dixon_coles_rho(
     low_total_component = np.exp(-np.maximum(np.asarray(projected_total_goals, dtype=float) - 2.2, 0.0) / 0.75)
     closeness_component = np.exp(-np.asarray(expected_goal_gap_abs, dtype=float) / 0.65)
     rho_strength = (
-        0.20 * draw_component
-        + 0.35 * stalemate_component
-        + 0.25 * low_total_component
-        + 0.20 * closeness_component
+        0.20 * draw_component + 0.35 * stalemate_component + 0.25 * low_total_component + 0.20 * closeness_component
     )
     return np.clip(
         LOW_SCORE_CORRELATION_BASE + (LOW_SCORE_CORRELATION_MAX - LOW_SCORE_CORRELATION_BASE) * rho_strength,
@@ -534,9 +518,7 @@ def _score_matrix_summary(score_matrix: np.ndarray) -> Dict[str, np.ndarray]:
     predicted_score_a = (flat_indices // score_matrix.shape[2]).astype(float)
     predicted_score_b = (flat_indices % score_matrix.shape[2]).astype(float)
 
-    goal_margin_abs = np.abs(
-        np.arange(score_matrix.shape[1])[:, None] - np.arange(score_matrix.shape[2])[None, :]
-    )
+    goal_margin_abs = np.abs(np.arange(score_matrix.shape[1])[:, None] - np.arange(score_matrix.shape[2])[None, :])
     blowout_3plus_probability = score_matrix[:, goal_margin_abs >= 3].sum(axis=1)
     blowout_5plus_probability = score_matrix[:, goal_margin_abs >= 5].sum(axis=1)
 
@@ -706,9 +688,9 @@ def _build_common_opponent_feature_summary(
         draw_rate_diff = team_a_draw_rate - team_b_draw_rate
         goal_balance_diff = team_a_goal_balance - team_b_goal_balance
 
-        avg_opponent_power = (
-            team_a_stats["weightedOpponentPower"] + team_b_stats["weightedOpponentPower"]
-        ) / max(team_a_stats["totalWeight"] + team_b_stats["totalWeight"], 1e-9)
+        avg_opponent_power = (team_a_stats["weightedOpponentPower"] + team_b_stats["weightedOpponentPower"]) / max(
+            team_a_stats["totalWeight"] + team_b_stats["totalWeight"], 1e-9
+        )
         same_age_rate = min(
             team_a_stats["weightedSameAge"] / team_a_stats["totalWeight"],
             team_b_stats["weightedSameAge"] / team_b_stats["totalWeight"],
@@ -917,9 +899,7 @@ def build_point_in_time_matchup_row(
             "common_opponent_strength_weighted_opponent_power": _to_float(
                 common_opponent_details.get("strengthWeightedOpponentPower")
             ),
-            "common_opponent_consensus_signal": _to_float(
-                common_opponent_details.get("commonOpponentConsensusSignal")
-            ),
+            "common_opponent_consensus_signal": _to_float(common_opponent_details.get("commonOpponentConsensusSignal")),
             "team_a_prior_game_count": float(len(team_a_prior_games)),
             "team_b_prior_game_count": float(len(team_b_prior_games)),
             "combined_prior_game_count": float(len(combined_prior_games)),
@@ -948,7 +928,9 @@ def build_point_in_time_matchup_row(
         _to_float(features.get("common_opponent_closeness")),
         _to_float(features.get("head_to_head_closeness")),
     ]
-    stalemate_signal = float(np.mean(stalemate_components)) * (0.7 + 0.6 * _to_float(features.get("combined_draw_rate")))
+    stalemate_signal = float(np.mean(stalemate_components)) * (
+        0.7 + 0.6 * _to_float(features.get("combined_draw_rate"))
+    )
     features["stalemate_signal"] = float(np.clip(stalemate_signal, 0.0, 1.0))
     features["expected_draw_environment"] = float(
         np.clip(
@@ -1104,8 +1086,7 @@ def build_point_in_time_dataset(
         class_counts = dataset["actual_outcome"].value_counts().sort_index()
         summary["class_counts"] = {str(label): int(count) for label, count in class_counts.items()}
         summary["class_rates"] = {
-            str(label): float(count) / float(len(dataset))
-            for label, count in class_counts.items()
+            str(label): float(count) / float(len(dataset)) for label, count in class_counts.items()
         }
     return DatasetBuildResult(dataset=dataset, summary=summary)
 
@@ -1348,9 +1329,7 @@ class PointInTimeMatchModel:
         probabilities = self.draw_classifier.predict_proba(matrix)
         draw_classes = getattr(self.draw_classifier, "classes_", np.array([0, 1]))
         draw_index = (
-            int(np.where(np.asarray(draw_classes) == 1)[0][0])
-            if 1 in draw_classes
-            else probabilities.shape[1] - 1
+            int(np.where(np.asarray(draw_classes) == 1)[0][0]) if 1 in draw_classes else probabilities.shape[1] - 1
         )
         return np.asarray(probabilities[:, draw_index], dtype=float)
 
@@ -1360,9 +1339,7 @@ class PointInTimeMatchModel:
         probabilities = classifier.predict_proba(matrix)
         binary_classes = getattr(classifier, "classes_", np.array([0, 1]))
         positive_index = (
-            int(np.where(np.asarray(binary_classes) == 1)[0][0])
-            if 1 in binary_classes
-            else probabilities.shape[1] - 1
+            int(np.where(np.asarray(binary_classes) == 1)[0][0]) if 1 in binary_classes else probabilities.shape[1] - 1
         )
         return np.asarray(probabilities[:, positive_index], dtype=float)
 
@@ -1388,14 +1365,10 @@ class PointInTimeMatchModel:
         draw_probability = np.asarray(probabilities[:, OUTCOME_DRAW], dtype=float)
         draw_gap = np.max(probabilities[:, [OUTCOME_TEAM_A_WIN, OUTCOME_TEAM_B_WIN]], axis=1) - draw_probability
         projected_total_goals = (
-            pd.to_numeric(dataset_df.get("projected_total_goals"), errors="coerce")
-            .fillna(np.inf)
-            .to_numpy(dtype=float)
+            pd.to_numeric(dataset_df.get("projected_total_goals"), errors="coerce").fillna(np.inf).to_numpy(dtype=float)
         )
         stalemate_signal = (
-            pd.to_numeric(dataset_df.get("stalemate_signal"), errors="coerce")
-            .fillna(0.0)
-            .to_numpy(dtype=float)
+            pd.to_numeric(dataset_df.get("stalemate_signal"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
         )
         draw_mask = (
             (draw_probability >= float(policy["min_draw_probability"]))
@@ -1425,9 +1398,7 @@ class PointInTimeMatchModel:
         if precision <= 0.0 and recall <= 0.0:
             f_beta = 0.0
         else:
-            f_beta = ((1.0 + beta_squared) * precision * recall) / (
-                (beta_squared * precision) + recall
-            )
+            f_beta = ((1.0 + beta_squared) * precision * recall) / ((beta_squared * precision) + recall)
         predicted_draw_rate = float(np.mean(predicted_draw))
         accuracy = float(np.mean(predicted_labels == actual_labels))
         actual_draw_rate = float(np.mean(actual_draw))
@@ -1636,9 +1607,7 @@ class PointInTimeMatchModel:
             if precision <= 0.0 and recall <= 0.0:
                 f_beta = 0.0
             else:
-                f_beta = ((1.0 + beta_squared) * precision * recall) / (
-                    (beta_squared * precision) + recall
-                )
+                f_beta = ((1.0 + beta_squared) * precision * recall) / ((beta_squared * precision) + recall)
             predicted_rate = float(np.mean(predicted_positive))
             rate_gap = abs(predicted_rate - target_rate)
             overshoot = max(0.0, predicted_rate - target_rate)
@@ -1769,12 +1738,10 @@ class PointInTimeMatchModel:
         viable_strategies: List[str] = []
         rejected_strategies: Dict[str, Dict[str, object]] = {}
         best_winner_accuracy = max(
-            _to_float(summary.get("winner_accuracy"), default=float("-inf"))
-            for summary in strategy_metrics.values()
+            _to_float(summary.get("winner_accuracy"), default=float("-inf")) for summary in strategy_metrics.values()
         )
         best_log_loss = min(
-            _to_float(summary.get("log_loss"), default=float("inf"))
-            for summary in strategy_metrics.values()
+            _to_float(summary.get("log_loss"), default=float("inf")) for summary in strategy_metrics.values()
         )
 
         for strategy_name in strategy_metrics:
@@ -1933,8 +1900,7 @@ class PointInTimeMatchModel:
             nan=fallback_draw_probability,
         )
         draw_model_probability = np.clip(
-            self.draw_rate_prior
-            + DRAW_MODEL_SHRINK_FACTOR * (raw_draw_model_probability - self.draw_rate_prior),
+            self.draw_rate_prior + DRAW_MODEL_SHRINK_FACTOR * (raw_draw_model_probability - self.draw_rate_prior),
             0.01,
             0.75,
         )
@@ -2211,18 +2177,12 @@ class PointInTimeMatchModel:
             predicted_score_b,
         )
         projected_total_goals = (
-            pd.to_numeric(dataset_df.get("projected_total_goals"), errors="coerce")
-            .fillna(0.0)
-            .to_numpy(dtype=float)
+            pd.to_numeric(dataset_df.get("projected_total_goals"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
         )
         stalemate_signal = (
-            pd.to_numeric(dataset_df.get("stalemate_signal"), errors="coerce")
-            .fillna(0.0)
-            .to_numpy(dtype=float)
+            pd.to_numeric(dataset_df.get("stalemate_signal"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
         )
-        expected_goal_gap_abs = np.abs(
-            strategy_outputs.expected_goals_a - strategy_outputs.expected_goals_b
-        )
+        expected_goal_gap_abs = np.abs(strategy_outputs.expected_goals_a - strategy_outputs.expected_goals_b)
         draw_trigger = _poisson_draw_gate_mask(
             draw_probability=strategy_outputs.probabilities[:, OUTCOME_DRAW],
             projected_total_goals=projected_total_goals,
@@ -2314,14 +2274,10 @@ class PointInTimeMatchModel:
                 "predicted_blowout_3plus": predicted_blowout_3plus,
                 "predicted_blowout_5plus": predicted_blowout_5plus,
                 "stalemate_signal": (
-                    pd.to_numeric(test_df.get("stalemate_signal"), errors="coerce")
-                    .fillna(0.0)
-                    .to_numpy()
+                    pd.to_numeric(test_df.get("stalemate_signal"), errors="coerce").fillna(0.0).to_numpy()
                 ),
                 "projected_total_goals": (
-                    pd.to_numeric(test_df.get("projected_total_goals"), errors="coerce")
-                    .fillna(0.0)
-                    .to_numpy()
+                    pd.to_numeric(test_df.get("projected_total_goals"), errors="coerce").fillna(0.0).to_numpy()
                 ),
                 "predicted_margin": predicted_margin,
                 "actual_margin": test_df["actual_margin"].astype(float).to_numpy(),
@@ -2385,8 +2341,7 @@ class PointInTimeMatchModel:
         unique_labels = sorted(np.unique(y_train).tolist())
         if len(unique_labels) < 2:
             raise ValueError(
-                "Training data does not contain enough class diversity. "
-                f"Observed only outcome labels: {unique_labels}"
+                f"Training data does not contain enough class diversity. Observed only outcome labels: {unique_labels}"
             )
 
         self.class_labels = unique_labels
@@ -2604,10 +2559,7 @@ class PointInTimeMatchModel:
                 },
             },
             "draw_decision_policy": {
-                "default": {
-                    key: float(value)
-                    for key, value in self.draw_decision_policy.get("default", {}).items()
-                },
+                "default": {key: float(value) for key, value in self.draw_decision_policy.get("default", {}).items()},
                 "by_age": {
                     str(age): {key: float(value) for key, value in policy.items()}
                     for age, policy in self.draw_decision_policy.get("by_age", {}).items()
