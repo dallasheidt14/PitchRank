@@ -30,9 +30,16 @@ function getStateInfo(stateCode: string): { code: string; name: string } | null 
  * Keyed by lowercase state code. Falls back to generic template if not listed.
  */
 const STATE_DESCRIPTIONS: Record<string, string> = {
-  co: 'Colorado youth soccer rankings for every age group—Rapids, Real Colorado, Colorado Storm and more. PowerScore ratings updated weekly from real game results. Find your club now.',
-  tx: 'Texas youth soccer rankings for every age group—FC Dallas, Solar SC, Lonestar and more. PowerScore ratings updated weekly from real game results. Find your club now.',
-  md: 'Maryland youth soccer rankings for every age group—Baltimore Armour, Pipeline SC, MSC and more. PowerScore ratings updated weekly from real game results. Find your club now.',
+  co: 'Colorado youth soccer rankings for every age group — Rapids Youth, Real Colorado, Colorado Storm and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
+  tx: 'Texas youth soccer rankings for every age group — FC Dallas, Solar SC, Lonestar and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
+  md: 'Maryland youth soccer rankings for every age group — Baltimore Armour, Pipeline SC, MSC and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
+  ca: 'California youth soccer rankings for every age group — LA Galaxy, San Diego Surf, Beach FC and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
+  ny: 'New York youth soccer rankings for every age group — Manhattan SC, SUSA, Albertson and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
+  ga: 'Georgia youth soccer rankings for every age group — Atlanta United, Concorde Fire, United Futbol and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
+  nj: 'New Jersey youth soccer rankings for every age group — PDA, STA, Players Development and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
+  az: 'Arizona youth soccer rankings for every age group — SC Del Sol, Scottsdale Blackhawks, Real Salt Lake AZ and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
+  pa: 'Pennsylvania youth soccer rankings for every age group — Philadelphia Union, FC DELCO, Bethlehem and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
+  fl: 'Florida youth soccer rankings for every age group — Weston FC, South Florida Football Academy, Orlando City and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
 };
 
 /**
@@ -44,20 +51,24 @@ export async function generateMetadata({ params }: StateOverviewPageProps): Prom
 
   const stateInfo = getStateInfo(region);
   if (!stateInfo) {
-    return { title: 'Not Found | PitchRank' };
+    return { title: 'Not Found' };
   }
 
   const canonicalUrl = `${BASE_URL}/rankings/${region.toLowerCase()}`;
   const isNational = region.toLowerCase() === 'national';
 
   const title = isNational
-    ? 'National Youth Soccer Rankings | PitchRank'
-    : `${stateInfo.name} Youth Soccer Rankings | PitchRank`;
+    ? 'National Youth Soccer Rankings 2026 — Updated Weekly'
+    : `${stateInfo.name} Youth Soccer Rankings 2026 — Updated Weekly`;
 
   const description = isNational
     ? 'National youth soccer rankings for all age groups. 77K+ teams ranked across 700K+ games analyzed. See where your team stands. Updated weekly.'
     : (STATE_DESCRIPTIONS[region.toLowerCase()] ??
       `${stateInfo.name} youth soccer rankings - Find where your team ranks among 77K+ teams. PowerScore ratings updated weekly from 700K+ analyzed games. Start now!`);
+
+  const ogTitle = isNational
+    ? 'National Youth Soccer Rankings 2026 | PitchRank'
+    : `${stateInfo.name} Youth Soccer Rankings 2026 | PitchRank`;
 
   return {
     title,
@@ -66,16 +77,25 @@ export async function generateMetadata({ params }: StateOverviewPageProps): Prom
       canonical: canonicalUrl,
     },
     openGraph: {
-      title,
+      title: ogTitle,
       description,
       url: canonicalUrl,
       siteName: 'PitchRank',
       type: 'website',
+      images: [
+        {
+          url: `${BASE_URL}/opengraph-image.png`,
+          width: 1200,
+          height: 630,
+          alt: ogTitle,
+        },
+      ],
     },
     twitter: {
       card: 'summary_large_image',
-      title,
+      title: ogTitle,
       description,
+      images: [`${BASE_URL}/opengraph-image.png`],
     },
   };
 }

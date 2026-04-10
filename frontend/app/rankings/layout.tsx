@@ -9,25 +9,25 @@ import { BASE_URL } from '@/lib/constants';
  * NOTE: Uses absolute URLs for canonical/OG to avoid Google indexing issues
  */
 export const metadata: Metadata = {
-  title: 'Youth Soccer Rankings: 101,000+ Teams Ranked by PowerScore',
+  title: '2026 Youth Soccer Rankings by State & Age Group',
   description:
-    'Youth soccer rankings for every state, age group, and gender. 101,354 teams scored from 726,730+ real game results—updated weekly. Find where your club ranks.',
+    'Where does your team rank? 77K+ youth soccer teams rated weekly by PowerScore. Browse rankings by state, age group U10-U19, boys and girls. Free.',
   alternates: {
     canonical: `${BASE_URL}/rankings`,
   },
   openGraph: {
-    title: 'Youth Soccer Rankings: 101,000+ Teams Ranked by PowerScore',
+    title: '2026 Youth Soccer Rankings by State & Age Group | PitchRank',
     description:
-      'Youth soccer rankings for every state, age group, and gender. 101,354 teams scored from 726,730+ real game results—updated weekly.',
+      'Where does your team rank? 77K+ youth soccer teams rated weekly by PowerScore. Browse rankings by state, age group U10-U19, boys and girls. Free.',
     url: `${BASE_URL}/rankings`,
     siteName: 'PitchRank',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Youth Soccer Rankings | 101K+ Teams Ranked',
+    title: '2026 Youth Soccer Rankings by State & Age Group | PitchRank',
     description:
-      'Youth soccer rankings for every state, age group, and gender. 101,354 teams scored weekly from real game results.',
+      'Where does your team rank? 77K+ youth soccer teams rated weekly by PowerScore. Browse rankings by state, age group U10-U19, boys and girls. Free.',
   },
 };
 
