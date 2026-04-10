@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import os
 import sys
 from pathlib import Path
@@ -267,6 +268,52 @@ def _to_python(value: Any) -> Any:
     return value
 
 
+def _round_half_up(value: Any) -> int:
+    try:
+        numeric_value = float(value)
+    except Exception:
+        return 0
+    if math.isnan(numeric_value) or math.isinf(numeric_value):
+        return 0
+    return max(0, int(math.floor(numeric_value + 0.5)))
+
+
+def _winner_consistent_expected_score(
+    predicted_winner: str,
+    expected_goals_a: float,
+    expected_goals_b: float,
+) -> Dict[str, int]:
+    score_a = _round_half_up(expected_goals_a)
+    score_b = _round_half_up(expected_goals_b)
+
+    if predicted_winner == "team_a" and score_a <= score_b:
+        score_a = score_b + 1
+    elif predicted_winner == "team_b" and score_b <= score_a:
+        score_b = score_a + 1
+    elif predicted_winner == "draw" and score_a != score_b:
+        tied_score = _round_half_up((float(expected_goals_a) + float(expected_goals_b)) / 2.0)
+        score_a = tied_score
+        score_b = tied_score
+
+    return {
+        "teamA": score_a,
+        "teamB": score_b,
+    }
+
+
+def _winner_consistent_expected_margin(
+    predicted_winner: str,
+    expected_goals_a: float,
+    expected_goals_b: float,
+) -> float:
+    expected_goal_margin = float(expected_goals_a) - float(expected_goals_b)
+    if predicted_winner == "team_a":
+        return expected_goal_margin if expected_goal_margin > 0.0 else max(abs(expected_goal_margin), 0.05)
+    if predicted_winner == "team_b":
+        return expected_goal_margin if expected_goal_margin < 0.0 else -max(abs(expected_goal_margin), 0.05)
+    return 0.0
+
+
 def _build_shadow_payload(
     prediction_row: pd.Series,
     *,
@@ -274,6 +321,17 @@ def _build_shadow_payload(
     calibrated: bool,
 ) -> Dict[str, Any]:
     predicted_winner = str(prediction_row.get("predicted_outcome") or "draw")
+    expected_goals_a = float(prediction_row.get("expected_goals_a") or 0.0)
+    expected_goals_b = float(prediction_row.get("expected_goals_b") or 0.0)
+    displayed_score = _winner_consistent_expected_score(
+        predicted_winner=predicted_winner,
+        expected_goals_a=expected_goals_a,
+        expected_goals_b=expected_goals_b,
+    )
+    modal_score = {
+        "teamA": _round_half_up(prediction_row.get("predicted_score_a")),
+        "teamB": _round_half_up(prediction_row.get("predicted_score_b")),
+    }
     return {
         "modelVersion": model_version,
         "calibrated": calibrated,
@@ -282,11 +340,12 @@ def _build_shadow_payload(
             "winProbabilityA": float(prediction_row["prob_team_a_win"]),
             "drawProbability": float(prediction_row["prob_draw"]),
             "winProbabilityB": float(prediction_row["prob_team_b_win"]),
-            "expectedScore": {
-                "teamA": int(round(float(prediction_row["predicted_score_a"]))),
-                "teamB": int(round(float(prediction_row["predicted_score_b"]))),
-            },
-            "expectedMargin": float(prediction_row["predicted_margin"]),
+            "expectedScore": displayed_score,
+            "expectedMargin": _winner_consistent_expected_margin(
+                predicted_winner=predicted_winner,
+                expected_goals_a=expected_goals_a,
+                expected_goals_b=expected_goals_b,
+            ),
             "probabilityStrategy": str(prediction_row.get("probability_strategy") or ""),
             "blowoutProbability3Plus": float(prediction_row.get("blowout_3plus_probability") or 0.0),
             "blowoutProbability5Plus": float(prediction_row.get("blowout_5plus_probability") or 0.0),
@@ -296,8 +355,10 @@ def _build_shadow_payload(
         "diagnostics": {
             "stalemateSignal": float(prediction_row.get("stalemate_signal") or 0.0),
             "projectedTotalGoals": float(prediction_row.get("projected_total_goals") or 0.0),
-            "expectedGoalsA": float(prediction_row.get("expected_goals_a") or 0.0),
-            "expectedGoalsB": float(prediction_row.get("expected_goals_b") or 0.0),
+            "expectedGoalsA": expected_goals_a,
+            "expectedGoalsB": expected_goals_b,
+            "mostLikelyExactScore": modal_score,
+            "modelPredictedMargin": float(prediction_row.get("predicted_margin") or 0.0),
             "poissonProbabilities": {
                 "teamA": float(prediction_row.get("poisson_prob_team_a_win") or 0.0),
                 "draw": float(prediction_row.get("poisson_prob_draw") or 0.0),
