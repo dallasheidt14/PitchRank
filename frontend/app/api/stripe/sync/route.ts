@@ -1,5 +1,6 @@
 import { stripe, extractPeriodEnd, mapStatusToPlan } from '@/lib/stripe/server';
-import { requireAuth } from '@/lib/api/requireAuth';
+import { getSupabaseAdmin } from '@/lib/supabase/service';
+import { optionalAuth } from '@/lib/api/optionalAuth';
 import { NextResponse } from 'next/server';
 
 /**
@@ -9,13 +10,13 @@ import { NextResponse } from 'next/server';
  * Stripe and update user_profiles. This covers the case where the webhook
  * fails (misconfigured secret, cold-start timeout, etc.).
  *
- * Only the authenticated user who owns the session can call this.
+ * Supports both authenticated users (verifies ownership via metadata or
+ * stripe_customer_id) and anonymous checkouts (verifies via session_id,
+ * which is a secret known only to the checkout user).
  */
 export async function POST(req: Request) {
   try {
-    const auth = await requireAuth();
-    if (auth.error) return auth.error;
-    const { user, supabase } = auth;
+    const { user, supabase } = await optionalAuth();
 
     const { sessionId } = await req.json();
     if (!sessionId || typeof sessionId !== 'string') {
@@ -39,57 +40,79 @@ export async function POST(req: Request) {
 
     const status = subscription.status;
     const plan = mapStatusToPlan(status);
+    const updates = {
+      stripe_customer_id: customerId,
+      stripe_subscription_id: subscription.id,
+      subscription_status: status,
+      plan,
+      subscription_period_end: extractPeriodEnd(subscription),
+      cancel_at_period_end: subscription.cancel_at_period_end ?? false,
+      updated_at: new Date().toISOString(),
+    };
 
-    // Verify the caller owns this checkout session via metadata (preferred)
-    // or via profile customer_id (legacy fallback for sessions created before metadata was added)
-    const sessionUserId = session.metadata?.supabase_user_id;
-    if (sessionUserId) {
-      if (sessionUserId !== user.id) {
-        return NextResponse.json({ error: 'Session does not belong to you' }, { status: 403 });
+    // --- Authenticated sync: verify ownership, update by user.id ---
+    if (user && supabase) {
+      const sessionUserId = session.metadata?.supabase_user_id;
+      if (sessionUserId) {
+        if (sessionUserId !== user.id) {
+          return NextResponse.json({ error: 'Session does not belong to you' }, { status: 403 });
+        }
+      } else {
+        const { data: profile } = await supabase
+          .from('user_profiles')
+          .select('stripe_customer_id')
+          .eq('id', user.id)
+          .single();
+        if (!profile?.stripe_customer_id) {
+          return NextResponse.json(
+            { error: 'No customer ID on profile — cannot verify session ownership' },
+            { status: 403 }
+          );
+        }
+        if (profile.stripe_customer_id !== customerId) {
+          return NextResponse.json({ error: 'Session does not belong to you' }, { status: 403 });
+        }
       }
-    } else {
-      const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('stripe_customer_id')
-        .eq('id', user.id)
-        .single();
-      if (!profile?.stripe_customer_id) {
-        return NextResponse.json(
-          { error: 'No customer ID on profile — cannot verify session ownership' },
-          { status: 403 }
-        );
+
+      const { error: updateError } = await supabase.from('user_profiles').update(updates).eq('id', user.id);
+
+      if (updateError) {
+        console.error('Sync: error updating profile:', updateError);
+        return NextResponse.json({ error: 'Failed to sync' }, { status: 500 });
       }
-      if (profile.stripe_customer_id !== customerId) {
-        return NextResponse.json({ error: 'Session does not belong to you' }, { status: 403 });
-      }
+
+      console.log(`Sync: updated user ${user.id} -> plan=${plan}, status=${status}, customer=${customerId}`);
+      return NextResponse.json({ synced: true, plan, status });
     }
 
-    // Update user_profiles (same fields as webhook handler)
-    const { error: updateError } = await supabase
+    // --- Anonymous sync: verify via session_id, update by stripe_customer_id ---
+    // The session_id is a secret URL parameter from Stripe that only the checkout user has.
+    const { data: profile, error: profileError } = await getSupabaseAdmin()
       .from('user_profiles')
-      .update({
-        stripe_customer_id: customerId,
-        stripe_subscription_id: subscription.id,
-        subscription_status: status,
-        plan,
-        subscription_period_end: extractPeriodEnd(subscription),
-        cancel_at_period_end: subscription.cancel_at_period_end ?? false,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', user.id);
+      .select('id')
+      .eq('stripe_customer_id', customerId)
+      .maybeSingle();
+
+    if (profileError) {
+      console.error('Sync: error looking up profile:', profileError);
+      return NextResponse.json({ error: 'Failed to sync' }, { status: 500 });
+    }
+
+    if (!profile) {
+      // Webhook may not have fired yet — this is expected for very fast redirects
+      console.log('Sync: no profile found for anonymous checkout (webhook may be pending)');
+      return NextResponse.json({ synced: false, error: 'Profile not yet created' }, { status: 202 });
+    }
+
+    const { error: updateError } = await getSupabaseAdmin().from('user_profiles').update(updates).eq('id', profile.id);
 
     if (updateError) {
       console.error('Sync: error updating profile:', updateError);
       return NextResponse.json({ error: 'Failed to sync' }, { status: 500 });
     }
 
-    console.log(`Sync: updated user ${user.id} -> plan=${plan}, status=${status}, customer=${customerId}`);
-
-    return NextResponse.json({
-      synced: true,
-      plan,
-      status,
-    });
+    console.log(`Sync: updated anonymous user ${profile.id} -> plan=${plan}, status=${status}`);
+    return NextResponse.json({ synced: true, plan, status });
   } catch (error) {
     console.error('Sync error:', error);
     return NextResponse.json({ error: 'Failed to sync subscription' }, { status: 500 });

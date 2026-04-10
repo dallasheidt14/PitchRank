@@ -3,11 +3,12 @@
 import { useEffect, useState, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Check, Crown, ArrowRight, Sparkles, Search, Eye, BarChart3, Share2 } from 'lucide-react';
+import { Check, Crown, ArrowRight, Sparkles, Search, Eye, BarChart3, Share2, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { launchConfetti } from '@/components/ui/confetti';
 import { trackSubscriptionCompleted } from '@/lib/events';
+import { useUser } from '@/hooks/useUser';
 
 const ONBOARDING_STEPS = [
   {
@@ -43,6 +44,7 @@ export default function UpgradeSuccessPage() {
 
 function UpgradeSuccessContent() {
   const searchParams = useSearchParams();
+  const { user, isLoading: userLoading } = useUser();
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const confettiLaunched = useRef(false);
   const syncStarted = useRef(false);
@@ -156,37 +158,52 @@ function UpgradeSuccessContent() {
               </ul>
             </div>
 
-            {/* Receipt Note */}
-            <p className="text-xs text-muted-foreground">
-              A receipt has been sent to your email address. You can manage your subscription at any time from your
-              account settings.
-            </p>
+            {/* Receipt / Next Steps Note */}
+            {!userLoading && !user ? (
+              <div className="bg-primary/10 border border-primary/20 rounded-lg p-4 text-center">
+                <Mail className="w-6 h-6 text-primary mx-auto mb-2" />
+                <p className="text-sm font-medium mb-1">Check your email to set up your account</p>
+                <p className="text-xs text-muted-foreground">
+                  We sent a link to set your password. Click it to log in and access all premium features.
+                </p>
+                <Button variant="outline" size="sm" asChild className="mt-3 text-xs">
+                  <Link href="/login">Already set your password? Sign in</Link>
+                </Button>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                A receipt has been sent to your email address. You can manage your subscription at any time from your
+                account settings.
+              </p>
+            )}
           </CardContent>
         </Card>
 
-        {/* Onboarding Steps */}
-        <div>
-          <h3 className="text-lg font-semibold text-center mb-4">Get started in 3 steps</h3>
-          <div className="grid gap-4 md:grid-cols-3">
-            {ONBOARDING_STEPS.map((step, index) => (
-              <Card key={index} variant="elevated" className="text-center">
-                <CardContent className="pt-6 pb-4">
-                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
-                    <step.icon className="w-5 h-5 text-primary" />
-                  </div>
-                  <h4 className="font-medium text-sm mb-1">{step.title}</h4>
-                  <p className="text-xs text-muted-foreground mb-3">{step.description}</p>
-                  <Button variant="outline" size="sm" asChild className="text-xs">
-                    <Link href={step.href}>
-                      {step.cta}
-                      <ArrowRight className="w-3 h-3 ml-1" />
-                    </Link>
-                  </Button>
-                </CardContent>
-              </Card>
-            ))}
+        {/* Onboarding Steps (shown for authenticated users) */}
+        {(user || userLoading) && (
+          <div>
+            <h3 className="text-lg font-semibold text-center mb-4">Get started in 3 steps</h3>
+            <div className="grid gap-4 md:grid-cols-3">
+              {ONBOARDING_STEPS.map((step, index) => (
+                <Card key={index} variant="elevated" className="text-center">
+                  <CardContent className="pt-6 pb-4">
+                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
+                      <step.icon className="w-5 h-5 text-primary" />
+                    </div>
+                    <h4 className="font-medium text-sm mb-1">{step.title}</h4>
+                    <p className="text-xs text-muted-foreground mb-3">{step.description}</p>
+                    <Button variant="outline" size="sm" asChild className="text-xs">
+                      <Link href={step.href}>
+                        {step.cta}
+                        <ArrowRight className="w-3 h-3 ml-1" />
+                      </Link>
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Share CTA */}
         <div className="text-center">
