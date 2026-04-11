@@ -1,17 +1,6 @@
-import React from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act } from 'react-dom/test-utils';
+import React, { act } from 'react';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
-
-vi.mock('next/link', () => ({
-  default: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) =>
-    React.createElement('a', { href, ...props }, children),
-}));
-
-vi.mock('@/lib/events', () => ({
-  trackPaywallImpression: vi.fn(),
-  trackPaywallUpgradeClicked: vi.fn(),
-}));
 
 import { GameBreakdownPanel } from './GameBreakdownPanel';
 
@@ -21,8 +10,8 @@ const breakdown = {
   game_id: 'provider-game-1',
   opp_id: '33333333-3333-3333-3333-333333333333',
   game_date: '2026-04-01',
-  gf: 3,
-  ga: 1,
+  gf: 4,
+  ga: 0,
   team_mu: 1500,
   team_sigma: 80,
   opp_mu: 1560,
@@ -31,10 +20,10 @@ const breakdown = {
   actual_outcome: 0.86,
   outcome_surprise: 0.45,
   g_factor: 0.94,
-  recency_weight: 1.2,
+  recency_weight: 0.12,
   rating_contribution: 0.14,
-  off_residual: 1.2,
-  def_residual: 0.8,
+  off_residual: 2.1,
+  def_residual: 0.4,
 };
 
 function renderPanel() {
@@ -84,12 +73,13 @@ describe('GameBreakdownPanel', () => {
       })
     );
 
-    expect(container?.textContent).toContain('This game helped the rating');
-    expect(container?.textContent).toContain('Meaningful rating swing');
-    expect(container?.textContent).toContain('Expected result');
+    expect(container?.textContent).toContain('Outperformed expectation');
+    expect(container?.textContent).toContain('Above expectation');
+    expect(container?.textContent).toContain('PitchRank expected roughly 2-0.');
+    expect(container?.textContent).toContain('Actual result: 4-0 (margin +4.0 goals).');
   });
 
-  it('renders the locked teaser for non-premium users', async () => {
+  it('shows an unavailable message when breakdown data is missing', async () => {
     await flushRender(
       root!,
       React.createElement(GameBreakdownPanel, {
@@ -101,7 +91,6 @@ describe('GameBreakdownPanel', () => {
       })
     );
 
-    expect(container?.textContent).toContain('Unlock the full game breakdown');
-    expect(container?.textContent).toContain('Upgrade to Unlock');
+    expect(container?.textContent).toContain('Breakdown unavailable for this game yet');
   });
 });

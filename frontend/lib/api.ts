@@ -1038,7 +1038,7 @@ export const api = {
 
   /**
    * Get persisted explainability breakdowns for a team's visible games.
-   * Premium-only server route; the browser never reads the table directly.
+   * Server route only; the browser never reads the table directly.
    */
   async getGameExplainability(teamId: string, gameIds: string[]): Promise<GameExplainability[]> {
     const uniqueGameIds = Array.from(new Set(gameIds.filter(Boolean)));

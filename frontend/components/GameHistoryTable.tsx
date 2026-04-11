@@ -1,14 +1,15 @@
 'use client';
 
-import { Fragment, useCallback, useState } from 'react';
-import { ChevronDown, ChevronRight, Lock } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { TableSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { LastUpdated } from '@/components/ui/LastUpdated';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useGameExplainability, useTeamGames, useTeam } from '@/lib/hooks';
 import { formatGameDate } from '@/lib/dateUtils';
+import { explainGameBreakdown } from '@/lib/gameExplainer';
 import Link from 'next/link';
 import { usePrefetchTeam } from '@/lib/hooks';
 import type { GameWithTeams } from '@/lib/types';
@@ -25,8 +26,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { GameBreakdownPanel } from '@/components/GameBreakdownPanel';
-import { hasPremiumAccess, useUser } from '@/hooks/useUser';
 
 function UnlinkOpponentButton({
   game,
@@ -144,63 +143,50 @@ interface GameHistoryTableProps {
   teamName?: string;
 }
 
-/**
- * GameHistoryTable component - displays all games for a team
- */
 export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTableProps) {
-  // Default to 100 games for better performance - users rarely need all games at once
   const gamesLimit = limit ?? 100;
-  const [expandedGameId, setExpandedGameId] = useState<string | null>(null);
   const { data, isLoading, isError, error, refetch } = useTeamGames(teamId, gamesLimit);
   const prefetchTeam = usePrefetchTeam();
-  const { profile, isLoading: userLoading } = useUser();
-  const isPremium = hasPremiumAccess(profile);
-
-  // Fetch team name if not provided (React Query will reuse cached data from TeamHeader)
   const { data: team } = useTeam(teamId);
   const displayTeamName = teamName || team?.team_name || 'this team';
 
-  // Extract games and lastScrapedAt from data with proper typing
   type TeamGamesData = { games: GameWithTeams[]; lastScrapedAt: string | null };
   const gamesData = data as TeamGamesData | undefined;
   const games: GameWithTeams[] | undefined = gamesData?.games;
-  const visibleGameIds = games?.map((game) => game.id) ?? [];
-  const { data: explainabilityRows, isLoading: explainabilityLoading } = useGameExplainability(
-    teamId,
-    visibleGameIds,
-    !userLoading && isPremium
-  );
-  const explainabilityByGameId = new Map((explainabilityRows ?? []).map((row) => [row.game_uuid, row]));
-  // Prefer team.last_scraped_at (updated every scrape run, even when no new games found)
-  // over game-derived lastScrapedAt (only reflects when the most recent game was scraped)
   const lastScrapedAt: string | null = team?.last_scraped_at ?? gamesData?.lastScrapedAt ?? null;
 
-  /**
-   * Get the ML overperformance value from the team's perspective
-   * Database stores from home team's perspective, so flip sign for away team
-   */
   const getTeamPerspectiveOverperformance = useCallback((game: GameWithTeams, currentTeamId: string): number | null => {
     if (game.ml_overperformance === null || game.ml_overperformance === undefined) {
       return null;
     }
 
     const isHome = game.home_team_master_id === currentTeamId;
-    // Home team: use value as-is. Away team: flip the sign
     return isHome ? game.ml_overperformance : -game.ml_overperformance;
   }, []);
 
-  /**
-   * Get color class for score based on ML over/underperformance
-   * @param ml_overperformance - residual value (actual - expected goal margin) from team's perspective
-   * Green highlight if ≥ +2 (outperformed by 2+ goals), Red highlight if ≤ -2 (underperformed by 2+ goals)
-   * Note: Backend only provides ml_overperformance for teams with 6+ games
-   */
-  const scoreColor = useCallback((ml_overperformance: number | null): string => {
-    if (ml_overperformance !== null && ml_overperformance !== undefined) {
-      if (ml_overperformance >= 2) return 'bg-green-100 dark:bg-green-900/30 px-2 py-1 rounded font-bold';
-      if (ml_overperformance <= -2) return 'bg-red-100 dark:bg-red-900/30 px-2 py-1 rounded font-bold';
+  const highlightedGameIds = useMemo(
+    () =>
+      (games ?? [])
+        .filter((game) => {
+          const residual = getTeamPerspectiveOverperformance(game, teamId);
+          return residual !== null && Math.abs(residual) >= 2;
+        })
+        .map((game) => game.id),
+    [games, getTeamPerspectiveOverperformance, teamId]
+  );
+
+  const { data: explainabilityRows } = useGameExplainability(teamId, highlightedGameIds, highlightedGameIds.length > 0);
+  const explainabilityByGameId = useMemo(
+    () => new Map((explainabilityRows ?? []).map((row) => [row.game_uuid, row])),
+    [explainabilityRows]
+  );
+
+  const scoreColor = useCallback((mlOverperformance: number | null): string => {
+    if (mlOverperformance !== null && mlOverperformance !== undefined) {
+      if (mlOverperformance >= 2) return 'bg-yellow-100 text-yellow-900 dark:bg-yellow-900/30 dark:text-yellow-100 px-2 py-1 rounded font-bold';
+      if (mlOverperformance <= -2) return 'bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-100 px-2 py-1 rounded font-bold';
     }
-    return ''; // no highlight for neutral performance
+    return '';
   }, []);
 
   const getResult = useCallback((game: GameWithTeams, currentTeamId: string) => {
@@ -209,14 +195,9 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
     const opponentScore = isHome ? game.away_score : game.home_score;
 
     if (teamScore === null || opponentScore === null) return { text: '—' };
-
-    if (teamScore > opponentScore) {
-      return { text: 'W' };
-    } else if (teamScore < opponentScore) {
-      return { text: 'L' };
-    } else {
-      return { text: 'D' };
-    }
+    if (teamScore > opponentScore) return { text: 'W' };
+    if (teamScore < opponentScore) return { text: 'L' };
+    return { text: 'D' };
   }, []);
 
   const getOpponent = useCallback((game: GameWithTeams, currentTeamId: string) => {
@@ -244,10 +225,6 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
     const teamScore = isHome ? game.home_score : game.away_score;
     const opponentScore = isHome ? game.away_score : game.home_score;
     return { team: teamScore, opponent: opponentScore };
-  }, []);
-
-  const toggleExpandedGame = useCallback((gameId: string) => {
-    setExpandedGameId((current) => (current === gameId ? null : gameId));
   }, []);
 
   if (isLoading) {
@@ -365,38 +342,38 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
         </div>
       </CardHeader>
       <CardContent className="px-0 sm:px-6">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Date</TableHead>
-              <TableHead>Opponent</TableHead>
-              <TableHead className="text-center">Result</TableHead>
-              <TableHead className="text-right">Score</TableHead>
-              <TableHead className="hidden sm:table-cell">Competition</TableHead>
-              <TableHead className="w-[52px] text-right">Why</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {games.map((game) => {
-              try {
-                const result = getResult(game, teamId);
-                const opponent = getOpponent(game, teamId);
-                const opponentClub = getOpponentClub(game, teamId);
-                const opponentId = getOpponentId(game, teamId);
-                const opponentProviderId = getOpponentProviderId(game, teamId);
-                const score = getScore(game, teamId);
-                const isExpanded = expandedGameId === game.id;
-                const breakdown = explainabilityByGameId.get(game.id);
+        <TooltipProvider>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Date</TableHead>
+                <TableHead>Opponent</TableHead>
+                <TableHead className="text-center">Result</TableHead>
+                <TableHead className="text-right">Score</TableHead>
+                <TableHead className="hidden sm:table-cell">Competition</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {games.map((game) => {
+                try {
+                  const result = getResult(game, teamId);
+                  const opponent = getOpponent(game, teamId);
+                  const opponentClub = getOpponentClub(game, teamId);
+                  const opponentId = getOpponentId(game, teamId);
+                  const opponentProviderId = getOpponentProviderId(game, teamId);
+                  const score = getScore(game, teamId);
+                  const residual = getTeamPerspectiveOverperformance(game, teamId);
+                  const breakdown = explainabilityByGameId.get(game.id);
+                  const explanation = breakdown ? explainGameBreakdown(breakdown, residual) : null;
+                  const isTooltipGame = residual !== null && Math.abs(residual) >= 2 && !!explanation;
 
-                return (
-                  <Fragment key={game.id}>
-                    <TableRow className="group">
+                  return (
+                    <TableRow key={game.id} className="group">
                       <TableCell className="text-xs sm:text-sm whitespace-nowrap">
                         {formatGameDate(game.game_date, { month: 'short', day: 'numeric', year: '2-digit' })}
                       </TableCell>
                       <TableCell className="max-w-[140px] sm:max-w-none whitespace-normal sm:whitespace-nowrap">
                         {opponentId ? (
-                          // Team is linked - show link or fallback text
                           <div className="flex flex-col">
                             <div className="flex items-center">
                               {opponent ? (
@@ -410,7 +387,6 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                                   {opponent}
                                 </Link>
                               ) : (
-                                // Team is linked but name lookup failed - still show link
                                 <Link
                                   href={`/teams/${opponentId}`}
                                   onMouseEnter={() => prefetchTeam(opponentId)}
@@ -434,7 +410,6 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                             )}
                           </div>
                         ) : opponentProviderId ? (
-                          // Team is NOT linked but has provider ID - show linking option
                           <UnknownOpponentLink
                             game={game}
                             currentTeamId={teamId}
@@ -444,7 +419,6 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                             defaultGender={team?.gender}
                           />
                         ) : (
-                          // No team ID and no provider ID - truly unknown
                           <span className="text-muted-foreground truncate sm:whitespace-normal">
                             {opponent || 'Unknown'}
                           </span>
@@ -453,9 +427,24 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                       <TableCell className="text-center">{result.text}</TableCell>
                       <TableCell className="text-right font-mono">
                         {score.team !== null && score.opponent !== null ? (
-                          <span className={scoreColor(getTeamPerspectiveOverperformance(game, teamId))}>
-                            {score.team}-{score.opponent}
-                          </span>
+                          isTooltipGame ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className={scoreColor(residual)}>{score.team}-{score.opponent}</span>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" sideOffset={6} className="max-w-[320px] rounded-lg p-3">
+                                <div className="space-y-1.5">
+                                  {explanation.highlightReason && (
+                                    <p className="text-[11px] font-semibold leading-4">{explanation.highlightReason}</p>
+                                  )}
+                                  <p className="text-[11px] leading-4 opacity-90">{explanation.expectationLine}</p>
+                                  <p className="text-[11px] leading-4 opacity-90">{explanation.actualLine}</p>
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <span className={scoreColor(residual)}>{score.team}-{score.opponent}</span>
+                          )
                         ) : (
                           '—'
                         )}
@@ -463,53 +452,16 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                       <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
                         {game.competition || game.division_name || '—'}
                       </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 w-8 p-0"
-                          disabled={userLoading}
-                          onClick={() => toggleExpandedGame(game.id)}
-                          aria-expanded={isExpanded}
-                          aria-label={
-                            isPremium
-                              ? `Toggle rating breakdown for ${opponent || 'this game'}`
-                              : `Toggle premium rating breakdown teaser for ${opponent || 'this game'}`
-                          }
-                        >
-                          {isExpanded ? (
-                            <ChevronDown className="h-4 w-4" />
-                          ) : isPremium ? (
-                            <ChevronRight className="h-4 w-4" />
-                          ) : (
-                            <Lock className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </TableCell>
                     </TableRow>
-                    {isExpanded && (
-                      <TableRow>
-                        <TableCell colSpan={6} className="bg-muted/10 px-3 py-4 sm:px-6">
-                          <GameBreakdownPanel
-                            teamId={teamId}
-                            gameId={game.id}
-                            breakdown={breakdown}
-                            isPremium={isPremium}
-                            isLoading={isPremium && explainabilityLoading}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </Fragment>
-                );
-              } catch (rowError) {
-                console.error('[GameHistoryTable] Error rendering row:', game?.id, rowError);
-                return null;
-              }
-            })}
-          </TableBody>
-        </Table>
+                  );
+                } catch (rowError) {
+                  console.error('[GameHistoryTable] Error rendering row:', game?.id, rowError);
+                  return null;
+                }
+              })}
+            </TableBody>
+          </Table>
+        </TooltipProvider>
       </CardContent>
     </Card>
   );

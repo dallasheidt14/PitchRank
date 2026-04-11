@@ -9,8 +9,8 @@ function makeBreakdown(overrides: Partial<GameExplainability> = {}): GameExplain
     game_id: 'provider-game-1',
     opp_id: '33333333-3333-3333-3333-333333333333',
     game_date: '2026-04-01',
-    gf: 3,
-    ga: 1,
+    gf: 4,
+    ga: 0,
     team_mu: 1500,
     team_sigma: 82,
     opp_mu: 1670,
@@ -19,10 +19,10 @@ function makeBreakdown(overrides: Partial<GameExplainability> = {}): GameExplain
     actual_outcome: 0.86,
     outcome_surprise: 0.44,
     g_factor: 0.94,
-    recency_weight: 1.19,
+    recency_weight: 0.12,
     rating_contribution: 0.14,
-    off_residual: 1.3,
-    def_residual: 0.8,
+    off_residual: 2.1,
+    def_residual: 0.4,
     last_calculated: '2026-04-11T00:00:00Z',
     created_at: '2026-04-11T00:00:00Z',
     ...overrides,
@@ -30,60 +30,74 @@ function makeBreakdown(overrides: Partial<GameExplainability> = {}): GameExplain
 }
 
 describe('explainGameBreakdown', () => {
-  it('describes positive, above-expectation results without raw Glicko jargon', () => {
-    const explanation = explainGameBreakdown(makeBreakdown());
-    const combinedCopy = [explanation.headline, explanation.summary]
-      .concat(explanation.factors.map((factor) => `${factor.label} ${factor.detail}`))
+  it('summarizes a standout result around the highlight rule, expectation, and actual result', () => {
+    const explanation = explainGameBreakdown(makeBreakdown(), 2.4);
+    const combinedCopy = [explanation.headline, explanation.highlightReason, explanation.expectationLine, explanation.actualLine]
+      .concat(explanation.details)
       .join(' ');
 
-    expect(explanation.headline).toContain('helped the rating');
-    expect(explanation.impactTone).toBe('positive');
-    expect(explanation.factors.some((factor) => factor.label.toLowerCase().includes('expectation'))).toBe(true);
-    expect(
-      explanation.factors.some(
-        (factor) => factor.label.includes('Faced a stronger opponent') || factor.label.includes('Stepped up in class')
-      )
-    ).toBe(true);
-    expect(combinedCopy).not.toContain('Glicko');
-    expect(combinedCopy).not.toContain('RD');
+    expect(explanation.headline).toBe('Outperformed expectation');
+    expect(explanation.tone).toBe('positive');
+    expect(explanation.highlightReason).toBe(
+      'Result finished +2.4 goals above model expectation.'
+    );
+    expect(explanation.expectationLine).toBe('Model expected margin: +1.6 goals.');
+    expect(explanation.actualLine).toBe('Actual result: 4-0 (margin +4.0 goals).');
+    expect(explanation.details).toContain('They scored more than PitchRank expected.');
+    expect(explanation.details).toContain('It stood out more because it came against a stronger opponent.');
+    expect(combinedCopy.toLowerCase()).not.toContain('recency');
+    expect(combinedCopy.toLowerCase()).not.toContain('bump');
   });
 
   it('flags negative results when the team comes in below expectation', () => {
     const explanation = explainGameBreakdown(
       makeBreakdown({
+        gf: 0,
+        ga: 4,
         expected_outcome: 0.68,
         actual_outcome: 0.24,
         outcome_surprise: -0.44,
         rating_contribution: -0.17,
-        off_residual: -1.1,
-        def_residual: -1.5,
-        opp_mu: 1430,
-      })
+        off_residual: -1.2,
+        def_residual: -2.0,
+        opp_mu: 1410,
+      }),
+      -2.3
     );
 
-    expect(explanation.headline).toContain('pulled the rating down');
-    expect(explanation.impactTone).toBe('negative');
-    expect(explanation.factors.some((factor) => factor.label.toLowerCase().includes('expectation'))).toBe(true);
-    expect(explanation.factors.some((factor) => factor.label.includes('Defense leaked chances'))).toBe(true);
+    expect(explanation.headline).toBe('Came in below expectation');
+    expect(explanation.tone).toBe('negative');
+    expect(explanation.highlightReason).toBe(
+      'Result finished -2.3 goals below model expectation.'
+    );
+    expect(explanation.expectationLine).toBe('Model expected margin: -1.7 goals.');
+    expect(explanation.actualLine).toBe('Actual result: 0-4 (margin -4.0 goals).');
+    expect(explanation.details).toContain('They allowed more goals than PitchRank expected.');
+    expect(explanation.details).toContain('It hurt more because PitchRank saw this as the easier matchup.');
   });
 
   it('returns a neutral summary for low-impact games', () => {
     const explanation = explainGameBreakdown(
       makeBreakdown({
+        gf: 2,
+        ga: 1,
         expected_outcome: 0.51,
         actual_outcome: 0.5,
         outcome_surprise: -0.01,
-        recency_weight: 0.91,
+        recency_weight: 0.02,
         rating_contribution: 0.008,
-        off_residual: 0.2,
+        off_residual: 0.1,
         def_residual: -0.1,
         opp_mu: 1510,
-      })
+      }),
+      0.2
     );
 
-    expect(explanation.impactTone).toBe('neutral');
-    expect(explanation.headline).toContain('close to neutral');
-    expect(explanation.impactLabel).toBe('Light rating touch');
-    expect(explanation.factors.length).toBeLessThanOrEqual(1);
+    expect(explanation.tone).toBe('neutral');
+    expect(explanation.headline).toBe('Landed close to expectation');
+    expect(explanation.highlightReason).toBeNull();
+    expect(explanation.expectationLine).toBe('Model expected margin: +0.8 goals.');
+    expect(explanation.actualLine).toBe('Actual result: 2-1 (margin +1.0 goals).');
+    expect(explanation.details).toEqual(['Nothing major stood out beyond the result itself.']);
   });
 });

@@ -84,7 +84,7 @@ export function useTeamGames(id: string, limit: number = 50) {
 
 /**
  * Get persisted explainability rows for a team's visible games.
- * This uses a premium-only server route rather than direct browser-side Supabase.
+ * This uses a server route rather than direct browser-side Supabase.
  */
 export function useGameExplainability(teamId: string, gameIds: string[], enabled: boolean) {
   const uniqueGameIds = Array.from(new Set(gameIds.filter(Boolean)));

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockRequirePremium, mockFrom, mockSelect, mockEq, mockIn, mockOrder } = vi.hoisted(() => ({
-  mockRequirePremium: vi.fn(),
+const { mockCreateServiceSupabase, mockFrom, mockSelect, mockEq, mockIn, mockOrder } = vi.hoisted(() => ({
+  mockCreateServiceSupabase: vi.fn(),
   mockFrom: vi.fn(),
   mockSelect: vi.fn(),
   mockEq: vi.fn(),
@@ -9,8 +9,8 @@ const { mockRequirePremium, mockFrom, mockSelect, mockEq, mockIn, mockOrder } = 
   mockOrder: vi.fn(),
 }));
 
-vi.mock('@/lib/api/requirePremium', () => ({
-  requirePremium: mockRequirePremium,
+vi.mock('@/lib/supabase/service', () => ({
+  createServiceSupabase: mockCreateServiceSupabase,
 }));
 
 import { POST } from '../route';
@@ -52,11 +52,7 @@ describe('POST /api/game-explainability/[teamId]', () => {
     mockSelect.mockReturnValue({ eq: mockEq });
     mockFrom.mockReturnValue({ select: mockSelect });
 
-    mockRequirePremium.mockResolvedValue({
-      user: { id: 'user-1', email: 'premium@example.com' },
-      supabase: { from: mockFrom },
-      error: null,
-    });
+    mockCreateServiceSupabase.mockReturnValue({ from: mockFrom });
   });
 
   it('returns 400 for an invalid team ID', async () => {
@@ -68,21 +64,6 @@ describe('POST /api/game-explainability/[teamId]', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Invalid team ID' });
   });
 
-  it('returns 401 when the request is unauthenticated', async () => {
-    mockRequirePremium.mockResolvedValue({
-      user: null,
-      supabase: null,
-      error: new Response(JSON.stringify({ error: 'Not authenticated' }), { status: 401 }),
-    });
-
-    const response = await POST(makeRequest({ gameIds: [GAME_ID] }), {
-      params: Promise.resolve({ teamId: TEAM_ID }),
-    });
-
-    expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toEqual({ error: 'Not authenticated' });
-  });
-
   it('returns 400 for invalid game IDs', async () => {
     const response = await POST(makeRequest({ gameIds: ['not-a-uuid'] }), {
       params: Promise.resolve({ teamId: TEAM_ID }),
@@ -90,6 +71,15 @@ describe('POST /api/game-explainability/[teamId]', () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({ error: 'All game IDs must be valid UUIDs' });
+  });
+
+  it('returns an empty array when no game IDs are requested', async () => {
+    const response = await POST(makeRequest({ gameIds: [] }), {
+      params: Promise.resolve({ teamId: TEAM_ID }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ breakdowns: [] });
   });
 
   it('returns breakdowns for a valid premium request', async () => {
