@@ -134,3 +134,25 @@ async def test_save_rankings_raises_when_rankings_full_publish_is_incomplete(mon
 def test_python_backfill_uses_non_destructive_upsert_semantics():
     source = Path("scripts/calculate_rankings.py").read_text(encoding="utf-8")
     assert 'upsert(records, on_conflict="team_id", default_to_null=False)' in source
+
+
+@pytest.mark.asyncio
+async def test_save_batch_with_retry_raises_optional_schema_errors_immediately():
+    class _AlwaysSchemaErrorTable:
+        def upsert(self, _batch):
+            return self
+
+        def execute(self):
+            raise RuntimeError("Could not find the 'exp_goals_against' column of 'rankings_full' in the schema cache")
+
+    class _Supabase:
+        def table(self, _table_name):
+            return _AlwaysSchemaErrorTable()
+
+    with pytest.raises(RuntimeError, match="exp_goals_against"):
+        await calc._save_batch_with_retry(
+            _Supabase(),
+            "rankings_full",
+            [{"team_id": "team-3", "exp_goals_against": 0.9}],
+            table_name_display="rankings_full",
+        )

@@ -73,6 +73,10 @@ def _strip_optional_rankings_full_prediction_columns(records: list[dict]) -> lis
     ]
 
 
+def _is_optional_rankings_full_schema_error(error: Exception, table_name: str) -> bool:
+    return table_name == "rankings_full" and _should_retry_without_optional_prediction_columns(error)
+
+
 # Load environment variables - prioritize .env.local if it exists
 env_local = Path(".env.local")
 if env_local.exists():
@@ -370,6 +374,9 @@ async def _save_batch_with_retry(supabase_client, table_name, records, table_nam
                     batch_saved = True
                     break  # Success, exit retry loop
                 except Exception as e:
+                    if _is_optional_rankings_full_schema_error(e, table_name):
+                        raise
+
                     error_msg = str(e)
                     # Check for various connection/network errors
                     is_network_error = (
@@ -435,6 +442,9 @@ async def _save_batch_with_retry(supabase_client, table_name, records, table_nam
                         console.print(f"[green]Batch {batch_num} ({table_display}) saved on retry[/green]")
                         break
                     except Exception as e:
+                        if _is_optional_rankings_full_schema_error(e, table_name):
+                            raise
+
                         if attempt < max_retries - 1:
                             time.sleep(batch_retry_delay)
                             batch_retry_delay *= 2
