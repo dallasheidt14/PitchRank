@@ -167,47 +167,33 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
       <BreadcrumbSchema items={breadcrumbItems} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd }} />
 
-      {/* Server-rendered SEO content BEFORE client component so Googlebot sees real content first */}
+      {/* Server-rendered SEO content — H1 and intro visible, team list hidden (duplicates interactive table) */}
+      <section className="container mx-auto px-4 pt-8 pb-4">
+        <h1 className="font-display text-3xl font-bold uppercase tracking-wide mb-2">
+          {locationText} {formattedAgeGroup} {formattedGender} Soccer Rankings
+        </h1>
+        <p className="text-muted-foreground text-sm mb-4">
+          {isNational
+            ? `National ${formattedAgeGroup} ${formattedGender} youth soccer rankings, updated weekly from real game results. Browse PowerScores for top clubs across all 50 states. Rankings are calculated using PitchRank's 13-layer algorithm that weighs strength of schedule, margin of victory, and opponent quality.`
+            : `${locationText} ${formattedAgeGroup} ${formattedGender} youth soccer rankings, updated weekly from real game results. See where ${locationText} clubs stand by PowerScore — a 0-to-1 rating built from strength of schedule, game outcomes, and opponent quality. Rankings update every Monday.`}
+        </p>
+      </section>
+
+      {/* Top teams in DOM for Googlebot but visually hidden — the interactive table shows the same data */}
       {topTeams.length > 0 && (
-        <section className="container mx-auto px-4 pt-8 pb-4">
-          <h1 className="font-display text-3xl font-bold uppercase tracking-wide mb-2">
-            {locationText} {formattedAgeGroup} {formattedGender} Soccer Rankings
-          </h1>
-          <p className="text-muted-foreground text-sm mb-6">
-            {isNational
-              ? `National ${formattedAgeGroup} ${formattedGender} youth soccer rankings, updated weekly from real game results. Browse PowerScores for top clubs across all 50 states. Rankings are calculated using PitchRank's 13-layer algorithm that weighs strength of schedule, margin of victory, and opponent quality.`
-              : `${locationText} ${formattedAgeGroup} ${formattedGender} youth soccer rankings, updated weekly from real game results. See where ${locationText} clubs stand by PowerScore — a 0-to-1 rating built from strength of schedule, game outcomes, and opponent quality. Rankings update every Monday.`}
-          </p>
-          <h2 className="text-xl font-bold mb-4">
+        <div className="sr-only">
+          <h2>
             Top {locationText} {formattedAgeGroup} {formattedGender} Teams
           </h2>
-          <ol className="space-y-1 text-sm mb-8">
+          <ol>
             {topTeams.map((team, idx) => (
-              <li key={team.team_id_master} className="flex items-center gap-2">
-                <span className="text-muted-foreground w-6">{idx + 1}.</span>
-                <span>{team.team_name}</span>
-                {team.club_name && <span className="text-muted-foreground">({team.club_name})</span>}
-                <span className="text-xs text-muted-foreground ml-auto">
-                  {formatPowerScore(team.power_score_final)}
-                </span>
+              <li key={team.team_id_master}>
+                {idx + 1}. {team.team_name}
+                {team.club_name && ` (${team.club_name})`} — {formatPowerScore(team.power_score_final)}
               </li>
             ))}
           </ol>
-        </section>
-      )}
-
-      {/* Fallback intro when API is unavailable — still gives Googlebot unique content */}
-      {topTeams.length === 0 && (
-        <section className="container mx-auto px-4 pt-8 pb-4">
-          <h1 className="font-display text-3xl font-bold uppercase tracking-wide mb-2">
-            {locationText} {formattedAgeGroup} {formattedGender} Soccer Rankings
-          </h1>
-          <p className="text-muted-foreground text-sm mb-6">
-            {isNational
-              ? `National ${formattedAgeGroup} ${formattedGender} youth soccer rankings, updated weekly from real game results. Browse PowerScores for top clubs across all 50 states.`
-              : `${locationText} ${formattedAgeGroup} ${formattedGender} youth soccer rankings, updated weekly. See where ${locationText} clubs stand by PowerScore rating.`}
-          </p>
-        </section>
+        </div>
       )}
 
       <RankingsPageContent key={routeKey} region={region} ageGroup={ageGroup} gender={gender} />
