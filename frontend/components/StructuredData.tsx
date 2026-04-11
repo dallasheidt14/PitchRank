@@ -63,7 +63,7 @@ export function StructuredData() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(organizationSchema),
+          __html: JSON.stringify(organizationSchema).replace(/</g, '\\u003c'),
         }}
       />
 
@@ -71,7 +71,7 @@ export function StructuredData() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(websiteSchema),
+          __html: JSON.stringify(websiteSchema).replace(/</g, '\\u003c'),
         }}
       />
 
@@ -79,7 +79,7 @@ export function StructuredData() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(sportsOrgSchema),
+          __html: JSON.stringify(sportsOrgSchema).replace(/</g, '\\u003c'),
         }}
       />
     </>

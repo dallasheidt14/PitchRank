@@ -344,17 +344,15 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
               >
                 National
               </Link>
-              {US_STATES.filter((s) => s.code.toLowerCase() !== region.toLowerCase())
-                .slice(0, 15)
-                .map((state) => (
-                  <Link
-                    key={state.code}
-                    href={`/rankings/${state.code.toLowerCase()}`}
-                    className="px-3 py-1.5 bg-muted text-foreground rounded text-sm hover:bg-muted/80"
-                  >
-                    {state.name}
-                  </Link>
-                ))}
+              {US_STATES.filter((s) => s.code.toLowerCase() !== region.toLowerCase()).map((state) => (
+                <Link
+                  key={state.code}
+                  href={`/rankings/${state.code.toLowerCase()}`}
+                  className="px-3 py-1.5 bg-muted text-foreground rounded text-sm hover:bg-muted/80"
+                >
+                  {state.name}
+                </Link>
+              ))}
             </div>
           </section>
         )}

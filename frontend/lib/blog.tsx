@@ -74,5 +74,5 @@ export function getBlogPost(slug: string): BlogPost | undefined {
  * Get all blog post slugs for static generation
  */
 export function getAllBlogSlugs(): string[] {
-  return getAllBlogPosts().map((post) => post.slug);
+  return [...new Set(getAllBlogPosts().map((post) => post.slug))];
 }

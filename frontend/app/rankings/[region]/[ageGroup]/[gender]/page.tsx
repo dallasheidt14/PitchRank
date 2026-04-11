@@ -8,6 +8,17 @@ import BreadcrumbSchema from '@/components/BreadcrumbSchema';
 // Revalidate every hour for ISR caching
 export const revalidate = 3600;
 
+// Pre-generate popular state/age/gender combos at build time (196 pages).
+// Remaining pages render on-demand with ISR.
+export async function generateStaticParams() {
+  const popularStates = ['national', 'ca', 'tx', 'fl', 'az', 'ny', 'nj', 'md', 'ga', 'pa', 'co', 'oh', 'nc', 'il'];
+  const ageGroups = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16'];
+  const genders = ['male', 'female'];
+  return popularStates.flatMap((region) =>
+    ageGroups.flatMap((ageGroup) => genders.map((gender) => ({ region, ageGroup, gender })))
+  );
+}
+
 interface RankingsPageProps {
   params: Promise<{
     region: string;
@@ -48,7 +59,7 @@ export async function generateMetadata({ params }: RankingsPageProps): Promise<M
     const locationText = isNational ? 'National' : getStateName(region);
 
     const title = `${locationText} ${formattedAgeGroup} ${formattedGender} Soccer Rankings | PitchRank`;
-    const description = `${locationText} ${formattedAgeGroup} ${formattedGender} youth soccer team rankings. See where your team stands among 101,354 teams nationwide. Updated daily from 726,730+ real game results. Data-driven, no bias.`;
+    const description = `${locationText} ${formattedAgeGroup} ${formattedGender} youth soccer rankings — see where your team stands. Browse top-ranked clubs, compare PowerScores, and track weekly changes. Free, updated every Monday.`;
 
     return {
       title,
@@ -84,7 +95,7 @@ export async function generateMetadata({ params }: RankingsPageProps): Promise<M
     return {
       title: 'Soccer Rankings | PitchRank',
       description:
-        'View comprehensive soccer team rankings. Compare power scores, win percentages, and team performance metrics.',
+        'Youth soccer rankings by PowerScore — browse top-ranked clubs, compare teams, and track weekly changes. Free, updated every Monday.',
     };
   }
 }
@@ -116,8 +127,8 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
       club_name: t.club_name,
       power_score_final: t.power_score_final,
     }));
-  } catch {
-    // Non-fatal — interactive table still loads client-side
+  } catch (e) {
+    console.warn(`[ISR] Failed to fetch top teams for ${region}/${ageGroup}/${gender}:`, e);
   }
 
   // Prepare structured data for SEO
@@ -156,6 +167,13 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
       <RankingsPageContent key={routeKey} region={region} ageGroup={ageGroup} gender={gender} />
       <BreadcrumbSchema items={breadcrumbItems} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd }} />
+
+      {/* Unique intro — renders regardless of API success so Googlebot always sees real content */}
+      <p className="container mx-auto px-4 text-muted-foreground text-sm mt-2">
+        {isNational
+          ? `National ${formattedAgeGroup} ${formattedGender} youth soccer rankings, updated weekly from real game results. Browse PowerScores for top clubs across all 50 states.`
+          : `${locationText} ${formattedAgeGroup} ${formattedGender} youth soccer rankings, updated weekly. See where ${locationText} clubs stand by PowerScore rating.`}
+      </p>
 
       {/* Server-rendered top teams for SEO — gives Googlebot real content in the initial HTML.
           The interactive table above loads the full dataset client-side. */}

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { RankingsPageContent } from '@/components/RankingsPageContent';
-import { BASE_URL } from '@/lib/constants';
+import { BASE_URL, US_STATES } from '@/lib/constants';
 
 /**
  * Rankings landing page — server component for SEO.
@@ -48,6 +49,28 @@ export default function RankingsPage() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(rankingsSchema).replace(/</g, '\\u003c') }}
       />
       <RankingsPageContent region="national" ageGroup="u12" gender="male" />
+
+      {/* Browse by State — server-rendered for Googlebot crawlability */}
+      <section className="container mx-auto px-4 pb-8 border-t border-border pt-8 mt-4">
+        <h2 className="text-xl font-bold mb-4">Browse Rankings by State</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
+          <Link
+            href="/rankings/national"
+            className="px-3 py-1.5 bg-primary text-primary-foreground rounded text-sm hover:bg-primary/90"
+          >
+            National
+          </Link>
+          {US_STATES.map((state) => (
+            <Link
+              key={state.code}
+              href={`/rankings/${state.code.toLowerCase()}`}
+              className="px-3 py-1.5 bg-muted text-foreground rounded text-sm hover:bg-muted/80"
+            >
+              {state.name}
+            </Link>
+          ))}
+        </div>
+      </section>
     </>
   );
 }

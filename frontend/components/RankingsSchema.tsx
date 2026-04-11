@@ -99,13 +99,13 @@ export function RankingsSchema({ region, ageGroup, gender, topTeams, totalTeams,
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(rankingsSchema),
+          __html: JSON.stringify(rankingsSchema).replace(/</g, '\\u003c'),
         }}
       />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(webPageSchema),
+          __html: JSON.stringify(webPageSchema).replace(/</g, '\\u003c'),
         }}
       />
     </>

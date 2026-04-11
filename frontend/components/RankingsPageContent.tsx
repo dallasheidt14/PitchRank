@@ -41,7 +41,12 @@ export function RankingsPageContent({ region, ageGroup, gender }: RankingsPageCo
     <div className="container mx-auto py-8 px-4">
       <Breadcrumbs />
 
-      <PageHeader title="PitchRank Rankings" description="" showBackButton backHref="/" />
+      <PageHeader
+        title={`${stateName} ${ageGroupDisplay} ${genderDisplay} Soccer Rankings`}
+        description=""
+        showBackButton
+        backHref="/"
+      />
 
       <div className="space-y-6">
         <RankingsFilter />
