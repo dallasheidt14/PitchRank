@@ -60,8 +60,16 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.6,
   }));
 
+  // State/national landing pages (e.g., /rankings/ca, /rankings/national)
+  // These are content-rich server-rendered overview pages — important for SEO
+  const regionLandingPages: MetadataRoute.Sitemap = regions.map((region) => ({
+    url: `${baseUrl}/rankings/${region}`,
+    lastModified: new Date(),
+    changeFrequency: 'weekly' as const,
+    priority: region === 'national' ? 0.9 : 0.8,
+  }));
+
   // Generate all ranking page URLs (region × ageGroup × gender)
-  // Total: 51 regions × 9 age groups × 2 genders = 918 URLs
   const rankingPages: MetadataRoute.Sitemap = [];
 
   for (const region of regions) {
@@ -70,15 +78,15 @@ export default function sitemap(): MetadataRoute.Sitemap {
         rankingPages.push({
           url: `${baseUrl}/rankings/${region}/${ageGroup}/${gender}`,
           lastModified: new Date(),
-          changeFrequency: 'weekly', // Rankings update weekly
-          priority: region === 'national' ? 0.8 : 0.7, // National rankings slightly higher priority
+          changeFrequency: 'weekly',
+          priority: region === 'national' ? 0.8 : 0.7,
         });
       }
     }
   }
 
   // Combine all pages
-  const allPages = [...staticPages, ...blogPages, ...rankingPages];
+  const allPages = [...staticPages, ...blogPages, ...regionLandingPages, ...rankingPages];
 
   return allPages;
 }

@@ -411,9 +411,7 @@ def process_shadow_rows(
     calibration_artifact: Optional[Path] = None,
 ) -> Dict[str, Any]:
     rows = _fetch_shadow_rows(supabase, shadow_status, limit)
-    calibrator = (
-        PointInTimeProbabilityCalibrator.load(str(calibration_artifact)) if calibration_artifact else None
-    )
+    calibrator = PointInTimeProbabilityCalibrator.load(str(calibration_artifact)) if calibration_artifact else None
     model_version = _derive_shadow_model_version(model_artifact, shadow_model_version, calibration_artifact)
 
     summary = {
@@ -437,10 +435,7 @@ def process_shadow_rows(
             request_context = _safe_request_context(row.get("request_context"))
             games = _fetch_games_by_ids(supabase, request_context.get("relevantGameIds") or [])
             involved_team_ids = {
-                team_id
-                for game in games
-                for team_id in (game.home_team_master_id, game.away_team_master_id)
-                if team_id
+                team_id for game in games for team_id in (game.home_team_master_id, game.away_team_master_id) if team_id
             }
             involved_team_ids.update(
                 [
@@ -448,7 +443,9 @@ def process_shadow_rows(
                     str((row.get("team_b_input") or {}).get("team_id_master") or row.get("team_b_id") or ""),
                 ]
             )
-            snapshot_date = (str(row.get("created_at") or "").split("T")[0]) or pd.Timestamp.utcnow().strftime("%Y-%m-%d")
+            snapshot_date = (str(row.get("created_at") or "").split("T")[0]) or pd.Timestamp.utcnow().strftime(
+                "%Y-%m-%d"
+            )
             snapshot_index = _fetch_snapshot_index(supabase, involved_team_ids, snapshot_date)
             matchup_frame = _build_matchup_frame(row, games, snapshot_index)
             prediction_frame = model.predict_frame(matchup_frame)

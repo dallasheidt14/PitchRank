@@ -2,10 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextRequest } from 'next/server';
 import { AppError } from '@/lib/errors';
 
-const { mockRequirePremium, mockCheckRateLimit, mockBuildMatchPrediction } = vi.hoisted(() => ({
+vi.mock('server-only', () => ({}));
+
+const { mockRequirePremium, mockCheckRateLimit, mockBuildMatchPrediction, mockMaybeLogShadow } = vi.hoisted(() => ({
   mockRequirePremium: vi.fn(),
   mockCheckRateLimit: vi.fn(),
   mockBuildMatchPrediction: vi.fn(),
+  mockMaybeLogShadow: vi.fn(),
 }));
 
 vi.mock('@/lib/api/requirePremium', () => ({
@@ -17,7 +20,11 @@ vi.mock('@/lib/api/rateLimit', () => ({
 }));
 
 vi.mock('@/lib/matchPredictionService', () => ({
-  buildMatchPrediction: mockBuildMatchPrediction,
+  buildMatchPredictionWithShadowContext: mockBuildMatchPrediction,
+}));
+
+vi.mock('@/lib/matchPredictionShadow', () => ({
+  maybeLogMatchPredictionShadow: mockMaybeLogShadow,
 }));
 
 import { POST } from '../route';
@@ -100,38 +107,41 @@ describe('POST /api/match-prediction', () => {
 
   it('returns a prediction payload for a valid premium request', async () => {
     mockBuildMatchPrediction.mockResolvedValue({
-      teamA: { team_id_master: TEAM_A_ID, team_name: 'Alpha FC', club_name: 'Alpha' },
-      teamB: { team_id_master: TEAM_B_ID, team_name: 'Beta FC', club_name: 'Beta' },
-      prediction: {
-        predictedWinner: 'team_a',
-        winProbabilityA: 0.71,
-        winProbabilityB: 0.29,
-        expectedScore: { teamA: 3, teamB: 1 },
-        expectedMargin: 2,
-        confidence: 'high',
-        confidence_score: 0.82,
-        components: {
-          powerDiff: 0.1,
-          strengthSignal: 0.1,
-          sosDiff: 0.04,
-          formDiffRaw: 1.2,
-          formDiffNorm: 0.1,
-          matchupAdvantage: 0.08,
-          compositeDiff: 0.22,
-          mismatchScore: 0.31,
-        },
-        formA: 1.2,
-        formB: -0.2,
-      },
-      explanation: {
-        summary: 'Alpha FC has the edge with 71% win probability',
-        factors: [],
-        keyInsights: ['High confidence prediction'],
-        predictionQuality: {
+      response: {
+        teamA: { team_id_master: TEAM_A_ID, team_name: 'Alpha FC', club_name: 'Alpha' },
+        teamB: { team_id_master: TEAM_B_ID, team_name: 'Beta FC', club_name: 'Beta' },
+        prediction: {
+          predictedWinner: 'team_a',
+          winProbabilityA: 0.71,
+          winProbabilityB: 0.29,
+          expectedScore: { teamA: 3, teamB: 1 },
+          expectedMargin: 2,
           confidence: 'high',
-          reliability: 'Based on current calibrated model output',
+          confidence_score: 0.82,
+          components: {
+            powerDiff: 0.1,
+            strengthSignal: 0.1,
+            sosDiff: 0.04,
+            formDiffRaw: 1.2,
+            formDiffNorm: 0.1,
+            matchupAdvantage: 0.08,
+            compositeDiff: 0.22,
+            mismatchScore: 0.31,
+          },
+          formA: 1.2,
+          formB: -0.2,
+        },
+        explanation: {
+          summary: 'Alpha FC has the edge with 71% win probability',
+          factors: [],
+          keyInsights: ['High confidence prediction'],
+          predictionQuality: {
+            confidence: 'high',
+            reliability: 'Based on current calibrated model output',
+          },
         },
       },
+      shadowContext: {},
     });
 
     const response = await POST(makeRequest({ teamAId: TEAM_A_ID, teamBId: TEAM_B_ID }));

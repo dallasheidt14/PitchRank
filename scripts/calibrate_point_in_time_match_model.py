@@ -52,7 +52,9 @@ def main() -> None:
     evaluation_frame = pd.read_csv(args.evaluation_csv)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    model_artifact_path = Path(args.model_artifact) if args.model_artifact else output_dir / "point_in_time_match_model.pkl"
+    model_artifact_path = (
+        Path(args.model_artifact) if args.model_artifact else output_dir / "point_in_time_match_model.pkl"
+    )
     prediction_postprocessor = None
     if model_artifact_path.exists():
         model = PointInTimeMatchModel.load(str(model_artifact_path))

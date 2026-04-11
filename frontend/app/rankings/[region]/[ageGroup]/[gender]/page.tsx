@@ -1,6 +1,8 @@
 import { RankingsPageContent } from '@/components/RankingsPageContent';
 import type { Metadata } from 'next';
 import { US_STATES, BASE_URL, formatGender } from '@/lib/constants';
+import { api } from '@/lib/api';
+import { formatPowerScore } from '@/lib/utils';
 import BreadcrumbSchema from '@/components/BreadcrumbSchema';
 
 // Revalidate every hour for ISR caching
@@ -96,6 +98,28 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
   // This ensures fresh data fetching on client-side navigation between different rankings pages
   const routeKey = `${region}-${ageGroup}-${gender}`;
 
+  // Server-side fetch top 25 teams so the initial HTML has real content for Googlebot.
+  // Rendered as a static section below the interactive table — does not interfere with client-side loading.
+  const genderForAPI = (gender === 'male' ? 'M' : gender === 'female' ? 'F' : null) as 'M' | 'F' | null;
+  const regionForAPI = region.toLowerCase() === 'national' ? null : region;
+  let topTeams: Array<{
+    team_id_master: string;
+    team_name: string;
+    club_name: string | null;
+    power_score_final: number;
+  }> = [];
+  try {
+    const data = await api.getRankings(regionForAPI, ageGroup, genderForAPI, { limit: 25 });
+    topTeams = data.map((t) => ({
+      team_id_master: t.team_id_master,
+      team_name: t.team_name,
+      club_name: t.club_name,
+      power_score_final: t.power_score_final,
+    }));
+  } catch {
+    // Non-fatal — interactive table still loads client-side
+  }
+
   // Prepare structured data for SEO
   const formattedAgeGroup = formatAgeGroup(ageGroup);
   const formattedGender = formatGender(gender);
@@ -132,6 +156,28 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
       <RankingsPageContent key={routeKey} region={region} ageGroup={ageGroup} gender={gender} />
       <BreadcrumbSchema items={breadcrumbItems} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd }} />
+
+      {/* Server-rendered top teams for SEO — gives Googlebot real content in the initial HTML.
+          The interactive table above loads the full dataset client-side. */}
+      {topTeams.length > 0 && (
+        <section className="container mx-auto px-4 pb-8">
+          <h2 className="text-xl font-bold mb-4">
+            Top {locationText} {formattedAgeGroup} {formattedGender} Teams
+          </h2>
+          <ol className="space-y-1 text-sm">
+            {topTeams.map((team, idx) => (
+              <li key={team.team_id_master} className="flex items-center gap-2">
+                <span className="text-muted-foreground w-6">{idx + 1}.</span>
+                <span>{team.team_name}</span>
+                {team.club_name && <span className="text-muted-foreground">({team.club_name})</span>}
+                <span className="text-xs text-muted-foreground ml-auto">
+                  {formatPowerScore(team.power_score_final)}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
     </>
   );
 }
