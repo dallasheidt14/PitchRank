@@ -1,7 +1,6 @@
 'use client';
 
 import { Suspense } from 'react';
-import { PageHeader } from '@/components/PageHeader';
 import { RankingsFilter } from '@/components/RankingsFilter';
 import { RankingsTable } from '@/components/RankingsTable';
 import { RankingsTableSkeleton } from '@/components/skeletons/RankingsTableSkeleton';
@@ -40,13 +39,6 @@ export function RankingsPageContent({ region, ageGroup, gender }: RankingsPageCo
   return (
     <div className="container mx-auto py-8 px-4">
       <Breadcrumbs />
-
-      <PageHeader
-        title={`${stateName} ${ageGroupDisplay} ${genderDisplay} Soccer Rankings`}
-        description=""
-        showBackButton
-        backHref="/"
-      />
 
       <div className="space-y-6">
         <RankingsFilter />
