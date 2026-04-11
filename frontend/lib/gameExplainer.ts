@@ -54,10 +54,25 @@ function buildActualScoreline(breakdown: GameExplainability): string | null {
   return `${roundGoals(gf)}-${roundGoals(ga)}`;
 }
 
-function formatSignedGoals(value: number): string {
-  const rounded = Math.round(value * 10) / 10;
-  const sign = rounded > 0 ? '+' : '';
-  return `${sign}${rounded.toFixed(1)} goals`;
+function formatGoalAmount(value: number): string {
+  const rounded = Math.round(Math.abs(value) * 10) / 10;
+  return rounded.toFixed(1);
+}
+
+function describeMarginOutcome(value: number): string {
+  if (Math.abs(value) < 0.05) {
+    return 'draw';
+  }
+
+  return value > 0 ? `${formatGoalAmount(value)}-goal win` : `${formatGoalAmount(value)}-goal loss`;
+}
+
+function describeTeamResult(scoreline: string, value: number): string {
+  if (Math.abs(value) < 0.05) {
+    return `This team drew ${scoreline}.`;
+  }
+
+  return value > 0 ? `This team won ${scoreline}.` : `This team lost ${scoreline}.`;
 }
 
 function getSignal(breakdown: GameExplainability): number {
@@ -82,11 +97,11 @@ function buildHighlightReason(residual: number | null): string | null {
   }
 
   if (residual >= 2) {
-    return `Result finished ${formatSignedGoals(residual)} above model expectation.`;
+    return `Result came in ${formatGoalAmount(residual)} goals better than model expectation.`;
   }
 
   if (residual <= -2) {
-    return `Result finished ${formatSignedGoals(residual)} below model expectation.`;
+    return `Result came in ${formatGoalAmount(residual)} goals worse than model expectation.`;
   }
 
   return null;
@@ -99,7 +114,7 @@ function buildExpectationLine(breakdown: GameExplainability, residual: number | 
   if (gf !== null && ga !== null && residual !== null) {
     const actualMargin = gf - ga;
     const expectedMargin = actualMargin - residual;
-    return `Model expected margin: ${formatSignedGoals(expectedMargin)}.`;
+    return `Model expected this team to have a ${describeMarginOutcome(expectedMargin)}.`;
   }
 
   const expectedScoreline = buildExpectedScoreline(breakdown);
@@ -115,7 +130,11 @@ function buildActualLine(breakdown: GameExplainability): string {
   if (actualScoreline) {
     const gf = toNumber(breakdown.gf) ?? 0;
     const ga = toNumber(breakdown.ga) ?? 0;
-    return `Actual result: ${actualScoreline} (margin ${formatSignedGoals(gf - ga)}).`;
+    const actualMargin = gf - ga;
+    if (Math.abs(actualMargin) < 0.05) {
+      return describeTeamResult(actualScoreline, actualMargin);
+    }
+    return `${describeTeamResult(actualScoreline, actualMargin)} Margin was ${formatGoalAmount(actualMargin)} goals.`;
   }
 
   return 'Actual result is unavailable.';

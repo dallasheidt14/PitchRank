@@ -76,7 +76,7 @@ describe('GameBreakdownPanel', () => {
     expect(container?.textContent).toContain('Outperformed expectation');
     expect(container?.textContent).toContain('Above expectation');
     expect(container?.textContent).toContain('PitchRank expected roughly 2-0.');
-    expect(container?.textContent).toContain('Actual result: 4-0 (margin +4.0 goals).');
+    expect(container?.textContent).toContain('This team won 4-0. Margin was 4.0 goals.');
   });
 
   it('shows an unavailable message when breakdown data is missing', async () => {

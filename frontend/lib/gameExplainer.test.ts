@@ -39,10 +39,10 @@ describe('explainGameBreakdown', () => {
     expect(explanation.headline).toBe('Outperformed expectation');
     expect(explanation.tone).toBe('positive');
     expect(explanation.highlightReason).toBe(
-      'Result finished +2.4 goals above model expectation.'
+      'Result came in 2.4 goals better than model expectation.'
     );
-    expect(explanation.expectationLine).toBe('Model expected margin: +1.6 goals.');
-    expect(explanation.actualLine).toBe('Actual result: 4-0 (margin +4.0 goals).');
+    expect(explanation.expectationLine).toBe('Model expected this team to have a 1.6-goal win.');
+    expect(explanation.actualLine).toBe('This team won 4-0. Margin was 4.0 goals.');
     expect(explanation.details).toContain('They scored more than PitchRank expected.');
     expect(explanation.details).toContain('It stood out more because it came against a stronger opponent.');
     expect(combinedCopy.toLowerCase()).not.toContain('recency');
@@ -68,10 +68,10 @@ describe('explainGameBreakdown', () => {
     expect(explanation.headline).toBe('Came in below expectation');
     expect(explanation.tone).toBe('negative');
     expect(explanation.highlightReason).toBe(
-      'Result finished -2.3 goals below model expectation.'
+      'Result came in 2.3 goals worse than model expectation.'
     );
-    expect(explanation.expectationLine).toBe('Model expected margin: -1.7 goals.');
-    expect(explanation.actualLine).toBe('Actual result: 0-4 (margin -4.0 goals).');
+    expect(explanation.expectationLine).toBe('Model expected this team to have a 1.7-goal loss.');
+    expect(explanation.actualLine).toBe('This team lost 0-4. Margin was 4.0 goals.');
     expect(explanation.details).toContain('They allowed more goals than PitchRank expected.');
     expect(explanation.details).toContain('It hurt more because PitchRank saw this as the easier matchup.');
   });
@@ -96,8 +96,8 @@ describe('explainGameBreakdown', () => {
     expect(explanation.tone).toBe('neutral');
     expect(explanation.headline).toBe('Landed close to expectation');
     expect(explanation.highlightReason).toBeNull();
-    expect(explanation.expectationLine).toBe('Model expected margin: +0.8 goals.');
-    expect(explanation.actualLine).toBe('Actual result: 2-1 (margin +1.0 goals).');
+    expect(explanation.expectationLine).toBe('Model expected this team to have a 0.8-goal win.');
+    expect(explanation.actualLine).toBe('This team won 2-1. Margin was 1.0 goals.');
     expect(explanation.details).toEqual(['Nothing major stood out beyond the result itself.']);
   });
 });
