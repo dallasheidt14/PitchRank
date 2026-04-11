@@ -1,25 +1,11 @@
 import { stripe, WEBHOOK_EVENTS, extractPeriodEnd, mapStatusToPlan, updateUserProfile } from '@/lib/stripe/server';
+import { getSupabaseAdmin } from '@/lib/supabase/service';
 import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
 import { notifyAdmin } from '@/lib/notifications/admin';
 import { tagSubscriber, untagSubscriber } from '@/lib/beehiiv';
-
-// Lazy-load Supabase admin client to avoid build-time initialization errors
-let supabaseAdmin: SupabaseClient | null = null;
-
-function getSupabaseAdmin(): SupabaseClient {
-  if (!supabaseAdmin) {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!supabaseUrl || !serviceRoleKey) {
-      throw new Error(`Missing Supabase environment variables (url=${!!supabaseUrl}, key=${!!serviceRoleKey})`);
-    }
-    supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
-  }
-  return supabaseAdmin;
-}
+import { sendPasswordSetupEmail } from '@/lib/email/password-setup';
 
 /**
  * Permanent errors that won't resolve on retry — return 200 so Stripe
@@ -27,7 +13,11 @@ function getSupabaseAdmin(): SupabaseClient {
  */
 function isPermanentError(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
-  return msg.includes('No user profile found for Stripe customer');
+  return (
+    msg.includes('No user profile found for Stripe customer') ||
+    msg.includes('already been registered') ||
+    msg.includes('already exists')
+  );
 }
 
 export async function POST(req: Request) {
@@ -113,7 +103,9 @@ export async function POST(req: Request) {
 }
 
 /**
- * Handle successful checkout - activate subscription
+ * Handle successful checkout - activate subscription.
+ * Supports both authenticated checkouts (user already has a profile with
+ * stripe_customer_id) and anonymous checkouts (no Supabase account yet).
  */
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const customerId = session.customer as string;
@@ -126,24 +118,115 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
   // Fetch subscription details to get period end and status (may be "trialing" for free trials)
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-  // Fetch customer details in parallel (independent of DB update)
-  const [, customer] = await Promise.all([
-    updateUserProfile(getSupabaseAdmin(), customerId, {
-      stripe_subscription_id: subscriptionId,
-      subscription_status: subscription.status,
-      plan: mapStatusToPlan(subscription.status),
-      subscription_period_end: extractPeriodEnd(subscription),
-      cancel_at_period_end: false,
-    }),
-    stripe.customers.retrieve(customerId),
-  ]);
+
+  const baseUpdates = {
+    stripe_subscription_id: subscriptionId,
+    subscription_status: subscription.status,
+    plan: mapStatusToPlan(subscription.status),
+    subscription_period_end: extractPeriodEnd(subscription),
+    cancel_at_period_end: false,
+  };
+
+  // Check if a user profile already exists for this Stripe customer (authenticated checkout)
+  const { data: existingProfile } = await getSupabaseAdmin()
+    .from('user_profiles')
+    .select('id')
+    .eq('stripe_customer_id', customerId)
+    .maybeSingle();
+
+  let customer: Stripe.Customer | Stripe.DeletedCustomer;
+
+  if (existingProfile) {
+    // --- Authenticated checkout: profile exists, update it ---
+    [, customer] = await Promise.all([
+      updateUserProfile(getSupabaseAdmin(), customerId, baseUpdates),
+      stripe.customers.retrieve(customerId),
+    ]);
+  } else {
+    // --- Anonymous checkout: create or link Supabase account ---
+    customer = await stripe.customers.retrieve(customerId);
+    const email = (customer as Stripe.Customer).email;
+
+    if (!email) {
+      console.error('[webhook] Anonymous checkout but Stripe customer has no email');
+      return;
+    }
+
+    const anonymousUpdates = { stripe_customer_id: customerId, ...baseUpdates };
+
+    // Check if a user already exists with this email (signed up but checked out anonymously)
+    const { data: profileByEmail } = await getSupabaseAdmin()
+      .from('user_profiles')
+      .select('id, stripe_customer_id')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (profileByEmail) {
+      // Existing user — link Stripe subscription to their account
+      await getSupabaseAdmin()
+        .from('user_profiles')
+        .update({ ...anonymousUpdates, updated_at: new Date().toISOString() })
+        .eq('id', profileByEmail.id);
+
+      await stripe.customers.update(customerId, {
+        metadata: { supabase_user_id: profileByEmail.id },
+      });
+
+      console.log(`[webhook] Linked anonymous checkout to existing user ${profileByEmail.id}`);
+    } else {
+      // New user — create Supabase account
+      const { data: newUser, error: createError } = await getSupabaseAdmin().auth.admin.createUser({
+        email,
+        email_confirm: true,
+        user_metadata: { source: 'stripe_checkout' },
+      });
+
+      if (createError || !newUser?.user) {
+        console.error('[webhook] Failed to create user for anonymous checkout:', createError);
+        throw new Error(`Failed to create user for anonymous checkout: ${createError?.message}`);
+      }
+
+      // Update the profile created by handle_new_user trigger
+      await getSupabaseAdmin()
+        .from('user_profiles')
+        .update({ ...anonymousUpdates, updated_at: new Date().toISOString() })
+        .eq('id', newUser.user.id);
+
+      // Link Stripe customer to the new Supabase user for future webhook lookups
+      await stripe.customers.update(customerId, {
+        metadata: { supabase_user_id: newUser.user.id },
+      });
+
+      console.log(`[webhook] Created new user ${newUser.user.id} for anonymous checkout`);
+
+      // Send password-setup email (non-fatal if it fails)
+      try {
+        const { data: linkData } = await getSupabaseAdmin().auth.admin.generateLink({
+          type: 'recovery',
+          email,
+          options: {
+            redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/rankings`,
+          },
+        });
+
+        const setupUrl = linkData?.properties?.action_link;
+        if (setupUrl) {
+          await sendPasswordSetupEmail(email, setupUrl);
+        } else {
+          console.warn('[webhook] Could not generate password setup link');
+        }
+      } catch (emailError) {
+        console.error('[webhook] Password setup email failed (non-fatal):', emailError);
+      }
+    }
+  }
 
   console.log(`[webhook] Subscription activated for customer ${customerId}`);
 
   // Notify admin of new signup — escape HTML to prevent injection via Stripe customer name
   const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const customerName = escapeHtml((customer as Stripe.Customer).name ?? 'Unknown');
-  const customerEmail = escapeHtml((customer as Stripe.Customer).email ?? 'N/A');
+  const displayName = escapeHtml((customer as Stripe.Customer).name ?? 'Unknown');
+  const displayEmail = escapeHtml((customer as Stripe.Customer).email ?? 'N/A');
   const statusLabel = subscription.status === 'trialing' ? '🆓 Free Trial' : '💳 Paid';
   const interval = subscription.items.data[0]?.price?.recurring?.interval;
   const planLabel = interval === 'month' ? 'Premium Monthly' : 'Premium Annual';
@@ -151,16 +234,17 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   await notifyAdmin(
     `<b>New Signup!</b>\n` +
       `${statusLabel}\n` +
-      `<b>Name:</b> ${customerName}\n` +
-      `<b>Email:</b> ${customerEmail}\n` +
+      `<b>Name:</b> ${displayName}\n` +
+      `<b>Email:</b> ${displayEmail}\n` +
       `<b>Plan:</b> ${planLabel}\n` +
       `<b>Status:</b> ${subscription.status}`
   );
 
   // Set subscriber tier to premium in Beehiiv (gates welcome sequence pitch emails)
-  if (customerEmail && customerEmail !== 'N/A') {
+  const rawEmail = (customer as Stripe.Customer).email;
+  if (rawEmail) {
     try {
-      await tagSubscriber(customerEmail);
+      await tagSubscriber(rawEmail);
     } catch (tagError) {
       console.error('[webhook] Beehiiv tagSubscriber failed (non-fatal):', tagError);
     }

@@ -1,0 +1,114 @@
+name: Settle Prospective Match Predictions
+
+on:
+  workflow_dispatch:
+    inputs:
+      evaluation_status:
+        description: "evaluation_status bucket to process"
+        required: false
+        default: "pending_result"
+        type: choice
+        options:
+          - pending_result
+          - result_not_found
+          - ambiguous_result
+      limit:
+        description: "Maximum number of rows to process"
+        required: false
+        default: "200"
+        type: string
+
+concurrency:
+  group: prospective-settlement
+  cancel-in-progress: false
+
+jobs:
+  settle-prospective-match-predictions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          python -c "import supabase; print('Prospective settlement imports successful')"
+
+      - name: Settle prospective rows
+        id: settle
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          SUMMARY_PATH="$RUNNER_TEMP/prospective_settlement_summary.json"
+
+          python scripts/settle_prospective_match_predictions.py \
+            --status "${{ github.event.inputs.evaluation_status }}" \
+            --limit "${{ github.event.inputs.limit }}" \
+            --summary-path "$SUMMARY_PATH"
+
+          echo "summary_path=$SUMMARY_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Upload settlement summary
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: prospective-settlement-summary-${{ github.run_id }}
+          path: ${{ steps.settle.outputs.summary_path }}
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Write run summary
+        if: always()
+        env:
+          SUMMARY_PATH: ${{ steps.settle.outputs.summary_path }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          summary_path = Path(os.environ.get("SUMMARY_PATH", ""))
+          lines = [
+              "## Prospective Settlement",
+              "",
+          ]
+
+          if summary_path.is_file():
+              summary = json.loads(summary_path.read_text(encoding="utf-8"))
+              lines.extend(
+                  [
+                      f"- Requested status: `{summary.get('requested_status')}`",
+                      f"- Requested limit: {summary.get('requested_limit')}",
+                      f"- Rows fetched: {summary.get('fetched_rows')}",
+                      f"- Rows processed: {summary.get('processed')}",
+                      f"- Rows settled: {summary.get('settled')}",
+                      f"- Result not found: {summary.get('not_found')}",
+                      f"- Ambiguous: {summary.get('ambiguous')}",
+                  ]
+              )
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("\n".join(lines))
+              handle.write("\n")
+          PY

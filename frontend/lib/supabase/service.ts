@@ -22,3 +22,26 @@ export function createServiceSupabase(): SupabaseClient {
     },
   });
 }
+
+/**
+ * Lazy-loaded singleton Supabase admin client for webhook/background operations.
+ * Uses SUPABASE_SERVICE_ROLE_KEY (the key configured for Stripe webhooks and
+ * server-side admin operations like user creation).
+ *
+ * Prefer createServiceSupabase() for short-lived route handlers.
+ * Use this for long-lived modules (webhooks, sync) where a singleton avoids
+ * repeated client construction.
+ */
+let _adminSingleton: SupabaseClient | null = null;
+
+export function getSupabaseAdmin(): SupabaseClient {
+  if (!_adminSingleton) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !serviceRoleKey) {
+      throw new Error(`Missing Supabase environment variables (url=${!!supabaseUrl}, key=${!!serviceRoleKey})`);
+    }
+    _adminSingleton = createClient(supabaseUrl, serviceRoleKey);
+  }
+  return _adminSingleton;
+}

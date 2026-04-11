@@ -1,0 +1,126 @@
+name: Process Prospective Heuristic Predictions
+
+on:
+  workflow_dispatch:
+    inputs:
+      heuristic_status:
+        description: "heuristic_prediction_status to process"
+        required: false
+        default: "pending"
+        type: choice
+        options:
+          - pending
+          - error
+      limit:
+        description: "Maximum number of rows to process"
+        required: false
+        default: "100"
+        type: string
+      heuristic_model_version:
+        description: "Optional heuristic model version label override"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: prospective-heuristic-processing
+  cancel-in-progress: false
+
+jobs:
+  process-prospective-heuristic-predictions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Freeze heuristic predictions
+        id: heuristic
+        working-directory: frontend
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          SUMMARY_PATH="$RUNNER_TEMP/prospective_heuristic_summary.json"
+
+          CMD=(
+            npm run process:prospective:heuristic --
+            --status "${{ github.event.inputs.heuristic_status }}"
+            --limit "${{ github.event.inputs.limit }}"
+            --summary-path "$SUMMARY_PATH"
+          )
+
+          if [ -n "${{ github.event.inputs.heuristic_model_version }}" ]; then
+            CMD+=(--heuristic-model-version "${{ github.event.inputs.heuristic_model_version }}")
+          fi
+
+          printf 'Running command:\n'
+          printf ' %q' "${CMD[@]}"
+          printf '\n'
+
+          "${CMD[@]}"
+
+          echo "summary_path=$SUMMARY_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Upload heuristic summary
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: prospective-heuristic-summary-${{ github.run_id }}
+          path: ${{ steps.heuristic.outputs.summary_path }}
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Write run summary
+        if: always()
+        env:
+          SUMMARY_PATH: ${{ steps.heuristic.outputs.summary_path }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          summary_path = Path(os.environ.get("SUMMARY_PATH", ""))
+          lines = [
+              "## Prospective Heuristic Freeze",
+              "",
+          ]
+
+          if summary_path.is_file():
+              summary = json.loads(summary_path.read_text(encoding="utf-8"))
+              lines.extend(
+                  [
+                      f"- Requested status: `{summary.get('requestedStatus')}`",
+                      f"- Requested limit: {summary.get('requestedLimit')}",
+                      f"- Heuristic model version: `{summary.get('heuristicModelVersion')}`",
+                      f"- Rows fetched: {summary.get('fetchedRows')}",
+                      f"- Rows processed: {summary.get('processed')}",
+                      f"- Rows completed: {summary.get('completed')}",
+                      f"- Rows errored: {summary.get('errored')}",
+                  ]
+              )
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("\n".join(lines))
+              handle.write("\n")
+          PY

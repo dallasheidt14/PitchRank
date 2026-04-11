@@ -122,11 +122,13 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
     return {
         "cap_rank": 400,
         "soft_cap_rank": 250,
+        "severe_cap_rank": 2000,
         "cap_band_min_width": 0.005,
         "cap_band_max_width": 0.020,
         "cap_band_step_per_team": 0.0005,
         "min_top500": 5,
         "min_avg_opp_power": 0.68,
+        "severe_min_avg_opp_power": 0.55,
         "max_repeat_share": 0.40,
         "full_release_min_top100": 3,
         "full_release_combo_top100": 2,
@@ -209,6 +211,8 @@ def _compute_same_age_evidence_metrics(games_used_df: pd.DataFrame, teams_df: pd
             "same_age_unique_opponents": 0,
             "same_age_top100_opp_count": 0,
             "same_age_top500_opp_count": 0,
+            "same_age_top500_non_loss_opp_count": 0,
+            "same_age_top1000_non_loss_opp_count": 0,
             "same_age_avg_opp_power_adj": pd.NA,
             "repeat_opponent_share": 0.0,
         }
@@ -248,8 +252,16 @@ def _compute_same_age_evidence_metrics(games_used_df: pd.DataFrame, teams_df: pd
         team_gender = str(tg["gender"].iloc[0])
         same_age = tg[(tg["opp_age"] == team_age) & (tg["opp_gender"] == team_gender)]
         unique_same_age_opp_ids = same_age["opp_id"].dropna().astype(str).unique().tolist()
+        if {"gf", "ga"}.issubset(same_age.columns):
+            non_loss_same_age = same_age[same_age["gf"].fillna(-999) >= same_age["ga"].fillna(999)]
+        else:
+            non_loss_same_age = same_age.iloc[0:0]
+        unique_non_loss_same_age_opp_ids = non_loss_same_age["opp_id"].dropna().astype(str).unique().tolist()
         cohort_rank_map = base_rank_lookup.get((team_age, team_gender), {})
         opp_ranks = [cohort_rank_map.get(opp_id) for opp_id in unique_same_age_opp_ids if opp_id in cohort_rank_map]
+        non_loss_opp_ranks = [
+            cohort_rank_map.get(opp_id) for opp_id in unique_non_loss_same_age_opp_ids if opp_id in cohort_rank_map
+        ]
         opp_powers = [
             base_power_lookup.get(opp_id) for opp_id in unique_same_age_opp_ids if opp_id in base_power_lookup
         ]
@@ -265,6 +277,12 @@ def _compute_same_age_evidence_metrics(games_used_df: pd.DataFrame, teams_df: pd
                 "same_age_unique_opponents": int(len(unique_same_age_opp_ids)),
                 "same_age_top100_opp_count": int(sum(1 for rank in opp_ranks if rank is not None and rank <= 100)),
                 "same_age_top500_opp_count": int(sum(1 for rank in opp_ranks if rank is not None and rank <= 500)),
+                "same_age_top500_non_loss_opp_count": int(
+                    sum(1 for rank in non_loss_opp_ranks if rank is not None and rank <= 500)
+                ),
+                "same_age_top1000_non_loss_opp_count": int(
+                    sum(1 for rank in non_loss_opp_ranks if rank is not None and rank <= 1000)
+                ),
                 "same_age_avg_opp_power_adj": (
                     float(sum(clean_opp_powers) / len(clean_opp_powers)) if clean_opp_powers else pd.NA
                 ),
@@ -282,6 +300,8 @@ def _compute_same_age_evidence_metrics(games_used_df: pd.DataFrame, teams_df: pd
         "same_age_unique_opponents",
         "same_age_top100_opp_count",
         "same_age_top500_opp_count",
+        "same_age_top500_non_loss_opp_count",
+        "same_age_top1000_non_loss_opp_count",
         "same_age_avg_opp_power_adj",
         "repeat_opponent_share",
     ]:
@@ -369,13 +389,18 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
     policy = _same_age_evidence_policy(age_num)
     top100 = _safe_int(row.get("same_age_top100_opp_count"))
     top500 = _safe_int(row.get("same_age_top500_opp_count"))
+    top500_non_loss = _safe_int(row.get("same_age_top500_non_loss_opp_count"))
+    top1000_non_loss = _safe_int(row.get("same_age_top1000_non_loss_opp_count"))
     avg_opp_power = _safe_float(row.get("same_age_avg_opp_power_adj"))
     repeat_share = _safe_float(row.get("repeat_opponent_share")) or 0.0
     low_state, repeat_heavy, severe_connectivity = _connectivity_flags(row, policy)
     connectivity_constrained = low_state or repeat_heavy
+    severe_weak_avg = avg_opp_power is None or avg_opp_power < float(policy["severe_min_avg_opp_power"])
 
     if _has_full_same_age_release(top100, top500, connectivity_constrained, policy):
         return None
+    if top100 == 0 and top500 == 0 and top500_non_loss == 0 and top1000_non_loss == 0 and severe_weak_avg:
+        return int(policy["severe_cap_rank"])
     if severe_connectivity:
         return int(policy["cap_rank"])
 
@@ -1323,6 +1348,8 @@ async def compute_all_cohorts(
             "same_age_unique_opponents",
             "same_age_top100_opp_count",
             "same_age_top500_opp_count",
+            "same_age_top500_non_loss_opp_count",
+            "same_age_top1000_non_loss_opp_count",
             "repeat_opponent_share",
         ]:
             if col in teams_combined.columns:
@@ -1335,8 +1362,14 @@ async def compute_all_cohorts(
         teams_combined["positive_ml_evidence_scale"] = teams_combined.apply(_positive_ml_evidence_scale, axis=1)
         teams_combined["publication_cap_rank"] = teams_combined.apply(_publication_cap_rank, axis=1)
 
+        cap_ranks = {
+            int(val)
+            for val in pd.to_numeric(
+                teams_combined["publication_cap_rank"], errors="coerce"
+            ).dropna().astype(int).unique()
+        }
         for (age_val, gender), grp in teams_combined.groupby(["age_num", "gender"]):
-            for cap_rank in {100, 200, 400}:
+            for cap_rank in cap_ranks:
                 publication_cap_lookup[(int(age_val), str(gender), cap_rank)] = _score_cutoff_for_rank(
                     grp, "powerscore_adj", cap_rank
                 )
