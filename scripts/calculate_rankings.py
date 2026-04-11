@@ -38,6 +38,8 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 console = Console()
 OPTIONAL_RANKINGS_FULL_PREDICTION_COLUMNS = {
+    "exp_margin",
+    "exp_win_rate",
     "exp_goals_for",
     "exp_goals_against",
     "same_age_games",

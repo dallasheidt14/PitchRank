@@ -69,6 +69,8 @@ def _sample_rankings_full_df(team_id: str) -> pd.DataFrame:
                 "state_code": "AZ",
                 "power_score_true": 0.75,
                 "power_score_final": 0.63,
+                "exp_margin": 0.7,
+                "exp_win_rate": 0.64,
                 "exp_goals_for": 1.6,
                 "exp_goals_against": 0.9,
             }
@@ -102,6 +104,8 @@ async def test_save_rankings_retries_without_optional_exp_goal_columns(monkeypat
     assert saved == 1
     assert [call[0] for call in calls] == ["rankings_full", "rankings_full"]
     retry_record = calls[1][1][0]
+    assert "exp_margin" not in retry_record
+    assert "exp_win_rate" not in retry_record
     assert "exp_goals_for" not in retry_record
     assert "exp_goals_against" not in retry_record
 
